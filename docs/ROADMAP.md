@@ -40,6 +40,8 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 
 ## Phase 2 — Atlas calibration and road editing
 
+**In progress:** Phase 2a implements the GM-only Scene atlas toggle, manual scale dialog, and validated Scene-flag persistence. Road editor/canvas overlay follow in subsequent Phase 2 PRs.
+
 **Deliverables**
 
 - Toggle/mark a Scene as an atlas; explicit calibration when needed.
