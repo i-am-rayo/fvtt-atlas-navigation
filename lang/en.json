@@ -3,8 +3,6 @@
   "FVTTATLAS.Settings.ShowStartupNotice.Hint": "When enabled, show the GM a notification after the world loads. This is a diagnostic only.",
   "FVTTATLAS.Notifications.Ready": "FVTT Atlas Navigation: Module loaded successfully.",
   "FVTTATLAS.Atlas.MenuName": "Atlas Setup",
-  "FVTTATLAS.Atlas.MenuLabel": "Configure Viewed Scene",
-  "FVTTATLAS.Atlas.MenuHint": "Set up the currently viewed Scene as an atlas and configure its travel distance scale (GM only).",
   "FVTTATLAS.Atlas.NoScene": "No Scene is currently viewed. Open a Scene on the canvas and try again.",
   "FVTTATLAS.Atlas.Introduction": "Configure the atlas for Scene:",
   "FVTTATLAS.Atlas.Enabled": "Use this Scene as an atlas",
@@ -16,5 +14,8 @@
   "FVTTATLAS.Atlas.OneEditor": "Development limitation: only one GM should edit an atlas at a time. Changes by another GM while this dialog is open will be rejected when detected.",
   "FVTTATLAS.Atlas.Cancel": "Cancel",
   "FVTTATLAS.Atlas.Save": "Save Atlas Setup",
-  "FVTTATLAS.Atlas.Saved": "Atlas settings saved for this Scene."
+  "FVTTATLAS.Atlas.Saved": "Atlas settings saved for this Scene.",
+  "FVTTATLAS.Atlas.SceneSettingsLabel": "Atlas Navigation",
+  "FVTTATLAS.Atlas.SceneSettingsButton": "Configure Atlas",
+  "FVTTATLAS.Atlas.SceneSettingsHint": "Atlas activation and travel distance apply only to this Scene. Open the atlas editor to view or change its saved values."
 }
