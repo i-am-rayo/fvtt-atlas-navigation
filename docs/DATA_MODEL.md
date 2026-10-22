@@ -1,4 +1,4 @@
-# Proposed data model — v0.1
+# Atlas data model — schema v1 (Phase 2a)
 
 **Status:** schema v1 is now implemented for Phase 2a (atlas setup/calibration only). Road editing is deferred; validators already enforce node/segment integrity. This example illustrates the persisted contract.
 
