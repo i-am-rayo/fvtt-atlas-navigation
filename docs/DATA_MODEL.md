@@ -1,6 +1,6 @@
 # Proposed data model — v0.1
 
-**Status:** review draft. No production schema exists yet. The example illustrates an intended contract; the first implementation PR must validate and, if necessary, revise it **before** persisting real campaign data.
+**Status:** schema v1 is now implemented for Phase 2a (atlas setup/calibration only). Road editing is deferred; validators already enforce node/segment integrity. This example illustrates the persisted contract.
 
 ## 1. Storage boundary
 
@@ -21,6 +21,7 @@ The canonical network is always the **validated persisted model**, never the gra
 {
   "schemaVersion": 1,
   "revision": 1,
+  "enabled": true,
   "calibration": {
     "source": "manual",
     "unitsPerPixel": 0.05,
@@ -59,7 +60,8 @@ This is one connected three-junction graph. Its `via` coordinates are **interior
 | Field | Type | Meaning / constraint |
 | --- | --- | --- |
 | `schemaVersion` | positive integer | Persisted schema for forward migration; initially `1` |
-| `revision` | nonnegative integer | Human/debugging aid for edit versioning; not a transactional lock |
+| `revision` | nonnegative integer | Detects stale dialogs; not an atomic transactional lock |
+| `enabled` | boolean | Whether this Scene is currently marked as an atlas; disabling preserves road data |
 | `calibration.source` | string | `manual` initially; later `scene-grid` if confirmed appropriate |
 | `calibration.unitsPerPixel` | positive finite number | Travel units per one Scene pixel; required before real-unit distance is shown |
 | `calibration.unit` | short string | Unit code for display, e.g. `mi` or `km`; never assume every world uses miles |
@@ -69,7 +71,7 @@ This is one connected three-junction graph. Its `via` coordinates are **interior
 | `segments[].bidirectional` | boolean | `true` in v1; reserve directed edges for a later explicit feature |
 | `segments[].name` | string | Optional GM road label, never an identifier |
 
-If calibration is unknown, treat the Scene as uncalibrated and do not invent miles/km. Storage of a null calibration versus omission is to be decided in schema validation; this example represents a configured Scene.
+If calibration is unknown, store `calibration: null` and do not invent miles/km. A new unconfigured Scene has no `atlas` flag and reads as `{schemaVersion: 1, revision: 0, enabled: false, calibration: null, nodes: [], segments: []}` without writing. Only an explicit GM save persists the flag.
 
 ## 3. Coordinates and topology
 
