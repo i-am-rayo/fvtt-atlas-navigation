@@ -3,6 +3,7 @@
  * Atlas setup is GM-only and stores validated Scene flags.
  */
 import { createAtlasSetupDialogClass } from "./atlas-setup-dialog.js";
+import { addAtlasSetupToSceneConfig } from "./scene-config.js";
 import { MODULE_ID } from "./atlas-storage.js";
 
 const STARTUP_NOTICE_SETTING = "showStartupNotice";
@@ -17,13 +18,10 @@ Hooks.once("init", () => {
     default: false
   });
 
-  game.settings.registerMenu(MODULE_ID, "atlasSetup", {
-    name: "FVTTATLAS.Atlas.MenuName",
-    label: "FVTTATLAS.Atlas.MenuLabel",
-    hint: "FVTTATLAS.Atlas.MenuHint",
-    icon: "fa-solid fa-map",
-    type: createAtlasSetupDialogClass(foundry.applications.api.DialogV2),
-    restricted: true
+  const AtlasSetupDialog = createAtlasSetupDialogClass(foundry.applications.api.DialogV2);
+  Hooks.on("renderSceneConfig", (app, element) => {
+    addAtlasSetupToSceneConfig(app, element, scene =>
+      new AtlasSetupDialog(scene).render(true));
   });
 });
 
