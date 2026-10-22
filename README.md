@@ -1,8 +1,18 @@
 # FVTT Atlas Navigation
 
-A planned **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
+A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Project status: architecture and planning.** This repository does not yet contain an installable Foundry module. The features below are goals, not claims of implemented functionality.
+> **Current status: Phase 1 development shell, pending in-Foundry testing.** The repository includes a URL-installable development manifest, startup hooks, and a GM diagnostic setting. Road editing and navigation remain planned features.
+
+
+## What Phase 1 currently provides
+
+- A Foundry v14-compatible **manifest structure** and lightweight ES module startup script (runtime verification pending).
+- A world-level **Show GM startup confirmation** setting. When enabled, it displays a confirmation only to a GM after reloading the World.
+- Namespaced English localization and dependency-free Node static/mock tests.
+- [URL installation, updates, and smoke-test instructions](docs/INSTALLATION.md).
+
+The project does **not** yet draw maps, author roads, or compute routes. See the [roadmap](docs/ROADMAP.md) for those later phases.
 
 ## Vision
 
@@ -41,7 +51,7 @@ These are possible later phases, not prerequisites for useful GM navigation.
 - [Milestones and acceptance criteria](docs/ROADMAP.md)
 - [Instructions for Codex and contributors](AGENTS.md)
 
-Decisions in these documents are **proposals for review** unless explicitly marked as agreed; do not start implementation just because a design document exists.
+The owner approved implementing **Phase 1** on October 22, 2026. Remaining architectural decisions and later-phase work still require review.
 
 ## Sources and inspiration
 
