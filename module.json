@@ -1,0 +1,29 @@
+{
+  "id": "fvtt-atlas-navigation",
+  "type": "module",
+  "title": "FVTT Atlas Navigation",
+  "description": "System-agnostic world atlas and road navigation for Foundry VTT. Phase 1 provides a GM-only startup diagnostic; navigation features are in development.",
+  "version": "0.1.0",
+  "authors": [
+    {
+      "name": "i-am-rayo",
+      "url": "https://github.com/i-am-rayo"
+    }
+  ],
+  "compatibility": {
+    "minimum": "14"
+  },
+  "esmodules": [
+    "scripts/main.js"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
+  "readme": "README.md",
+  "media": []
+}
