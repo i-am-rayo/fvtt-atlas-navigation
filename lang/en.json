@@ -1,0 +1,5 @@
+{
+  "FVTTATLAS.Settings.ShowStartupNotice.Name": "Show GM startup confirmation",
+  "FVTTATLAS.Settings.ShowStartupNotice.Hint": "When enabled, show the GM a confirmation notification after the world loads. This is a Phase 1 diagnostic only; it does not enable atlas or navigation features.",
+  "FVTTATLAS.Notifications.Ready": "FVTT Atlas Navigation: Phase 1 module loaded successfully."
+}
