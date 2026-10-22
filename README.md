@@ -2,7 +2,7 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current status: Phase 1 development shell, pending in-Foundry testing.** The repository includes a manually installable manifest, startup hooks, and a GM diagnostic setting. Road editing and navigation remain planned features.
+> **Current status: Phase 1 development shell, pending in-Foundry testing.** The repository includes a URL-installable development manifest, startup hooks, and a GM diagnostic setting. Road editing and navigation remain planned features.
 
 
 ## What Phase 1 currently provides
@@ -10,7 +10,7 @@ A developing **standalone, system-agnostic atlas and road-navigation module for 
 - A Foundry v14-compatible **manifest structure** and lightweight ES module startup script (runtime verification pending).
 - A world-level **Show GM startup confirmation** setting. When enabled, it displays a confirmation only to a GM after reloading the World.
 - Namespaced English localization and dependency-free Node static/mock tests.
-- [Manual installation and smoke-test instructions](docs/INSTALLATION.md).
+- [URL installation, updates, and smoke-test instructions](docs/INSTALLATION.md).
 
 The project does **not** yet draw maps, author roads, or compute routes. See the [roadmap](docs/ROADMAP.md) for those later phases.
 
