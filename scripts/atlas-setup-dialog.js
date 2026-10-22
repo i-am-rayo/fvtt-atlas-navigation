@@ -34,7 +34,8 @@ function buildContent(scene, atlas, error) {
   const enabled = document.createElement("input");
   enabled.name = "atlasEnabled";
   enabled.type = "checkbox";
-  enabled.checked = atlas.enabled;
+  // DialogV2 stringifies the constructed element: preserve the default in HTML.
+  if (atlas.enabled) enabled.setAttribute("checked", "");
   field(root, label("FVTTATLAS.Atlas.Enabled"), enabled, "FVTTATLAS.Atlas.EnabledHint");
 
   const scale = document.createElement("input");
@@ -43,7 +44,7 @@ function buildContent(scene, atlas, error) {
   scale.min = "0";
   scale.step = "any";
   scale.placeholder = "0.05";
-  scale.value = atlas.calibration ? String(atlas.calibration.unitsPerPixel) : "";
+  scale.setAttribute("value", atlas.calibration ? String(atlas.calibration.unitsPerPixel) : "");
   field(root, label("FVTTATLAS.Atlas.UnitsPerPixel"), scale, "FVTTATLAS.Atlas.ScaleHint");
 
   const unit = document.createElement("input");
@@ -51,7 +52,7 @@ function buildContent(scene, atlas, error) {
   unit.type = "text";
   unit.maxLength = 12;
   unit.placeholder = "mi";
-  unit.value = atlas.calibration?.unit ?? "mi";
+  unit.setAttribute("value", atlas.calibration?.unit ?? "mi");
   field(root, label("FVTTATLAS.Atlas.Unit"), unit, "FVTTATLAS.Atlas.UnitHint");
 
   const caution = document.createElement("p");
@@ -67,8 +68,7 @@ function buildContent(scene, atlas, error) {
  */
 export function createAtlasSetupDialogClass(DialogV2) {
   return class AtlasSetupDialog extends DialogV2 {
-    constructor() {
-      const scene = globalThis.canvas?.scene ?? game.scenes?.viewed ?? null;
+    constructor(scene = globalThis.canvas?.scene ?? game.scenes?.viewed ?? null) {
       let atlas;
       let error = null;
       try {
@@ -101,7 +101,8 @@ export function createAtlasSetupDialogClass(DialogV2) {
                 calibration,
                 expectedRevision: atlas.revision
               });
-              ui.notifications.info(label("FVTTATLAS.Atlas.Saved"));
+              // Keep the confirmation visible after the dialog closes during Phase 2 testing.
+              ui.notifications.info(label("FVTTATLAS.Atlas.Saved"), { permanent: true });
               return true;
             } catch (err) {
               ui.notifications.error(err.message);
