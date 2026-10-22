@@ -1,5 +1,20 @@
 {
   "FVTTATLAS.Settings.ShowStartupNotice.Name": "Show GM startup confirmation",
-  "FVTTATLAS.Settings.ShowStartupNotice.Hint": "When enabled, show the GM a confirmation notification after the world loads. This is a Phase 1 diagnostic only; it does not enable atlas or navigation features.",
-  "FVTTATLAS.Notifications.Ready": "FVTT Atlas Navigation: Phase 1 module loaded successfully."
+  "FVTTATLAS.Settings.ShowStartupNotice.Hint": "When enabled, show the GM a notification after the world loads. This is a diagnostic only.",
+  "FVTTATLAS.Notifications.Ready": "FVTT Atlas Navigation: Module loaded successfully.",
+  "FVTTATLAS.Atlas.MenuName": "Atlas Setup",
+  "FVTTATLAS.Atlas.MenuLabel": "Configure Viewed Scene",
+  "FVTTATLAS.Atlas.MenuHint": "Set up the currently viewed Scene as an atlas and configure its travel distance scale (GM only).",
+  "FVTTATLAS.Atlas.NoScene": "No Scene is currently viewed. Open a Scene on the canvas and try again.",
+  "FVTTATLAS.Atlas.Introduction": "Configure the atlas for Scene:",
+  "FVTTATLAS.Atlas.Enabled": "Use this Scene as an atlas",
+  "FVTTATLAS.Atlas.EnabledHint": "Turning this off hides atlas functionality but preserves its stored network for later.",
+  "FVTTATLAS.Atlas.UnitsPerPixel": "Travel units per Scene pixel",
+  "FVTTATLAS.Atlas.ScaleHint": "Leave blank to keep this atlas uncalibrated. Example: 0.05 means each image pixel represents 0.05 travel units.",
+  "FVTTATLAS.Atlas.Unit": "Travel unit abbreviation",
+  "FVTTATLAS.Atlas.UnitHint": "A short unit code, such as mi or km. Must contain only letters.",
+  "FVTTATLAS.Atlas.OneEditor": "Development limitation: only one GM should edit an atlas at a time. Changes by another GM while this dialog is open will be rejected when detected.",
+  "FVTTATLAS.Atlas.Cancel": "Cancel",
+  "FVTTATLAS.Atlas.Save": "Save Atlas Setup",
+  "FVTTATLAS.Atlas.Saved": "Atlas settings saved for this Scene."
 }
