@@ -5,7 +5,7 @@
 - Repository: `i-am-rayo/fvtt-atlas-navigation`
 - Intended module ID / manifest ID / module folder: `fvtt-atlas-navigation`
 - Target: **Foundry VTT v14**, system-agnostic.
-- Status: **Phase 1 module shell implementation approved** by the owner on 2026-10-22. Later phases require separate approval.
+- Status: **Phase 1 merged** after owner testing; **Phase 2 authorized** by the owner on 2026-10-22. Phase 2a atlas setup/calibration is the current slice. Phases 3+ require separate approval.
 - Foundry module development is the primary framework; do not build a standalone web service or introduce a LegendKeeper requirement.
 - No campaign-specific or game-system-specific assumptions, example content, assets, settings, or APIs.
 
@@ -21,7 +21,7 @@ If a requested change conflicts with these documents, explain the conflict and p
 
 ## Workflow
 
-- Phase 1 implementation is authorized: keep work limited to the module manifest, lifecycle/bootstrap code, a GM-facing diagnostic, tests, and installation documentation. Do **not** begin road editing, routing, player-visible features, or other later phases without a new approval.
+- Phase 2 is authorized. Deliver it in reviewable slices (start with Scene atlas setup/calibration, then road editing and overlay), maintaining GM-only editing. Do **not** begin routing, player-visible features, or phases 3+ without new approval.
 - Make changes on a topic branch and submit a reviewable PR. Do not merge to `main` without explicit approval.
 - Keep PRs focused. Include rationale, affected files, manual/test evidence, risks, and deferred follow-ups.
 - Avoid unrelated refactors or changing repository settings. Preserve user edits and existing work.
