@@ -1,10 +1,10 @@
 /**
- * FVTT Atlas Navigation — Foundry VTT v14 Phase 1 module shell.
- *
- * No Scene data, canvas layers, sockets, or actor/system APIs are touched here.
- * Later features will be introduced in separate, reviewable milestones.
+ * FVTT Atlas Navigation — Foundry VTT v14 bootstrap.
+ * Atlas setup is GM-only and stores validated Scene flags.
  */
-const MODULE_ID = "fvtt-atlas-navigation";
+import { createAtlasSetupDialogClass } from "./atlas-setup-dialog.js";
+import { MODULE_ID } from "./atlas-storage.js";
+
 const STARTUP_NOTICE_SETTING = "showStartupNotice";
 
 Hooks.once("init", () => {
@@ -16,14 +16,20 @@ Hooks.once("init", () => {
     type: Boolean,
     default: false
   });
+
+  game.settings.registerMenu(MODULE_ID, "atlasSetup", {
+    name: "FVTTATLAS.Atlas.MenuName",
+    label: "FVTTATLAS.Atlas.MenuLabel",
+    hint: "FVTTATLAS.Atlas.MenuHint",
+    icon: "fa-solid fa-map",
+    type: createAtlasSetupDialogClass(foundry.applications.api.DialogV2),
+    restricted: true
+  });
 });
 
 Hooks.once("ready", () => {
-  // Registration runs for all clients; the diagnostic is GM-facing only.
   if (!game.user?.isGM) return;
-
-  console.info("[" + MODULE_ID + "] Phase 1 initialized");
-
+  console.info("[" + MODULE_ID + "] Module ready");
   if (game.settings.get(MODULE_ID, STARTUP_NOTICE_SETTING)) {
     ui.notifications.info(game.i18n.localize("FVTTATLAS.Notifications.Ready"));
   }
