@@ -25,5 +25,7 @@
   ],
   "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
   "readme": "README.md",
-  "media": []
+  "media": [],
+  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-1-module-shell/module.json",
+  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-1-module-shell.zip"
 }
