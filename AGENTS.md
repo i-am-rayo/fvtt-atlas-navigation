@@ -5,7 +5,7 @@
 - Repository: `i-am-rayo/fvtt-atlas-navigation`
 - Intended module ID / manifest ID / module folder: `fvtt-atlas-navigation`
 - Target: **Foundry VTT v14**, system-agnostic.
-- Status: **architecture review only** until the project owner explicitly authorizes implementation.
+- Status: **Phase 1 module shell implementation approved** by the owner on 2026-10-22. Later phases require separate approval.
 - Foundry module development is the primary framework; do not build a standalone web service or introduce a LegendKeeper requirement.
 - No campaign-specific or game-system-specific assumptions, example content, assets, settings, or APIs.
 
@@ -21,7 +21,7 @@ If a requested change conflicts with these documents, explain the conflict and p
 
 ## Workflow
 
-- Until approved otherwise, work on architecture, tests-as-specifications, research, and planning **only**; do not add `module.json`, executable module code, dependencies, or bundler setup.
+- Phase 1 implementation is authorized: keep work limited to the module manifest, lifecycle/bootstrap code, a GM-facing diagnostic, tests, and installation documentation. Do **not** begin road editing, routing, player-visible features, or other later phases without a new approval.
 - Make changes on a topic branch and submit a reviewable PR. Do not merge to `main` without explicit approval.
 - Keep PRs focused. Include rationale, affected files, manual/test evidence, risks, and deferred follow-ups.
 - Avoid unrelated refactors or changing repository settings. Preserve user edits and existing work.
