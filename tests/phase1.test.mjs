@@ -53,6 +53,10 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
       once(name, callback) {
         assert.equal(events.has(name), false);
         events.set(name, callback);
+      },
+      on(name, callback) {
+        assert.equal(events.has(name), false);
+        events.set(name, callback);
       }
     };
 
@@ -90,11 +94,9 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
     assert.ok(language[options.name]);
     assert.ok(language[options.hint]);
 
-    assert.equal(menus.length, 1);
-    assert.equal(menus[0][0], "fvtt-atlas-navigation");
-    assert.equal(menus[0][1], "atlasSetup");
-    assert.equal(menus[0][2].restricted, true);
-    assert.equal(typeof menus[0][2].type, "function");
+    // Per-Scene setup no longer belongs in the global module settings.
+    assert.equal(menus.length, 0);
+    assert.equal(typeof events.get("renderSceneConfig"), "function");
 
     events.get("ready")();
     assert.equal(notices.length, 0);
