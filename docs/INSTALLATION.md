@@ -4,24 +4,36 @@ This is a **development build** of FVTT Atlas Navigation. It contains only a mod
 
 ## Requirements
 
-- A running **Foundry VTT v14** installation and permission to manage modules/world settings.
-- Your own test World; do not use a valuable production world for initial smoke testing.
-- Access to the private repository: https://github.com/i-am-rayo/fvtt-atlas-navigation
+- **Foundry VTT v14** and permission to install modules and manage a test World.
+- An internet connection from the Foundry server to GitHub.
+- A test World rather than a valuable production world. No game-system dependency is required.
 
-No Node.js runtime or npm installation is required **inside Foundry**. Node is optional for the repository's local static tests.
+## Install from the URL (recommended)
 
-## Install from a checkout or GitHub ZIP
+1. Open Foundry **Setup → Add-on Modules → Install Module**.
+2. At the bottom of the installer, paste this **Manifest URL** (the raw JSON file, not a GitHub `blob` page):
 
-1. Obtain the branch you want to test (for this PR, `feature/phase-1-module-shell`). You can use your cloned repository or download its ZIP from GitHub while signed in.
-2. Find your Foundry **User Data** directory. Foundry Setup exposes the configured User Data Path; consult [Module Management](https://foundryvtt.com/article/modules/) for manual installation. This is *not* the Foundry application/program installation directory.
-3. Inside User Data, open `Data/modules/`. Create this directory if it does not exist.
-4. Copy the module files into a folder named exactly `fvtt-atlas-navigation`. The manifest must be directly at:
-   `Data/modules/fvtt-atlas-navigation/module.json`
-5. Make sure `scripts/main.js` and `lang/en.json` exist relative to that manifest.
-6. Start or restart the Foundry server/setup screen so it discovers manually added modules.
-7. Launch a test World as a Gamemaster. In **Game Settings → Manage Modules**, enable **FVTT Atlas Navigation** and save/reload.
+   ```text
+   https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-1-module-shell/module.json
+   ```
 
-**Important:** This private development repository does not yet publish a release ZIP or public manifest URL. Do not paste a private GitHub source URL into Foundry's manifest installer and expect it to work. That packaging workflow is for a later release.
+3. Click **Install**. Foundry reads the manifest and retrieves the publicly accessible ZIP linked by its `download` field.
+4. Open your test World as Gamemaster.
+5. In **Game Settings → Manage Modules**, enable **FVTT Atlas Navigation** and save/reload.
+
+The code currently lives in the **`feature/phase-1-module-shell` development branch**, not `main`. The URL above intentionally follows that branch until Phase 1 has passed its Foundry smoke tests.
+
+## Update through Foundry
+
+1. Once a newer module version has been published on this same branch, open Foundry **Setup → Add-on Modules**.
+2. Use Foundry's **Check for Updates / Update** controls for FVTT Atlas Navigation.
+3. Relaunch your test World as needed.
+
+**Developer note:** Foundry detects new releases via the manifest's `version`. Each published module change must increment the version in **both `module.json` and `package.json`**; pushing commits with the same version will not reliably trigger an update. The branch ZIP is intended for early development; versioned GitHub Release ZIPs and a stable main/release manifest are preferable for general distribution.
+
+## Manual fallback
+
+If URL installation fails, first capture the complete Foundry error and report it. You can still download the branch ZIP from GitHub, extract it, and place the module files at `{userData}/Data/modules/fvtt-atlas-navigation/` so `module.json`, `scripts/main.js` and `lang/en.json` are directly under that module folder. Restart Foundry to discover it. See [Foundry's module installation guide](https://foundryvtt.com/article/modules/).
 
 ## Verify in Foundry
 
