@@ -17,7 +17,16 @@ test("module manifest declares a v14 system-agnostic module shell", async () => 
   assert.deepEqual(manifest.esmodules, ["scripts/main.js"]);
   assert.equal("system" in manifest, false);
   assert.equal("relationships" in manifest, false);
-  assert.equal("download" in manifest, false);
+  assert.equal(
+    manifest.manifest,
+    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-1-module-shell/module.json"
+  );
+  assert.equal(
+    manifest.download,
+    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-1-module-shell.zip"
+  );
+  assert.ok(manifest.manifest.endsWith("/module.json"));
+  assert.ok(manifest.download.endsWith(".zip"));
 
   for (const path of manifest.esmodules) {
     await readFile(new URL("../" + path, import.meta.url));
