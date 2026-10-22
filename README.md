@@ -2,15 +2,16 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current status: Phase 2a development (v0.2.0), pending Foundry v14 testing.** Phase 1 startup and URL installation were tested and merged. This new branch adds GM-only setup of each Scene atlas and manual distance calibration. Road authoring/rendering and routing are still future work.
+> **Current status: Phase 2a development (v0.2.1), undergoing Foundry v14 testing.** Phase 1 startup and URL installation were tested and merged. This new branch adds GM-only setup of each Scene atlas and manual distance calibration. Road authoring/rendering and routing are still future work.
 
 ## What works now
 
 - The Phase 1 module bootstrap, GM startup setting, and URL-based installation.
-- An **Atlas Setup → Configure Viewed Scene** settings menu for GMs.
+- An **Atlas Navigation → Configure Atlas** launcher inside each Scene's native configuration sheet (GM only).
 - Enable/disable atlas mode per Scene, preserving data when disabled.
-- Configure travel units per image pixel, or leave a Scene uncalibrated.
+- Configure travel units per image pixel, or leave a Scene uncalibrated. Saved values display correctly when reopening the editor.
 - Validate and persist versioned Scene flags with revision checks; no game-system-specific dependency.
+- Show an explicitly dismissible save notification in the current development build.
 - [Phase 2a installation and smoke-test instructions](docs/PHASE2_TESTING.md).
 
 This test build is **not** a usable road editor yet. We are building that next on top of the validated Scene data model. For the earlier Phase 1 check, see [Phase 1 test notes](docs/INSTALLATION.md).
