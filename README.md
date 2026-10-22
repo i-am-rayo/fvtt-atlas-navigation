@@ -52,7 +52,7 @@ These are possible later phases, not prerequisites for useful GM navigation.
 - [Milestones and acceptance criteria](docs/ROADMAP.md)
 - [Instructions for Codex and contributors](AGENTS.md)
 
-The owner approved implementing **Phase 1** on October 22, 2026. Remaining architectural decisions and later-phase work still require review.
+The owner approved Phase 2 after successfully testing Phase 1 on October 22, 2026. Routing and player-facing features remain gated to later milestones.
 
 ## Sources and inspiration
 
