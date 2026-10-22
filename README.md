@@ -2,17 +2,18 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current status: Phase 1 development shell, pending in-Foundry testing.** The repository includes a URL-installable development manifest, startup hooks, and a GM diagnostic setting. Road editing and navigation remain planned features.
+> **Current status: Phase 2a development (v0.2.0), pending Foundry v14 testing.** Phase 1 startup and URL installation were tested and merged. This new branch adds GM-only setup of each Scene atlas and manual distance calibration. Road authoring/rendering and routing are still future work.
 
+## What works now
 
-## What Phase 1 currently provides
+- The Phase 1 module bootstrap, GM startup setting, and URL-based installation.
+- An **Atlas Setup → Configure Viewed Scene** settings menu for GMs.
+- Enable/disable atlas mode per Scene, preserving data when disabled.
+- Configure travel units per image pixel, or leave a Scene uncalibrated.
+- Validate and persist versioned Scene flags with revision checks; no game-system-specific dependency.
+- [Phase 2a installation and smoke-test instructions](docs/PHASE2_TESTING.md).
 
-- A Foundry v14-compatible **manifest structure** and lightweight ES module startup script (runtime verification pending).
-- A world-level **Show GM startup confirmation** setting. When enabled, it displays a confirmation only to a GM after reloading the World.
-- Namespaced English localization and dependency-free Node static/mock tests.
-- [URL installation, updates, and smoke-test instructions](docs/INSTALLATION.md).
-
-The project does **not** yet draw maps, author roads, or compute routes. See the [roadmap](docs/ROADMAP.md) for those later phases.
+This test build is **not** a usable road editor yet. We are building that next on top of the validated Scene data model. For the earlier Phase 1 check, see [Phase 1 test notes](docs/INSTALLATION.md).
 
 ## Vision
 
