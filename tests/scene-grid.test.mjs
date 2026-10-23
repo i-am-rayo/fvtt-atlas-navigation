@@ -1,46 +1,40 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { differsFromSceneGrid, readSceneGridScale, resolveAtlasScale } from "../scripts/scene-grid.js";
+import { readSceneGridScale } from "../scripts/scene-grid.js";
 
-test("native Scene Grid supplies per-Scene scale without writing any flags", () => {
+test("native Scene Grid supplies measurement settings without writing atlas flags", () => {
   const scene = {
     grid: { size: 49, distance: 7.5, units: "km", type: 3 },
     getFlag() { throw Error("Grid reader must not read flags"); },
     setFlag() { throw Error("Grid reader must never write flags"); }
   };
   const grid = readSceneGridScale(scene);
-  assert.equal(grid.source, "scene-grid");
-  assert.equal(grid.gridType, 3);
-  assert.equal(grid.unit, "km");
-  assert.equal(grid.unitsPerSpace, 7.5);
-  assert.equal(grid.pixelsPerSpace, 49);
-  assert.equal(grid.unitsPerPixel, 7.5 / 49);
-  assert.deepEqual(resolveAtlasScale(scene, { calibration: null }), grid);
+  assert.deepEqual(grid, {
+    unit: "km",
+    pixelsPerSpace: 49,
+    unitsPerSpace: 7.5,
+    gridType: 3
+  });
+  assert.equal("unitsPerPixel" in grid, false,
+    "a linear pixels-to-distance ratio is not authoritative for hex or gridless rulers");
 });
 
-test("manual v1 calibration takes precedence and survives resolution intact", () => {
-  const scene = { grid: { size: 49, distance: 7.5, units: "km" } };
-  const manual = { source: "manual", unitsPerPixel: 0.05, unit: "km" };
-  const resolved = resolveAtlasScale(scene, { calibration: manual });
-  assert.deepEqual(resolved, manual);
-  assert.notEqual(resolved, manual, "derive a copy, never mutate the stored flag");
-  assert.equal(differsFromSceneGrid(manual, readSceneGridScale(scene)), true);
-  assert.equal(manual.unitsPerPixel, 0.05);
+test("legacy manual atlas flags cannot change native Scene measurement", () => {
+  const scene = {
+    grid: { size: 49, distance: 7.5, units: "km" },
+    calibration: { source: "manual", unitsPerPixel: 0.05, unit: "mi" }
+  };
+  assert.deepEqual(readSceneGridScale(scene), {
+    unit: "km", pixelsPerSpace: 49, unitsPerSpace: 7.5, gridType: null
+  });
+  assert.equal(scene.calibration.unit, "mi", "legacy state stays untouched");
 });
 
-test("custom units are displayed as entered; missing/bad Grid scale stays uncalibrated", () => {
+test("invalid Grid geometry is unavailable, but a unit label may be blank", () => {
   assert.equal(readSceneGridScale({ grid: { size: 0, distance: 5, units: "mi" } }), null);
   assert.equal(readSceneGridScale({ grid: { size: 100, distance: 0, units: "mi" } }), null);
-  assert.equal(readSceneGridScale({ grid: { size: 100, distance: 1, units: "" } }), null);
   assert.equal(readSceneGridScale(null), null);
   const scene = { grid: { size: 100, distance: 2, units: " leagues " } };
   assert.equal(readSceneGridScale(scene).unit, "leagues");
-  assert.equal(resolveAtlasScale(scene, { calibration: null }).unitsPerPixel, 0.02);
-});
-
-test("near-equal overrides do not produce a scale mismatch warning", () => {
-  const grid = readSceneGridScale({ grid: { size: 100, distance: 5, units: "km" } });
-  assert.equal(differsFromSceneGrid({ source: "manual", unitsPerPixel: 0.05002, unit: "km" }, grid), false);
-  assert.equal(differsFromSceneGrid({ source: "manual", unitsPerPixel: 0.05, unit: "mi" }, grid), true);
-  assert.equal(differsFromSceneGrid(null, grid), false);
+  assert.equal(readSceneGridScale({ grid: { size: 100, distance: 2, units: "" } }).unit, "");
 });
