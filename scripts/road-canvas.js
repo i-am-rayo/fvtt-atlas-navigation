@@ -1,5 +1,7 @@
 import { readAtlas } from "./atlas-storage.js";
-import { saveNewRoad, saveReshapedRoad } from "./road-storage.js";
+import { saveNewRoad } from "./road-storage.js";
+import { RoadPointEditor } from "./road-point-editor.js";
+import { roadHandles } from "./road-hit.js";
 import { findRoadSnap, suggestRoadName } from "./road-model.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 
@@ -43,9 +45,12 @@ export class RoadCanvasController {
     this.draft = null;
     this.selectedRoadId = null;
     this.saving = false;
+    this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify, refresh: () => this.refresh() });
   }
 
   getDraft(scene) {
+    const editing = this.pointEditor.getState(scene);
+    if (editing) return editing;
     if (!scene || this.draft?.sceneId !== scene.id) return null;
     return {
       points: this.draft.points.length,
@@ -67,6 +72,7 @@ export class RoadCanvasController {
   }
 
   cancel() {
+    if (this.pointEditor.session) { this.pointEditor.cancel(); return; }
     if (!this.draft || this.saving) return;
     const changed = this.draft.onChange;
     this.#detach();
@@ -81,24 +87,32 @@ export class RoadCanvasController {
    */
   endEditor(scene) {
     if (this.draft && (!scene || this.draft.sceneId === scene.id)) this.cancel();
+    if (this.pointEditor.session && (!scene || this.pointEditor.session.sceneId === scene.id)) this.pointEditor.cancel();
     this.selectedRoadId = null;
     this.refresh();
   }
 
   start(scene, onChange) {
-    this.#startDrawing(scene, onChange, null);
+    this.#startDrawing(scene, onChange);
   }
 
-  startReshape(scene, segmentId, onChange) {
-    this.#startDrawing(scene, onChange, segmentId);
+  startPointEdit(scene, roadId, onChange) {
+    if (this.draft || this.saving) throw new Error("Finish or cancel drawing first.");
+    this.pointEditor.start(scene, roadId, onChange);
+    this.selectedRoadId = roadId;
+    this.refresh();
   }
 
-  #startDrawing(scene, onChange, segmentId) {
+  undo() {
+    this.pointEditor.undo();
+  }
+
+  #startDrawing(scene, onChange) {
     if (!globalThis.game?.user?.isGM ||
         !scene?.canUserModify?.(game.user, "update")) {
       throw new Error("Only a GM may draw Atlas roads.");
     }
-    if (this.saving || this.draft) {
+    if (this.saving || this.draft || this.pointEditor.session) {
       throw new Error("Finish or cancel the current road before starting another.");
     }
     const canvas = this.canvasProvider();
@@ -110,16 +124,15 @@ export class RoadCanvasController {
       throw new Error("The Foundry canvas is not ready to accept road points.");
     }
     const atlas = readAtlas(scene);
-    if (atlas.schemaVersion === 1 && (atlas.nodes.length || atlas.segments.length)) {
-      throw new Error("Anchor legacy roads to the map image first; see the Atlas tab.");
-    }
-    if (segmentId && !atlas.segments.some(s => s.id === segmentId)) {
-      throw new Error("This road no longer exists.");
+    if (atlas.schemaVersion !== 3 && (atlas.nodes.length || atlas.segments.length)) {
+      throw new Error(atlas.schemaVersion === 1 ?
+        "Anchor legacy roads to the map image first; see the Atlas tab." :
+        "Organize existing roads before drawing. See the Atlas tab.");
     }
 
     const draft = {
       scene, sceneId: scene.id, expectedRevision: atlas.revision,
-      mode: segmentId ? "reshape" : "new", segmentId,
+      mode: "new",
       points: [], snap: [], element, onChange,
       onPointer: null, onKeydown: null
     };
@@ -135,12 +148,12 @@ export class RoadCanvasController {
       if (typeof sceneRect?.contains === "function" &&
           !sceneRect.contains(position.x, position.y)) return;
       const storedAtlas = readAtlas(scene);
-      const activeAtlas = storedAtlas.schemaVersion === 1
-        ? { ...storedAtlas, schemaVersion: 2, coordinateSpace: "image" } : storedAtlas;
+      const activeAtlas = storedAtlas.schemaVersion === 3 ? storedAtlas :
+        { ...storedAtlas, schemaVersion: 3, coordinateSpace: "image", roads: [] };
       let point = toAtlasPoint(canvas, activeAtlas, position);
       // Endpoint snaps are visible in the preview. Hold Alt on first/last
       // click to leave roads disconnected when they intentionally cross.
-      const allowSnap = !event.altKey && draft.mode === "new";
+      const allowSnap = !event.altKey;
       if (allowSnap && draft.points.length === 0) {
         const candidate = findRoadSnap(activeAtlas, point);
         if (candidate) point = { x: candidate.x, y: candidate.y };
@@ -148,7 +161,7 @@ export class RoadCanvasController {
       point = { x: Math.round(point.x * 100) / 100, y: Math.round(point.y * 100) / 100 };
       const last = draft.points.at(-1);
       if (last && Math.hypot(last.x - point.x, last.y - point.y) < 1) return;
-      const max = draft.mode === "new" ? 1002 : 1000;
+      const max = 1002;
       if (draft.points.length >= max) {
         this.notify()?.warn?.("This road has reached its point limit.");
         return;
@@ -180,7 +193,7 @@ export class RoadCanvasController {
       }
     };
     this.draft = draft;
-    this.selectedRoadId = segmentId || null;
+    this.selectedRoadId = null;
     element.addEventListener("pointerdown", draft.onPointer, true);
     this.doc()?.addEventListener?.("keydown", draft.onKeydown, true);
     this.refresh();
@@ -188,37 +201,34 @@ export class RoadCanvasController {
   }
 
   async finish() {
+    if (this.pointEditor.session) {
+      const saved = await this.pointEditor.finish();
+      if (saved) { this.selectedRoadId = null; this.refresh(); }
+      return saved;
+    }
     const draft = this.draft;
     if (!draft || this.saving) return false;
-    if (draft.mode === "new" && draft.points.length < 2) {
+    if (draft.points.length < 2) {
       this.notify()?.warn?.("Click at least two map points before finishing the road.");
       return false;
     }
     this.saving = true;
     this.#changed();
     try {
-      if (draft.mode === "reshape") {
-        await saveReshapedRoad(draft.scene, {
-          segmentId: draft.segmentId, via: draft.points,
-          expectedRevision: draft.expectedRevision
-        });
-      } else {
-        const atlas = readAtlas(draft.scene);
-        await saveNewRoad(draft.scene, {
-          points: draft.points, name: suggestRoadName(atlas),
-          expectedRevision: draft.expectedRevision,
-          snapEndpoints: [draft.snap[0], draft.snap.at(-1)],
-          idFactory: this.idFactory
-        });
-      }
+      const atlas = readAtlas(draft.scene);
+      await saveNewRoad(draft.scene, {
+        points: draft.points, name: suggestRoadName(atlas),
+        expectedRevision: draft.expectedRevision,
+        snapEndpoints: [draft.snap[0], draft.snap.at(-1)],
+        idFactory: this.idFactory
+      });
       const changed = draft.onChange;
       this.#detach();
       this.draft = null;
       this.selectedRoadId = null;
       this.saving = false;
       this.refresh();
-      this.notify()?.info?.(draft.mode === "reshape" ?
-        "Atlas road bends saved." : "Atlas road saved to this Scene.");
+      this.notify()?.info?.("Atlas road saved to this Scene.");
       try { changed?.(); } catch (error) { console.warn("[fvtt-atlas-navigation] Atlas tab refresh failed", error); }
       return true;
     } catch (error) {
@@ -229,12 +239,12 @@ export class RoadCanvasController {
     }
   }
 
-  selectRoad(scene, segmentId) {
+  selectRoad(scene, roadId) {
     const canvas = this.canvasProvider();
     if (!canvas?.ready || canvas.scene?.id !== scene?.id) {
       throw new Error("View this Scene on the canvas to highlight its roads.");
     }
-    this.selectedRoadId = this.selectedRoadId === segmentId ? null : segmentId;
+    this.selectedRoadId = this.selectedRoadId === roadId ? null : roadId;
     this.refresh();
   }
 
@@ -256,40 +266,45 @@ export class RoadCanvasController {
       console.warn("[fvtt-atlas-navigation] Unable to draw Scene roads", error);
       return;
     }
+    const editing = this.pointEditor.session;
+    if (editing && editing.sceneId === canvas.scene.id) {
+      atlas = editing.drag?.preview ?? editing.working;
+    }
     const nodes = new Map(atlas.nodes.map(n => [n.id, n]));
     for (const segment of atlas.segments) {
       const from = nodes.get(segment.from);
       const to = nodes.get(segment.to);
       if (!from || !to) continue;
       const path = [from, ...segment.via, to].map(p => toCanvasPoint(canvas, atlas, p));
-      const color = this.selectedRoadId === segment.id ? 0xffd166 : 0x35c9ef;
-      drawLine(g, path, color, this.selectedRoadId === segment.id ? 6 : 4);
+      const highlighted = this.selectedRoadId === (atlas.schemaVersion === 3 ? segment.roadId : segment.id);
+      const color = highlighted ? 0xffd166 : 0x35c9ef;
+      drawLine(g, path, color, highlighted ? 6 : 4);
       drawDot(g, path[0], color);
       drawDot(g, path.at(-1), color);
     }
     if (this.draft?.sceneId === canvas.scene.id) {
       const draft = this.draft;
-      const visualAtlas = atlas.schemaVersion === 1
-        ? { ...atlas, schemaVersion: 2, coordinateSpace: "image" } : atlas;
+      const visualAtlas = atlas.schemaVersion === 3 ? atlas :
+        { ...atlas, schemaVersion: 3, coordinateSpace: "image", roads: [] };
       let points = draft.points;
       if (draft.mode === "new" && points.length > 1 && draft.snap.at(-1)) {
         const hit = findRoadSnap(visualAtlas, points.at(-1));
         if (hit) points = [...points.slice(0, -1), { x: hit.x, y: hit.y }];
       }
-      if (draft.mode === "reshape") {
-        const segment = atlas.segments.find(s => s.id === draft.segmentId);
-        if (segment) points = [
-          nodes.get(segment.from), ...draft.points, nodes.get(segment.to)
-        ];
-      }
       const canvasPoints = points.map(p => toCanvasPoint(canvas, visualAtlas, p));
       drawLine(g, canvasPoints, 0xffd166, 4, 0.85);
       for (const point of canvasPoints) drawDot(g, point, 0xffd166);
+    }
+    if (editing && editing.sceneId === canvas.scene.id) {
+      for (const handle of roadHandles(atlas, editing.roadId)) {
+        drawDot(g, toCanvasPoint(canvas, atlas, handle), handle.kind === "node" ? 0xf4b65a : 0xffffff);
+      }
     }
   }
 
   tearDown() {
     if (this.draft && !this.saving) this.cancel();
+    if (this.pointEditor.session && !this.pointEditor.saving) this.pointEditor.cancel();
     if (this.graphics && !this.graphics.destroyed) {
       this.graphics.parent?.removeChild?.(this.graphics);
       this.graphics.destroy?.();
