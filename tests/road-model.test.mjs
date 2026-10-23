@@ -297,3 +297,62 @@ test("deleted roads leave no invisible snapping junctions", () => {
   assert.equal(removed.nodes.length, 2, "archived node data remains for compatibility");
   assert.equal(findRoadSnap(removed, { x: 0, y: 0 }), null);
 });
+
+test("detaching a selected road from a shared junction preserves the other roads", () => {
+  let i = 0;
+  const idFactory = () => "detach" + ++i;
+  const main = addRoad(createEmptyAtlas(), {
+    points: [{x:0,y:0},{x:100,y:0}],name:"Millstone Road",idFactory
+  });
+  const joined = addRoad(main, {
+    points: [{x:50,y:0},{x:50,y:80}],name:"Road 2",idFactory
+  });
+  const mainId = joined.roads[0].id;
+  const branchId = joined.roads[1].id;
+  const attachedNodeId = joined.segments.find(s=>s.roadId===branchId).from;
+  const detachedId = idFactory();
+  const separated = applyRoadGeometryEdit(joined, {roadId:branchId,operation:{
+    kind:"detach-node",nodeId:attachedNodeId,newNodeId:detachedId,x:50,y:0
+  }});
+  assert.deepEqual(separated.roads,joined.roads,"road groups and names stay unchanged");
+  assert.equal(separated.nodes.length, joined.nodes.length+1);
+  assert.deepEqual(separated.nodes.find(n=>n.id===detachedId), {id:detachedId,x:50,y:0});
+  assert.ok(separated.segments.filter(s=>s.roadId===mainId).every(s=>
+    s.from!==detachedId&&s.to!==detachedId));
+  assert.ok(separated.segments.filter(s=>s.roadId===branchId).some(s=>
+    s.from===detachedId||s.to===detachedId));
+  assert.ok(separated.segments.filter(s=>s.roadId===mainId).some(s=>
+    s.from===attachedNodeId||s.to===attachedNodeId),
+    "main road stays at the original junction");
+  const moved = applyRoadGeometryEdit(separated, {roadId:branchId,operation:{
+    kind:"move-node",nodeId:detachedId,x:65,y:35
+  }});
+  assert.deepEqual(moved.nodes.find(n=>n.id===attachedNodeId),
+    joined.nodes.find(n=>n.id===attachedNodeId));
+  assert.deepEqual(moved.nodes.find(n=>n.id===detachedId),{id:detachedId,x:65,y:35});
+  assert.deepEqual(joined.nodes.find(n=>n.id===attachedNodeId),
+    {id:attachedNodeId,x:50,y:0},"original graph is not mutated");
+  assert.throws(()=>applyRoadGeometryEdit(joined,{roadId:branchId,operation:{
+    kind:"detach-node",nodeId:attachedNodeId,newNodeId:attachedNodeId,x:50,y:0
+  }}),/unique/);
+});
+
+test("detaching one of three meeting roads leaves the remaining two connected",()=>{
+  let i=0;const idFactory=()=>"three"+ ++i;
+  const first=addRoad(createEmptyAtlas(),{name:"Main",points:[{x:0,y:0},{x:100,y:0}],idFactory});
+  const second=addRoad(first,{name:"Path",points:[{x:0,y:0},{x:0,y:70}],idFactory});
+  const third=addRoad(second,{name:"Shortcut",points:[{x:0,y:0},{x:40,y:75}],idFactory});
+  const shared=third.segments[0].from;
+  const extra=idFactory();
+  const separated=applyRoadGeometryEdit(third,{roadId:third.roads[1].id,operation:{
+    kind:"detach-node",nodeId:shared,newNodeId:extra,x:0,y:0
+  }});
+  assert.equal(separated.roads.length,3);
+  assert.equal(separated.segments.filter(s=>s.from===shared||s.to===shared).length,2,
+    "main and third named roads still share original junction");
+  assert.equal(separated.segments.filter(s=>s.from===extra||s.to===extra).length,1,
+    "only the selected logical road moves to the new junction");
+  assert.throws(()=>applyRoadGeometryEdit(separated,{roadId:third.roads[1].id,operation:{
+    kind:"detach-node",nodeId:extra,newNodeId:idFactory(),x:0,y:0
+  }}),/not shared/);
+});
