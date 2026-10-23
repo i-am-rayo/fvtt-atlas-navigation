@@ -1,10 +1,11 @@
 /**
  * Pure atlas data validation. No Foundry globals are used in this module.
  *
- * Schema v1 is intentionally small. Unknown fields are rejected so an older
+ * Schemas are strict and versioned; v1/v2 remain readable. Unknown fields are rejected so an older
  * editor cannot silently delete newer data when saving a Scene flag.
  */
-export const ATLAS_SCHEMA_VERSION = 2;
+export const ATLAS_SCHEMA_VERSION = 3;
+export const IMAGE_ATLAS_SCHEMA_VERSION = 2;
 export const LEGACY_ATLAS_SCHEMA_VERSION = 1;
 const MAX_NODES = 10000;
 const MAX_SEGMENTS = 20000;
@@ -51,7 +52,8 @@ export function createEmptyAtlas() {
     enabled: false,
     calibration: null,
     nodes: [],
-    segments: []
+    segments: [],
+    roads: []
   };
 }
 
@@ -72,12 +74,14 @@ export function validateAtlas(value) {
 
   const data = record(value, "root");
   const legacy = data.schemaVersion === LEGACY_ATLAS_SCHEMA_VERSION;
-  if (!legacy && data.schemaVersion !== ATLAS_SCHEMA_VERSION) {
+  const imageV2 = data.schemaVersion === IMAGE_ATLAS_SCHEMA_VERSION;
+  const current = data.schemaVersion === ATLAS_SCHEMA_VERSION;
+  if (!legacy && !imageV2 && !current) {
     fail("unsupported schemaVersion " + String(data.schemaVersion));
   }
   fields(data, legacy
     ? ["schemaVersion", "revision", "enabled", "calibration", "nodes", "segments"]
-    : ["schemaVersion", "coordinateSpace", "revision", "enabled", "calibration", "nodes", "segments"], "root");
+    : ["schemaVersion", "coordinateSpace", "revision", "enabled", "calibration", "nodes", "segments", ...(current ? ["roads"] : [])], "root");
   if (!legacy && data.coordinateSpace !== "image") fail("coordinateSpace must be image");
   if (!Number.isSafeInteger(data.revision) || data.revision < 0) {
     fail("revision must be a nonnegative safe integer");
@@ -102,6 +106,25 @@ export function validateAtlas(value) {
     };
   }
 
+  const roads = [];
+  const roadIds = new Set();
+  if (current) {
+    if (!Array.isArray(data.roads) || data.roads.length > MAX_SEGMENTS) {
+      fail("roads must be an array of at most " + MAX_SEGMENTS);
+    }
+    for (const [index, value] of data.roads.entries()) {
+      const r = record(value, "roads[" + index + "]");
+      fields(r, ["id", "name"], "road");
+      const roadId = id(r.id, "road ID");
+      if (roadIds.has(roadId)) fail("duplicate road ID " + roadId);
+      roadIds.add(roadId);
+      if (typeof r.name !== "string" || !r.name.trim() || r.name.length > 120) {
+        fail("road " + roadId + " has invalid name");
+      }
+      roads.push({ id: roadId, name: r.name.trim() });
+    }
+  }
+
   if (!Array.isArray(data.nodes) || data.nodes.length > MAX_NODES) {
     fail("nodes must be an array of at most " + MAX_NODES);
   }
@@ -124,10 +147,14 @@ export function validateAtlas(value) {
   const byId = new Map(nodes.map(n => [n.id, n]));
   for (const [index, value] of data.segments.entries()) {
     const s = record(value, "segments[" + index + "]");
-    fields(s, ["id", "from", "to", "via", "name", "bidirectional"], "segment");
+    fields(s, current
+      ? ["id", "roadId", "from", "to", "via", "bidirectional"]
+      : ["id", "from", "to", "via", "name", "bidirectional"], "segment");
     const segmentId = id(s.id, "segment ID");
     if (segmentIds.has(segmentId)) fail("duplicate segment ID " + segmentId);
     segmentIds.add(segmentId);
+    const roadId = current ? id(s.roadId, "segment roadId") : null;
+    if (current && !roadIds.has(roadId)) fail("segment " + segmentId + " references missing road " + roadId);
     const from = id(s.from, "segment from");
     const to = id(s.to, "segment to");
     if (from === to || !byId.has(from) || !byId.has(to)) {
@@ -138,14 +165,15 @@ export function validateAtlas(value) {
     }
     const via = s.via.map((p, i) => point(p, "via[" + i + "]"));
     if (s.bidirectional !== true) fail("segment " + segmentId + " must be bidirectional");
-    if (s.name !== undefined && (typeof s.name !== "string" || s.name.length > 120)) {
+    if (!current && s.name !== undefined && (typeof s.name !== "string" || s.name.length > 120)) {
       fail("segment " + segmentId + " has an invalid name");
     }
     const length = polylineLength([byId.get(from), ...via, byId.get(to)]);
     if (!Number.isFinite(length) || length <= 0) {
       fail("segment " + segmentId + " has zero or invalid length");
     }
-    segments.push({ id: segmentId, from, to, via, name: s.name ?? "", bidirectional: true });
+    segments.push({ id: segmentId, ...(current ? { roadId } : { name: s.name ?? "" }),
+      from, to, via, bidirectional: true });
   }
 
   return {
@@ -155,7 +183,8 @@ export function validateAtlas(value) {
     enabled: data.enabled,
     calibration,
     nodes,
-    segments
+    segments,
+    ...(current ? { roads } : {})
   };
 }
 
@@ -166,16 +195,39 @@ export function validateAtlas(value) {
  */
 export function anchorLegacyAtlas(atlas, origin) {
   const old = validateAtlas(atlas);
-  if (old.schemaVersion === ATLAS_SCHEMA_VERSION) return old;
+  if (old.schemaVersion !== LEGACY_ATLAS_SCHEMA_VERSION) return old;
   if (!Number.isFinite(origin?.x) || !Number.isFinite(origin?.y)) {
     throw new Error("A valid image origin is required to anchor legacy roads.");
   }
   const toLocal = p => ({ x: p.x - origin.x, y: p.y - origin.y });
   return validateAtlas({
     ...old,
-    schemaVersion: ATLAS_SCHEMA_VERSION,
+    schemaVersion: IMAGE_ATLAS_SCHEMA_VERSION,
     coordinateSpace: "image",
     nodes: old.nodes.map(n => ({ id: n.id, ...toLocal(n) })),
     segments: old.segments.map(s => ({ ...s, via: s.via.map(toLocal) }))
+  });
+}
+
+/**
+ * Explicit lossless organizational upgrade from v2. Each old segment becomes
+ * its own named road. No same-name guessing or silent logical merging.
+ * A GM may merge chosen adjacent roads afterward, retaining every edge ID.
+ */
+export function upgradeAtlasRoadGroups(atlas) {
+  const old = validateAtlas(atlas);
+  if (old.schemaVersion === ATLAS_SCHEMA_VERSION) return old;
+  if (old.schemaVersion !== IMAGE_ATLAS_SCHEMA_VERSION) {
+    throw new Error("Anchor legacy roads to the image before organizing them.");
+  }
+  const roads = old.segments.map(s => ({ id: s.id, name: s.name || "Unnamed road" }));
+  return validateAtlas({
+    ...old,
+    schemaVersion: ATLAS_SCHEMA_VERSION,
+    roads,
+    segments: old.segments.map(s => {
+      const { name, ...edge } = s;
+      return { ...edge, roadId: s.id };
+    })
   });
 }
