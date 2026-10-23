@@ -32,5 +32,18 @@
   "FVTTATLAS.Roads.Redraw": "Redraw road bends (keeps both junctions fixed)",
   "FVTTATLAS.Roads.Reshaping": "Redraw intermediate bends between the existing endpoints. Finish without points makes a straight road. Enter finishes; Backspace undoes; Esc cancels.",
   "FVTTATLAS.Roads.FinishShape": "Save Bends",
-  "FVTTATLAS.Roads.ReshapeNotice": "Bend editing started. Click intermediate points between the fixed junctions, then Save Bends. Esc cancels."
+  "FVTTATLAS.Roads.ReshapeNotice": "Bend editing started. Click intermediate points between the fixed junctions, then Save Bends. Esc cancels.",
+  "FVTTATLAS.Roads.Organize": "Organize named roads (v0.2.6)",
+  "FVTTATLAS.Roads.OrganizeHint": "This Scene has older road data. Organize it once to enable draggable road points and named-road groups. Geometry and segment IDs stay unchanged.",
+  "FVTTATLAS.Roads.OrganizeWarning": "Back up your world first. This explicitly upgrades v0.2.5 roads to named-road groups. Every existing segment keeps its ID and shape. Roads with matching names are NOT automatically merged; use Merge on connected roads afterward. Continue?",
+  "FVTTATLAS.Roads.Organized": "Atlas road data organized. Existing shapes and junctions were preserved.",
+  "FVTTATLAS.Roads.Segments": "sections",
+  "FVTTATLAS.Roads.EditPoints": "Edit road points (drag bends and shared junctions)",
+  "FVTTATLAS.Roads.EditNotice": "Drag visible point handles to reshape the road. Double-click a segment to add a bend. Alt-click a bend to remove it. Save Points commits; Escape cancels.",
+  "FVTTATLAS.Roads.PointEditHint": "Drag any white bend or gold junction on the map. Double-click a road to insert a bend; Alt-click a bend to remove it. Undo (Ctrl/Cmd+Z), Save Points, or Cancel. Junctions are shared with connected roads.",
+  "FVTTATLAS.Roads.SavePoints": "Save Points",
+  "FVTTATLAS.Roads.Undo": "Undo",
+  "FVTTATLAS.Roads.Merge": "Merge connected roads",
+  "FVTTATLAS.Roads.MergeWarning": "Merge {from} into {to}? This keeps every segment and junction, but removes the separate name {from} from the list.",
+  "FVTTATLAS.Roads.Merged": "Connected roads merged under one name."
 }
