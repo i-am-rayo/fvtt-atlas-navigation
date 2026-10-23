@@ -19,13 +19,13 @@ const fixture = () => ({
   ]
 });
 
-test("new Scenes have an inert, uncalibrated atlas without writing flags", () => {
+test("new Scenes have an inert atlas without writing flags or a manual scale", () => {
   assert.deepEqual(validateAtlas(undefined), createEmptyAtlas());
   assert.equal(validateAtlas(null).enabled, false);
   assert.equal(validateAtlas(undefined).calibration, null);
 });
 
-test("valid flags round-trip with coordinates, IDs, and calibrated distance", () => {
+test("legacy manual data round-trips dormant; pixel geometry validation stays separate", () => {
   const source = fixture();
   assert.deepEqual(validateAtlas(source), source);
   const result = validateAtlas(source);
