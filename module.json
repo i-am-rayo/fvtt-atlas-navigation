@@ -2,8 +2,8 @@
   "id": "fvtt-atlas-navigation",
   "type": "module",
   "title": "FVTT Atlas Navigation",
-  "description": "System-agnostic world atlas and road navigation for Foundry VTT. Phase 1 provides a GM-only startup diagnostic; navigation features are in development.",
-  "version": "0.1.0",
+  "description": "System-agnostic Foundry v14 Scene Atlas with named roads, reversible junction detachment, and GM-confirmed connections.",
+  "version": "0.2.11",
   "authors": [
     {
       "name": "i-am-rayo",
@@ -26,6 +26,6 @@
   "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
   "readme": "README.md",
   "media": [],
-  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-1-module-shell/module.json",
-  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-1-module-shell.zip"
+  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2-atlas-setup/module.json",
+  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2-atlas-setup.zip"
 }

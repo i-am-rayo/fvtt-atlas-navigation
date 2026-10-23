@@ -19,11 +19,11 @@ test("module manifest declares a v14 system-agnostic module shell", async () => 
   assert.equal("relationships" in manifest, false);
   assert.equal(
     manifest.manifest,
-    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-1-module-shell/module.json"
+    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2-atlas-setup/module.json"
   );
   assert.equal(
     manifest.download,
-    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-1-module-shell.zip"
+    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2-atlas-setup.zip"
   );
   assert.ok(manifest.manifest.endsWith("/module.json"));
   assert.ok(manifest.download.endsWith(".zip"));
@@ -40,14 +40,21 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
   const language = await readJson("../lang/en.json");
   const events = new Map();
   const registrations = [];
+  const menus = [];
   const notices = [];
   const originalHooks = globalThis.Hooks;
   const originalGame = globalThis.game;
   const originalUi = globalThis.ui;
+  const originalFoundry = globalThis.foundry;
 
   try {
+    globalThis.foundry = { applications: { api: { DialogV2: class {} } } };
     globalThis.Hooks = {
       once(name, callback) {
+        assert.equal(events.has(name), false);
+        events.set(name, callback);
+      },
+      on(name, callback) {
         assert.equal(events.has(name), false);
         events.set(name, callback);
       }
@@ -58,6 +65,7 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
       i18n: { localize: (key) => language[key] ?? key },
       settings: {
         register: (...args) => registrations.push(args),
+        registerMenu: (...args) => menus.push(args),
         get: (namespace, key) => {
           assert.equal(namespace, "fvtt-atlas-navigation");
           assert.equal(key, "showStartupNotice");
@@ -86,6 +94,10 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
     assert.ok(language[options.name]);
     assert.ok(language[options.hint]);
 
+    // Per-Scene setup no longer belongs in the global module settings.
+    assert.equal(menus.length, 0);
+    assert.equal(typeof events.get("renderSceneConfig"), "function");
+
     events.get("ready")();
     assert.equal(notices.length, 0);
 
@@ -96,5 +108,6 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
     globalThis.Hooks = originalHooks;
     globalThis.game = originalGame;
     globalThis.ui = originalUi;
+    globalThis.foundry = originalFoundry;
   }
 });

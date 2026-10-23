@@ -1,11 +1,166 @@
 /**
- * FVTT Atlas Navigation — Foundry VTT v14 Phase 1 module shell.
- *
- * No Scene data, canvas layers, sockets, or actor/system APIs are touched here.
- * Later features will be introduced in separate, reviewable milestones.
+ * FVTT Atlas Navigation — Foundry v14 bootstrap.
+ * Phase 2c: v0.2.10 separates junction topology from future descriptive waypoints.
  */
-const MODULE_ID = "fvtt-atlas-navigation";
+import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
+import { RoadCanvasController } from "./road-canvas.js";
+import { readAtlas, MODULE_ID } from "./atlas-storage.js";
+import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
+  saveOrganizedRoads, saveMergedRoads } from "./road-storage.js";
+import { getRoadMergeCandidates } from "./road-model.js";
+import { sceneImageOrigin } from "./road-coordinates.js";
+
 const STARTUP_NOTICE_SETTING = "showStartupNotice";
+const roadCanvas = new RoadCanvasController();
+
+function ensureIdle(scene) {
+  if (roadCanvas.getDraft(scene)) {
+    throw new Error("Save or cancel your current road edits first.");
+  }
+}
+
+function actions() {
+  const DialogV2 = foundry.applications.api.DialogV2;
+  return {
+    begin(scene, refresh) {
+      roadCanvas.start(scene, refresh);
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.StartNotice"));
+    },
+    draft: scene => roadCanvas.getDraft(scene),
+    beginJunction(scene, refresh) {
+      roadCanvas.startJunction(scene, refresh);
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Junctions.StartNotice"));
+    },
+    selectJunction: (scene, nodeId) => roadCanvas.selectJunction(scene, nodeId),
+    beginPointEdit(scene, roadId, refresh) {
+      roadCanvas.startPointEdit(scene, roadId, refresh);
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.EditNotice"));
+    },
+    undo: () => roadCanvas.undo(),
+    async anchor(scene, refresh) {
+      const atlas = readAtlas(scene);
+      if (atlas.schemaVersion !== 1) return;
+      if (!globalThis.canvas?.ready || canvas.scene?.id !== scene.id) {
+        throw new Error("Open this Scene on the canvas before anchoring legacy roads.");
+      }
+      const origin = sceneImageOrigin(canvas);
+      const approved = await DialogV2.confirm({
+        window: { title: game.i18n.localize("FVTTATLAS.Roads.Anchor") },
+        content: game.i18n.localize("FVTTATLAS.Roads.AnchorWarning"),
+        rejectClose: false, modal: true
+      });
+      if (!approved) return;
+      await saveAnchoredLegacyRoads(scene, { origin, expectedRevision: atlas.revision });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Anchored"));
+    },
+    async organize(scene, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      if (atlas.schemaVersion !== 2) return;
+      const approved = await DialogV2.confirm({
+        window: { title: game.i18n.localize("FVTTATLAS.Roads.Organize") },
+        content: game.i18n.localize("FVTTATLAS.Roads.OrganizeWarning"),
+        rejectClose: false, modal: true
+      });
+      if (!approved) return;
+      await saveOrganizedRoads(scene, { expectedRevision: atlas.revision });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Organized"));
+    },
+    async merge(scene, road, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      const options = getRoadMergeCandidates(atlas, road.id);
+      if (!options.length) throw new Error("This road has no adjacent road to merge.");
+      let otherId = options[0].id;
+      if (options.length > 1) {
+        const select = document.createElement("select");
+        select.name = "mergeRoadId";
+        for (const candidate of options) {
+          const item = document.createElement("option");
+          item.value = candidate.id;
+          item.textContent = candidate.name;
+          select.appendChild(item);
+        }
+        // Foundry v14 requires an outermost plain div for DOM dialog content.
+        const content = document.createElement("div");
+        content.appendChild(select);
+        const input = await DialogV2.input({
+          window: { title: game.i18n.localize("FVTTATLAS.Roads.Merge") },
+          content,
+          ok: { label: game.i18n.localize("FVTTATLAS.Roads.Merge") },
+          rejectClose: false
+        });
+        if (!input) return;
+        otherId = String(input.mergeRoadId ?? "");
+      }
+      const other = options.find(candidate => candidate.id === otherId);
+      if (!other) throw new Error("Choose a connected road to merge.");
+      const approved = await DialogV2.confirm({
+        window: { title: game.i18n.localize("FVTTATLAS.Roads.Merge") },
+        content: game.i18n.format("FVTTATLAS.Roads.MergeWarning", {
+          from: other.name, to: road.name
+        }),
+        rejectClose: false, modal: true
+      });
+      if (!approved) return;
+      await saveMergedRoads(scene, {
+        keepRoadId: road.id, mergeRoadId: otherId, expectedRevision: atlas.revision
+      });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Merged"));
+    },
+    finish: () => roadCanvas.finish(),
+    cancel: () => roadCanvas.cancel(),
+    select: (scene, id) => roadCanvas.selectRoad(scene, id),
+    async rename(scene, road, refresh) {
+      ensureIdle(scene);
+      const revision = readAtlas(scene).revision;
+      const content = document.createElement("div");
+      const input = document.createElement("input");
+      input.name = "roadName";
+      input.type = "text";
+      input.maxLength = 120;
+      input.setAttribute("value", road.name);
+      input.setAttribute("maxlength", "120");
+      input.setAttribute("required", "");
+      content.appendChild(input);
+      const data = await DialogV2.input({
+        window: { title: game.i18n.localize("FVTTATLAS.Roads.Rename") },
+        content,
+        ok: { label: game.i18n.localize("FVTTATLAS.Roads.SaveName") },
+        rejectClose: false
+      });
+      if (!data) return;
+      await saveRenamedRoad(scene, {
+        roadId: road.id, segmentId: road.id,
+        name: String(data.roadName ?? ""), expectedRevision: revision
+      });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Renamed"));
+    },
+    async remove(scene, road, refresh) {
+      ensureIdle(scene);
+      const revision = readAtlas(scene).revision;
+      const confirmed = await DialogV2.confirm({
+        window: { title: game.i18n.localize("FVTTATLAS.Roads.Delete") },
+        content: game.i18n.localize("FVTTATLAS.Roads.DeleteWarning"),
+        rejectClose: false,
+        modal: true
+      });
+      if (!confirmed) return;
+      await saveRemovedRoad(scene, { roadId: road.id, segmentId: road.id, expectedRevision: revision });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Deleted"));
+    }
+  };
+}
 
 Hooks.once("init", () => {
   game.settings.register(MODULE_ID, STARTUP_NOTICE_SETTING, {
@@ -16,14 +171,27 @@ Hooks.once("init", () => {
     type: Boolean,
     default: false
   });
+  const roadActions = actions();
+  Hooks.on("renderSceneConfig", (app, element) => {
+    addAtlasRoadsToSceneConfig(app, element, roadActions);
+  });
+  Hooks.on("closeSceneConfig", app => roadCanvas.endEditor(app?.document));
+  Hooks.on("canvasReady", () => roadCanvas.refresh());
+  Hooks.on("canvasTearDown", () => roadCanvas.tearDown());
+  Hooks.on("updateScene", scene => {
+    if (globalThis.canvas?.ready && canvas.scene?.id === scene.id) roadCanvas.refresh();
+  });
 });
 
 Hooks.once("ready", () => {
-  // Registration runs for all clients; the diagnostic is GM-facing only.
   if (!game.user?.isGM) return;
-
-  console.info("[" + MODULE_ID + "] Phase 1 initialized");
-
+  try {
+    const installed = registerAtlasSceneTab(foundry.applications.sheets.SceneConfig);
+    if (!installed) console.warn("[" + MODULE_ID + "] Scene Atlas tab registration unavailable; using in-sheet fallback.");
+  } catch (error) {
+    console.warn("[" + MODULE_ID + "] Scene Atlas tab unavailable; using in-sheet fallback.", error);
+  }
+  console.info("[" + MODULE_ID + "] Module ready");
   if (game.settings.get(MODULE_ID, STARTUP_NOTICE_SETTING)) {
     ui.notifications.info(game.i18n.localize("FVTTATLAS.Notifications.Ready"));
   }
