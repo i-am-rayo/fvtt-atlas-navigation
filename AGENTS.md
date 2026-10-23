@@ -8,6 +8,8 @@
 
 > **October 23, 2026 — v0.2.15.1 dialog compatibility hotfix:** Foundry v14's `DialogV2.input` requires a plain outer HTMLDivElement with no attributes. Use a nested styled element for preset form layout, and reflected `defaultValue`/`defaultSelected` values because DialogV2 serializes supplied HTMLElement content. A regression test protects both Add/Edit dialogs; this patch has no schema or native Region Behavior changes. Version bumped so installed v0.2.15 builds can update.
 
+> **October 24, 2026 — v0.2.15.2 UI cleanup:** After the owner tested preset editing, world-shared surface assignment and generated native Region metadata, remove the obsolete `showStartupNotice` setting and ready popup. Leave any dormant persisted world setting alone; do not erase Atlas data. This small cleanup does not authorize native movement-cost Behavior generation or preset-color changes, which require a separate owner-approved design/test gate.
+
 # Agent and contributor instructions
 
 ## Project identity
