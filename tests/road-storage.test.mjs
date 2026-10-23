@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readAtlas } from "../scripts/atlas-storage.js";
-import { saveNewRoad, saveRenamedRoad, saveRemovedRoad, saveReshapedRoad, saveAnchoredLegacyRoads } from "../scripts/road-storage.js";
+import { saveNewRoad, saveRenamedRoad, saveRemovedRoad, saveReshapedRoad, saveAnchoredLegacyRoads, saveOrganizedRoads, saveMergedRoads, savePointEdits } from "../scripts/road-storage.js";
 
 function mockScene(initial) {
   let stored = initial;
@@ -43,16 +43,16 @@ test("GM can create, rename and delete a Scene road without changing old calibra
     assert.equal(added.enabled, true);
     assert.deepEqual(added.calibration, manual);
     assert.equal(scene.writes, 1);
-    const segmentId = added.segments[0].id;
+    const roadId = added.roads[0].id;
 
     const renamed = await saveRenamedRoad(scene, {
-      segmentId, name: "Harbor Road", expectedRevision: 7
+      roadId, name: "Harbor Road", expectedRevision: 7
     });
     assert.equal(renamed.revision, 8);
-    assert.equal(renamed.segments[0].name, "Harbor Road");
+    assert.equal(renamed.roads[0].name, "Harbor Road");
     assert.equal(scene.writes, 2);
 
-    const removed = await saveRemovedRoad(scene, { segmentId, expectedRevision: 8 });
+    const removed = await saveRemovedRoad(scene, { roadId, expectedRevision: 8 });
     assert.equal(removed.revision, 9);
     assert.equal(removed.enabled, false);
     assert.equal(removed.segments.length, 0);
@@ -101,10 +101,43 @@ test("populated v1 roads cannot be newly drawn over until a GM anchors them", as
     assert.equal(anchored.revision, 3);
     assert.equal(anchored.schemaVersion, 2);
     assert.deepEqual(anchored.nodes[0], { id: "a", x: 20, y: 30 });
+    await assert.rejects(saveNewRoad(scene, {
+      points: [{x:0,y:0},{x:100,y:0}],expectedRevision:3,idFactory:ids()
+    }),/Organize/);
+    const organized = await saveOrganizedRoads(scene,{expectedRevision:3});
+    assert.equal(organized.schemaVersion,3);
+    assert.equal(organized.segments[0].id,"s");
+    assert.equal(organized.segments[0].roadId,"s");
+    assert.equal(organized.roads[0].name,"Road");
     const reshaped = await saveReshapedRoad(scene, {
-      segmentId: "s", via: [{ x: 60, y: 45 }], expectedRevision: 3
+      segmentId: "s", via: [{ x: 60, y: 45 }], expectedRevision: 4
     });
     assert.deepEqual(reshaped.segments[0].via, [{ x: 60, y: 45 }]);
-    assert.equal(reshaped.revision, 4);
+    assert.equal(reshaped.revision, 5);
   } finally { globalThis.game = prior; }
+});
+
+test("save point edits is transactional, checks revision, and does not mutate other scenes",async()=>{
+ const previous=globalThis.game;
+ globalThis.game={user:{isGM:true}};
+ try {
+  const one=mockScene(), two=mockScene();
+  const newRoad=await saveNewRoad(one,{points:[{x:0,y:0},{x:100,y:0}],expectedRevision:0,idFactory:ids()});
+  const seg=newRoad.segments[0],road=newRoad.roads[0];
+  const changed=await savePointEdits(one,{roadId:road.id,expectedRevision:1,operations:[
+   {kind:"insert-bend",segmentId:seg.id,edgeIndex:0,x:20,y:5},
+   {kind:"move-bend",segmentId:seg.id,viaIndex:0,x:20,y:10}
+  ]});
+  assert.deepEqual(changed.segments[0].via,[{x:20,y:10}]);
+  assert.equal(changed.revision,2);
+  assert.equal(readAtlas(two).segments.length,0);
+  await assert.rejects(savePointEdits(one,{roadId:road.id,expectedRevision:1,operations:[
+   {kind:"remove-bend",segmentId:seg.id,viaIndex:0}
+  ]}),/changed since/);
+  const before=one.writes;
+  await assert.rejects(savePointEdits(one,{roadId:road.id,expectedRevision:2,operations:[
+   {kind:"remove-bend",segmentId:seg.id,viaIndex:900}
+  ]}),/index/);
+  assert.equal(one.writes,before);
+ } finally {globalThis.game=previous;}
 });
