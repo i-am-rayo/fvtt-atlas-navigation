@@ -1,4 +1,4 @@
-# Atlas data model — schema v3 (Phase 2c v0.2.6)
+# Atlas data model — schema v3 (Phase 2c v0.2.7)
 
 **Current contract:** Each Foundry Scene stores one validated `flags.fvtt-atlas-navigation.atlas` payload. Schema v3 separates a **named logical road** from one or more **graph segments**, which can be split at junctions without duplicating a name in the road list.
 
@@ -23,7 +23,9 @@ Migration is deliberately explicit:
 3. **Identically named v2 segments are not merged by assumption.** The GM can explicitly **Merge connected roads** when two logical road groups share a junction; merging only reassigns the segment `roadId` and removes the secondary name, never changing geometry or junction IDs. Split operations on v3 segments preserve their parent `roadId`.
 4. New Scenes start with empty v3; empty old Scenes upgrade when their first road is saved.
 
-Road geometry editor operations are validated, revision-checked and staged in memory until **Save Points**. `move-node` changes a shared graph node and thus all connected segments; `move-bend`, `insert-bend`, and `remove-bend` only alter the appropriate segment's interior `via` point list. Undo/Cancel discard uncommitted work. No Foundry `WallDocument` or `DrawingDocument` is created, and no movement/sight collision is introduced. The module uses native Scene Grid exclusively for future distance, never an independent scale.
+Since v0.2.7, potential connections are proposed and confirmed by the GM before affecting topology. On newly drawn roads, Finish Road prompts for any endpoint snap (including shortcuts touching two distinct named roads). Dragged junctions similarly prompt before attaching to a different existing graph node or a road interior. Declining a dragged-junction connection reverts that pending drag; approving splits the target segment if necessary, retains logical `roadId` ownership and road names, and stages the change for Save Points. Shared source junctions bring all their incident road sections into the new connection. A node-target attachment removes the now-unused source junction record; an edge-target split reuses the source junction ID and allocates one new segment ID. There is **no silent name merge**—the separate Merge connected roads action alone changes group membership. Orphan nodes from deletions are never offered as new snap destinations.
+
+Road geometry editor operations are validated, revision-checked and staged in memory until **Save Points**. `move-node` changes a shared graph node and thus all connected segments; `connect-node`, `move-bend`, `insert-bend`, and `remove-bend` only alter the appropriate segment's interior `via` point list. Undo/Cancel discard uncommitted work. No Foundry `WallDocument` or `DrawingDocument` is created, and no movement/sight collision is introduced. The module uses native Scene Grid exclusively for future distance, never an independent scale.
 
 The archived v2/v1 design below is retained to document backwards compatibility, not as the current write format.
 
