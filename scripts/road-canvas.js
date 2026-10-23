@@ -1,5 +1,5 @@
 import { readAtlas } from "./atlas-storage.js";
-import { saveNewRoad } from "./road-storage.js";
+import { saveNewRoad, saveNewCheckpoint } from "./road-storage.js";
 import { RoadPointEditor } from "./road-point-editor.js";
 import { roadHandles } from "./road-hit.js";
 import { attachmentRoadNames, findRoadSnap, suggestRoadName } from "./road-model.js";
@@ -130,6 +130,63 @@ async function chooseRoadBranch({ roadName, junction, sections }) {
     ? response.sectionId : null;
 }
 
+/** Checkpoint metadata is GM-only; native Regions and Journals are unaffected. */
+async function promptRoadCheckpoint({ roads, defaultName }) {
+  const content = document.createElement("div");
+  const nameLabel = document.createElement("label");
+  nameLabel.textContent = game.i18n.localize("FVTTATLAS.Checkpoints.Name");
+  const name = document.createElement("input");
+  name.type = "text";
+  name.name = "checkpointName";
+  name.maxLength = 120;
+  name.required = true;
+  name.value = defaultName;
+  content.appendChild(nameLabel);
+  content.appendChild(name);
+  const roadLabel = document.createElement("label");
+  roadLabel.textContent = game.i18n.localize("FVTTATLAS.Checkpoints.Road");
+  const road = document.createElement("select");
+  road.name = "checkpointRoadId";
+  for (const item of roads) {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.name;
+    road.appendChild(option);
+  }
+  content.appendChild(roadLabel);
+  content.appendChild(road);
+  const elevationLabel = document.createElement("label");
+  elevationLabel.textContent = game.i18n.localize("FVTTATLAS.Checkpoints.Elevation");
+  const elevation = document.createElement("input");
+  elevation.type = "number";
+  elevation.name = "checkpointElevation";
+  elevation.step = "any";
+  elevation.placeholder = game.i18n.localize("FVTTATLAS.Checkpoints.Unknown");
+  content.appendChild(elevationLabel);
+  content.appendChild(elevation);
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = game.i18n.localize("FVTTATLAS.Checkpoints.ElevationHint");
+  content.appendChild(hint);
+  const response = await foundry.applications.api.DialogV2.input({
+    window: { title: game.i18n.localize("FVTTATLAS.Checkpoints.Add") },
+    content,
+    ok: { label: game.i18n.localize("FVTTATLAS.Checkpoints.Save") },
+    rejectClose: false
+  });
+  if (!response) return null;
+  const roadId = String(response.checkpointRoadId ?? "");
+  if (!roads.some(item => item.id === roadId)) {
+    throw new Error("Select a road that owns the checkpoint position.");
+  }
+  const raw = String(response.checkpointElevation ?? "").trim();
+  const elevationMeters = raw === "" ? null : Number(raw);
+  if (raw !== "" && (!Number.isFinite(elevationMeters) || Math.abs(elevationMeters) > 10000000)) {
+    throw new Error("Elevation must be a finite number of meters.");
+  }
+  return { roadId, name: String(response.checkpointName ?? ""), elevationMeters };
+}
+
 /** GM-only disposable Scene overlay; does not intercept ordinary player play. */
 export class RoadCanvasController {
   constructor({
@@ -139,18 +196,21 @@ export class RoadCanvasController {
     notify = () => globalThis.ui?.notifications,
     confirmAttach = confirmRoadAttachment,
     confirmDetach = confirmRoadDetachment,
-    chooseBranch = chooseRoadBranch
+    chooseBranch = chooseRoadBranch,
+    promptCheckpoint = promptRoadCheckpoint
   } = {}) {
     this.canvasProvider = canvasProvider;
     this.doc = doc;
     this.idFactory = idFactory;
     this.notify = notify;
     this.confirmAttach = confirmAttach;
+    this.promptCheckpoint = promptCheckpoint;
     this.graphics = null;
     this.graphicsCanvas = null;
     this.draft = null;
     this.selectedRoadId = null;
     this.selectedJunctionId = null;
+    this.selectedCheckpointId = null;
     this.saving = false;
     this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
       confirmAttach, confirmDetach, chooseBranch, idFactory, refresh: () => this.refresh() });
@@ -203,6 +263,7 @@ export class RoadCanvasController {
     if (this.pointEditor.session && (!scene || this.pointEditor.session.sceneId === scene.id)) this.pointEditor.cancel();
     this.selectedRoadId = null;
     this.selectedJunctionId = null;
+    this.selectedCheckpointId = null;
     this.refresh();
   }
 
@@ -215,6 +276,7 @@ export class RoadCanvasController {
     this.pointEditor.start(scene, roadId, onChange);
     this.selectedRoadId = roadId;
     this.selectedJunctionId = null;
+    this.selectedCheckpointId = null;
     this.refresh();
   }
 
@@ -240,7 +302,7 @@ export class RoadCanvasController {
       throw new Error("Open this Scene on the canvas before adding a junction.");
     }
     const atlas = readAtlas(scene);
-    if (atlas.schemaVersion !== 3 || !atlas.segments.length) {
+    if (atlas.schemaVersion < 3 || !atlas.segments.length) {
       throw new Error("Create and organize roads before placing junctions.");
     }
     const element = canvas.app?.canvas ?? canvas.app?.view;
@@ -307,10 +369,125 @@ export class RoadCanvasController {
     this.selectedJunctionId = null;
     this.selectedRoadId = null;
     this.selectedJunctionId = null;
+    this.selectedCheckpointId = null;
     element.addEventListener("pointerdown", draft.onPointer, true);
     this.doc()?.addEventListener?.("keydown", draft.onKeydown, true);
     this.refresh();
     this.#changed();
+  }
+
+  /**
+   * Checkpoints [+] uses the same bounded Scene hit-testing as Junctions [+].
+   * An interior click inserts one stable graph node and checkpoint together
+   * in ONE revision-checked Scene flag update, never as separate writes.
+   */
+  startCheckpoint(scene, onChange) {
+    if (!globalThis.game?.user?.isGM ||
+        !scene?.canUserModify?.(game.user, "update")) {
+      throw new Error("Only a GM may place Atlas checkpoints.");
+    }
+    if (this.saving || this.draft || this.pointEditor.session) {
+      throw new Error("Finish or cancel the current road edits first.");
+    }
+    const canvas = this.canvasProvider();
+    if (!canvas?.ready || canvas.scene?.id !== scene.id) {
+      throw new Error("View this Scene on the canvas before adding a checkpoint.");
+    }
+    const atlas = readAtlas(scene);
+    if (atlas.schemaVersion < 3 || !atlas.segments.length) {
+      throw new Error("Create and organize named roads before adding checkpoints.");
+    }
+    const element = canvas.app?.canvas ?? canvas.app?.view;
+    if (!element?.addEventListener || typeof canvas.canvasCoordinatesFromClient !== "function") {
+      throw new Error("The Foundry canvas is not ready for checkpoint placement.");
+    }
+    const draft = {
+      scene, sceneId: scene.id, mode: "checkpoint", points: [], element,
+      onChange, expectedRevision: atlas.revision, confirming: false,
+      onPointer: null, onKeydown: null
+    };
+    draft.onPointer = async event => {
+      if (event.button !== 0 || this.saving || draft.confirming || this.draft !== draft) return;
+      if (this.canvasProvider()?.scene?.id !== draft.sceneId) { this.cancel(); return; }
+      const position = canvas.canvasCoordinatesFromClient({ x: event.clientX, y: event.clientY });
+      if (!Number.isFinite(position?.x) || !Number.isFinite(position?.y)) return;
+      const rect = canvas.dimensions?.sceneRect;
+      if (typeof rect?.contains === "function" && !rect.contains(position.x, position.y)) return;
+      const current = readAtlas(scene);
+      if (current.revision !== draft.expectedRevision) {
+        this.cancel();
+        this.notify()?.error?.("The road network changed. Reopen Checkpoints [+].");
+        return;
+      }
+      const local = toAtlasPoint(canvas, current, position);
+      const candidate = findRoadSnap(current, local);
+      if (!candidate) {
+        this.notify()?.warn?.(game.i18n.localize("FVTTATLAS.Checkpoints.ClickRoad"));
+        return;
+      }
+      event.preventDefault?.();
+      event.stopImmediatePropagation?.();
+      const roadIds = candidate.kind === "node"
+        ? new Set(current.segments.filter(s => s.from === candidate.nodeId ||
+            s.to === candidate.nodeId).map(s => s.roadId))
+        : new Set(current.segments.filter(s => s.id === candidate.segmentId).map(s => s.roadId));
+      const roads = current.roads.filter(road => roadIds.has(road.id));
+      if (!roads.length) return;
+      draft.confirming = true;
+      try {
+        const config = await this.promptCheckpoint({
+          roads,
+          defaultName: "Checkpoint " + ((current.checkpoints?.length ?? 0) + 1)
+        });
+        if (this.draft !== draft || !config) return;
+        this.saving = true;
+        const saved = await saveNewCheckpoint(scene, {
+          ...config, candidate, expectedRevision: draft.expectedRevision,
+          idFactory: this.idFactory
+        });
+        if (this.draft !== draft) return;
+        const callback = draft.onChange;
+        this.#detach();
+        this.draft = null;
+        this.selectedRoadId = null;
+        this.selectedJunctionId = null;
+        this.selectedCheckpointId = saved.checkpoints.at(-1).id;
+        this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Checkpoints.Saved"));
+        this.refresh();
+        callback?.(config.roadId);
+      } catch (error) {
+        this.notify()?.error?.(error.message);
+      } finally {
+        this.saving = false;
+        draft.confirming = false;
+        if (this.draft === draft) this.#changed();
+      }
+    };
+    draft.onKeydown = event => {
+      if (event.key === "Escape" && !draft.confirming) {
+        event.preventDefault?.();
+        this.cancel();
+      }
+    };
+    this.draft = draft;
+    this.selectedCheckpointId = null;
+    element.addEventListener("pointerdown", draft.onPointer, true);
+    this.doc()?.addEventListener?.("keydown", draft.onKeydown, true);
+    this.refresh();
+    this.#changed();
+  }
+
+  selectCheckpoint(scene, checkpointId) {
+    const canvas = this.canvasProvider();
+    if (!canvas?.ready || canvas.scene?.id !== scene?.id) {
+      throw new Error("View this Scene on the canvas to highlight a checkpoint.");
+    }
+    const checkpoint = readAtlas(scene).checkpoints?.find(c => c.id === checkpointId);
+    if (!checkpoint) throw new Error("That checkpoint no longer exists.");
+    this.selectedCheckpointId = this.selectedCheckpointId === checkpointId ? null : checkpointId;
+    this.selectedRoadId = null;
+    this.selectedJunctionId = null;
+    this.refresh();
   }
 
   #startDrawing(scene, onChange) {
@@ -330,7 +507,7 @@ export class RoadCanvasController {
       throw new Error("The Foundry canvas is not ready to accept road points.");
     }
     const atlas = readAtlas(scene);
-    if (atlas.schemaVersion !== 3 && (atlas.nodes.length || atlas.segments.length)) {
+    if (atlas.schemaVersion < 3 && (atlas.nodes.length || atlas.segments.length)) {
       throw new Error(atlas.schemaVersion === 1 ?
         "Anchor legacy roads to the map image first; see the Atlas tab." :
         "Organize existing roads before drawing. See the Atlas tab.");
@@ -354,7 +531,7 @@ export class RoadCanvasController {
       if (typeof sceneRect?.contains === "function" &&
           !sceneRect.contains(position.x, position.y)) return;
       const storedAtlas = readAtlas(scene);
-      const activeAtlas = storedAtlas.schemaVersion === 3 ? storedAtlas :
+      const activeAtlas = storedAtlas.schemaVersion >= 3 ? storedAtlas :
         { ...storedAtlas, schemaVersion: 3, coordinateSpace: "image", roads: [] };
       let point = toAtlasPoint(canvas, activeAtlas, position);
       // Endpoint snaps are visible in the preview. Hold Alt on first/last
@@ -426,7 +603,7 @@ export class RoadCanvasController {
       const atlas = readAtlas(draft.scene);
       // Only endpoints ever snap; crossings and bends stay independent.
       const connections = [];
-      if (atlas.schemaVersion === 3) {
+      if (atlas.schemaVersion >= 3) {
         for (const index of [0, draft.points.length - 1]) {
           if (draft.snap[index] === false) continue;
           const candidate = findRoadSnap(atlas, draft.points[index]);
@@ -482,6 +659,7 @@ export class RoadCanvasController {
     }
     this.selectedRoadId = this.selectedRoadId === roadId ? null : roadId;
     this.selectedJunctionId = null;
+    this.selectedCheckpointId = null;
     this.refresh();
   }
 
@@ -497,6 +675,7 @@ export class RoadCanvasController {
     }
     this.selectedJunctionId = this.selectedJunctionId === nodeId ? null : nodeId;
     this.selectedRoadId = null;
+    this.selectedCheckpointId = null;
     this.refresh();
   }
 
@@ -528,11 +707,18 @@ export class RoadCanvasController {
       const to = nodes.get(segment.to);
       if (!from || !to) continue;
       const path = [from, ...segment.via, to].map(p => toCanvasPoint(canvas, atlas, p));
-      const highlighted = this.selectedRoadId === (atlas.schemaVersion === 3 ? segment.roadId : segment.id);
+      const highlighted = this.selectedRoadId === (atlas.schemaVersion >= 3 ? segment.roadId : segment.id);
       const color = highlighted ? 0xffd166 : 0x35c9ef;
       drawLine(g, path, color, highlighted ? 6 : 4);
       drawDot(g, path[0], color);
       drawDot(g, path.at(-1), color);
+    }
+    for (const checkpoint of atlas.checkpoints ?? []) {
+      const point = nodes.get(checkpoint.nodeId);
+      if (!point) continue;
+      drawDot(g, toCanvasPoint(canvas, atlas, point),
+        checkpoint.id === this.selectedCheckpointId ? 0x8ef6c5 : 0x9c7bf0,
+        checkpoint.id === this.selectedCheckpointId ? 10 : 6);
     }
     if (this.selectedJunctionId) {
       const selected = nodes.get(this.selectedJunctionId);
@@ -543,7 +729,7 @@ export class RoadCanvasController {
     }
     if (this.draft?.sceneId === canvas.scene.id) {
       const draft = this.draft;
-      const visualAtlas = atlas.schemaVersion === 3 ? atlas :
+      const visualAtlas = atlas.schemaVersion >= 3 ? atlas :
         { ...atlas, schemaVersion: 3, coordinateSpace: "image", roads: [] };
       let points = draft.points;
       if (draft.mode === "new" && points.length > 1 && draft.snap.at(-1)) {
@@ -572,5 +758,6 @@ export class RoadCanvasController {
     this.graphicsCanvas = null;
     this.selectedRoadId = null;
     this.selectedJunctionId = null;
+    this.selectedCheckpointId = null;
   }
 }
