@@ -40,12 +40,12 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 
 ## Phase 2 — Scene Atlas management, road editing, and Region associations
 
-**In progress:** The owner verified Phase 2b **v0.2.3**: native Scene Grid changes propagate to the Atlas tab. **v0.2.4 starts Phase 2c** with the GM Roads [+] canvas editor and road list, and removes Configure Atlas activation UI. Detailed waypoint/junction editing and native Region linking remain future slices. No routing is implemented. See [Phase 2 design](PHASE2_DESIGN.md).
+**In progress:** The owner verified Phase 2b native Grid updates and tested Phase 2c **v0.2.4** in Foundry v14 on October 23, 2026: road add/rename/delete, reload persistence, per-Scene isolation, and highlight passed. Padding/image anchoring and mid-segment connection did not pass; they are the immediate Phase 2c follow-ups before broader editing. Native Region linking and routing remain future slices. See [Phase 2 design](PHASE2_DESIGN.md).
 
 **Reviewable slices**
 
 - **2b — Native Scene integration and scale (owner verified in Foundry v14):** v0.2.3 provides a public-TABS/PARTS native Atlas tab (Misc/Grid in-sheet fallback); displays Scene Grid settings as the **only** measurement source. Existing manual calibration remains stored but inert; no duplicate global or per-Scene scale setting.
-- **2c — Roads and waypoints (v0.2.4 first slice awaiting owner test):** Roads [+] starts a canvas click-to-draw polyline; supports Finish/Cancel, draft point undo, road list/select/highlight/rename/delete, endpoint snapping within 14 Scene px, save/reload persistence and optimistic revision checks. The old enabled toggle is removed; presence of saved roads defines active Atlas status. **Deferred within 2c:** waypoint-specific [+] list, explicit junction selection/movement, editing existing bends, controlled line splitting, and improved pan/zoom UX.
+- **2c — Roads and waypoints (v0.2.4 owner-tested, not accepted as complete):** Roads [+] creates polylines; list/select/highlight/rename/delete, persistence, and Scene isolation are confirmed. **Fix next:** (1) road anchoring across Scene padding/shift/dimension changes with safe v1 coordinate migration, (2) join an interior point of an existing road by splitting it into connected segments, rather than endpoint-only snapping, and (3) clear temporary highlight when closing Scene Configuration/leaving Atlas. **Then:** Waypoints [+], moving/inserting/removing saved bends/junctions, safe undo, explicit join/nonjoin, and direct road selection/right-click edit actions. Show a visible snapping/connection preview so the GM knows when nodes actually join. The old enabled toggle stays removed.
 - **2d — Native Region linking:** Select existing Scene `RegionDocument` areas instead of recreating their geometry. Persist only minimal Atlas link metadata, display native Region names and active movement-related Behaviors, and open the existing Region editor for all terrain configuration. Optional Atlas labels are visual only; **no parallel speed multipliers, stacking rules, or travel-time calculation in Phase 2.**
 
 **Acceptance**
@@ -53,7 +53,9 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 - [ ] Any Scene offers an Atlas management entry without requiring a premature enabling step; opening it never writes defaults. Existing `enabled` and legacy manual flags remain intact; manual values must not affect distances or UI.
 - [ ] Grid `size`, `distance`, and `units` are read correctly; no overrides are offered; native path results match native ruler for square, hex, gridless, and multiwaypoint roads (when routing begins).
 - [ ] A sample road topology with a branch and an intentional non-connected crossing is editable on the canvas.
-- [ ] Roads share junctions only when explicitly connected; saving/reloading preserves stable IDs and coordinates; only the native Scene Grid determines measured distance.
+- [ ] Roads share junctions only when explicitly connected, including an explicitly selected interior segment point (split with stable shared junction); visual crossings remain unconnected by default. Saving/reloading preserves IDs; only native Scene Grid determines measured distance.
+- [ ] **Padding regression:** draw a road on padding 0.00, change to 0.05 and back, confirm road remains aligned to the same background locations at each value. Also verify Scene shift, dimensions, grid change, pan/zoom, reloaded/migrated v1 roads, and a second Scene. Do not silently migrate unknown legacy coordinate anchors.
+- [ ] **Selection cleanup:** road highlight clears when Scene Configuration is closed, Atlas editing ends, or another Scene is viewed, without changing the persisted road or its visibility.
 - [ ] Invalid references, zero-length segments, and dangling links are prevented; deletion requires clear confirmation or prevents destructive cascades.
 - [ ] Native Regions can be linked/unlinked without replacing native shapes, holes, Behaviors, permissions, or levels.
 - [ ] Region link associations persist without copying or modifying native Behaviors. Unlinked Regions are excluded from **Atlas terrain-aware planning**, but can still affect actual tokens in Foundry. Deleted/renamed Regions create recoverable reference updates/warnings.
@@ -89,11 +91,18 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 - Intuitive sidebar/editor controls and keyboard/pointer interactions.
 - Connection to native Scene Notes and linked Journals without copying lore records.
 - Optional snap-to-road point selection after the basic junction query is sound.
-- Road labels, visual styles, saved setting defaults, basic import/export if justified.
+- Road labels with Off / On hover / Always settings; road-level color and stroke styles (solid/dashed/dotted, width) with optional module defaults.
+- Optional controlled curve smoothing without silently changing canonical graph geometry or measured travel distance.
+- Focus on a full road (pan/zoom to bounds), GM display hide/show, road hover name and native-measured length once distance is implemented.
+- Direct right-click road context menu for common edit/focus/style/hide/delete actions with safe hit testing and confirmations.
+- Basic import/export if justified.
 
 **Acceptance**
 
 - [ ] A GM can go from blank atlas to first computed route without console commands.
+- [ ] Road labels/hover, per-road style, optional smoothing, focus and display hide/show survive supported save/reload operations and do not alter graph connectivity.
+- [ ] Hover length uses the same native measured geometry as the route engine; smoothing as a display option never fabricates a different authoritative distance.
+- [ ] Right-click editing does not break native Foundry canvas tools, road drawing, Scene controls or other modules.
 - [ ] Existing Note/Journal behavior and native permissions continue to work.
 - [ ] Misclicks and destructive edits are reversible or explicitly confirmed.
 - [ ] A small internal test world documents the complete manual flow.
@@ -144,7 +153,7 @@ Each optional feature gets its own data-model revision, risks, and tests. Do not
 - Install/enable/disable; blank/large Scene; switching and reloading Scenes.
 - Native Note/Journal interaction and ownership checks.
 - Native Region interactions, module link-metadata isolation, Region deletion/edits, and native token movement-cost behavior interoperability (plus system-provided behaviors where present).
-- Canvas pan/zoom, route overlay stacking, hit testing, and cleanup.
+- Canvas pan/zoom, padding (0.00 ↔ 0.05), Scene image shift/dimensions, route overlay stacking, road hover/context-menu hit testing, transient highlight cleanup, and native tool compatibility.
 - Two browser clients (GM and player), especially before Phase 5.
 - Multiple game systems; small and comparatively dense road networks.
 - Two GM sessions or a clear single-editor restriction.
