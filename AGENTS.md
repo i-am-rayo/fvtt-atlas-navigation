@@ -1,3 +1,5 @@
+> **October 23, 2026 — v0.2.9 owner test gate:** The owner verified v0.2.8 junction detachment/reattachment in Foundry v14. v0.2.9 adds an explicit Waypoints [+] click-to-place graph junction picker (staged in Edit Points) and Shift-click promotion of a white bend into a stable gold junction. Subsequent drag-to-connect still requires an affirmative GM confirmation. Crossing lines **never** attach automatically. The schema remains v3; roads/names, Scene Grid, old flags and Region Behaviors are unchanged. **Foundry live testing for 0.2.9 remains required; Phase 2d/Phase 3 are not authorized for implementation.**
+
 # Agent and contributor instructions
 
 ## Project identity
@@ -5,7 +7,7 @@
 - Repository: `i-am-rayo/fvtt-atlas-navigation`
 - Intended module ID / manifest ID / module folder: `fvtt-atlas-navigation`
 - Target: **Foundry VTT v14**, system-agnostic.
-- Status: **Phase 1 merged**, **Phase 2 authorized**. Owner verified v0.2.5 anchoring, snapping, Scene isolation, and highlights. v0.2.8 adds explicitly confirmed, staged detachment of one named road from a shared graph junction; v0.2.7 GM tests confirmed double-click insertion, bend removal and road-name confirmation prompts. Internal edge counts are clarified as graph segments. **Live v14 retest of v0.2.8 is pending**. Phase 2d native Regions, Phase 3 routing, and player features are not authorized for implementation.
+- Status: **Phase 1 merged**, **Phase 2 authorized**. Owner verified v0.2.5 anchoring, snapping, Scene isolation, and highlights; v0.2.7 bend editing and confirmed road attachments; and v0.2.8 detachment/reattachment. v0.2.9 adds explicit staged waypoint placement and bend promotion with the same confirmation for road connections. Internal edge counts are graph segments. **Live v14 retest of v0.2.9 is pending**. Phase 2d native Regions, Phase 3 routing, and player features are not authorized for implementation.
 - Foundry module development is the primary framework; do not build a standalone web service or introduce a LegendKeeper requirement.
 - No campaign-specific or game-system-specific assumptions, example content, assets, settings, or APIs.
 
