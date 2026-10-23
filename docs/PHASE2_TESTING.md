@@ -1,3 +1,24 @@
+# Phase 2g — v0.2.15 GM acceptance: world Corridor Travel Presets
+
+**Status (October 23, 2026):** The owner verified v0.2.14 generated native Regions, including the safety block after accidentally moving a native Region. This v0.2.15 draft is **not yet owner-verified in Foundry v14**. Back up the World before assigning a named-road default: that explicit action upgrades its Scene Atlas from v3/v4 to v5. Do not downgrade that Scene to older Atlas module versions afterward. Keep a single GM authoring a Scene at one time.
+
+**Development manifest:** `https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2g-travel-presets/module.json` — reload the world and verify version **0.2.15**.
+
+## New v0.2.15 GM test plan
+
+1. In Game Settings → Configure Settings → **FVTT Atlas Navigation → Atlas Presets → Configure Corridor Travel Presets**, check the restricted GM submenu. Default **Land, Air, Water** examples must all initially show **movement cost ×1.00**, so no implied game-system terrain penalty exists.
+2. Edit **Turbulent Air** to cost **×1.50** (or ×0.75 to confirm a fractional *cost*, not speed, is accepted), save, reopen the settings, and verify persistence. Add an original **Water** preset, edit its name/type/cost, and remove it while unused. Duplicated names within one type and invalid costs such as 0 or a negative number must be rejected.
+3. In Scene Configuration → Atlas, click the **◈** button beside a named road and choose a preset as the road's default. Verify its subtitle appears. A pre-existing v4 Scene must become **v5** only after this explicit GM action; checkpoint IDs, road/node/section IDs, shapes, elevations and existing native Regions must remain unchanged. Move a shaping point, edit a checkpoint, rename a road, save, and reload: its default preset persists. Try an older v3 road-only Scene if available; it should gain an empty checkpoint array safely.
+4. Create a new generated **corridor** on the road. The generator should initially select the road default. Choose a different preset explicitly (or **None**) for this one corridor and confirm the native Region preview. Its Atlas metadata must show that chosen condition, while native `Region.behaviors` stays empty unless the GM manually adds something. Existing checkpoint Regions still generate normally.
+5. Use **◈** beside an existing generated corridor to assign/change/clear its preset. Confirm native geometry, Levels, name, visibility and configured Behaviors do not change. Move a road node and explicitly regenerate an *unchanged native* corridor: the preset association and all manually configured Behaviors remain. Manually move the native Region and verify the original regeneration protection is still enforced.
+6. Open a second Scene in the same World: world presets (and any edited value) are shared, while named-road defaults and individual corridor selections remain Scene-specific. Reload Foundry; all presets and references persist. Edit a world preset's cost: its referenced rows should show the new suggested value but **no existing native Region Behavior should change**.
+7. Try to delete a preset while a road or generated Region still references it. The settings editor should refuse and identify a reference. Reassign/remove the references, then delete the preset. No native Region should be deleted.
+8. As a **non-GM**, confirm the module-settings submenu is restricted and Scene Atlas cannot save road defaults or generated Region assignments. On unsupported/malformed world preset data or stale Scene revision, the operation should fail safely without erasing native Scene data.
+
+**Intentional v0.2.15 limit:** Presets are GM metadata and movement-cost suggestions only. **No `Modify Movement Cost` native Behavior is created, updated, applied, or synchronized automatically.** Live native Behavior creation, token-specific movement, elevation slope costs and shortest-path travel remain separately gated follow-on work.
+
+---
+
 # Phase 2f — v0.2.14 GM acceptance: optional generated native Regions
 
 **Status (October 23, 2026):** The owner verified v0.2.13 meaningful Checkpoints, elevation edits and filtering in Foundry v14. This new generation milestone is **draft and awaits live Foundry v14 acceptance**. Back up the world and keep a single GM editor. Phase 3 route calculation remains separately gated.
