@@ -75,10 +75,20 @@ function atlasPanel(scene, atlas, actions, refresh) {
   root.appendChild(node("p", active ?
     label("FVTTATLAS.Roads.Active") : label("FVTTATLAS.Roads.EmptyStatus")));
 
+  const legacy = atlas.schemaVersion === 1 && (atlas.nodes.length || atlas.segments.length);
+  if (legacy) {
+    const migration = node("fieldset");
+    migration.appendChild(node("legend", label("FVTTATLAS.Roads.LegacyTitle")));
+    migration.appendChild(node("p", label("FVTTATLAS.Roads.LegacyHint"), "hint"));
+    migration.appendChild(button(label("FVTTATLAS.Roads.Anchor"),
+      label("FVTTATLAS.Roads.Anchor"), () => actions.anchor(scene, refresh)));
+    root.appendChild(migration);
+  }
+
   const section = node("fieldset");
   const header = node("legend");
   header.appendChild(node("span", label("FVTTATLAS.Roads.Title") + " "));
-  header.appendChild(button("+", label("FVTTATLAS.Roads.Add"), () => {
+  if (!legacy) header.appendChild(button("+", label("FVTTATLAS.Roads.Add"), () => {
     actions.begin(scene, refresh);
   }));
   section.appendChild(header);
@@ -86,10 +96,11 @@ function atlasPanel(scene, atlas, actions, refresh) {
   const draft = actions.draft(scene);
   if (draft) {
     section.appendChild(node("p",
-      label("FVTTATLAS.Roads.Drawing") + " " +
+      label(draft.mode === "reshape" ? "FVTTATLAS.Roads.Reshaping" : "FVTTATLAS.Roads.Drawing") + " " +
       draft.points + " " + label("FVTTATLAS.Roads.Points"), "hint"));
     const controls = node("div", undefined, "form-fields");
-    controls.appendChild(button(label("FVTTATLAS.Roads.Finish"),
+    controls.appendChild(button(label(draft.mode === "reshape" ?
+      "FVTTATLAS.Roads.FinishShape" : "FVTTATLAS.Roads.Finish"),
       label("FVTTATLAS.Roads.Finish"), () => actions.finish()));
     controls.appendChild(button(label("FVTTATLAS.Roads.Cancel"),
       label("FVTTATLAS.Roads.Cancel"), () => actions.cancel()));
@@ -109,6 +120,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
     const controls = node("div", undefined, "form-fields");
     controls.appendChild(button("◎", label("FVTTATLAS.Roads.Highlight"),
       () => actions.select(scene, segment.id)));
+    if (!legacy) controls.appendChild(button("⌁", label("FVTTATLAS.Roads.Redraw"),
+      () => actions.reshape(scene, segment.id, refresh)));
     controls.appendChild(button("✎", label("FVTTATLAS.Roads.Rename"),
       async () => { await actions.rename(scene, segment, refresh); }));
     controls.appendChild(button("×", label("FVTTATLAS.Roads.Delete"),
