@@ -497,6 +497,63 @@ test("demotion rejects shared junctions, branch junctions, endpoints and closed 
     operation:{kind:"demote-junction",nodeId:"b"}}),/loop/);
 });
 
+test("a merged same-road fork can detach one chosen arm without renaming the road", () => {
+  const graph = { ...createEmptyAtlas(), enabled: true,
+    roads: [{id:"route", name:"Kharak Menzor-Eyrie Sea Route"}],
+    nodes: [
+      {id:"west",x:0,y:0},{id:"fork",x:50,y:0},
+      {id:"east",x:100,y:0},{id:"spur",x:50,y:80}
+    ],
+    segments: [
+      {id:"westPart",roadId:"route",from:"west",to:"fork",via:[],bidirectional:true},
+      {id:"eastPart",roadId:"route",from:"fork",to:"east",via:[],bidirectional:true},
+      {id:"spurPart",roadId:"route",from:"fork",to:"spur",via:[],bidirectional:true}
+    ]
+  };
+  assert.throws(() => applyRoadGeometryEdit(graph,{roadId:"route",
+    operation:{kind:"demote-junction",nodeId:"fork"}}), /two-section/);
+  assert.throws(() => applyRoadGeometryEdit(graph,{roadId:"route",
+    operation:{kind:"detach-node",nodeId:"fork",newNodeId:"independent",x:50,y:0}
+  }),/not shared/);
+  const action = {kind:"detach-branch",nodeId:"fork",
+    segmentId:"spurPart",newNodeId:"independent"};
+  const split = applyRoadGeometryEdit(graph,{roadId:"route",operation:action});
+  assert.deepEqual(split.roads,graph.roads,"the original named road remains one entry");
+  assert.equal(split.segments.length,graph.segments.length,"no section is deleted");
+  assert.equal(split.nodes.length,graph.nodes.length+1);
+  assert.deepEqual(split.segments.filter(s=>s.id!=="spurPart"),
+    graph.segments.filter(s=>s.id!=="spurPart"),"other arms are unchanged");
+  assert.deepEqual(split.segments.find(s=>s.id==="spurPart"),
+    {...graph.segments[2],from:"independent"});
+  assert.deepEqual(split.nodes.at(-1),{id:"independent",x:50,y:0});
+  assert.deepEqual(graph.nodes.at(-1),{id:"spur",x:50,y:80},"original graph remains intact");
+  const moved=applyRoadGeometryEdit(split,{roadId:"route",
+    operation:{kind:"move-node",nodeId:"independent",x:55,y:30}});
+  const softened=applyRoadGeometryEdit(moved,{roadId:"route",
+    operation:{kind:"demote-junction",nodeId:"fork"}});
+  assert.equal(softened.segments.length,2,"remaining pass-through converts to a bend");
+  assert.deepEqual(softened.segments.find(s=>s.id==="westPart").via,[{x:50,y:0}]);
+  assert.deepEqual(softened.nodes.find(n=>n.id==="independent"),
+    {id:"independent",x:55,y:30});
+  assert.equal(softened.roads[0].name,"Kharak Menzor-Eyrie Sea Route");
+  assert.throws(()=>applyRoadGeometryEdit(graph,{roadId:"route",operation:{
+    ...action,segmentId:"missing"
+  }}),/Select a road section/);
+  assert.throws(()=>applyRoadGeometryEdit(graph,{roadId:"route",operation:{
+    ...action,newNodeId:"fork"
+  }}),/unique/);
+  assert.throws(()=>applyRoadGeometryEdit(split,{roadId:"route",operation:{
+    ...action,newNodeId:"different"
+  }}),/one named road|branch shared/);
+  const twoSection={...graph,segments:graph.segments.slice(0,2)};
+  assert.throws(()=>applyRoadGeometryEdit(twoSection,{roadId:"route",operation:action}),
+    /one named road/);
+  const mixed={...graph,roads:[...graph.roads,{id:"other",name:"Unrelated Road"}],
+    segments:graph.segments.map((segment,i)=>i===2?{...segment,roadId:"other"}:segment)};
+  assert.throws(()=>applyRoadGeometryEdit(mixed,{roadId:"route",operation:action}),
+    /one named road/);
+});
+
 test("junction inspector excludes endpoints and same-road pass-through nodes, and filters one hop", () => {
   const graph={...createEmptyAtlas(),enabled:true,
     roads:[{id:"main",name:"Main"},{id:"branch",name:"Branch"},
