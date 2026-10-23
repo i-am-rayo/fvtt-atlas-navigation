@@ -102,7 +102,7 @@ export function saveRemovedCheckpoint(scene, { checkpointId, expectedRevision })
  * First assignment explicitly upgrades a v3/v4 atlas to v5. Preset IDs are
  * stable world references; deleting/renaming a preset never rewrites roads.
  */
-export function saveRoadTravelPreset(scene, { roadId, presetId = null, expectedRevision }) {
+export async function saveRoadTravelPreset(scene, { roadId, presetId = null, expectedRevision }) {
   if (presetId !== null) {
     validateTravelPresetId(presetId);
     const settings = validateTravelPresets(
