@@ -115,7 +115,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   section.appendChild(header);
 
   const draft = actions.draft(scene);
-  if (draft) {
+  if (draft && draft.mode !== "waypoint" && draft.source !== "waypoint") {
     section.appendChild(node("p", draft.mode === "points" ?
       label("FVTTATLAS.Roads.PointEditHint") : (label("FVTTATLAS.Roads.Drawing") + " " +
       draft.points + " " + label("FVTTATLAS.Roads.Points")), "hint"));
@@ -176,6 +176,88 @@ function atlasPanel(scene, atlas, actions, refresh) {
     section.appendChild(row);
   }
   root.appendChild(section);
+
+  // Junctions are actual graph nodes, not visual bends. Keep the list bounded
+  // so dense road networks do not flood the Scene Configuration sheet.
+  const waypointSection = node("fieldset");
+  const waypointLegend = node("legend");
+  const waypointHeader = node("span");
+  waypointHeader.style.display = "inline-flex";
+  waypointHeader.style.alignItems = "center";
+  waypointHeader.style.gap = "0.35rem";
+  waypointHeader.appendChild(node("span", label("FVTTATLAS.Waypoints.Title")));
+  const addWaypoint = button("+", label("FVTTATLAS.Waypoints.Add"),
+    () => actions.beginWaypoint(scene, refresh));
+  addWaypoint.style.flex = "0 0 auto";
+  addWaypoint.style.width = "1.65rem";
+  addWaypoint.style.minWidth = "1.65rem";
+  addWaypoint.style.padding = "0";
+  addWaypoint.disabled = atlas.schemaVersion !== 3 || !atlas.segments.length || !!draft;
+  waypointHeader.appendChild(addWaypoint);
+  waypointLegend.appendChild(waypointHeader);
+  waypointSection.appendChild(waypointLegend);
+  waypointSection.appendChild(node("p", label("FVTTATLAS.Waypoints.Hint"), "hint"));
+
+  if (draft?.mode === "waypoint") {
+    waypointSection.appendChild(node("p", label("FVTTATLAS.Waypoints.Picking"), "hint"));
+    waypointSection.appendChild(button(label("FVTTATLAS.Roads.Cancel"),
+      label("FVTTATLAS.Roads.Cancel"), () => actions.cancel()));
+  } else if (draft?.mode === "points" && draft.source === "waypoint") {
+    waypointSection.appendChild(node("p", label("FVTTATLAS.Waypoints.Editing"), "hint"));
+    const controls = node("div", undefined, "form-fields");
+    controls.appendChild(button(label("FVTTATLAS.Roads.SavePoints"),
+      label("FVTTATLAS.Roads.SavePoints"), () => actions.finish()));
+    if (draft.canUndo) {
+      controls.appendChild(button(label("FVTTATLAS.Roads.Undo"),
+        label("FVTTATLAS.Roads.Undo"), () => actions.undo()));
+    }
+    controls.appendChild(button(label("FVTTATLAS.Roads.CancelEdits"),
+      label("FVTTATLAS.Roads.CancelEdits"), () => actions.cancel()));
+    waypointSection.appendChild(controls);
+  }
+
+  if (atlas.schemaVersion === 3) {
+    const activeIds = new Map();
+    const roadNames = new Map(atlas.roads.map(road => [road.id, road.name]));
+    for (const segment of atlas.segments) {
+      for (const id of [segment.from, segment.to]) {
+        if (!activeIds.has(id)) activeIds.set(id, new Set());
+        activeIds.get(id).add(segment.roadId);
+      }
+    }
+    const all = atlas.nodes.filter(n => activeIds.has(n.id));
+    const shared = all.filter(n => activeIds.get(n.id).size > 1).length;
+    waypointSection.appendChild(node("p",
+      all.length + " " + label("FVTTATLAS.Waypoints.Count") + " · " +
+      shared + " " + label("FVTTATLAS.Waypoints.Shared"), "hint"));
+    const visible = all.slice(-25).reverse();
+    for (const item of visible) {
+      const row = node("div", undefined, "form-group");
+      row.setAttribute("data-atlas-waypoint-id", item.id);
+      const description = node("div");
+      description.style.flex = "1 1 auto";
+      description.style.minWidth = "0";
+      description.appendChild(node("span",
+        label("FVTTATLAS.Waypoints.Junction") + " · " + item.id.slice(-6)));
+      const owners = node("div",
+        [...activeIds.get(item.id)].map(id => roadNames.get(id) || id).join(", "),
+        "hint");
+      owners.style.fontSize = "0.8em";
+      description.appendChild(owners);
+      row.appendChild(description);
+      const controls = node("div", undefined, "form-fields");
+      controls.appendChild(button("◎", label("FVTTATLAS.Waypoints.Highlight"),
+        () => actions.selectWaypoint(scene, item.id)));
+      row.appendChild(controls);
+      waypointSection.appendChild(row);
+    }
+    if (all.length > visible.length) {
+      waypointSection.appendChild(node("p",
+        label("FVTTATLAS.Waypoints.Recent") + " " + visible.length +
+        " / " + all.length, "hint"));
+    }
+  }
+  root.appendChild(waypointSection);
 
   const measurement = node("fieldset");
   measurement.appendChild(node("legend", label("FVTTATLAS.Atlas.Measurement")));
