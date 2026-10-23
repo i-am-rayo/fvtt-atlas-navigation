@@ -1,6 +1,6 @@
 # Architecture — revised Phase 2 boundaries
 
-**Status:** Phase 1 merged; Phase 2b native Grid measurement confirmed in Foundry v0.2.3. Phase 2c v0.2.4 adds the first GM-only Roads [+] editor slice (pending live canvas test), while named waypoints and saved-geometry editing remain. Phase 2d Region linking and Phase 3 routing remain planned.  
+**Status:** Phase 1 merged; Phase 2b native Grid verified; Phase 2c v0.2.5 map padding and road-junction editing owner-verified; v0.2.6 adds logical `roads[]` grouping and draggable point edits (pending live Foundry v14 test). Phase 2d Region linking and Phase 3 routing remain planned.
 **Target:** Foundry VTT v14; game-system agnostic.  
 **Module identity:** `fvtt-atlas-navigation`.
 
@@ -41,18 +41,18 @@ Long-term functional modules (illustrative structure; the current incremental Ja
 
 Dependencies point inward: UI/canvas and Foundry adapters call the domain layer. The domain layer must not import Foundry APIs. This allows unit testing with ordinary geometry fixtures.
 
-**Current Phase 2c slice (v0.2.4):** `scripts/road-model.js` implements pure network add/rename/remove with stable IDs and 14px endpoint snap; `scripts/road-storage.js` handles GM permissions, optimistic revision validation, and Scene flags; `scripts/road-canvas.js` manages GM overlay and click-to-place draft, with teardown hooks; `scripts/scene-config.js` mounts Roads [+] and list controls in the native Atlas tab; `scripts/main.js` wires hooks and dialogs. Older `atlas-storage.js` setup persistence remains for backwards compatibility but has no exposed activation UI. No independent distance source was added.
+**Earlier Phase 2c implementation (v0.2.4), extended in v0.2.5/v0.2.6:** `scripts/road-model.js` implements pure network add/rename/remove with stable IDs and 14px endpoint snap; `scripts/road-storage.js` handles GM permissions, optimistic revision validation, and Scene flags; `scripts/road-canvas.js` manages GM overlay and click-to-place draft, with teardown hooks; `scripts/scene-config.js` mounts Roads [+] and list controls in the native Atlas tab; `scripts/main.js` wires hooks and dialogs. Older `atlas-storage.js` setup persistence remains for backwards compatibility but has no exposed activation UI. No independent distance source was added.
 
 ## 4. Road-network model
 
-A **junction** has an immutable ID and an (x, y) Scene coordinate. A **segment** references two junction IDs and optionally contains an ordered list of interior polyline points. In v1 every segment is bidirectional; one-way travel is deferred.
+A **junction** has an immutable ID and an (x, y) Scene coordinate. In schema v3, a logical **road** (`roads[]`) owns its name and ID; each **segment** (`segments[]`) stores a `roadId` reference to the owning road. One road can contain multiple graph sections after splits or deliberate merges, preventing duplicate named rows. A **segment** references two junction IDs and optionally contains an ordered list of interior polyline points. In v1 every segment is bidirectional; one-way travel is deferred.
 
 Key rules:
 
 1. A segment must reference two existing, distinct junctions.
 2. Coordinates are finite Scene-space pixels. Interior points are ordered from `from` to `to`.
 3. A visible road crossing is **not** a graph connection unless the GM creates/joins a junction.
-4. Roads are not Foundry Drawings; the module draws them using its own overlay.
+4. Roads are not Foundry Drawings or Walls; the module draws and edits them using its own non-colliding overlay.
 5. Edited junction coordinates change connected geometry consistently.
 6. Saved IDs are stable through edits, import/export, and migration.
 
