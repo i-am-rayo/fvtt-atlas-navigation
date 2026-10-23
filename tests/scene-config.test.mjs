@@ -66,7 +66,7 @@ test("Roads plus opens drawing against the configured Scene; no Configure dialog
     assert.ok(mounted);
     assert.equal(mounted.attributes.has("data-fvtt-atlas-setup"), true);
     assert.equal(buttons(mounted).length, 2,
-      "empty atlas exposes Roads [+] and a disabled Waypoints [+]");
+      "empty atlas exposes Roads [+] and a disabled Junctions [+]");
     const plus = buttons(mounted)[0];
     assert.equal(plus.textContent, "+");
     assert.equal(plus.type, "button");
@@ -111,7 +111,7 @@ test("a Scene with roads shows select, rename, delete without activation toggles
       begin() {}, draft: () => null, finish() {}, cancel() {},
       select: (scene, id) => { selected = id; }, rename() {}, remove() {}
     });
-    assert.equal(buttons(mounted).length, 5, "legacy roads plus disabled Waypoints [+]");
+    assert.equal(buttons(mounted).length, 5, "legacy roads plus disabled Junctions [+]");
     assert.match(buttons(mounted)[0].textContent, /FVTTATLAS.Roads.Anchor/);
     assert.equal(buttons(mounted).filter(b=>b.textContent==="+" && !b.disabled).length,0,
       "legacy v1 cannot add or change roads before anchoring");
@@ -165,7 +165,7 @@ test("anchored v2 road list explicitly offers organization before new editing", 
       organize: chosen => { organizeScene = chosen; }
     });
     assert.equal(buttons(mounted).length, 5,
-      "organize, select, rename, delete, and a disabled Waypoints [+]");
+      "organize, select, rename, delete, and a disabled Junctions [+]");
     assert.equal(buttons(mounted)[0].textContent, "FVTTATLAS.Roads.Organize");
     assert.ok(!buttons(mounted).some(b=>b.textContent==="+" && !b.disabled));
     buttons(mounted)[0].listeners.get("click")({ preventDefault() {} });
@@ -189,17 +189,17 @@ test("v3 connected road sections render once with edit and merge actions",async(
    {id:"s1",roadId:"new",from:"b",to:"d",via:[],bidirectional:true}
   ]
  })};
- let editedId,mergedId,waypointId,pickerScene;
+ let editedId,mergedId,junctionId,pickerScene;
  try {
   globalThis.document={createElement:tag=>new Element(tag)};
   globalThis.game={user:{isGM:true},i18n:{localize:k=>k,lang:"en"}};
   addAtlasRoadsToSceneConfig({document:scene},element,{
    begin(){},draft:()=>null,finish(){},cancel(){},select(){},rename(){},remove(){},
    beginPointEdit:(_scene,id)=>{editedId=id;},merge:(_scene,road)=>{mergedId=road.id;},
-    beginWaypoint:(s)=>{pickerScene=s;},selectWaypoint:(_scene,id)=>{waypointId=id;}
+    beginJunction:(s)=>{pickerScene=s;},selectJunction:(_scene,id)=>{junctionId=id;}
   });
-  assert.equal(buttons(mounted).length,16,
-    "Roads [+], road actions, Waypoints [+], and four junction focus actions");
+  assert.equal(buttons(mounted).length,13,
+    "Roads [+], road actions, Junctions [+], and one actual junction focus action");
   assert.match(textContents(mounted),/Main Road 2 FVTTATLAS.Roads.Segments/);
   const all = [];
   const collect = value => { all.push(value); for (const child of value.children ?? []) collect(child); };
@@ -221,23 +221,24 @@ test("v3 connected road sections render once with edit and merge actions",async(
   await oldButtons[2].listeners.get("click")({preventDefault(){}});
   assert.equal(mergedId,"old");
    const wpPlus=buttons(mounted).find(b=>
-     b.textContent==="+" && b.title==="FVTTATLAS.Waypoints.Add");
+     b.textContent==="+" && b.title==="FVTTATLAS.Junctions.Add");
    assert.equal(wpPlus.disabled,false);
    await wpPlus.listeners.get("click")({preventDefault(){}});
    assert.equal(pickerScene,scene);
-   const waypointRows=[];
-   const visitWaypoint=value=>{
-     if(value.attributes?.has("data-atlas-waypoint-id"))waypointRows.push(value);
-     value.children?.forEach(visitWaypoint);
+   const junctionRows=[];
+   const visitJunction=value=>{
+     if(value.attributes?.has("data-atlas-junction-id"))junctionRows.push(value);
+     value.children?.forEach(visitJunction);
    };
-   visitWaypoint(mounted);
-   assert.equal(waypointRows.length,4);
-   await buttons(waypointRows[0])[0].listeners.get("click")({preventDefault(){}});
-   assert.equal(waypointId,waypointRows[0].attributes.get("data-atlas-waypoint-id"));
+   visitJunction(mounted);
+   assert.equal(junctionRows.length,1,
+     "only the real three-edge crossing belongs in Junctions");
+   await buttons(junctionRows[0])[0].listeners.get("click")({preventDefault(){}});
+   assert.equal(junctionId,junctionRows[0].attributes.get("data-atlas-junction-id"));
  } finally {Object.assign(globalThis,previous);}
 });
 
-test("waypoint picking and point-edit controls stay inside the Waypoints section",async()=>{
+test("waypoint picking and point-edit controls stay inside the Junctions section",async()=>{
  const previous={document:globalThis.document,game:globalThis.game};
  let mounted=null;
  const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
@@ -253,7 +254,7 @@ test("waypoint picking and point-edit controls stay inside the Waypoints section
  try {
   globalThis.document={createElement:tag=>new Element(tag)};
   globalThis.game={user:{isGM:true},i18n:{localize:k=>k,lang:"en"}};
-  let state={mode:"waypoint",points:0};
+  let state={mode:"junction",points:0};
   let canceled=0,saved=0,undone=0;
   const actions={
    begin(){},draft:()=>state,select(){},rename(){},remove(){},
@@ -264,7 +265,7 @@ test("waypoint picking and point-edit controls stay inside the Waypoints section
   assert.ok(!buttons(roadSection).some(b=>b.textContent==="FVTTATLAS.Roads.Finish"));
   assert.ok(buttons(waypointSection).some(b=>b.textContent==="FVTTATLAS.Roads.Cancel"));
   assert.equal(buttons(waypointSection)[0].disabled,true,"do not restart picker mid-edit");
-  state={mode:"points",source:"waypoint",dirty:true,canUndo:true};
+  state={mode:"points",source:"junction",dirty:true,canUndo:true};
   addAtlasRoadsToSceneConfig({document:scene},element,actions);
   const roadPanel=sections()[0], wpPanel=sections()[1];
   assert.ok(!buttons(roadPanel).some(b=>b.textContent==="FVTTATLAS.Roads.SavePoints"));
@@ -276,35 +277,85 @@ test("waypoint picking and point-edit controls stay inside the Waypoints section
  } finally {Object.assign(globalThis,previous);}
 });
 
-test("Waypoints list is bounded and does not list orphaned historical nodes", () => {
+test("Junctions list excludes plain subdivisions, supports one-hop filters and caps long results", () => {
  const previous={document:globalThis.document,game:globalThis.game};
  let mounted=null;
  const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
  const element={querySelector:sel=>sel==='[data-fvtt-atlas-scene-root]'?nativeRoot:null};
  const nodes=Array.from({length:32},(_,i)=>({id:"n"+i,x:i*20,y:0}));
+ const branches=Array.from({length:30},(_,i)=>({id:"b"+i,x:(i+1)*20,y:40}));
  const segments=Array.from({length:31},(_,i)=>({
    id:"seg"+i,roadId:"road",from:"n"+i,to:"n"+(i+1),
    via:[],bidirectional:true
  }));
- const scene={id:"big",grid:{size:100,distance:5,units:"mi"},
+ segments.push(...branches.map((node,i)=>({
+   id:"spur"+i,roadId:"road",from:"n"+(i+1),to:node.id,
+   via:[],bidirectional:true
+ })));
+ const scene={id:"big-junctions",grid:{size:100,distance:5,units:"mi"},
    canUserModify:()=>true,getFlag:()=>({
      schemaVersion:3,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
-     roads:[{id:"road",name:"Long Road"}],nodes:[...nodes,{id:"unused",x:1000,y:1000}],
-     segments
+     roads:[{id:"road",name:"Long Road"}],
+     nodes:[...nodes,...branches,{id:"unused",x:1000,y:1000}],segments
    })};
  try {
   globalThis.document={createElement:tag=>new Element(tag)};
   globalThis.game={user:{isGM:true},i18n:{localize:k=>k,lang:"en"}};
   addAtlasRoadsToSceneConfig({document:scene},element,{
-   begin(){},draft:()=>null,select(){},rename(){},remove(){},selectWaypoint(){}
+   begin(){},draft:()=>null,select(){},rename(){},remove(){},selectJunction(){}
   });
   const rows=[];
-  const scan=v=>{if(v.attributes?.has("data-atlas-waypoint-id"))rows.push(v);
+  const scan=v=>{if(v.attributes?.has("data-atlas-junction-id"))rows.push(v);
     v.children?.forEach(scan);};
   scan(mounted);
   assert.equal(rows.length,25);
-  assert.ok(!rows.some(row=>row.attributes.get("data-atlas-waypoint-id")==="unused"));
-  assert.match(textContents(mounted),/32 FVTTATLAS.Waypoints.Count/);
-  assert.match(textContents(mounted),/FVTTATLAS.Waypoints.Recent 25 \/ 32/);
+  assert.ok(!rows.some(row=>row.attributes.get("data-atlas-junction-id")==="unused"));
+  assert.match(textContents(mounted),/30 \/ 30 FVTTATLAS.Junctions.Count/);
+  assert.match(textContents(mounted),/FVTTATLAS.Junctions.Recent 25 \/ 30/);
+ } finally {Object.assign(globalThis,previous);}
+});
+
+test("junction filters default to one road, include direct neighbors and can show Scene-wide", () => {
+ const previous={document:globalThis.document,game:globalThis.game};
+ let mounted=null;
+ const nativeRoot={querySelector:()=>null,appendChild:n=>{
+   mounted=n;n.remove=()=>{mounted=null;};}};
+ const element={querySelector:sel=>sel==='[data-fvtt-atlas-scene-root]'?nativeRoot:null};
+ const graph={
+  schemaVersion:3,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
+  roads:[{id:"main",name:"Main"},{id:"spur",name:"Spur"},{id:"other",name:"Other"},
+    {id:"remote",name:"Remote"}],
+  nodes:[{id:"a",x:0,y:0},{id:"b",x:50,y:0},{id:"c",x:100,y:0},
+    {id:"d",x:50,y:60},{id:"e",x:100,y:60},
+    {id:"r1",x:200,y:0},{id:"r2",x:230,y:0},
+    {id:"r3",x:260,y:0},{id:"r4",x:230,y:40}],
+  segments:[
+    ["m1","main","a","b"],["m2","main","b","c"],
+    ["s","spur","b","d"],["o","other","d","e"],
+    ["r1s","remote","r1","r2"],["r2s","remote","r2","r3"],
+    ["r3s","remote","r2","r4"]
+  ].map(([id,roadId,from,to])=>({id,roadId,from,to,via:[],bidirectional:true}))
+ };
+ const scene={id:"filter-scene",grid:{size:100,distance:5,units:"mi"},
+   canUserModify:()=>true,getFlag:()=>graph};
+ const rows=()=>{const result=[];const scan=n=>{if(n.attributes?.has("data-atlas-junction-id"))
+   result.push(n.attributes.get("data-atlas-junction-id"));n.children?.forEach(scan);};
+   scan(mounted);return result;};
+ const selects=()=>{const list=[];const scan=n=>{if(n.tag==="select")list.push(n);
+   n.children?.forEach(scan);};scan(mounted);return list;};
+ try {
+   globalThis.document={createElement:tag=>new Element(tag)};
+   globalThis.game={user:{isGM:true},i18n:{localize:k=>k,lang:"en"}};
+   const actions={begin(){},draft:()=>null,select(){},rename(){},remove(){}};
+   addAtlasRoadsToSceneConfig({document:scene,rendered:true},element,actions);
+   assert.deepEqual(rows(),["b"],"by default only the selected first road");
+   let controls=selects();assert.equal(controls.length,2);
+   controls[1].value="connected";controls[1].listeners.get("change")();
+   assert.deepEqual(rows(),["d","b"],"one-hop branches included, remote omitted");
+   controls=selects();controls[1].value="scene";controls[1].listeners.get("change")();
+   assert.deepEqual(rows(),["r2","d","b"]);
+   controls=selects();controls[0].value="remote";controls[0].listeners.get("change")();
+   controls=selects();controls[1].value="selected";controls[1].listeners.get("change")();
+   assert.deepEqual(rows(),["r2"],"road selection persists across refreshes");
  } finally {Object.assign(globalThis,previous);}
 });
