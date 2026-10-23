@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { validateAtlas, upgradeAtlasTravelPresets, TRAVEL_ATLAS_SCHEMA_VERSION }
   from "../scripts/atlas-model.js";
+import { addRoadCheckpoint, listRoadCheckpoints } from "../scripts/checkpoint-model.js";
 import { defaultTravelPresets, validateTravelPresets, upsertTravelPreset,
   removeTravelPreset, validateRegionTravelFlag } from "../scripts/travel-preset-model.js";
 
@@ -93,4 +94,19 @@ test("v3 road-only upgrade adds empty checkpoints; invalid v5 values fail", () =
   assert.throws(()=>validateAtlas({...v3,roads:[
     {...v3.roads[0],travelPresetId:"air-turbulent"}
   ]}),/unsupported field/);
+});
+
+test("v5 roads continue to support checkpoint edits without losing preset IDs", () => {
+ const upgraded=upgradeAtlasTravelPresets(roadAtlas());
+ const assigned=validateAtlas({ ...upgraded,roads:[
+   {...upgraded.roads[0],travelPresetId:"land-stone"}
+ ]});
+ const withCheckpoint=addRoadCheckpoint(assigned,{
+   roadId:"land-road",candidate:{kind:"node",nodeId:"b"},
+   name:"Mountain Pass",elevationMeters:80,idFactory:()=>"cp-next"
+ });
+ assert.equal(withCheckpoint.schemaVersion,5);
+ assert.equal(withCheckpoint.roads[0].travelPresetId,"land-stone");
+ assert.equal(listRoadCheckpoints(withCheckpoint).length,2);
+ assert.deepEqual(withCheckpoint.segments,assigned.segments);
 });
