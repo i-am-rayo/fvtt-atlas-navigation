@@ -1,5 +1,5 @@
 import { readAtlas } from "./atlas-storage.js";
-import { differsFromSceneGrid, readSceneGridScale, resolveAtlasScale } from "./scene-grid.js";
+import { readSceneGridScale } from "./scene-grid.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -53,7 +53,6 @@ function format(value) {
 
 function summary(scene, atlas) {
   const grid = readSceneGridScale(scene);
-  const effective = resolveAtlasScale(scene, atlas);
   const section = node("section");
   section.setAttribute("data-fvtt-atlas-setup", "");
 
@@ -64,24 +63,9 @@ function summary(scene, atlas) {
   section.appendChild(node("h4", label("FVTTATLAS.Atlas.Measurement")));
   if (grid) {
     section.appendChild(node("p",
-      `${label("FVTTATLAS.Atlas.NativeGrid")}: ${format(grid.unitsPerSpace)} ${grid.unit} /
-      ${format(grid.pixelsPerSpace)} px (${format(grid.unitsPerPixel)} ${grid.unit}/px)`
-        .replace(/\s+/g, " ").trim()));
+      `${label("FVTTATLAS.Atlas.NativeGrid")}: ${format(grid.unitsPerSpace)} ${grid.unit} / ${format(grid.pixelsPerSpace)} px`));
   } else {
     section.appendChild(node("p", label("FVTTATLAS.Atlas.GridUnavailable"), "hint"));
-  }
-
-  if (effective) {
-    const source = atlas.calibration ?
-      label("FVTTATLAS.Atlas.SourceManual") : label("FVTTATLAS.Atlas.SourceGrid");
-    section.appendChild(node("p",
-      `${source}: ${format(effective.unitsPerPixel)} ${effective.unit}/px`));
-  } else {
-    section.appendChild(node("p", label("FVTTATLAS.Atlas.Uncalibrated"), "hint"));
-  }
-
-  if (differsFromSceneGrid(atlas.calibration, grid)) {
-    section.appendChild(node("p", label("FVTTATLAS.Atlas.ScaleDifference"), "hint"));
   }
   section.appendChild(node("p", label("FVTTATLAS.Atlas.SceneGridSaveHint"), "hint"));
   return section;
