@@ -132,6 +132,9 @@ export function createAtlasSetupDialogClass(DialogV2) {
                 calibration = null;
               } else if (source === "manual") {
                 const scaleText = form.elements.namedItem("unitsPerPixel").value.trim();
+                if (scaleText === "" && readSceneGridScale(scene)) {
+                  throw new Error(label("FVTTATLAS.Atlas.ManualValueRequired"));
+                }
                 calibration = scaleText === "" ? null : {
                   source: "manual",
                   unitsPerPixel: Number(scaleText),
@@ -147,7 +150,13 @@ export function createAtlasSetupDialogClass(DialogV2) {
                 expectedRevision: atlas.revision
               });
               ui.notifications.info(label("FVTTATLAS.Atlas.Saved"), { permanent: true });
-              if (typeof onSaved === "function") onSaved();
+              try {
+                if (typeof onSaved === "function") onSaved();
+              } catch (refreshError) {
+                // The flag was saved already: a sheet refresh failure must not
+                // present the successful persistence as a failed save.
+                console.warn("[fvtt-atlas-navigation] Could not refresh Atlas tab", refreshError);
+              }
               return true;
             } catch (err) {
               ui.notifications.error(err.message);
