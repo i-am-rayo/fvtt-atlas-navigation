@@ -153,6 +153,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
       metadata.style.fontSize = "0.8em";
       metadata.style.fontStyle = "italic";
       metadata.style.opacity = "0.7";
+      metadata.title = label("FVTTATLAS.Roads.SegmentCountHint");
       description.appendChild(metadata);
     }
     row.appendChild(description);
