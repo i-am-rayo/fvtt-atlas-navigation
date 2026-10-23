@@ -1,11 +1,12 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * Phase 2c: per-Scene Roads (+), GM road drawing and visual overlay.
+ * Phase 2c: image-anchored road geometry, junctions and bend editing.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
-import { saveRenamedRoad, saveRemovedRoad } from "./road-storage.js";
+import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads } from "./road-storage.js";
+import { sceneImageOrigin } from "./road-coordinates.js";
 
 const STARTUP_NOTICE_SETTING = "showStartupNotice";
 const roadCanvas = new RoadCanvasController();
@@ -18,6 +19,28 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.StartNotice"));
     },
     draft: scene => roadCanvas.getDraft(scene),
+    reshape(scene, segmentId, refresh) {
+      roadCanvas.startReshape(scene, segmentId, refresh);
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.ReshapeNotice"));
+    },
+    async anchor(scene, refresh) {
+      const atlas = readAtlas(scene);
+      if (atlas.schemaVersion !== 1) return;
+      if (!globalThis.canvas?.ready || canvas.scene?.id !== scene.id) {
+        throw new Error("Open this Scene on the canvas before anchoring legacy roads.");
+      }
+      const origin = sceneImageOrigin(canvas);
+      const approved = await DialogV2.confirm({
+        window: { title: game.i18n.localize("FVTTATLAS.Roads.Anchor") },
+        content: game.i18n.localize("FVTTATLAS.Roads.AnchorWarning"),
+        rejectClose: false, modal: true
+      });
+      if (!approved) return;
+      await saveAnchoredLegacyRoads(scene, { origin, expectedRevision: atlas.revision });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Anchored"));
+    },
     finish: () => roadCanvas.finish(),
     cancel: () => roadCanvas.cancel(),
     select: (scene, id) => roadCanvas.selectRoad(scene, id),
@@ -76,6 +99,7 @@ Hooks.once("init", () => {
   Hooks.on("renderSceneConfig", (app, element) => {
     addAtlasRoadsToSceneConfig(app, element, roadActions);
   });
+  Hooks.on("closeSceneConfig", app => roadCanvas.endEditor(app?.document));
   Hooks.on("canvasReady", () => roadCanvas.refresh());
   Hooks.on("canvasTearDown", () => roadCanvas.tearDown());
   Hooks.on("updateScene", scene => {
