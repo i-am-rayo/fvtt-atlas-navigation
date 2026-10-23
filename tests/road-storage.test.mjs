@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readAtlas } from "../scripts/atlas-storage.js";
-import { saveNewRoad, saveRenamedRoad, saveRemovedRoad } from "../scripts/road-storage.js";
+import { saveNewRoad, saveRenamedRoad, saveRemovedRoad, saveReshapedRoad, saveAnchoredLegacyRoads } from "../scripts/road-storage.js";
 
 function mockScene(initial) {
   let stored = initial;
@@ -77,5 +77,34 @@ test("stale saves and non-GM saves do not write", async () => {
       expectedRevision: 0, idFactory: ids()
     }), /Only a GM/);
     assert.equal(scene.writes, 0);
+  } finally { globalThis.game = prior; }
+});
+
+test("populated v1 roads cannot be newly drawn over until a GM anchors them", async () => {
+  const prior = globalThis.game;
+  globalThis.game = { user: { isGM: true } };
+  const old = {
+    schemaVersion: 1, revision: 2, enabled: true, calibration: null,
+    nodes: [{ id: "a", x: 80, y: 50 }, { id: "b", x: 180, y: 50 }],
+    segments: [{ id: "s", from: "a", to: "b", via: [], name: "Road", bidirectional: true }]
+  };
+  const scene = mockScene(old);
+  try {
+    await assert.rejects(saveNewRoad(scene, {
+      points: [{ x: 0, y: 0 }, { x: 50, y: 50 }],
+      expectedRevision: 2, idFactory: ids()
+    }), /Anchor/);
+    assert.equal(scene.writes, 0);
+    const anchored = await saveAnchoredLegacyRoads(scene, {
+      origin: { x: 60, y: 20 }, expectedRevision: 2
+    });
+    assert.equal(anchored.revision, 3);
+    assert.equal(anchored.schemaVersion, 2);
+    assert.deepEqual(anchored.nodes[0], { id: "a", x: 20, y: 30 });
+    const reshaped = await saveReshapedRoad(scene, {
+      segmentId: "s", via: [{ x: 60, y: 45 }], expectedRevision: 3
+    });
+    assert.deepEqual(reshaped.segments[0].via, [{ x: 60, y: 45 }]);
+    assert.equal(reshaped.revision, 4);
   } finally { globalThis.game = prior; }
 });
