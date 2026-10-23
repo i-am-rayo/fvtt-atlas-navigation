@@ -292,6 +292,52 @@ export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
     throw new Error("Edit coordinates must be finite.");
   }
 
+  if (op.kind === "create-junction") {
+    // Turn a bend or a point along one named road into a real graph node.
+    // Crossings are never inferred: the GM explicitly invokes this operation.
+    const segment = related.find(s => s.id === op.segmentId);
+    if (!segment) throw new Error("This road section no longer exists.");
+    const valid = (id, items) => typeof id === "string" &&
+      /^[A-Za-z0-9_-]{1,128}$/.test(id) && !items.some(item => item.id === id);
+    if (!valid(op.newNodeId, current.nodes) ||
+        !valid(op.newSegmentId, current.segments)) {
+      throw new Error("New unique junction and segment IDs are required.");
+    }
+    const path = [
+      current.nodes.find(n => n.id === segment.from),
+      ...segment.via,
+      current.nodes.find(n => n.id === segment.to)
+    ];
+    const index = op.edgeIndex;
+    const atVertex = op.atVertex === true;
+    if (!Number.isSafeInteger(index) || index < (atVertex ? 1 : 0) ||
+        index > segment.via.length) {
+      throw new Error("Junction edge index is invalid.");
+    }
+    const location = atVertex ? path[index] : position;
+    if (atVertex) {
+      if (Math.hypot(position.x - location.x, position.y - location.y) > 0.01) {
+        throw new Error("The road bend has changed.");
+      }
+    } else {
+      const hit = project(location, path[index], path[index + 1]);
+      if (!hit || hit.distance > 0.01 || hit.before < 1 || hit.after < 1) {
+        throw new Error("A junction must lie within a road, away from its endpoints.");
+      }
+    }
+    const firstVia = segment.via.slice(0, atVertex ? index - 1 : index);
+    const secondVia = segment.via.slice(index);
+    return validateAtlas({
+      ...current,
+      nodes: [...current.nodes, { id: op.newNodeId, x: location.x, y: location.y }],
+      segments: [
+        ...current.segments.map(s => s.id === segment.id
+          ? { ...s, to: op.newNodeId, via: firstVia } : s),
+        { ...segment, id: op.newSegmentId, from: op.newNodeId, via: secondVia }
+      ]
+    });
+  }
+
   if (op.kind === "detach-node") {
     const source = current.nodes.find(n => n.id === op.nodeId);
     if (!source || !related.some(s => s.from === source.id || s.to === source.id)) {
