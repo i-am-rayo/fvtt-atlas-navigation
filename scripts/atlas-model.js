@@ -5,11 +5,13 @@
  * editor cannot silently delete newer data when saving a Scene flag.
  */
 export const ATLAS_SCHEMA_VERSION = 3;
+export const CHECKPOINT_ATLAS_SCHEMA_VERSION = 4;
 export const IMAGE_ATLAS_SCHEMA_VERSION = 2;
 export const LEGACY_ATLAS_SCHEMA_VERSION = 1;
 const MAX_NODES = 10000;
 const MAX_SEGMENTS = 20000;
 const MAX_VIA_POINTS = 1000;
+const MAX_CHECKPOINTS = 5000;
 
 function fail(message) {
   throw new Error("Atlas data: " + message);
@@ -75,13 +77,14 @@ export function validateAtlas(value) {
   const data = record(value, "root");
   const legacy = data.schemaVersion === LEGACY_ATLAS_SCHEMA_VERSION;
   const imageV2 = data.schemaVersion === IMAGE_ATLAS_SCHEMA_VERSION;
-  const current = data.schemaVersion === ATLAS_SCHEMA_VERSION;
+  const withCheckpoints = data.schemaVersion === CHECKPOINT_ATLAS_SCHEMA_VERSION;
+  const current = data.schemaVersion === ATLAS_SCHEMA_VERSION || withCheckpoints;
   if (!legacy && !imageV2 && !current) {
     fail("unsupported schemaVersion " + String(data.schemaVersion));
   }
   fields(data, legacy
     ? ["schemaVersion", "revision", "enabled", "calibration", "nodes", "segments"]
-    : ["schemaVersion", "coordinateSpace", "revision", "enabled", "calibration", "nodes", "segments", ...(current ? ["roads"] : [])], "root");
+    : ["schemaVersion", "coordinateSpace", "revision", "enabled", "calibration", "nodes", "segments", ...(current ? ["roads"] : []), ...(withCheckpoints ? ["checkpoints"] : [])], "root");
   if (!legacy && data.coordinateSpace !== "image") fail("coordinateSpace must be image");
   if (!Number.isSafeInteger(data.revision) || data.revision < 0) {
     fail("revision must be a nonnegative safe integer");
@@ -176,6 +179,42 @@ export function validateAtlas(value) {
       from, to, via, bidirectional: true });
   }
 
+  const checkpoints = [];
+  if (withCheckpoints) {
+    if (!Array.isArray(data.checkpoints) || data.checkpoints.length > MAX_CHECKPOINTS) {
+      fail("checkpoints must be an array of at most " + MAX_CHECKPOINTS);
+    }
+    const checkpointIds = new Set();
+    const locations = new Set();
+    const attachedRoadNodes = new Set(segments.flatMap(s => [
+      s.roadId + "/" + s.from, s.roadId + "/" + s.to
+    ]));
+    for (const [index, value] of data.checkpoints.entries()) {
+      const c = record(value, "checkpoints[" + index + "]");
+      fields(c, ["id", "roadId", "nodeId", "name", "elevationMeters"], "checkpoint");
+      const checkpointId = id(c.id, "checkpoint ID");
+      if (checkpointIds.has(checkpointId)) fail("duplicate checkpoint ID " + checkpointId);
+      checkpointIds.add(checkpointId);
+      const roadId = id(c.roadId, "checkpoint roadId");
+      const nodeId = id(c.nodeId, "checkpoint nodeId");
+      if (!roadIds.has(roadId) || !attachedRoadNodes.has(roadId + "/" + nodeId)) {
+        fail("checkpoint " + checkpointId + " must attach to a node on its named road");
+      }
+      const locationKey = roadId + "/" + nodeId;
+      if (locations.has(locationKey)) fail("duplicate checkpoint on road node " + locationKey);
+      locations.add(locationKey);
+      if (typeof c.name !== "string" || !c.name.trim() || c.name.length > 120) {
+        fail("checkpoint " + checkpointId + " has an invalid name");
+      }
+      if (c.elevationMeters !== null &&
+          (!Number.isFinite(c.elevationMeters) || Math.abs(c.elevationMeters) > 10000000)) {
+        fail("checkpoint " + checkpointId + " needs a finite elevation in meters, or null");
+      }
+      checkpoints.push({ id: checkpointId, roadId, nodeId,
+        name: c.name.trim(), elevationMeters: c.elevationMeters });
+    }
+  }
+
   return {
     schemaVersion: data.schemaVersion,
     ...(legacy ? {} : { coordinateSpace: "image" }),
@@ -184,7 +223,8 @@ export function validateAtlas(value) {
     calibration,
     nodes,
     segments,
-    ...(current ? { roads } : {})
+    ...(current ? { roads } : {}),
+    ...(withCheckpoints ? { checkpoints } : {})
   };
 }
 
@@ -230,4 +270,14 @@ export function upgradeAtlasRoadGroups(atlas) {
       return { ...edge, roadId: s.id };
     })
   });
+}
+
+/** Upgrade a v3 road Scene only when the GM explicitly adds a checkpoint. */
+export function upgradeAtlasCheckpoints(atlas) {
+  const old = validateAtlas(atlas);
+  if (old.schemaVersion === CHECKPOINT_ATLAS_SCHEMA_VERSION) return old;
+  if (old.schemaVersion !== ATLAS_SCHEMA_VERSION) {
+    throw new Error("Organize named roads before adding checkpoints.");
+  }
+  return validateAtlas({ ...old, schemaVersion: CHECKPOINT_ATLAS_SCHEMA_VERSION, checkpoints: [] });
 }
