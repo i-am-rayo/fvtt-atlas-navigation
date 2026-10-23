@@ -1,6 +1,7 @@
 import { readAtlas } from "./atlas-storage.js";
 import { readSceneGridScale } from "./scene-grid.js";
 import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
+import { listSceneRegions } from "./region-atlas.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -309,6 +310,71 @@ function atlasPanel(scene, atlas, actions, refresh) {
   waypointSection.appendChild(node("legend", label("FVTTATLAS.Waypoints.Title")));
   waypointSection.appendChild(node("p", label("FVTTATLAS.Waypoints.Future"), "hint"));
   root.appendChild(waypointSection);
+
+  // Phase 2d associates existing native RegionDocuments. No Atlas geometry or
+  // terrain modifiers are stored here; Foundry's Region editor stays canonical.
+  const regionSection = node("fieldset");
+  const regionLegend = node("legend");
+  const regionHeader = node("span");
+  regionHeader.style.display = "inline-flex";
+  regionHeader.style.alignItems = "center";
+  regionHeader.style.gap = "0.35rem";
+  regionHeader.appendChild(node("span", label("FVTTATLAS.Regions.Title")));
+  const nativeRegions = listSceneRegions(scene);
+  const candidates = nativeRegions.filter(region => !region.linked && !region.invalidLink);
+  const link = button("+", label("FVTTATLAS.Regions.Link"),
+    () => actions.linkRegion(scene, refresh));
+  link.style.flex = "0 0 auto";
+  link.style.width = "1.65rem";
+  link.style.minWidth = "1.65rem";
+  link.style.padding = "0";
+  link.disabled = candidates.length === 0;
+  regionHeader.appendChild(link);
+  regionHeader.appendChild(button("↻", label("FVTTATLAS.Regions.Refresh"), refresh));
+  regionLegend.appendChild(regionHeader);
+  regionSection.appendChild(regionLegend);
+  regionSection.appendChild(node("p", label("FVTTATLAS.Regions.Hint"), "hint"));
+  const linkedRegions = nativeRegions.filter(region => region.linked);
+  if (!nativeRegions.length) {
+    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.NoNative"), "hint"));
+  } else if (!linkedRegions.length) {
+    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.None"), "hint"));
+  }
+  for (const region of nativeRegions.filter(region => region.linked || region.invalidLink)) {
+    const row = node("div", undefined, "form-group");
+    row.setAttribute("data-atlas-region-id", region.id);
+    const description = node("div");
+    description.style.flex = "1 1 auto";
+    description.style.minWidth = "0";
+    description.appendChild(node("span", region.name));
+    if (region.hidden) {
+      description.appendChild(node("div", label("FVTTATLAS.Regions.Hidden"), "hint"));
+    }
+    if (region.invalidLink) {
+      description.appendChild(node("div", label("FVTTATLAS.Regions.Invalid"), "hint"));
+    } else if (region.behaviors.length) {
+      const summary = region.behaviors.map(behavior =>
+        `${behavior.name} (${label(behavior.active ?
+          "FVTTATLAS.Regions.Active" : "FVTTATLAS.Regions.Inactive")})`).join(" · ");
+      description.appendChild(node("div", summary, "hint"));
+    } else {
+      description.appendChild(node("div", label("FVTTATLAS.Regions.NoBehaviors"), "hint"));
+    }
+    row.appendChild(description);
+    const controls = node("div", undefined, "form-fields");
+    controls.appendChild(button("⚙", label("FVTTATLAS.Regions.Configure"),
+      () => actions.configureRegion(scene, region.id)));
+    if (region.linked) {
+      controls.appendChild(button("×", label("FVTTATLAS.Regions.Unlink"),
+        () => actions.unlinkRegion(scene, region.id, refresh)));
+    }
+    row.appendChild(controls);
+    regionSection.appendChild(row);
+  }
+  if (nativeRegions.some(region => region.invalidLink)) {
+    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.InvalidHint"), "hint"));
+  }
+  root.appendChild(regionSection);
 
   const measurement = node("fieldset");
   measurement.appendChild(node("legend", label("FVTTATLAS.Atlas.Measurement")));
