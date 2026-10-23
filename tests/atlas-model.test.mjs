@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { anchorLegacyAtlas, createEmptyAtlas, polylineLength, validateAtlas } from "../scripts/atlas-model.js";
+import { anchorLegacyAtlas, createEmptyAtlas, polylineLength, validateAtlas, upgradeAtlasRoadGroups } from "../scripts/atlas-model.js";
 
 const fixture = () => ({
   schemaVersion: 1,
@@ -89,4 +89,31 @@ test("legacy canvas coordinates require explicit origin anchoring, and v2 valida
   assert.deepEqual(legacy, fixture(), "legacy persisted data is untouched");
   assert.throws(() => anchorLegacyAtlas(legacy, { x: NaN, y: 0 }), /origin/);
   assert.throws(() => validateAtlas({ ...converted, coordinateSpace: "canvas" }), /coordinateSpace/);
+});
+
+test("explicit v2→v3 migration preserves IDs, geometry, origin and duplicate names without guessing",()=>{
+ const anchored=anchorLegacyAtlas(fixture(),{x:15,y:10});
+ anchored.segments[1].name="West Road";
+ const migrated=upgradeAtlasRoadGroups(anchored);
+ assert.equal(migrated.schemaVersion,3);
+ assert.equal(migrated.coordinateSpace,"image");
+ assert.equal(migrated.roads.length,2);
+ assert.deepEqual(migrated.roads.map(r=>r.name),["West Road","West Road"]);
+ assert.deepEqual(migrated.roads.map(r=>r.id),["ab","cd"]);
+ assert.deepEqual(migrated.segments.map(s=>s.id),["ab","cd"]);
+ assert.deepEqual(migrated.segments[0].via,anchored.segments[0].via);
+ assert.deepEqual(migrated.nodes,anchored.nodes);
+ assert.equal(migrated.revision,anchored.revision);
+ assert.deepEqual(upgradeAtlasRoadGroups(migrated),migrated,"migration is idempotent");
+ assert.equal(anchored.schemaVersion,2,"old v2 data is never mutated");
+});
+test("v3 validator rejects segment/road ownership errors and stray legacy fields",()=>{
+ const base=createEmptyAtlas();
+ assert.equal(base.schemaVersion,3);
+ assert.deepEqual(base.roads,[]);
+ assert.throws(()=>validateAtlas({...base,segments:[{
+  id:"s",roadId:"missing",from:"a",to:"b",via:[],bidirectional:true
+ }]}),/missing road|endpoints/);
+ assert.throws(()=>validateAtlas({...base,roads:[{id:"bad",name:""}]}),/invalid name/);
+ assert.throws(()=>validateAtlas({...base,roads:[{id:"r",name:"One"},{id:"r",name:"Two"}]}),/duplicate road/);
 });
