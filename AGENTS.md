@@ -22,7 +22,7 @@ If a requested change conflicts with these documents, explain the conflict and p
 
 ## Workflow
 
-- Phase 2 is authorized. Deliver it in reviewable slices: **2b** Scene Atlas management UI/native Grid measurement, **2c** GM road/waypoint canvas editing, **2d** native Region associations and tags. Travel-time and fastest-route calculations belong to future **Phase 3b** and require separate approval. Do **not** begin routing, player-visible features, or phases 3+ without new approval.
+- Phase 2 is authorized. Deliver it in reviewable slices: **2b** Scene Atlas management UI/native Grid measurement, **2c** GM road/waypoint canvas editing, **2d** native Region associations with native Behavior inspection. Terrain-aware token movement costs and travel-time/fastest-route calculations belong to future **Phase 3b** and require separate approval. Do **not** begin routing, player-visible features, or phases 3+ without new approval.
 - Make changes on a topic branch and submit a reviewable PR. Do not merge to `main` without explicit approval.
 - Keep PRs focused. Include rationale, affected files, manual/test evidence, risks, and deferred follow-ups.
 - Avoid unrelated refactors or changing repository settings. Preserve user edits and existing work.
@@ -38,8 +38,8 @@ If a requested change conflicts with these documents, explain the conflict and p
 - Topological connections are explicit. Two lines crossing on the image do **not** automatically create a junction.
 - Geometry/routing/validation should be pure, testable code; keep Foundry document access and canvas rendering in adapters.
 - Preserve stable IDs, reject malformed links and nonfinite coordinates, and plan migrations before changing a persisted schema.
-- Link Regions with validated, versioned module-owned metadata (tag and explicit speed multiplier) only after reviewing a persisted schema. Ordinary Regions without this metadata have no Atlas travel effect. Do **not** automatically interpret native `Modify Movement Cost` Behaviors, whose token movement semantics may depend on the game system.
-- A 0.5× speed factor affects **time**, not geometric length. Applied Region geometry must intersect road polyline intervals precisely, respecting holes/levels and a deliberate overlap policy. Phase 2 stores links, Phase 3b (separate approval) computes time.
+- Link Regions with **minimal** validated, versioned module-owned metadata (association only) after reviewing a persisted schema. Region names and optional visual tags do not encode rules. Unlinked Regions have no **Atlas-planned** terrain effect, though native Behaviors still apply to actual token movement. Never overwrite or duplicate core or game-system Region movement rules.
+- Keep geometric road distance distinct from token-specific movement cost and overland travel time. Phase 2 only stores Region associations. If Phase 3b is approved, use public v14 `Token#createTerrainMovementPath` / `Token#measureMovementPath` APIs with an explicit party token/movement action, testing real v14 behavior. Do not add custom `speedMultiplier`, polygon clipping, or overlap-policy calculations when Foundry's engine already supplies them. Without a token context, show distance only; overland time needs explicit party speed.
 - No reliance on any specific game system, actor fields, or third-party route module.
 
 ## Permissions and privacy
@@ -53,8 +53,8 @@ If a requested change conflicts with these documents, explain the conflict and p
 ## Quality and testing (when code is authorized)
 
 - Use a current Foundry v14 test world with a neutral game system; test with a GM and a non-GM account.
-- Add unit tests for segment validation, graph projection, connectivity, Scene Grid/manual calibration, zero-length segments, disconnected routes, and deterministic path choice. Phase 2d also needs native Region link/metadata tests; Phase 3b (after approval) needs pure road–polygon intersection, holes, overlap, level filtering, and time-cost fixtures.
-- Manually test initial canvas load, switching Scenes, resize/pan/zoom, module disable/re-enable, save/reload, and malformed/corrupt flags. Verify Region changes never mutate native shapes/Behaviors and old manual calibration persists when the Grid measurement differs.
+- Add unit tests for segment validation, graph projection, connectivity, Scene Grid/manual calibration, zero-length segments, disconnected routes, and deterministic path choice. Phase 2d also needs native Region link/metadata tests; Phase 3b (after approval) needs mocked adapters **plus actual Foundry v14 tests** for token-aware cost, Region holes/levels/overlaps, active/disabled Behaviors, movement modes, and no-token fallback.
+- Manually test initial canvas load, switching Scenes, resize/pan/zoom, module disable/re-enable, save/reload, and malformed/corrupt flags. Verify Region changes never mutate native shapes/Behaviors and old manual calibration persists when the Grid measurement differs. Native token cost previews must never move tokens.
 - Test multi-GM editing behavior or explicitly limit the MVP to one editor at a time. Do not silently overwrite concurrent work.
 - Only report tests that actually ran. If no v14 runtime is available, state that limitation and supply manual verification instructions.
 - Keep performance predictable for long polylines; avoid reconstructing geometry every animation frame.
