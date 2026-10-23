@@ -1,18 +1,18 @@
 # Phase 2 revised design — Scene Atlas, roads, waypoints, and Regions
 
 **Decision date:** October 23, 2026. **Target:** Foundry VTT v14, system agnostic.
-**Status:** approved design. Phase 2b Scene tab and Grid-first measurement are implemented in the **v0.2.2 development build**, awaiting Foundry v14 visual tests. Phase 2c/2d and all Region-aware route computations are not implemented. The persisted Scene atlas schema remains v1 and draft PR #3 remains unmerged.
+**Status:** approved design. Phase 2b Scene tab and native-only Grid measurement are implemented in the **v0.2.3 development build**. The owner confirmed tab placement/saving with v0.2.2; 0.2.3 awaits retesting. Phase 2c/2d and all Region-aware route computations are not implemented. The persisted Scene atlas schema remains v1 and draft PR #3 remains unmerged.
 
 ## 1. GM experience and ownership
 
-The **v0.2.2 build** registers an **Atlas** tab in native Scene Configuration alongside Basics, Grid, and Levels. It replaces v0.2.1's awkward above-form control. A supported in-sheet Misc/Grid fallback is available for nonstandard sheets; actual Foundry visual integration still needs verification.
+The **v0.2.3 build** registers an **Atlas** tab in native Scene Configuration alongside Basics, Grid, and Levels. It replaces v0.2.1's awkward above-form control. A supported in-sheet Misc/Grid fallback is available for nonstandard sheets; its tab placement and saving were confirmed in Foundry v14 using v0.2.2.
 
 | Atlas section | GM work | Canonical data |
 | --- | --- | --- |
 | **Roads** | Add/rename/select/delete roads; list connected segments and visibility metadata | Versioned module data on that Scene |
 | **Waypoints / junctions** | Add/list/rename or associate waypoints with native map Notes; edit graph connections | Versioned Scene road graph; optional references to Note UUIDs |
 | **Terrain Regions** | Link/unlink **existing native Regions**; show native Region name, active movement-related Behaviors, warnings, and an action to open native Region configuration | Native Region shapes/name/levels/Behaviors; minimal Atlas opt-in association only |
-| **Measurement** | Read the native Scene's grid size/distance/unit; offer an explicit manual override only when necessary | Native Scene Grid, or a deliberate per-Scene override |
+| **Measurement** | Display the native Scene's grid size/distance/unit; configure them only in the native Grid tab | Native Scene Grid exclusively; no Atlas scale flag |
 
 A GM should be able to find the Atlas section on any Scene without explicitly enabling a special mode. For existing worlds, preserve the v1 `enabled` flag until a documented, lossless migration defines what replaces it. Opening a sheet alone must not write flags.
 
@@ -27,15 +27,15 @@ A GM should be able to find the Atlas section on any Scene without explicitly en
 
 Investigate supported ApplicationV2/SceneConfig tab extension conventions first. Do not monkey-patch private SceneConfig methods or overwrite core templates to add a tab. If a stable hook-based tab cannot be implemented safely, provide an in-sheet Atlas entry that opens a standalone native-looking Atlas manager, and validate its placement with an actual Foundry v14 build. The current top-of-form banner is not an accepted final UI.
 
-## 2. Distance: use Scene Grid as primary source
+## 2. Distance: native Scene Grid is the **only** measurement source
 
-Foundry's native Scene Grid exposes `grid.size` (pixels per space), `grid.distance` (distance per space), and `grid.units` (unit label). These are authoritative for the Scene by default.
+The GM uses the **Scene's own Grid tab** to set `grid.size` (pixels per space), `grid.distance` (distance per space), and `grid.units` (display unit). There is no Atlas-specific unit selector, scale, or manual override; the ruler and Atlas must not disagree because they consult different configuration.
 
-- Use native Scene measurements when valid. A simple continuous-map conversion is `unitsPerPixel = grid.distance / grid.size`; verify hexagonal and gridless measurement semantics during implementation rather than assuming the grid ruler and a drawn polyline are identical.
-- Display the unit from the Scene Grid. Do **not** add a second required km/mi field to every atlas.
-- A manual per-Scene scale override may be used for maps whose grid measurements do not represent geographic travel. Its provenance and units must be explicit in the UI.
-- A possible later **global display preference** is `Follow Scene Units` (default), `Metric`, or `Imperial`, with conversions only for recognized units. This must never silently rewrite the native Scene measurement or convert arbitrary custom units.
-- Existing v1 manual calibrations (e.g. 0.05 km/pixel) remain intact until a GM explicitly opts into Scene Grid or approves a versioned migration. Warn when both scales differ.
+- Phase 2b displays those native settings as read-only information. A simple `distance / size` ratio is **not** suitable as an authoritative measurement for paths crossing square/hexagonal grids (and may differ for gridless paths).
+- In Phase 3, a Foundry adapter must measure actual road waypoints on the matching active Scene via the public v14 `canvas.grid.measurePath(waypoints).distance` API. Use the native result for route distance; do not independently apply a manual pixel-to-unit multiplier.
+- Native measurement must be tested against the ruler for square, hexagonal, and gridless Scenes, as well as multisegment roads. Verify whether grid-dependent distances are additive before selecting graph edge weights and a shortest-path algorithm; if not, preserve measurement state or evaluate full candidate paths.
+- Existing version-1 `calibration: {source:"manual",unitsPerPixel,unit}` objects are **legacy, dormant data**. Preserve them unchanged when a GM toggles Atlas or edits roads; do not display, apply, rewrite, or remove them without a separately approved migration. New Scenes store `calibration:null`.
+- A future global Metric/Imperial **display-only** conversion could be separately reviewed, but it must never change the Scene's native measurement or introduce a second competing distance source.
 
 ## 3. Regions are native geometry **and** native movement behavior
 
@@ -74,7 +74,7 @@ The owner authorized Phase 2 development, **not automatic expansion of runtime P
 
 | Slice | Implement after review | Gate |
 | --- | --- | --- |
-| **2b — UI and native measurement** | **Implemented in v0.2.2, pending Foundry acceptance:** native Atlas tab, Scene Grid by default, explicit manual override, v1 data intact | Two different Scenes, hex/gridless check, old manual calibration preservation |
+| **2b — UI and native measurement** | **Implemented in v0.2.3, pending regression acceptance:** native Atlas tab, native Scene Grid only, legacy manual values safely dormant | Two different Scenes, hex/gridless settings, old manual values retained but ignored |
 | **2c — Road/waypoint authoring** | Scene Atlas list with plus controls; canvas road/junction editing; stable graph persistence and undo/confirmation | Connectivity, branch/crossing, save/reload, pan/zoom |
 | **2d — Region linking** | Native Region picker/link, optional display labels, active Behavior summary, and minimal GM-only association metadata; never edit native terrain costs | Multi-shape, hole, overlap, levels, enabled/disabled Behaviors, renamed/deleted Region fixtures |
 | **3a — Shortest distance** | Pure geometry graph and shortest-distance route with route overlay | Existing Phase 3 MVP acceptance |
@@ -86,7 +86,7 @@ A route that merely crosses a Region on screen must never be treated as terrain-
 
 - The **Scene atlas flag remains canonical for road nodes/segments**. Region documents remain canonical for their shapes, levels, and movement-cost Behaviors. Atlas metadata on a Region is only an association, **never a duplicate travel rule**.
 - Pure road geometry and shortest-distance routing algorithms must not import Foundry globals. A separate v14 adapter integrates Foundry token-aware terrain/movement calculations when that later phase is approved, with mocked adapter tests plus real v14 checks.
-- Use versioned migrations before extending the already implemented Scene atlas schema v1 or adding Region link metadata. Preserve prior `enabled` and manual calibration values unless explicitly migrated.
+- Use versioned migrations before extending the already implemented Scene atlas schema v1 or adding Region link metadata. Preserve prior `enabled` and dormant legacy calibration values unless a future migration is explicitly approved.
 - Treat linked Region IDs/UUIDs as references that can go stale. Missing/deleted links are a recoverable warning, not a reason to erase road data. Region and Behavior updates invalidate optional terrain-cost previews.
 - Only authorized GMs can edit the network or terrain links; keep the first release GM-only. A hidden Region or UI control does not make Scene/Region flags confidential to players.
 - Do not copy third-party game-system terrain data, token movement mode rules, or scripts into the module.
@@ -95,6 +95,8 @@ A route that merely crosses a Region on screen must never be treated as terrain-
 
 - [Foundry v14 ApplicationV2 and tab architecture](https://foundryvtt.com/api/v14/modules/foundry.applications.html)
 - [Native Grid Data](https://foundryvtt.com/api/v14/interfaces/foundry.documents.types.GridData.html)
+- [Native v14 grid path measurement](https://foundryvtt.com/api/v14/classes/foundry.grid.BaseGrid.html)
+- [Grid path measurement result](https://foundryvtt.com/api/v14/interfaces/foundry.grid.types.GridMeasurePathResult.html)
 - [Native Scene Regions guide](https://foundryvtt.com/article/scene-regions/)
 - [RegionDocument API: polygons, polygon tree, levels, Scene ownership](https://foundryvtt.com/api/v14/classes/foundry.documents.RegionDocument.html)
 - [Token canvas API: terrain-aware movement paths and movement measurement](https://foundryvtt.com/api/v14/classes/foundry.canvas.placeables.Token.html)
