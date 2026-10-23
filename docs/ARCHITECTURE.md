@@ -1,6 +1,6 @@
 # Architecture — revised Phase 2 boundaries
 
-**Status:** Phase 1 merged; Phase 2a tested; Phase 2b native Scene tab and native-only Grid measurement implemented in v0.2.3; native tab placement/saves were confirmed in Foundry for v0.2.2, with 0.2.3 awaiting regression. Phase 2c/2d and routing remain planned.  
+**Status:** Phase 1 merged; Phase 2b native Grid measurement confirmed in Foundry v0.2.3. Phase 2c v0.2.4 adds the first GM-only Roads [+] editor slice (pending live canvas test), while named waypoints and saved-geometry editing remain. Phase 2d Region linking and Phase 3 routing remain planned.  
 **Target:** Foundry VTT v14; game-system agnostic.  
 **Module identity:** `fvtt-atlas-navigation`.
 
@@ -26,11 +26,11 @@ The first useful release is **GM-only**. The user-facing concept is journal-styl
 | Distance and measurement units | Native Scene Grid only; native `canvas.grid.measurePath` for future road measurement | No duplicate per-Scene override or global travel scale |
 | UI/session preferences | Foundry module settings / client preferences as appropriate | Not core road data |
 
-Foundry v14 documents, application classes, and canvas groups are documented in the [v14 API](https://foundryvtt.com/api/v14/). The final overlay registration and lifecycle hooks must be confirmed against that exact version before coding.
+Foundry v14 documents, application classes, and canvas groups are documented in the [v14 API](https://foundryvtt.com/api/v14/). Phase 2c uses documented Foundry v14 Canvas coordinate conversion and ready/teardown hooks; the GM-owned PIXI road overlay and canvas pointer capture require acceptance testing inside the actual Foundry v14 client.
 
 ## 3. Architectural boundaries
 
-Planned functional modules (illustrative paths; choose a build tool only after approval):
+Long-term functional modules (illustrative structure; the current incremental JavaScript implementation lives directly under `scripts/`):
 
 - `src/domain/` — point/segment types, unit conversion, topology validation, graph construction, shortest-path algorithm; **no Foundry globals**.
 - `src/persistence/` — serialization, schema versioning, migrations, and atomic Scene-flag updates.
@@ -40,6 +40,8 @@ Planned functional modules (illustrative paths; choose a build tool only after a
 - `src/index.*` — initialization and registration.
 
 Dependencies point inward: UI/canvas and Foundry adapters call the domain layer. The domain layer must not import Foundry APIs. This allows unit testing with ordinary geometry fixtures.
+
+**Current Phase 2c slice (v0.2.4):** `scripts/road-model.js` implements pure network add/rename/remove with stable IDs and 14px endpoint snap; `scripts/road-storage.js` handles GM permissions, optimistic revision validation, and Scene flags; `scripts/road-canvas.js` manages GM overlay and click-to-place draft, with teardown hooks; `scripts/scene-config.js` mounts Roads [+] and list controls in the native Atlas tab; `scripts/main.js` wires hooks and dialogs. Older `atlas-storage.js` setup persistence remains for backwards compatibility but has no exposed activation UI. No independent distance source was added.
 
 ## 4. Road-network model
 
