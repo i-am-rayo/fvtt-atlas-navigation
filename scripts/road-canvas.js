@@ -2,7 +2,7 @@ import { readAtlas } from "./atlas-storage.js";
 import { saveNewRoad } from "./road-storage.js";
 import { RoadPointEditor } from "./road-point-editor.js";
 import { roadHandles } from "./road-hit.js";
-import { findRoadSnap, suggestRoadName } from "./road-model.js";
+import { attachmentRoadNames, findRoadSnap, suggestRoadName } from "./road-model.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 
 function drawLine(graphics, points, color, width = 4, alpha = 0.9) {
@@ -28,24 +28,56 @@ function drawDot(graphics, point, color) {
   }
 }
 
+
+/**
+ * Confirmation is mandatory before linking graph topology. This never invokes
+ * Merge: logical road names remain independent even at a shared junction.
+ */
+async function confirmRoadAttachment({ kind, sourceNames, targetNames }) {
+  const content = document.createElement("div");
+  const explanation = document.createElement("p");
+  explanation.textContent = game.i18n.localize(kind === "new"
+    ? "FVTTATLAS.Roads.ConnectNewWarning" : "FVTTATLAS.Roads.ConnectExistingWarning");
+  content.appendChild(explanation);
+  for (const [key, names] of [
+    ["FVTTATLAS.Roads.ConnectionFrom", sourceNames],
+    ["FVTTATLAS.Roads.ConnectionTo", targetNames]
+  ]) {
+    const paragraph = document.createElement("p");
+    const prefix = document.createElement("strong");
+    prefix.textContent = game.i18n.localize(key) + ": ";
+    paragraph.appendChild(prefix);
+    paragraph.appendChild(document.createTextNode(names.join(", ")));
+    content.appendChild(paragraph);
+  }
+  return foundry.applications.api.DialogV2.confirm({
+    window: { title: game.i18n.localize("FVTTATLAS.Roads.ConnectPromptTitle") },
+    content, yes: { label: game.i18n.localize("FVTTATLAS.Roads.ConnectConfirm") },
+    rejectClose: false, modal: true
+  });
+}
+
 /** GM-only disposable Scene overlay; does not intercept ordinary player play. */
 export class RoadCanvasController {
   constructor({
     canvasProvider = () => globalThis.canvas,
     doc = () => globalThis.document,
     idFactory = () => foundry.utils.randomID(),
-    notify = () => globalThis.ui?.notifications
+    notify = () => globalThis.ui?.notifications,
+    confirmAttach = confirmRoadAttachment
   } = {}) {
     this.canvasProvider = canvasProvider;
     this.doc = doc;
     this.idFactory = idFactory;
     this.notify = notify;
+    this.confirmAttach = confirmAttach;
     this.graphics = null;
     this.graphicsCanvas = null;
     this.draft = null;
     this.selectedRoadId = null;
     this.saving = false;
-    this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify, refresh: () => this.refresh() });
+    this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
+      confirmAttach, idFactory, refresh: () => this.refresh() });
   }
 
   getDraft(scene) {
@@ -132,12 +164,12 @@ export class RoadCanvasController {
 
     const draft = {
       scene, sceneId: scene.id, expectedRevision: atlas.revision,
-      mode: "new",
+      mode: "new", confirming: false,
       points: [], snap: [], element, onChange,
       onPointer: null, onKeydown: null
     };
     draft.onPointer = event => {
-      if (event.button !== 0 || this.saving) return;
+      if (event.button !== 0 || this.saving || draft.confirming) return;
       if (this.canvasProvider()?.scene?.id !== draft.sceneId) {
         this.cancel();
         return;
@@ -207,15 +239,40 @@ export class RoadCanvasController {
       return saved;
     }
     const draft = this.draft;
-    if (!draft || this.saving) return false;
+    if (!draft || this.saving || draft.confirming) return false;
     if (draft.points.length < 2) {
       this.notify()?.warn?.("Click at least two map points before finishing the road.");
       return false;
     }
-    this.saving = true;
-    this.#changed();
     try {
       const atlas = readAtlas(draft.scene);
+      // Only endpoints ever snap; crossings and bends stay independent.
+      const connections = [];
+      if (atlas.schemaVersion === 3) {
+        for (const index of [0, draft.points.length - 1]) {
+          if (draft.snap[index] === false) continue;
+          const candidate = findRoadSnap(atlas, draft.points[index]);
+          if (candidate) connections.push(...attachmentRoadNames(atlas, candidate));
+        }
+      }
+      if (connections.length) {
+        draft.confirming = true;
+        this.#changed();
+        const accepted = await this.confirmAttach({
+          kind: "new", sourceNames: [suggestRoadName(atlas)],
+          targetNames: [...new Set(connections)]
+        });
+        if (this.draft !== draft) return false;
+        draft.confirming = false;
+        if (!accepted) {
+          this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Roads.ConnectDeclined"));
+          this.#changed();
+          return false;
+        }
+      }
+      if (this.draft !== draft) return false;
+      this.saving = true;
+      this.#changed();
       await saveNewRoad(draft.scene, {
         points: draft.points, name: suggestRoadName(atlas),
         expectedRevision: draft.expectedRevision,
@@ -232,6 +289,7 @@ export class RoadCanvasController {
       try { changed?.(); } catch (error) { console.warn("[fvtt-atlas-navigation] Atlas tab refresh failed", error); }
       return true;
     } catch (error) {
+      draft.confirming = false;
       this.notify()?.error?.(error.message);
       this.saving = false;
       this.#changed();
