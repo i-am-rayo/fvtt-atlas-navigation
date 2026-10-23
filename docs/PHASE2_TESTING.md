@@ -1,65 +1,64 @@
-# Phase 2b — native-only Scene measurements smoke test (v0.2.3)
+# Phase 2c — Roads [+] GM smoke test (v0.2.4)
 
-**Current build:** Phase 2b test build **0.2.3**, targeting Foundry v14. The native Atlas tab, Scene activation, read-only native measurement summary, and save confirmation are implemented. The owner confirmed native tab placement and saving in **0.2.2**; this version removes the conflicting manual-scale UI. **Roads, Waypoints, Regions, overlays, and routing remain future Phase 2c/2d or Phase 3 tasks.**
+**Status:** First road-authoring slice, awaiting live Foundry v14 GM verification. Phase 2b native Grid behavior was confirmed by the owner: a saved Grid distance change from 7.5 to 8 was reflected in Atlas. The v14 experimental VFX warning seen in that test is from Foundry core; this module does not call the experimental VFX API.
 
 ## Update from the feature branch
 
-Use a backed-up or disposable Foundry v14 world. The existing development manifest URL is unchanged:
+Test in a backed-up or disposable Foundry v14 world. Keep the existing feature-branch installation URL:
 
 ```text
 https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2-atlas-setup/module.json
 ```
 
-Go to **Setup → Add-on Modules → Check for Updates**, then confirm **0.2.3**. A module installed from an older Phase 1 branch manifest will not necessarily track this feature branch automatically. This is still a **draft PR branch**, not a merged release.
+Go to **Setup → Add-on Modules → Check for Updates** and confirm version **0.2.4**. If the update is not detected, check that the installed module uses the feature-branch manifest; a main-branch or old Phase 1 manifest will not automatically follow this branch.
 
-## GM checklist
+## Core GM workflow
 
-1. Activate the module and open a saved Scene's native **Scene Configuration** as GM.
-2. Open the **Atlas** tab (beside Basics, Grid, Levels). There should be no banner floating above the tabs.
-3. Check the read-only native Scene Grid distance and size (e.g. **7.5 km / 49 px**) and the description that the **Grid tab** is authoritative. **No units-per-pixel measurement, source dropdown, or manual scale/unit input should appear.**
-4. Click **Configure Atlas**. Confirm its title and Scene match the Scene being configured, even if a different Scene is viewed on the canvas.
-5. Confirm the dialog contains just the **Use this Scene as an atlas** checkbox for Atlas-specific settings, plus read-only native Grid details and help text.
-6. Toggle on/off and save. Verify the Atlas tab updates, a save notification appears, and the choice survives reopening and a world reload.
-7. Edit Grid distance/units in the native **Grid** tab, save Scene Configuration, and reopen Atlas. The Atlas read-only summary should reflect the new native data. There should be **no competing Atlas value**.
-8. On the Scene that previously used a manual **0.05 km/px** value, confirm Atlas shows only the native Grid settings (for example 7.5 km / 49 px) and **does not show or apply 0.05**.
-9. Check a square, hexagonal, and gridless Scene if available. This phase **does not yet draw or measure road polylines**; exact native ruler parity becomes a Phase 3 verification once routes exist.
-10. Check a non-GM account: player authoring controls must not be shown. Do not assume the Scene flag's hidden UI makes its network secret.
+1. Open the **Scene on the canvas** and open its native **Scene Configuration → Atlas** tab. A separate "Configure Atlas" button or activation toggle should **not** appear.
+2. Atlas should say no road network is configured if the Scene has no saved roads. Find a **Roads [+]** section, plus the read-only **Scene Grid** measurement.
+3. Click **+**. A notification should indicate road drawing started. A small instruction area with **Finish Road** and **Cancel Drawing** should appear in Atlas.
+4. With Scene Configuration still open, click **two or more** positions on the map (try a curve with three points). The gold draft polyline/dots should appear; the Atlas instruction should update its count.
+5. **Finish Road** should save the road to the Scene, show a success notification, and add "Road 1" to the list. The saved line is cyan; using the row's highlight control changes its color. If clicking the map does not place points while the Scene Configuration sheet is open, report that specifically with console logs.
+6. Use **✎** to rename a road and reopen the Scene settings to confirm the name persisted. Add a second road; it should default to "Road 2".
+7. Draw the second road starting near the first road's endpoint. The endpoint should snap within ~14 Scene pixels. Try another line that **crosses midway** through the first: it should **not** create a graph junction at that intersection.
+8. Try **Backspace** before saving: it should remove the most recent draft point. **Esc/Cancel Drawing** should leave no new saved road. Finishing with fewer than two points should show a warning and keep the draft.
+9. Use **×** on a saved road. Confirm the delete prompt works and the road disappears. Remove the last road; the Atlas status should return to no roads configured. The native Scene Grid values should remain unchanged.
+10. Close the Scene configuration and reload the world. Reopen it and confirm saved road names, geometry, and the active status persist.
 
-## Verify legacy data remains safe (optional read-only console check)
+## Scene, Grid, lifecycle, and permission checks
 
-On the Scene you are currently viewing, run:
+- Open the Atlas tab of Scene B while viewing Scene A; **+** must refuse to draw in the wrong Scene, instead of silently saving geometry to either one. Open Scene B on the canvas and retry.
+- Zoom or pan the canvas, then add a road: it should land under your cursor rather than being offset.
+- Switch Scenes or leave the canvas during an unfinished draft. The draft listeners and overlay should clean up. Old drafts must not be saved to a different Scene.
+- As a non-GM, there should be no road editing UI and no GM road overlay. **Do not rely on hidden UI to conceal Scene flags** from players; privacy/reveal is a future feature.
+- In the native **Grid** tab, change the distance and save it. Atlas read-only measurement must follow; this editor does **not** independently calculate road length or alter the ruler's measurement.
+- If your Scene once used a manual calibration like 0.05 km/px, it must not reappear as an active control or override.
+
+## Optional read-only data inspection
+
+While viewing the Scene:
 
 ```js
 canvas.scene.getFlag("fvtt-atlas-navigation", "atlas")
 ```
 
-Newly configured Scenes should contain `"calibration": null` (and start with `"revision": 1` on their first successful save). Older Scenes may still show:
+Expected new road geometry has `nodes[]` with Scene-space `x,y` and `segments[]` entries containing `from`, `to`, ordered interior `via[]`, and a name. `revision` increases for each successful add/rename/delete. Legacy `calibration` and `enabled` fields remain in v1 flags for compatibility, although **active UI state is based on the presence of roads**. Deleting a road leaves its junction nodes intact.
 
-```json
-"calibration": { "source": "manual", "unitsPerPixel": 0.05, "unit": "km" }
-```
+## Known limits
 
-**This is intentional compatibility data, not an active measurement override.** Saving Atlas activation preserves that historical object without changing it, and all current UI/calculation paths ignore it. No automatic destructive flag migration takes place in 0.2.3.
+- This is a **first Phase 2c slice**, not the complete road network editor: saved bend/junction dragging, insert/split-road, named Waypoints [+], linked native Regions, calculated distances/routes, token terrain movement, and player reveal are not here yet.
+- Endpoints snap only to existing junction *nodes*, not to any point along an existing road.
+- One GM edits an Atlas Scene at a time. Revision checking detects many conflicts but is not an atomic multi-GM lock.
+- Existing Scene road flags may be delivered to player clients even though authoring controls are GM-only.
+- Foundry's experimental **VFX** console warning is not caused by Atlas VFX usage; this implementation uses standard PIXI graphics. If you see a **new error mentioning `road-canvas.js`, `scene-config.js`, or `main.js`**, share it.
 
-## Architecture and known limits
+## Automated checks
 
-- **Scene Grid:** the only source of distance and units. No Atlas manual calibration or global Metric/Imperial override.
-- **Future road measurement:** use public Foundry v14 `canvas.grid.measurePath(waypoints).distance` with the actual Scene-space road points; validate against the native ruler across square, hexagonal, gridless, and multisegment paths before finalizing graph weights. Raw `distance / size` is **not** a substitute for native path measurement.
-- **Per-Scene Atlas configuration:** only enabled status changes in the current editor; future road/waypoint/Region lists will be managed in the Atlas tab.
-- **Global module settings:** only the optional GM diagnostic startup notice.
-- **Persistence:** Scene Atlas schema remains v1. Legacy `calibration` objects are kept dormant. Optimistic revision checks are not atomic multi-GM locks; use one GM editor at a time.
-- **Notifications:** a successful save currently uses a dismissible persistent notification for development visibility.
-- **Privacy:** GM-only UI is not proof that Scene flags are confidential from connected player clients.
-
-## Automated verification
-
-From a repository checkout with Node 20+:
+From a Node 20+ repository checkout:
 
 ```bash
 npm test
 npm run check
 ```
 
-Tests should cover native Grid configuration, ignored legacy calibration, one-checkbox Atlas dialog, preservation of old v1 data, no new manual overrides, Scene tab placement, permissions, and stale revisions. **Actual Foundry v14 rendering is your acceptance check**; no road/ruler comparison is possible until the editor is built.
-
-If there is an issue, please share the exact Foundry v14 build, game system, console errors, and a screenshot.
+The tests cover road creation and snapping, no automatic connection at visual crossings, rename/delete preservation, Scene flag persistence, permission/revision rejection, Scene Atlas tab rendering, GM canvas pointer capture, saving, cancellation, and overlay highlights. They do **not** substitute for a live Foundry v14 visual and interaction test.
