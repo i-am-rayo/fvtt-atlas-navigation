@@ -33,5 +33,6 @@
   "FVTTATLAS.Atlas.ManualUnitHint": "Used only with Manual scale override. Enter a short unit code using letters (e.g. km or mi).",
   "FVTTATLAS.Atlas.ScaleDifference": "Your saved manual scale differs from the Scene Grid. It is being preserved; switching sources requires your explicit selection.",
   "FVTTATLAS.Atlas.SwitchToGridWarning": "Switching to Scene Grid and saving removes the old manual calibration. Its current values remain visible above until you save.",
-  "FVTTATLAS.Atlas.SceneGridSaveHint": "Save any changes in the native Grid tab first; Atlas reads the Scene's saved Grid data. Exact hex/gridless route measurement will be checked during road editing."
+  "FVTTATLAS.Atlas.SceneGridSaveHint": "Save any changes in the native Grid tab first; Atlas reads the Scene's saved Grid data. Exact hex/gridless route measurement will be checked during road editing.",
+  "FVTTATLAS.Atlas.ManualValueRequired": "Enter a positive manual scale or choose Scene Grid."
 }
