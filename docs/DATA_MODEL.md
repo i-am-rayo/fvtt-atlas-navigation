@@ -1,6 +1,6 @@
-# Atlas data model — schema v1 (Phase 2a)
+# Atlas data model — schema v1 (Phase 2a/2b)
 
-**Status:** schema v1 is now implemented for Phase 2a (atlas setup/calibration only). Road editing is deferred; validators already enforce node/segment integrity. This example illustrates the persisted contract.
+**Status:** schema v1 is used unchanged in Phase 2b v0.2.2 (native Scene Grid is a derived read-only scale whenever persisted calibration is null). Road editing is deferred; validators already enforce node/segment integrity. This example illustrates the persisted contract.
 
 ## 1. Storage boundary
 
@@ -71,7 +71,7 @@ This is one connected three-junction graph. Its `via` coordinates are **interior
 | `segments[].bidirectional` | boolean | `true` in v1; reserve directed edges for a later explicit feature |
 | `segments[].name` | string | Optional GM road label, never an identifier |
 
-**Current v1 runtime behavior:** calibration is manual or null. The planned use of native Scene Grid measurements is a **future derived input**, not an already implemented `calibration.source` value. If calibration is unknown, store `calibration: null` and do not invent miles/km. A new unconfigured Scene has no `atlas` flag and reads as `{schemaVersion: 1, revision: 0, enabled: false, calibration: null, nodes: [], segments: []}` without writing. Only an explicit GM save persists the flag.
+**Current v1 runtime behavior (v0.2.2):** persisted calibration is manual or null. The effective Scene Grid scale is **derived at read time** from valid native Grid fields when calibration is null; do **not** persist `calibration.source = "scene-grid"` in v1. If both manual and Grid values exist, manual has precedence until an explicit GM switch. With neither usable, the Scene is uncalibrated. A new unconfigured Scene has no `atlas` flag and reads as `{schemaVersion: 1, revision: 0, enabled: false, calibration: null, nodes: [], segments: []}` without writing. Only an explicit GM save persists the flag.
 
 ## 3. Coordinates and topology
 
@@ -160,8 +160,8 @@ Do not add `isHidden` and interpret that as secure storage. A future player/reve
 ### Native Scene Grid as default measurement
 
 - Native Scene fields `grid.size`, `grid.distance`, and `grid.units` describe its visual distance scale. A simple continuous-distance scale is `distance / size`, subject to hex/gridless validation.
-- Use them **as read-only inputs** for the default route-distance display. An explicit manual override remains possible.
-- Preserve existing manual calibration **as an override** until the GM opts into native Grid values; never silently reinterpret or delete v1 `{source:"manual",unitsPerPixel,unit}` objects.
+- The v0.2.2 UI uses them **as read-only inputs** for the default Scene scale summary. An explicit manual override remains possible; route-distance display is planned for Phase 3.
+- Preserve existing manual calibration **as an override** until the GM opts into native Grid values; never silently reinterpret or delete v1 `{source:"manual",unitsPerPixel,unit}` objects. Explicitly switching to Grid and saving currently clears the old manual override (the choice is visible and warned).
 - A future schema version should record source choice, override values, and migration provenance explicitly. A global Metric/Imperial setting, if introduced, is only a display conversion for recognized units, not a source of map-scale truth.
 - Scaled route lengths are derived and can be recomputed after Scene Grid updates without mutating the authored road polylines.
 
