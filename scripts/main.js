@@ -53,6 +53,9 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
       rejectClose: false, modal: true
     });
     if (!approved) return;
+    if (!roadCanvas.isRegionPreviewActive(scene, plan)) {
+      throw new Error("The Scene or Atlas editor changed while the Region preview was open. Nothing was created.");
+    }
     const result = await saveGeneratedNativeRegion(scene, plan, { regenerate });
     ui.notifications.info(result.created
       ? "Atlas created one linked native Region. Add Behaviors in the native Region editor."
