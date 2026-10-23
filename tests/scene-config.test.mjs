@@ -201,8 +201,9 @@ test("v3 connected road sections render once with edit and merge actions",async(
     value.children.some(child => child.tag === "button" && child.textContent === "+")),
     "Roads [+] must stay on the same line");
   assert.ok(all.some(value => value.style.fontStyle === "italic" &&
-    value.textContent === "2 FVTTATLAS.Roads.Segments"),
-    "the section count is secondary italic metadata, not part of the road name");
+    value.textContent === "2 FVTTATLAS.Roads.Segments" &&
+    value.title === "FVTTATLAS.Roads.SegmentCountHint"),
+    "the graph-segment count is explanatory metadata, not part of the road name");
   const rows=[];
   const visit=node=>{if(node.attributes?.has("data-atlas-road-id"))rows.push(node);node.children?.forEach(visit);};
   visit(mounted);
