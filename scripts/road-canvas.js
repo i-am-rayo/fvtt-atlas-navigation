@@ -57,6 +57,26 @@ async function confirmRoadAttachment({ kind, sourceNames, targetNames }) {
   });
 }
 
+
+/** Separating one named road from a shared graph junction never removes roads. */
+async function confirmRoadDetachment({ roadName, otherNames }) {
+  const content = document.createElement("div");
+  const explanation = document.createElement("p");
+  explanation.textContent = game.i18n.localize("FVTTATLAS.Roads.DetachWarning");
+  content.appendChild(explanation);
+  const details = document.createElement("p");
+  details.textContent = game.i18n.format("FVTTATLAS.Roads.DetachDetails", {
+    road: roadName, others: otherNames.join(", ")
+  });
+  content.appendChild(details);
+  return foundry.applications.api.DialogV2.confirm({
+    window: { title: game.i18n.localize("FVTTATLAS.Roads.DetachTitle") },
+    content,
+    yes: { label: game.i18n.localize("FVTTATLAS.Roads.DetachConfirm") },
+    rejectClose: false, modal: true
+  });
+}
+
 /** GM-only disposable Scene overlay; does not intercept ordinary player play. */
 export class RoadCanvasController {
   constructor({
@@ -64,7 +84,8 @@ export class RoadCanvasController {
     doc = () => globalThis.document,
     idFactory = () => foundry.utils.randomID(),
     notify = () => globalThis.ui?.notifications,
-    confirmAttach = confirmRoadAttachment
+    confirmAttach = confirmRoadAttachment,
+    confirmDetach = confirmRoadDetachment
   } = {}) {
     this.canvasProvider = canvasProvider;
     this.doc = doc;
@@ -77,7 +98,7 @@ export class RoadCanvasController {
     this.selectedRoadId = null;
     this.saving = false;
     this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
-      confirmAttach, idFactory, refresh: () => this.refresh() });
+      confirmAttach, confirmDetach, idFactory, refresh: () => this.refresh() });
   }
 
   getDraft(scene) {
