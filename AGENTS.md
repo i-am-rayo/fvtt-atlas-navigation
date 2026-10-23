@@ -5,7 +5,7 @@
 - Repository: `i-am-rayo/fvtt-atlas-navigation`
 - Intended module ID / manifest ID / module folder: `fvtt-atlas-navigation`
 - Target: **Foundry VTT v14**, system-agnostic.
-- Status: **Phase 1 merged** after owner testing; **Phase 2 authorized** on 2026-10-22. Phase 2a was tested; **Phase 2b v0.2.3** native Scene Atlas tab and native-only measurement UI are implemented. Owner tested tab placement/saves in v0.2.2; v0.2.3 regression test is pending. Phase 2c/2d (roads and native Region association) remain planned. Phases 3+ require separate approval.
+- Status: **Phase 1 merged**; **Phase 2 authorized** on 2026-10-22. Phase 2b native Grid updates were owner-verified in Foundry v14 (v0.2.3). **Phase 2c v0.2.4** is a first GM Roads [+] creation/list/overlay test slice; live canvas testing remains. Separate Waypoints [+] and existing-geometry edit tools are still Phase 2c tasks; Phase 2d native Region linking is planned. Phases 3+ require separate approval.
 - Foundry module development is the primary framework; do not build a standalone web service or introduce a LegendKeeper requirement.
 - No campaign-specific or game-system-specific assumptions, example content, assets, settings, or APIs.
 
@@ -22,12 +22,14 @@ If a requested change conflicts with these documents, explain the conflict and p
 
 ## Workflow
 
-- Phase 2 is authorized. Review **2b** Scene Atlas management UI/native Grid measurement in v0.2.3; next deliver **2c** GM road/waypoint canvas editing, then **2d** native Region associations with native Behavior inspection. Terrain-aware token movement costs and travel-time/fastest-route calculations belong to future **Phase 3b** and require separate approval. Do **not** begin routing, player-visible features, or phases 3+ without new approval.
+- Phase 2 is authorized. **2b is verified** for native Scene Grid updates. Test the **2c v0.2.4 first slice** in real Foundry v14: Roads [+], click-to-draw, road list, snapping, UI removal of Configure Atlas toggle, GM permissions, and Scene-specific persistence. Finish remaining 2c waypoint/geometry editing before **2d** native Region associations with Behavior inspection. Terrain-aware token movement costs and travel-time/fastest-route calculations belong to future **Phase 3b** and require separate approval. Do **not** begin routing, player-visible features, or phases 3+ without new approval.
 - Make changes on a topic branch and submit a reviewable PR. Do not merge to `main` without explicit approval.
 - Keep PRs focused. Include rationale, affected files, manual/test evidence, risks, and deferred follow-ups.
 - Avoid unrelated refactors or changing repository settings. Preserve user edits and existing work.
 - When implementation begins, deliver the smallest complete vertical slice; keep complexity behind clear interfaces.
 - Verify v14 API signatures with official versioned documentation (or an installed v14 instance) before using them. Do not assume a v13 pattern still works.
+
+- The old v1 `enabled` field is retained for compatibility, but Atlas tab activation now derives from whether the Scene has saved segments. Adding and deleting roads synchronizes the field; no explicit activation dialog remains.
 
 ## Architecture invariants
 
