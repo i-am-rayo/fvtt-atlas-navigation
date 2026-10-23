@@ -114,7 +114,7 @@ export function shapeSignature(shapes) {
   const normalized = Array.from(shapes, shape => {
     const obj = typeof shape.toObject === "function" ? shape.toObject() : shape;
     if (obj.type === "ellipse") return ["ellipse", obj.x, obj.y,
-      obj.radiusX, obj.radiusY, obj.rotation ?? 0, !!obj.hole];
+      obj.radiusX, obj.radiusY, obj.rotation ?? 0, !!obj.gridBased, !!obj.hole];
     if (obj.type === "polygon") return ["polygon", obj.origin?.x, obj.origin?.y,
       ...obj.points, !!obj.hole];
     return ["other"];
