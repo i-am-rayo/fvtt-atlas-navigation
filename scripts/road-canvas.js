@@ -18,12 +18,12 @@ function drawLine(graphics, points, color, width = 4, alpha = 0.9) {
   }
 }
 
-function drawDot(graphics, point, color) {
+function drawDot(graphics, point, color, radius = 5) {
   if (typeof graphics.circle === "function" && typeof graphics.fill === "function") {
-    graphics.circle(point.x, point.y, 5).fill({ color, alpha: 0.95 });
+    graphics.circle(point.x, point.y, radius).fill({ color, alpha: 0.95 });
   } else if (typeof graphics.drawCircle === "function") {
     graphics.beginFill?.(color, 0.95);
-    graphics.drawCircle(point.x, point.y, 5);
+    graphics.drawCircle(point.x, point.y, radius);
     graphics.endFill?.();
   }
 }
@@ -96,6 +96,7 @@ export class RoadCanvasController {
     this.graphicsCanvas = null;
     this.draft = null;
     this.selectedRoadId = null;
+    this.selectedWaypointId = null;
     this.saving = false;
     this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
       confirmAttach, confirmDetach, idFactory, refresh: () => this.refresh() });
@@ -125,7 +126,12 @@ export class RoadCanvasController {
   }
 
   cancel() {
-    if (this.pointEditor.session) { this.pointEditor.cancel(); return; }
+    if (this.pointEditor.session) {
+      this.pointEditor.cancel();
+      this.selectedWaypointId = null;
+      this.refresh();
+      return;
+    }
     if (!this.draft || this.saving) return;
     const changed = this.draft.onChange;
     this.#detach();
@@ -142,6 +148,7 @@ export class RoadCanvasController {
     if (this.draft && (!scene || this.draft.sceneId === scene.id)) this.cancel();
     if (this.pointEditor.session && (!scene || this.pointEditor.session.sceneId === scene.id)) this.pointEditor.cancel();
     this.selectedRoadId = null;
+    this.selectedWaypointId = null;
     this.refresh();
   }
 
@@ -153,11 +160,103 @@ export class RoadCanvasController {
     if (this.draft || this.saving) throw new Error("Finish or cancel drawing first.");
     this.pointEditor.start(scene, roadId, onChange);
     this.selectedRoadId = roadId;
+    this.selectedWaypointId = null;
     this.refresh();
   }
 
   undo() {
     this.pointEditor.undo();
+  }
+
+  /**
+   * Waypoints [+] is an explicit canvas picker, never an automatic crossing
+   * detector. The GM clicks a road interior; the new junction is staged in the
+   * existing reversible point editor and requires Save Points.
+   */
+  startWaypoint(scene, onChange) {
+    if (!globalThis.game?.user?.isGM ||
+        !scene?.canUserModify?.(game.user, "update")) {
+      throw new Error("Only a GM may create Atlas waypoints.");
+    }
+    if (this.saving || this.draft || this.pointEditor.session) {
+      throw new Error("Save or cancel the current edits before placing a waypoint.");
+    }
+    const canvas = this.canvasProvider();
+    if (!canvas?.ready || canvas.scene?.id !== scene.id) {
+      throw new Error("Open this Scene on the canvas before adding a waypoint.");
+    }
+    const atlas = readAtlas(scene);
+    if (atlas.schemaVersion !== 3 || !atlas.segments.length) {
+      throw new Error("Create and organize roads before placing waypoints.");
+    }
+    const element = canvas.app?.canvas ?? canvas.app?.view;
+    if (!element?.addEventListener || typeof canvas.canvasCoordinatesFromClient !== "function") {
+      throw new Error("The Foundry canvas is not ready for waypoint placement.");
+    }
+    const draft = {
+      scene, sceneId: scene.id, mode: "waypoint", points: [], element, onChange,
+      expectedRevision: atlas.revision, onPointer: null, onKeydown: null
+    };
+    draft.onPointer = event => {
+      if (event.button !== 0 || this.saving || this.draft !== draft) return;
+      if (this.canvasProvider()?.scene?.id !== draft.sceneId) { this.cancel(); return; }
+      const location = canvas.canvasCoordinatesFromClient({ x: event.clientX, y: event.clientY });
+      if (!Number.isFinite(location?.x) || !Number.isFinite(location?.y)) return;
+      const sceneRect = canvas.dimensions?.sceneRect;
+      if (typeof sceneRect?.contains === "function" &&
+          !sceneRect.contains(location.x, location.y)) return;
+      const current = readAtlas(scene);
+      if (current.revision !== draft.expectedRevision) {
+        this.cancel();
+        this.notify()?.error?.("Atlas roads changed. Reopen Waypoints [+] and try again.");
+        return;
+      }
+      const localPoint = toAtlasPoint(canvas, current, location);
+      const target = findRoadSnap(current, localPoint);
+      if (!target) {
+        this.notify()?.warn?.(game.i18n.localize("FVTTATLAS.Waypoints.ClickRoad"));
+        return;
+      }
+      event.preventDefault?.();
+      event.stopImmediatePropagation?.();
+      if (target.kind === "node") {
+        this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Waypoints.AlreadyJunction"));
+        return;
+      }
+      const owner = current.segments.find(s => s.id === target.segmentId);
+      if (!owner) return;
+      const changed = draft.onChange;
+      this.#detach();
+      this.draft = null;
+      try {
+        this.pointEditor.start(scene, owner.roadId, changed, { source: "waypoint" });
+        const nodeId = this.pointEditor.insertJunction(target);
+        this.selectedRoadId = owner.roadId;
+        this.selectedWaypointId = nodeId;
+        this.refresh();
+        changed?.();
+        this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Waypoints.StagedNotice"));
+      } catch (error) {
+        if (this.pointEditor.session) this.pointEditor.cancel();
+        this.selectedWaypointId = null;
+        this.refresh();
+        this.notify()?.error?.(error.message);
+      }
+    };
+    draft.onKeydown = event => {
+      if (event.key === "Escape") {
+        event.preventDefault?.();
+        this.cancel();
+      }
+    };
+    this.draft = draft;
+    this.selectedWaypointId = null;
+    this.selectedRoadId = null;
+    this.selectedWaypointId = null;
+    element.addEventListener("pointerdown", draft.onPointer, true);
+    this.doc()?.addEventListener?.("keydown", draft.onKeydown, true);
+    this.refresh();
+    this.#changed();
   }
 
   #startDrawing(scene, onChange) {
@@ -256,7 +355,11 @@ export class RoadCanvasController {
   async finish() {
     if (this.pointEditor.session) {
       const saved = await this.pointEditor.finish();
-      if (saved) { this.selectedRoadId = null; this.refresh(); }
+      if (saved) {
+        this.selectedRoadId = null;
+        this.selectedWaypointId = null;
+        this.refresh();
+      }
       return saved;
     }
     const draft = this.draft;
@@ -324,6 +427,22 @@ export class RoadCanvasController {
       throw new Error("View this Scene on the canvas to highlight its roads.");
     }
     this.selectedRoadId = this.selectedRoadId === roadId ? null : roadId;
+    this.selectedWaypointId = null;
+    this.refresh();
+  }
+
+  selectWaypoint(scene, nodeId) {
+    const canvas = this.canvasProvider();
+    if (!canvas?.ready || canvas.scene?.id !== scene?.id) {
+      throw new Error("View this Scene on the canvas to highlight a waypoint.");
+    }
+    const data = readAtlas(scene);
+    if (!data.nodes.some(n => n.id === nodeId) ||
+        !data.segments.some(s => s.from === nodeId || s.to === nodeId)) {
+      throw new Error("That waypoint is no longer attached to an Atlas road.");
+    }
+    this.selectedWaypointId = this.selectedWaypointId === nodeId ? null : nodeId;
+    this.selectedRoadId = null;
     this.refresh();
   }
 
@@ -361,6 +480,13 @@ export class RoadCanvasController {
       drawDot(g, path[0], color);
       drawDot(g, path.at(-1), color);
     }
+    if (this.selectedWaypointId) {
+      const selected = nodes.get(this.selectedWaypointId);
+      if (selected && atlas.segments.some(s =>
+        s.from === selected.id || s.to === selected.id)) {
+        drawDot(g, toCanvasPoint(canvas, atlas, selected), 0xf4b65a, 10);
+      }
+    }
     if (this.draft?.sceneId === canvas.scene.id) {
       const draft = this.draft;
       const visualAtlas = atlas.schemaVersion === 3 ? atlas :
@@ -391,5 +517,6 @@ export class RoadCanvasController {
     this.graphics = null;
     this.graphicsCanvas = null;
     this.selectedRoadId = null;
+    this.selectedWaypointId = null;
   }
 }
