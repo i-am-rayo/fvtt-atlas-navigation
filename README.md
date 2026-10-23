@@ -2,7 +2,7 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current development test build: Phase 2c (v0.2.8).** Shared graph junctions can now be detached from one selected named road, leaving the other roads in place. Connection and detachment both require explicit GM confirmation; named roads never merge automatically. v0.2.7 was owner-tested for double-click insertion, Alt-click removal, and multi-road connection prompts. **Live Foundry v14 verification of v0.2.8 is required.** Draft PR #3 remains unmerged.
+> **Current development test build: Phase 2c (v0.2.9).** The GM verified v0.2.8 detach/reattach, connection consent, Undo/Save, persistence, and Scene behavior in Foundry v14. This build completes an explicit **Waypoints [+]** placement tool and **Shift-click bend-to-junction conversion**, without ever auto-connecting visually crossing roads. **Live Foundry v14 verification of v0.2.9 is required.** Draft PR #3 remains unmerged.
 
 ## What works now
 
@@ -13,12 +13,13 @@ A developing **standalone, system-agnostic atlas and road-navigation module for 
 - New-road endpoints can snap to existing junctions **or an interior point of an existing road** (14 image pixels), but **Finish Road asks for GM confirmation before making any connection**. Declining keeps the draft for adjustment; holding Alt while placing an endpoint bypasses snapping. Joining an interior point splits the existing segment into connected sections that belong to **one named road** in the Atlas list. Ordinary crossings away from the endpoints **do not** auto-connect.
 - v2 road coordinates are anchored to the Scene background image, so adjusting Scene padding no longer offsets their overlay. **Previously authored v1 roads require explicit image anchoring**, followed by **Organize named roads**; v2 roads require organization only. Neither migration guesses or silently merges roads.
 - **Edit road points** shows draggable white bend handles and gold shared-junction handles on the canvas. Double-click an edge to add a bend; Alt-click a bend to remove it. Dragging an existing junction onto another road asks for **confirmation**; only acceptance creates a real junction. Cancelling the prompt leaves the original position unchanged. To disconnect a selected named road from a shared junction, **Alt/Option-click its gold point and confirm**; the selected road gains a separate coincident junction which you can then drag away without moving other roads. All these edits are staged until **Save Points** and support **Undo** and **Cancel Edits**. Connected groups can be explicitly **Merged** under one name. Closing Scene Configuration clears highlights and discards unsaved edits.
+- **Waypoints [+]:** Click an existing road to stage a real junction on its interior, then Save Points, Undo, or Cancel Edits in the Waypoints section. The bounded waypoint list shows up to 25 newest active nodes and their connected road names; click ◎ to highlight one. A click near an existing node leaves it unchanged. In Edit Points, Shift-click a white bend to **promote it to a gold junction**, then drag it onto another road to request connection approval. Mere visual crossings stay disconnected.
 - Road list counts refer to internal **graph segments** (split at junctions), not distinct visually drawn road branches. Hover the count for a reminder.
 - Road geometry is stored as versioned per-Scene flags with permissions/revision checks; historical manual calibration values are preserved but ignored.
 - Native **Scene Grid** distance and units remain the only measurement source. **Route lengths and navigation have not been implemented**; road lines do not yet display distance labels.
-- [Phase 2c installation and Foundry smoke-test instructions (v0.2.8)](docs/PHASE2_TESTING.md).
+- [Phase 2c installation and Foundry smoke-test instructions (v0.2.9)](docs/PHASE2_TESTING.md).
 
-**Still to build:** direct canvas context menus, road appearance/label/hover controls, a dedicated Waypoints/junction manager, linking native Regions, route calculation and terrain-based travel, and player reveal/hide. The module remains GM-only for editing. For Phase 1 history, see [Phase 1 test notes](docs/INSTALLATION.md).
+**Still to build:** waypoint naming or native Note associations, direct canvas context menus, road appearance/label/hover controls, linking native Regions, route calculation and terrain-based travel, and player reveal/hide. The module remains GM-only for editing. For Phase 1 history, see [Phase 1 test notes](docs/INSTALLATION.md).
 
 ## Vision
 
@@ -37,7 +38,7 @@ Core goals:
 
 1. Activate the module in a Foundry v14 world.
 2. Open the Atlas tab in native Scene Configuration. Measurement is inherited automatically from the Scene's Grid tab.
-3. Use Roads [+] to draw/persist road segments; the current build supports draggable intermediate bends and shared junctions, while a dedicated waypoint manager is still planned.
+3. Use Roads [+] to draw/persist road segments; the current build supports draggable intermediate bends, shared junctions, and a Waypoints [+] picker for inserting new junctions on existing roads.
 4. Pick two network points and calculate the shortest connected route.
 5. See the highlighted path and total distance; receive a clear "no route" result for disconnected roads.
 6. Reload and confirm the authored network persists.
