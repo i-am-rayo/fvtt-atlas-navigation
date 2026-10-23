@@ -1,5 +1,6 @@
 import { readAtlas } from "./atlas-storage.js";
 import { readSceneGridScale } from "./scene-grid.js";
+import { getRoadMergeCandidates } from "./road-model.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -85,23 +86,37 @@ function atlasPanel(scene, atlas, actions, refresh) {
     root.appendChild(migration);
   }
 
+  const needsOrganize = atlas.schemaVersion === 2 && (atlas.nodes.length || atlas.segments.length);
+  if (needsOrganize) {
+    const migration = node("fieldset");
+    migration.appendChild(node("legend", label("FVTTATLAS.Roads.Organize")));
+    migration.appendChild(node("p", label("FVTTATLAS.Roads.OrganizeHint"), "hint"));
+    migration.appendChild(button(label("FVTTATLAS.Roads.Organize"),
+      label("FVTTATLAS.Roads.Organize"), () => actions.organize(scene, refresh)));
+    root.appendChild(migration);
+  }
+
   const section = node("fieldset");
   const header = node("legend");
   header.appendChild(node("span", label("FVTTATLAS.Roads.Title") + " "));
-  if (!legacy) header.appendChild(button("+", label("FVTTATLAS.Roads.Add"), () => {
+  if (!legacy && !needsOrganize) header.appendChild(button("+", label("FVTTATLAS.Roads.Add"), () => {
     actions.begin(scene, refresh);
   }));
   section.appendChild(header);
 
   const draft = actions.draft(scene);
   if (draft) {
-    section.appendChild(node("p",
-      label(draft.mode === "reshape" ? "FVTTATLAS.Roads.Reshaping" : "FVTTATLAS.Roads.Drawing") + " " +
-      draft.points + " " + label("FVTTATLAS.Roads.Points"), "hint"));
+    section.appendChild(node("p", draft.mode === "points" ?
+      label("FVTTATLAS.Roads.PointEditHint") : (label("FVTTATLAS.Roads.Drawing") + " " +
+      draft.points + " " + label("FVTTATLAS.Roads.Points")), "hint"));
     const controls = node("div", undefined, "form-fields");
-    controls.appendChild(button(label(draft.mode === "reshape" ?
-      "FVTTATLAS.Roads.FinishShape" : "FVTTATLAS.Roads.Finish"),
+    controls.appendChild(button(label(draft.mode === "points" ?
+      "FVTTATLAS.Roads.SavePoints" : "FVTTATLAS.Roads.Finish"),
       label("FVTTATLAS.Roads.Finish"), () => actions.finish()));
+    if (draft.mode === "points" && draft.canUndo) {
+      controls.appendChild(button(label("FVTTATLAS.Roads.Undo"),
+        label("FVTTATLAS.Roads.Undo"), () => actions.undo()));
+    }
     controls.appendChild(button(label("FVTTATLAS.Roads.Cancel"),
       label("FVTTATLAS.Roads.Cancel"), () => actions.cancel()));
     section.appendChild(controls);
@@ -111,21 +126,30 @@ function atlasPanel(scene, atlas, actions, refresh) {
     section.appendChild(node("p", label("FVTTATLAS.Roads.NoRoads"), "hint"));
   }
 
-  for (const [index, segment] of atlas.segments.entries()) {
+  const roads = atlas.schemaVersion === 3 ? atlas.roads : atlas.segments;
+  for (const [index, road] of roads.entries()) {
     const row = node("div", undefined, "form-group");
-    row.setAttribute("data-atlas-road-id", segment.id);
-    const roadName = segment.name || label("FVTTATLAS.Roads.Title") + " " + (index + 1);
-    const text = node("span", roadName);
+    row.setAttribute("data-atlas-road-id", road.id);
+    const roadName = road.name || label("FVTTATLAS.Roads.Title") + " " + (index + 1);
+    const count = atlas.schemaVersion === 3 ?
+      atlas.segments.filter(segment => segment.roadId === road.id).length : 1;
+    const text = node("span", count > 1 ? `${roadName} (${count} ${label("FVTTATLAS.Roads.Segments")})` : roadName);
     row.appendChild(text);
     const controls = node("div", undefined, "form-fields");
     controls.appendChild(button("◎", label("FVTTATLAS.Roads.Highlight"),
-      () => actions.select(scene, segment.id)));
-    if (!legacy) controls.appendChild(button("⌁", label("FVTTATLAS.Roads.Redraw"),
-      () => actions.reshape(scene, segment.id, refresh)));
+      () => actions.select(scene, road.id)));
+    if (atlas.schemaVersion === 3) {
+      controls.appendChild(button("⌖", label("FVTTATLAS.Roads.EditPoints"),
+        () => actions.beginPointEdit(scene, road.id, refresh)));
+      if (getRoadMergeCandidates(atlas, road.id).length) {
+        controls.appendChild(button("⇄", label("FVTTATLAS.Roads.Merge"),
+          () => actions.merge(scene, road, refresh)));
+      }
+    }
     controls.appendChild(button("✎", label("FVTTATLAS.Roads.Rename"),
-      async () => { await actions.rename(scene, segment, refresh); }));
+      async () => { await actions.rename(scene, road, refresh); }));
     controls.appendChild(button("×", label("FVTTATLAS.Roads.Delete"),
-      async () => { await actions.remove(scene, segment, refresh); }));
+      async () => { await actions.remove(scene, road, refresh); }));
     row.appendChild(controls);
     section.appendChild(row);
   }
