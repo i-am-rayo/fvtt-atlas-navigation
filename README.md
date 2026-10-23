@@ -2,7 +2,7 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current development test build: Phase 2c (v0.2.11).** The owner confirmed v0.2.10's new Junctions/Waypoints distinction and other improvements, but found a same-named-road branch inherited from a merge could neither be detached nor converted to a bend. This targeted update lets the GM choose **one section of a same-road branch** to disconnect safely. **Live Foundry v14 verification of v0.2.11 is required.** Draft PR #3 remains unmerged.
+> **Current development test build: Phase 2d (v0.2.12).** The owner verified the final Phase 2c junction repair (v0.2.11). This draft adds GM-only linking of **existing native Foundry Regions**, native Behavior inspection, and a native Region configuration shortcut. It does not adjust movement costs, replace Behaviors, or calculate routes. **Live Foundry v14 testing of v0.2.12 is required.** Phase 2c draft PR #3 remains unmerged; this milestone is on a separate feature branch.
 
 ## What works now
 
@@ -16,13 +16,14 @@ A developing **standalone, system-agnostic atlas and road-navigation module for 
 - **Same-road branch correction (v0.2.11):** If a former road merge left three or more sections of the **same named road** meeting at one junction, **Alt/Option-click that gold point**, choose the section/direction to disconnect, and confirm. Atlas creates a separate coincident endpoint for that section, which you can drag away. Then Shift-click the remaining two-section junction if you want a white shaping bend. No named road or section is deleted or renamed, and Undo/Cancel/Save still apply.
 - **Junctions [+]:** Click an existing road to stage a real graph node at its interior, then Save Points, Undo, or Cancel Edits in the Junctions section. In Edit Points, **Shift-click a white bend** to promote it to a gold junction; **Shift-click a gold two-section single-road pass-through** to turn it back into a white bend without shifting geometry. Shared, branching, terminal and loop nodes are protected. These edits are staged and reversible. Drag onto another road to request explicit connection confirmation; mere visual crossings remain disconnected.
 - **Filtered junction inspector:** Only road branches and junctions shared by different named roads appear (not every endpoint or same-road subdivision). The list defaults to the first selected road, offers **directly connected roads** or **entire Scene**, and renders no more than 25 matches. Highlighting a road changes the selected filter.
+- **Terrain Regions [+] (v0.2.12):** In Scene Configuration → Atlas, link an existing native Region. Linked Regions display their native names, hidden state and configured Behaviors (active/inactive), with a shortcut to Foundry's native Region editor. The ↻ button refreshes the list after native edits. Unlinking removes **only the Atlas association flag**; native Region geometry, elevation, visibility, Behaviors and actual token movement remain unchanged. You can link Regions even before drawing any roads.
 - **Waypoints:** Reserved for meaningful named places such as tolls, checkpoints, landmarks and hidden encounters, potentially linked to native Notes/Journals in a later milestone. v0.2.10 does **not** create new Waypoint records or expose player-visible markers.
 - Road list counts refer to internal **graph segments** (split at junctions), not distinct visually drawn road branches. Hover the count for a reminder.
 - Road geometry is stored as versioned per-Scene flags with permissions/revision checks; historical manual calibration values are preserved but ignored.
 - Native **Scene Grid** distance and units remain the only measurement source. **Route lengths and navigation have not been implemented**; road lines do not yet display distance labels.
-- [Phase 2c installation and Foundry smoke-test instructions (v0.2.11)](docs/PHASE2_TESTING.md).
+- [Phase 2d v0.2.12 installation and Foundry smoke-test instructions](docs/PHASE2_TESTING.md).
 
-**Still to build:** meaningful Waypoint creation/naming or native Note associations, direct canvas context menus, road appearance/label/hover controls, linking native Regions, route calculation and terrain-based travel, and player reveal/hide. The module remains GM-only for editing. For Phase 1 history, see [Phase 1 test notes](docs/INSTALLATION.md).
+**Still to build:** meaningful Waypoint creation/naming or native Note associations, direct canvas context menus, road appearance/label/hover controls, terrain-aware previews, route calculation and terrain-based travel, and player reveal/hide. The module remains GM-only for editing. For Phase 1 history, see [Phase 1 test notes](docs/INSTALLATION.md).
 
 ## Vision
 

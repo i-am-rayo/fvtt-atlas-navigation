@@ -1,3 +1,37 @@
+# Phase 2d — v0.2.12 GM acceptance: native Region associations
+
+**Status (October 23, 2026):** The owner verified v0.2.11's final junction repair. Phase 2d is authorized, but this new build still requires live testing in Foundry v14. PR #3 for roads remains draft and unmerged; Phase 2d is on a separate branch. **Back up the test world first.**
+
+Install/update using this branch manifest:
+
+```text
+https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2d-native-regions/module.json
+```
+
+Foundry Setup → Add-on Modules → Check for Updates should show **0.2.12**. Reload the world and sign in as a GM.
+
+## A. Link existing native Regions
+
+1. In a test Scene, use **Foundry's Regions canvas layer** (not Atlas) to create two native Regions, e.g. one with multiple shapes, a hole and an elevation range, and one ordinary Region. Add native **Modify Movement Cost**, **Difficult Terrain**, or system-provided Behaviors if available; give at least one Behavior a disabled state. Do not assume any particular game system provides a given Behavior.
+2. Open Scene Configuration → **Atlas → Terrain Regions [+]**. Choose one existing Region and **Link native Region**. Confirm it appears under its **native Region name**, with a Behavior status summary. The unlinked Region should not appear in the linked list. The + picker should offer only unlinked Regions.
+3. Reload Foundry, reopen Atlas, and verify the association persists on exactly the same Scene and native Region. Native shapes, holes, elevation, and behavior parameters must be unchanged.
+4. Use **⚙ Open native Region configuration**. Verify it opens Foundry's actual Region settings. Rename the Region, disable/enable a Behavior, and optionally hide/show the Region using native tools. After native Save, use **↻ Refresh Region list** in Atlas. Name, hidden notice and active/inactive Behavior states should reflect the new native configuration.
+5. Link the second Region, then use **× Unlink Region from Atlas** on the first. Cancel confirmation first (no change), then confirm. The first native Region, all its shapes and Behaviors, and its normal effect on *actual native token movement* must remain intact. The first Region should now reappear in the + picker.
+6. Verify an Atlas Region can be linked **even if no roads exist**. Regions are independent native documents, not entries in the road graph. Linking/unlinking must not change `Scene.flags.fvtt-atlas-navigation.atlas`, road names, graph segments or revision, and must not change native Scene Grid measurements.
+
+## B. Safety and isolation
+
+7. On a second Scene, confirm links from the first Scene do not appear. Create a native Region there, link it, and return to the first Scene; the first Scene's links should still be intact. Delete a linked native Region using Foundry's native tool and confirm Atlas no longer lists it as a dangling reference.
+8. Try a native Region with **no Behaviors** and another with several Behaviors (including game-system-provided types). Atlas should display their current names/status without editing or interpreting any system-specific data. Hidden/disabled native Behaviors should be shown inactive.
+9. Close and reopen Scene Configuration; switch Scenes; reload. Confirm associations remain correct and earlier Phase 2c road editing, junction creation, and padding alignment still work.
+10. Test as a **non-GM**: Atlas setup/link buttons must not become available and the action adapter must reject unauthorized mutations. Use only one GM editor at a time; Foundry Region flag writes do not use atomic cross-GM compare-and-swap.
+11. **Advanced corruption/future-version safety, optional in a disposable test world only:** If a Region already has an unsupported `flags.fvtt-atlas-navigation.atlas` payload, Atlas should warn and not offer to overwrite/unlink it. Do not manipulate live world flags without a backup.
+12. Check browser console for errors. No new core Walls, Drawings, Region shapes, tokens, duplicated terrain multipliers, road segments or movement preview code should have been created. Report any unexpected behavior before proceeding to Phase 3.
+
+**Scope boundary:** This milestone only stores native Region associations and shows configured Behavior status. It does **not** calculate a route, display native movement cost, selectively filter Region effects on a token, or estimate overland travel time.
+
+---
+
 # Phase 2c — v0.2.11 GM acceptance: safe same-road branch recovery
 
 **Status (October 23, 2026):** The owner verified v0.2.10's other improvements, but reported that some junctions inherited from an earlier same-named-road merge could neither be Shift-click demoted nor Alt/Option-click detached. v0.2.11 repairs that gap **only with explicit section selection**. PR #3 is still draft and unmerged. Back up your world before testing.
