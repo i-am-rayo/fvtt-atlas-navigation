@@ -1,7 +1,4 @@
 {
-  "FVTTATLAS.Settings.ShowStartupNotice.Name": "Show GM startup confirmation",
-  "FVTTATLAS.Settings.ShowStartupNotice.Hint": "When enabled, show the GM a notification after the world loads. This is a diagnostic only.",
-  "FVTTATLAS.Notifications.Ready": "FVTT Atlas Navigation: Module loaded successfully.",
   "FVTTATLAS.Atlas.Tab": "Atlas",
   "FVTTATLAS.Atlas.Measurement": "Distance measurement",
   "FVTTATLAS.Atlas.NativeGrid": "Scene Grid",
