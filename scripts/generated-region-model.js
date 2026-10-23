@@ -153,7 +153,7 @@ export function buildGeneratedRegionPlan(atlasData, {
   widthCells = 0.5, gridSize, origin
 }) {
   const atlas = validateAtlas(atlasData);
-  if (atlas.schemaVersion !== 4) {
+  if (atlas.schemaVersion < 4) {
     throw new Error("Create named checkpoints before generating a Region.");
   }
   const road = atlas.roads.find(r => r.id === roadId);
