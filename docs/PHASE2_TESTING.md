@@ -1,6 +1,6 @@
 # Phase 2e — v0.2.13 GM acceptance: meaningful checkpoints and elevations
 
-**Status (October 23, 2026):** Phase 2d v0.2.12 native Region associations were owner-verified in Foundry v14. This new checkpoint milestone is a **draft requiring live owner testing**. The Region and road authoring PRs remain draft/unmerged. Test in a backed-up world with one GM editor at a time.
+**Status (October 23, 2026):** Phase 2d v0.2.12 native Region associations were owner-verified in Foundry v14. This new checkpoint milestone is a **draft requiring live owner testing**. The Region and road authoring PRs remain draft/unmerged. Test in a backed-up world with one GM editor at a time. **Do not downgrade to v0.2.12 after saving a v4 Scene**: older code will correctly reject the newer version rather than silently erase it.
 
 **Install/update this milestone:** `https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2e-checkpoints-elevation/module.json`. Then reload Foundry and verify the module version is **0.2.13**.
 
