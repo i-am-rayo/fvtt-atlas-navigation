@@ -53,6 +53,7 @@ export function createEmptyAtlas() {
   };
 }
 
+/** Euclidean Scene-pixel geometry for validation only; NOT native ruler distance. */
 export function polylineLength(points) {
   let length = 0;
   for (let i = 1; i < points.length; i++) {
