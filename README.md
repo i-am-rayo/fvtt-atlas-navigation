@@ -2,7 +2,9 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current development test build: v0.2.15 — world-shared Corridor Travel Presets.** The owner verified v0.2.14 native checkpoint/corridor Region creation and manual-geometry safeguards in Foundry v14. This draft adds GM-only world-level Land/Air/Water preset editing in the module's Atlas Presets submenu, per-road defaults and per-generated-corridor overrides. All built-in cost suggestions are neutral ×1.00; no native Region Behaviors are created or replaced. The Scene road flag upgrades to v5 only when a GM explicitly assigns a named-road default; back up the World before editing older v3/v4 road data, as older Atlas module versions cannot edit the new schema. Test this build in Foundry v14 before accepting it; PRs remain unmerged.
+> **Current development test build: v0.2.15.1 — world-shared Corridor Travel Presets.** The owner verified v0.2.14 native checkpoint/corridor Region creation and manual-geometry safeguards in Foundry v14. This draft adds GM-only world-level Land/Air/Water preset editing in the module's Atlas Presets submenu, per-road defaults and per-generated-corridor overrides. All built-in cost suggestions are neutral ×1.00; no native Region Behaviors are created or replaced. The Scene road flag upgrades to v5 only when a GM explicitly assigns a named-road default; back up the World before editing older v3/v4 road data, as older Atlas module versions cannot edit the new schema. Test this build in Foundry v14 before accepting it; PRs remain unmerged.
+
+> **v0.2.15.1 dialog hotfix:** Foundry v14 now accepts the Add/Edit travel-preset dialogs; the serialized form retains existing names, modes, and cost values. No world or Scene data schema changed. Install/update to v0.2.15.1 before continuing the preset checklist.
 
 ## What works now
 
