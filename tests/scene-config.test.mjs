@@ -3,7 +3,7 @@ import test from "node:test";
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "../scripts/scene-config.js";
 
 class Element {
-  constructor(tag) { this.tag = tag; this.attributes = new Map(); this.children = []; this.listeners = new Map(); }
+  constructor(tag) { this.tag = tag; this.attributes = new Map(); this.children = []; this.listeners = new Map(); this.style = {}; }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   appendChild(child) { this.children.push(child); }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
@@ -193,7 +193,16 @@ test("v3 connected road sections render once with edit and merge actions",async(
    beginPointEdit:(_scene,id)=>{editedId=id;},merge:(_scene,road)=>{mergedId=road.id;}
   });
   assert.equal(buttons(mounted).length,11,"plus and five per-road operations");
-  assert.match(textContents(mounted),/Main Road \(2 FVTTATLAS.Roads.Segments\)/);
+  assert.match(textContents(mounted),/Main Road 2 FVTTATLAS.Roads.Segments/);
+  const all = [];
+  const collect = value => { all.push(value); for (const child of value.children ?? []) collect(child); };
+  collect(mounted);
+  assert.ok(all.some(value => value.tag === "span" && value.style.display === "inline-flex" &&
+    value.children.some(child => child.tag === "button" && child.textContent === "+")),
+    "Roads [+] must stay on the same line");
+  assert.ok(all.some(value => value.style.fontStyle === "italic" &&
+    value.textContent === "2 FVTTATLAS.Roads.Segments"),
+    "the section count is secondary italic metadata, not part of the road name");
   const rows=[];
   const visit=node=>{if(node.attributes?.has("data-atlas-road-id"))rows.push(node);node.children?.forEach(visit);};
   visit(mounted);
