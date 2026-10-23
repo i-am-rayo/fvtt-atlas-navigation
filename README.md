@@ -2,7 +2,7 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current build: Phase 2a development (v0.2.1), undergoing Foundry v14 testing.** Phase 1 startup and URL installation were tested and merged. This branch currently has GM-only Scene atlas setup and manual calibration. **The Phase 2 design was revised October 23, 2026** to introduce native-looking Scene Atlas management, native Grid measurements, and native Region associations; those revisions are documented but are **not yet implemented**. Road authoring/rendering and routing remain future work.
+> **Current build: Phase 2a development (v0.2.1), undergoing Foundry v14 testing.** Phase 1 startup and URL installation were tested and merged. This branch currently has GM-only Scene atlas setup and manual calibration. **The Phase 2 design was revised October 23, 2026** to introduce native-looking Scene Atlas management, native Grid measurements, and native Region associations **that reuse Foundry's configured movement Behaviors**; those revisions are documented but are **not yet implemented**. Road authoring/rendering and routing remain future work.
 
 ## What works now
 
@@ -22,7 +22,7 @@ Help a Gamemaster turn an existing Foundry Scene into an interactive world or re
 
 Core goals:
 
-- **Native Foundry content:** Scenes provide maps, Notes connect places to Journals, and native Regions provide the terrain geometry for optional road travel modifiers.
+- **Native Foundry content:** Scenes provide maps, Notes connect places to Journals, and existing Regions provide both terrain geometry and configured movement Behaviors. Atlas links to these Regions without duplicating terrain multipliers.
 - **Authored roads:** The GM draws a persistent, editable network of connected road segments and junctions.
 - **Actual navigation:** A graph algorithm finds a route through that network, rather than merely animating a freely sketched line.
 - **Distance-aware maps:** Prefer Scene Grid measurement settings, with an explicit per-Scene override where needed; preserve existing manual scales during migration.
@@ -42,7 +42,7 @@ Native map Notes/Journal links will remain the first choice for places and lore.
 
 ## Not in the initial milestone
 
-Automatic token travel; a combat/grid movement engine; terrain-aware **travel-time calculation** (planned separately for Phase 3b after native Region linking in Phase 2d); weather; cross-Scene paths; fog-of-war automation; LegendKeeper sync; a D&D-specific ruleset; a dependency on Indy Route.
+Automatic token travel; a replacement combat/grid movement engine; terrain-aware **token movement-cost previews and overland travel-time calculation** (proposed separately for Phase 3b after native Region linking in Phase 2d); weather; cross-Scene paths; fog-of-war automation; LegendKeeper sync; a D&D-specific ruleset; a dependency on Indy Route.
 
 These are possible later phases, not prerequisites for useful GM navigation.
 
