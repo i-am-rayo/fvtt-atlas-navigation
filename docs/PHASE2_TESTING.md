@@ -2,9 +2,11 @@
 
 **Status (October 23, 2026):** The owner verified v0.2.14 generated native Regions, including the safety block after accidentally moving a native Region. This v0.2.15 draft is **not yet owner-verified in Foundry v14**. Back up the World before assigning a named-road default: that explicit action upgrades its Scene Atlas from v3/v4 to v5. Do not downgrade that Scene to older Atlas module versions afterward. Keep a single GM authoring a Scene at one time.
 
-**Development manifest:** `https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2g-travel-presets/module.json` — reload the world and verify version **0.2.15.1**.
+**Development manifest:** `https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2g-travel-presets/module.json` — reload the world and verify version **0.2.15.2**.
 
 **v0.2.15.1 hotfix:** The original v0.2.15 Add/Edit preset dialogs failed to open in Foundry v14 with `config.content element must have no attributes`. The corrected dialogs use an attribute-free outer container and serialized default field values. Re-test both **Edit** and **Add** (including reopening an edited preset) before proceeding. The underlying preset catalog and Scene schema remain unchanged.
+
+**v0.2.15.2 settings cleanup:** Game Settings → FVTT Atlas Navigation now contains only the **Atlas Presets** submenu. The former *Show GM startup confirmation* diagnostic toggle was removed; module startup should not display a test notification. Existing values are left dormant, not erased from the World database.
 
 ## New v0.2.15 GM test plan
 
