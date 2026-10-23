@@ -2,19 +2,19 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current build: Phase 2a development (v0.2.1), undergoing Foundry v14 testing.** Phase 1 startup and URL installation were tested and merged. This branch currently has GM-only Scene atlas setup and manual calibration. **The Phase 2 design was revised October 23, 2026** to introduce native-looking Scene Atlas management, native Grid measurements, and native Region associations **that reuse Foundry's configured movement Behaviors**; those revisions are documented but are **not yet implemented**. Road authoring/rendering and routing remain future work.
+> **Current build: Phase 2b development (v0.2.2), awaiting Foundry v14 visual testing.** Phase 1 startup and URL installation were tested and merged. This branch implements a GM-only native Atlas Scene Configuration tab, native Scene Grid-first measurement, and explicit manual overrides while preserving Phase 2a Scene flags. **Roads, Waypoints, Region linking, and route calculation are not implemented yet**; their approved design reuses Foundry's native Region Behaviors.
 
 ## What works now
 
 - The Phase 1 module bootstrap, GM startup setting, and URL-based installation.
-- An **Atlas Navigation → Configure Atlas** launcher inside each Scene's native configuration sheet (GM only).
+- A GM-only **Atlas** tab in native Scene Configuration, with a supported in-sheet fallback if a custom Scene sheet cannot display it.
 - Enable/disable atlas mode per Scene, preserving data when disabled.
-- Configure travel units per image pixel, or leave a Scene uncalibrated. Saved values display correctly when reopening the editor.
+- Use **native Scene Grid distance and units by default**, derived without writing duplicate values into flags; optionally choose a per-Scene manual units-per-pixel override. Existing v0.2.1 manual values remain selected until explicitly changed.
 - Validate and persist versioned Scene flags with revision checks; no game-system-specific dependency.
 - Show an explicitly dismissible save notification in the current development build.
-- [Phase 2a installation and smoke-test instructions](docs/PHASE2_TESTING.md).
+- [Phase 2b installation and smoke-test instructions (v0.2.2)](docs/PHASE2_TESTING.md).
 
-This test build is **not** a usable road editor yet. We are building that next on top of the validated Scene data model. For the earlier Phase 1 check, see [Phase 1 test notes](docs/INSTALLATION.md).
+This test build is **not** a usable road editor yet. Phase 2c will add road/waypoint authoring; Phase 2d adds optional native Region links. For the earlier Phase 1 check, see [Phase 1 test notes](docs/INSTALLATION.md).
 
 ## Vision
 
@@ -32,7 +32,7 @@ Core goals:
 ## Initial playable milestone (GM-only)
 
 1. Activate the module in a Foundry v14 world.
-2. Open native-looking Atlas management for any Scene, with Grid measurement read automatically or explicitly overridden.
+2. Open the Atlas tab in native Scene Configuration, with Grid measurement read automatically or explicitly overridden.
 3. Draw, connect, edit, and persist road junctions/segments via GM canvas controls.
 4. Pick two network points and calculate the shortest connected route.
 5. See the highlighted path and total distance; receive a clear "no route" result for disconnected roads.
