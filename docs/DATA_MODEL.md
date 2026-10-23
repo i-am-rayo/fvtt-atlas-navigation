@@ -1,4 +1,29 @@
-# Atlas data model — schema v1 (Phase 2c first slice)
+# Atlas data model — schema v2 (Phase 2c v0.2.5)
+
+**Current contract:** The Scene flag remains `flags.fvtt-atlas-navigation.atlas`. New Scene atlases and successfully anchored legacy graphs use `schemaVersion: 2` and `coordinateSpace: "image"`. Positions are **local to the top-left of the Scene background image**, not the whole padded canvas. When authoring, subtract the Foundry canvas `dimensions.sceneX/sceneY`; when drawing, add them back. Native Scene Grid remains the exclusive authority for measurement.
+
+```json
+{
+  "schemaVersion": 2,
+  "coordinateSpace": "image",
+  "revision": 0,
+  "enabled": false,
+  "calibration": null,
+  "nodes": [],
+  "segments": []
+}
+```
+
+- Existing v1 payloads are accepted intact for viewing, rename and delete. Their positions remain canvas-absolute until a GM confirms migration in an aligned Scene.
+- Migration: validate v1, subtract the **current** image origin from every node and `via` point, preserve names and IDs, switch schema to v2, and increment the revision through one permission-checked `scene.setFlag`. Do not guess old Scene padding or migrate behind the user's back. Once v2, changing padding alters only the canvas origin, not stored geometry.
+- When a new road endpoint is within 14 local image pixels of an existing node, reuse the node. Otherwise, if it is within 14 pixels of an existing road *interior*, split that road into two segments sharing a newly created stable node; the old ID stays on the first half and both halves retain the old name. The new segment reuses that junction. Snap only endpoints, never arbitrary crossings or internal bends; Alt disables endpoint snapping.
+- A saved road can be **reshaped** by replacing its intermediate `via` points only; endpoint node IDs and connectivity cannot change through this command. All updates validate the complete graph and check the current revision.
+- Schema v2 remains **system agnostic** and uses existing Foundry Regions only in later milestones; no terrain math, routing or player visibility is invented here.
+
+---
+
+## Historical schema v1 contract and rationale
+
 
 **Status:** schema v1 remains unchanged in Phase 2c v0.2.4. The module can now add, rename and remove one named segment/road at a time from the GM Atlas tab, while distances continue to rely exclusively on native Scene Grid. Historical calibration is preserved but inert. Explicit waypoint editing, splitting existing road segments, and routing are deferred.
 
