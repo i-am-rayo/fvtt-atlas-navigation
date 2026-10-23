@@ -2,8 +2,8 @@
   "id": "fvtt-atlas-navigation",
   "type": "module",
   "title": "FVTT Atlas Navigation",
-  "description": "System-agnostic Foundry VTT v14 atlas navigation. Phase 2c adds GM Scene Roads (+) map drawing, road list management, and native Scene Grid measurements.",
-  "version": "0.2.4",
+  "description": "System-agnostic Foundry VTT v14 Scene Atlas roads: image-anchored road geometry, endpoint junction snapping, and bend redrawing.",
+  "version": "0.2.5",
   "authors": [
     {
       "name": "i-am-rayo",
