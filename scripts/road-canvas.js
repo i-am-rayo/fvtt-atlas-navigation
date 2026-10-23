@@ -77,6 +77,59 @@ async function confirmRoadDetachment({ roadName, otherNames }) {
   });
 }
 
+/**
+ * A same-name branch cannot be collapsed into a bend without losing a road arm.
+ * Require the GM to choose which incident graph section to disconnect.
+ */
+async function chooseRoadBranch({ roadName, junction, sections }) {
+  const content = document.createElement("div");
+  const hint = document.createElement("p");
+  hint.textContent = game.i18n.localize("FVTTATLAS.Roads.DetachBranchWarning");
+  content.appendChild(hint);
+  const name = document.createElement("p");
+  name.textContent = roadName;
+  name.style.fontWeight = "bold";
+  content.appendChild(name);
+  const field = document.createElement("div");
+  field.className = "form-group";
+  const label = document.createElement("label");
+  label.textContent = game.i18n.localize("FVTTATLAS.Roads.DetachBranchSelect");
+  const select = document.createElement("select");
+  select.name = "sectionId";
+  select.style.width = "100%";
+  const nodes = new Map(junction.nodes.map(n => [n.id, n]));
+  const directions = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"];
+  sections.forEach((segment, index) => {
+    const outbound = segment.from === junction.id
+      ? (segment.via[0] ?? nodes.get(segment.to))
+      : (segment.via.at(-1) ?? nodes.get(segment.from));
+    const dx = outbound.x - junction.x;
+    const dy = outbound.y - junction.y;
+    const angle = (Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8;
+    const option = document.createElement("option");
+    option.value = segment.id;
+    option.textContent = game.i18n.format("FVTTATLAS.Roads.DetachBranchOption", {
+      number: index + 1, direction: dx || dy ? directions[angle] : "?",
+      section: segment.id.slice(-6)
+    });
+    select.appendChild(option);
+  });
+  field.appendChild(label);
+  field.appendChild(select);
+  content.appendChild(field);
+  const reminder = document.createElement("p");
+  reminder.textContent = game.i18n.localize("FVTTATLAS.Roads.DetachBranchAfter");
+  content.appendChild(reminder);
+  const response = await foundry.applications.api.DialogV2.input({
+    window: { title: game.i18n.localize("FVTTATLAS.Roads.DetachBranchTitle") },
+    content,
+    ok: { label: game.i18n.localize("FVTTATLAS.Roads.DetachBranchConfirm") },
+    rejectClose: false, modal: true
+  });
+  return sections.some(section => section.id === response?.sectionId)
+    ? response.sectionId : null;
+}
+
 /** GM-only disposable Scene overlay; does not intercept ordinary player play. */
 export class RoadCanvasController {
   constructor({
@@ -85,7 +138,8 @@ export class RoadCanvasController {
     idFactory = () => foundry.utils.randomID(),
     notify = () => globalThis.ui?.notifications,
     confirmAttach = confirmRoadAttachment,
-    confirmDetach = confirmRoadDetachment
+    confirmDetach = confirmRoadDetachment,
+    chooseBranch = chooseRoadBranch
   } = {}) {
     this.canvasProvider = canvasProvider;
     this.doc = doc;
@@ -99,7 +153,7 @@ export class RoadCanvasController {
     this.selectedJunctionId = null;
     this.saving = false;
     this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
-      confirmAttach, confirmDetach, idFactory, refresh: () => this.refresh() });
+      confirmAttach, confirmDetach, chooseBranch, idFactory, refresh: () => this.refresh() });
   }
 
   getDraft(scene) {
