@@ -1,4 +1,35 @@
-# Atlas data model — schema v2 (Phase 2c v0.2.5)
+# Atlas data model — schema v3 (Phase 2c v0.2.6)
+
+**Current contract:** Each Foundry Scene stores one validated `flags.fvtt-atlas-navigation.atlas` payload. Schema v3 separates a **named logical road** from one or more **graph segments**, which can be split at junctions without duplicating a name in the road list.
+
+```json
+{
+  "schemaVersion": 3,
+  "coordinateSpace": "image",
+  "revision": 0,
+  "enabled": false,
+  "calibration": null,
+  "nodes": [],
+  "roads": [],
+  "segments": []
+}
+```
+
+Example of one main road split by a spur: `roads: [{id:"main",name:"Main Road"},{id:"spur",name:"Spur"}]`; two distinct segments have `roadId:"main"`, and the spur segment has `roadId:"spur"`. Segments retain independent stable `id`, shared `from`/`to` node IDs, ordered interior `via` points, and `bidirectional:true`. `roads[].id` and `segments[].id` belong to separate ID namespaces.
+
+Migration is deliberately explicit:
+1. Legacy schema v1 (absolute padded-canvas coordinates) must first be anchored into image-local v2 coordinates, using the GM-confirmed currently aligned Scene image origin.
+2. Populated v2 Scene data must be converted with **Organize named roads (v0.2.6)**. This retains every junction ID, segment ID, geometry, name, revision history (incrementing revision for the write), and inactive historical calibration. Each v2 named segment initially becomes one v3 logical road with the same ID.
+3. **Identically named v2 segments are not merged by assumption.** The GM can explicitly **Merge connected roads** when two logical road groups share a junction; merging only reassigns the segment `roadId` and removes the secondary name, never changing geometry or junction IDs. Split operations on v3 segments preserve their parent `roadId`.
+4. New Scenes start with empty v3; empty old Scenes upgrade when their first road is saved.
+
+Road geometry editor operations are validated, revision-checked and staged in memory until **Save Points**. `move-node` changes a shared graph node and thus all connected segments; `move-bend`, `insert-bend`, and `remove-bend` only alter the appropriate segment's interior `via` point list. Undo/Cancel discard uncommitted work. No Foundry `WallDocument` or `DrawingDocument` is created, and no movement/sight collision is introduced. The module uses native Scene Grid exclusively for future distance, never an independent scale.
+
+The archived v2/v1 design below is retained to document backwards compatibility, not as the current write format.
+
+---
+
+## Archived schema v2 — Phase 2c v0.2.5
 
 **Current contract:** The Scene flag remains `flags.fvtt-atlas-navigation.atlas`. New Scene atlases and successfully anchored legacy graphs use `schemaVersion: 2` and `coordinateSpace: "image"`. Positions are **local to the top-left of the Scene background image**, not the whole padded canvas. When authoring, subtract the Foundry canvas `dimensions.sceneX/sceneY`; when drawing, add them back. Native Scene Grid remains the exclusive authority for measurement.
 
