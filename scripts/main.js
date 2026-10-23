@@ -147,9 +147,15 @@ function actions() {
     async unlinkRegion(scene, regionId, refresh) {
       const region = scene.regions?.get(regionId);
       if (!region) throw new Error(game.i18n.localize("FVTTATLAS.Regions.Missing"));
+      const content = document.createElement("div");
+      const warning = document.createElement("p");
+      warning.textContent = game.i18n.format("FVTTATLAS.Regions.UnlinkWarning", {
+        name: region.name
+      });
+      content.appendChild(warning);
       const confirmed = await DialogV2.confirm({
         window: { title: game.i18n.localize("FVTTATLAS.Regions.Unlink") },
-        content: game.i18n.format("FVTTATLAS.Regions.UnlinkWarning", { name: region.name }),
+        content,
         rejectClose: false,
         modal: true
       });
