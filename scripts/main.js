@@ -1,15 +1,23 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * Phase 2c: image-anchored road geometry, junctions and bend editing.
+ * Phase 2c: v0.2.6 grouped named roads and draggable, reversible point editing.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
-import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads } from "./road-storage.js";
+import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
+  saveOrganizedRoads, saveMergedRoads } from "./road-storage.js";
+import { getRoadMergeCandidates } from "./road-model.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
 
 const STARTUP_NOTICE_SETTING = "showStartupNotice";
 const roadCanvas = new RoadCanvasController();
+
+function ensureIdle(scene) {
+  if (roadCanvas.getDraft(scene)) {
+    throw new Error("Save or cancel your current road edits first.");
+  }
+}
 
 function actions() {
   const DialogV2 = foundry.applications.api.DialogV2;
@@ -19,10 +27,11 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.StartNotice"));
     },
     draft: scene => roadCanvas.getDraft(scene),
-    reshape(scene, segmentId, refresh) {
-      roadCanvas.startReshape(scene, segmentId, refresh);
-      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.ReshapeNotice"));
+    beginPointEdit(scene, roadId, refresh) {
+      roadCanvas.startPointEdit(scene, roadId, refresh);
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.EditNotice"));
     },
+    undo: () => roadCanvas.undo(),
     async anchor(scene, refresh) {
       const atlas = readAtlas(scene);
       if (atlas.schemaVersion !== 1) return;
@@ -41,17 +50,74 @@ function actions() {
       refresh();
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Anchored"));
     },
+    async organize(scene, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      if (atlas.schemaVersion !== 2) return;
+      const approved = await DialogV2.confirm({
+        window: { title: game.i18n.localize("FVTTATLAS.Roads.Organize") },
+        content: game.i18n.localize("FVTTATLAS.Roads.OrganizeWarning"),
+        rejectClose: false, modal: true
+      });
+      if (!approved) return;
+      await saveOrganizedRoads(scene, { expectedRevision: atlas.revision });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Organized"));
+    },
+    async merge(scene, road, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      const options = getRoadMergeCandidates(atlas, road.id);
+      if (!options.length) throw new Error("This road has no adjacent road to merge.");
+      let otherId = options[0].id;
+      if (options.length > 1) {
+        const select = document.createElement("select");
+        select.name = "mergeRoadId";
+        for (const candidate of options) {
+          const item = document.createElement("option");
+          item.value = candidate.id;
+          item.textContent = candidate.name;
+          select.appendChild(item);
+        }
+        const input = await DialogV2.input({
+          window: { title: game.i18n.localize("FVTTATLAS.Roads.Merge") },
+          content: select,
+          ok: { label: game.i18n.localize("FVTTATLAS.Roads.Merge") },
+          rejectClose: false
+        });
+        if (!input) return;
+        otherId = String(input.mergeRoadId ?? "");
+      }
+      const other = options.find(candidate => candidate.id === otherId);
+      if (!other) throw new Error("Choose a connected road to merge.");
+      const approved = await DialogV2.confirm({
+        window: { title: game.i18n.localize("FVTTATLAS.Roads.Merge") },
+        content: game.i18n.format("FVTTATLAS.Roads.MergeWarning", {
+          from: other.name, to: road.name
+        }),
+        rejectClose: false, modal: true
+      });
+      if (!approved) return;
+      await saveMergedRoads(scene, {
+        keepRoadId: road.id, mergeRoadId: otherId, expectedRevision: atlas.revision
+      });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Merged"));
+    },
     finish: () => roadCanvas.finish(),
     cancel: () => roadCanvas.cancel(),
     select: (scene, id) => roadCanvas.selectRoad(scene, id),
-    async rename(scene, segment, refresh) {
+    async rename(scene, road, refresh) {
+      ensureIdle(scene);
       const revision = readAtlas(scene).revision;
       const content = document.createElement("div");
       const input = document.createElement("input");
       input.name = "roadName";
       input.type = "text";
       input.maxLength = 120;
-      input.setAttribute("value", segment.name);
+      input.setAttribute("value", road.name);
       input.setAttribute("maxlength", "120");
       input.setAttribute("required", "");
       content.appendChild(input);
@@ -63,13 +129,15 @@ function actions() {
       });
       if (!data) return;
       await saveRenamedRoad(scene, {
-        segmentId: segment.id, name: String(data.roadName ?? ""), expectedRevision: revision
+        roadId: road.id, segmentId: road.id,
+        name: String(data.roadName ?? ""), expectedRevision: revision
       });
       roadCanvas.refresh();
       refresh();
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Renamed"));
     },
-    async remove(scene, segment, refresh) {
+    async remove(scene, road, refresh) {
+      ensureIdle(scene);
       const revision = readAtlas(scene).revision;
       const confirmed = await DialogV2.confirm({
         window: { title: game.i18n.localize("FVTTATLAS.Roads.Delete") },
@@ -78,7 +146,7 @@ function actions() {
         modal: true
       });
       if (!confirmed) return;
-      await saveRemovedRoad(scene, { segmentId: segment.id, expectedRevision: revision });
+      await saveRemovedRoad(scene, { roadId: road.id, segmentId: road.id, expectedRevision: revision });
       roadCanvas.refresh();
       refresh();
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Deleted"));
