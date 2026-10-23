@@ -1,6 +1,6 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * Phase 2c: v0.2.7 confirms junction attachments and improves point editing.
+ * Phase 2c: v0.2.8 adds reversible road detachment and clarifies graph counts.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
