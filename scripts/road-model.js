@@ -332,7 +332,7 @@ export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
   const op = operation;
   if (!op || typeof op !== "object") throw new Error("Missing edit operation.");
   const position = { x: op.x, y: op.y };
-  if (!["remove-bend", "demote-junction"].includes(op.kind) &&
+  if (!["remove-bend", "demote-junction", "detach-branch"].includes(op.kind) &&
       (!Number.isFinite(position.x) || !Number.isFinite(position.y))) {
     throw new Error("Edit coordinates must be finite.");
   }
@@ -411,6 +411,39 @@ export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
       segments: current.segments.filter(s => s.id !== second.id)
         .map(s => s.id === first.id
           ? { ...s, from: before.from, to: after.to, via } : s)
+    });
+  }
+
+  if (op.kind === "detach-branch") {
+    // A prior named-road merge can leave three or more sections of the SAME
+    // logical road meeting at one node. Detach only the explicitly chosen arm:
+    // detaching the whole road would leave the branching topology unchanged.
+    const source = current.nodes.find(n => n.id === op.nodeId);
+    const incident = current.segments.filter(s =>
+      s.from === op.nodeId || s.to === op.nodeId);
+    if (!source || incident.length < 3 ||
+        incident.some(s => s.roadId !== roadId)) {
+      throw new Error("Only a branch shared by sections of one named road can be separated this way.");
+    }
+    const selected = incident.find(s => s.id === op.segmentId);
+    if (!selected) {
+      throw new Error("Select a road section connected to this junction.");
+    }
+    if (typeof op.newNodeId !== "string" ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(op.newNodeId) ||
+        current.nodes.some(n => n.id === op.newNodeId)) {
+      throw new Error("A new unique endpoint ID is required.");
+    }
+    // Preserve all names, IDs, paths, and other attached arms. The new
+    // endpoint initially overlaps the old node, so the GM may drag it away.
+    return validateAtlas({
+      ...current,
+      nodes: [...current.nodes, { id: op.newNodeId, x: source.x, y: source.y }],
+      segments: current.segments.map(s => s.id !== selected.id ? s : {
+        ...s,
+        from: s.from === source.id ? op.newNodeId : s.from,
+        to: s.to === source.id ? op.newNodeId : s.to
+      })
     });
   }
 
