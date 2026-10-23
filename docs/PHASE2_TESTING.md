@@ -1,3 +1,49 @@
+# Phase 2c — v0.2.6 GM test: named roads and point handles
+
+**Status (October 23, 2026):** Automated unit/UI tests have been exercised. The owner has already verified the preceding v0.2.5 anchoring and junction split behavior in Foundry v14. **This v0.2.6 change still needs a new live Foundry test.**
+
+Use a backed-up v14 world and the existing feature-branch install URL:
+
+```text
+https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2-atlas-setup/module.json
+```
+
+Check for Updates and confirm **0.2.6**, then reload the world. Do not merge PR #3 yet.
+
+## A. Upgrade existing roads safely
+
+1. Open Paedor (or another previously authored Scene), keep its map/image alignment correct, and open Scene Configuration → Atlas.
+2. For an existing **v2** network, choose **Organize named roads (v0.2.6)** and confirm. Back up before this one-time change. An existing **v1** Scene must use **Anchor legacy roads** first (with confirmed alignment), then Organize.
+3. Verify road geometry **does not move at all**. Road names and colors still display, and the grid measurement remains from the native Grid tab.
+4. Inspect the road list and check that every previous road is present. Two saved v2 sections with identical names intentionally remain separate initially; they are **not assumed to be the same named road**.
+5. For *two roads meeting at a shared junction*, choose the **Merge** action on the name you want to keep, select the other road if prompted, and confirm. They should become **one Atlas row** with multiple sections. Geometry and junction connections must not change.
+6. Reload to confirm names/grouping persist. Try Scene padding 0.00 → 0.05 → 0.00 and confirm the road overlay follows the image correctly.
+
+## B. Create a new split junction
+
+1. Draw a fresh road, then add a spur whose *first endpoint* is placed near the center of the first road.
+2. The original road should remain **one named road row**, although its graph is now split into two connected sections; the spur is another named row.
+3. Highlight the original name: **both** road sections should highlight together. Rename the original: its two sections should remain grouped. Delete a grouped road only if you are comfortable removing **all sections** belonging to that name.
+
+## C. Edit points as with Foundry Walls / LegendKeeper
+
+1. Click **Edit road points** on a road with two endpoints and one or more bends.
+2. Gold circles mark graph junctions, white circles mark interior bend points. Drag one white bend. The line should follow your cursor as an editable **polyline, not a closed polygon**.
+3. Press **Undo** (or Ctrl/Cmd+Z) and confirm the previous position returns. Drag again, then **Cancel**, and verify the saved road did not change.
+4. Enter Edit again, drag a bend, and choose **Save Points**. Reopen the Atlas tab and reload Foundry; geometry and IDs must persist.
+5. **Double-click** a line between existing handles to insert a bend; drag the new handle. **Alt-click** that bend to remove it. Save and reload.
+6. Move a **gold shared junction** where two roads meet. Both roads should remain connected and use the updated junction position.
+7. While editing but before saving, close Scene Configuration. The draft/handles/highlight should disappear and no edits should be persisted. Also try switching Scenes; the previous overlay must not bleed into the new Scene.
+8. As a non-GM, verify that authoring controls and the GM-only road overlay are not exposed.
+
+## Not yet included
+
+A direct right-click road context menu; draggable entire segments independent of shared junctions; smart natural smoothing; road name/length hover overlays; color/dash/dot/visibility/labels; explicit waypoint manager; native Region association; pathfinding; terrain travel math; token motion; player reveal/hide. **Actual Foundry WallDocuments are intentionally not used**—they have sight/movement semantics that roads must not acquire. Native ruler / Scene Grid remains authoritative for future distance.
+
+---
+
+## Archived v0.2.5 testing notes
+
 # Phase 2c — v0.2.5 GM smoke test: image anchoring, junctions, bend edits
 
 **Status (October 23, 2026):** Automated model and UI checks are prepared; **this specific 0.2.5 build has not yet been verified inside Foundry v14**. The owner previously verified 0.2.4 save/reload, rename/delete and Scene isolation.
