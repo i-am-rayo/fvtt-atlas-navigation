@@ -143,6 +143,51 @@ function splitEdge(nodes, segments, candidate, nodeIds, segmentIds, idFactory) {
   return junctionId;
 }
 
+/**
+ * Return only navigable branching points. An endpoint (degree 1) or a
+ * same-road pass-through subdivision (degree 2) is not a junction in the
+ * GM's inspection list, even though it remains a real graph node.
+ *
+ * "connected" means one hop: roads sharing a node with the chosen road.
+ * No crossings are inferred from overlapping geometry.
+ */
+export function listRoadJunctions(atlas, { roadId = null, scope = "scene" } = {}) {
+  const current = validateAtlas(atlas);
+  if (current.schemaVersion !== 3) return [];
+  if (!["selected", "connected", "scene"].includes(scope)) {
+    throw new Error("Unknown road junction filter.");
+  }
+  if (scope !== "scene" && !current.roads.some(road => road.id === roadId)) {
+    return [];
+  }
+  const incident = new Map();
+  for (const segment of current.segments) {
+    for (const id of [segment.from, segment.to]) {
+      if (!incident.has(id)) incident.set(id, { degree: 0, roadIds: new Set() });
+      const item = incident.get(id);
+      item.degree++;
+      item.roadIds.add(segment.roadId);
+    }
+  }
+  const allowedRoads = new Set(scope === "scene" ? current.roads.map(r => r.id) : [roadId]);
+  if (scope === "connected") {
+    for (const item of incident.values()) {
+      if (item.roadIds.has(roadId)) {
+        for (const connectedId of item.roadIds) allowedRoads.add(connectedId);
+      }
+    }
+  }
+  return current.nodes.flatMap(node => {
+    const item = incident.get(node.id);
+    if (!item || (item.degree < 3 && item.roadIds.size < 2) ||
+        ![...item.roadIds].some(id => allowedRoads.has(id))) return [];
+    return [{
+      id: node.id, x: node.x, y: node.y,
+      degree: item.degree, roadIds: [...item.roadIds]
+    }];
+  });
+}
+
 export function addRoad(atlas, {
   points, name, idFactory, snapPixels = SNAP_PIXELS, snapEndpoints = [true, true]
 }) {
@@ -287,7 +332,7 @@ export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
   const op = operation;
   if (!op || typeof op !== "object") throw new Error("Missing edit operation.");
   const position = { x: op.x, y: op.y };
-  if (op.kind !== "remove-bend" &&
+  if (!["remove-bend", "demote-junction"].includes(op.kind) &&
       (!Number.isFinite(position.x) || !Number.isFinite(position.y))) {
     throw new Error("Edit coordinates must be finite.");
   }
@@ -335,6 +380,37 @@ export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
           ? { ...s, to: op.newNodeId, via: firstVia } : s),
         { ...segment, id: op.newSegmentId, from: op.newNodeId, via: secondVia }
       ]
+    });
+  }
+
+  if (op.kind === "demote-junction") {
+    const point = current.nodes.find(n => n.id === op.nodeId);
+    const incident = current.segments.filter(s =>
+      s.from === op.nodeId || s.to === op.nodeId);
+    if (!point || incident.length !== 2 ||
+        incident.some(s => s.roadId !== roadId)) {
+      throw new Error("Only a two-section pass-through on one named road can become a bend. Detach shared connections first.");
+    }
+    const [first, second] = incident;
+    const before = first.to === point.id
+      ? { from: first.from, via: first.via }
+      : { from: first.to, via: [...first.via].reverse() };
+    const after = second.from === point.id
+      ? { to: second.to, via: second.via }
+      : { to: second.from, via: [...second.via].reverse() };
+    if (before.from === after.to) {
+      throw new Error("A loop junction cannot become a bend without changing the road graph.");
+    }
+    const via = [...before.via, { x: point.x, y: point.y }, ...after.via];
+    if (via.length > 1000) throw new Error("The combined road section has too many shaping points.");
+    // Preserve the first segment ID, logical road ID and original polyline.
+    // The second segment and redundant graph node disappear together.
+    return validateAtlas({
+      ...current,
+      nodes: current.nodes.filter(n => n.id !== point.id),
+      segments: current.segments.filter(s => s.id !== second.id)
+        .map(s => s.id === first.id
+          ? { ...s, from: before.from, to: after.to, via } : s)
     });
   }
 
