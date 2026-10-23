@@ -1,83 +1,65 @@
-# Phase 2b — native Scene Atlas tab and Grid-first measurement test (v0.2.2)
+# Phase 2b — native-only Scene measurements smoke test (v0.2.3)
 
-**Current build:** Phase 2b test build **0.2.2**, targeting Foundry v14. The native Atlas tab, distance-source summary, and manual/Grid selection are implemented. **Roads, Waypoints, Regions, overlays, and routing are not implemented yet.** They remain Phase 2c/2d and Phase 3 tasks.
+**Current build:** Phase 2b test build **0.2.3**, targeting Foundry v14. The native Atlas tab, Scene activation, read-only native measurement summary, and save confirmation are implemented. The owner confirmed native tab placement and saving in **0.2.2**; this version removes the conflicting manual-scale UI. **Roads, Waypoints, Regions, overlays, and routing remain future Phase 2c/2d or Phase 3 tasks.**
 
-## Install / update this development build
+## Update from the feature branch
 
-Use an expendable Foundry VTT v14 world. Install once in **Setup → Add-on Modules → Install Module** with:
+Use a backed-up or disposable Foundry v14 world. The existing development manifest URL is unchanged:
 
 ```text
 https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2-atlas-setup/module.json
 ```
 
-If you already installed using this **same branch URL**, use **Setup → Add-on Modules → Check for Updates** and verify version **0.2.2**. This is a test channel; do not use valuable production Scenes without a world backup. A different Phase 1 branch manifest won't automatically track this branch.
+Go to **Setup → Add-on Modules → Check for Updates**, then confirm **0.2.3**. A module installed from an older Phase 1 branch manifest will not necessarily track this feature branch automatically. This is still a **draft PR branch**, not a merged release.
 
-## GM acceptance checklist
+## GM checklist
 
-1. Open a Foundry v14 world as GM and enable **FVTT Atlas Navigation**.
-2. Open any saved Scene's native **Scene Configuration**.
-3. Look for an **Atlas** tab alongside **Basics**, **Grid**, **Levels**, etc. There should be **no Atlas banner floating above the native tabs**. If custom module/sheet integration prevents the native tab, the in-sheet fallback should appear *inside* the Scene's **Misc** or **Grid** tab. Report which appears.
-4. Open **Atlas**. It should identify whether Atlas is enabled and show the native Scene Grid measurement (distance per grid space, pixel size, and inferred approximate units per image pixel), or a clear warning if invalid.
-5. Click **Configure Atlas**. Verify the editor identifies the **configured Scene**, even if a different Scene is currently viewed on the canvas.
+1. Activate the module and open a saved Scene's native **Scene Configuration** as GM.
+2. Open the **Atlas** tab (beside Basics, Grid, Levels). There should be no banner floating above the tabs.
+3. Check the read-only native Scene Grid distance and size (e.g. **7.5 km / 49 px**) and the description that the **Grid tab** is authoritative. **No units-per-pixel measurement, source dropdown, or manual scale/unit input should appear.**
+4. Click **Configure Atlas**. Confirm its title and Scene match the Scene being configured, even if a different Scene is viewed on the canvas.
+5. Confirm the dialog contains just the **Use this Scene as an atlas** checkbox for Atlas-specific settings, plus read-only native Grid details and help text.
+6. Toggle on/off and save. Verify the Atlas tab updates, a save notification appears, and the choice survives reopening and a world reload.
+7. Edit Grid distance/units in the native **Grid** tab, save Scene Configuration, and reopen Atlas. The Atlas read-only summary should reflect the new native data. There should be **no competing Atlas value**.
+8. On the Scene that previously used a manual **0.05 km/px** value, confirm Atlas shows only the native Grid settings (for example 7.5 km / 49 px) and **does not show or apply 0.05**.
+9. Check a square, hexagonal, and gridless Scene if available. This phase **does not yet draw or measure road polylines**; exact native ruler parity becomes a Phase 3 verification once routes exist.
+10. Check a non-GM account: player authoring controls must not be shown. Do not assume the Scene flag's hidden UI makes its network secret.
 
-### Preserve existing v0.2.1 manual values
+## Verify legacy data remains safe (optional read-only console check)
 
-6. On an existing Scene where you entered **0.05 km per pixel**, the **Measurement source** dropdown should read **Manual scale override**. Reopening without saving must not change the Scene flag or the manually saved 0.05.
-7. If its native Grid is **7.5 km per 49 pixels**, Atlas should show an approximate Scene Grid scale of **0.1530612 km per pixel** and a warning that this differs from the old manual value. The **effective** value must still be **0.05 km per pixel** until you change the source.
-8. Change only the atlas-enabled checkbox and save; the old manual calibration should still be preserved.
-9. To intentionally adopt Scene Grid, select **Use Scene Grid (default)** and click **Save Atlas Setup**. This explicitly removes the v1 manual override (it is not silently migrated). Reopen the editor: it should show Scene Grid selected.
-10. If you want the old 0.05 scale again, choose **Manual scale override**, enter **0.05** and **km**, and save. It should persist through reopening and world reload.
-
-### New Scenes and Grid changes
-
-11. On a new/unconfigured Scene with a valid native Grid, Atlas should default to **Use Scene Grid** even without a saved Atlas flag. Merely viewing Atlas must not write flags.
-12. Enable Atlas and save. Reopen: the source remains Scene Grid; `calibration` is **null** in schema v1, indicating a derived native Grid scale.
-13. Change the Scene Grid's distance/units in the core **Grid** tab, save the native Scene Configuration, and reopen Atlas. Its measurement summary should reflect the new saved Grid values.
-14. Switch to **Manual scale override** and save a scale. Subsequent native Grid changes must **not** overwrite that manual override.
-15. On an intentionally invalid/empty Grid scale, Atlas should explain that Scene Grid is unavailable; selecting that source and saving should be rejected, not silently persist a bad scale.
-16. Test a hexagonal Scene and a gridless Scene. The displayed units-per-pixel ratio is only an approximate continuous map scale at this phase; compare native ruler behavior and report discrepancies for Phase 2c.
-17. Confirm that a non-GM cannot use the Atlas authoring controls. Do not put player-secret network data in Scene flags.
-
-Optional, read-only console confirmation on the Scene you are currently viewing:
+On the Scene you are currently viewing, run:
 
 ```js
 canvas.scene.getFlag("fvtt-atlas-navigation", "atlas")
 ```
 
-Expected for a **new Scene set to native Grid** after its first save:
+Newly configured Scenes should contain `"calibration": null` (and start with `"revision": 1` on their first successful save). Older Scenes may still show:
 
 ```json
-{
-  "schemaVersion": 1,
-  "revision": 1,
-  "enabled": true,
-  "calibration": null,
-  "nodes": [],
-  "segments": []
-}
+"calibration": { "source": "manual", "unitsPerPixel": 0.05, "unit": "km" }
 ```
 
-For an old Scene that still uses manual calibration, `calibration` will be `{"source":"manual","unitsPerPixel":0.05,"unit":"km"}` (unless you explicitly switched it to Grid). Revision increases per successful save.
+**This is intentional compatibility data, not an active measurement override.** Saving Atlas activation preserves that historical object without changing it, and all current UI/calculation paths ignore it. No automatic destructive flag migration takes place in 0.2.3.
 
-## Separation and safeguards
+## Architecture and known limits
 
-- **Per Scene:** Atlas source/status and future road/waypoint/Region lists in native Scene Configuration.
-- **Global module settings:** Only the optional diagnostic startup notice.
-- **Scene Grid:** Native Scene fields remain authoritative when Grid is chosen. No mandatory global Metric/Imperial selector; custom units remain display-only until a verified conversion feature exists.
-- **Persistence:** Scene atlas schema stays **v1**. It stores only manual override values or `null`; a computed Grid ratio is **never saved** as `calibration.source = "scene-grid"`.
-- **Concurrency:** One GM editor at a time; the optimistic revision check is not an atomic multi-GM lock.
-- **UI feedback:** Successful saves show a dismissible, currently persistent development notification.
-- **Privacy:** A GM-only UI is not proof that Scene flags are confidential from player clients.
+- **Scene Grid:** the only source of distance and units. No Atlas manual calibration or global Metric/Imperial override.
+- **Future road measurement:** use public Foundry v14 `canvas.grid.measurePath(waypoints).distance` with the actual Scene-space road points; validate against the native ruler across square, hexagonal, gridless, and multisegment paths before finalizing graph weights. Raw `distance / size` is **not** a substitute for native path measurement.
+- **Per-Scene Atlas configuration:** only enabled status changes in the current editor; future road/waypoint/Region lists will be managed in the Atlas tab.
+- **Global module settings:** only the optional GM diagnostic startup notice.
+- **Persistence:** Scene Atlas schema remains v1. Legacy `calibration` objects are kept dormant. Optimistic revision checks are not atomic multi-GM locks; use one GM editor at a time.
+- **Notifications:** a successful save currently uses a dismissible persistent notification for development visibility.
+- **Privacy:** GM-only UI is not proof that Scene flags are confidential from connected player clients.
 
-## Automated checks and known limits
+## Automated verification
 
-Run on a repository checkout with Node 20+:
+From a repository checkout with Node 20+:
 
 ```bash
 npm test
 npm run check
 ```
 
-The relevant Node tests for this slice cover Grid resolution, manual override preference, null Grid fallback, explicit source switching, native tab injection/fallback, GM-only interface, revision conflicts and schema validation. These tests were individually exercised via Node data-URL imports before publishing v0.2.2; a complete `npm test` from a local checkout and **visual in-Foundry rendering** are still pending your test.
+Tests should cover native Grid configuration, ignored legacy calibration, one-checkbox Atlas dialog, preservation of old v1 data, no new manual overrides, Scene tab placement, permissions, and stale revisions. **Actual Foundry v14 rendering is your acceptance check**; no road/ruler comparison is possible until the editor is built.
 
-If the tab is missing, misaligned, or the save confirmation is not visible, please share the **exact Foundry v14 build, game system, browser console errors, and a screenshot**. We can adjust the supported integration or use the in-sheet fallback without patching private core methods.
+If there is an issue, please share the exact Foundry v14 build, game system, console errors, and a screenshot.
