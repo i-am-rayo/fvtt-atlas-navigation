@@ -37,10 +37,10 @@
   "FVTTATLAS.Roads.OrganizeHint": "This Scene has older road data. Organize it once to enable draggable road points and named-road groups. Geometry and segment IDs stay unchanged.",
   "FVTTATLAS.Roads.OrganizeWarning": "Back up your world first. This explicitly upgrades v0.2.5 roads to named-road groups. Every existing segment keeps its ID and shape. Roads with matching names are NOT automatically merged; use Merge on connected roads afterward. Continue?",
   "FVTTATLAS.Roads.Organized": "Atlas road data organized. Existing shapes and junctions were preserved.",
-  "FVTTATLAS.Roads.Segments": "sections",
+  "FVTTATLAS.Roads.Segments": "graph segments",
   "FVTTATLAS.Roads.EditPoints": "Edit road points (drag bends and shared junctions)",
-  "FVTTATLAS.Roads.EditNotice": "Drag visible point handles to reshape the road. Connecting a junction to another road asks for confirmation. Double-click a segment to add a bend. Alt-click a bend to remove it. Save Points commits; Escape cancels.",
-  "FVTTATLAS.Roads.PointEditHint": "Drag white bends or gold junctions on the map. Dragging a junction onto another road requires confirmation and keeps road names separate. Double-click a road to insert a bend; Alt-click a bend to remove it. Undo (Ctrl/Cmd+Z), Save Points, or Cancel Edits.",
+  "FVTTATLAS.Roads.EditNotice": "Drag road points to reshape the road. Alt/Option-click a gold shared junction to detach only the selected road; Alt-click a white bend to remove it. Double-click a segment to insert a bend. Attachments and detachment ask for confirmation. Save Points commits; Escape cancels.",
+  "FVTTATLAS.Roads.PointEditHint": "Drag white bends or gold junctions on the map. Alt/Option-click a white bend to remove it, or a gold shared junction to detach the selected road (confirmation required). Then drag its independent gold point to reattach elsewhere (also confirmed). Double-click the road to insert a bend. Undo (Ctrl/Cmd+Z), Save Points, or Cancel Edits.",
   "FVTTATLAS.Roads.SavePoints": "Save Points",
   "FVTTATLAS.Roads.Undo": "Undo",
   "FVTTATLAS.Roads.Merge": "Merge connected roads",
@@ -53,5 +53,12 @@
   "FVTTATLAS.Roads.ConnectionFrom": "Connecting",
   "FVTTATLAS.Roads.ConnectionTo": "Existing roads",
   "FVTTATLAS.Roads.ConnectConfirm": "Connect Roads",
-  "FVTTATLAS.Roads.ConnectDeclined": "Connection not created. To draw a disconnected endpoint, start again and hold Alt while placing it."
+  "FVTTATLAS.Roads.ConnectDeclined": "Connection not created. To draw a disconnected endpoint, start again and hold Alt while placing it.",
+  "FVTTATLAS.Roads.SegmentCountHint": "Internal graph edges, split at junctions. This is not the number of visually separate roads or paths.",
+  "FVTTATLAS.Roads.DetachTitle": "Detach road from junction?",
+  "FVTTATLAS.Roads.DetachWarning": "This separates only the selected named road from this shared junction. Other roads stay connected to each other and remain in place. The selected road will have an independent control point at the same location until you drag it. No road will be deleted or renamed.",
+  "FVTTATLAS.Roads.DetachDetails": "Detach {road} from: {others}?",
+  "FVTTATLAS.Roads.DetachConfirm": "Detach Junction",
+  "FVTTATLAS.Roads.DetachedNotice": "Junction detached in the draft. Drag its gold point to relocate it, then Save Points to persist.",
+  "FVTTATLAS.Roads.NotShared": "This junction does not connect the selected named road to another named road."
 }
