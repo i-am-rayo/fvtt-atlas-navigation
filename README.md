@@ -2,13 +2,15 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current development test build: v0.2.15.1 — world-shared Corridor Travel Presets.** The owner verified v0.2.14 native checkpoint/corridor Region creation and manual-geometry safeguards in Foundry v14. This draft adds GM-only world-level Land/Air/Water preset editing in the module's Atlas Presets submenu, per-road defaults and per-generated-corridor overrides. All built-in cost suggestions are neutral ×1.00; no native Region Behaviors are created or replaced. The Scene road flag upgrades to v5 only when a GM explicitly assigns a named-road default; back up the World before editing older v3/v4 road data, as older Atlas module versions cannot edit the new schema. Test this build in Foundry v14 before accepting it; PRs remain unmerged.
+> **Current development test build: v0.2.15.2 — world-shared Corridor Travel Presets.** The owner verified v0.2.14 native checkpoint/corridor Region creation and manual-geometry safeguards in Foundry v14. This draft adds GM-only world-level Land/Air/Water preset editing in the module's Atlas Presets submenu, per-road defaults and per-generated-corridor overrides. All built-in cost suggestions are neutral ×1.00; no native Region Behaviors are created or replaced. The Scene road flag upgrades to v5 only when a GM explicitly assigns a named-road default; back up the World before editing older v3/v4 road data, as older Atlas module versions cannot edit the new schema. Test this build in Foundry v14 before accepting it; PRs remain unmerged.
 
-> **v0.2.15.1 dialog hotfix:** Foundry v14 now accepts the Add/Edit travel-preset dialogs; the serialized form retains existing names, modes, and cost values. No world or Scene data schema changed. Install/update to v0.2.15.1 before continuing the preset checklist.
+> **v0.2.15.1 dialog hotfix:** Foundry v14 now accepts the Add/Edit travel-preset dialogs; the serialized form retains existing names, modes, and cost values. No world or Scene data schema changed. Install/update to v0.2.15.2 before continuing the preset checklist.
+
+> **v0.2.15.2 UI cleanup:** Removed the obsolete GM startup notification checkbox and its popup. Existing world settings, road data, preset assignments, and native Regions are untouched.
 
 ## What works now
 
-- Phase 1 bootstrap, GM startup diagnostic setting, and URL-based installation.
+- Phase 1 bootstrap and URL-based installation. The old GM startup confirmation setting was removed in v0.2.15.2; the module still logs its normal ready message to the console.
 - A GM-only **Atlas** tab in native Scene Configuration, with an in-sheet fallback for custom sheets.
 - **Roads [+]:** start a drawing session on the configured Scene, click two or more map positions to add bends, **Finish Road** (or Enter) to save; Backspace undoes the last draft point; Esc/Cancel discards the draft.
 - Saved roads appear in the Atlas list. Highlight a road on the GM canvas, rename or delete it with confirmation. A Scene with roads has an active Atlas automatically; **there is no separate toggle**.
