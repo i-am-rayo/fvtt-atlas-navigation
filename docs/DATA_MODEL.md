@@ -165,48 +165,45 @@ Do not add `isHidden` and interpret that as secure storage. A future player/reve
 - A future schema version should record source choice, override values, and migration provenance explicitly. A global Metric/Imperial setting, if introduced, is only a display conversion for recognized units, not a source of map-scale truth.
 - Scaled route lengths are derived and can be recomputed after Scene Grid updates without mutating the authored road polylines.
 
-### Native Regions as geometric source of truth
+### Native Regions as geometry and movement-cost source of truth
 
-Foundry v14 `RegionDocument` instances belong to a Scene and already own their names, shapes, holes, levels, and native behaviors. The Atlas module must not copy those shapes into the road graph or invent parallel Region geometry.
+Foundry v14 `RegionDocument` instances own their names, shapes, holes, levels, and Behaviors. Native behaviors, including `Modify Movement Cost` and any behaviors registered by the active game system, determine token movement costs. Atlas must not duplicate Region geometry **or** store an independent terrain speed multiplier.
 
-The proposed association uses a **versioned module flag** on the existing Region, conceptual example only:
+**Proposed Atlas association only** (future versioned schema; *not* part of implemented Scene atlas v1):
 
 ```json
 {
-  "tag": "rocky",
-  "speedMultiplier": 0.5,
-  "enabled": true
+  "schemaVersion": 1,
+  "linked": true
 }
 ```
 
-Proposed storage boundary: `region.getFlag("fvtt-atlas-navigation", "terrain")`. Establish the final `schemaVersion`, validation, and migration contract before implementing. A Region's canonical visible label is still its native `name`; the controlled `tag` selects the Atlas terrain category. Do not infer modifiers from free-text Region names.
+A namespaced flag on the Region (for example `region.getFlag("fvtt-atlas-navigation", "atlas")`) is one candidate. Confirm its exact name, schema validation, and link lifecycle in Phase 2d. The Region's native `name` is the default Atlas label. Optional organizational tags are **purely decorative** and never interpreted as movement costs. No `speedMultiplier` or `terrainType` rule is required.
 
-- A Region **without** this optional flag has no Atlas travel effect.
-- Link/unlink operations modify only the module flag; they must not delete native Regions, edit their Behaviors, or change ownership and visibility.
-- Native Region identifiers/UUIDs may be referenced for in-memory indexes and UI linking; invalid/deleted IDs are recoverable stale links.
-- A hidden Region may still affect GM-only route calculations. Its visibility is not a privacy or geometry switch.
-- Foundry's built-in `Modify Movement Cost` Behavior is for token movement and may depend on system-defined movement modes. **Do not** treat it as an automatically interchangeable atlas travel rule.
+- An unlinked Region is excluded from **Atlas planning**, but its native Behaviors still apply to **real token movement**. Do not disable or alter Behaviors when unlinking.
+- Region IDs/UUIDs remain stable references; deletion or renaming causes recoverable UI state, never silent road deletion.
+- The native editor remains the only place to configure terrain Behaviors. Atlas can show active Behavior names/status but does not edit or serialize their internal system-specific data.
+- The active party token, movement action (walk/fly/etc.), elevation/level, and the Region's Behavior configuration matter for calculating movement costs.
 
-### Derived intersection and travel-cost model (Phase 3b proposal)
+### Native terrain-aware movement preview (proposed Phase 3b)
 
-For each road polyline segment, calculate the precise sub-length inside/outside the union of eligible shapes for each linked Region, accounting for holes, Region level/elevation, and overlaps. Pure geometry adapters must accept native polygon data without depending on Foundry globals.
+Foundry v14 publicly documents `Token#createTerrainMovementPath`, which inserts intermediate waypoints at relevant Region entry/exit boundaries, resolves applicable Behavior terrain effects, and stores derived terrain data on the movement path. `Token#measureMovementPath` reports movement measurement for that token. These APIs are promising **non-mutating calculations** but require real v14 runtime tests of the correct waypoint options and behavior in varied game systems.
 
-Given base speed `v`, sub-length `d`, and positive explicit `speedMultiplier = m`, estimated time is:
+For each candidate Atlas road route:
 
-`travelTime = sum(d / (v * m))`
+1. Keep its geometric distance calculated from road polyline and Scene Grid/override as **distance**, unchanged by terrain.
+2. Build a prospective movement path for the **selected party token** along the route, without calling `move` or changing any Token/Region document.
+3. Delegate terrain/Region handling and cost aggregation to the Foundry movement pipeline, including movement mode, shape/size, elevation, Behavior enablement, and overlapping native effects. Do **not** implement a competing road-polygon clipping + multiplier engine, a `slowest-wins` policy, or a hand-written `speedMultiplier` formula.
+4. Decide during testing whether the native pipeline can safely restrict effects to Atlas-linked Regions. If it cannot, disclose that all applicable native Regions affect cost or defer linked-only terrain-cost mode; no silent false filtering.
+5. Return `distance` and native-derived `movementCost` as distinct properties. The actual result shape and units will be documented only after integration tests.
+6. If no suitable token exists, show geometric distance and clearly mark movement cost **unavailable**. Do not create or automatically move a token.
+7. Conversion to travel hours/days is a **different** feature requiring a chosen party travel speed and explicit treatment of scale; movement cost is not by itself a universal time unit.
 
-Distance does **not** change when speed changes. For overlaps the initial **proposed** policy is the slowest applicable multiplier per sub-length, not compounded multiplication. Verify with fixtures and review with the GM before implementation.
-
-Example: a 10 km road with 4 km inside a 0.5× rocky Region and a base 5 km/h speed takes `6/5 + 4/(5*0.5) = 2.8 h`, while remaining 10 km long.
-
-- Keep `distance`, `time`, `road geometry`, and `route optimization weight` distinct. Phase 3a starts with shortest distance. Phase 3b, if approved, adds fastest travel time.
-- Reject nonfinite/negative modifiers; road closures/impassable Regions need an explicit state, not division by zero.
-- Region changes, deletion, native Scene Grid changes, and road edits invalidate derived route-time caches; do not rewrite canonical road nodes/segments as a side effect.
-- No automatic creation of a junction when a road intersects a Region. Only explicit graph node IDs connect roads.
+Recalculate future derived costs when Region shapes/Behaviors, link flags, Scene Grid, road graph, selected token, or movement mode changes; never rewrite canonical road or Region data as a side effect. Graph connections remain explicit node IDs, regardless of Region intersections.
 
 ## 9. Deferred data extensions
 
-- Travel modes and multiple speed profiles, advanced terrain-cost precedence, explicit road closures and one-way rules.
+- Optional overland travel-speed profiles and time estimates, explicit road closures and one-way rules; native movement-mode/terrain precedence remains Foundry's responsibility.
 - Named saved itineraries separate from canonical roads.
 - Cross-Scene atlas transitions and multi-Scene route IDs.
 - Per-user explored/revealed layers and filtered route projections.
@@ -222,3 +219,4 @@ Do not append speculative fields to v1 JSON merely to anticipate these features.
 - [Milestones](ROADMAP.md)
 - [Phase 2 revised Scene, road, and Region design](PHASE2_DESIGN.md)
 - [Foundry v14 native Region API](https://foundryvtt.com/api/v14/classes/foundry.documents.RegionDocument.html)
+- [Foundry v14 Token movement-path and cost API](https://foundryvtt.com/api/v14/classes/foundry.canvas.placeables.Token.html)
