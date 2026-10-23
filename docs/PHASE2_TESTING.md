@@ -1,3 +1,24 @@
+# Phase 2e — v0.2.13 GM acceptance: meaningful checkpoints and elevations
+
+**Status (October 23, 2026):** Phase 2d v0.2.12 native Region associations were owner-verified in Foundry v14. This new checkpoint milestone is a **draft requiring live owner testing**. The Region and road authoring PRs remain draft/unmerged. Test in a backed-up world with one GM editor at a time.
+
+**Install/update this milestone:** `https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2e-checkpoints-elevation/module.json`. Then reload Foundry and verify the module version is **0.2.13**.
+
+## v0.2.13 checkpoint test plan
+
+1. Open a Scene with v3 roads, Scene Configuration → **Atlas → Checkpoints [+]**. Click a point in the middle of an existing named road, give it a name and elevation **0** meters, then repeat elsewhere with **10**, **50**, **40**, **60**, **55** (or any sample values). Observe purple point markers and named rows with elevation. One split should add a graph section, **not** a new named road; it should not appear among true **Junctions** unless it actually branches.
+2. Create a checkpoint **on an existing shared node**. If different named roads meet there, the modal must ask which named road owns this checkpoint. Refusing/cancelling the modal changes **nothing**. Saving creates one semantic checkpoint without a duplicate graph node.
+3. **Edit** a checkpoint label and elevation (including a negative value and leaving it empty/unknown). Reload and switch Scenes; labels/heights and road positions must persist in their original Scene. v3 road IDs/names/geometry and dormant old calibration must survive the explicit v3→v4 upgrade. Padding 0.00→0.05→0.00 must not shift the markers.
+4. **Filter** by one road, **directly connected roads**, and **all roads in Scene**; unrelated roads should disappear from filtered results. With more than 25 entries, the list must show a bounded recent window and correct total count.
+5. **Edit Points** on the road owning a checkpoint, move its graph node, Save Points. Its purple marker must follow. **Shift-click demotion** of a graph node containing a checkpoint should be rejected with a specific warning. Checkpoint deletion must remove **only** label/height metadata, not road geometry; then safe demotion may proceed.
+6. **Detach** a named road from a shared node that also has a checkpoint on that named road. Its marker must follow the newly detached node; reattach and save, then verify the metadata remains. An explicit **Merge connected roads** must also preserve checkpoint owner and height. A merge that would create two semantic checkpoints on exactly the same named-road node should safely reject without deleting either.
+7. Try deleting a named road containing checkpoints; it must refuse until you delete/reassign its checkpoints. Confirm the existing native **Terrain Regions**, their Behaviors, shape, level range and link flags remain untouched throughout checkpoint creation/edit/deletion. No native corridor Region should appear automatically.
+8. Close Scene Configuration during a checkpoint pick; the picker and temporary highlight should clear. Test cancel and a stale scene revision. Verify a **non-GM** cannot open GM checkpoint controls or save flag changes; as always, hiding the UI is **not** proof that secret details are inaccessible from raw Scene flags.
+
+**Expected intentionally absent features:** road slope/difficult-terrain automation, automatic native Region corridors or checkpoint circles (target v0.2.14), native Journal/pause-game trigger wiring, route distance/fastest-route calculations and player presentation. An entered altitude **does not** set Foundry Region elevation ranges or native Scene Levels. Report any console errors with operation and screenshot.
+
+---
+
 # Phase 2d — v0.2.12 GM acceptance: native Region associations
 
 **Status (October 23, 2026):** The owner verified v0.2.11's final junction repair. Phase 2d is authorized, but this new build still requires live testing in Foundry v14. PR #3 for roads remains draft and unmerged; Phase 2d is on a separate branch. **Back up the test world first.**
