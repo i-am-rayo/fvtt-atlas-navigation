@@ -47,13 +47,17 @@ function project(point, a, b) {
  * at its nearest interior edge. Ordinary crossings never create a junction.
  * The projection and snap radius are in image-local Scene pixels for schema v2.
  */
-export function findRoadSnap(atlas, position, snapPixels = SNAP_PIXELS, excludeNodeId = null) {
+export function findRoadSnap(atlas, position, snapPixels = SNAP_PIXELS, excludeNodeId = null, excluded = {}) {
   const current = validateAtlas(atlas);
   if (!Number.isFinite(position?.x) || !Number.isFinite(position?.y)) return null;
   let nearestNode = null;
   let nodeDistance = snapPixels;
+  const activeNodeIds = new Set(current.segments.flatMap(s => [s.from, s.to]));
   for (const node of current.nodes) {
-    if (node.id === excludeNodeId) continue;
+    // Removed roads intentionally retain their records; never snap to an
+    // orphaned/invisible node left behind by deletion.
+    if (!activeNodeIds.has(node.id) || node.id === excludeNodeId ||
+        excluded.nodeIds?.has(node.id)) continue;
     const distance = Math.hypot(position.x - node.x, position.y - node.y);
     if (distance <= nodeDistance) {
       nearestNode = node;
@@ -66,6 +70,7 @@ export function findRoadSnap(atlas, position, snapPixels = SNAP_PIXELS, excludeN
   let nearestEdge = null;
   let edgeDistance = snapPixels;
   for (const segment of current.segments) {
+    if (excluded.segment?.(segment)) continue;
     const path = [nodes.get(segment.from), ...segment.via, nodes.get(segment.to)];
     for (let edgeIndex = 0; edgeIndex < path.length - 1; edgeIndex++) {
       const hit = project(position, path[edgeIndex], path[edgeIndex + 1]);
@@ -89,6 +94,34 @@ export function findRoadSnap(atlas, position, snapPixels = SNAP_PIXELS, excludeN
     }
   }
   return nearestEdge;
+}
+
+/**
+ * A dragged junction can connect to another node or road interior, but never
+ * to one of its own incident segments or directly adjacent endpoint. It is a
+ * suggestion only: the GM must explicitly approve the connection.
+ */
+export function findJunctionAttachment(atlas, sourceNodeId, position, tolerance = SNAP_PIXELS) {
+  const current = validateAtlas(atlas);
+  if (current.schemaVersion !== 3 || !current.nodes.some(node => node.id === sourceNodeId)) return null;
+  const incident = current.segments.filter(s => s.from === sourceNodeId || s.to === sourceNodeId);
+  if (!incident.length) return null;
+  const neighborIds = new Set(incident.map(s => s.from === sourceNodeId ? s.to : s.from));
+  return findRoadSnap(current, position, tolerance, sourceNodeId, {
+    nodeIds: neighborIds,
+    segment: s => s.from === sourceNodeId || s.to === sourceNodeId
+  });
+}
+
+/** Names of existing logical roads meeting at a node or edge; no implicit merge. */
+export function attachmentRoadNames(atlas, candidate) {
+  const current = validateAtlas(atlas);
+  if (current.schemaVersion !== 3 || !candidate) return [];
+  const segments = candidate.kind === "node"
+    ? current.segments.filter(s => s.from === candidate.nodeId || s.to === candidate.nodeId)
+    : current.segments.filter(s => s.id === candidate.segmentId);
+  const ids = new Set(segments.map(s => s.roadId));
+  return current.roads.filter(r => ids.has(r.id)).map(r => r.name);
 }
 
 function splitEdge(nodes, segments, candidate, nodeIds, segmentIds, idFactory) {
@@ -257,6 +290,74 @@ export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
   if (op.kind !== "remove-bend" &&
       (!Number.isFinite(position.x) || !Number.isFinite(position.y))) {
     throw new Error("Edit coordinates must be finite.");
+  }
+
+  if (op.kind === "connect-node") {
+    const source = current.nodes.find(n => n.id === op.nodeId);
+    if (!source || !related.some(s => s.from === source.id || s.to === source.id)) {
+      throw new Error("This junction does not belong to the selected road.");
+    }
+    const target = op.target;
+    if (target?.kind === "node") {
+      const destination = current.nodes.find(n => n.id === target.nodeId);
+      if (!destination || destination.id === source.id) throw new Error("Invalid destination junction.");
+      if (current.segments.some(s =>
+        (s.from === source.id && s.to === destination.id) ||
+        (s.to === source.id && s.from === destination.id))) {
+        throw new Error("Cannot collapse an existing road section into a junction.");
+      }
+      return validateAtlas({
+        ...current,
+        nodes: current.nodes.filter(n => n.id !== source.id),
+        segments: current.segments.map(s => ({
+          ...s,
+          from: s.from === source.id ? destination.id : s.from,
+          to: s.to === source.id ? destination.id : s.to
+        }))
+      });
+    }
+    if (target?.kind === "edge") {
+      const segment = current.segments.find(s => s.id === target.segmentId);
+      if (!segment || segment.from === source.id || segment.to === source.id) {
+        throw new Error("Cannot attach a junction to one of its own road sections.");
+      }
+      const validId = typeof op.newSegmentId === "string" &&
+        /^[A-Za-z0-9_-]{1,128}$/.test(op.newSegmentId) &&
+        !current.segments.some(s => s.id === op.newSegmentId);
+      if (!validId) throw new Error("A new unique segment ID is required.");
+      const nodesById = new Map(current.nodes.map(n => [n.id, n]));
+      const path = [nodesById.get(segment.from), ...segment.via, nodesById.get(segment.to)];
+      const atVertex = target.atVertex === true;
+      const index = target.edgeIndex;
+      if (!Number.isSafeInteger(index) || index < (atVertex ? 1 : 0) ||
+          index > (atVertex ? segment.via.length : segment.via.length)) {
+        throw new Error("Destination edge index is invalid.");
+      }
+      const snapped = { x: op.x, y: op.y };
+      if (atVertex) {
+        if (Math.hypot(snapped.x - path[index].x, snapped.y - path[index].y) > 0.01) {
+          throw new Error("Destination road bend has changed.");
+        }
+      } else {
+        const projection = project(snapped, path[index], path[index + 1]);
+        if (!projection || projection.distance > 0.01 ||
+            projection.before < 0.01 || projection.after < 0.01) {
+          throw new Error("Destination must lie inside an existing road section.");
+        }
+      }
+      const firstVia = segment.via.slice(0, atVertex ? index - 1 : index);
+      const secondVia = segment.via.slice(index);
+      return validateAtlas({
+        ...current,
+        nodes: current.nodes.map(n => n.id === source.id ? { ...n, ...snapped } : n),
+        segments: [
+          ...current.segments.map(s => s.id === segment.id
+            ? { ...s, to: source.id, via: firstVia } : s),
+          { ...segment, id: op.newSegmentId, from: source.id, via: secondVia }
+        ]
+      });
+    }
+    throw new Error("Invalid junction attachment target.");
   }
   if (op.kind === "move-node") {
     if (!related.some(s => s.from === op.nodeId || s.to === op.nodeId)) {
