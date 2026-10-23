@@ -40,12 +40,12 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 
 ## Phase 2 — Scene Atlas management, road editing, and Region associations
 
-**In progress:** Phase 2b **v0.2.3** implements a GM-only native **Atlas** tab in Scene Configuration with read-only, native Scene Grid measurement only. Legacy manual v1 flags are preserved but ignored. The owner confirmed tab placement/saves on v0.2.2; 0.2.3 awaits verification. Phase 2c road/waypoint drawing and Phase 2d native Region associations are still planned. See [Phase 2 design](PHASE2_DESIGN.md).
+**In progress:** The owner verified Phase 2b **v0.2.3**: native Scene Grid changes propagate to the Atlas tab. **v0.2.4 starts Phase 2c** with the GM Roads [+] canvas editor and road list, and removes Configure Atlas activation UI. Detailed waypoint/junction editing and native Region linking remain future slices. No routing is implemented. See [Phase 2 design](PHASE2_DESIGN.md).
 
 **Reviewable slices**
 
-- **2b — Native Scene integration and scale (implemented, awaiting acceptance):** v0.2.3 provides a public-TABS/PARTS native Atlas tab (Misc/Grid in-sheet fallback); displays Scene Grid settings as the **only** measurement source. Existing manual calibration remains stored but inert; no duplicate global or per-Scene scale setting.
-- **2c — Roads and waypoints:** Add `+` controls for road and waypoint lists, with naming/selection/deletion inside the Scene Atlas management UI; add/move/draw/connect polyline junctions with a separate GM canvas toolset. Persist and validate stable IDs in Scene flags.
+- **2b — Native Scene integration and scale (owner verified in Foundry v14):** v0.2.3 provides a public-TABS/PARTS native Atlas tab (Misc/Grid in-sheet fallback); displays Scene Grid settings as the **only** measurement source. Existing manual calibration remains stored but inert; no duplicate global or per-Scene scale setting.
+- **2c — Roads and waypoints (v0.2.4 first slice awaiting owner test):** Roads [+] starts a canvas click-to-draw polyline; supports Finish/Cancel, draft point undo, road list/select/highlight/rename/delete, endpoint snapping within 14 Scene px, save/reload persistence and optimistic revision checks. The old enabled toggle is removed; presence of saved roads defines active Atlas status. **Deferred within 2c:** waypoint-specific [+] list, explicit junction selection/movement, editing existing bends, controlled line splitting, and improved pan/zoom UX.
 - **2d — Native Region linking:** Select existing Scene `RegionDocument` areas instead of recreating their geometry. Persist only minimal Atlas link metadata, display native Region names and active movement-related Behaviors, and open the existing Region editor for all terrain configuration. Optional Atlas labels are visual only; **no parallel speed multipliers, stacking rules, or travel-time calculation in Phase 2.**
 
 **Acceptance**
