@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readAtlas, saveAtlasSetup } from "../scripts/atlas-storage.js";
 
-function mockScene() {
-  let stored;
+function mockScene(initial = undefined) {
+  let stored = initial;
   let writes = 0;
   return {
     canUserModify: () => true,
@@ -23,51 +23,50 @@ function mockScene() {
   };
 }
 
-test("atlas setup persists calibration per Scene and retains revision", async () => {
+test("atlas setup saves only activation and preserves existing network/calibration", async () => {
   const oldGame = globalThis.game;
   globalThis.game = { user: { isGM: true } };
   try {
-    const first = mockScene();
+    const manual = { source: "manual", unitsPerPixel: 0.05, unit: "km" };
+    const original = { schemaVersion: 1, revision: 5, enabled: false, calibration: manual, nodes: [], segments: [] };
+    const first = mockScene(original);
     const second = mockScene();
-    assert.equal(readAtlas(first).revision, 0);
     const result = await saveAtlasSetup(first, {
-      enabled: true,
-      calibration: { source: "manual", unitsPerPixel: 0.05, unit: "km" },
-      expectedRevision: 0
+      enabled: true, expectedRevision: 5
     });
     assert.equal(result.enabled, true);
-    assert.equal(result.revision, 1);
-    assert.equal(readAtlas(first).calibration.unit, "km");
+    assert.equal(result.revision, 6);
+    assert.deepEqual(readAtlas(first).calibration, manual);
     assert.equal(readAtlas(second).enabled, false);
     assert.equal(first.writes, 1);
     assert.equal(second.writes, 0);
 
     await saveAtlasSetup(first, {
-      enabled: false,
-      calibration: null,
-      expectedRevision: 1
+      enabled: false, expectedRevision: 6,
+      calibration: null // even obsolete callers may not erase existing legacy data
     });
+    assert.deepEqual(readAtlas(first).calibration, manual);
     assert.equal(readAtlas(first).enabled, false);
-    assert.equal(readAtlas(first).revision, 2);
+    assert.equal(readAtlas(first).revision, 7);
     assert.equal(first.writes, 2);
   } finally {
     globalThis.game = oldGame;
   }
 });
 
-test("rejected stale writes and invalid scales leave the Scene unchanged", async () => {
+test("new Scenes cannot acquire manual override through Atlas setup", async () => {
   const oldGame = globalThis.game;
   globalThis.game = { user: { isGM: true } };
   try {
     const scene = mockScene();
-    await saveAtlasSetup(scene, { enabled: true, calibration: null, expectedRevision: 0 });
+    await saveAtlasSetup(scene, {
+      enabled: true, expectedRevision: 0,
+      calibration: { source: "manual", unitsPerPixel: 0.05, unit: "mi" }
+    });
+    assert.equal(readAtlas(scene).calibration, null);
     await assert.rejects(
-      saveAtlasSetup(scene, { enabled: false, calibration: null, expectedRevision: 0 }),
+      saveAtlasSetup(scene, { enabled: false, expectedRevision: 0 }),
       /changed while the editor was open/
-    );
-    await assert.rejects(
-      saveAtlasSetup(scene, { enabled: true, calibration: { source: "manual", unitsPerPixel: 0, unit: "mi" }, expectedRevision: 1 }),
-      /positive finite/
     );
     assert.equal(scene.writes, 1);
     assert.equal(readAtlas(scene).enabled, true);
@@ -82,7 +81,7 @@ test("a non-GM can never mutate Scene atlas flags", async () => {
   try {
     const scene = mockScene();
     await assert.rejects(
-      saveAtlasSetup(scene, { enabled: true, calibration: null, expectedRevision: 0 }),
+      saveAtlasSetup(scene, { enabled: true, expectedRevision: 0 }),
       /Only a GM/
     );
     assert.equal(scene.writes, 0);
