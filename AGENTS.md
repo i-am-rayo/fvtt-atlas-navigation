@@ -5,7 +5,7 @@
 - Repository: `i-am-rayo/fvtt-atlas-navigation`
 - Intended module ID / manifest ID / module folder: `fvtt-atlas-navigation`
 - Target: **Foundry VTT v14**, system-agnostic.
-- Status: **Phase 1 merged** after owner testing; **Phase 2 authorized** by the owner on 2026-10-22. Phase 2a v0.2.1 atlas setup/calibration is the current tested slice. The Phase 2b–2d Scene UI, roads, and native Region association design was revised October 23, 2026. Phases 3+ require separate approval.
+- Status: **Phase 1 merged** after owner testing; **Phase 2 authorized** on 2026-10-22. Phase 2a was tested; **Phase 2b v0.2.2** native Scene Atlas tab and Scene Grid/manual-source UI are implemented and awaiting Foundry visual acceptance. Phase 2c/2d (roads and native Region association) remain planned. Phases 3+ require separate approval.
 - Foundry module development is the primary framework; do not build a standalone web service or introduce a LegendKeeper requirement.
 - No campaign-specific or game-system-specific assumptions, example content, assets, settings, or APIs.
 
@@ -22,7 +22,7 @@ If a requested change conflicts with these documents, explain the conflict and p
 
 ## Workflow
 
-- Phase 2 is authorized. Deliver it in reviewable slices: **2b** Scene Atlas management UI/native Grid measurement, **2c** GM road/waypoint canvas editing, **2d** native Region associations with native Behavior inspection. Terrain-aware token movement costs and travel-time/fastest-route calculations belong to future **Phase 3b** and require separate approval. Do **not** begin routing, player-visible features, or phases 3+ without new approval.
+- Phase 2 is authorized. Review **2b** Scene Atlas management UI/native Grid measurement in v0.2.2; next deliver **2c** GM road/waypoint canvas editing, then **2d** native Region associations with native Behavior inspection. Terrain-aware token movement costs and travel-time/fastest-route calculations belong to future **Phase 3b** and require separate approval. Do **not** begin routing, player-visible features, or phases 3+ without new approval.
 - Make changes on a topic branch and submit a reviewable PR. Do not merge to `main` without explicit approval.
 - Keep PRs focused. Include rationale, affected files, manual/test evidence, risks, and deferred follow-ups.
 - Avoid unrelated refactors or changing repository settings. Preserve user edits and existing work.
@@ -34,7 +34,7 @@ If a requested change conflicts with these documents, explain the conflict and p
 - Use native Foundry `Scene` as the atlas map; `NoteDocument` with linked `JournalEntry`/`JournalEntryPage` for locations/lore; and existing native `RegionDocument` shapes/holes/levels for optional terrain associations in Phase 2d. Never duplicate Region geometry in Scene atlas flags.
 - Store authored road junctions and segments as **versioned, namespaced Scene flags**. The route graph is a validated in-memory projection. Do not use `DrawingDocument` as the canonical graph database.
 - Keep authored network, computed route result, and transient animation/display state separate.
-- Coordinates are Scene/image-space pixels, never camera/screen pixels. **Prefer native Scene Grid measurements** (`grid.size`, `grid.distance`, `grid.units`) for scale/units; keep a deliberate manual override for exceptional Scenes. Preserve existing schema v1 manual calibrations until an explicit lossless migration or GM choice; do not silently rewrite flags.
+- Coordinates are Scene/image-space pixels, never camera/screen pixels. **Use native Scene Grid measurements** (`grid.size`, `grid.distance`, `grid.units`) by default in Phase 2b; a persisted schema v1 `calibration: null` derives those values at read time, while an existing v1 manual object overrides them. Switching to Grid explicitly clears the manual object; do not silently rewrite saved flags.
 - Topological connections are explicit. Two lines crossing on the image do **not** automatically create a junction.
 - Geometry/routing/validation should be pure, testable code; keep Foundry document access and canvas rendering in adapters.
 - Preserve stable IDs, reject malformed links and nonfinite coordinates, and plan migrations before changing a persisted schema.
