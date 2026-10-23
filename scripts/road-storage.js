@@ -1,11 +1,10 @@
-import { addRoad, removeRoad, renameRoad } from "./road-model.js";
-import { validateAtlas } from "./atlas-model.js";
+import { addRoad, removeRoad, renameRoad, reshapeRoad } from "./road-model.js";
+import { anchorLegacyAtlas, validateAtlas } from "./atlas-model.js";
 import { ATLAS_FLAG, MODULE_ID, readAtlas } from "./atlas-storage.js";
 
 /**
- * Save a complete v1 Scene graph with an optimistic revision check.
- * The schema is unchanged and dormant historical calibration is preserved.
- * One GM editor at a time remains the explicit Phase 2 limitation.
+ * Scene flag writes are revision-checked, but not atomic compare-and-swap.
+ * Only one GM editing a given Scene at a time is supported at this stage.
  */
 async function saveChange(scene, expectedRevision, update) {
   if (!globalThis.game?.user?.isGM || !scene?.canUserModify?.(game.user, "update")) {
@@ -24,9 +23,16 @@ async function saveChange(scene, expectedRevision, update) {
   return next;
 }
 
-export function saveNewRoad(scene, { points, name, expectedRevision, idFactory }) {
+export function saveNewRoad(scene, { points, name, expectedRevision, idFactory, snapEndpoints }) {
   return saveChange(scene, expectedRevision, previous =>
-    addRoad(previous, { points, name, idFactory }));
+    addRoad(previous.schemaVersion === 1 && !previous.nodes.length && !previous.segments.length
+      ? anchorLegacyAtlas(previous, { x: 0, y: 0 }) : previous,
+      { points, name, idFactory, snapEndpoints }));
+}
+
+export function saveReshapedRoad(scene, { segmentId, via, expectedRevision }) {
+  return saveChange(scene, expectedRevision, previous =>
+    reshapeRoad(previous, { segmentId, via }));
 }
 
 export function saveRenamedRoad(scene, { segmentId, name, expectedRevision }) {
@@ -37,4 +43,13 @@ export function saveRenamedRoad(scene, { segmentId, name, expectedRevision }) {
 export function saveRemovedRoad(scene, { segmentId, expectedRevision }) {
   return saveChange(scene, expectedRevision, previous =>
     removeRoad(previous, { segmentId }));
+}
+
+/**
+ * Migrate only with a GM-confirmed current canvas origin while roads are
+ * aligned to the background image. Never guess the original padding.
+ */
+export function saveAnchoredLegacyRoads(scene, { origin, expectedRevision }) {
+  return saveChange(scene, expectedRevision, previous =>
+    anchorLegacyAtlas(previous, origin));
 }
