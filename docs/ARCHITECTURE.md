@@ -1,6 +1,6 @@
 # Architecture — revised Phase 2 boundaries
 
-**Status:** Phase 1 merged; Phase 2a tested; Phase 2b native Scene tab and Grid-first measurement implemented in v0.2.2, awaiting in-Foundry UI acceptance. Phase 2c/2d and routing remain planned.  
+**Status:** Phase 1 merged; Phase 2a tested; Phase 2b native Scene tab and native-only Grid measurement implemented in v0.2.3; native tab placement/saves were confirmed in Foundry for v0.2.2, with 0.2.3 awaiting regression. Phase 2c/2d and routing remain planned.  
 **Target:** Foundry VTT v14; game-system agnostic.  
 **Module identity:** `fvtt-atlas-navigation`.
 
@@ -23,7 +23,7 @@ The first useful release is **GM-only**. The user-facing concept is journal-styl
 | Highlighted route | Temporary route result + canvas overlay | Does not modify the authored roads |
 | Controls / side panel | Foundry `ApplicationV2` or supported v14 UI conventions | GM editing and route query |
 | Visual road/network overlay | Module-owned canvas overlay/layer | Registration, ordering, teardown verified against v14 |
-| Distance and measurement units | Native Scene Grid settings by default; deliberate manual override | Avoid duplicate per-Scene km/mi inputs; optional global **display preference** later |
+| Distance and measurement units | Native Scene Grid only; native `canvas.grid.measurePath` for future road measurement | No duplicate per-Scene override or global travel scale |
 | UI/session preferences | Foundry module settings / client preferences as appropriate | Not core road data |
 
 Foundry v14 documents, application classes, and canvas groups are documented in the [v14 API](https://foundryvtt.com/api/v14/). The final overlay registration and lifecycle hooks must be confirmed against that exact version before coding.
@@ -60,15 +60,15 @@ The exact JSON contract is in [DATA_MODEL.md](DATA_MODEL.md). Documented example
 
 Scene screen zoom/pan must not change stored coordinates. Render by transforming Scene coordinates through Foundry's canvas mechanism.
 
-**Implemented Phase 2b default:** derive travel scale and units from the native Scene Grid (`grid.distance`, `grid.size`, `grid.units`) when valid; allow an explicit per-Scene manual override only when needed. Never derive travel units from raw image pixels alone. Check hex and gridless measurements, since a Foundry grid step and a continuous polyline may not have identical semantics. **Keep existing schema v1 manual calibrations intact** and require a documented, lossless migration or affirmative GM switch before using the new default on an existing Scene. A possible later global Metric/Imperial choice is only a display conversion.
+**Implemented Phase 2b policy:** use native Scene Grid (`grid.distance`, `grid.size`, `grid.units`) **exclusively**, shown read-only in Atlas. There is no manual Atlas scale. Preserve existing v1 manual calibration objects as inert historical data and never apply or edit them. **Future Phase 3 road distances:** use Foundry's public `canvas.grid.measurePath(waypoints).distance` against the matching active Scene, not a linear pixel ratio; verify square/hex/gridless ruler parity and multisegment path semantics.
 
 ### Routing
 
-Construct an adjacency list from valid segments. For each segment, edge weight is the sum of Euclidean lengths between `from`, interior points, and `to`; convert to calibrated units for display. Run **Dijkstra** for the shortest-distance route in v1. For equal weights, define deterministic tie-breaking in tests.
+Construct an adjacency list from valid segments. Use Euclidean pixel lengths only to validate nondegenerate geometry. Delegate authoritative Scene distance calculation to a Foundry v14 Grid adapter via `canvas.grid.measurePath`. **Before choosing Dijkstra edge weights**, verify whether native distances are additive across segments (e.g. alternating diagonal rules); otherwise model accumulated measurement state or compare full paths. Define deterministic tie-breaking.
 
 Initial endpoints are selected network junctions. Later, support snapping a chosen Note/point to a nearby road by inserting temporary in-memory nodes/edges. Do not mutate the saved network when snapping a route request.
 
-Handle absent endpoints, no connecting route, degenerate geometry, duplicate IDs, bad calibration, and stale Scene selection with explicit user feedback. A disconnected network is normal, not an exception.
+Handle absent endpoints, no connecting route, degenerate geometry, duplicate IDs, missing native Grid measurement, and stale Scene selection with explicit user feedback. A disconnected network is normal, not an exception.
 
 Shortest-distance computation is Phase 3a. **Phase 3b**, requiring separate runtime approval, may use Foundry's existing token-aware Region terrain movement costs to compare candidate routes; conversion to overland travel time needs explicit party speed. Keep geometric distance, native movement cost, travel time, and display animation conceptually distinct.
 
@@ -82,7 +82,7 @@ Use separate conceptual layers:
 
 Lifecycle: initialize services, show overlays when a Scene becomes ready, refresh on changes, and fully detach listeners/graphics when canvas changes or module deactivates. Throttle/reuse hit testing and graphics for large road collections. Never make core graph behavior depend on the presence of a rendered canvas.
 
-Revised planned GM workflow: open Scene Configuration → Atlas tab/section → confirm native Grid measurement or optional override → create a road/waypoint from the list → author its actual geometry via Atlas canvas tools → optionally link existing native Regions as terrain → save → (Phase 3) choose endpoints and calculate the route. The Atlas entry should appear on every Scene without creating flags merely by opening it.
+Revised planned GM workflow: open Scene Configuration → Atlas tab/section → inspect native Grid measurement → create a road/waypoint from the list → author its actual geometry via Atlas canvas tools → optionally link existing native Regions as terrain → save → (Phase 3) choose endpoints and calculate the route. The Atlas entry should appear on every Scene without creating flags merely by opening it.
 
 Native map Notes should still open their permitted linked journals as Foundry expects. The module must not replace the Journal permission system with a custom duplicate.
 
@@ -133,7 +133,7 @@ LegendKeeper's [developer portal](https://www.legendkeeper.com/developers/) docu
 
 **Review before implementation**
 
-- Validate continuous road-scale conversion for square, hexagonal, and gridless Scenes using native Scene Grid measurements; decide explicit overrides and v1 migration semantics.
+- Validate native `canvas.grid.measurePath` on square, hexagonal, and gridless Scenes, compare with ruler, test multisegment additivity, and keep legacy v1 calibration dormant until an explicit future migration.
 - Exact v14 canvas overlay registration point, ordering, hit-testing, and cleanup.
 - Whether native Notes sufficiently cover POIs without additional marker metadata.
 - Editing UX for joining/cutting roads, deleting junctions, and undo/redo.
