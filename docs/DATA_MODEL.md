@@ -1,6 +1,6 @@
-# Atlas data model — schema v1 (Phase 2a/2b)
+# Atlas data model — schema v1 (Phase 2c first slice)
 
-**Status:** schema v1 is used unchanged in Phase 2b v0.2.3 (Scene Grid is the only active measurement source; existing manual v1 calibration is preserved but inert). Road editing is deferred; validators already enforce node/segment integrity. This example illustrates the persisted contract.
+**Status:** schema v1 remains unchanged in Phase 2c v0.2.4. The module can now add, rename and remove one named segment/road at a time from the GM Atlas tab, while distances continue to rely exclusively on native Scene Grid. Historical calibration is preserved but inert. Explicit waypoint editing, splitting existing road segments, and routing are deferred.
 
 ## 1. Storage boundary
 
@@ -57,7 +57,7 @@ This is one connected three-junction graph. Its `via` coordinates are **interior
 | --- | --- | --- |
 | `schemaVersion` | positive integer | Persisted schema for forward migration; initially `1` |
 | `revision` | nonnegative integer | Detects stale dialogs; not an atomic transactional lock |
-| `enabled` | boolean | Whether this Scene is currently marked as an atlas; disabling preserves road data |
+| `enabled` | boolean | Legacy compatibility field (retained in v1). The v0.2.4 UI derives active Atlas state from the presence of segments; adding a road sets this flag true and deleting the last sets it false. Older `enabled:true` with no segments shows as unconfigured. |
 | `calibration` | null or legacy object | New atlas flags use `null`. Old `{source:"manual",unitsPerPixel,unit}` is supported for lossless v1 reading/writing but **ignored** as a distance source. Never add new manual overrides. |
 | `nodes[]` | array | Authored junctions with unique stable IDs and finite pixel coordinates |
 | `segments[]` | array | Authored road segments with unique stable IDs and valid endpoint IDs |
@@ -65,7 +65,7 @@ This is one connected three-junction graph. Its `via` coordinates are **interior
 | `segments[].bidirectional` | boolean | `true` in v1; reserve directed edges for a later explicit feature |
 | `segments[].name` | string | Optional GM road label, never an identifier |
 
-**Current v1 runtime behavior (v0.2.3):** all distances and units come from the native Scene Grid regardless of `calibration`. New Scenes store `calibration:null`; old manual objects remain intact **only as dormant historical data** and have no precedence. Never persist `calibration.source = "scene-grid"` in v1. A new unconfigured Scene has no `atlas` flag and reads as `{schemaVersion: 1, revision: 0, enabled: false, calibration: null, nodes: [], segments: []}` without writing. Only an explicit GM save persists that flag.
+**Current v1 runtime behavior (v0.2.4):** all distances and units come from the native Scene Grid regardless of `calibration`. New Scenes store `calibration:null`; old manual objects remain intact **only as dormant historical data** and have no precedence. Never persist `calibration.source = "scene-grid"` in v1. A new unconfigured Scene has no `atlas` flag and reads as `{schemaVersion: 1, revision: 0, enabled: false, calibration: null, nodes: [], segments: []}` without writing. Only a GM road add/rename/delete persists new Atlas data. The obsolete activation form is no longer presented.
 
 ## 3. Coordinates and topology
 
@@ -79,6 +79,13 @@ This is one connected three-junction graph. Its `via` coordinates are **interior
 - If the user later wants bridges and roads to cross without intersecting, explicit IDs already represent that distinction.
 
 The example uses hand-readable IDs. Actual IDs should be generated uniquely and remain stable under edits, saves, exports, and imports.
+
+### Phase 2c editor subset
+
+- A Roads [+] authoring session stores one segment for each finished click-to-place path. The first/last points become nodes and interior bends become `via[]`, without any schema extension.
+- A new road endpoint within 14 Scene pixels of an **existing node** reuses that stable node ID. Snapping to arbitrary interior `via[]` points or splitting an existing segment is not implemented; visually crossing roads are not automatically connected.
+- Renaming changes only `segments[].name`. Deleting removes only the chosen segment and intentionally retains even unreferenced nodes, protecting shared junctions and leaving future cleanup to an explicit tool.
+- The segment ID and node IDs are stable across saved renames/reloads. A revision check rejects stale concurrent edits (not an atomic multi-GM lock). GMs should coordinate ownership.
 
 ## 4. Derived graph, not stored twice
 
@@ -153,9 +160,9 @@ Do not add `isHidden` and interpret that as secure storage. A future player/reve
 
 ### Native Scene Grid exclusively
 
-- Scene fields `grid.size`, `grid.distance`, and `grid.units` remain the sole authoritative distance configuration. Atlas Phase 2b v0.2.3 displays those fields read-only without showing an Atlas-specific pixels-per-unit ratio.
+- Scene fields `grid.size`, `grid.distance`, and `grid.units` remain the sole authoritative distance configuration. Atlas Phase 2c v0.2.4 still displays those fields read-only without an Atlas-specific pixels-per-unit ratio.
 - No manual override UI, persisted source selection, or global Metric/Imperial scale choice. The GM changes native distances only in the Scene Grid tab.
-- Existing v1 manual objects remain in the flag for lossless backwards compatibility, but **do not affect Atlas measurements**. Atlas setup persists `enabled` only and preserves the old calibration exactly; a separately reviewed migration may eventually remove it.
+- Existing v1 manual objects remain in the flag for lossless backwards compatibility, but **do not affect Atlas measurements**. Road add/delete synchronizes the legacy `enabled` flag while retaining old calibration exactly; a separately reviewed migration may eventually remove obsolete fields.
 - For each road polyline, the later Foundry adapter uses public v14 `canvas.grid.measurePath(waypoints).distance`, not `polylineLength * grid.distance / grid.size`. The latter is not generally ruler-equivalent on square/hex grids. Verify grid snapping, intermediate waypoint semantics, and distance additivity in actual v14 before finalizing shortest-path edge weights.
 - Recalculate native distances after Scene Grid changes without mutating authored road polylines.
 - A later optional conversion of **display labels only**, if ever approved, may recognize metric/imperial units but cannot replace native measurements.
