@@ -4,7 +4,7 @@ const MAX_NAME = 120;
 const SNAP_PIXELS = 14;
 
 export function suggestRoadName(atlas) {
-  const names = new Set(atlas.segments.map(segment => segment.name));
+  const names = new Set((atlas.roads ?? atlas.segments).map(road => road.name));
   let number = 1;
   while (names.has(`Road ${number}`)) number++;
   return `Road ${number}`;
@@ -114,8 +114,8 @@ export function addRoad(atlas, {
   points, name, idFactory, snapPixels = SNAP_PIXELS, snapEndpoints = [true, true]
 }) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 2) {
-    throw new Error("Anchor existing roads to the Scene image before drawing more roads.");
+  if (current.schemaVersion !== 3) {
+    throw new Error("Organize existing roads before creating new roads (see the Atlas tab).");
   }
   if (!Array.isArray(points) || points.length < 2 || points.length > 1002) {
     throw new Error("Add at least two road points (at most 1002).");
@@ -130,6 +130,7 @@ export function addRoad(atlas, {
       throw new Error("Each road point must be at least 1 Scene pixel from the previous point.");
     }
   }
+  const roadIds = new Set(current.roads.map(r => r.id));
   const nodeIds = new Set(current.nodes.map(n => n.id));
   const segmentIds = new Set(current.segments.map(s => s.id));
   const nodes = current.nodes.map(n => ({ ...n }));
@@ -150,20 +151,22 @@ export function addRoad(atlas, {
   const to = chooseEndpoint(path.at(-1), snapEndpoints[1] !== false, from);
   if (from === to) throw new Error("Road endpoints must be different junctions.");
 
+  const roadId = uniqueId(roadIds, idFactory);
+  const road = { id: roadId, name: cleanedName(name ?? suggestRoadName(current)) };
   const segment = {
-    id: uniqueId(segmentIds, idFactory),
-    from, to,
-    via: path.slice(1, -1),
-    name: cleanedName(name ?? suggestRoadName(current)),
-    bidirectional: true
+    id: uniqueId(segmentIds, idFactory), roadId,
+    from, to, via: path.slice(1, -1), bidirectional: true
   };
-  return validateAtlas({ ...current, enabled: true, nodes, segments: [...segments, segment] });
+  return validateAtlas({
+    ...current, enabled: true, nodes,
+    roads: [...current.roads, road], segments: [...segments, segment]
+  });
 }
 
 export function reshapeRoad(atlas, { segmentId, via }) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 2) {
-    throw new Error("Anchor existing roads to the Scene image before editing their shape.");
+  if (current.schemaVersion !== 3) {
+    throw new Error("Organize existing roads before editing their shape.");
   }
   if (!Array.isArray(via) || via.length > 1000 ||
       via.some(point => !Number.isFinite(point?.x) || !Number.isFinite(point?.y))) {
@@ -179,23 +182,112 @@ export function reshapeRoad(atlas, { segmentId, via }) {
   });
 }
 
-export function renameRoad(atlas, { segmentId, name }) {
+
+export function renameRoad(atlas, { roadId, segmentId, name }) {
   const current = validateAtlas(atlas);
-  if (!current.segments.some(segment => segment.id === segmentId)) {
-    throw new Error("Road no longer exists in this Scene.");
+  if (current.schemaVersion !== 3) {
+    // Legacy compatibility: road list still provides rename before conversion.
+    if (!current.segments.some(s => s.id === segmentId)) throw new Error("Road no longer exists in this Scene.");
+    return validateAtlas({
+      ...current,
+      segments: current.segments.map(s =>
+        s.id === segmentId ? { ...s, name: cleanedName(name) } : s)
+    });
   }
+  if (!current.roads.some(r => r.id === roadId)) throw new Error("Road no longer exists in this Scene.");
   return validateAtlas({
     ...current,
-    segments: current.segments.map(segment =>
-      segment.id === segmentId ? { ...segment, name: cleanedName(name) } : segment)
+    roads: current.roads.map(r => r.id === roadId ? { ...r, name: cleanedName(name) } : r)
   });
 }
 
-export function removeRoad(atlas, { segmentId }) {
+export function removeRoad(atlas, { roadId, segmentId }) {
   const current = validateAtlas(atlas);
-  if (!current.segments.some(segment => segment.id === segmentId)) {
-    throw new Error("Road no longer exists in this Scene.");
+  if (current.schemaVersion !== 3) {
+    if (!current.segments.some(s => s.id === segmentId)) throw new Error("Road no longer exists in this Scene.");
+    const segments = current.segments.filter(s => s.id !== segmentId);
+    return validateAtlas({ ...current, segments, enabled: segments.length > 0 });
   }
-  const segments = current.segments.filter(segment => segment.id !== segmentId);
-  return validateAtlas({ ...current, segments, enabled: segments.length > 0 });
+  if (!current.roads.some(r => r.id === roadId)) throw new Error("Road no longer exists in this Scene.");
+  const roads = current.roads.filter(r => r.id !== roadId);
+  const segments = current.segments.filter(s => s.roadId !== roadId);
+  // Keep shared and orphaned junctions; removing a Road never cascades to others.
+  return validateAtlas({ ...current, roads, segments, enabled: segments.length > 0 });
+}
+
+export function getRoadMergeCandidates(atlas, roadId) {
+  const current = validateAtlas(atlas);
+  if (current.schemaVersion !== 3) return [];
+  const source = current.segments.filter(s => s.roadId === roadId);
+  if (!source.length) return [];
+  const endpointIds = new Set(source.flatMap(s => [s.from, s.to]));
+  return current.roads.filter(r => r.id !== roadId &&
+    current.segments.some(s => s.roadId === r.id &&
+      (endpointIds.has(s.from) || endpointIds.has(s.to))));
+}
+
+/** Merge explicitly chosen adjacent road groups without altering their edges. */
+export function mergeRoadGroups(atlas, { keepRoadId, mergeRoadId }) {
+  const current = validateAtlas(atlas);
+  if (current.schemaVersion !== 3) throw new Error("Organize roads before merging.");
+  if (keepRoadId === mergeRoadId ||
+      !getRoadMergeCandidates(current, keepRoadId).some(r => r.id === mergeRoadId)) {
+    throw new Error("Roads must be distinct and meet at a shared junction to merge.");
+  }
+  return validateAtlas({
+    ...current,
+    roads: current.roads.filter(r => r.id !== mergeRoadId),
+    segments: current.segments.map(s => s.roadId === mergeRoadId ?
+      { ...s, roadId: keepRoadId } : s)
+  });
+}
+
+/**
+ * Pure in-place authoring operation. Selectable bend points belong to one
+ * named road; junctions are shared node records and update all connected roads.
+ */
+export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
+  const current = validateAtlas(atlas);
+  if (current.schemaVersion !== 3) throw new Error("Organize roads before editing points.");
+  const related = current.segments.filter(s => s.roadId === roadId);
+  if (!related.length) throw new Error("Road no longer exists in this Scene.");
+  const op = operation;
+  if (!op || typeof op !== "object") throw new Error("Missing edit operation.");
+  const position = { x: op.x, y: op.y };
+  if (op.kind !== "remove-bend" &&
+      (!Number.isFinite(position.x) || !Number.isFinite(position.y))) {
+    throw new Error("Edit coordinates must be finite.");
+  }
+  if (op.kind === "move-node") {
+    if (!related.some(s => s.from === op.nodeId || s.to === op.nodeId)) {
+      throw new Error("This junction does not belong to the selected road.");
+    }
+    return validateAtlas({
+      ...current,
+      nodes: current.nodes.map(n => n.id === op.nodeId ? { ...n, ...position } : n)
+    });
+  }
+  const segment = related.find(s => s.id === op.segmentId);
+  if (!segment) throw new Error("This segment does not belong to the selected road.");
+  const via = segment.via.map(p => ({ ...p }));
+  if (op.kind === "move-bend" || op.kind === "remove-bend") {
+    if (!Number.isSafeInteger(op.viaIndex) ||
+        op.viaIndex < 0 || op.viaIndex >= via.length) {
+      throw new Error("Bend index is invalid.");
+    }
+    if (op.kind === "move-bend") via[op.viaIndex] = position;
+    else via.splice(op.viaIndex, 1);
+  } else if (op.kind === "insert-bend") {
+    if (!Number.isSafeInteger(op.edgeIndex) ||
+        op.edgeIndex < 0 || op.edgeIndex > via.length || via.length >= 1000) {
+      throw new Error("Road edge index is invalid or has too many bends.");
+    }
+    via.splice(op.edgeIndex, 0, position);
+  } else {
+    throw new Error("Unsupported road editing operation.");
+  }
+  return validateAtlas({
+    ...current,
+    segments: current.segments.map(s => s.id === segment.id ? { ...s, via } : s)
+  });
 }
