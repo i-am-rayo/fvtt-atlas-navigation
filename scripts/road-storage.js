@@ -1,6 +1,7 @@
 import { addRoadCheckpoint, editRoadCheckpoint, removeRoadCheckpoint } from "./checkpoint-model.js";
 import { addRoad, removeRoad, renameRoad, reshapeRoad, mergeRoadGroups, applyRoadGeometryEdit } from "./road-model.js";
-import { anchorLegacyAtlas, upgradeAtlasRoadGroups, validateAtlas } from "./atlas-model.js";
+import { anchorLegacyAtlas, upgradeAtlasRoadGroups, upgradeAtlasTravelPresets, validateAtlas } from "./atlas-model.js";
+import { TRAVEL_PRESET_SETTING, validateTravelPresets, validateTravelPresetId } from "./travel-preset-model.js";
 import { ATLAS_FLAG, MODULE_ID, readAtlas } from "./atlas-storage.js";
 
 /**
@@ -95,4 +96,30 @@ export function saveEditedCheckpoint(scene, { checkpointId, name, elevationMeter
 export function saveRemovedCheckpoint(scene, { checkpointId, expectedRevision }) {
   return saveChange(scene, expectedRevision, previous =>
     removeRoadCheckpoint(previous, { checkpointId }));
+}
+
+/**
+ * First assignment explicitly upgrades a v3/v4 atlas to v5. Preset IDs are
+ * stable world references; deleting/renaming a preset never rewrites roads.
+ */
+export function saveRoadTravelPreset(scene, { roadId, presetId = null, expectedRevision }) {
+  if (presetId !== null) {
+    validateTravelPresetId(presetId);
+    const settings = validateTravelPresets(
+      game.settings.get(MODULE_ID, TRAVEL_PRESET_SETTING));
+    if (!settings.presets.some(p => p.id === presetId)) {
+      throw new Error("Choose an existing world travel preset.");
+    }
+  }
+  return saveChange(scene, expectedRevision, previous => {
+    const current = upgradeAtlasTravelPresets(previous);
+    if (!current.roads.some(road => road.id === roadId)) {
+      throw new Error("The named road no longer exists.");
+    }
+    return {
+      ...current,
+      roads: current.roads.map(road => road.id === roadId
+        ? { ...road, travelPresetId: presetId } : road)
+    };
+  });
 }
