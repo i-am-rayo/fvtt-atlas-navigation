@@ -1,3 +1,51 @@
+# Phase 2c — v0.2.10 GM acceptance: Junctions vs Waypoints and safe demotion
+
+**Status (October 23, 2026):** The owner confirmed v0.2.9 middle-of-road graph-node placement and connecting distinct roads work in Foundry v14. The remaining problem was that the old Waypoints list called every graph node a junction. **This v0.2.10 update needs live Foundry testing.** PR #3 remains draft and unmerged. Back up the test world.
+
+Use the existing feature-branch install manifest:
+
+```text
+https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2-atlas-setup/module.json
+```
+
+From Foundry Setup → Add-on Modules → Check for Updates, confirm **0.2.10**. Restart/reload as appropriate.
+
+## A. Junctions and Waypoints are separate
+
+1. Open an existing Scene's **Scene Configuration → Atlas**. The old **Waypoints [+]** graph-node picker should now say **Junctions [+]**. The separately labeled **Waypoints** section is a *future named location/Journal feature* with no active add control yet.
+2. On a simple road with only its start and end graph points, **Junctions** must report **0**; this does **not** remove the road endpoints or prevent editing them.
+3. Click **Junctions [+]** in an existing road interior. It should stage a gold graph point with **Save Points**, **Undo**, **Cancel Edits** in the Junctions section. Saving this unconnected two-segment pass-through does *not* make it a listed branch junction. It remains an editable gold point in Road → Edit Points.
+4. Attach a road to that graph point (with explicit confirmation). It should then become a true junction in the inspector. The named roads stay independent; no auto-merging at geometric crossings.
+5. Existing v0.2.9 data should open *without migration*. A graph with 18 endpoints/subdivisions but 3 real intersections should show the intersections, not a list of all 18 IDs.
+
+## B. Reverse Shift-click converts a junction into a bend
+
+1. On a test road with a white bend, choose **Edit Points**, Shift-click the white bend (promote to gold graph point), then **Shift-click the gold point** (demote back to white bend). The path shape must not move.
+2. Try the reverse conversion on a single-road subdivision created in v0.2.9 and persisted earlier. **Save Points** and reload: the road name, complete visible line and native ruler behavior must be unchanged; the redundant graph subdivision and segment count decrease by one.
+3. Verify **Undo** restores the gold point, and **Cancel Edits** leaves the Scene flag unchanged. A successful **Save Points** increments the Scene revision once.
+4. Attempt Shift-click on a *shared intersection*, on a *three-way branch of one named road*, and on a *road endpoint*. Each must be refused (with a warning) and must not disconnect or move anything. To alter a shared intersection, continue using the existing Alt/Option-click Detach + explicit confirmation first.
+5. Test a path whose road segments point in opposite `from/to` directions: reverting a subdivision should keep the same bend/path shape, with no twisted or missing section.
+
+## C. Large-world filters
+
+1. The Junctions inspector must default to the first selected road. Use the road selector to choose another named road; list entries should change without altering Scene flags.
+2. Select **Directly connected roads**: include junctions on the chosen road and roads directly sharing its junctions, but *not* an unrelated road two hops away. Choose **All roads in Scene** for a global view.
+3. Click a road's ◎ highlight: this should also select that road in the Junctions filter. Close Scene Configuration: the temporary canvas highlight clears as before.
+4. Check a road with 30+ actual branching junctions: the listing should remain capped at 25 visible rows, with an explanatory count. Endpoints, subdivisions and orphaned nodes must not consume list slots.
+
+## D. Regression and scope boundary
+
+- Save/reload and Scene switching preserve road names, road geometry, junction attachments and unrelated Scene content.
+- Double-click to add white bends, Alt-click to remove a white bend, Alt-click a shared gold node to Detach, drag to reattach with approval, Undo/Cancel, and new-road snap all still work.
+- Crossing paths at a bridge remain disconnected without confirmation; no actual Foundry Walls or Regions are modified or created.
+- Neither Scene Grid distance/units nor historical calibration is touched.
+- v0.2.10 does **not** add named POIs, Journals, toll event logic, Regions or travel calculations. The separate descriptive Waypoints model needs its own future design and privacy review.
+- Test in Foundry v14 GM client and report console warnings/errors. Automated mock checks are not a substitute for a live Foundry client.
+
+---
+
+## Archived v0.2.9 checklist
+
 # Phase 2c — v0.2.9 GM smoke test: explicit Waypoints and bend junctions
 
 **Status (October 23, 2026):** The owner confirmed that v0.2.8 detachment and reattachment (including confirmation, independent endpoints, and saved Scene persistence) work in Foundry v14. **v0.2.9 is ready for new in-client testing; do not merge draft PR #3 yet.**
