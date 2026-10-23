@@ -5,14 +5,14 @@
 - Repository: `i-am-rayo/fvtt-atlas-navigation`
 - Intended module ID / manifest ID / module folder: `fvtt-atlas-navigation`
 - Target: **Foundry VTT v14**, system-agnostic.
-- Status: **Phase 1 merged**, **Phase 2 authorized**. Owner verified v0.2.5 anchoring, snapping, Scene isolation, and highlights. v0.2.6 adds explicit v2→v3 logical-road organization, connected-group merge, and draggable point handles; **live v14 retest is pending**. Phase 2d native Regions, Phase 3 routing, and player features are not authorized for implementation.
+- Status: **Phase 1 merged**, **Phase 2 authorized**. Owner verified v0.2.5 anchoring, snapping, Scene isolation, and highlights. v0.2.7 adds GM confirmation for new-road snaps and dragged-junction attachments, with explicit non-merging of distinct road names; fixes double-click insertion and layout/dialog issues. **Live v14 retest is pending**. Phase 2d native Regions, Phase 3 routing, and player features are not authorized for implementation.
 - Foundry module development is the primary framework; do not build a standalone web service or introduce a LegendKeeper requirement.
 - No campaign-specific or game-system-specific assumptions, example content, assets, settings, or APIs.
 
-## Current schema/padding migration safety (Phase 2c v0.2.6)
+## Current schema/padding migration safety (Phase 2c v0.2.7)
 
 - Do not silently reinterpret legacy schema v1 absolute-canvas coordinates as image-local positions. A GM must explicitly anchor them using the currently aligned Scene image origin. Preserve existing graph IDs/names and Scene revision checks. Never erase or bulk reset maps.
-- Schema v3 separates logical named `roads[]` from topological `segments[]`. Each segment belongs to `roadId`. Splitting a segment never creates a duplicate named road. Conversion from populated v2 to v3 requires an explicit GM command; do not automatically merge same-name roads. Merging connected road groups is explicit and retains graph geometry and IDs. Point edits are staged until Save, with Undo/Cancel, and moving shared junctions affects all connected segments. Do not create actual core WallDocuments for roads.
+- Schema v3 separates logical named `roads[]` from topological `segments[]`. Each segment belongs to `roadId`. Splitting a segment never creates a duplicate named road. Conversion from populated v2 to v3 requires an explicit GM command; do not automatically merge same-name roads. Merging connected road groups is explicit and retains graph geometry and IDs. Point edits are staged until Save, with Undo/Cancel, and moving shared junctions affects all connected segments. Endpoint snaps and junction attachments require explicit GM approval; name merging remains a separate deliberate action, never a side effect of joining topology. Do not create actual core WallDocuments for roads.
 - Schema v2/v3 `coordinateSpace: "image"` is measured from the Scene image top-left. Render with Foundry `canvas.dimensions.sceneX/sceneY`; author by subtracting that origin from Foundry canvas pointer coordinates. Only actual endpoints join roads, and split connections must be real graph nodes.
 - Unit tests cover pure geometry/permissions; a GM must still test changes in Foundry v14, especially Scene padding, interior road joins, and editor lifecycle. Phase 3 routing remains unapproved.
 
