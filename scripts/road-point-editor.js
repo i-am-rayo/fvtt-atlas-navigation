@@ -111,7 +111,7 @@ export class RoadPointEditor {
       throw new Error("Open this Scene on the canvas to edit its road points.");
     }
     const atlas = readAtlas(scene);
-    if (atlas.schemaVersion !== 3) throw new Error("Organize roads before editing their control points.");
+    if (atlas.schemaVersion < 3) throw new Error("Organize roads before editing their control points.");
     if (!atlas.roads.some(r => r.id === roadId)) throw new Error("This road no longer exists.");
     const element = canvas.app?.canvas ?? canvas.app?.view;
     if (!element?.addEventListener || typeof canvas.canvasCoordinatesFromClient !== "function") {

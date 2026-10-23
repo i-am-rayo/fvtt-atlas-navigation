@@ -103,7 +103,7 @@ export function findRoadSnap(atlas, position, snapPixels = SNAP_PIXELS, excludeN
  */
 export function findJunctionAttachment(atlas, sourceNodeId, position, tolerance = SNAP_PIXELS) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 3 || !current.nodes.some(node => node.id === sourceNodeId)) return null;
+  if (current.schemaVersion < 3 || !current.nodes.some(node => node.id === sourceNodeId)) return null;
   const incident = current.segments.filter(s => s.from === sourceNodeId || s.to === sourceNodeId);
   if (!incident.length) return null;
   const neighborIds = new Set(incident.map(s => s.from === sourceNodeId ? s.to : s.from));
@@ -116,7 +116,7 @@ export function findJunctionAttachment(atlas, sourceNodeId, position, tolerance 
 /** Names of existing logical roads meeting at a node or edge; no implicit merge. */
 export function attachmentRoadNames(atlas, candidate) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 3 || !candidate) return [];
+  if (current.schemaVersion < 3 || !candidate) return [];
   const segments = candidate.kind === "node"
     ? current.segments.filter(s => s.from === candidate.nodeId || s.to === candidate.nodeId)
     : current.segments.filter(s => s.id === candidate.segmentId);
@@ -153,7 +153,7 @@ function splitEdge(nodes, segments, candidate, nodeIds, segmentIds, idFactory) {
  */
 export function listRoadJunctions(atlas, { roadId = null, scope = "scene" } = {}) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 3) return [];
+  if (current.schemaVersion < 3) return [];
   if (!["selected", "connected", "scene"].includes(scope)) {
     throw new Error("Unknown road junction filter.");
   }
@@ -192,7 +192,7 @@ export function addRoad(atlas, {
   points, name, idFactory, snapPixels = SNAP_PIXELS, snapEndpoints = [true, true]
 }) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 3) {
+  if (current.schemaVersion < 3) {
     throw new Error("Organize existing roads before creating new roads (see the Atlas tab).");
   }
   if (!Array.isArray(points) || points.length < 2 || points.length > 1002) {
@@ -243,7 +243,7 @@ export function addRoad(atlas, {
 
 export function reshapeRoad(atlas, { segmentId, via }) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 3) {
+  if (current.schemaVersion < 3) {
     throw new Error("Organize existing roads before editing their shape.");
   }
   if (!Array.isArray(via) || via.length > 1000 ||
@@ -263,7 +263,7 @@ export function reshapeRoad(atlas, { segmentId, via }) {
 
 export function renameRoad(atlas, { roadId, segmentId, name }) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 3) {
+  if (current.schemaVersion < 3) {
     // Legacy compatibility: road list still provides rename before conversion.
     if (!current.segments.some(s => s.id === segmentId)) throw new Error("Road no longer exists in this Scene.");
     return validateAtlas({
@@ -281,12 +281,15 @@ export function renameRoad(atlas, { roadId, segmentId, name }) {
 
 export function removeRoad(atlas, { roadId, segmentId }) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 3) {
+  if (current.schemaVersion < 3) {
     if (!current.segments.some(s => s.id === segmentId)) throw new Error("Road no longer exists in this Scene.");
     const segments = current.segments.filter(s => s.id !== segmentId);
     return validateAtlas({ ...current, segments, enabled: segments.length > 0 });
   }
   if (!current.roads.some(r => r.id === roadId)) throw new Error("Road no longer exists in this Scene.");
+  if (current.checkpoints?.some(c => c.roadId === roadId)) {
+    throw new Error("Remove or reassign this road’s checkpoints before deleting it.");
+  }
   const roads = current.roads.filter(r => r.id !== roadId);
   const segments = current.segments.filter(s => s.roadId !== roadId);
   // Keep shared and orphaned junctions; removing a Road never cascades to others.
@@ -295,7 +298,7 @@ export function removeRoad(atlas, { roadId, segmentId }) {
 
 export function getRoadMergeCandidates(atlas, roadId) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 3) return [];
+  if (current.schemaVersion < 3) return [];
   const source = current.segments.filter(s => s.roadId === roadId);
   if (!source.length) return [];
   const endpointIds = new Set(source.flatMap(s => [s.from, s.to]));
@@ -307,7 +310,7 @@ export function getRoadMergeCandidates(atlas, roadId) {
 /** Merge explicitly chosen adjacent road groups without altering their edges. */
 export function mergeRoadGroups(atlas, { keepRoadId, mergeRoadId }) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 3) throw new Error("Organize roads before merging.");
+  if (current.schemaVersion < 3) throw new Error("Organize roads before merging.");
   if (keepRoadId === mergeRoadId ||
       !getRoadMergeCandidates(current, keepRoadId).some(r => r.id === mergeRoadId)) {
     throw new Error("Roads must be distinct and meet at a shared junction to merge.");
@@ -316,7 +319,9 @@ export function mergeRoadGroups(atlas, { keepRoadId, mergeRoadId }) {
     ...current,
     roads: current.roads.filter(r => r.id !== mergeRoadId),
     segments: current.segments.map(s => s.roadId === mergeRoadId ?
-      { ...s, roadId: keepRoadId } : s)
+      { ...s, roadId: keepRoadId } : s),
+    ...(current.checkpoints ? { checkpoints: current.checkpoints.map(c =>
+      c.roadId === mergeRoadId ? { ...c, roadId: keepRoadId } : c) } : {})
   });
 }
 
@@ -326,7 +331,7 @@ export function mergeRoadGroups(atlas, { keepRoadId, mergeRoadId }) {
  */
 export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 3) throw new Error("Organize roads before editing points.");
+  if (current.schemaVersion < 3) throw new Error("Organize roads before editing points.");
   const related = current.segments.filter(s => s.roadId === roadId);
   if (!related.length) throw new Error("Road no longer exists in this Scene.");
   const op = operation;
@@ -390,6 +395,9 @@ export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
     if (!point || incident.length !== 2 ||
         incident.some(s => s.roadId !== roadId)) {
       throw new Error("Only a two-section pass-through on one named road can become a bend. Detach shared connections first.");
+    }
+    if (current.checkpoints?.some(c => c.nodeId === point.id)) {
+      throw new Error("This node has a named checkpoint. Remove or relocate the checkpoint before demoting it.");
     }
     const [first, second] = incident;
     const before = first.to === point.id
@@ -471,7 +479,10 @@ export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
         ? { ...s,
             from: s.from === source.id ? op.newNodeId : s.from,
             to: s.to === source.id ? op.newNodeId : s.to }
-        : s)
+        : s),
+      ...(current.checkpoints ? { checkpoints: current.checkpoints.map(c =>
+        c.roadId === roadId && c.nodeId === source.id
+          ? { ...c, nodeId: op.newNodeId } : c) } : {})
     });
   }
 
@@ -496,7 +507,9 @@ export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
           ...s,
           from: s.from === source.id ? destination.id : s.from,
           to: s.to === source.id ? destination.id : s.to
-        }))
+        })),
+        ...(current.checkpoints ? { checkpoints: current.checkpoints.map(c =>
+          c.nodeId === source.id ? { ...c, nodeId: destination.id } : c) } : {})
       });
     }
     if (target?.kind === "edge") {

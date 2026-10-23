@@ -1,12 +1,13 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * Phase 2c: v0.2.10 separates junction topology from future descriptive waypoints.
+ * v0.2.13 adds GM-authored named/elevated road checkpoints without native Region mutations.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
-  saveOrganizedRoads, saveMergedRoads } from "./road-storage.js";
+  saveOrganizedRoads, saveMergedRoads,
+  saveEditedCheckpoint, saveRemovedCheckpoint } from "./road-storage.js";
 import { getRoadMergeCandidates } from "./road-model.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
@@ -33,6 +34,77 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Junctions.StartNotice"));
     },
     selectJunction: (scene, nodeId) => roadCanvas.selectJunction(scene, nodeId),
+    beginCheckpoint(scene, refresh) {
+      roadCanvas.startCheckpoint(scene, refresh);
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.StartNotice"));
+    },
+    selectCheckpoint: (scene, checkpointId) => roadCanvas.selectCheckpoint(scene, checkpointId),
+    async editCheckpoint(scene, checkpoint, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      const current = atlas.checkpoints?.find(c => c.id === checkpoint.id);
+      if (!current) throw new Error("Checkpoint no longer exists.");
+      const content = document.createElement("div");
+      const nameLabel = document.createElement("label");
+      nameLabel.textContent = game.i18n.localize("FVTTATLAS.Checkpoints.Name");
+      const name = document.createElement("input");
+      name.name = "checkpointName";
+      name.type = "text";
+      name.required = true;
+      name.maxLength = 120;
+      name.value = current.name;
+      content.appendChild(nameLabel);
+      content.appendChild(name);
+      const elevationLabel = document.createElement("label");
+      elevationLabel.textContent = game.i18n.localize("FVTTATLAS.Checkpoints.Elevation");
+      const elevation = document.createElement("input");
+      elevation.name = "checkpointElevation";
+      elevation.type = "number";
+      elevation.step = "any";
+      elevation.value = current.elevationMeters === null
+        ? "" : String(current.elevationMeters);
+      content.appendChild(elevationLabel);
+      content.appendChild(elevation);
+      const result = await DialogV2.input({
+        window: { title: game.i18n.localize("FVTTATLAS.Checkpoints.Edit") },
+        content,
+        ok: { label: game.i18n.localize("FVTTATLAS.Checkpoints.Save") },
+        rejectClose: false
+      });
+      if (!result) return;
+      const raw = String(result.checkpointElevation ?? "").trim();
+      const elevationMeters = raw === "" ? null : Number(raw);
+      await saveEditedCheckpoint(scene, {
+        checkpointId: current.id, name: String(result.checkpointName ?? ""),
+        elevationMeters, expectedRevision: atlas.revision
+      });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.Updated"));
+    },
+    async removeCheckpoint(scene, checkpoint, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      const current = atlas.checkpoints?.find(c => c.id === checkpoint.id);
+      if (!current) throw new Error("Checkpoint no longer exists.");
+      const content = document.createElement("div");
+      const text = document.createElement("p");
+      text.textContent = game.i18n.format("FVTTATLAS.Checkpoints.DeleteWarning", {
+        name: current.name
+      });
+      content.appendChild(text);
+      const approved = await DialogV2.confirm({
+        window: { title: game.i18n.localize("FVTTATLAS.Checkpoints.Delete") },
+        content, rejectClose: false, modal: true
+      });
+      if (!approved) return;
+      await saveRemovedCheckpoint(scene, {
+        checkpointId: current.id, expectedRevision: atlas.revision
+      });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.Removed"));
+    },
     beginPointEdit(scene, roadId, refresh) {
       roadCanvas.startPointEdit(scene, roadId, refresh);
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.EditNotice"));

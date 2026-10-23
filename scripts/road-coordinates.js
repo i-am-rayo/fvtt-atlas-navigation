@@ -1,7 +1,7 @@
 /**
- * Versioned road positions: legacy v1 is padded-canvas-absolute; v2/v3 are
+ * Versioned road positions: legacy v1 is padded-canvas-absolute; v2/v3/v4 are
  * relative to the top-left of the Scene background image (not the viewport).
- * Scene padding may change without invalidating v2/v3 authored geometry.
+ * Scene padding may change without invalidating v2/v3/v4 authored geometry.
  */
 export function sceneImageOrigin(canvas) {
   const dimensions = canvas?.dimensions;

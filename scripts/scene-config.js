@@ -2,6 +2,7 @@ import { readAtlas } from "./atlas-storage.js";
 import { readSceneGridScale } from "./scene-grid.js";
 import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
 import { listSceneRegions } from "./region-atlas.js";
+import { listRoadCheckpoints } from "./checkpoint-model.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -126,7 +127,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   section.appendChild(header);
 
   const draft = actions.draft(scene);
-  if (draft && draft.mode !== "junction" && draft.source !== "junction") {
+  if (draft && !["junction", "checkpoint"].includes(draft.mode) && draft.source !== "junction") {
     section.appendChild(node("p", draft.mode === "points" ?
       label("FVTTATLAS.Roads.PointEditHint") : (label("FVTTATLAS.Roads.Drawing") + " " +
       draft.points + " " + label("FVTTATLAS.Roads.Points")), "hint"));
@@ -148,12 +149,12 @@ function atlasPanel(scene, atlas, actions, refresh) {
     section.appendChild(node("p", label("FVTTATLAS.Roads.NoRoads"), "hint"));
   }
 
-  const roads = atlas.schemaVersion === 3 ? atlas.roads : atlas.segments;
+  const roads = atlas.schemaVersion >= 3 ? atlas.roads : atlas.segments;
   for (const [index, road] of roads.entries()) {
     const row = node("div", undefined, "form-group");
     row.setAttribute("data-atlas-road-id", road.id);
     const roadName = road.name || label("FVTTATLAS.Roads.Title") + " " + (index + 1);
-    const count = atlas.schemaVersion === 3 ?
+    const count = atlas.schemaVersion >= 3 ?
       atlas.segments.filter(segment => segment.roadId === road.id).length : 1;
     const description = node("div");
     description.style.flex = "1 1 auto";
@@ -171,7 +172,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
     const controls = node("div", undefined, "form-fields");
     controls.appendChild(button("◎", label("FVTTATLAS.Roads.Highlight"),
       () => {
-        if (atlas.schemaVersion === 3) {
+        if (atlas.schemaVersion >= 3) {
           const state = junctionFilterFor(scene, atlas);
           state.roadId = road.id;
           state.scope = "selected";
@@ -179,7 +180,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
         }
         return actions.select(scene, road.id);
       }));
-    if (atlas.schemaVersion === 3) {
+    if (atlas.schemaVersion >= 3) {
       controls.appendChild(button("⌖", label("FVTTATLAS.Roads.EditPoints"),
         () => actions.beginPointEdit(scene, road.id, refresh)));
       if (getRoadMergeCandidates(atlas, road.id).length) {
@@ -211,7 +212,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   addJunction.style.width = "1.65rem";
   addJunction.style.minWidth = "1.65rem";
   addJunction.style.padding = "0";
-  addJunction.disabled = atlas.schemaVersion !== 3 || !atlas.segments.length || !!draft;
+  addJunction.disabled = atlas.schemaVersion < 3 || !atlas.segments.length || !!draft;
   junctionHeader.appendChild(addJunction);
   junctionLegend.appendChild(junctionHeader);
   junctionSection.appendChild(junctionLegend);
@@ -235,7 +236,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
     junctionSection.appendChild(controls);
   }
 
-  if (atlas.schemaVersion === 3 && atlas.roads.length) {
+  if (atlas.schemaVersion >= 3 && atlas.roads.length) {
     const state = junctionFilterFor(scene, atlas);
     const filters = node("div", undefined, "form-fields");
     const select = (options, value, title, onChange) => {
@@ -304,12 +305,105 @@ function atlasPanel(scene, atlas, actions, refresh) {
   }
   root.appendChild(junctionSection);
 
-  // Descriptive points/Journal-linked Notes are a separate future feature.
-  // A road bend, endpoint or pass-through graph node is not a Waypoint.
-  const waypointSection = node("fieldset");
-  waypointSection.appendChild(node("legend", label("FVTTATLAS.Waypoints.Title")));
-  waypointSection.appendChild(node("p", label("FVTTATLAS.Waypoints.Future"), "hint"));
-  root.appendChild(waypointSection);
+  // v0.2.13: semantic checkpoints are optional records attached to stable
+  // road graph points. They are not bend handles or routing junction listings.
+  const checkpointSection = node("fieldset");
+  const checkpointLegend = node("legend");
+  const checkpointHeader = node("span");
+  checkpointHeader.style.display = "inline-flex";
+  checkpointHeader.style.alignItems = "center";
+  checkpointHeader.style.gap = "0.35rem";
+  checkpointHeader.appendChild(node("span", label("FVTTATLAS.Checkpoints.Title")));
+  const addCheckpoint = button("+", label("FVTTATLAS.Checkpoints.Add"),
+    () => actions.beginCheckpoint(scene, roadId => {
+      if (roadId && atlas.roads.some(r => r.id === roadId)) {
+        const state = junctionFilterFor(scene, readAtlas(scene));
+        state.roadId = roadId;
+        state.scope = "selected";
+      }
+      refresh();
+    }));
+  addCheckpoint.style.flex = "0 0 auto";
+  addCheckpoint.style.width = "1.65rem";
+  addCheckpoint.style.minWidth = "1.65rem";
+  addCheckpoint.style.padding = "0";
+  addCheckpoint.disabled = atlas.schemaVersion < 3 || !atlas.segments.length || !!draft;
+  checkpointHeader.appendChild(addCheckpoint);
+  checkpointLegend.appendChild(checkpointHeader);
+  checkpointSection.appendChild(checkpointLegend);
+  checkpointSection.appendChild(node("p", label("FVTTATLAS.Checkpoints.Hint"), "hint"));
+  if (draft?.mode === "checkpoint") {
+    checkpointSection.appendChild(node("p", label("FVTTATLAS.Checkpoints.Picking"), "hint"));
+    checkpointSection.appendChild(button(label("FVTTATLAS.Roads.Cancel"),
+      label("FVTTATLAS.Roads.Cancel"), () => actions.cancel()));
+  }
+
+  if (atlas.schemaVersion >= 3 && atlas.roads.length) {
+    const state = junctionFilterFor(scene, atlas);
+    const select = (options, value, title, changed) => {
+      const element = node("select");
+      element.setAttribute("aria-label", label(title));
+      for (const [id, name] of options) {
+        const option = node("option", name);
+        option.value = id;
+        element.appendChild(option);
+      }
+      element.value = value;
+      element.addEventListener("change", () => changed(element.value));
+      return element;
+    };
+    const filters = node("div", undefined, "form-fields");
+    filters.appendChild(select(atlas.roads.map(r => [r.id, r.name]), state.roadId,
+      "FVTTATLAS.Checkpoints.RoadFilter", value => {
+        state.roadId = value;
+        refresh();
+      }));
+    filters.appendChild(select([
+      ["selected", label("FVTTATLAS.Junctions.Selected")],
+      ["connected", label("FVTTATLAS.Junctions.Connected")],
+      ["scene", label("FVTTATLAS.Junctions.All")]
+    ], state.scope, "FVTTATLAS.Checkpoints.ScopeFilter", value => {
+      state.scope = value;
+      refresh();
+    }));
+    checkpointSection.appendChild(filters);
+    const total = listRoadCheckpoints(atlas);
+    const matching = listRoadCheckpoints(atlas, state);
+    checkpointSection.appendChild(node("p",
+      matching.length + " / " + total.length + " " +
+      label("FVTTATLAS.Checkpoints.Count"), "hint"));
+    const visible = matching.slice(-25).reverse();
+    for (const checkpoint of visible) {
+      const row = node("div", undefined, "form-group");
+      row.setAttribute("data-atlas-checkpoint-id", checkpoint.id);
+      const description = node("div");
+      description.style.flex = "1 1 auto";
+      description.style.minWidth = "0";
+      description.appendChild(node("span", checkpoint.name));
+      const meters = checkpoint.elevationMeters === null
+        ? label("FVTTATLAS.Checkpoints.Unknown")
+        : format(checkpoint.elevationMeters) + " m";
+      description.appendChild(node("div", checkpoint.roadName + " · " + meters, "hint"));
+      row.appendChild(description);
+      const controls = node("div", undefined, "form-fields");
+      controls.appendChild(button("◎", label("FVTTATLAS.Checkpoints.Highlight"),
+        () => actions.selectCheckpoint(scene, checkpoint.id)));
+      controls.appendChild(button("✎", label("FVTTATLAS.Checkpoints.Edit"),
+        () => actions.editCheckpoint(scene, checkpoint, refresh)));
+      controls.appendChild(button("×", label("FVTTATLAS.Checkpoints.Delete"),
+        () => actions.removeCheckpoint(scene, checkpoint, refresh)));
+      row.appendChild(controls);
+      checkpointSection.appendChild(row);
+    }
+    if (!matching.length) {
+      checkpointSection.appendChild(node("p", label("FVTTATLAS.Checkpoints.None"), "hint"));
+    } else if (matching.length > visible.length) {
+      checkpointSection.appendChild(node("p",
+        label("FVTTATLAS.Junctions.Recent") + " " + visible.length +
+        " / " + matching.length, "hint"));
+    }
+  }
+  root.appendChild(checkpointSection);
 
   // Phase 2d associates existing native RegionDocuments. No Atlas geometry or
   // terrain modifiers are stored here; Foundry's Region editor stays canonical.
