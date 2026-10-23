@@ -1,7 +1,7 @@
 # Phase 2 revised design — Scene Atlas, roads, waypoints, and Regions
 
 **Decision date:** October 23, 2026. **Target:** Foundry VTT v14, system agnostic.
-**Status:** approved design. The owner verified v0.2.3 native Grid updates in Foundry v14. **v0.2.4 is a Phase 2c first test slice** with Roads [+], click-to-draw, and road management. Waypoint-specific editing, Region linking, and all route calculations remain unimplemented. The Scene flag schema remains v1 and draft PR #3 remains unmerged.
+**Status:** approved design. Phase 2b native Grid updates and Phase 2c **v0.2.4** road creation, rename/delete, Scene isolation, reload persistence, and highlight were verified by the owner in Foundry v14 on October 23, 2026. Two blocking authoring issues remain: Scene-padding alignment and connecting roads at mid-segment points. Advanced road controls are scoped below but not implemented. Region linking and route calculations remain unimplemented; draft PR #3 remains unmerged.
 
 ## 1. GM experience and ownership
 
@@ -33,6 +33,31 @@ Investigate supported ApplicationV2/SceneConfig tab extension conventions first.
 - Two road endpoints within 14 Scene pixels of existing junctions share that junction ID. Merely crossing a line does not create a connection. Creating a junction *in the middle of an existing segment* and dragging/editing saved vertices remain future tasks; do not infer connectivity by visual proximity to a bend.
 - Road deletion preserves orphaned junction nodes to avoid cascading loss; later cleanup tools may handle unused nodes. Roads with no saved segments are inactive. Older explicit enabled values remain as historical metadata, not a UI switch.
 - This is a road network authoring test build, not a usable navigation/router: no authoritative road distance, itinerary, token terrain, or player-facing overlay yet.
+
+### Owner's Phase 2c acceptance findings — October 23, 2026
+
+**Verified in real Foundry v14 (0.2.4):** GM creates roads with Roads [+], renames and deletes them, reload preserves roads, separate Scenes display independent road information, and road highlighting works.
+
+**Prioritized functional corrections before expanding the editor:**
+
+1. **Map-image anchoring across Scene padding/shift:** Increasing Scene padding from 0.00 to 0.05 visibly moved the background image relative to the existing Atlas overlay. Changing it back realigned the roads. The current model stores the result of `canvas.canvasCoordinatesFromClient` directly as persistent coordinates and renders them directly with PIXI. Foundry v14 `SceneDimensions.sceneX`, `sceneY`, and `sceneRect` identify the image rectangle inside its larger padded canvas ([official v14 API](https://foundryvtt.com/api/v14/interfaces/foundry.documents.types.SceneDimensions.html)). **Design objective:** retain road positions relative to the same map art when the surrounding canvas padding changes, without warping the road geometry. Test Scene padding, shift, dimensions, pan/zoom, and grid adjustment separately. Resolve the v1 absolute-coordinate data migration *before* silently changing persisted coordinates. Older maps cannot safely be converted if the original anchoring context is unknown; never guess or discard authored roads.
+2. **Real connections to an existing road:** v0.2.4 only snaps to the existing endpoint/junction **nodes** (14px); clicking near an interior line or `via[]` bend leaves separate topology. Allow a GM to snap a new road endpoint to a segment centerline and explicitly **split the target segment at that position**, inserting a shared stable junction and replacing the old segment with two connected segments. Preserve the road name/style and old geometry, avoid zero-length edges, and keep unrelated crossing roads unconnected unless the GM chooses to join. Show a snap preview and explicit join/leave-disconnected affordance for bridges or overlapping roads, so the GM can tell when a genuine network connection will be made.
+3. **Temporary highlight lifetime:** Selecting a road highlights it as expected. Clear the selected highlight when Scene Configuration closes, the GM exits the Atlas editing context, or a different Scene becomes active. Do not delete roads or change their persistent visibility.
+
+**Road editing and presentation backlog (separate features, not present in 0.2.4):**
+
+| Feature | Proposed behavior | Intended slice |
+| --- | --- | --- |
+| Edit existing path geometry | Click or right-click road to select; move/add/remove junctions or bends; undo/cancel; persist stable connectivity | Remaining **2c** |
+| Right-click road | Context menu with edit path, edit style/shape, rename, focus, hide/show, and delete (permission-checked, confirmation for destructive actions) | 2c editing foundation, **4** polish |
+| Road appearance | Per-road color palette, stroke width, solid/dashed/dotted style, optional module defaults; don't alter network topology | **4** |
+| Road label visibility | Off, on hover, or always; avoid obscuring critical map details and keep GM/player visibility distinct | **4** |
+| Smoother curves | Optional visually smoothed path, e.g. constrained spline with adjustable tension. Preserve control points and make clear whether smoothing is visual-only; route calculations must use the authoritative underlying geometry | **4** |
+| Hover card | Road name and **native Foundry-measured** path length once Phase 3a measurement exists; temporary highlight is optional | **3a** measurement + **4** UI |
+| Focus on entire path | Pan/zoom canvas to fit the selected road's full bounds | **4** |
+| Hide/show a road | User/GM display filtering versus world-persisted road visibility to be explicitly chosen; never equate UI hiding with secure player-reveal permissions | **4** display; **5** protected reveal |
+
+Retain the **same Scene Grid measurement** used by Foundry's ruler. A smoothed visual line must not quietly report a distance calculated from unrelated geometry. Native Regions and their Behaviors remain Phase 2d/3b work, not a parallel Atlas terrain rule system.
 
 ## 2. Distance: native Scene Grid is the **only** measurement source
 
@@ -82,7 +107,7 @@ The owner authorized Phase 2 development, **not automatic expansion of runtime P
 | Slice | Implement after review | Gate |
 | --- | --- | --- |
 | **2b — UI and native measurement** | **Verified by owner in v0.2.3:** native Atlas tab, native Scene Grid only, legacy manual values safely dormant | Native Grid update from 7.5 to 8 shown correctly in Atlas; further square/hex/gridless coverage encouraged |
-| **2c — Road/waypoint authoring** | **v0.2.4 first slice:** Roads [+], click-to-place polyline bends, Finish/Cancel/Backspace, list/highlight/rename/delete, endpoint snap and revision-checked Scene flags. **Next:** explicit junction/waypoint tools, drag/edit points, richer connectivity | First-slice GM manual tests: Scene context, drawing and pan/zoom, endpoint snapping, save/reload, player access |
+| **2c — Road/waypoint authoring** | **v0.2.4 owner-tested baseline:** Roads [+], persistence, per-Scene isolation, rename/delete and highlight. **Next:** fix Scene-padding anchoring and migrate existing coordinates safely; split/connect at mid-road, clear ephemeral highlights when editor closes; then Waypoints [+] and editing existing geometry | Owner reports alignment failure at 0.05 padding and lack of mid-segment junction; rerun pan/zoom, saved-road migration, intentional non-connections, Scene switch, and tab close tests |
 | **2d — Region linking** | Native Region picker/link, optional display labels, active Behavior summary, and minimal GM-only association metadata; never edit native terrain costs | Multi-shape, hole, overlap, levels, enabled/disabled Behaviors, renamed/deleted Region fixtures |
 | **3a — Shortest distance** | Pure geometry graph and shortest-distance route with route overlay | Existing Phase 3 MVP acceptance |
 | **3b — Token-aware terrain cost/travel time** | Verify public token terrain-path APIs, preview native movement cost on roads, optional cost-aware routing; separate party speed/time conversion | New approval/Phase 3 gate; real v14 token/system tests, overlapping Behaviors, unavailable token handling |
