@@ -9,6 +9,7 @@ import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads } from "./road-storage.js";
 import { getRoadMergeCandidates } from "./road-model.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
+import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
 
 const STARTUP_NOTICE_SETTING = "showStartupNotice";
 const roadCanvas = new RoadCanvasController();
@@ -113,6 +114,61 @@ function actions() {
       roadCanvas.refresh();
       refresh();
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Merged"));
+    },
+    async linkRegion(scene, refresh) {
+      const choices = listSceneRegions(scene).filter(region => !region.linked && !region.invalidLink);
+      if (!choices.length) throw new Error(game.i18n.localize("FVTTATLAS.Regions.NoAvailable"));
+      const content = document.createElement("div");
+      const select = document.createElement("select");
+      select.name = "atlasRegionId";
+      select.setAttribute("aria-label", game.i18n.localize("FVTTATLAS.Regions.Choose"));
+      for (const region of choices) {
+        const option = document.createElement("option");
+        option.value = region.id;
+        option.textContent = region.name;
+        select.appendChild(option);
+      }
+      content.appendChild(select);
+      const result = await DialogV2.input({
+        window: { title: game.i18n.localize("FVTTATLAS.Regions.Link") },
+        content,
+        ok: { label: game.i18n.localize("FVTTATLAS.Regions.Link") },
+        rejectClose: false
+      });
+      if (!result) return;
+      const regionId = String(result.atlasRegionId ?? "");
+      if (!choices.some(region => region.id === regionId)) {
+        throw new Error(game.i18n.localize("FVTTATLAS.Regions.Choose"));
+      }
+      await linkAtlasRegion(scene, regionId);
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Regions.Linked"));
+    },
+    async unlinkRegion(scene, regionId, refresh) {
+      const region = scene.regions?.get(regionId);
+      if (!region) throw new Error(game.i18n.localize("FVTTATLAS.Regions.Missing"));
+      const confirmed = await DialogV2.confirm({
+        window: { title: game.i18n.localize("FVTTATLAS.Regions.Unlink") },
+        content: game.i18n.format("FVTTATLAS.Regions.UnlinkWarning", { name: region.name }),
+        rejectClose: false,
+        modal: true
+      });
+      if (!confirmed) return;
+      await unlinkAtlasRegion(scene, regionId);
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Regions.Unlinked"));
+    },
+    configureRegion(scene, regionId) {
+      if (!game.user?.isGM || !scene.canUserModify(game.user, "update")) {
+        throw new Error("Only a GM can configure Atlas Regions.");
+      }
+      const region = scene.regions?.get(regionId);
+      if (!region || region.parent?.id !== scene.id ||
+          !region.canUserModify(game.user, "update")) {
+        throw new Error(game.i18n.localize("FVTTATLAS.Regions.Missing"));
+      }
+      return new foundry.applications.sheets.RegionConfig({ document: region })
+        .render({ force: true });
     },
     finish: () => roadCanvas.finish(),
     cancel: () => roadCanvas.cancel(),
