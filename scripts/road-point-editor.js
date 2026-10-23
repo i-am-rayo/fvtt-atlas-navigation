@@ -138,15 +138,23 @@ export class RoadPointEditor {
           } catch (error) { this.notify()?.error?.(error.message); }
           return;
         }
-        if (event.shiftKey && handle.kind === "bend") {
+        if (event.shiftKey && !event.altKey && handle.kind === "bend") {
           try {
             this.insertJunction({
               kind: "edge", segmentId: handle.segmentId,
               edgeIndex: handle.viaIndex + 1, atVertex: true,
               x: handle.x, y: handle.y
             });
-            this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Waypoints.PromotedNotice"));
+            this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Junctions.PromotedNotice"));
           } catch (error) { this.notify()?.error?.(error.message); }
+          return;
+        }
+        if (event.shiftKey && !event.altKey && handle.kind === "node") {
+          try {
+            this.#perform({ kind: "demote-junction", nodeId: handle.nodeId });
+            s.selectedHandle = null;
+            this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Junctions.DemotedNotice"));
+          } catch (error) { this.notify()?.warn?.(error.message); }
           return;
         }
         if (event.altKey && handle.kind === "node") {
