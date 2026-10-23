@@ -17,19 +17,59 @@ function nativeBehaviorClass(config = globalThis.CONFIG) {
   return config?.RegionBehavior?.dataModels?.[NATIVE_MOVEMENT_COST_TYPE] ?? null;
 }
 
-/** The current system, not Land/Air/Water names, defines native actions. */
+/**
+ * Native Region cost slots are not the same thing as selectable Token actions.
+ * An action can have a fixed terrain cost (terrainAction: null), or derive its
+ * terrain cost from another action. Neither can be authored independently.
+ *
+ * Some systems also expose action descriptors that their Region Behavior schema
+ * does not retain. Probe the actual DataModel with a harmless, non-default cost:
+ * no RegionDocument or game setting is modified by this read-only check.
+ */
+function isDirectMovementAction(id, descriptor) {
+  return /^[A-Za-z0-9_.-]{1,128}$/.test(id) &&
+    descriptor && typeof descriptor === "object" &&
+    descriptor.deriveTerrainDifficulty == null &&
+    descriptor.terrainAction === undefined &&
+    descriptor.measure !== false &&
+    !descriptor.teleport;
+}
+
+function nativeModelRetainsCost(Type, action) {
+  if (!Type?.schema?.fields?.difficulties) return false;
+  try {
+    const probe = 1.25;
+    const model = new Type({ difficulties: { [action]: probe } });
+    if (model.validate({ strict: true }) === false) return false;
+    const retained = model.toObject(true)?.difficulties?.[action];
+    return Number.isFinite(retained) && Math.abs(retained - probe) < 1e-8;
+  } catch {
+    return false;
+  }
+}
+
+/** Only actions that the current system can store as native Region costs. */
 export function availableMovementActions(config = globalThis.CONFIG) {
   const actions = config?.Token?.movement?.actions;
-  if (!nativeBehaviorClass(config) || !actions || typeof actions !== "object") return [];
+  const Type = nativeBehaviorClass(config);
+  if (!Type || !actions || typeof actions !== "object") return [];
   return Object.entries(actions)
-    .filter(([id, descriptor]) => /^[A-Za-z0-9_.-]{1,128}$/.test(id) &&
-      descriptor && typeof descriptor === "object" &&
-      // The native Behavior UI does not configure derived difficulties.
-      typeof descriptor.deriveTerrainDifficulty !== "function" &&
-      !descriptor.terrainAction)
+    .filter(([id, descriptor]) =>
+      isDirectMovementAction(id, descriptor) && nativeModelRetainsCost(Type, id))
     .map(([id, descriptor]) => ({
       id, label: String(descriptor.label || id)
     }));
+}
+
+/** Modes visible to Tokens but not independently editable as Region costs. */
+export function unavailableMovementActions(config = globalThis.CONFIG) {
+  const actions = config?.Token?.movement?.actions;
+  if (!actions || typeof actions !== "object") return [];
+  const usable = new Set(availableMovementActions(config).map(action => action.id));
+  return Object.entries(actions)
+    .filter(([id, descriptor]) => /^[A-Za-z0-9_.-]{1,128}$/.test(id) &&
+      descriptor && typeof descriptor === "object" && !usable.has(id))
+    .map(([id, descriptor]) => ({ id, label: String(descriptor.label || id) }));
 }
 
 export function readPreset(presetId) {
@@ -46,13 +86,13 @@ export function buildNativeMovementCostBehavior(presetId, action,
   const preset = readPreset(presetId);
   const Type = nativeBehaviorClass(config);
   if (!Type) throw new Error("The active Foundry system does not expose the native Modify Movement Cost Behavior.");
-  if (!availableMovementActions(config).some(entry => entry.id === action)) {
-    throw new Error("Choose an available non-derived movement action for this game system.");
-  }
   // Foundry v14 supplies a system-dependent difficulties SchemaField.
-  // Check its existence and validate the constructed model before persisting.
+  // Check its existence before offering any action or persisting a Behavior.
   if (!Type.schema?.fields?.difficulties) {
     throw new Error("The native movement-cost Behavior schema is unavailable or unsupported. Nothing was saved.");
+  }
+  if (!availableMovementActions(config).some(entry => entry.id === action)) {
+    throw new Error("That movement action cannot store an independent native Region cost in this game system. Choose a listed action, or create a corridor without a native cost Behavior.");
   }
   let nativeData;
   try {
