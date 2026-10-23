@@ -69,7 +69,7 @@ This is one connected three-junction graph. Its `via` coordinates are **interior
 
 ## 3. Coordinates and topology
 
-- Coordinates are stored in **Scene/image pixels** and remain invariant when the viewer zooms, pans, or resizes.
+- Schema v1 currently stores absolute **canvas pixel coordinates** from `canvas.canvasCoordinatesFromClient`. They remain invariant when merely zooming or panning the camera, but the v0.2.4 owner test found they **do not remain anchored to the background image** when Scene padding changes (0.00 → 0.05). This is an unresolved coordinate-space defect; do not assume v1 saved positions are already image-relative.
 - Road distance comes **exclusively from Foundry's native Grid path measurement** on the active Scene. Plain Euclidean pixel lengths are useful for geometry validation or rendering, not authoritative travel units. The Phase 3 adapter will use `canvas.grid.measurePath(waypoints).distance` and verify square, hexagonal, and gridless behavior against the native ruler.
 - Nodes are topological junctions. Only equal **node IDs** connect roads; matching x/y pixels or visually crossing polylines alone do not connect them.
 - Every `from`/`to` must reference a currently existing node; a segment cannot connect a node to itself in v1.
@@ -83,9 +83,17 @@ The example uses hand-readable IDs. Actual IDs should be generated uniquely and 
 ### Phase 2c editor subset
 
 - A Roads [+] authoring session stores one segment for each finished click-to-place path. The first/last points become nodes and interior bends become `via[]`, without any schema extension.
-- A new road endpoint within 14 Scene pixels of an **existing node** reuses that stable node ID. Snapping to arbitrary interior `via[]` points or splitting an existing segment is not implemented; visually crossing roads are not automatically connected.
+- A new road endpoint within 14 Scene pixels of an **existing node** reuses that stable node ID. Snapping to arbitrary interior `via[]` points or splitting an existing segment is not implemented in v0.2.4; visually crossing roads are not automatically connected. Owner testing confirmed that clicking the middle of an existing road does **not** connect it to a new road.
 - Renaming changes only `segments[].name`. Deleting removes only the chosen segment and intentionally retains even unreferenced nodes, protecting shared junctions and leaving future cleanup to an explicit tool.
 - The segment ID and node IDs are stable across saved renames/reloads. A revision check rejects stale concurrent edits (not an atomic multi-GM lock). GMs should coordinate ownership.
+
+### Upcoming anchoring and junction migration design (not implemented)
+
+Foundry v14 `SceneDimensions.sceneX`/`sceneY` and `sceneRect` expose the unpadded Scene rectangle within the larger canvas ([API](https://foundryvtt.com/api/v14/interfaces/foundry.documents.types.SceneDimensions.html)). Phase 2c must define a **background-image-relative** coordinate contract (and adapter conversions at the canvas boundary) so padding/shift changes do not displace saved roads. Distinguish changes to the *map image's placement* from actually resizing the image. Do not infer a missing v1 origin or rewrite old points without a reversible migration/back-up and a live Foundry test. Preserve stable node IDs and path geometry.
+
+Joining an existing road at a non-junction location requires a deliberate graph operation: locate an interior point on an edge, split that edge into two edges joined by one new node, then attach the new road to that node. Preserve the original line's name and attributes and avoid silently connecting unrelated crossings. Its persistence API must reject stale revisions and invalid graphs.
+
+Per-road visual style, smoothing/label preferences, and display hide/show require a separately reviewed schema extension; they must not be injected into v1 because the existing validator explicitly rejects unknown keys. UI-only hiding is **not** confidential player visibility.
 
 ## 4. Derived graph, not stored twice
 
