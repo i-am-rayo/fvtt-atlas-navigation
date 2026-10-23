@@ -292,6 +292,34 @@ export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
     throw new Error("Edit coordinates must be finite.");
   }
 
+  if (op.kind === "detach-node") {
+    const source = current.nodes.find(n => n.id === op.nodeId);
+    if (!source || !related.some(s => s.from === source.id || s.to === source.id)) {
+      throw new Error("This junction does not belong to the selected road.");
+    }
+    const otherRoadsMeetHere = current.segments.some(s => s.roadId !== roadId &&
+      (s.from === source.id || s.to === source.id));
+    if (!otherRoadsMeetHere) {
+      throw new Error("This junction is not shared with another named road.");
+    }
+    if (typeof op.newNodeId !== "string" ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(op.newNodeId) ||
+        current.nodes.some(n => n.id === op.newNodeId)) {
+      throw new Error("A new unique junction ID is required.");
+    }
+    // Keep the original junction for the other roads. Move only this named
+    // road's incident edges to an independent, initially coincident node.
+    return validateAtlas({
+      ...current,
+      nodes: [...current.nodes, { id: op.newNodeId, x: source.x, y: source.y }],
+      segments: current.segments.map(s => s.roadId === roadId
+        ? { ...s,
+            from: s.from === source.id ? op.newNodeId : s.from,
+            to: s.to === source.id ? op.newNodeId : s.to }
+        : s)
+    });
+  }
+
   if (op.kind === "connect-node") {
     const source = current.nodes.find(n => n.id === op.nodeId);
     if (!source || !related.some(s => s.from === source.id || s.to === source.id)) {
