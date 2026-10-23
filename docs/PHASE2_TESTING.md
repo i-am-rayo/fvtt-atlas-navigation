@@ -1,3 +1,41 @@
+# Phase 2c — v0.2.7 GM smoke test: explicit road connections
+
+**Status (October 23, 2026):** v0.2.7 implementation is ready for a new **owner live-test in Foundry v14**. Automated pure-model, UI and canvas regression checks passed in the test harness; a real Foundry session is still required. The previously reported v0.2.6 issues are included below.
+
+Install/update via the same development manifest:
+
+```text
+https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2-atlas-setup/module.json
+```
+
+Use a backed-up v14 world, Check for Updates → verify **0.2.7**, reload, and leave draft PR #3 unmerged.
+
+## A. Connection confirmation and name safety
+
+1. In Scene Configuration → Atlas, click **Roads [+]**. Verify the plus is directly beside Roads, like Levels (+). Make two separate, differently named roads; ensure they do not touch.
+2. Draw a *third road* starting near the interior of one and ending near the interior of the other. Click Finish Road. A **Connect road junction?** dialog should identify both existing road names and the connecting road.
+3. **Decline**: the new road must not save, merge, or form topology; the points remain in the draft until changed/canceled. To intentionally avoid a connection, start over and hold Alt while placing the near-road endpoint.
+4. Repeat and **confirm**: both original roads may become two graph *sections*, but retain their original name **once each** in the Atlas list. The new road has its own name and section(s). Save/reload.
+5. Use Edit road points (⌖) on an independent road. Drag a **gold junction** near a different road or existing junction. Confirm the prompt lists the target and explains that the names remain separate. Decline once: no movement or connection should be staged. Try again and accept: see snapped junction, then **Save Points** to persist.
+6. When a moved junction is **shared with several roads**, the prompt should identify all source road names and warn that all will share the new destination junction; acceptance must still leave separate names. Connect a shortcut to two junctions of the same road: this is allowed without automatically merging logical groups.
+7. Test Undo before Save Points, Cancel Edits, closing Scene Configuration, reloading, and switching Scenes. Verify no unapproved connection survives and Scene image padding changes do not displace roads.
+
+## B. Point editor and Atlas UI fixes
+
+1. Select Edit road points and **double-click a road line between handles**: a new white bend handle must appear. Drag it, Option/Alt-click to remove it, and test Undo and Save Points.
+2. The road should display one name. Any split count appears as a **small italic secondary line** (for example, “3 sections”), not as part of its name.
+3. When a road touches **two or more differently named groups**, click **Merge connected roads**. A selection dialog must open without console errors. If you actually intend to combine names, choose one and confirm; otherwise cancel—existing names and topology must stay unchanged.
+4. With Edit road points active, the secondary action should say **Cancel Edits**, not Cancel Drawing.
+5. Verify no Foundry Walls are created and roads do not block senses or movement. Confirm the Scene Grid remains the only authority for distance.
+
+## Not yet included
+
+Waypoints panel; road styling, smoothing, hover, road labels, context-menu edit; native Regions; calculated routes; terrain, token motion, or player visibility. Use Foundry v14 to validate the input/dialog events, since unit tests cannot simulate the full Foundry canvas.
+
+---
+
+## Archived v0.2.6 instructions
+
 # Phase 2c — v0.2.6 GM test: named roads and point handles
 
 **Status (October 23, 2026):** Automated unit/UI tests have been exercised. The owner has already verified the preceding v0.2.5 anchoring and junction split behavior in Foundry v14. **This v0.2.6 change still needs a new live Foundry test.**
