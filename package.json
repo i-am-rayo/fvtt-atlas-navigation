@@ -1,10 +1,10 @@
 {
   "name": "fvtt-atlas-navigation",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check scripts/main.js && node --check scripts/atlas-model.js && node --check scripts/atlas-storage.js && node --check scripts/road-model.js && node --check scripts/road-storage.js && node --check scripts/road-coordinates.js && node --check scripts/road-hit.js && node --check scripts/road-point-editor.js && node --check scripts/road-canvas.js && node --check scripts/scene-config.js && node --check scripts/checkpoint-model.js && node --check scripts/region-atlas.js && node --check scripts/generated-region-model.js && node --check scripts/generated-region.js && node --check scripts/scene-grid.js && node --test",
+    "check": "node --check scripts/main.js && node --check scripts/atlas-model.js && node --check scripts/atlas-storage.js && node --check scripts/road-model.js && node --check scripts/road-storage.js && node --check scripts/road-coordinates.js && node --check scripts/road-hit.js && node --check scripts/road-point-editor.js && node --check scripts/road-canvas.js && node --check scripts/scene-config.js && node --check scripts/checkpoint-model.js && node --check scripts/region-atlas.js && node --check scripts/generated-region-model.js && node --check scripts/generated-region.js && node --check scripts/travel-preset-model.js && node --check scripts/travel-preset-settings.js && node --check scripts/scene-grid.js && node --test",
     "test": "node --test"
   },
   "engines": {
