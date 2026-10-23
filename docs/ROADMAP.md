@@ -40,11 +40,11 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 
 ## Phase 2 — Scene Atlas management, road editing, and Region associations
 
-**In progress:** Phase 2a v0.2.1 offers a GM-only atlas flag editor, manual calibration, and validated Scene-flag persistence. **Revised design:** use a native-looking **Atlas** section/tab in Scene Configuration, consume the Scene's Grid measurements by default, create graph geometry using GM canvas tools, and link native Foundry **Regions** for optional terrain semantics. The temporary control above the core Scene tabs is not the final UX. See [Phase 2 design](PHASE2_DESIGN.md).
+**In progress:** Phase 2b **v0.2.2** implements a GM-only native **Atlas** tab in Scene Configuration with a read-only Scene Grid summary and explicit Grid/manual measurement choice, preserving the v1 Scene atlas flag. Awaiting visual Foundry v14 testing. Phase 2c road/waypoint drawing and Phase 2d native Region associations are still planned. See [Phase 2 design](PHASE2_DESIGN.md).
 
 **Reviewable slices**
 
-- **2b — Native Scene integration and scale:** Replace the awkward above-form banner with an Atlas tab/section or safely integrated sheet entry; display Grid scale/units as the default, retain explicit per-Scene override and all prior manual calibration records. Optionally show a later global display-unit preference; do not require duplicate unit entry.
+- **2b — Native Scene integration and scale (implemented, awaiting acceptance):** v0.2.2 replaces the banner with a public-TABS/PARTS native Atlas tab (Misc/Grid in-sheet fallback); displays Scene Grid scale/units by default and retains old manual calibration until explicit GM source selection. No duplicate global unit setting.
 - **2c — Roads and waypoints:** Add `+` controls for road and waypoint lists, with naming/selection/deletion inside the Scene Atlas management UI; add/move/draw/connect polyline junctions with a separate GM canvas toolset. Persist and validate stable IDs in Scene flags.
 - **2d — Native Region linking:** Select existing Scene `RegionDocument` areas instead of recreating their geometry. Persist only minimal Atlas link metadata, display native Region names and active movement-related Behaviors, and open the existing Region editor for all terrain configuration. Optional Atlas labels are visual only; **no parallel speed multipliers, stacking rules, or travel-time calculation in Phase 2.**
 
