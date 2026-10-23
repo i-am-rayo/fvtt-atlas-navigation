@@ -4,7 +4,8 @@
  * Schema v1 is intentionally small. Unknown fields are rejected so an older
  * editor cannot silently delete newer data when saving a Scene flag.
  */
-export const ATLAS_SCHEMA_VERSION = 1;
+export const ATLAS_SCHEMA_VERSION = 2;
+export const LEGACY_ATLAS_SCHEMA_VERSION = 1;
 const MAX_NODES = 10000;
 const MAX_SEGMENTS = 20000;
 const MAX_VIA_POINTS = 1000;
@@ -45,6 +46,7 @@ function point(value, label) {
 export function createEmptyAtlas() {
   return {
     schemaVersion: ATLAS_SCHEMA_VERSION,
+    coordinateSpace: "image",
     revision: 0,
     enabled: false,
     calibration: null,
@@ -69,10 +71,14 @@ export function validateAtlas(value) {
   if (value == null) return createEmptyAtlas();
 
   const data = record(value, "root");
-  fields(data, ["schemaVersion", "revision", "enabled", "calibration", "nodes", "segments"], "root");
-  if (data.schemaVersion !== ATLAS_SCHEMA_VERSION) {
+  const legacy = data.schemaVersion === LEGACY_ATLAS_SCHEMA_VERSION;
+  if (!legacy && data.schemaVersion !== ATLAS_SCHEMA_VERSION) {
     fail("unsupported schemaVersion " + String(data.schemaVersion));
   }
+  fields(data, legacy
+    ? ["schemaVersion", "revision", "enabled", "calibration", "nodes", "segments"]
+    : ["schemaVersion", "coordinateSpace", "revision", "enabled", "calibration", "nodes", "segments"], "root");
+  if (!legacy && data.coordinateSpace !== "image") fail("coordinateSpace must be image");
   if (!Number.isSafeInteger(data.revision) || data.revision < 0) {
     fail("revision must be a nonnegative safe integer");
   }
@@ -143,11 +149,33 @@ export function validateAtlas(value) {
   }
 
   return {
-    schemaVersion: ATLAS_SCHEMA_VERSION,
+    schemaVersion: data.schemaVersion,
+    ...(legacy ? {} : { coordinateSpace: "image" }),
     revision: data.revision,
     enabled: data.enabled,
     calibration,
     nodes,
     segments
   };
+}
+
+/**
+ * Explicit migration from absolute canvas pixels (v1) to image-local pixels (v2).
+ * The caller must confirm that legacy roads CURRENTLY line up with the Scene
+ * background before using the current Scene rectangle origin. No guessing.
+ */
+export function anchorLegacyAtlas(atlas, origin) {
+  const old = validateAtlas(atlas);
+  if (old.schemaVersion === ATLAS_SCHEMA_VERSION) return old;
+  if (!Number.isFinite(origin?.x) || !Number.isFinite(origin?.y)) {
+    throw new Error("A valid image origin is required to anchor legacy roads.");
+  }
+  const toLocal = p => ({ x: p.x - origin.x, y: p.y - origin.y });
+  return validateAtlas({
+    ...old,
+    schemaVersion: ATLAS_SCHEMA_VERSION,
+    coordinateSpace: "image",
+    nodes: old.nodes.map(n => ({ id: n.id, ...toLocal(n) })),
+    segments: old.segments.map(s => ({ ...s, via: s.via.map(toLocal) }))
+  });
 }
