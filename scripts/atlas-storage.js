@@ -12,11 +12,12 @@ export function readAtlas(scene) {
 }
 
 /**
- * Save only atlas activation/calibration. Preserve all authored network data.
+ * Save only Atlas activation. Preserve authored network data and any dormant
+ * legacy v1 calibration without using or modifying it.
  * A revision comparison catches stale dialogs, but is not an atomic CAS lock:
  * this first editor explicitly supports one GM editing at a time.
  */
-export async function saveAtlasSetup(scene, { enabled, calibration, expectedRevision }) {
+export async function saveAtlasSetup(scene, { enabled, expectedRevision }) {
   if (!globalThis.game?.user?.isGM || !scene?.canUserModify?.(game.user, "update")) {
     throw new Error("Only a GM with permission to update this Scene may edit its atlas.");
   }
@@ -30,7 +31,6 @@ export async function saveAtlasSetup(scene, { enabled, calibration, expectedRevi
   const next = validateAtlas({
     ...previous,
     enabled,
-    calibration,
     revision: previous.revision + 1
   });
   await scene.setFlag(MODULE_ID, ATLAS_FLAG, next);
