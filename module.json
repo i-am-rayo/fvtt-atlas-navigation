@@ -2,8 +2,8 @@
   "id": "fvtt-atlas-navigation",
   "type": "module",
   "title": "FVTT Atlas Navigation",
-  "description": "System-agnostic Foundry VTT v14 Scene Atlas roads: image-anchored road geometry, endpoint junction snapping, and bend redrawing.",
-  "version": "0.2.5",
+  "description": "System-agnostic Foundry VTT v14 Scene Atlas: grouped named roads, connected junctions and draggable road point editing.",
+  "version": "0.2.6",
   "authors": [
     {
       "name": "i-am-rayo",
