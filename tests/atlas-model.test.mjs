@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createEmptyAtlas, polylineLength, validateAtlas } from "../scripts/atlas-model.js";
+import { anchorLegacyAtlas, createEmptyAtlas, polylineLength, validateAtlas } from "../scripts/atlas-model.js";
 
 const fixture = () => ({
   schemaVersion: 1,
@@ -73,4 +73,20 @@ test("duplicate or broken nodes and segments cannot be persisted", () => {
     ...original,
     segments: [{ ...original.segments[0], via: [{ x: Infinity, y: 0 }] }]
   }), /finite/);
+});
+
+test("legacy canvas coordinates require explicit origin anchoring, and v2 validation is strict", () => {
+  const legacy = fixture();
+  const converted = anchorLegacyAtlas(legacy, { x: 30, y: 45 });
+  assert.equal(converted.schemaVersion, 2);
+  assert.equal(converted.coordinateSpace, "image");
+  assert.equal(converted.nodes[0].x, -30);
+  assert.equal(converted.nodes[0].y, -45);
+  assert.deepEqual(converted.segments[0].via[0], { x: 20, y: -35 });
+  assert.equal(converted.segments[0].id, legacy.segments[0].id);
+  assert.equal(converted.revision, legacy.revision);
+  assert.deepEqual(anchorLegacyAtlas(converted, { x: 999, y: 999 }), converted);
+  assert.deepEqual(legacy, fixture(), "legacy persisted data is untouched");
+  assert.throws(() => anchorLegacyAtlas(legacy, { x: NaN, y: 0 }), /origin/);
+  assert.throws(() => validateAtlas({ ...converted, coordinateSpace: "canvas" }), /coordinateSpace/);
 });
