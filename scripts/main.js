@@ -1,6 +1,6 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * Phase 2c: v0.2.6 grouped named roads and draggable, reversible point editing.
+ * Phase 2c: v0.2.7 confirms junction attachments and improves point editing.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
@@ -80,9 +80,12 @@ function actions() {
           item.textContent = candidate.name;
           select.appendChild(item);
         }
+        // Foundry v14 requires an outermost plain div for DOM dialog content.
+        const content = document.createElement("div");
+        content.appendChild(select);
         const input = await DialogV2.input({
           window: { title: game.i18n.localize("FVTTATLAS.Roads.Merge") },
-          content: select,
+          content,
           ok: { label: game.i18n.localize("FVTTATLAS.Roads.Merge") },
           rejectClose: false
         });
