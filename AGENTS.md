@@ -5,7 +5,7 @@
 - Repository: `i-am-rayo/fvtt-atlas-navigation`
 - Intended module ID / manifest ID / module folder: `fvtt-atlas-navigation`
 - Target: **Foundry VTT v14**, system-agnostic.
-- Status: **Phase 1 merged** after owner testing; **Phase 2 authorized** on 2026-10-22. Phase 2a was tested; **Phase 2b v0.2.2** native Scene Atlas tab and Scene Grid/manual-source UI are implemented and awaiting Foundry visual acceptance. Phase 2c/2d (roads and native Region association) remain planned. Phases 3+ require separate approval.
+- Status: **Phase 1 merged** after owner testing; **Phase 2 authorized** on 2026-10-22. Phase 2a was tested; **Phase 2b v0.2.3** native Scene Atlas tab and native-only measurement UI are implemented. Owner tested tab placement/saves in v0.2.2; v0.2.3 regression test is pending. Phase 2c/2d (roads and native Region association) remain planned. Phases 3+ require separate approval.
 - Foundry module development is the primary framework; do not build a standalone web service or introduce a LegendKeeper requirement.
 - No campaign-specific or game-system-specific assumptions, example content, assets, settings, or APIs.
 
@@ -22,7 +22,7 @@ If a requested change conflicts with these documents, explain the conflict and p
 
 ## Workflow
 
-- Phase 2 is authorized. Review **2b** Scene Atlas management UI/native Grid measurement in v0.2.2; next deliver **2c** GM road/waypoint canvas editing, then **2d** native Region associations with native Behavior inspection. Terrain-aware token movement costs and travel-time/fastest-route calculations belong to future **Phase 3b** and require separate approval. Do **not** begin routing, player-visible features, or phases 3+ without new approval.
+- Phase 2 is authorized. Review **2b** Scene Atlas management UI/native Grid measurement in v0.2.3; next deliver **2c** GM road/waypoint canvas editing, then **2d** native Region associations with native Behavior inspection. Terrain-aware token movement costs and travel-time/fastest-route calculations belong to future **Phase 3b** and require separate approval. Do **not** begin routing, player-visible features, or phases 3+ without new approval.
 - Make changes on a topic branch and submit a reviewable PR. Do not merge to `main` without explicit approval.
 - Keep PRs focused. Include rationale, affected files, manual/test evidence, risks, and deferred follow-ups.
 - Avoid unrelated refactors or changing repository settings. Preserve user edits and existing work.
@@ -34,7 +34,7 @@ If a requested change conflicts with these documents, explain the conflict and p
 - Use native Foundry `Scene` as the atlas map; `NoteDocument` with linked `JournalEntry`/`JournalEntryPage` for locations/lore; and existing native `RegionDocument` shapes/holes/levels for optional terrain associations in Phase 2d. Never duplicate Region geometry in Scene atlas flags.
 - Store authored road junctions and segments as **versioned, namespaced Scene flags**. The route graph is a validated in-memory projection. Do not use `DrawingDocument` as the canonical graph database.
 - Keep authored network, computed route result, and transient animation/display state separate.
-- Coordinates are Scene/image-space pixels, never camera/screen pixels. **Use native Scene Grid measurements** (`grid.size`, `grid.distance`, `grid.units`) by default in Phase 2b; a persisted schema v1 `calibration: null` derives those values at read time, while an existing v1 manual object overrides them. Switching to Grid explicitly clears the manual object; do not silently rewrite saved flags.
+- Coordinates are Scene/image-space pixels, never camera/screen pixels. **Use native Scene Grid settings exclusively** (`grid.size`, `grid.distance`, `grid.units`). Phase 2b displays the saved Grid settings, not a derived units-per-pixel travel rule. Future road distances must delegate to Foundry v14 `canvas.grid.measurePath(waypoints).distance`, with native square/hex/gridless behavior. Do not treat Euclidean pixel geometry multiplied by a ratio as an authoritative ruler measurement. Schema v1 may contain old `calibration: {source:"manual",...}`; preserve it untouched for future migration but **ignore it in all calculations/UI**. New flags use `calibration:null`.
 - Topological connections are explicit. Two lines crossing on the image do **not** automatically create a junction.
 - Geometry/routing/validation should be pure, testable code; keep Foundry document access and canvas rendering in adapters.
 - Preserve stable IDs, reject malformed links and nonfinite coordinates, and plan migrations before changing a persisted schema.
@@ -53,8 +53,8 @@ If a requested change conflicts with these documents, explain the conflict and p
 ## Quality and testing (when code is authorized)
 
 - Use a current Foundry v14 test world with a neutral game system; test with a GM and a non-GM account.
-- Add unit tests for segment validation, graph projection, connectivity, Scene Grid/manual calibration, zero-length segments, disconnected routes, and deterministic path choice. Phase 2d also needs native Region link/metadata tests; Phase 3b (after approval) needs mocked adapters **plus actual Foundry v14 tests** for token-aware cost, Region holes/levels/overlaps, active/disabled Behaviors, movement modes, and no-token fallback.
-- Manually test initial canvas load, switching Scenes, resize/pan/zoom, module disable/re-enable, save/reload, and malformed/corrupt flags. Verify Region changes never mutate native shapes/Behaviors and old manual calibration persists when the Grid measurement differs. Native token cost previews must never move tokens.
+- Add unit tests for segment validation, graph projection, connectivity, native Scene Grid settings and dormant legacy calibration, zero-length segments, disconnected routes, and deterministic path choice. Phase 2d also needs native Region link/metadata tests; Phase 3b (after approval) needs mocked adapters **plus actual Foundry v14 tests** for token-aware cost, Region holes/levels/overlaps, active/disabled Behaviors, movement modes, and no-token fallback.
+- Manually test initial canvas load, switching Scenes, resize/pan/zoom, module disable/re-enable, save/reload, and malformed/corrupt flags. Verify Region changes never mutate native shapes/Behaviors, and old manual calibration persists *in flags only* while the Atlas UI always uses native Grid settings. Native token cost previews must never move tokens.
 - Test multi-GM editing behavior or explicitly limit the MVP to one editor at a time. Do not silently overwrite concurrent work.
 - Only report tests that actually ran. If no v14 runtime is available, state that limitation and supply manual verification instructions.
 - Keep performance predictable for long polylines; avoid reconstructing geometry every animation frame.
