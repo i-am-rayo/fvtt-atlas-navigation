@@ -53,14 +53,18 @@ function setup() {
   }
   let n = 0;
   const prompts = [];
+  const detachPrompts = [];
   let approve = true;
+  let detachApproved = true;
   const controller = new RoadCanvasController({
     canvasProvider: () => canvas, doc: () => doc,
     idFactory: () => "node" + ++n, notify: () => notify,
-    confirmAttach: async details => { prompts.push(details); return approve; }
+    confirmAttach: async details => { prompts.push(details); return approve; },
+    confirmDetach: async details => { detachPrompts.push(details); return detachApproved; }
   });
   return { controller, scene, canvas, listeners, docListeners, notifications, Graphics,
-    prompts, approve: value => { approve = value; } };
+    prompts, approve: value => { approve = value; },
+    detachPrompts, approveDetach: value => { detachApproved = value; } };
 }
 
 function pointEvent(x, y) {
@@ -381,6 +385,58 @@ test("one new shortcut connecting two differently named roads requires one expli
     assert.equal(atlas.segments.length, 5,
       "both main roads are subdivided topologically, but not logically merged");
     assert.equal(atlas.roads.length, 3);
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, prev);
+  }
+});
+
+test("Alt-click gold junction safely detaches one named road; undo and save preserve main", async () => {
+  const prev = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: true }, i18n: { localize: key => key } };
+    globalThis.PIXI = { Graphics: m.Graphics };
+    m.controller.start(m.scene, () => {});
+    m.listeners.get("pointerdown")(pointEvent(20,30));
+    m.listeners.get("pointerdown")(pointEvent(60,30));
+    assert.equal(await m.controller.finish(),true);
+    m.controller.start(m.scene,()=>{});
+    m.listeners.get("pointerdown")(pointEvent(40,30));
+    m.listeners.get("pointerdown")(pointEvent(40,60));
+    assert.equal(await m.controller.finish(),true);
+    const before = readAtlas(m.scene), branchId=before.roads[1].id;
+    const sourceNodeId=before.segments.find(s=>s.roadId===branchId).from;
+    m.controller.startPointEdit(m.scene,branchId,()=>{});
+    const detachClick = () => ({...pointEvent(40,30), altKey:true});
+    m.approveDetach(false);
+    await m.listeners.get("pointerdown")(detachClick());
+    assert.equal(m.controller.getDraft(m.scene).dirty,false,"No leaves shared junction intact");
+    assert.equal(readAtlas(m.scene).revision,before.revision);
+    m.approveDetach(true);
+    await m.listeners.get("pointerdown")(detachClick());
+    assert.equal(m.controller.getDraft(m.scene).dirty,true);
+    assert.deepEqual(m.detachPrompts.at(-1),{roadName:"Road 2",otherNames:["Road 1"]});
+    assert.equal(readAtlas(m.scene).revision,before.revision,
+      "Detach is staged, not immediately written to the Scene");
+    m.controller.undo();
+    assert.equal(m.controller.getDraft(m.scene).dirty,false,"Undo cancels detachment");
+    await m.listeners.get("pointerdown")(detachClick());
+    m.listeners.get("pointerdown")(pointEvent(40,30));
+    m.listeners.get("pointermove")(pointEvent(45,45));
+    await m.listeners.get("pointerup")(pointEvent(45,45));
+    assert.equal(await m.controller.finish(),true);
+    const saved=readAtlas(m.scene);
+    assert.deepEqual(saved.roads.map(r=>r.name),["Road 1","Road 2"]);
+    const branch=saved.segments.find(s=>s.roadId===branchId);
+    assert.notEqual(branch.from,sourceNodeId,"branch now has independent junction ID");
+    assert.deepEqual(saved.nodes.find(n=>n.id===sourceNodeId),
+      before.nodes.find(n=>n.id===sourceNodeId),"the main road has not moved");
+    assert.deepEqual(saved.nodes.find(n=>n.id===branch.from),
+      {id:branch.from,x:80,y:60},"only branch endpoint moves");
+    assert.equal(saved.segments.length,before.segments.length,
+      "detachment does not split, duplicate or rename road segments");
+    assert.equal(m.listeners.size,0);
   } finally {
     m.controller.tearDown();
     Object.assign(globalThis, prev);
