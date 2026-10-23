@@ -442,3 +442,89 @@ test("Alt-click gold junction safely detaches one named road; undo and save pres
     Object.assign(globalThis, prev);
   }
 });
+
+test("Waypoints [+] stages an interior graph node and can undo, save and highlight it", async () => {
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+  const m=setup();
+  try {
+    globalThis.game={user:{isGM:true},i18n:{localize:key=>key}};
+    globalThis.PIXI={Graphics:m.Graphics};
+    m.controller.start(m.scene,()=>{});
+    m.listeners.get("pointerdown")(pointEvent(20,30));
+    m.listeners.get("pointerdown")(pointEvent(60,30));
+    assert.equal(await m.controller.finish(),true);
+    const prior=readAtlas(m.scene);
+    m.controller.startWaypoint(m.scene,()=>{});
+    assert.equal(m.controller.getDraft(m.scene).mode,"waypoint");
+    m.listeners.get("pointerdown")(pointEvent(20,30));
+    assert.equal(m.controller.getDraft(m.scene).mode,"waypoint",
+      "clicking an existing endpoint does not duplicate that junction");
+    m.listeners.get("pointerdown")(pointEvent(40,30));
+    assert.equal(m.controller.getDraft(m.scene).mode,"points",
+      "placing a waypoint transitions to reversible point editing");
+    assert.equal(m.controller.getDraft(m.scene).source,"waypoint",
+      "Save/Undo/Cancel controls belong in the Waypoints section");
+    assert.equal(m.controller.getDraft(m.scene).dirty,true);
+    assert.equal(readAtlas(m.scene).nodes.length,prior.nodes.length,
+      "the Scene remains unchanged until Save Points");
+    m.controller.undo();
+    assert.equal(m.controller.getDraft(m.scene).dirty,false);
+    m.controller.cancel();
+    assert.deepEqual(readAtlas(m.scene),prior);
+    m.controller.startWaypoint(m.scene,()=>{});
+    m.listeners.get("pointerdown")(pointEvent(40,30));
+    assert.equal(await m.controller.finish(),true);
+    const saved=readAtlas(m.scene);
+    assert.equal(saved.nodes.length,prior.nodes.length+1);
+    assert.equal(saved.segments.length,prior.segments.length+1);
+    assert.deepEqual(saved.roads,prior.roads);
+    const created=saved.nodes.at(-1);
+    m.controller.selectWaypoint(m.scene,created.id);
+    assert.equal(m.controller.selectedWaypointId,created.id);
+    m.controller.endEditor(m.scene);
+    assert.equal(m.controller.selectedWaypointId,null);
+  } finally {m.controller.tearDown();Object.assign(globalThis,previous);}
+});
+
+test("Shift-click promotes a bend; its new gold junction connects only with approval",async()=>{
+ const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+ const m=setup();
+ try {
+  globalThis.game={user:{isGM:true},i18n:{localize:key=>key}};
+  globalThis.PIXI={Graphics:m.Graphics};
+  const draw=async(points)=>{
+   m.controller.start(m.scene,()=>{});
+   for(const [x,y] of points)m.listeners.get("pointerdown")(pointEvent(x,y));
+   assert.equal(await m.controller.finish(),true);
+  };
+  await draw([[20,30],[60,30]]);
+  await draw([[40,20],[40,30],[40,40]]);
+  const original=readAtlas(m.scene);
+  assert.equal(original.segments.length,2,"visual crossing is not connected");
+  const sourceId=original.roads[1].id;
+  m.controller.startPointEdit(m.scene,sourceId,()=>{});
+  await m.listeners.get("pointerdown")({...pointEvent(40,30),shiftKey:true});
+  assert.equal(m.controller.getDraft(m.scene).dirty,true);
+  const editor=m.controller.pointEditor;
+  assert.equal(editor.session.working.segments.length,3);
+  assert.equal(readAtlas(m.scene).segments.length,2,"promotion remains staged");
+  m.approve(false);
+  m.listeners.get("pointerdown")(pointEvent(40,30));
+  m.listeners.get("pointermove")(pointEvent(40,30));
+  await m.listeners.get("pointerup")(pointEvent(40,30));
+  assert.equal(editor.session.working.segments.length,3,
+   "declining leaves promoted junction unconnected");
+  m.approve(true);
+  m.listeners.get("pointerdown")(pointEvent(40,30));
+  m.listeners.get("pointermove")(pointEvent(40,30));
+  await m.listeners.get("pointerup")(pointEvent(40,30));
+  assert.equal(editor.session.working.segments.length,4);
+  assert.deepEqual(m.prompts.at(-1).targetNames,["Road 1"]);
+  assert.equal(await m.controller.finish(),true);
+  const result=readAtlas(m.scene);
+  assert.equal(result.segments.length,4);
+  assert.deepEqual(result.roads.map(r=>r.name),["Road 1","Road 2"]);
+  const joinedNode=result.segments.filter(s=>s.roadId===sourceId)[0].to;
+  assert.equal(result.segments.filter(s=>s.from===joinedNode||s.to===joinedNode).length,4);
+ } finally {m.controller.tearDown();Object.assign(globalThis,previous);}
+});
