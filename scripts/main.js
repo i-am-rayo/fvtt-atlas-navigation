@@ -1,17 +1,20 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * v0.2.14 adds optional, previewed native Regions derived from road checkpoints.
+ * v0.2.15 adds world-shared travel presets and opt-in road/corridor references.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
-  saveEditedCheckpoint, saveRemovedCheckpoint } from "./road-storage.js";
+  saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset } from "./road-storage.js";
 import { getRoadMergeCandidates } from "./road-model.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
-import { planSceneGeneratedRegion, saveGeneratedNativeRegion } from "./generated-region.js";
+import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
+  setGeneratedRegionTravelPreset } from "./generated-region.js";
+import { registerWorldTravelPresets, readWorldTravelPresets }
+  from "./travel-preset-settings.js";
 
 const STARTUP_NOTICE_SETTING = "showStartupNotice";
 const roadCanvas = new RoadCanvasController();
@@ -36,8 +39,15 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
       Math.round(plan.radius * 100) / 100 + " px). " +
       plan.shapes.length + " native shape(s).",
     regenerate
-      ? "Regenerate only if its native geometry was not manually edited. Existing name, Levels, Behaviors and visibility are preserved."
-      : "Create one linked native Region with no Behaviors. Configure Behaviors manually using Foundry's Region editor.",
+      ? "Regenerate only if its native geometry was not manually edited. Existing name, Levels, Behaviors, visibility and travel preset are preserved."
+      : "Create one linked native Region with no Behaviors. A chosen travel preset is descriptive metadata in v0.2.15; native cost Behaviors are not applied yet.",
+    ...(!regenerate && settings.presetId
+      ? [(() => {
+          const preset = readWorldTravelPresets().presets.find(p => p.id === settings.presetId);
+          if (!preset) throw new Error("The selected world travel preset no longer exists.");
+          return "Travel preset: " + preset.name + " (cost ×" +
+            preset.movementCostMultiplier + "; no native Behavior applied).";
+        })()] : []),
     "The tinted map overlay is a preview only. Region geometry will be saved only after confirmation."
   ]) {
     const paragraph = document.createElement("p");
@@ -56,13 +66,48 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
     if (!roadCanvas.isRegionPreviewActive(scene, plan)) {
       throw new Error("The Scene or Atlas editor changed while the Region preview was open. Nothing was created.");
     }
-    const result = await saveGeneratedNativeRegion(scene, plan, { regenerate });
+    const result = await saveGeneratedNativeRegion(scene, plan, {
+      regenerate, presetId: regenerate ? null : (settings.presetId ?? null)
+    });
     ui.notifications.info(result.created
-      ? "Atlas created one linked native Region. Add Behaviors in the native Region editor."
+      ? "Atlas created one linked native Region. Travel preset metadata saved; configure Behaviors in Foundry."
       : "Atlas regenerated the Region geometry; native Behaviors were preserved.");
   } finally {
     roadCanvas.clearRegionPreview();
   }
+}
+
+
+/** Native DialogV2 picker shared by road defaults and generated Region overrides. */
+async function promptTravelPreset(title, currentId = null) {
+  const chooser = document.createElement("select");
+  chooser.name = "atlasTravelPresetId";
+  const options = [["", "None (no Atlas travel preset)"],
+    ...readWorldTravelPresets().presets.map(p => [
+      p.id, p.mode.toUpperCase() + " — " + p.name +
+        " (cost ×" + p.movementCostMultiplier + ")"
+    ])];
+  for (const [id, name] of options) {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = name;
+    chooser.appendChild(option);
+  }
+  chooser.value = currentId ?? "";
+  const container = document.createElement("div");
+  const hint = document.createElement("p");
+  hint.textContent = "References a world Atlas preset. Does not change native Region Behaviors in v0.2.15.";
+  container.append(hint, chooser);
+  const input = await foundry.applications.api.DialogV2.input({
+    window: { title }, content: container,
+    ok: { label: "Save Travel Preset" }, rejectClose: false, modal: true
+  });
+  if (!input) return undefined;
+  const presetId = String(input.atlasTravelPresetId ?? "");
+  if (presetId && !readWorldTravelPresets().presets.some(p => p.id === presetId)) {
+    throw new Error("The selected travel preset was removed; reopen the picker.");
+  }
+  return presetId || null;
 }
 
 function actions() {
@@ -76,6 +121,31 @@ function actions() {
     async generateRegion(scene, settings, refresh) {
       await previewAndSaveRegion(scene, settings);
       refresh();
+    },
+    async assignRoadTravelPreset(scene, road, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      if (!atlas.roads?.some(r => r.id === road.id)) {
+        throw new Error("This named road no longer exists.");
+      }
+      const presetId = await promptTravelPreset("Default travel preset — " + road.name,
+        atlas.roads.find(r => r.id === road.id).travelPresetId ?? null);
+      if (presetId === undefined) return;
+      await saveRoadTravelPreset(scene, {
+        roadId: road.id, presetId, expectedRevision: atlas.revision
+      });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info("Atlas named-road default travel preset saved.");
+    },
+    async assignGeneratedRegionTravelPreset(scene, entry, refresh) {
+      ensureIdle(scene);
+      const presetId = await promptTravelPreset("Corridor travel preset — " + entry.name,
+        entry.presetId);
+      if (presetId === undefined) return;
+      await setGeneratedRegionTravelPreset(scene, entry.id, presetId);
+      refresh();
+      ui.notifications.info("Atlas generated Region travel preset saved. Native Behaviors were not changed.");
     },
     async regenerateRegion(scene, entry, refresh) {
       if (!entry.metadata || entry.modified) {
@@ -358,6 +428,7 @@ function actions() {
 }
 
 Hooks.once("init", () => {
+  registerWorldTravelPresets();
   game.settings.register(MODULE_ID, STARTUP_NOTICE_SETTING, {
     name: "FVTTATLAS.Settings.ShowStartupNotice.Name",
     hint: "FVTTATLAS.Settings.ShowStartupNotice.Hint",
