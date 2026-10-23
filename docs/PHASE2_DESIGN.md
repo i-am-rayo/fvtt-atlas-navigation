@@ -1,5 +1,12 @@
 # Phase 2 revised design — Scene Atlas, roads, waypoints, and Regions
 
+## Phase 2c v0.2.5 implementation (October 23, 2026)
+
+This next **development test build**, following the owner's v0.2.4 tests, adds image-local schema v2 roads with an explicit one-time GM anchoring action for existing v1 maps; nearest-interior road splitting when a new road endpoint joins an existing path; bend redrawing with fixed junction endpoints; and automatic temporary highlight/draft cleanup on closing Scene Configuration. The underlying graph remains per Scene and Foundry-native Grid distance remains untouched. Unit tests do not replace in-client Foundry v14 testing.
+
+The next gate is owner testing of v0.2.5 in a backed-up world against `docs/PHASE2_TESTING.md`. After passing, proposed follow-on work includes Waypoints and UX (style/label/hover/context menu), then native Region association in Phase 2d. **Phase 3 route calculation is not yet authorized.** PR #3 remains draft and unmerged.
+
+
 **Decision date:** October 23, 2026. **Target:** Foundry VTT v14, system agnostic.
 **Status:** approved design. Phase 2b native Grid updates and Phase 2c **v0.2.4** road creation, rename/delete, Scene isolation, reload persistence, and highlight were verified by the owner in Foundry v14 on October 23, 2026. Two blocking authoring issues remain: Scene-padding alignment and connecting roads at mid-segment points. Advanced road controls are scoped below but not implemented. Region linking and route calculations remain unimplemented; draft PR #3 remains unmerged.
 
