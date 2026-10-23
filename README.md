@@ -2,7 +2,7 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current development test build: Phase 2c (v0.2.6).** Named logical roads now group split graph segments, and GMs edit road bends/junctions using draggable on-map handles. Existing v0.2.5 maps need a one-time explicit **Organize named roads** migration. Automated checks pass locally; **live Foundry v14 verification remains required**. Draft PR #3 remains unmerged.
+> **Current development test build: Phase 2c (v0.2.7).** New roads and dragged junctions now ask for confirmation before joining an existing road. Separate named roads never merge automatically; a GM can deliberately merge named groups with the distinct Merge command. Double-click bend insertion, multi-target merge dialog, and Atlas tab layout received fixes. Existing v0.2.5 maps still require explicit **Organize named roads** migration; **live Foundry v14 verification is required**. Draft PR #3 remains unmerged.
 
 ## What works now
 
@@ -10,12 +10,12 @@ A developing **standalone, system-agnostic atlas and road-navigation module for 
 - A GM-only **Atlas** tab in native Scene Configuration, with an in-sheet fallback for custom sheets.
 - **Roads [+]:** start a drawing session on the configured Scene, click two or more map positions to add bends, **Finish Road** (or Enter) to save; Backspace undoes the last draft point; Esc/Cancel discards the draft.
 - Saved roads appear in the Atlas list. Highlight a road on the GM canvas, rename or delete it with confirmation. A Scene with roads has an active Atlas automatically; **there is no separate toggle**.
-- New-road endpoints snap to existing junctions **or an interior point of an existing road** (14 image pixels). Joining an interior point splits the existing segment into connected sections that belong to **one named road** in the Atlas list. Hold **Alt while placing an endpoint** to bypass snapping. Ordinary crossings away from the endpoints **do not** auto-connect.
+- New-road endpoints can snap to existing junctions **or an interior point of an existing road** (14 image pixels), but **Finish Road asks for GM confirmation before making any connection**. Declining keeps the draft for adjustment; holding Alt while placing an endpoint bypasses snapping. Joining an interior point splits the existing segment into connected sections that belong to **one named road** in the Atlas list. Ordinary crossings away from the endpoints **do not** auto-connect.
 - v2 road coordinates are anchored to the Scene background image, so adjusting Scene padding no longer offsets their overlay. **Previously authored v1 roads require explicit image anchoring**, followed by **Organize named roads**; v2 roads require organization only. Neither migration guesses or silently merges roads.
-- **Edit road points** shows draggable white bend handles and gold shared-junction handles on the canvas. Double-click an edge to add a bend; Alt-click a bend to remove it. **Save Points**, **Undo**, and **Cancel** protect edits. Connected groups can be explicitly **Merged** under one name. Closing Scene Configuration clears highlights and discards unsaved edits.
+- **Edit road points** shows draggable white bend handles and gold shared-junction handles on the canvas. Double-click an edge to add a bend; Alt-click a bend to remove it. Dragging an existing junction onto another road asks for **confirmation**; only acceptance creates a real junction. Cancelling the prompt leaves the original position unchanged. **Save Points**, **Undo**, and **Cancel Edits** protect edits. Connected groups can be explicitly **Merged** under one name. Closing Scene Configuration clears highlights and discards unsaved edits.
 - Road geometry is stored as versioned per-Scene flags with permissions/revision checks; historical manual calibration values are preserved but ignored.
 - Native **Scene Grid** distance and units remain the only measurement source. **Route lengths and navigation have not been implemented**; road lines do not yet display distance labels.
-- [Phase 2c installation and Foundry smoke-test instructions (v0.2.6)](docs/PHASE2_TESTING.md).
+- [Phase 2c installation and Foundry smoke-test instructions (v0.2.7)](docs/PHASE2_TESTING.md).
 
 **Still to build:** direct canvas context menus, road appearance/label/hover controls, a dedicated Waypoints/junction manager, linking native Regions, route calculation and terrain-based travel, and player reveal/hide. The module remains GM-only for editing. For Phase 1 history, see [Phase 1 test notes](docs/INSTALLATION.md).
 
