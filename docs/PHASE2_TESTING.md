@@ -1,6 +1,6 @@
 # Phase 2c — Roads [+] GM smoke test (v0.2.4)
 
-**Status:** First road-authoring slice, awaiting live Foundry v14 GM verification. Phase 2b native Grid behavior was confirmed by the owner: a saved Grid distance change from 7.5 to 8 was reflected in Atlas. The v14 experimental VFX warning seen in that test is from Foundry core; this module does not call the experimental VFX API.
+**Status (October 23, 2026):** The owner completed an initial Foundry v14 GM test of **0.2.4**. Road creation, rename/delete, reload persistence, independent Scene networks, and road highlight **passed**. Changing Scene padding 0.00 → 0.05 displaced the saved road overlay relative to the background; changing it back realigned roads. Creating a connection at an existing road's interior **did not** work (the code only snaps to nearby junction nodes). Highlight persists after leaving Scene Configuration. These are tracked Phase 2c follow-ups, not accepted functionality. Foundry's experimental VFX warning seen earlier is unrelated to Atlas VFX usage.
 
 ## Update from the feature branch
 
@@ -43,6 +43,16 @@ canvas.scene.getFlag("fvtt-atlas-navigation", "atlas")
 ```
 
 Expected new road geometry has `nodes[]` with Scene-space `x,y` and `segments[]` entries containing `from`, `to`, ordered interior `via[]`, and a name. `revision` increases for each successful add/rename/delete. Legacy `calibration` and `enabled` fields remain in v1 flags for compatibility, although **active UI state is based on the presence of roads**. Deleting a road leaves its junction nodes intact.
+
+## Regressions to address before completing Phase 2c
+
+The following failures are **known in 0.2.4**; re-test after future fixes rather than assuming this test build already supports them.
+
+- **Padding/image anchor:** Draw a road on the visible background at padding **0.00**. Change the native Scene Padding Percentage to **0.05**, apply, and verify each road still follows the same buildings, shores, or paths. Reverse to 0.00, zoom/pan, reload and verify again. Also test Shift (Pixels) and any changed Scene dimensions independently. A coordinate data migration must preserve pre-fix v1 roads.
+- **Interior connection:** Start a new road at the **middle** of an existing road, not just a cyan endpoint dot. Explicitly choose to join; the target road must be split into two connected graph edges sharing one new stable node with the new road. A visually crossing road should remain disconnected unless explicitly joined.
+- **Transient highlight:** Highlight a road, then close Scene Configuration or navigate away from the Atlas editing context. The gold emphasis must clear without deleting or hiding the road. Scene-switch teardown must also clear it.
+
+The owner's additional LegendKeeper-inspired requests—road labels (off/on hover/always), per-road colors and solid/dashed/dotted patterns, editable/smoothed shapes, focus-to-fit, hide/show, native-measured name/length hover, and direct right-click editing—are recorded in [Phase 2 design](PHASE2_DESIGN.md) and [roadmap](ROADMAP.md). These have **not** been built.
 
 ## Known limits
 
