@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEmptyAtlas } from "../scripts/atlas-model.js";
-import { addRoad, renameRoad, removeRoad, reshapeRoad, findRoadSnap, suggestRoadName, mergeRoadGroups, getRoadMergeCandidates, applyRoadGeometryEdit } from "../scripts/road-model.js";
+import { addRoad, renameRoad, removeRoad, reshapeRoad, findRoadSnap, suggestRoadName, mergeRoadGroups, getRoadMergeCandidates, applyRoadGeometryEdit, findJunctionAttachment, attachmentRoadNames } from "../scripts/road-model.js";
 
 function makeIds() {
   let i = 0;
@@ -195,4 +195,105 @@ test("point insertion, dragging and removal are controlled and reversible",()=>{
  assert.deepEqual(removed.segments[0].via,[]);
  assert.deepEqual(base.segments[0].via,[]);
  assert.throws(()=>applyRoadGeometryEdit(base,{roadId,operation:{kind:"remove-bend",segmentId,viaIndex:0}}),/index/);
+});
+
+test("GM-reviewed junction attachment splits target without merging named roads", () => {
+  let next = 0;
+  const idFactory = () => "join" + ++next;
+  const main = addRoad(createEmptyAtlas(), {
+    points: [{ x: 0, y: 0 }, { x: 100, y: 0 }], name: "Main Road", idFactory
+  });
+  const separate = addRoad(main, {
+    points: [{ x: 80, y: 60 }, { x: 120, y: 120 }], name: "Secret Shortcut",
+    idFactory, snapEndpoints: [false, false]
+  });
+  const roadId = separate.roads[1].id;
+  const sourceNodeId = separate.segments[1].from;
+  const suggestion = findJunctionAttachment(separate, sourceNodeId, { x: 40, y: 1 });
+  assert.equal(suggestion.kind, "edge");
+  assert.deepEqual(attachmentRoadNames(separate, suggestion), ["Main Road"]);
+  const connected = applyRoadGeometryEdit(separate, { roadId, operation: {
+    kind: "connect-node", nodeId: sourceNodeId, target: suggestion,
+    x: suggestion.x, y: suggestion.y, newSegmentId: idFactory()
+  } });
+  assert.deepEqual(connected.roads.map(r => r.name), ["Main Road", "Secret Shortcut"]);
+  assert.equal(connected.segments.length, 3);
+  assert.equal(connected.segments.filter(s => s.roadId === main.roads[0].id).length, 2);
+  assert.ok(connected.segments.some(s => s.roadId === roadId && s.from === sourceNodeId));
+  assert.deepEqual(connected.nodes.find(n => n.id === sourceNodeId), {
+    id: sourceNodeId, x: 40, y: 0
+  });
+  assert.deepEqual(separate.nodes.find(n => n.id === sourceNodeId), {
+    id: sourceNodeId, x: 80, y: 60
+  }, "original atlas is unchanged until Save Points");
+});
+
+test("moving a shared junction to another junction preserves connected named roads", () => {
+  let i = 0;
+  const idFactory = () => "connect" + ++i;
+  const a = addRoad(createEmptyAtlas(), {
+    points: [{ x: 0, y: 0 }, { x: 100, y: 0 }], name: "West", idFactory
+  });
+  const b = addRoad(a, {
+    points: [{ x: 100, y: 0 }, { x: 100, y: 100 }], name: "South", idFactory
+  });
+  const c = addRoad(b, {
+    points: [{ x: 300, y: 0 }, { x: 400, y: 0 }], name: "East",
+    idFactory, snapEndpoints: [false, false]
+  });
+  const sourceNodeId = b.segments[0].to;
+  const target = findJunctionAttachment(c, sourceNodeId, { x: 300, y: 0 });
+  assert.equal(target.kind, "node");
+  assert.deepEqual(attachmentRoadNames(c, target), ["East"]);
+  const joined = applyRoadGeometryEdit(c, { roadId: a.roads[0].id, operation: {
+    kind: "connect-node", nodeId: sourceNodeId, target, x: target.x, y: target.y
+  } });
+  assert.deepEqual(joined.roads.map(r => r.name), ["West", "South", "East"]);
+  assert.equal(joined.nodes.some(n => n.id === sourceNodeId), false,
+    "merged graph node leaves no phantom snap target");
+  assert.ok(joined.segments.filter(s => s.from === target.nodeId || s.to === target.nodeId).length >= 3,
+    "both roads at the moved shared node retain their topology");
+  assert.equal(findJunctionAttachment(joined, target.nodeId, { x: 301, y: 1 }), null,
+    "do not snap a junction onto its own incident edges or adjacent nodes");
+});
+
+test("shortcuts and same-road cycles are valid; degenerate attachments are rejected", () => {
+  let i = 0;
+  const idFactory = () => "cycle" + ++i;
+  const base = addRoad(createEmptyAtlas(), {
+    points: [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 100, y: 0 }],
+    name: "High Road", idFactory
+  });
+  const spur = addRoad(base, {
+    points: [{ x: 50, y: 0 }, { x: 60, y: 80 }], name: "Forest Spur", idFactory
+  });
+  const sourceNodeId = spur.segments.at(-1).to;
+  const target = findJunctionAttachment(spur, sourceNodeId, { x: 100, y: 0 });
+  assert.equal(target.kind, "node");
+  const cycle = applyRoadGeometryEdit(spur, { roadId: spur.roads[1].id, operation: {
+    kind: "connect-node", nodeId: sourceNodeId, target, x: target.x, y: target.y
+  } });
+  assert.deepEqual(cycle.roads.map(r => r.name), ["High Road", "Forest Spur"]);
+  assert.equal(cycle.segments.length, spur.segments.length);
+  const adjacent = spur.segments.at(-1).from;
+  assert.throws(() => applyRoadGeometryEdit(spur, { roadId: spur.roads[1].id, operation: {
+    kind: "connect-node", nodeId: sourceNodeId, target: {kind:"node",nodeId:adjacent},
+    x:50,y:0
+  } }), /collapse/);
+  assert.throws(() => applyRoadGeometryEdit(spur, { roadId: spur.roads[1].id, operation: {
+    kind: "connect-node", nodeId: sourceNodeId,
+    target: {kind:"edge",segmentId:"missing",edgeIndex:0},
+    x:0,y:0,newSegmentId:idFactory()
+  } }), /own road sections|Cannot attach/);
+});
+
+test("deleted roads leave no invisible snapping junctions", () => {
+  let index = 0;
+  const idFactory = () => "orphan" + ++index;
+  const first = addRoad(createEmptyAtlas(), {
+    points: [{ x: 0, y: 0 }, { x: 100, y: 0 }], name: "Deleted Road", idFactory
+  });
+  const removed = removeRoad(first, { roadId: first.roads[0].id });
+  assert.equal(removed.nodes.length, 2, "archived node data remains for compatibility");
+  assert.equal(findRoadSnap(removed, { x: 0, y: 0 }), null);
 });
