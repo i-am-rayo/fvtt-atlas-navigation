@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { MODULE_ID } from "../scripts/atlas-storage.js";
 import { defaultTravelPresets } from "../scripts/travel-preset-model.js";
-import { availableMovementActions, buildNativeMovementCostBehavior,
-  nativeCostSummary } from "../scripts/native-movement-cost.js";
+import { availableMovementActions, unavailableMovementActions,
+  buildNativeMovementCostBehavior, nativeCostSummary } from "../scripts/native-movement-cost.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
   applyGeneratedRegionMovementCost } from "../scripts/generated-region.js";
 
@@ -62,9 +62,11 @@ function setup() {
   globalThis.CONFIG={
     RegionBehavior:{dataModels:{modifyMovementCost:NativeModel}},
     Token:{movement:{actions:{
-      walk:{label:"Walk",terrainAction:null},
-      fly:{label:"Fly",terrainAction:null},
-      crawl:{label:"Crawl",terrainAction:"walk"}
+      walk:{label:"Walk"},
+      fly:{label:"Fly"},
+      swim:{label:"Swim",terrainAction:null},
+      crawl:{label:"Crawl",terrainAction:"walk"},
+      jump:{label:"Jump",deriveTerrainDifficulty:()=>1}
     }}}
   };
   const settings={kind:"corridor",roadId:"road",
@@ -76,14 +78,34 @@ function setup() {
 test("v14 movement actions filter derived actions and validate native model",()=>{
   setup();
   assert.deepEqual(availableMovementActions().map(a=>a.id),["walk","fly"]);
+  assert.deepEqual(unavailableMovementActions().map(a=>a.id),["swim","crawl","jump"]);
+  assert.throws(()=>buildNativeMovementCostBehavior("land-stone","swim"),
+    /cannot store an independent native Region cost/);
   const result=buildNativeMovementCostBehavior("land-stone","walk");
   assert.equal(result.type,"modifyMovementCost");
   assert.equal(result.system.difficulties.walk,1.5);
   assert.equal(result.flags[MODULE_ID].nativeMovementCost.multiplier,1.5);
-  assert.throws(()=>buildNativeMovementCostBehavior("land-stone","crawl"),/non-derived/);
+  assert.throws(()=>buildNativeMovementCostBehavior("land-stone","crawl"),
+    /cannot store an independent native Region cost/);
   globalThis.CONFIG.RegionBehavior.dataModels.modifyMovementCost=
     class Unknown extends NativeModel { static schema={fields:{}}; };
   assert.throws(()=>buildNativeMovementCostBehavior("land-stone","walk"),/schema is unavailable/);
+});
+
+test("native schema roundtrip excludes token actions whose cost field is discarded",()=>{
+  setup();
+  class WalkOnlyModel extends NativeModel {
+    constructor(source) {
+      super({difficulties:{walk:source?.difficulties?.walk ?? 1}});
+    }
+  }
+  globalThis.CONFIG.RegionBehavior.dataModels.modifyMovementCost=WalkOnlyModel;
+  assert.deepEqual(availableMovementActions().map(a=>a.id),["walk"]);
+  assert.ok(unavailableMovementActions().some(a=>a.id==="fly"));
+  assert.throws(()=>buildNativeMovementCostBehavior("land-stone","fly"),
+    /cannot store an independent native Region cost/);
+  assert.equal(buildNativeMovementCostBehavior("land-stone","walk")
+    .system.difficulties.walk,1.5);
 });
 
 test("creation applies exactly one native Behavior ONLY when checked, and remains atomic",async()=>{
@@ -109,7 +131,7 @@ test("reject invalid action or stale cost before creating any native Region",asy
   const plan=planSceneGeneratedRegion(scene,settings);
   await assert.rejects(()=>saveGeneratedNativeRegion(scene,plan,{
     presetId:"land-stone",movementAction:"crawl",expectedMultiplier:1.5
-  }),/non-derived/);
+  }),/cannot store an independent native Region cost/);
   await assert.rejects(()=>saveGeneratedNativeRegion(scene,plan,{
     presetId:"land-stone",movementAction:"walk",expectedMultiplier:2
   }),/changed since confirmation/);

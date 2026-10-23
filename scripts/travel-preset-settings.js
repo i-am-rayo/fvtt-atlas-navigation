@@ -84,7 +84,7 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
     const root = node("div");
     root.style.cssText = "padding:0.8rem 1rem;display:grid;gap:1rem;overflow:auto;height:100%;";
     root.appendChild(node("p",
-      "These world presets are available to every Scene. Values are movement COST multipliers: above 1 costs more movement, below 1 costs less. In v0.2.15 Atlas records choices but does NOT create or edit native Region Behaviors."));
+      "These world presets are shared across all Scenes. Values are movement COST multipliers: above 1 costs more movement, below 1 costs less. Atlas creates a native Region cost only when the GM explicitly opts in and the current game system supports that movement action."));
     for (const mode of TRAVEL_TYPES) {
       const fieldset = node("fieldset");
       fieldset.style.cssText = "display:grid;gap:0.45rem;min-width:0;";
@@ -145,7 +145,7 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
     cost.defaultValue = String(existing?.movementCostMultiplier ?? 1);
     container.appendChild(cost);
     container.appendChild(node("p",
-      "This value is a preset suggestion only in v0.2.15. Region Behaviors remain unchanged."));
+      "Editing a preset never updates an existing Region Behavior. Native costs require a separate, confirmed Atlas action."));
     // Foundry v14 requires a plain, attribute-free outer div for HTMLElement dialog content.
     const dialogContent = node("div");
     dialogContent.appendChild(container);

@@ -5,7 +5,7 @@ import { listSceneRegions } from "./region-atlas.js";
 import { listRoadCheckpoints } from "./checkpoint-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
-import { availableMovementActions } from "./native-movement-cost.js";
+import { availableMovementActions, unavailableMovementActions } from "./native-movement-cost.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -533,6 +533,18 @@ function atlasPanel(scene, atlas, actions, refresh) {
       }
       generatedSection.appendChild(node("p",
         supported.length ? label("FVTTATLAS.Cost.Hint") : label("FVTTATLAS.Cost.Unavailable"), "hint"));
+      // A selectable Token action is not necessarily a configurable Region-cost
+      // action (for example, Fly/Swim may be fixed or system-derived).
+      const unavailable = unavailableMovementActions();
+      if (unavailable.length) {
+        const names = unavailable.slice(0, 5).map(action =>
+          game.i18n.localize(action.label) || action.label).join(", ");
+        generatedSection.appendChild(node("p",
+          "Not independently configurable by this system's native Region costs: " +
+          names + (unavailable.length > 5 ? "…" : "") +
+          ". You can still save any Land, Air or Water preset without a native Behavior.",
+          "hint"));
+      }
     }
     const width = node("input");
     width.type = "number";

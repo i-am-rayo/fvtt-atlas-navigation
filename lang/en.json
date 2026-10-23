@@ -173,7 +173,7 @@
   "FVTTATLAS.Cost.OptIn": "Apply native movement cost when creating this corridor (opt-in)",
   "FVTTATLAS.Cost.Action": "Native movement action",
   "FVTTATLAS.Cost.Choose": "Choose supported movement action…",
-  "FVTTATLAS.Cost.Hint": "Atlas saves no native cost unless you opt in and confirm. The active system defines available movement actions; preset category does not choose one.",
+  "FVTTATLAS.Cost.Hint": "Atlas saves no native cost unless you opt in and confirm. Only actions whose cost the active system's native Region model can preserve are offered. Travel types do not restrict flying or swimming.",
   "FVTTATLAS.Cost.Unavailable": "This game system exposes no supported native Modify Movement Cost action. You can still create the corridor with descriptive preset metadata.",
   "FVTTATLAS.Cost.ApplyExisting": "Apply the selected travel preset as a native Modify Movement Cost Behavior (confirmation required)",
   "FVTTATLAS.Cost.Managed": "Atlas-created native movement-cost Behavior",
