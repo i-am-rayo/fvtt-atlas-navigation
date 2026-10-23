@@ -1,3 +1,40 @@
+# Phase 2c — v0.2.8 GM smoke test: detach and reattach shared junctions
+
+**Status (October 23, 2026):** Owner verified v0.2.7 double-click insertion and removal, as well as prompts that identify one or two existing road names. The owner noted that dragging a shared junction pulls all attached roads—which is correct graph behavior but prevents independent endpoint relocation. **v0.2.8 adds confirmed detachment.** Real Foundry v14 retesting remains required.
+
+Use a **backed-up v14 world** and the same feature-branch manifest:
+
+```text
+https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2-atlas-setup/module.json
+```
+
+Check for Updates, verify **0.2.8**, reload, and leave draft PR #3 unmerged.
+
+## A. Detach, move, reattach
+
+1. Start on a named road (for example, Road 2) whose gold endpoint is already shared with a differently named main road. In Scene Configuration → Atlas choose **Edit road points** for Road 2.
+2. Hold **Alt/Option** and click the **gold shared junction**. The new **Detach road from junction?** prompt should identify Road 2 and the other road name(s). Click **No** and verify nothing changes.
+3. Alt/Option-click again and **Detach Junction**. The outline initially remains at the original coordinates (two independent nodes now coincide). Check that **Undo** reverts detachment without touching saved Scene flags.
+4. Detach a second time, then **drag Road 2's gold handle away** from the main road. The main road must stay fixed. Save Points and reload the world. Confirm Road 2 has an independent endpoint at the new location and all road names survive.
+5. Drag that independent endpoint back near the main road. A **Connect road junction?** prompt should appear. Reject once (the attempted drag is canceled), retry and accept, then Save Points. Verify the connection restores without merging names.
+6. Test where **three different named roads** meet: detaching one should preserve the junction shared by the remaining two; dragging the detached road should leave both in place.
+7. Try Alt/Option-clicking a gold point used only by the selected named road. Atlas should explain there is nothing to detach and must not change graph topology. Escape/Cancel Edits must roll back all pending changes.
+
+## B. Understand graph segment counts
+
+1. Open the Atlas tab with a main road split by a spur or shortcut. Its smaller italic line now says something like **“5 graph segments”**; hover it for an explanation.
+2. The number counts **internal edges split at junctions**, not five separate named roads or visual branches. Confirm the named main road is still one row and that highlighting includes all its graph segments.
+3. Test newly joining another road interior: its graph segment count may rise by one because a split introduces two pieces where there used to be one. The joining road retains its separate name and count.
+4. Verify double-click insertion, Alt/Option-click bend removal, Undo, Cancel Edits, and native Scene Grid measurement still work. No Foundry WallDocuments should be created.
+
+## Deferred
+
+Road context menus, advanced controls to detach one arm of the **same** logical named road, auto-smoothing and styling, native Region associations, routing, token movement and player visibility remain later milestones.
+
+---
+
+## Archived v0.2.7 checklist
+
 # Phase 2c — v0.2.7 GM smoke test: explicit road connections
 
 **Status (October 23, 2026):** v0.2.7 implementation is ready for a new **owner live-test in Foundry v14**. Automated pure-model, UI and canvas regression checks passed in the test harness; a real Foundry session is still required. The previously reported v0.2.6 issues are included below.
