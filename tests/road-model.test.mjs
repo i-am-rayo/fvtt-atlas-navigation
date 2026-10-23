@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEmptyAtlas } from "../scripts/atlas-model.js";
-import { addRoad, renameRoad, removeRoad, reshapeRoad, findRoadSnap, suggestRoadName, mergeRoadGroups, getRoadMergeCandidates, applyRoadGeometryEdit, findJunctionAttachment, attachmentRoadNames } from "../scripts/road-model.js";
+import { addRoad, renameRoad, removeRoad, reshapeRoad, findRoadSnap, suggestRoadName, mergeRoadGroups, getRoadMergeCandidates, applyRoadGeometryEdit, findJunctionAttachment, attachmentRoadNames, listRoadJunctions } from "../scripts/road-model.js";
 
 function makeIds() {
   let i = 0;
@@ -396,7 +396,7 @@ test("explicit junction promotion splits a bend without renaming or joining a cr
   assert.equal(crossing.segments.length, 2, "original Scene graph is untouched");
 });
 
-test("Waypoints [+] inserts a junction on an interior edge and validates all IDs and locations", () => {
+test("Junctions [+] inserts a junction on an interior edge and validates all IDs and locations", () => {
   let i = 0; const ids = () => "wp" + ++i;
   const road = addRoad(createEmptyAtlas(), {
     name: "Millstone", points: [{x:0,y:0},{x:100,y:0}], idFactory:ids
@@ -425,4 +425,100 @@ test("Waypoints [+] inserts a junction on an interior edge and validates all IDs
   assert.throws(()=>applyRoadGeometryEdit(road,{roadId,operation:{
     ...input,edgeIndex:99
   }}),/index/);
+});
+
+
+test("demoting an unshared two-section junction restores the exact road shape", () => {
+  let id = 0; const ids = () => "revert" + ++id;
+  const original = addRoad(createEmptyAtlas(), {
+    name: "North Road", idFactory: ids,
+    points: [{ x: 0, y: 0 }, { x: 20, y: 25 }, { x: 100, y: 0 }]
+  });
+  const firstId = original.segments[0].id;
+  const promoted = applyRoadGeometryEdit(original, {roadId: original.roads[0].id,
+    operation: {kind:"create-junction", segmentId:firstId,
+      edgeIndex:1, atVertex:true, x:20,y:25,
+      newNodeId:ids(), newSegmentId:ids()}
+  });
+  const reverted = applyRoadGeometryEdit(promoted, {roadId:original.roads[0].id,
+    operation:{kind:"demote-junction",nodeId:promoted.nodes.at(-1).id}
+  });
+  assert.deepEqual(reverted.roads, original.roads);
+  assert.deepEqual(reverted.segments, original.segments, "the same polyline and first edge ID survive");
+  assert.deepEqual(reverted.nodes, original.nodes, "no orphan graph node is left");
+  assert.deepEqual(promoted.segments.length, 2, "the input is not mutated");
+});
+
+test("demotion handles reversed bidirectional sections without changing path geometry", () => {
+  const data = { ...createEmptyAtlas(), enabled:true,
+    nodes:[{id:"a",x:0,y:0},{id:"mid",x:50,y:0},{id:"b",x:100,y:0}],
+    roads:[{id:"main",name:"Main"}],
+    segments:[
+      {id:"s1",roadId:"main",from:"mid",to:"a",via:[{x:25,y:10}],bidirectional:true},
+      {id:"s2",roadId:"main",from:"b",to:"mid",via:[{x:75,y:-10}],bidirectional:true}
+    ]
+  };
+  const result = applyRoadGeometryEdit(data,{roadId:"main",
+    operation:{kind:"demote-junction",nodeId:"mid"}});
+  assert.equal(result.segments.length,1);
+  assert.deepEqual(result.segments[0],{id:"s1",roadId:"main",from:"a",to:"b",
+    via:[{x:25,y:10},{x:50,y:0},{x:75,y:-10}],bidirectional:true});
+  assert.ok(!result.nodes.some(n=>n.id==="mid"));
+});
+
+test("demotion rejects shared junctions, branch junctions, endpoints and closed loops", () => {
+  let id=0; const ids=()=>"safety" + ++id;
+  const main=addRoad(createEmptyAtlas(),{
+    idFactory:ids,points:[{x:0,y:0},{x:100,y:0}],name:"Main"
+  });
+  assert.throws(()=>applyRoadGeometryEdit(main,{roadId:main.roads[0].id,
+    operation:{kind:"demote-junction",nodeId:main.nodes[0].id}}),/pass-through/);
+  const split=applyRoadGeometryEdit(main,{roadId:main.roads[0].id,
+    operation:{kind:"create-junction",segmentId:main.segments[0].id,
+      edgeIndex:0,x:50,y:0,newNodeId:ids(),newSegmentId:ids()}
+  });
+  const connecting=addRoad(split,{idFactory:ids,name:"Spur",
+    points:[{x:50,y:0},{x:50,y:80}]});
+  const middle=split.nodes.at(-1).id;
+  assert.throws(()=>applyRoadGeometryEdit(connecting,{roadId:main.roads[0].id,
+    operation:{kind:"demote-junction",nodeId:middle}}),/Detach shared/);
+  const sameRoad=mergeRoadGroups(connecting,{keepRoadId:main.roads[0].id,
+    mergeRoadId:connecting.roads[1].id});
+  assert.throws(()=>applyRoadGeometryEdit(sameRoad,{roadId:main.roads[0].id,
+    operation:{kind:"demote-junction",nodeId:middle}}),/two-section/);
+  const loop={...createEmptyAtlas(),enabled:true,
+    roads:[{id:"main",name:"Loop"}],
+    nodes:[{id:"a",x:0,y:0},{id:"b",x:50,y:40}],
+    segments:[
+      {id:"ab",roadId:"main",from:"a",to:"b",via:[],bidirectional:true},
+      {id:"ba",roadId:"main",from:"b",to:"a",via:[{x:25,y:70}],bidirectional:true}
+    ]};
+  assert.throws(()=>applyRoadGeometryEdit(loop,{roadId:"main",
+    operation:{kind:"demote-junction",nodeId:"b"}}),/loop/);
+});
+
+test("junction inspector excludes endpoints and same-road pass-through nodes, and filters one hop", () => {
+  const graph={...createEmptyAtlas(),enabled:true,
+    roads:[{id:"main",name:"Main"},{id:"branch",name:"Branch"},
+      {id:"other",name:"Other"},{id:"remote",name:"Remote"}],
+    nodes:[{id:"a",x:0,y:0},{id:"b",x:50,y:0},{id:"c",x:100,y:0},
+      {id:"d",x:50,y:60},{id:"e",x:100,y:60},
+      {id:"r1",x:200,y:0},{id:"r2",x:230,y:0},{id:"r3",x:260,y:0},
+      {id:"r4",x:230,y:40},{id:"unused",x:300,y:300}],
+    segments:[
+      {id:"m1",roadId:"main",from:"a",to:"b",via:[],bidirectional:true},
+      {id:"m2",roadId:"main",from:"b",to:"c",via:[],bidirectional:true},
+      {id:"br",roadId:"branch",from:"b",to:"d",via:[],bidirectional:true},
+      {id:"ot",roadId:"other",from:"d",to:"e",via:[],bidirectional:true},
+      {id:"r1s",roadId:"remote",from:"r1",to:"r2",via:[],bidirectional:true},
+      {id:"r2s",roadId:"remote",from:"r2",to:"r3",via:[],bidirectional:true},
+      {id:"r3s",roadId:"remote",from:"r2",to:"r4",via:[],bidirectional:true}
+    ]};
+  const ids=(opts)=>listRoadJunctions(graph,opts).map(j=>j.id);
+  assert.deepEqual(ids(),["b","d","r2"]);
+  assert.deepEqual(ids({roadId:"main",scope:"selected"}),["b"]);
+  assert.deepEqual(ids({roadId:"main",scope:"connected"}),["b","d"]);
+  assert.deepEqual(ids({roadId:"remote",scope:"selected"}),["r2"]);
+  assert.deepEqual(ids({roadId:"missing",scope:"selected"}),[]);
+  assert.throws(()=>ids({scope:"all"}),/Unknown/);
 });
