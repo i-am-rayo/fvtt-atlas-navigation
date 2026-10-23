@@ -356,3 +356,73 @@ test("detaching one of three meeting roads leaves the remaining two connected",(
     kind:"detach-node",nodeId:extra,newNodeId:idFactory(),x:0,y:0
   }}),/not shared/);
 });
+
+test("explicit junction promotion splits a bend without renaming or joining a crossing road", () => {
+  let i = 0;
+  const ids = () => "promote" + ++i;
+  const a = addRoad(createEmptyAtlas(), {
+    name: "North-South", points: [{x: 50,y: 0}, {x:50,y:50}, {x:50,y:100}], idFactory: ids
+  });
+  const crossing = addRoad(a, {
+    name: "Millstone", points: [{x:0,y:50},{x:100,y:50}], idFactory: ids,
+    snapEndpoints: [false, false]
+  });
+  assert.equal(crossing.segments.length, 2, "the crossing remains disconnected");
+  const originalId = crossing.segments[0].id;
+  const roadId = a.roads[0].id;
+  const promoted = applyRoadGeometryEdit(crossing, { roadId, operation: {
+    kind: "create-junction", segmentId: originalId, edgeIndex: 1,
+    atVertex: true, x: 50, y: 50, newNodeId: ids(), newSegmentId: ids()
+  }});
+  assert.deepEqual(promoted.roads, crossing.roads);
+  assert.equal(promoted.nodes.length, crossing.nodes.length + 1);
+  assert.equal(promoted.segments.length, 3);
+  const parts = promoted.segments.filter(s => s.roadId === roadId);
+  assert.equal(parts[0].id, originalId);
+  assert.equal(parts[0].to, parts[1].from);
+  assert.deepEqual(parts.map(s => s.via), [[],[]], "promoted bend is not duplicated");
+  assert.ok(promoted.segments.filter(s => s.roadId === crossing.roads[1].id)
+    .every(s => s.from !== parts[0].to && s.to !== parts[0].to),
+    "a geometric crossing alone never becomes an attached junction");
+  const candidate = findJunctionAttachment(promoted, parts[0].to, {x:50,y:50});
+  assert.equal(candidate.kind, "edge");
+  const attached = applyRoadGeometryEdit(promoted, { roadId, operation: {
+    kind: "connect-node", nodeId: parts[0].to, target: candidate,
+    x: candidate.x, y: candidate.y, newSegmentId: ids()
+  }});
+  assert.deepEqual(attached.roads, crossing.roads);
+  assert.equal(attached.segments.length, 4);
+  assert.equal(attached.segments.filter(s => s.roadId === crossing.roads[1].id).length, 2);
+  assert.equal(crossing.segments.length, 2, "original Scene graph is untouched");
+});
+
+test("Waypoints [+] inserts a junction on an interior edge and validates all IDs and locations", () => {
+  let i = 0; const ids = () => "wp" + ++i;
+  const road = addRoad(createEmptyAtlas(), {
+    name: "Millstone", points: [{x:0,y:0},{x:100,y:0}], idFactory:ids
+  });
+  const roadId = road.roads[0].id, segmentId = road.segments[0].id;
+  const input = {kind:"create-junction",segmentId,edgeIndex:0,atVertex:false,
+    x:40,y:0,newNodeId:ids(),newSegmentId:ids()};
+  const updated = applyRoadGeometryEdit(road, { roadId, operation:input });
+  assert.equal(updated.nodes.length,3);
+  assert.equal(updated.segments.length,2);
+  assert.deepEqual(updated.roads,road.roads);
+  assert.deepEqual(updated.nodes.find(n=>n.id===input.newNodeId),
+    {id:input.newNodeId,x:40,y:0});
+  assert.throws(()=>applyRoadGeometryEdit(road,{roadId,operation:{
+    ...input,newNodeId:road.nodes[0].id
+  }}),/unique/);
+  assert.throws(()=>applyRoadGeometryEdit(road,{roadId,operation:{
+    ...input,segmentId:"missing"
+  }}),/no longer exists/);
+  assert.throws(()=>applyRoadGeometryEdit(road,{roadId,operation:{
+    ...input,x:40,y:30
+  }}),/within a road/);
+  assert.throws(()=>applyRoadGeometryEdit(road,{roadId,operation:{
+    ...input,x:0,y:0
+  }}),/away from/);
+  assert.throws(()=>applyRoadGeometryEdit(road,{roadId,operation:{
+    ...input,edgeIndex:99
+  }}),/index/);
+});
