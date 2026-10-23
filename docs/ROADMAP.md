@@ -40,20 +40,20 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 
 ## Phase 2 — Scene Atlas management, road editing, and Region associations
 
-**In progress:** Phase 2b **v0.2.2** implements a GM-only native **Atlas** tab in Scene Configuration with a read-only Scene Grid summary and explicit Grid/manual measurement choice, preserving the v1 Scene atlas flag. Awaiting visual Foundry v14 testing. Phase 2c road/waypoint drawing and Phase 2d native Region associations are still planned. See [Phase 2 design](PHASE2_DESIGN.md).
+**In progress:** Phase 2b **v0.2.3** implements a GM-only native **Atlas** tab in Scene Configuration with read-only, native Scene Grid measurement only. Legacy manual v1 flags are preserved but ignored. The owner confirmed tab placement/saves on v0.2.2; 0.2.3 awaits verification. Phase 2c road/waypoint drawing and Phase 2d native Region associations are still planned. See [Phase 2 design](PHASE2_DESIGN.md).
 
 **Reviewable slices**
 
-- **2b — Native Scene integration and scale (implemented, awaiting acceptance):** v0.2.2 replaces the banner with a public-TABS/PARTS native Atlas tab (Misc/Grid in-sheet fallback); displays Scene Grid scale/units by default and retains old manual calibration until explicit GM source selection. No duplicate global unit setting.
+- **2b — Native Scene integration and scale (implemented, awaiting acceptance):** v0.2.3 provides a public-TABS/PARTS native Atlas tab (Misc/Grid in-sheet fallback); displays Scene Grid settings as the **only** measurement source. Existing manual calibration remains stored but inert; no duplicate global or per-Scene scale setting.
 - **2c — Roads and waypoints:** Add `+` controls for road and waypoint lists, with naming/selection/deletion inside the Scene Atlas management UI; add/move/draw/connect polyline junctions with a separate GM canvas toolset. Persist and validate stable IDs in Scene flags.
 - **2d — Native Region linking:** Select existing Scene `RegionDocument` areas instead of recreating their geometry. Persist only minimal Atlas link metadata, display native Region names and active movement-related Behaviors, and open the existing Region editor for all terrain configuration. Optional Atlas labels are visual only; **no parallel speed multipliers, stacking rules, or travel-time calculation in Phase 2.**
 
 **Acceptance**
 
-- [ ] Any Scene offers an Atlas management entry without requiring a premature enabling step; opening it never writes defaults. Existing `enabled` and manual scale flags remain intact until deliberate migration.
-- [ ] Grid `size`, `distance`, and `units` are read correctly; explicit overrides do not silently replace old or core measurements; hex/gridless behavior is tested.
+- [ ] Any Scene offers an Atlas management entry without requiring a premature enabling step; opening it never writes defaults. Existing `enabled` and legacy manual flags remain intact; manual values must not affect distances or UI.
+- [ ] Grid `size`, `distance`, and `units` are read correctly; no overrides are offered; native path results match native ruler for square, hex, gridless, and multiwaypoint roads (when routing begins).
 - [ ] A sample road topology with a branch and an intentional non-connected crossing is editable on the canvas.
-- [ ] Roads share junctions only when explicitly connected; saving/reloading preserves stable IDs, coordinates, and scale provenance.
+- [ ] Roads share junctions only when explicitly connected; saving/reloading preserves stable IDs and coordinates; only the native Scene Grid determines measured distance.
 - [ ] Invalid references, zero-length segments, and dangling links are prevented; deletion requires clear confirmation or prevents destructive cascades.
 - [ ] Native Regions can be linked/unlinked without replacing native shapes, holes, Behaviors, permissions, or levels.
 - [ ] Region link associations persist without copying or modifying native Behaviors. Unlinked Regions are excluded from **Atlas terrain-aware planning**, but can still affect actual tokens in Foundry. Deleted/renamed Regions create recoverable reference updates/warnings.
@@ -69,12 +69,12 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 - Pure graph construction and Dijkstra shortest-distance routing.
 - GM route selection between two network junctions.
 - Visually distinct active-route overlay, clear/reset, and measured distance.
-- Friendly errors for missing calibration, bad endpoints, and unreachable networks.
+- Friendly errors for unavailable native Scene measurement, bad endpoints, and unreachable networks.
 
 **Acceptance**
 
 - [ ] Correct shortest path is chosen on fixture networks where the visually direct route is longer.
-- [ ] Curved/polyline distance, not endpoint-only distance, drives route weight.
+- [ ] Foundry native `canvas.grid.measurePath` on ordered road waypoints (not endpoint-only distance or pixel ratio) drives route measurements. Validate native multi-segment/diagonal additivity before choosing edge-weight aggregation.
 - [ ] Disconnected endpoints show "no route" instead of a direct line.
 - [ ] Equal-distance ties are deterministic.
 - [ ] Route queries never mutate or duplicate authored road data.
@@ -133,7 +133,7 @@ Each optional feature gets its own data-model revision, risks, and tests. Do not
 
 - Schema validity, missing/duplicate IDs, nonfinite coordinates, degenerate polylines.
 - Junction connectivity including bridges/non-connected intersections.
-- Distance sum with Scene Grid scale or explicit override, zero/missing calibration behavior.
+- Native Grid path distance for square/hex/gridless and multiwaypoint routes; legacy manual values ignored; unavailable Grid behavior.
 - Linked Region reference validation and fixtures: multiple shapes, holes, overlaps, levels, Behavior state changes, and invalidated native cost previews.
 - Once Phase 3b is approved: selected-token movement-cost previews with native movement modes, system-specific Behaviors, overlaps (including native multiplicative stacking), region/level boundaries, and fallback when no token context exists.
 - Dijkstra correctness: branches, cycles, ties, disconnected components, one-node routes.
