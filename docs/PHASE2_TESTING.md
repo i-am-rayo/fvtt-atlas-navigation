@@ -1,3 +1,30 @@
+# Phase 2c — v0.2.11 GM acceptance: safe same-road branch recovery
+
+**Status (October 23, 2026):** The owner verified v0.2.10's other improvements, but reported that some junctions inherited from an earlier same-named-road merge could neither be Shift-click demoted nor Alt/Option-click detached. v0.2.11 repairs that gap **only with explicit section selection**. PR #3 is still draft and unmerged. Back up your world before testing.
+
+Use the existing feature-branch manifest:
+```text
+https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2-atlas-setup/module.json
+```
+From Foundry Setup → Add-on Modules → Check for Updates, verify **0.2.11**, then reload.
+
+## A. Recover a stuck same-road branch
+
+1. Scene Configuration → Atlas → Roads → Edit Points on a named road with **three or more graph segments** sharing one gold junction and **no other named road** at that point (such as the old Kharak Menzor-Eyrie Sea Route merge).
+2. **Alt/Option-click** the junction. A **Disconnect one section of this road?** dialog must open. Its options identify individual incident sections by compass direction, section number and short ID. Select the arm that should stop sharing the junction; cancel once and confirm that no draft data changes.
+3. Reopen and choose the desired arm. **Disconnect Section** creates an initially overlapping but independent gold endpoint; the other arms and their positions stay unchanged. Drag the newly freed gold point away beyond the snap tolerance. If Foundry offers a reattachment prompt when dropping near the old junction, reject it or drag farther away.
+4. The original node should now have two incident sections if it started with three. **Shift-click the original junction** after moving the detached arm to convert it to a white bend, preserving the remaining path's exact geometry. If it had four or more arms, repeat explicit single-section detachment until only two remain.
+5. **Undo** must reverse each staged operation; **Cancel Edits** discards the whole draft. **Save Points** then reload: named road is still a single entry, segments retain their IDs unless you intentionally demoted a two-section pass-through, and only the chosen topology changes.
+6. Repeat on a junction shared by **different named roads**. Its existing Alt/Option-click confirmation must still detach the **selected named road**, not present same-road section selection.
+7. Verify a terminal gold endpoint and an ordinary two-section same-road pass-through do **not** offer branch selection; Shift-click demotion of the latter still works.
+8. Inspect the console for errors. Also check Scene padding, unrelated roads, Scene switching, and persistence; no WallDocuments, native Regions, or Grid settings should change.
+
+## B. Earlier v0.2.10 regressions
+
+The v0.2.10 Junctions/Waypoints separation, filters and safe demotion checks are retained below for regression testing.
+
+---
+
 # Phase 2c — v0.2.10 GM acceptance: Junctions vs Waypoints and safe demotion
 
 **Status (October 23, 2026):** The owner confirmed v0.2.9 middle-of-road graph-node placement and connecting distinct roads work in Foundry v14. The remaining problem was that the old Waypoints list called every graph node a junction. **This v0.2.10 update needs live Foundry testing.** PR #3 remains draft and unmerged. Back up the test world.
