@@ -6,6 +6,8 @@
 
 > **October 23, 2026 — v0.2.10 owner test gate:** The owner tested v0.2.9 in Foundry v14 and confirmed placing middle-of-road graph points and connecting roads worked. The old Waypoints panel incorrectly showed endpoints and simple road subdivisions as “Junctions.” v0.2.10 clarifies **geometry bends**, **routing junctions**, and future **meaningful Waypoints**: the latter are deferred; Junctions [+] remains the explicit topology tool, with a bounded/filterable inspector. In Edit Points, Shift-click an eligible gold single-road pass-through to demote it to a white bend (staged, reversible, no geometry changes). Never auto-demote shared or branch nodes, move roads during conversion, or connect overlapping lines without confirmation. v3 data and native Scene Grid are unchanged. **Live v14 testing for 0.2.10 is pending; Phase 2d Regions / Phase 3 are not authorized.**
 
+> **October 23, 2026 — v0.2.15.1 dialog compatibility hotfix:** Foundry v14's `DialogV2.input` requires a plain outer HTMLDivElement with no attributes. Use a nested styled element for preset form layout, and reflected `defaultValue`/`defaultSelected` values because DialogV2 serializes supplied HTMLElement content. A regression test protects both Add/Edit dialogs; this patch has no schema or native Region Behavior changes. Version bumped so installed v0.2.15 builds can update.
+
 # Agent and contributor instructions
 
 ## Project identity
