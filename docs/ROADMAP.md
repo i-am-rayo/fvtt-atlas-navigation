@@ -1,3 +1,5 @@
+> **October 23, 2026 — v0.2.6 checkpoint:** Phase 2c now includes a GM-only logical-road grouping schema v3, explicit lossless v2 organization, explicit merge of connected road groups, and reversible draggable bend and shared-junction editing. Pending owner's live Foundry v14 test. Dedicated Waypoints [+] and style/label/hover controls are not yet implemented; Phase 2d Regions and Phase 3 routing remain future milestones.
+
 # Roadmap and acceptance criteria — revised Phase 2 design
 
 ## Phase 2c v0.2.5 implementation (October 23, 2026)
