@@ -1,6 +1,6 @@
-# Roadmap and acceptance criteria — v0.1
+# Roadmap and acceptance criteria — revised Phase 2 design
 
-**Status:** proposed milestones for project-owner review, not an approved implementation schedule. **Target:** Foundry VTT v14, system agnostic. Milestone scope may change based on verified APIs and user feedback.
+**Status:** Phase 1 complete; Phase 2 authorized and its design revised October 23, 2026 after GM testing. Phase 3+ implementations still require approval. **Target:** Foundry VTT v14, system agnostic. See [PHASE2_DESIGN.md](PHASE2_DESIGN.md) for the Region and Scene UI design.
 
 ## Definition of the first deliverable
 
@@ -38,28 +38,31 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 - [ ] Disabling/re-enabling does not leave persistent handlers, overlays, or settings corruption.
 - [ ] Source/dev instructions describe how to install and reproduce checks.
 
-## Phase 2 — Atlas calibration and road editing
+## Phase 2 — Scene Atlas management, road editing, and Region associations
 
-**In progress:** Phase 2a implements the GM-only Scene atlas toggle, manual scale dialog, and validated Scene-flag persistence. Road editor/canvas overlay follow in subsequent Phase 2 PRs.
+**In progress:** Phase 2a v0.2.1 offers a GM-only atlas flag editor, manual calibration, and validated Scene-flag persistence. **Revised design:** use a native-looking **Atlas** section/tab in Scene Configuration, consume the Scene's Grid measurements by default, create graph geometry using GM canvas tools, and link native Foundry **Regions** for optional terrain semantics. The temporary control above the core Scene tabs is not the final UX. See [Phase 2 design](PHASE2_DESIGN.md).
 
-**Deliverables**
+**Reviewable slices**
 
-- Toggle/mark a Scene as an atlas; explicit calibration when needed.
-- GM authoring workflow: add/move junctions, draw/edit segments with interior points, connect/disconnect, delete with safe confirmation.
-- Persist and validate versioned Scene-flag data.
-- Network overlay renders faithfully across zoom, pan, Scene switch, and reload.
+- **2b — Native Scene integration and scale:** Replace the awkward above-form banner with an Atlas tab/section or safely integrated sheet entry; display Grid scale/units as the default, retain explicit per-Scene override and all prior manual calibration records. Optionally show a later global display-unit preference; do not require duplicate unit entry.
+- **2c — Roads and waypoints:** Add `+` controls for road and waypoint lists, with naming/selection/deletion inside the Scene Atlas management UI; add/move/draw/connect polyline junctions with a separate GM canvas toolset. Persist and validate stable IDs in Scene flags.
+- **2d — Native Region linking:** Select existing Scene `RegionDocument` areas instead of recreating their geometry. Associate optional Atlas terrain tags and explicit speed multipliers through namespaced metadata; display linked native Regions in the tab and provide access to native Region editing. **No travel-time effects are calculated in Phase 2.**
 
 **Acceptance**
 
-- [ ] Sample topology with a branch and an intentional non-connected crossing is editable.
-- [ ] Roads share junctions only when explicitly connected.
-- [ ] Saving/reloading preserves stable IDs, coordinates, and calibration.
-- [ ] Invalid references and zero-length segments cannot be saved.
-- [ ] A deleted junction cannot leave dangling segments.
-- [ ] Separate Scenes maintain independent networks.
-- [ ] Scope of concurrent GM editing is explicit and tested.
+- [ ] Any Scene offers an Atlas management entry without requiring a premature enabling step; opening it never writes defaults. Existing `enabled` and manual scale flags remain intact until deliberate migration.
+- [ ] Grid `size`, `distance`, and `units` are read correctly; explicit overrides do not silently replace old or core measurements; hex/gridless behavior is tested.
+- [ ] A sample road topology with a branch and an intentional non-connected crossing is editable on the canvas.
+- [ ] Roads share junctions only when explicitly connected; saving/reloading preserves stable IDs, coordinates, and scale provenance.
+- [ ] Invalid references, zero-length segments, and dangling links are prevented; deletion requires clear confirmation or prevents destructive cascades.
+- [ ] Native Regions can be linked/unlinked without replacing native shapes, holes, Behaviors, permissions, or levels.
+- [ ] The Region list and terrain metadata persist, while unlinked Regions have no Atlas effect; deleted/renamed Regions create recoverable reference updates/warnings.
+- [ ] Region test fixtures cover multiple shapes, holes, overlapping areas, and levels; actual road–Region intersection calculations are staged for Phase 3b.
+- [ ] Distinct Scenes maintain independent networks and Region associations; single-GM editing limits are documented and tested.
 
 ## Phase 3 — Real routing (core GM MVP)
+
+**Phase 3a** delivers shortest-distance routing as originally scoped; **Phase 3b**, requiring its own implementation approval, adds Region-aware travel-time calculations and fastest-route selection. Terrain-aware planning must not be confused with Foundry's token movement-cost Region behavior.
 
 **Deliverables**
 
@@ -77,7 +80,7 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 - [ ] Route queries never mutate or duplicate authored road data.
 - [ ] Route remains visible/accurate when zooming and recalculates after edits.
 
-**Phase 3 is the initial functional GM-only milestone.**
+**Phase 3a is the initial functional GM-only milestone.** Phase 3b will split road polylines by linked Region polygon geometry, apply explicit speed multipliers to intersecting lengths, and compare shortest versus fastest routes. It needs base travel speed and tests for holes, overlaps, levels, closures, and changing Region geometry.
 
 ## Phase 4 — Maps, places, and usability polish
 
@@ -117,8 +120,7 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 
 Consider only after a stable base:
 
-- Region-driven terrain modifiers, route closures, alternative fastest/shortest modes.
-- Travel speed/time/cost estimates based on system-neutral, configurable units.
+- Additional travel modes, advanced terrain stacking/priority policies, road closures, and system-neutral travel-cost models beyond the approved Phase 3b proposal.
 - Saved itineraries, animated travel playback, and optional token-follow movement.
 - Cross-Scene/world atlas navigation, performance indexes, richer categorization.
 - Fog/exploration interplay and accessibility/localization polish.
@@ -131,7 +133,9 @@ Each optional feature gets its own data-model revision, risks, and tests. Do not
 
 - Schema validity, missing/duplicate IDs, nonfinite coordinates, degenerate polylines.
 - Junction connectivity including bridges/non-connected intersections.
-- Distance sum with scale conversion, zero/missing calibration behavior.
+- Distance sum with Scene Grid scale or explicit override, zero/missing calibration behavior.
+- Linked Region reference validation and geometry fixtures: multiple shapes, holes, overlap, level, road polyline clipping, and invalidated caches.
+- Once Phase 3b is approved: travel time on partially affected segments, shortest-vs-fastest route divergence, and no double-counting in overlapping Regions.
 - Dijkstra correctness: branches, cycles, ties, disconnected components, one-node routes.
 - Serialization round-trip and migration fixtures once schemas change.
 
@@ -139,6 +143,7 @@ Each optional feature gets its own data-model revision, risks, and tests. Do not
 
 - Install/enable/disable; blank/large Scene; switching and reloading Scenes.
 - Native Note/Journal interaction and ownership checks.
+- Native Region interactions, module metadata isolation, Region deletion/edits, and interoperability with built-in Modify Movement Cost behaviors.
 - Canvas pan/zoom, route overlay stacking, hit testing, and cleanup.
 - Two browser clients (GM and player), especially before Phase 5.
 - Multiple game systems; small and comparatively dense road networks.
