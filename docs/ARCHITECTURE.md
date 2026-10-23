@@ -18,7 +18,7 @@ The first useful release is **GM-only**. The user-facing concept is journal-styl
 | Places and map pins | `NoteDocument` + linked `JournalEntry`/`JournalEntryPage` | Reference existing documents and their permissions |
 | Geographic terrain polygons, shapes, holes, level scope | Native `RegionDocument` | Reuse as-is, without copying geometry or replacing behaviors |
 | Authored roads and junctions | `flags.fvtt-atlas-navigation.atlas` on each Scene | Module-managed, versioned data |
-| Region-to-atlas terrain link | Optional future `flags.fvtt-atlas-navigation.terrain` on each Region | Controlled tag and explicit speed multiplier; no automatic interpretation of native token movement cost |
+| Region-to-atlas link | Optional future namespaced Atlas link flag on each Region | Minimal opt-in association and optional UI label only; use native Region Behaviors for actual movement costs |
 | Searchable adjacency graph | Pure in-memory projection of road data | Derived, not an independently persisted document |
 | Highlighted route | Temporary route result + canvas overlay | Does not modify the authored roads |
 | Controls / side panel | Foundry `ApplicationV2` or supported v14 UI conventions | GM editing and route query |
@@ -70,7 +70,7 @@ Initial endpoints are selected network junctions. Later, support snapping a chos
 
 Handle absent endpoints, no connecting route, degenerate geometry, duplicate IDs, bad calibration, and stale Scene selection with explicit user feedback. A disconnected network is normal, not an exception.
 
-Shortest-distance computation is Phase 3a. **Phase 3b**, requiring separate runtime approval, may optimize travel time using linked native Region geometry and explicit terrain speed multipliers. Keep distance, time, money, and display animation conceptually distinct.
+Shortest-distance computation is Phase 3a. **Phase 3b**, requiring separate runtime approval, may use Foundry's existing token-aware Region terrain movement costs to compare candidate routes; conversion to overland travel time needs explicit party speed. Keep geometric distance, native movement cost, travel time, and display animation conceptually distinct.
 
 ## 5. Rendering and interaction
 
@@ -88,14 +88,16 @@ Native map Notes should still open their permitted linked journals as Foundry ex
 
 ### Native Scene Regions and travel difficulty
 
-Use a **Scene's existing Regions**, including all their constituent shapes, holes, and level/elevation restrictions, as the source of terrain geometry. A GM associates a Region with the Atlas through controlled module metadata (for example, a `rocky` tag with `speedMultiplier: 0.5`) while the Region's own name, shapes, Behaviors, and permissions remain native. Region names themselves are not machine-readable travel rules.
+Use a **Scene's existing Regions** for shapes, holes, levels/elevations, **and already configured movement Behaviors**. The GM links a Region to Atlas with minimal namespaced metadata; Atlas never stores a duplicate speed or difficulty value. A free-text Region name or optional Atlas organizational label has no movement-rule meaning.
 
-- The Scene Atlas tab/section lists linked Regions and opens their native configuration. The GM continues to draw and manage the actual Region geometry with Foundry's Region tools.
-- Region presence does not create an intersection junction in the road graph. Road junctions remain explicit graph IDs.
-- Derived geometry splits **each road polyline** into distances lying inside and outside Region polygons, respecting holes, levels, and overlapping Region policies. A 0.5 speed factor doubles time inside the Region; it does not double length.
-- Initial overlap policy proposal: apply the slowest eligible Region on a sub-length, not their product. An explicit closure policy is later work.
-- Native **Modify Movement Cost** Region Behaviors are token movement mechanisms whose semantics may depend on game-system movement modes. The Atlas planner must not automatically apply or overwrite them. Explicit interoperability can be reviewed later.
-- Changes to Regions and Scene Grid invalidate derived travel calculations but do not mutate the authored road geometry.
+- The Atlas tab lists linked Regions, their native names and active movement-related Behaviors, and provides a shortcut to each native Region editor. The GM uses core Region tools for geometry and behaviors.
+- Linked Regions indicate the GM wants them considered for **Atlas route previews**, not that Atlas owns their effects. Unlinking does not disable actual token terrain effects.
+- Region crossings never create graph junctions; road connectivity remains explicit IDs.
+- In a separately approved Phase 3b, use Foundry's **public token movement-path pipeline**: `Token#createTerrainMovementPath` resolves Region terrain effects along a proposed path, and `Token#measureMovementPath` measures costs for a selected party token and movement action. Do not call `move`; route previews must not move tokens.
+- The token, movement action, size, level/elevation, active Behaviors, and overlaps can affect native cost. Core `Modify Movement Cost` stacks overlapping modifiers multiplicatively, per native behavior settings; Atlas imposes no separate slowest-wins or multiply-on-its-own policy. Other game systems may register additional behaviors.
+- Validate whether an unmodified native calculation can safely ignore unlinked Regions. If not, disclose that all native Regions affect cost or defer filtering, rather than inventing a cost that doesn't match real token movement.
+- Geometric distance stays independent of movement cost. Interpreting cost as **hours/days of overland travel** requires an explicit travel speed/time model; do not assume combat action values are world-map speed.
+- Changes to Region shapes/Behaviors, Scene Grid, Atlas links, roads, party token, or movement action invalidate derived previews; never mutate authored road geometry.
 
 See [revised Phase 2 design](PHASE2_DESIGN.md) for UI sketches, scope gates, and proposed metadata. The current v1 atlas schema remains unchanged until a versioned migration is implemented.
 
@@ -127,7 +129,7 @@ LegendKeeper's [developer portal](https://www.legendkeeper.com/developers/) docu
 - Pure routing engine, shortest path by geometric length, temporary route output.
 - No mandatory libraries or system dependencies.
 - No early automatic token movement, complex fog, or cross-Scene routing.
-- Native Scene Grid as measurement source; native Region shapes as terrain source; use namespaced flags only for module-owned terrain semantics.
+- Native Scene Grid as measurement source; native Region shapes and Behaviors as terrain/movement source; use namespaced flags only for Atlas Region associations.
 
 **Review before implementation**
 
@@ -135,7 +137,7 @@ LegendKeeper's [developer portal](https://www.legendkeeper.com/developers/) docu
 - Exact v14 canvas overlay registration point, ordering, hit-testing, and cleanup.
 - Whether native Notes sufficiently cover POIs without additional marker metadata.
 - Editing UX for joining/cutting roads, deleting junctions, and undo/redo.
-- Stable v14 Atlas tab/section injection without private SceneConfig overrides, and native Region geometry interoperability.
+- Stable v14 Atlas tab/section injection without private SceneConfig overrides, and native Region movement-cost API interoperability with both core and system-supplied Behaviors.
 - How player-safe network visibility should be represented and transmitted when that phase starts.
 - Size/performance threshold at which Scene flags need reconsideration.
 - JS vs TypeScript and bundler choice (prefer the smallest maintainable setup).
@@ -145,5 +147,6 @@ LegendKeeper's [developer portal](https://www.legendkeeper.com/developers/) docu
 - [Foundry: Introduction to Module Development](https://foundryvtt.com/article/module-development/) — manifest, lifecycle, package shape, ES modules.
 - [Foundry v14 API index](https://foundryvtt.com/api/v14/) — Scenes, Notes, Journals, Regions, ApplicationV2, canvas APIs.
 - [Native Foundry Scene Regions guide](https://foundryvtt.com/article/scene-regions/) — Regions, shapes/holes, Behaviors, and token movement-cost boundaries.
+- [Foundry v14 Token API](https://foundryvtt.com/api/v14/classes/foundry.canvas.placeables.Token.html) — native terrain-aware movement path and cost preview methods.
 - [LegendKeeper developer guide](https://www.legendkeeper.com/developers/) and [style guide](https://www.legendkeeper.com/developers/style/) — map/pin/page interaction patterns.
 - [Indy Route README](https://github.com/jwrpalmer99/indy-route) — route presentation and per-Scene storage reference.
