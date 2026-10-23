@@ -111,7 +111,15 @@ export function addAtlasSetupToSceneConfig(app, element, openAtlasSetup) {
   const old = target.querySelector?.("[data-fvtt-atlas-setup]");
   if (old) old.remove();
 
-  const panel = summary(scene, readAtlas(scene));
+  let panel;
+  try {
+    panel = summary(scene, readAtlas(scene));
+  } catch (error) {
+    panel = node("section");
+    panel.setAttribute("data-fvtt-atlas-setup", "");
+    panel.appendChild(node("h3", label("FVTTATLAS.Atlas.Tab")));
+    panel.appendChild(node("p", error.message, "hint"));
+  }
   const fields = node("div");
   fields.className = "form-fields";
   const button = node("button", label("FVTTATLAS.Atlas.SceneSettingsButton"));
