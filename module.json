@@ -2,8 +2,8 @@
   "id": "fvtt-atlas-navigation",
   "type": "module",
   "title": "FVTT Atlas Navigation",
-  "description": "System-agnostic Foundry VTT v14 atlas and road navigation. Phase 2a adds GM-only Scene atlas setup and distance calibration; roads and routes are in development.",
-  "version": "0.2.1",
+  "description": "System-agnostic Foundry VTT v14 atlas navigation. Phase 2b adds native Scene Atlas configuration and Scene Grid-first measurement; roads and routes are in development.",
+  "version": "0.2.2",
   "authors": [
     {
       "name": "i-am-rayo",
