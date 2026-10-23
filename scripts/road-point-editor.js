@@ -9,12 +9,13 @@ import { toAtlasPoint } from "./road-coordinates.js";
  * temporary until the GM presses Save Points; Esc/Cancel restores the Scene.
  */
 export class RoadPointEditor {
-  constructor({ canvasProvider, doc, notify, refresh, confirmAttach, idFactory }) {
+  constructor({ canvasProvider, doc, notify, refresh, confirmAttach, confirmDetach, idFactory }) {
     this.canvasProvider = canvasProvider;
     this.doc = doc;
     this.notify = notify;
     this.refresh = refresh;
     this.confirmAttach = confirmAttach;
+    this.confirmDetach = confirmDetach;
     this.idFactory = idFactory;
     this.session = null;
     this.saving = false;
@@ -100,7 +101,7 @@ export class RoadPointEditor {
       drag: null, confirming: false, selectedHandle: null, onDown: null, onMove: null,
       onUp: null, onDoubleClick: null, onKeydown: null
     };
-    s.onDown = event => {
+    s.onDown = async event => {
       if (event.button !== 0 || this.saving || s.confirming) return;
       if (this.canvasProvider()?.scene?.id !== s.sceneId) return this.cancel();
       const point = this.#localPoint(event);
@@ -114,6 +115,36 @@ export class RoadPointEditor {
               viaIndex: handle.viaIndex });
             s.selectedHandle = null;
           } catch (error) { this.notify()?.error?.(error.message); }
+          return;
+        }
+        if (event.altKey && handle.kind === "node") {
+          const affected = s.working.segments.filter(segment =>
+            segment.from === handle.nodeId || segment.to === handle.nodeId);
+          const otherIds = new Set(affected.filter(segment => segment.roadId !== roadId)
+            .map(segment => segment.roadId));
+          if (!otherIds.size) {
+            this.notify()?.warn?.(game.i18n.localize("FVTTATLAS.Roads.NotShared"));
+            return;
+          }
+          const roadName = s.working.roads.find(road => road.id === roadId)?.name;
+          const otherNames = s.working.roads.filter(road => otherIds.has(road.id))
+            .map(road => road.name);
+          s.confirming = true;
+          s.selectedHandle = null;
+          this.refresh();
+          try {
+            const approved = await this.confirmDetach({ roadName, otherNames });
+            if (this.session !== s || !approved) return;
+            this.#perform({
+              kind: "detach-node", nodeId: handle.nodeId,
+              newNodeId: this.idFactory(), x: handle.x, y: handle.y
+            });
+            this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Roads.DetachedNotice"));
+          } catch (error) { this.notify()?.error?.(error.message); }
+          finally {
+            s.confirming = false;
+            if (this.session === s) this.refresh();
+          }
           return;
         }
         s.selectedHandle = handle;
