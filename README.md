@@ -2,7 +2,7 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current status: Phase 2a development (v0.2.1), undergoing Foundry v14 testing.** Phase 1 startup and URL installation were tested and merged. This new branch adds GM-only setup of each Scene atlas and manual distance calibration. Road authoring/rendering and routing are still future work.
+> **Current build: Phase 2a development (v0.2.1), undergoing Foundry v14 testing.** Phase 1 startup and URL installation were tested and merged. This branch currently has GM-only Scene atlas setup and manual calibration. **The Phase 2 design was revised October 23, 2026** to introduce native-looking Scene Atlas management, native Grid measurements, and native Region associations; those revisions are documented but are **not yet implemented**. Road authoring/rendering and routing remain future work.
 
 ## What works now
 
@@ -22,18 +22,18 @@ Help a Gamemaster turn an existing Foundry Scene into an interactive world or re
 
 Core goals:
 
-- **Native Foundry content:** Scenes provide maps, Notes connect places to Journal Entries/Pages, and later Regions can describe terrain.
+- **Native Foundry content:** Scenes provide maps, Notes connect places to Journals, and native Regions provide the terrain geometry for optional road travel modifiers.
 - **Authored roads:** The GM draws a persistent, editable network of connected road segments and junctions.
 - **Actual navigation:** A graph algorithm finds a route through that network, rather than merely animating a freely sketched line.
-- **Distance-aware maps:** Calibrate Scene image coordinates to meaningful travel units.
+- **Distance-aware maps:** Prefer Scene Grid measurement settings, with an explicit per-Scene override where needed; preserve existing manual scales during migration.
 - **Readable overlays:** Show the persistent road network and a selected route as separate visual elements.
 - **System independence:** No D&D-specific movement, actor data, sheet integration, or mandatory third-party module.
 
 ## Initial playable milestone (GM-only)
 
 1. Activate the module in a Foundry v14 world.
-2. Mark a Scene as an atlas and calibrate its scale.
-3. Draw, connect, edit, and persist road junctions/segments.
+2. Open native-looking Atlas management for any Scene, with Grid measurement read automatically or explicitly overridden.
+3. Draw, connect, edit, and persist road junctions/segments via GM canvas controls.
 4. Pick two network points and calculate the shortest connected route.
 5. See the highlighted path and total distance; receive a clear "no route" result for disconnected roads.
 6. Reload and confirm the authored network persists.
@@ -42,12 +42,13 @@ Native map Notes/Journal links will remain the first choice for places and lore.
 
 ## Not in the initial milestone
 
-Automatic token travel; a combat/grid movement engine; terrain or weather modifiers; travel costs; cross-Scene paths; fog-of-war automation; LegendKeeper sync; a D&D-specific ruleset; a dependency on Indy Route.
+Automatic token travel; a combat/grid movement engine; terrain-aware **travel-time calculation** (planned separately for Phase 3b after native Region linking in Phase 2d); weather; cross-Scene paths; fog-of-war automation; LegendKeeper sync; a D&D-specific ruleset; a dependency on Indy Route.
 
 These are possible later phases, not prerequisites for useful GM navigation.
 
 ## Design documentation
 
+- [Revised Phase 2: Atlas tab, roads, waypoints, and native terrain Regions](docs/PHASE2_DESIGN.md)
 - [Architecture and Foundry integration](docs/ARCHITECTURE.md)
 - [Proposed data model and invariants](docs/DATA_MODEL.md)
 - [Milestones and acceptance criteria](docs/ROADMAP.md)
