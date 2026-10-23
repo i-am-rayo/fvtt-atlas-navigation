@@ -1,5 +1,5 @@
-import { addRoad, removeRoad, renameRoad, reshapeRoad } from "./road-model.js";
-import { anchorLegacyAtlas, validateAtlas } from "./atlas-model.js";
+import { addRoad, removeRoad, renameRoad, reshapeRoad, mergeRoadGroups, applyRoadGeometryEdit } from "./road-model.js";
+import { anchorLegacyAtlas, upgradeAtlasRoadGroups, validateAtlas } from "./atlas-model.js";
 import { ATLAS_FLAG, MODULE_ID, readAtlas } from "./atlas-storage.js";
 
 /**
@@ -24,10 +24,16 @@ async function saveChange(scene, expectedRevision, update) {
 }
 
 export function saveNewRoad(scene, { points, name, expectedRevision, idFactory, snapEndpoints }) {
-  return saveChange(scene, expectedRevision, previous =>
-    addRoad(previous.schemaVersion === 1 && !previous.nodes.length && !previous.segments.length
-      ? anchorLegacyAtlas(previous, { x: 0, y: 0 }) : previous,
-      { points, name, idFactory, snapEndpoints }));
+  return saveChange(scene, expectedRevision, previous => {
+    if (previous.schemaVersion === 1 && (previous.nodes.length || previous.segments.length)) {
+      throw new Error("Anchor legacy roads before adding new ones.");
+    }
+    const local = previous.schemaVersion === 1 && !previous.nodes.length && !previous.segments.length
+      ? anchorLegacyAtlas(previous, { x: 0, y: 0 }) : previous;
+    const modern = local.schemaVersion === 2 && !local.nodes.length && !local.segments.length
+      ? upgradeAtlasRoadGroups(local) : local;
+    return addRoad(modern, { points, name, idFactory, snapEndpoints });
+  });
 }
 
 export function saveReshapedRoad(scene, { segmentId, via, expectedRevision }) {
@@ -35,14 +41,14 @@ export function saveReshapedRoad(scene, { segmentId, via, expectedRevision }) {
     reshapeRoad(previous, { segmentId, via }));
 }
 
-export function saveRenamedRoad(scene, { segmentId, name, expectedRevision }) {
+export function saveRenamedRoad(scene, { roadId, segmentId, name, expectedRevision }) {
   return saveChange(scene, expectedRevision, previous =>
-    renameRoad(previous, { segmentId, name }));
+    renameRoad(previous, { roadId, segmentId, name }));
 }
 
-export function saveRemovedRoad(scene, { segmentId, expectedRevision }) {
+export function saveRemovedRoad(scene, { roadId, segmentId, expectedRevision }) {
   return saveChange(scene, expectedRevision, previous =>
-    removeRoad(previous, { segmentId }));
+    removeRoad(previous, { roadId, segmentId }));
 }
 
 /**
@@ -52,4 +58,24 @@ export function saveRemovedRoad(scene, { segmentId, expectedRevision }) {
 export function saveAnchoredLegacyRoads(scene, { origin, expectedRevision }) {
   return saveChange(scene, expectedRevision, previous =>
     anchorLegacyAtlas(previous, origin));
+}
+
+/** Explicit, lossless organizational migration; does not merge same-name roads. */
+export function saveOrganizedRoads(scene, { expectedRevision }) {
+  return saveChange(scene, expectedRevision, previous => upgradeAtlasRoadGroups(previous));
+}
+
+export function saveMergedRoads(scene, { keepRoadId, mergeRoadId, expectedRevision }) {
+  return saveChange(scene, expectedRevision, previous =>
+    mergeRoadGroups(previous, { keepRoadId, mergeRoadId }));
+}
+
+/** Apply only a reviewed sequence of geometry operations to one road. */
+export function savePointEdits(scene, { roadId, operations, expectedRevision }) {
+  if (!Array.isArray(operations) || !operations.length || operations.length > 5000) {
+    throw new Error("No valid point edits to save.");
+  }
+  return saveChange(scene, expectedRevision, previous =>
+    operations.reduce((atlas, operation) =>
+      applyRoadGeometryEdit(atlas, { roadId, operation }), previous));
 }
