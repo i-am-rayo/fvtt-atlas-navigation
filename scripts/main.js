@@ -1,12 +1,67 @@
 /**
- * FVTT Atlas Navigation — Foundry VTT v14 bootstrap.
- * Phase 2b: native Scene Atlas tab and Scene Grid-first distance measurement.
+ * FVTT Atlas Navigation — Foundry v14 bootstrap.
+ * Phase 2c: per-Scene Roads (+), GM road drawing and visual overlay.
  */
-import { createAtlasSetupDialogClass } from "./atlas-setup-dialog.js";
-import { addAtlasSetupToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
-import { MODULE_ID } from "./atlas-storage.js";
+import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
+import { RoadCanvasController } from "./road-canvas.js";
+import { readAtlas, MODULE_ID } from "./atlas-storage.js";
+import { saveRenamedRoad, saveRemovedRoad } from "./road-storage.js";
 
 const STARTUP_NOTICE_SETTING = "showStartupNotice";
+const roadCanvas = new RoadCanvasController();
+
+function actions() {
+  const DialogV2 = foundry.applications.api.DialogV2;
+  return {
+    begin(scene, refresh) {
+      roadCanvas.start(scene, refresh);
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.StartNotice"));
+    },
+    draft: scene => roadCanvas.getDraft(scene),
+    finish: () => roadCanvas.finish(),
+    cancel: () => roadCanvas.cancel(),
+    select: (scene, id) => roadCanvas.selectRoad(scene, id),
+    async rename(scene, segment, refresh) {
+      const revision = readAtlas(scene).revision;
+      const content = document.createElement("div");
+      const input = document.createElement("input");
+      input.name = "roadName";
+      input.type = "text";
+      input.maxLength = 120;
+      input.setAttribute("value", segment.name);
+      input.setAttribute("maxlength", "120");
+      input.setAttribute("required", "");
+      content.appendChild(input);
+      const data = await DialogV2.input({
+        window: { title: game.i18n.localize("FVTTATLAS.Roads.Rename") },
+        content,
+        ok: { label: game.i18n.localize("FVTTATLAS.Roads.SaveName") },
+        rejectClose: false
+      });
+      if (!data) return;
+      await saveRenamedRoad(scene, {
+        segmentId: segment.id, name: String(data.roadName ?? ""), expectedRevision: revision
+      });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Renamed"));
+    },
+    async remove(scene, segment, refresh) {
+      const revision = readAtlas(scene).revision;
+      const confirmed = await DialogV2.confirm({
+        window: { title: game.i18n.localize("FVTTATLAS.Roads.Delete") },
+        content: game.i18n.localize("FVTTATLAS.Roads.DeleteWarning"),
+        rejectClose: false,
+        modal: true
+      });
+      if (!confirmed) return;
+      await saveRemovedRoad(scene, { segmentId: segment.id, expectedRevision: revision });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Deleted"));
+    }
+  };
+}
 
 Hooks.once("init", () => {
   game.settings.register(MODULE_ID, STARTUP_NOTICE_SETTING, {
@@ -17,11 +72,14 @@ Hooks.once("init", () => {
     type: Boolean,
     default: false
   });
-
-  const AtlasSetupDialog = createAtlasSetupDialogClass(foundry.applications.api.DialogV2);
+  const roadActions = actions();
   Hooks.on("renderSceneConfig", (app, element) => {
-    const open = (scene, onSaved) => new AtlasSetupDialog(scene, onSaved).render(true);
-    addAtlasSetupToSceneConfig(app, element, open);
+    addAtlasRoadsToSceneConfig(app, element, roadActions);
+  });
+  Hooks.on("canvasReady", () => roadCanvas.refresh());
+  Hooks.on("canvasTearDown", () => roadCanvas.tearDown());
+  Hooks.on("updateScene", scene => {
+    if (globalThis.canvas?.ready && canvas.scene?.id === scene.id) roadCanvas.refresh();
   });
 });
 
@@ -31,7 +89,6 @@ Hooks.once("ready", () => {
     const installed = registerAtlasSceneTab(foundry.applications.sheets.SceneConfig);
     if (!installed) console.warn("[" + MODULE_ID + "] Scene Atlas tab registration unavailable; using in-sheet fallback.");
   } catch (error) {
-    // Keep SceneConfig usable if another package customizes its public tab configuration.
     console.warn("[" + MODULE_ID + "] Scene Atlas tab unavailable; using in-sheet fallback.", error);
   }
   console.info("[" + MODULE_ID + "] Module ready");
