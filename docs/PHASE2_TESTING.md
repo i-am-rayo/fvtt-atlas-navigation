@@ -1,3 +1,24 @@
+# Phase 2h — v0.2.16 GM acceptance: opt-in native movement cost
+
+**Status (October 24, 2026):** v0.2.15.1 preset editing and reference assignment were verified by the owner. The small v0.2.15.2 startup setting cleanup was staged afterward. **This v0.2.16 native Behavior integration is a new draft and requires live Foundry v14 testing before merge.** Back up the World and keep one GM editing a Scene at once. No Region or world preset is retroactively changed just by installing/updating.
+
+**Development manifest:** `https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2h-native-movement-costs/module.json` — reload and verify **0.2.16**.
+
+## v0.2.16 GM verification checklist
+
+1. Under Game Settings → Atlas Presets, edit **Stone Road** (or another Land preset) to cost ×1.5 and **Turbulent Air** to ×0.75; save, reload and verify. Both are native **movement costs**, not animation speed settings.
+2. Open a road with two checkpoints. In Scene Configuration → Atlas → Generated Road Regions, choose the corridor and its travel preset. Confirm **Apply native movement cost** starts **unchecked**. Preview/create without checking it; its native Region has **no** automatically added Behaviors and retains the chosen preset annotation. A checkpoint circle likewise has none.
+3. Generate a different corridor or test Scene using a valid travel preset, check **Apply native movement cost**, and select an action from your *current system's* list. The category Land/Air/Water must **not** silently choose an action. Confirm the preview states the exact preset name, cost and action. Cancel once: no Region or Behavior is created. Repeat and confirm: one linked Region with exactly one native `Modify Movement Cost` Behavior appears. Open its native Region editor and verify the cost applies to the chosen action with the expected multiplier.
+4. On an already-generated corridor with saved travel preset and no cost Behavior, use **⬆ Apply Native Cost**. Choose the movement action and review the separate confirmation. Cancel: no changes. Confirm: exactly one new native Behavior is added; region geometry, other Behaviors, Levels, name and appearance are preserved.
+5. Try applying the same preset cost again, or use a Region where you manually added an active or disabled native Modify Movement Cost Behavior. Atlas must refuse to stack or overwrite it. The native Region editor remains the way to manually adjust/delete a cost Behavior. A system with no matching native action/model must refuse safely while still allowing metadata-only Regions.
+6. Assign another preset using **◈**, change the global preset's multiplier, or edit the named road's default. Existing native cost Behavior values must **not change**. Move a road node and regenerate unchanged native Region geometry using **↻**: the native Behavior is preserved. Manually edit Region shapes and confirm regeneration stays disabled as in v0.2.14.
+7. Check actual movement measurement for one relevant test Token in Foundry v14 in and out of the new Region, using the selected action, with the Region Behavior enabled versus disabled. Record whether your active system derives other movement actions, any overlaps with manual Regions, and whether cost differs as intended. Atlas does **not** calculate its own token cost or move tokens. A ×0.75 preset means *less* movement cost, not a 75% movement speed multiplier.
+8. Reload and switch Scenes: generated Regions, the native cost, the original preset annotation and all other native Behaviors persist without silent changes. As a non-GM, verify Scene Atlas authoring and Behavior-apply actions are unavailable, and direct modifications fail GM permission checks.
+
+**Intentional scope boundary:** No automatic native costs for checkpoints, third-party/manually linked Regions, previously created corridors or all roads on installation. No guessed Land→Walk, Air→Fly or Water→Swim mapping; supported actions vary by system. No preset-based Region coloring or propagation of road filter to every Scene section (deferred to v0.2.17), no automatic slope/grade calculations, no routing and no token time/terrain previews. Native Behavior/schema acceptance in an actual v14 World is still required even though mock tests pass.
+
+---
+
 # Phase 2g — v0.2.15 GM acceptance: world Corridor Travel Presets
 
 **Status (October 23, 2026):** The owner verified v0.2.14 generated native Regions, including the safety block after accidentally moving a native Region. This v0.2.15 draft is **not yet owner-verified in Foundry v14**. Back up the World before assigning a named-road default: that explicit action upgrades its Scene Atlas from v3/v4 to v5. Do not downgrade that Scene to older Atlas module versions afterward. Keep a single GM authoring a Scene at one time.
