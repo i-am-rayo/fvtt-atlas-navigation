@@ -136,7 +136,7 @@ test("custom Scene sheet gets an in-sheet Misc fallback", () => {
   } finally { Object.assign(globalThis, previous); }
 });
 
-test("anchored v2 road list exposes redrawing while preserving normal controls", () => {
+test("anchored v2 road list explicitly offers organization before new editing", () => {
   const previous = { document: globalThis.document, game: globalThis.game };
   let mounted = null;
   const nativeRoot = { querySelector: () => null, appendChild: n => { mounted = n; } };
@@ -152,16 +152,56 @@ test("anchored v2 road list exposes redrawing while preserving normal controls",
       segments: [{ id: "r", from: "a", to: "b", via: [], name: "South Road", bidirectional: true }]
     })
   };
-  let editedId;
+  let organizeScene;
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
     globalThis.game = { user: { isGM: true }, i18n: { localize: k => k, lang: "en" } };
     addAtlasRoadsToSceneConfig({ document: scene }, element, {
       begin() {}, draft: () => null, finish() {}, cancel() {}, select() {}, rename() {}, remove() {},
-      reshape: (_scene, id) => { editedId = id; }
+      organize: chosen => { organizeScene = chosen; }
     });
-    assert.equal(buttons(mounted).length, 5, "plus, select, redraw, rename, delete");
-    buttons(mounted)[2].listeners.get("click")({ preventDefault() {} });
-    assert.equal(editedId, "r");
+    assert.equal(buttons(mounted).length, 4, "organize, select, rename, delete");
+    assert.equal(buttons(mounted)[0].textContent, "FVTTATLAS.Roads.Organize");
+    assert.ok(!buttons(mounted).some(b=>b.textContent==="+"));
+    buttons(mounted)[0].listeners.get("click")({ preventDefault() {} });
+    assert.equal(organizeScene, scene);
   } finally { Object.assign(globalThis, previous); }
+});
+
+test("v3 connected road sections render once with edit and merge actions",async()=>{
+ const previous={document:globalThis.document,game:globalThis.game};
+ let mounted=null;
+ const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
+ const element={querySelector:selector=>selector==='[data-fvtt-atlas-scene-root]'?nativeRoot:null};
+ const scene={id:"v3",grid:{size:100,distance:5,units:"km"},canUserModify:()=>true,
+ getFlag:()=>({
+  schemaVersion:3,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
+  nodes:[{id:"a",x:0,y:0},{id:"b",x:50,y:0},{id:"c",x:100,y:0},{id:"d",x:50,y:70}],
+  roads:[{id:"old",name:"Main Road"},{id:"new",name:"Spur"}],
+  segments:[
+   {id:"a1",roadId:"old",from:"a",to:"b",via:[],bidirectional:true},
+   {id:"a2",roadId:"old",from:"b",to:"c",via:[],bidirectional:true},
+   {id:"s1",roadId:"new",from:"b",to:"d",via:[],bidirectional:true}
+  ]
+ })};
+ let editedId,mergedId;
+ try {
+  globalThis.document={createElement:tag=>new Element(tag)};
+  globalThis.game={user:{isGM:true},i18n:{localize:k=>k,lang:"en"}};
+  addAtlasRoadsToSceneConfig({document:scene},element,{
+   begin(){},draft:()=>null,finish(){},cancel(){},select(){},rename(){},remove(){},
+   beginPointEdit:(_scene,id)=>{editedId=id;},merge:(_scene,road)=>{mergedId=road.id;}
+  });
+  assert.equal(buttons(mounted).length,11,"plus and five per-road operations");
+  assert.match(textContents(mounted),/Main Road \(2 FVTTATLAS.Roads.Segments\)/);
+  const rows=[];
+  const visit=node=>{if(node.attributes?.has("data-atlas-road-id"))rows.push(node);node.children?.forEach(visit);};
+  visit(mounted);
+  assert.deepEqual(rows.map(r=>r.attributes.get("data-atlas-road-id")),["old","new"]);
+  const oldButtons=buttons(rows[0]);
+  await oldButtons[1].listeners.get("click")({preventDefault(){}});
+  assert.equal(editedId,"old");
+  await oldButtons[2].listeners.get("click")({preventDefault(){}});
+  assert.equal(mergedId,"old");
+ } finally {Object.assign(globalThis,previous);}
 });
