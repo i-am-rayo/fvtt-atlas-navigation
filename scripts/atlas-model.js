@@ -6,6 +6,7 @@
  */
 export const ATLAS_SCHEMA_VERSION = 3;
 export const CHECKPOINT_ATLAS_SCHEMA_VERSION = 4;
+export const TRAVEL_ATLAS_SCHEMA_VERSION = 5;
 export const IMAGE_ATLAS_SCHEMA_VERSION = 2;
 export const LEGACY_ATLAS_SCHEMA_VERSION = 1;
 const MAX_NODES = 10000;
@@ -77,7 +78,8 @@ export function validateAtlas(value) {
   const data = record(value, "root");
   const legacy = data.schemaVersion === LEGACY_ATLAS_SCHEMA_VERSION;
   const imageV2 = data.schemaVersion === IMAGE_ATLAS_SCHEMA_VERSION;
-  const withCheckpoints = data.schemaVersion === CHECKPOINT_ATLAS_SCHEMA_VERSION;
+  const withTravel = data.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION;
+  const withCheckpoints = data.schemaVersion === CHECKPOINT_ATLAS_SCHEMA_VERSION || withTravel;
   const current = data.schemaVersion === ATLAS_SCHEMA_VERSION || withCheckpoints;
   if (!legacy && !imageV2 && !current) {
     fail("unsupported schemaVersion " + String(data.schemaVersion));
@@ -117,14 +119,21 @@ export function validateAtlas(value) {
     }
     for (const [index, value] of data.roads.entries()) {
       const r = record(value, "roads[" + index + "]");
-      fields(r, ["id", "name"], "road");
+      fields(r, withTravel ? ["id", "name", "travelPresetId"] : ["id", "name"], "road");
       const roadId = id(r.id, "road ID");
       if (roadIds.has(roadId)) fail("duplicate road ID " + roadId);
       roadIds.add(roadId);
       if (typeof r.name !== "string" || !r.name.trim() || r.name.length > 120) {
         fail("road " + roadId + " has invalid name");
       }
-      roads.push({ id: roadId, name: r.name.trim() });
+      const travelPresetId = r.travelPresetId ?? null;
+      if (withTravel && travelPresetId !== null &&
+          (typeof travelPresetId !== "string" ||
+           !/^[A-Za-z0-9_-]{1,128}$/.test(travelPresetId))) {
+        fail("road " + roadId + " has invalid travel preset ID");
+      }
+      roads.push({ id: roadId, name: r.name.trim(),
+        ...(withTravel ? { travelPresetId } : {}) });
     }
   }
 
@@ -275,9 +284,30 @@ export function upgradeAtlasRoadGroups(atlas) {
 /** Upgrade a v3 road Scene only when the GM explicitly adds a checkpoint. */
 export function upgradeAtlasCheckpoints(atlas) {
   const old = validateAtlas(atlas);
-  if (old.schemaVersion === CHECKPOINT_ATLAS_SCHEMA_VERSION) return old;
+  if (old.schemaVersion === CHECKPOINT_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION) return old;
   if (old.schemaVersion !== ATLAS_SCHEMA_VERSION) {
     throw new Error("Organize named roads before adding checkpoints.");
   }
   return validateAtlas({ ...old, schemaVersion: CHECKPOINT_ATLAS_SCHEMA_VERSION, checkpoints: [] });
+}
+
+/**
+ * Explicit v0.2.15 upgrade on the GM's first named-road preset assignment.
+ * A v3 Scene gains an empty checkpoints array; v4 checkpoint IDs are preserved.
+ * Every road keeps its ID, name, graph ownership and original geometry.
+ */
+export function upgradeAtlasTravelPresets(atlas) {
+  const old = validateAtlas(atlas);
+  if (old.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION) return old;
+  const withCheckpoints = old.schemaVersion === ATLAS_SCHEMA_VERSION
+    ? upgradeAtlasCheckpoints(old) : old;
+  if (withCheckpoints.schemaVersion !== CHECKPOINT_ATLAS_SCHEMA_VERSION) {
+    throw new Error("Organize named roads before assigning travel presets.");
+  }
+  return validateAtlas({
+    ...withCheckpoints,
+    schemaVersion: TRAVEL_ATLAS_SCHEMA_VERSION,
+    roads: withCheckpoints.roads.map(road => ({ ...road, travelPresetId: null }))
+  });
 }

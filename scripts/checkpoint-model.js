@@ -87,7 +87,7 @@ export function addRoadCheckpoint(atlas, {
 
 export function editRoadCheckpoint(atlas, { checkpointId, name, elevationMeters }) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 4) throw new Error("No checkpoints are configured.");
+  if (current.schemaVersion < 4) throw new Error("No checkpoints are configured.");
   if (!current.checkpoints.some(c => c.id === checkpointId)) {
     throw new Error("Checkpoint no longer exists in this Scene.");
   }
@@ -100,7 +100,7 @@ export function editRoadCheckpoint(atlas, { checkpointId, name, elevationMeters 
 
 export function removeRoadCheckpoint(atlas, { checkpointId }) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 4 ||
+  if (current.schemaVersion < 4 ||
       !current.checkpoints.some(c => c.id === checkpointId)) {
     throw new Error("Checkpoint no longer exists in this Scene.");
   }
@@ -113,7 +113,7 @@ export function removeRoadCheckpoint(atlas, { checkpointId }) {
 /** Read-only, bounded by the UI; no unfiltered Scene-sized markup. */
 export function listRoadCheckpoints(atlas, { roadId = null, scope = "scene" } = {}) {
   const current = validateAtlas(atlas);
-  if (current.schemaVersion !== 4) return [];
+  if (current.schemaVersion < 4) return [];
   if (!["selected", "connected", "scene"].includes(scope)) {
     throw new Error("Unknown checkpoint filter.");
   }

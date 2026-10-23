@@ -4,6 +4,7 @@ import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
 import { listSceneRegions } from "./region-atlas.js";
 import { listRoadCheckpoints } from "./checkpoint-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
+import { readWorldTravelPresets } from "./travel-preset-settings.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -82,6 +83,8 @@ function format(value) {
 function atlasPanel(scene, atlas, actions, refresh) {
   const root = node("section");
   root.setAttribute("data-fvtt-atlas-setup", "");
+  const travelPresets = readWorldTravelPresets().presets;
+  const presetById = new Map(travelPresets.map(p => [p.id, p]));
 
   // A configured road network is what makes this Scene an Atlas. The old
   // enabled flag remains persisted for v1 compatibility, but has no UI toggle.
@@ -170,6 +173,14 @@ function atlasPanel(scene, atlas, actions, refresh) {
       metadata.title = label("FVTTATLAS.Roads.SegmentCountHint");
       description.appendChild(metadata);
     }
+    if (atlas.schemaVersion >= 5 && road.travelPresetId) {
+      const assigned = presetById.get(road.travelPresetId);
+      const subtitle = node("div", assigned
+        ? label("FVTTATLAS.Travel.RoadDefault") + ": " + assigned.name
+        : label("FVTTATLAS.Travel.MissingPreset"), "hint");
+      subtitle.style.fontSize = "0.8em";
+      description.appendChild(subtitle);
+    }
     row.appendChild(description);
     const controls = node("div", undefined, "form-fields");
     controls.appendChild(button("◎", label("FVTTATLAS.Roads.Highlight"),
@@ -183,6 +194,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
         return actions.select(scene, road.id);
       }));
     if (atlas.schemaVersion >= 3) {
+      controls.appendChild(button("◈", label("FVTTATLAS.Travel.AssignRoad"),
+        () => actions.assignRoadTravelPreset(scene, road, refresh)));
       controls.appendChild(button("⌖", label("FVTTATLAS.Roads.EditPoints"),
         () => actions.beginPointEdit(scene, road.id, refresh)));
       if (getRoadMergeCandidates(atlas, road.id).length) {
@@ -414,16 +427,23 @@ function atlasPanel(scene, atlas, actions, refresh) {
   const generatedSection = node("fieldset");
   generatedSection.appendChild(node("legend", label("FVTTATLAS.Generated.Title")));
   generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.Hint"), "hint"));
-  const available = atlas.schemaVersion === 4 ? atlas.roads.filter(r =>
+  const available = atlas.schemaVersion >= 4 ? atlas.roads.filter(r =>
     atlas.checkpoints.filter(c => c.roadId === r.id).length > 0) : [];
   if (!available.length) {
     generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.NoCheckpoints"), "hint"));
   } else {
     let selected = generatorState.get(scene.id);
     if (!selected || !available.some(r => r.id === selected.roadId)) {
-      selected = { roadId: available[0].id, kind: "checkpoint" };
+      selected = { roadId: available[0].id, kind: "checkpoint",
+        presetId: available[0].travelPresetId ?? null, presetEdited: false };
       generatorState.set(scene.id, selected);
     }
+    // Road-default changes flow into the generator unless the GM chose an override.
+    if (!selected.presetEdited) {
+      selected.presetId = available.find(r => r.id === selected.roadId)?.travelPresetId ?? null;
+    }
+    if (selected.presetId !== null && selected.presetId !== undefined &&
+        !presetById.has(selected.presetId)) selected.presetId = null;
     const makeSelect = (choices, current, changed) => {
       const select = node("select");
       for (const [value, name] of choices) {
@@ -444,7 +464,11 @@ function atlasPanel(scene, atlas, actions, refresh) {
     };
     addField("FVTTATLAS.Generated.Road", makeSelect(
       available.map(r => [r.id, r.name]), selected.roadId,
-      value => { selected.roadId = value; selected.first = null; selected.last = null; }));
+      value => {
+        selected.roadId = value; selected.first = null; selected.last = null;
+        selected.presetId = available.find(r => r.id === value)?.travelPresetId ?? null;
+        selected.presetEdited = false;
+      }));
     const checkpoints = atlas.checkpoints.filter(c => c.roadId === selected.roadId);
     addField("FVTTATLAS.Generated.Kind", makeSelect([
       ["checkpoint", label("FVTTATLAS.Generated.Checkpoint")],
@@ -463,6 +487,20 @@ function atlasPanel(scene, atlas, actions, refresh) {
         other.map(c => [c.id, c.name]), selected.last,
         value => { selected.last = value; }));
     }
+    if (selected.kind === "corridor") {
+      const choices = [["", label("FVTTATLAS.Travel.None")],
+        ...travelPresets.map(p => [
+          p.id, p.mode.toUpperCase() + " — " + p.name +
+            " (cost ×" + p.movementCostMultiplier + ")"
+        ])];
+      addField("FVTTATLAS.Travel.CorridorPreset", makeSelect(
+        choices, selected.presetId ?? "", value => {
+          selected.presetId = value || null;
+          selected.presetEdited = true;
+        }));
+      generatedSection.appendChild(node("p",
+        label("FVTTATLAS.Travel.NotApplied"), "hint"));
+    }
     const width = node("input");
     width.type = "number";
     width.min = "0.25";
@@ -478,7 +516,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
         kind: selected.kind, roadId: selected.roadId,
         checkpointId: selected.first,
         endCheckpointId: selected.kind === "corridor" ? selected.last : null,
-        widthCells: Number(width.value)
+        widthCells: Number(width.value),
+        presetId: selected.kind === "corridor" ? (selected.presetId ?? null) : null
       }, refresh));
     create.disabled = !!draft || (selected.kind === "corridor" && checkpoints.length < 2);
     generatedSection.appendChild(create);
@@ -493,6 +532,17 @@ function atlasPanel(scene, atlas, actions, refresh) {
     const detail = node("div");
     detail.style.flex = "1 1 auto";
     detail.appendChild(node("span", region.name));
+    if (region.metadata?.kind === "corridor") {
+      const preset = region.presetId ? presetById.get(region.presetId) : null;
+      detail.appendChild(node("div", region.invalidPreset
+        ? label("FVTTATLAS.Travel.InvalidPreset")
+        : region.presetId
+          ? preset
+            ? label("FVTTATLAS.Travel.CorridorPreset") + ": " + preset.name +
+              " (cost ×" + preset.movementCostMultiplier + ")"
+            : label("FVTTATLAS.Travel.MissingPreset")
+          : label("FVTTATLAS.Travel.None"), "hint"));
+    }
     detail.appendChild(node("div", region.invalid ?
       label("FVTTATLAS.Generated.Invalid") :
       region.modified ? label("FVTTATLAS.Generated.Modified") :
@@ -502,6 +552,10 @@ function atlasPanel(scene, atlas, actions, refresh) {
     controls.appendChild(button("⚙", label("FVTTATLAS.Regions.Configure"),
       () => actions.configureRegion(scene, region.id)));
     if (!region.invalid) {
+      if (region.metadata?.kind === "corridor") {
+        controls.appendChild(button("◈", label("FVTTATLAS.Travel.AssignRegion"),
+          () => actions.assignGeneratedRegionTravelPreset(scene, region, refresh)));
+      }
       const regenerate = button("↻", label("FVTTATLAS.Generated.Regenerate"),
         () => actions.regenerateRegion(scene, region, refresh));
       regenerate.disabled = !!draft || region.modified;

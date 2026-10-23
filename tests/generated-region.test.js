@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions }
-  from "../scripts/generated-region.js";
+import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
+  setGeneratedRegionTravelPreset } from "../scripts/generated-region.js";
+import { defaultTravelPresets } from "../scripts/travel-preset-model.js";
 import { MODULE_ID } from "../scripts/atlas-storage.js";
 
 function atlas() {
@@ -29,6 +30,8 @@ function setup() {
     behaviors:[{type:"custom",active:true}], flags:d.flags,
     getFlag(ns,key){return this.flags[ns]?.[key];},
     canUserModify:()=>true,
+    async setFlag(ns,key,value){ this.flags[ns][key]=value; },
+    async unsetFlag(ns,key){ delete this.flags[ns][key]; },
     async update(data) {
       if(data.shapes) this.shapes=data.shapes;
       this.flags[MODULE_ID].generatedRegion=
@@ -39,7 +42,7 @@ function setup() {
    return [region];
   }
  };
- globalThis.game={user:{isGM:true}};
+ globalThis.game={user:{isGM:true},settings:{get:()=>defaultTravelPresets()}};
  globalThis.canvas={ready:true,scene,dimensions:{sceneX:100,sceneY:50}};
  return {scene,records,existing};
 }
@@ -90,4 +93,30 @@ test("non-GM and scene mismatch cannot generate",()=>{
  globalThis.game.user.isGM=true;
  globalThis.canvas.scene={id:"other"};
  assert.throws(()=>planSceneGeneratedRegion(scene,settings),/Open the chosen Scene/);
+});
+
+test("corridor travel preset references stay separate from native Behaviors and geometry",async()=>{
+ const {scene,existing,records}=setup();
+ scene.state={
+   ...scene.state, schemaVersion:5,
+   roads:[{id:"r",name:"Ridge Path",travelPresetId:"air-turbulent"}]
+ };
+ const plan=planSceneGeneratedRegion(scene,settings);
+ await saveGeneratedNativeRegion(scene,plan,{presetId:"air-turbulent"});
+ const native=existing.get("new1");
+ assert.equal(native.flags[MODULE_ID].travelPreset.presetId,"air-turbulent");
+ assert.deepEqual(records[0].items[0].behaviors,[]);
+ const beforeShape=JSON.stringify(native.shapes);
+ await setGeneratedRegionTravelPreset(scene,"new1","water-rough");
+ assert.equal(listGeneratedRegions(scene)[0].presetId,"water-rough");
+ assert.equal(JSON.stringify(native.shapes),beforeShape);
+ assert.deepEqual(native.behaviors,[{type:"custom",active:true}]);
+ const regen=planSceneGeneratedRegion(scene,{...settings,widthCells:1});
+ await saveGeneratedNativeRegion(scene,regen,{regenerate:true});
+ assert.equal(native.flags[MODULE_ID].travelPreset.presetId,"water-rough");
+ assert.deepEqual(native.behaviors,[{type:"custom",active:true}]);
+ await setGeneratedRegionTravelPreset(scene,"new1",null);
+ assert.equal(listGeneratedRegions(scene)[0].presetId,null);
+ await assert.rejects(()=>setGeneratedRegionTravelPreset(scene,"new1","missing"),
+   /still configured/);
 });

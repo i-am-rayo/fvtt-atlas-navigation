@@ -6,6 +6,9 @@ import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
 import { buildGeneratedRegionPlan, GENERATED_REGION_FLAG, shapeSignature,
   validateGeneratedRegionFlag } from "./generated-region-model.js";
+import { REGION_TRAVEL_PRESET_FLAG, TRAVEL_PRESET_SETTING,
+  TRAVEL_PRESET_SCHEMA_VERSION, validateTravelPresets, validateRegionTravelFlag }
+  from "./travel-preset-model.js";
 
 function checkScene(scene) {
   const user = globalThis.game?.user;
@@ -35,7 +38,12 @@ export function listGeneratedRegions(scene) {
     let metadata = null, invalid = false;
     try { metadata = validateGeneratedRegionFlag(region.getFlag(MODULE_ID, GENERATED_REGION_FLAG)); }
     catch { invalid = true; }
-    return { id: region.id, name: region.name, metadata, invalid,
+    let presetId = null, invalidPreset = false;
+    try {
+      presetId = validateRegionTravelFlag(
+        region.getFlag(MODULE_ID, REGION_TRAVEL_PRESET_FLAG))?.presetId ?? null;
+    } catch { invalidPreset = true; }
+    return { id: region.id, name: region.name, metadata, invalid, presetId, invalidPreset,
       modified: !!metadata && shapeSignature(region.shapes ?? []) !== metadata.shapeSignature };
   }).filter(region => region.metadata || region.invalid);
 }
@@ -51,7 +59,8 @@ function matchingRegion(scene, flag) {
 }
 
 /** Called only after an explicit preview/confirmation in the GM UI. */
-export async function saveGeneratedNativeRegion(scene, plan, { regenerate = false } = {}) {
+export async function saveGeneratedNativeRegion(scene, plan,
+  { regenerate = false, presetId = null } = {}) {
   checkScene(scene);
   // Rebuild against current image origin, grid and graph to reject stale dialogs.
   const checkpointId = plan.startCheckpointId;
@@ -89,6 +98,7 @@ export async function saveGeneratedNativeRegion(scene, plan, { regenerate = fals
   if (matches.length) {
     throw new Error("A generated Region already exists for this checkpoint or corridor. Choose Regenerate to update unchanged geometry.");
   }
+  if (presetId !== null) requireExistingPreset(presetId);
   const [created] = await scene.createEmbeddedDocuments("Region", [{
     name: fresh.name,
     shapes: fresh.shapes,
@@ -96,10 +106,40 @@ export async function saveGeneratedNativeRegion(scene, plan, { regenerate = fals
     flags: {
       [MODULE_ID]: {
         atlas: { schemaVersion: 1, linked: true },
-        [GENERATED_REGION_FLAG]: fresh.generatedRegion
+        [GENERATED_REGION_FLAG]: fresh.generatedRegion,
+        ...(presetId === null ? {} : {
+          [REGION_TRAVEL_PRESET_FLAG]: {
+            schemaVersion: TRAVEL_PRESET_SCHEMA_VERSION, presetId
+          }
+        })
       }
     }
   }]);
   if (!created) throw new Error("Foundry did not create the native Region.");
   return { id: created.id, created: true };
+}
+
+/** A Region's descriptive preset is independent of native geometry/Behaviors. */
+function requireExistingPreset(presetId) {
+  const list = validateTravelPresets(game.settings.get(MODULE_ID, TRAVEL_PRESET_SETTING));
+  if (!list.presets.some(p => p.id === presetId)) {
+    throw new Error("Choose a travel preset still configured in Atlas world settings.");
+  }
+}
+
+export async function setGeneratedRegionTravelPreset(scene, regionId, presetId = null) {
+  checkScene(scene);
+  const region = scene.regions?.get(regionId);
+  if (!region || !region.canUserModify?.(game.user, "update") ||
+      !validateGeneratedRegionFlag(region.getFlag(MODULE_ID, GENERATED_REGION_FLAG))) {
+    throw new Error("Choose an existing Atlas-generated native Region.");
+  }
+  if (presetId === null) {
+    await region.unsetFlag(MODULE_ID, REGION_TRAVEL_PRESET_FLAG);
+  } else {
+    requireExistingPreset(presetId);
+    await region.setFlag(MODULE_ID, REGION_TRAVEL_PRESET_FLAG, {
+      schemaVersion: TRAVEL_PRESET_SCHEMA_VERSION, presetId
+    });
+  }
 }
