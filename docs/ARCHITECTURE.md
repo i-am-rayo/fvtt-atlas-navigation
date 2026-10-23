@@ -1,6 +1,6 @@
 # Architecture — revised Phase 2 boundaries
 
-**Status:** Phase 1 implemented; Phase 2a v0.2.1 under GM test; Phase 2b–2d design revised October 23, 2026. Future slices are not yet implemented.  
+**Status:** Phase 1 merged; Phase 2a tested; Phase 2b native Scene tab and Grid-first measurement implemented in v0.2.2, awaiting in-Foundry UI acceptance. Phase 2c/2d and routing remain planned.  
 **Target:** Foundry VTT v14; game-system agnostic.  
 **Module identity:** `fvtt-atlas-navigation`.
 
@@ -60,7 +60,7 @@ The exact JSON contract is in [DATA_MODEL.md](DATA_MODEL.md). Documented example
 
 Scene screen zoom/pan must not change stored coordinates. Render by transforming Scene coordinates through Foundry's canvas mechanism.
 
-**Revised default:** derive travel scale and units from the native Scene Grid (`grid.distance`, `grid.size`, `grid.units`) when valid; allow an explicit per-Scene manual override only when needed. Never derive travel units from raw image pixels alone. Check hex and gridless measurements, since a Foundry grid step and a continuous polyline may not have identical semantics. **Keep existing schema v1 manual calibrations intact** and require a documented, lossless migration or affirmative GM switch before using the new default on an existing Scene. A possible later global Metric/Imperial choice is only a display conversion.
+**Implemented Phase 2b default:** derive travel scale and units from the native Scene Grid (`grid.distance`, `grid.size`, `grid.units`) when valid; allow an explicit per-Scene manual override only when needed. Never derive travel units from raw image pixels alone. Check hex and gridless measurements, since a Foundry grid step and a continuous polyline may not have identical semantics. **Keep existing schema v1 manual calibrations intact** and require a documented, lossless migration or affirmative GM switch before using the new default on an existing Scene. A possible later global Metric/Imperial choice is only a display conversion.
 
 ### Routing
 
