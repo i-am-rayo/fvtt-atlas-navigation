@@ -98,10 +98,20 @@ function atlasPanel(scene, atlas, actions, refresh) {
 
   const section = node("fieldset");
   const header = node("legend");
-  header.appendChild(node("span", label("FVTTATLAS.Roads.Title") + " "));
-  if (!legacy && !needsOrganize) header.appendChild(button("+", label("FVTTATLAS.Roads.Add"), () => {
-    actions.begin(scene, refresh);
-  }));
+  const titleGroup = node("span");
+  titleGroup.style.display = "inline-flex";
+  titleGroup.style.alignItems = "center";
+  titleGroup.style.gap = "0.35rem";
+  titleGroup.appendChild(node("span", label("FVTTATLAS.Roads.Title")));
+  if (!legacy && !needsOrganize) {
+    const add = button("+", label("FVTTATLAS.Roads.Add"), () => actions.begin(scene, refresh));
+    add.style.flex = "0 0 auto";
+    add.style.width = "1.65rem";
+    add.style.minWidth = "1.65rem";
+    add.style.padding = "0";
+    titleGroup.appendChild(add);
+  }
+  header.appendChild(titleGroup);
   section.appendChild(header);
 
   const draft = actions.draft(scene);
@@ -117,8 +127,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
       controls.appendChild(button(label("FVTTATLAS.Roads.Undo"),
         label("FVTTATLAS.Roads.Undo"), () => actions.undo()));
     }
-    controls.appendChild(button(label("FVTTATLAS.Roads.Cancel"),
-      label("FVTTATLAS.Roads.Cancel"), () => actions.cancel()));
+    const cancelKey = draft.mode === "points"
+      ? "FVTTATLAS.Roads.CancelEdits" : "FVTTATLAS.Roads.Cancel";
+    controls.appendChild(button(label(cancelKey), label(cancelKey), () => actions.cancel()));
     section.appendChild(controls);
   }
 
@@ -133,8 +144,18 @@ function atlasPanel(scene, atlas, actions, refresh) {
     const roadName = road.name || label("FVTTATLAS.Roads.Title") + " " + (index + 1);
     const count = atlas.schemaVersion === 3 ?
       atlas.segments.filter(segment => segment.roadId === road.id).length : 1;
-    const text = node("span", count > 1 ? `${roadName} (${count} ${label("FVTTATLAS.Roads.Segments")})` : roadName);
-    row.appendChild(text);
+    const description = node("div");
+    description.style.flex = "1 1 auto";
+    description.style.minWidth = "0";
+    description.appendChild(node("span", roadName));
+    if (count > 1) {
+      const metadata = node("div", `${count} ${label("FVTTATLAS.Roads.Segments")}`);
+      metadata.style.fontSize = "0.8em";
+      metadata.style.fontStyle = "italic";
+      metadata.style.opacity = "0.7";
+      description.appendChild(metadata);
+    }
+    row.appendChild(description);
     const controls = node("div", undefined, "form-fields");
     controls.appendChild(button("◎", label("FVTTATLAS.Roads.Highlight"),
       () => actions.select(scene, road.id)));
