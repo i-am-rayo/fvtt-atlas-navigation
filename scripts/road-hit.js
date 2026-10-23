@@ -2,7 +2,7 @@ import { validateAtlas } from "./atlas-model.js";
 
 export function roadHandles(atlas, roadId) {
   const data = validateAtlas(atlas);
-  if (data.schemaVersion !== 3) return [];
+  if (data.schemaVersion < 3) return [];
   const segments = data.segments.filter(s => s.roadId === roadId);
   const nodeIds = new Set(segments.flatMap(s => [s.from, s.to]));
   const handles = data.nodes.filter(n => nodeIds.has(n.id)).map(n =>
@@ -25,7 +25,7 @@ export function nearestRoadHandle(atlas, roadId, point, tolerance = 12) {
 
 export function nearestRoadEdge(atlas, roadId, point, tolerance = 12) {
   const data = validateAtlas(atlas);
-  if (data.schemaVersion !== 3) return null;
+  if (data.schemaVersion < 3) return null;
   const nodes = new Map(data.nodes.map(n => [n.id, n]));
   let best = null;
   let min = tolerance;
