@@ -28,13 +28,95 @@ function uniqueId(ids, idFactory) {
   throw new Error("Could not generate a unique road identifier.");
 }
 
+function project(point, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const squared = dx * dx + dy * dy;
+  if (squared < 1) return null;
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / squared));
+  const position = { x: a.x + dx * t, y: a.y + dy * t };
+  return {
+    ...position, t,
+    distance: Math.hypot(point.x - position.x, point.y - position.y),
+    before: t * Math.sqrt(squared), after: (1 - t) * Math.sqrt(squared)
+  };
+}
+
 /**
- * One named road is one persisted v1 segment with ordered intermediate bends.
- * Endpoints near an existing junction use that junction's stable ID, allowing
- * an explicit network connection. Visually crossing lines never auto-connect.
+ * A road endpoint can join an existing stable node or split an existing road
+ * at its nearest interior edge. Ordinary crossings never create a junction.
+ * The projection and snap radius are in image-local Scene pixels for schema v2.
  */
-export function addRoad(atlas, { points, name, idFactory, snapPixels = SNAP_PIXELS }) {
+export function findRoadSnap(atlas, position, snapPixels = SNAP_PIXELS, excludeNodeId = null) {
   const current = validateAtlas(atlas);
+  if (!Number.isFinite(position?.x) || !Number.isFinite(position?.y)) return null;
+  let nearestNode = null;
+  let nodeDistance = snapPixels;
+  for (const node of current.nodes) {
+    if (node.id === excludeNodeId) continue;
+    const distance = Math.hypot(position.x - node.x, position.y - node.y);
+    if (distance <= nodeDistance) {
+      nearestNode = node;
+      nodeDistance = distance;
+    }
+  }
+  if (nearestNode) return { kind: "node", nodeId: nearestNode.id, x: nearestNode.x, y: nearestNode.y };
+
+  const nodes = new Map(current.nodes.map(n => [n.id, n]));
+  let nearestEdge = null;
+  let edgeDistance = snapPixels;
+  for (const segment of current.segments) {
+    const path = [nodes.get(segment.from), ...segment.via, nodes.get(segment.to)];
+    for (let edgeIndex = 0; edgeIndex < path.length - 1; edgeIndex++) {
+      const hit = project(position, path[edgeIndex], path[edgeIndex + 1]);
+      if (!hit) continue;
+      // A bend is not yet a graph node, but clicking exactly on it should
+      // make a real junction without preserving a zero-length bend.
+      let vertexIndex = null;
+      if (hit.before < 1 && edgeIndex > 0) vertexIndex = edgeIndex;
+      else if (hit.after < 1 && edgeIndex + 1 < path.length - 1) {
+        vertexIndex = edgeIndex + 1;
+      }
+      const candidate = vertexIndex === null
+        ? { kind: "edge", segmentId: segment.id, edgeIndex, x: hit.x, y: hit.y }
+        : { kind: "edge", segmentId: segment.id, edgeIndex: vertexIndex,
+            atVertex: true, x: path[vertexIndex].x, y: path[vertexIndex].y };
+      const distance = Math.hypot(position.x - candidate.x, position.y - candidate.y);
+      if ((vertexIndex === null && (hit.before < 1 || hit.after < 1)) ||
+          distance > edgeDistance) continue;
+      nearestEdge = candidate;
+      edgeDistance = distance;
+    }
+  }
+  return nearestEdge;
+}
+
+function splitEdge(nodes, segments, candidate, nodeIds, segmentIds, idFactory) {
+  const index = segments.findIndex(s => s.id === candidate.segmentId);
+  if (index < 0) throw new Error("The selected road no longer exists.");
+  const road = segments[index];
+  const junctionId = uniqueId(nodeIds, idFactory);
+  nodes.push({ id: junctionId, x: candidate.x, y: candidate.y });
+  const firstVia = road.via.slice(0, candidate.atVertex ?
+    candidate.edgeIndex - 1 : candidate.edgeIndex);
+  const secondVia = road.via.slice(candidate.edgeIndex);
+  segments[index] = { ...road, to: junctionId, via: firstVia };
+  segments.push({
+    ...road,
+    id: uniqueId(segmentIds, idFactory),
+    from: junctionId,
+    via: secondVia
+  });
+  return junctionId;
+}
+
+export function addRoad(atlas, {
+  points, name, idFactory, snapPixels = SNAP_PIXELS, snapEndpoints = [true, true]
+}) {
+  const current = validateAtlas(atlas);
+  if (current.schemaVersion !== 2) {
+    throw new Error("Anchor existing roads to the Scene image before drawing more roads.");
+  }
   if (!Array.isArray(points) || points.length < 2 || points.length > 1002) {
     throw new Error("Add at least two road points (at most 1002).");
   }
@@ -48,28 +130,24 @@ export function addRoad(atlas, { points, name, idFactory, snapPixels = SNAP_PIXE
       throw new Error("Each road point must be at least 1 Scene pixel from the previous point.");
     }
   }
-  const nodeIds = new Set(current.nodes.map(node => node.id));
-  const segmentIds = new Set(current.segments.map(segment => segment.id));
-  const nodes = [...current.nodes];
-  const chooseEndpoint = (position, excludeId) => {
-    let nearest = null;
-    let bestDistance = snapPixels;
-    for (const node of current.nodes) {
-      if (node.id === excludeId) continue;
-      const distance = Math.hypot(position.x - node.x, position.y - node.y);
-      if (distance <= bestDistance) {
-        nearest = node;
-        bestDistance = distance;
-      }
+  const nodeIds = new Set(current.nodes.map(n => n.id));
+  const segmentIds = new Set(current.segments.map(s => s.id));
+  const nodes = current.nodes.map(n => ({ ...n }));
+  const segments = current.segments.map(s => ({ ...s, via: s.via.map(p => ({ ...p })) }));
+  const chooseEndpoint = (position, allowSnap, excludeId = null) => {
+    const working = { ...current, nodes, segments };
+    const candidate = allowSnap ? findRoadSnap(working, position, snapPixels, excludeId) : null;
+    if (candidate?.kind === "node") return candidate.nodeId;
+    if (candidate?.kind === "edge") {
+      return splitEdge(nodes, segments, candidate, nodeIds, segmentIds, idFactory);
     }
-    if (nearest) return nearest.id;
     const id = uniqueId(nodeIds, idFactory);
     nodes.push({ id, x: position.x, y: position.y });
     return id;
   };
 
-  const from = chooseEndpoint(path[0]);
-  const to = chooseEndpoint(path.at(-1), from);
+  const from = chooseEndpoint(path[0], snapEndpoints[0] !== false);
+  const to = chooseEndpoint(path.at(-1), snapEndpoints[1] !== false, from);
   if (from === to) throw new Error("Road endpoints must be different junctions.");
 
   const segment = {
@@ -79,12 +157,25 @@ export function addRoad(atlas, { points, name, idFactory, snapPixels = SNAP_PIXE
     name: cleanedName(name ?? suggestRoadName(current)),
     bidirectional: true
   };
-  // validateAtlas enforces positive geometric length and maximum graph sizes.
+  return validateAtlas({ ...current, enabled: true, nodes, segments: [...segments, segment] });
+}
+
+export function reshapeRoad(atlas, { segmentId, via }) {
+  const current = validateAtlas(atlas);
+  if (current.schemaVersion !== 2) {
+    throw new Error("Anchor existing roads to the Scene image before editing their shape.");
+  }
+  if (!Array.isArray(via) || via.length > 1000 ||
+      via.some(point => !Number.isFinite(point?.x) || !Number.isFinite(point?.y))) {
+    throw new Error("Road bends must be an array of at most 1000 finite points.");
+  }
+  if (!current.segments.some(s => s.id === segmentId)) {
+    throw new Error("Road no longer exists in this Scene.");
+  }
   return validateAtlas({
     ...current,
-    enabled: true,
-    nodes,
-    segments: [...current.segments, segment]
+    segments: current.segments.map(s =>
+      s.id === segmentId ? { ...s, via: via.map(p => ({ x: p.x, y: p.y })) } : s)
   });
 }
 
@@ -106,6 +197,5 @@ export function removeRoad(atlas, { segmentId }) {
     throw new Error("Road no longer exists in this Scene.");
   }
   const segments = current.segments.filter(segment => segment.id !== segmentId);
-  // Leave junctions intact: they may be shared or referenced by future features.
   return validateAtlas({ ...current, segments, enabled: segments.length > 0 });
 }
