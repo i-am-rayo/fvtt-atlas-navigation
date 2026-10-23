@@ -1,6 +1,6 @@
 import { readAtlas } from "./atlas-storage.js";
 import { savePointEdits } from "./road-storage.js";
-import { applyRoadGeometryEdit } from "./road-model.js";
+import { applyRoadGeometryEdit, attachmentRoadNames, findJunctionAttachment } from "./road-model.js";
 import { nearestRoadEdge, nearestRoadHandle, roadHandles } from "./road-hit.js";
 import { toAtlasPoint } from "./road-coordinates.js";
 
@@ -9,11 +9,13 @@ import { toAtlasPoint } from "./road-coordinates.js";
  * temporary until the GM presses Save Points; Esc/Cancel restores the Scene.
  */
 export class RoadPointEditor {
-  constructor({ canvasProvider, doc, notify, refresh }) {
+  constructor({ canvasProvider, doc, notify, refresh, confirmAttach, idFactory }) {
     this.canvasProvider = canvasProvider;
     this.doc = doc;
     this.notify = notify;
     this.refresh = refresh;
+    this.confirmAttach = confirmAttach;
+    this.idFactory = idFactory;
     this.session = null;
     this.saving = false;
   }
@@ -95,11 +97,11 @@ export class RoadPointEditor {
     const s = {
       scene, sceneId: scene.id, roadId, expectedRevision: atlas.revision,
       working: atlas, history: [atlas], operations: [], element, onChange,
-      drag: null, selectedHandle: null, onDown: null, onMove: null,
-      onUp: null, onKeydown: null
+      drag: null, confirming: false, selectedHandle: null, onDown: null, onMove: null,
+      onUp: null, onDoubleClick: null, onKeydown: null
     };
     s.onDown = event => {
-      if (event.button !== 0 || this.saving) return;
+      if (event.button !== 0 || this.saving || s.confirming) return;
       if (this.canvasProvider()?.scene?.id !== s.sceneId) return this.cancel();
       const point = this.#localPoint(event);
       if (!point) return;
@@ -121,20 +123,24 @@ export class RoadPointEditor {
         this.refresh();
         return;
       }
-      if ((event.detail ?? 0) >= 2) {
-        const edge = nearestRoadEdge(s.working, roadId, point, this.#tolerance());
-        if (edge) {
-          this.#consume(event);
-          try {
-            this.#perform(edge);
-            s.selectedHandle = { kind: "bend", segmentId: edge.segmentId,
-              viaIndex: edge.edgeIndex };
-          } catch (error) { this.notify()?.error?.(error.message); }
-        }
-      }
+    };
+    // pointerdown.detail is unreliable in Foundry canvas input; native dblclick
+    // is the stable event for insertion between existing bend handles.
+    s.onDoubleClick = event => {
+      if (event.button !== 0 || this.saving || s.confirming || this.session !== s) return;
+      const point = this.#localPoint(event);
+      if (!point) return;
+      const edge = nearestRoadEdge(s.working, roadId, point, this.#tolerance());
+      if (!edge) return;
+      this.#consume(event);
+      try {
+        this.#perform(edge);
+        s.selectedHandle = { kind: "bend", segmentId: edge.segmentId,
+          viaIndex: edge.edgeIndex };
+      } catch (error) { this.notify()?.error?.(error.message); }
     };
     s.onMove = event => {
-      if (!s.drag || this.saving) return;
+      if (!s.drag || this.saving || s.confirming) return;
       const point = this.#localPoint(event);
       if (!point) return;
       const operation = this.#operation(s.drag.handle, {
@@ -150,19 +156,45 @@ export class RoadPointEditor {
       }
       this.#consume(event);
     };
-    s.onUp = event => {
-      if (!s.drag || this.saving) return;
+    s.onUp = async event => {
+      if (!s.drag || this.saving || s.confirming) return;
       this.#consume(event);
-      if (s.drag.operation) {
-        try { this.#perform(s.drag.operation); }
-        catch (error) { this.notify()?.error?.(error.message); }
-      }
+      const operation = event.type === "pointercancel" ? null : s.drag.operation;
       s.drag = null;
       try { if (event.pointerId != null) element.releasePointerCapture?.(event.pointerId); }
       catch (_) { /* May have been released by the browser already. */ }
-      this.refresh();
+      if (!operation) { this.refresh(); return; }
+      try {
+        const candidate = operation.kind === "move-node"
+          ? findJunctionAttachment(s.working, operation.nodeId,
+              { x: operation.x, y: operation.y }, this.#tolerance()) : null;
+        if (!candidate) {
+          this.#perform(operation);
+          return;
+        }
+        const incidentIds = new Set(s.working.segments.filter(segment =>
+          segment.from === operation.nodeId || segment.to === operation.nodeId)
+          .map(segment => segment.roadId));
+        const sourceNames = s.working.roads.filter(road => incidentIds.has(road.id))
+          .map(road => road.name);
+        const targetNames = attachmentRoadNames(s.working, candidate);
+        s.confirming = true;
+        this.refresh();
+        const approved = await this.confirmAttach({ kind: "move", sourceNames, targetNames });
+        if (this.session !== s || !approved) return;
+        this.#perform({
+          kind: "connect-node", nodeId: operation.nodeId,
+          target: candidate, x: candidate.x, y: candidate.y,
+          ...(candidate.kind === "edge" ? { newSegmentId: this.idFactory() } : {})
+        });
+      } catch (error) { this.notify()?.error?.(error.message); }
+      finally {
+        s.confirming = false;
+        if (this.session === s) this.refresh();
+      }
     };
     s.onKeydown = event => {
+      if (s.confirming) return;
       if (event.key === "Escape") {
         event.preventDefault?.();
         this.cancel();
@@ -184,6 +216,7 @@ export class RoadPointEditor {
     };
     this.session = s;
     element.addEventListener("pointerdown", s.onDown, true);
+    element.addEventListener("dblclick", s.onDoubleClick, true);
     element.addEventListener("pointermove", s.onMove, true);
     element.addEventListener("pointerup", s.onUp, true);
     element.addEventListener("pointercancel", s.onUp, true);
@@ -195,6 +228,7 @@ export class RoadPointEditor {
     const s = this.session;
     if (!s) return;
     s.element.removeEventListener("pointerdown", s.onDown, true);
+    s.element.removeEventListener("dblclick", s.onDoubleClick, true);
     s.element.removeEventListener("pointermove", s.onMove, true);
     s.element.removeEventListener("pointerup", s.onUp, true);
     s.element.removeEventListener("pointercancel", s.onUp, true);
@@ -203,7 +237,7 @@ export class RoadPointEditor {
 
   undo() {
     const s = this.session;
-    if (!s || this.saving || !s.operations.length) return;
+    if (!s || this.saving || s.confirming || !s.operations.length) return;
     s.operations.pop();
     s.history.pop();
     s.working = s.history.at(-1);
@@ -222,7 +256,7 @@ export class RoadPointEditor {
 
   async finish() {
     const s = this.session;
-    if (!s || this.saving) return false;
+    if (!s || this.saving || s.confirming) return false;
     if (!s.operations.length) { this.cancel(); return true; }
     this.saving = true;
     this.#notifyChange(s.onChange);
