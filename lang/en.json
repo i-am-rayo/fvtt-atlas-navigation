@@ -11,7 +11,7 @@
   "FVTTATLAS.Roads.Active": "This Scene has an Atlas road network.",
   "FVTTATLAS.Roads.EmptyStatus": "No Atlas roads configured for this Scene.",
   "FVTTATLAS.Roads.Add": "Add road",
-  "FVTTATLAS.Roads.Drawing": "Click points on the map. Finish Road saves; Enter finishes, Backspace removes the last point, Esc cancels.",
+  "FVTTATLAS.Roads.Drawing": "Click map points to draw a road. Endpoints snap to nearby junctions or road interiors; hold Alt on a point to bypass snapping. Enter finishes, Backspace removes a point, Esc cancels.",
   "FVTTATLAS.Roads.Points": "points placed",
   "FVTTATLAS.Roads.Finish": "Finish Road",
   "FVTTATLAS.Roads.Cancel": "Cancel Drawing",
@@ -23,5 +23,14 @@
   "FVTTATLAS.Roads.Renamed": "Road name saved.",
   "FVTTATLAS.Roads.DeleteWarning": "Delete this road? Existing junction points will be preserved.",
   "FVTTATLAS.Roads.Deleted": "Road removed.",
-  "FVTTATLAS.Roads.StartNotice": "Road drawing started. Click the map to add points, then Finish Road (or Enter) to save; Esc cancels."
+  "FVTTATLAS.Roads.StartNotice": "Road drawing started. Click map points, then Finish Road (or Enter). Road endpoints join nearby road interiors automatically unless Alt is held.",
+  "FVTTATLAS.Roads.LegacyTitle": "Legacy road coordinates",
+  "FVTTATLAS.Roads.LegacyHint": "These roads were saved with pre-0.2.5 canvas coordinates. First set Scene padding to the value where the roads visibly align with the background image. Then anchor them once. No roads will move at the moment you anchor.",
+  "FVTTATLAS.Roads.Anchor": "Anchor legacy roads to map image",
+  "FVTTATLAS.Roads.AnchorWarning": "Confirm that the roads are currently aligned with the Scene background. This converts their saved coordinates using the image's current origin. It does not guess the padding used when roads were drawn. Back up your world if unsure. Continue?",
+  "FVTTATLAS.Roads.Anchored": "Legacy Atlas roads anchored to the Scene image. You can now change Scene padding without shifting them relative to the map.",
+  "FVTTATLAS.Roads.Redraw": "Redraw road bends (keeps both junctions fixed)",
+  "FVTTATLAS.Roads.Reshaping": "Redraw intermediate bends between the existing endpoints. Finish without points makes a straight road. Enter finishes; Backspace undoes; Esc cancels.",
+  "FVTTATLAS.Roads.FinishShape": "Save Bends",
+  "FVTTATLAS.Roads.ReshapeNotice": "Bend editing started. Click intermediate points between the fixed junctions, then Save Bends. Esc cancels."
 }
