@@ -1,3 +1,4 @@
+import { addRoadCheckpoint, editRoadCheckpoint, removeRoadCheckpoint } from "./checkpoint-model.js";
 import { addRoad, removeRoad, renameRoad, reshapeRoad, mergeRoadGroups, applyRoadGeometryEdit } from "./road-model.js";
 import { anchorLegacyAtlas, upgradeAtlasRoadGroups, validateAtlas } from "./atlas-model.js";
 import { ATLAS_FLAG, MODULE_ID, readAtlas } from "./atlas-storage.js";
@@ -78,4 +79,20 @@ export function savePointEdits(scene, { roadId, operations, expectedRevision }) 
   return saveChange(scene, expectedRevision, previous =>
     operations.reduce((atlas, operation) =>
       applyRoadGeometryEdit(atlas, { roadId, operation }), previous));
+}
+
+/** One atomic versioned Scene flag write can add a checkpoint AND split an edge. */
+export function saveNewCheckpoint(scene, { roadId, candidate, name, elevationMeters, expectedRevision, idFactory }) {
+  return saveChange(scene, expectedRevision, previous =>
+    addRoadCheckpoint(previous, { roadId, candidate, name, elevationMeters, idFactory }));
+}
+
+export function saveEditedCheckpoint(scene, { checkpointId, name, elevationMeters, expectedRevision }) {
+  return saveChange(scene, expectedRevision, previous =>
+    editRoadCheckpoint(previous, { checkpointId, name, elevationMeters }));
+}
+
+export function saveRemovedCheckpoint(scene, { checkpointId, expectedRevision }) {
+  return saveChange(scene, expectedRevision, previous =>
+    removeRoadCheckpoint(previous, { checkpointId }));
 }
