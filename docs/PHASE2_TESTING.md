@@ -1,3 +1,44 @@
+# Phase 2c — v0.2.9 GM smoke test: explicit Waypoints and bend junctions
+
+**Status (October 23, 2026):** The owner confirmed that v0.2.8 detachment and reattachment (including confirmation, independent endpoints, and saved Scene persistence) work in Foundry v14. **v0.2.9 is ready for new in-client testing; do not merge draft PR #3 yet.**
+
+Install/update using the unchanged feature-branch manifest:
+
+```text
+https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2-atlas-setup/module.json
+```
+
+Check for Updates → verify **0.2.9** → reload a **backed-up Foundry v14 world**.
+
+## A. Waypoints [+] placement and persistence
+
+1. Open Scene Configuration → Atlas with at least one saved road. Confirm **Waypoints [+]** is a separate section under Roads. A new blank Scene should show a disabled waypoint + until a road exists.
+2. Click Waypoints [+] and then click a road **interior** away from its endpoints. The picker should become a reversible **point-edit** session with a new gold node; its **Save Points**, **Undo**, and **Cancel Edits** controls appear in **Waypoints**, not Roads.
+3. Undo: the new junction disappears from the temporary graph. Try again, then **Cancel Edits** and verify there is no saved Scene change. Repeat and **Save Points**; reload to confirm the node and original named road survive and the graph segment count increases by one.
+4. Click Waypoints [+] and click an existing gold endpoint/junction. Atlas should report that the location already has a graph node; no duplicate should be saved.
+5. In the Waypoints list, check the active-node count, connected-road names and ◎ highlight action. Up to **25 newest junctions** display in the list; older nodes still exist on the map and graph.
+
+## B. Bend promotion and connection approval
+
+1. Use **Roads [+]** to draw a North–South road with a white middle bend crossing the **interior** of a different named Millstone road. Confirm **no junction is created automatically** at the crossing.
+2. Select Edit Points for North–South. **Shift-click the white bend**: it turns into a gold junction, but the two named roads remain disconnected.
+3. Drag the new gold point onto Millstone (or move it slightly and release it at the crossing). A connection confirmation should list both road names.
+4. Decline once: no cross-road attachment is made. Accept on the next attempt: Millstone splits into graph segments but stays one named road. North–South also stays one named road.
+5. Test **Undo**, **Cancel Edits**, then **Save Points** and reload. The confirmed connection must survive; the declined/canceled version must not. Original Scene Grid distance values should not change.
+6. Try a crossing that must remain **unconnected** (e.g., a bridge). Do not Shift-click or attach it: two visually overlapping lines must remain separate graph paths.
+
+## C. Regression/safety
+
+- Confirm v0.2.8 Alt/Option-click gold shared-junction **Detach**, independent drag, reattachment confirmation, and saved persistence still work.
+- Confirm Alt/Option-click white bend removal and double-click bend insertion work after conversion of other bends.
+- Confirm Scene padding changes, multiple Scenes, selected waypoint highlight cleanup on closing Scene Configuration, GM-only controls and no Walls are unaffected.
+- Check native Foundry v14 console for errors and report any unexpected prompt, scene flag change or performance problem on a road-rich map.
+- Phase 2d Region linking, waypoint names/Note associations, Phase 3 routing, and player-facing features remain out of this version.
+
+---
+
+## Archived v0.2.8 checklist
+
 # Phase 2c — v0.2.8 GM smoke test: detach and reattach shared junctions
 
 **Status (October 23, 2026):** Owner verified v0.2.7 double-click insertion and removal, as well as prompts that identify one or two existing road names. The owner noted that dragging a shared junction pulls all attached roads—which is correct graph behavior but prevents independent endpoint relocation. **v0.2.8 adds confirmed detachment.** Real Foundry v14 retesting remains required.
