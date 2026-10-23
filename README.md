@@ -20,7 +20,7 @@ A developing **standalone, system-agnostic atlas and road-navigation module for 
 - Road list counts refer to internal **graph segments** (split at junctions), not distinct visually drawn road branches. Hover the count for a reminder.
 - Road geometry is stored as versioned per-Scene flags with permissions/revision checks; historical manual calibration values are preserved but ignored.
 - Native **Scene Grid** distance and units remain the only measurement source. **Route lengths and navigation have not been implemented**; road lines do not yet display distance labels.
-- [Phase 2c installation and Foundry smoke-test instructions (v0.2.10)](docs/PHASE2_TESTING.md).
+- [Phase 2c installation and Foundry smoke-test instructions (v0.2.11)](docs/PHASE2_TESTING.md).
 
 **Still to build:** meaningful Waypoint creation/naming or native Note associations, direct canvas context menus, road appearance/label/hover controls, linking native Regions, route calculation and terrain-based travel, and player reveal/hide. The module remains GM-only for editing. For Phase 1 history, see [Phase 1 test notes](docs/INSTALLATION.md).
 
