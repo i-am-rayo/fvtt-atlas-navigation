@@ -1,11 +1,11 @@
 # Phase 2 revised design — Scene Atlas, roads, waypoints, and Regions
 
 **Decision date:** October 23, 2026. **Target:** Foundry VTT v14, system agnostic.
-**Status:** approved design direction, not implemented; Region movement-cost reuse clarified from the GM's v14 Region Behavior screenshot. The existing Phase 2a v0.2.1 test build, its Scene flags, and the draft PR remain unchanged until a separately reviewable implementation slice is ready. Route-time computation belongs to Phase 3, not this design-only revision.
+**Status:** approved design. Phase 2b Scene tab and Grid-first measurement are implemented in the **v0.2.2 development build**, awaiting Foundry v14 visual tests. Phase 2c/2d and all Region-aware route computations are not implemented. The persisted Scene atlas schema remains v1 and draft PR #3 remains unmerged.
 
 ## 1. GM experience and ownership
 
-Show an **Atlas** section/tab in each native Scene Configuration sheet alongside Basics, Grid, and Levels. This replaces the awkward control that v0.2.1 currently prepends above the native Scene tabs.
+The **v0.2.2 build** registers an **Atlas** tab in native Scene Configuration alongside Basics, Grid, and Levels. It replaces v0.2.1's awkward above-form control. A supported in-sheet Misc/Grid fallback is available for nonstandard sheets; actual Foundry visual integration still needs verification.
 
 | Atlas section | GM work | Canonical data |
 | --- | --- | --- |
@@ -74,7 +74,7 @@ The owner authorized Phase 2 development, **not automatic expansion of runtime P
 
 | Slice | Implement after review | Gate |
 | --- | --- | --- |
-| **2b — UI and native measurement** | Replace banner with native-looking Atlas management entry/tab; show Scene Grid scale with manual override; preserve v1 values | Two different Scenes, hex/gridless check, calibration migration tests |
+| **2b — UI and native measurement** | **Implemented in v0.2.2, pending Foundry acceptance:** native Atlas tab, Scene Grid by default, explicit manual override, v1 data intact | Two different Scenes, hex/gridless check, old manual calibration preservation |
 | **2c — Road/waypoint authoring** | Scene Atlas list with plus controls; canvas road/junction editing; stable graph persistence and undo/confirmation | Connectivity, branch/crossing, save/reload, pan/zoom |
 | **2d — Region linking** | Native Region picker/link, optional display labels, active Behavior summary, and minimal GM-only association metadata; never edit native terrain costs | Multi-shape, hole, overlap, levels, enabled/disabled Behaviors, renamed/deleted Region fixtures |
 | **3a — Shortest distance** | Pure geometry graph and shortest-distance route with route overlay | Existing Phase 3 MVP acceptance |
