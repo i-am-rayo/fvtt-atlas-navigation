@@ -2,7 +2,7 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current development test build: Phase 2d (v0.2.12).** The owner verified the final Phase 2c junction repair (v0.2.11). This draft adds GM-only linking of **existing native Foundry Regions**, native Behavior inspection, and a native Region configuration shortcut. It does not adjust movement costs, replace Behaviors, or calculate routes. **Live Foundry v14 testing of v0.2.12 is required.** Phase 2c draft PR #3 remains unmerged; this milestone is on a separate feature branch.
+> **Current development test build: v0.2.13 — named checkpoints and elevation.** The owner verified Phase 2d v0.2.12 native Region links in Foundry. This next draft adds GM-only meaningful checkpoint markers attached to named road graph points, with editable names and optional elevations in meters. It does **not** automatically create native Regions, terrain effects, events, slopes or route calculations. Test v0.2.13 in Foundry v14 before accepting it; prior draft PRs #3 and #4 remain unmerged.
 
 ## What works now
 
@@ -17,13 +17,14 @@ A developing **standalone, system-agnostic atlas and road-navigation module for 
 - **Junctions [+]:** Click an existing road to stage a real graph node at its interior, then Save Points, Undo, or Cancel Edits in the Junctions section. In Edit Points, **Shift-click a white bend** to promote it to a gold junction; **Shift-click a gold two-section single-road pass-through** to turn it back into a white bend without shifting geometry. Shared, branching, terminal and loop nodes are protected. These edits are staged and reversible. Drag onto another road to request explicit connection confirmation; mere visual crossings remain disconnected.
 - **Filtered junction inspector:** Only road branches and junctions shared by different named roads appear (not every endpoint or same-road subdivision). The list defaults to the first selected road, offers **directly connected roads** or **entire Scene**, and renders no more than 25 matches. Highlighting a road changes the selected filter.
 - **Terrain Regions [+] (v0.2.12):** In Scene Configuration → Atlas, link an existing native Region. Linked Regions display their native names, hidden state and configured Behaviors (active/inactive), with a shortcut to Foundry's native Region editor. The ↻ button refreshes the list after native edits. Unlinking removes **only the Atlas association flag**; native Region geometry, elevation, visibility, Behaviors and actual token movement remain unchanged. You can link Regions even before drawing any roads.
-- **Waypoints:** Reserved for meaningful named places such as tolls, checkpoints, landmarks and hidden encounters, potentially linked to native Notes/Journals in a later milestone. v0.2.10 does **not** create new Waypoint records or expose player-visible markers.
+- **Checkpoints [+] (v0.2.13):** Click an existing road node or any interior road position. Enter a checkpoint name and optional **meters above sea level** (negative below); choose the named road when multiple roads meet there. An interior checkpoint creates a stable node and splits that section **without** turning it into a routing junction or a new named road. Checkpoints are visibly distinct on the GM road overlay; highlight, rename/change height, delete metadata without removing the road, and filter by selected road / directly connected roads / Scene (25 listed at once). Old v3 Scenes are upgraded to validated **v4** on the GM’s first checkpoint creation; existing road IDs, names, shapes and dormant manual calibration survive. Shared-node movement and explicit road merge preserve checkpoint bindings; deleting their road or demoting their graph node is blocked until the checkpoint is removed. No native Regions or Behaviors are created.
+- **Narrative Waypoints and Journal links:** Toll/checkpoint labels can now be named on the map, but Journal/Note linking, secret triggers, generated corridor/checkpoint Regions and event execution are future milestones. No player-facing markers or permissions are implemented.
 - Road list counts refer to internal **graph segments** (split at junctions), not distinct visually drawn road branches. Hover the count for a reminder.
 - Road geometry is stored as versioned per-Scene flags with permissions/revision checks; historical manual calibration values are preserved but ignored.
 - Native **Scene Grid** distance and units remain the only measurement source. **Route lengths and navigation have not been implemented**; road lines do not yet display distance labels.
-- [Phase 2d v0.2.12 installation and Foundry smoke-test instructions](docs/PHASE2_TESTING.md).
+- [v0.2.13 installation and Foundry smoke-test instructions](docs/PHASE2_TESTING.md).
 
-**Still to build:** meaningful Waypoint creation/naming or native Note associations, direct canvas context menus, road appearance/label/hover controls, terrain-aware previews, route calculation and terrain-based travel, and player reveal/hide. The module remains GM-only for editing. For Phase 1 history, see [Phase 1 test notes](docs/INSTALLATION.md).
+**Still to build:** opt-in generated native checkpoint/corridor Regions (planned **v0.2.14**), native Note/Journal associations, direct canvas context menus, road appearance/label/hover controls, slope/terrain-aware previews, route calculation and terrain-based travel, and player reveal/hide. The module remains GM-only for editing. For Phase 1 history, see [Phase 1 test notes](docs/INSTALLATION.md).
 
 ## Vision
 
@@ -63,7 +64,7 @@ These are possible later phases, not prerequisites for useful GM navigation.
 - [Milestones and acceptance criteria](docs/ROADMAP.md)
 - [Instructions for Codex and contributors](AGENTS.md)
 
-The owner approved Phase 2 after successfully testing Phase 1 on October 22, 2026. Routing and player-facing features remain gated to later milestones.
+The owner approved Phase 2 after successfully testing Phase 1 on October 22, 2026, and verified Phase 2d Region linking on October 23, 2026. Routing and player-facing features remain gated to later milestones.
 
 ## Sources and inspiration
 
