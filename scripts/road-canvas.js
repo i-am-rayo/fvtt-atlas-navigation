@@ -276,8 +276,13 @@ export class RoadCanvasController {
       throw new Error("View this Scene as GM to preview generated Regions.");
     }
     if (this.getDraft(scene)) throw new Error("Finish or cancel road editing first.");
-    this.regionPreview = { sceneId: scene.id, points: plan.points, radius: plan.radius };
+    this.regionPreview = { sceneId: scene.id, plan, points: plan.points, radius: plan.radius };
     this.refresh();
+  }
+
+  isRegionPreviewActive(scene, plan) {
+    return this.regionPreview?.sceneId === scene?.id &&
+      this.regionPreview.plan === plan && this.canvasProvider()?.scene?.id === scene.id;
   }
 
   clearRegionPreview() {
