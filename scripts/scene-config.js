@@ -38,12 +38,25 @@ export function registerAtlasSceneTab(SceneConfig) {
   return true;
 }
 
-const label = key => game.i18n.localize(key);
 
-function node(tag, text, className) {
+const label = key => game.i18n.localize(key);
+const node = (tag, text, className) => {
   const element = document.createElement(tag);
   if (text !== undefined) element.textContent = text;
   if (className) element.className = className;
+  return element;
+};
+
+function button(text, title, onClick) {
+  const element = node("button", text);
+  element.type = "button";
+  element.title = title;
+  element.setAttribute("aria-label", title);
+  element.addEventListener("click", async event => {
+    event.preventDefault();
+    try { await onClick(); }
+    catch (error) { ui.notifications.error(error.message); }
+  });
   return element;
 }
 
@@ -51,37 +64,81 @@ function format(value) {
   return Number(value.toPrecision(7)).toLocaleString(game.i18n.lang || "en");
 }
 
-function summary(scene, atlas) {
-  const grid = readSceneGridScale(scene);
-  const section = node("section");
-  section.setAttribute("data-fvtt-atlas-setup", "");
+function atlasPanel(scene, atlas, actions, refresh) {
+  const root = node("section");
+  root.setAttribute("data-fvtt-atlas-setup", "");
 
-  section.appendChild(node("h3", label("FVTTATLAS.Atlas.Tab")));
-  section.appendChild(node("p", atlas.enabled ?
-    label("FVTTATLAS.Atlas.Active") : label("FVTTATLAS.Atlas.Inactive")));
+  // A configured road network is what makes this Scene an Atlas. The old
+  // enabled flag remains persisted for v1 compatibility, but has no UI toggle.
+  const active = atlas.segments.length > 0;
+  root.appendChild(node("h3", label("FVTTATLAS.Atlas.Tab")));
+  root.appendChild(node("p", active ?
+    label("FVTTATLAS.Roads.Active") : label("FVTTATLAS.Roads.EmptyStatus")));
 
-  section.appendChild(node("h4", label("FVTTATLAS.Atlas.Measurement")));
-  if (grid) {
+  const section = node("fieldset");
+  const header = node("legend");
+  header.appendChild(node("span", label("FVTTATLAS.Roads.Title") + " "));
+  header.appendChild(button("+", label("FVTTATLAS.Roads.Add"), () => {
+    actions.begin(scene, refresh);
+  }));
+  section.appendChild(header);
+
+  const draft = actions.draft(scene);
+  if (draft) {
     section.appendChild(node("p",
-      `${label("FVTTATLAS.Atlas.NativeGrid")}: ${format(grid.unitsPerSpace)} ${grid.unit} / ${format(grid.pixelsPerSpace)} px`));
-  } else {
-    section.appendChild(node("p", label("FVTTATLAS.Atlas.GridUnavailable"), "hint"));
+      label("FVTTATLAS.Roads.Drawing") + " " +
+      draft.points + " " + label("FVTTATLAS.Roads.Points"), "hint"));
+    const controls = node("div", undefined, "form-fields");
+    controls.appendChild(button(label("FVTTATLAS.Roads.Finish"),
+      label("FVTTATLAS.Roads.Finish"), () => actions.finish()));
+    controls.appendChild(button(label("FVTTATLAS.Roads.Cancel"),
+      label("FVTTATLAS.Roads.Cancel"), () => actions.cancel()));
+    section.appendChild(controls);
   }
-  section.appendChild(node("p", label("FVTTATLAS.Atlas.SceneGridSaveHint"), "hint"));
-  return section;
+
+  if (!atlas.segments.length) {
+    section.appendChild(node("p", label("FVTTATLAS.Roads.NoRoads"), "hint"));
+  }
+
+  for (const [index, segment] of atlas.segments.entries()) {
+    const row = node("div", undefined, "form-group");
+    row.setAttribute("data-atlas-road-id", segment.id);
+    const roadName = segment.name || label("FVTTATLAS.Roads.Title") + " " + (index + 1);
+    const text = node("span", roadName);
+    row.appendChild(text);
+    const controls = node("div", undefined, "form-fields");
+    controls.appendChild(button("◎", label("FVTTATLAS.Roads.Highlight"),
+      () => actions.select(scene, segment.id)));
+    controls.appendChild(button("✎", label("FVTTATLAS.Roads.Rename"),
+      async () => { await actions.rename(scene, segment, refresh); }));
+    controls.appendChild(button("×", label("FVTTATLAS.Roads.Delete"),
+      async () => { await actions.remove(scene, segment, refresh); }));
+    row.appendChild(controls);
+    section.appendChild(row);
+  }
+  root.appendChild(section);
+
+  const measurement = node("fieldset");
+  measurement.appendChild(node("legend", label("FVTTATLAS.Atlas.Measurement")));
+  const grid = readSceneGridScale(scene);
+  if (grid) measurement.appendChild(node("p",
+    `${label("FVTTATLAS.Atlas.NativeGrid")}: ${format(grid.unitsPerSpace)} ${grid.unit} / ${format(grid.pixelsPerSpace)} px`));
+  else measurement.appendChild(node("p", label("FVTTATLAS.Atlas.GridUnavailable"), "hint"));
+  measurement.appendChild(node("p", label("FVTTATLAS.Atlas.SceneGridSaveHint"), "hint"));
+  root.appendChild(measurement);
+  return root;
 }
 
 /**
- * Populate the native Atlas tab. If a custom sheet does not expose our PART,
- * fall back to a form-group INSIDE its Grid/Misc tab, never above native tabs.
- * The control opens a separate DialogV2 so only our Scene flag is submitted.
+ * Add the road list inside the existing native Scene Configuration Atlas part.
+ * All Atlas buttons are type=button: they save only Atlas flags, never submit
+ * unrelated core Scene form fields.
  */
-export function addAtlasSetupToSceneConfig(app, element, openAtlasSetup) {
+export function addAtlasRoadsToSceneConfig(app, element, actions) {
   const scene = app?.document;
   if (!globalThis.game?.user?.isGM ||
       !scene?.id ||
       !scene?.canUserModify?.(game.user, "update")) return;
-
   const form = element?.matches?.("form") ? element : element?.querySelector?.("form");
   const nativeRoot = element?.querySelector?.(ROOT_SELECTOR);
   const fallback = !nativeRoot && (
@@ -91,35 +148,18 @@ export function addAtlasSetupToSceneConfig(app, element, openAtlasSetup) {
   );
   const target = nativeRoot || fallback;
   if (!target) return;
-
-  const old = target.querySelector?.("[data-fvtt-atlas-setup]");
-  if (old) old.remove();
+  target.querySelector?.("[data-fvtt-atlas-setup]")?.remove();
+  const refresh = () => {
+    if (app.rendered === false) return;
+    addAtlasRoadsToSceneConfig(app, element, actions);
+  };
 
   let panel;
-  try {
-    panel = summary(scene, readAtlas(scene));
-  } catch (error) {
+  try { panel = atlasPanel(scene, readAtlas(scene), actions, refresh); }
+  catch (error) {
     panel = node("section");
     panel.setAttribute("data-fvtt-atlas-setup", "");
-    panel.appendChild(node("h3", label("FVTTATLAS.Atlas.Tab")));
     panel.appendChild(node("p", error.message, "hint"));
   }
-  const fields = node("div");
-  fields.className = "form-fields";
-  const button = node("button", label("FVTTATLAS.Atlas.SceneSettingsButton"));
-  button.type = "button";
-  button.addEventListener("click", async event => {
-    event.preventDefault();
-    try {
-      await openAtlasSetup(scene, () => addAtlasSetupToSceneConfig(app, element, openAtlasSetup));
-    } catch (error) {
-      ui.notifications.error(error.message);
-    }
-  });
-  fields.appendChild(button);
-  panel.appendChild(fields);
-  panel.appendChild(node("p", label("FVTTATLAS.Atlas.SceneSettingsHint"), "hint"));
-
-  // The 2c/2d authoring lists will go into this native tab, not the dialog.
   target.appendChild(panel);
 }
