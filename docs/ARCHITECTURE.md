@@ -17,12 +17,14 @@ The first useful release is **GM-only**. The user-facing concept is journal-styl
 | Atlas image, dimensions, coordinate system | `Scene` | Reuse native Scene documents; no parallel map backend |
 | Places and map pins | `NoteDocument` + linked `JournalEntry`/`JournalEntryPage` | Reference existing documents and their permissions |
 | Geographic terrain polygons, shapes, holes, level scope | Native `RegionDocument` | Reuse as-is, without copying geometry or replacing behaviors |
-| Authored roads and junctions | `flags.fvtt-atlas-navigation.atlas` on each Scene | Module-managed, versioned data |\n| Region-to-atlas terrain link | Optional future `flags.fvtt-atlas-navigation.terrain` on each Region | Controlled tag and explicit speed multiplier; no automatic interpretation of native token movement cost |
+| Authored roads and junctions | `flags.fvtt-atlas-navigation.atlas` on each Scene | Module-managed, versioned data |
+| Region-to-atlas terrain link | Optional future `flags.fvtt-atlas-navigation.terrain` on each Region | Controlled tag and explicit speed multiplier; no automatic interpretation of native token movement cost |
 | Searchable adjacency graph | Pure in-memory projection of road data | Derived, not an independently persisted document |
 | Highlighted route | Temporary route result + canvas overlay | Does not modify the authored roads |
 | Controls / side panel | Foundry `ApplicationV2` or supported v14 UI conventions | GM editing and route query |
 | Visual road/network overlay | Module-owned canvas overlay/layer | Registration, ordering, teardown verified against v14 |
-| Distance and measurement units | Native Scene Grid settings by default; deliberate manual override | Avoid duplicate per-Scene km/mi inputs; optional global **display preference** later |\n| UI/session preferences | Foundry module settings / client preferences as appropriate | Not core road data |
+| Distance and measurement units | Native Scene Grid settings by default; deliberate manual override | Avoid duplicate per-Scene km/mi inputs; optional global **display preference** later |
+| UI/session preferences | Foundry module settings / client preferences as appropriate | Not core road data |
 
 Foundry v14 documents, application classes, and canvas groups are documented in the [v14 API](https://foundryvtt.com/api/v14/). The final overlay registration and lifecycle hooks must be confirmed against that exact version before coding.
 
@@ -124,14 +126,16 @@ LegendKeeper's [developer portal](https://www.legendkeeper.com/developers/) docu
 - Scene-based atlas, namespaced flags, explicit graph junctions/segments, GM-only first.
 - Pure routing engine, shortest path by geometric length, temporary route output.
 - No mandatory libraries or system dependencies.
-- No early automatic token movement, complex fog, or cross-Scene routing.\n- Native Scene Grid as measurement source; native Region shapes as terrain source; use namespaced flags only for module-owned terrain semantics.
+- No early automatic token movement, complex fog, or cross-Scene routing.
+- Native Scene Grid as measurement source; native Region shapes as terrain source; use namespaced flags only for module-owned terrain semantics.
 
 **Review before implementation**
 
 - Validate continuous road-scale conversion for square, hexagonal, and gridless Scenes using native Scene Grid measurements; decide explicit overrides and v1 migration semantics.
 - Exact v14 canvas overlay registration point, ordering, hit-testing, and cleanup.
 - Whether native Notes sufficiently cover POIs without additional marker metadata.
-- Editing UX for joining/cutting roads, deleting junctions, and undo/redo.\n- Stable v14 Atlas tab/section injection without private SceneConfig overrides, and native Region geometry interoperability.
+- Editing UX for joining/cutting roads, deleting junctions, and undo/redo.
+- Stable v14 Atlas tab/section injection without private SceneConfig overrides, and native Region geometry interoperability.
 - How player-safe network visibility should be represented and transmitted when that phase starts.
 - Size/performance threshold at which Scene flags need reconsideration.
 - JS vs TypeScript and bundler choice (prefer the smallest maintainable setup).
@@ -139,6 +143,7 @@ LegendKeeper's [developer portal](https://www.legendkeeper.com/developers/) docu
 ## 9. Primary technical references
 
 - [Foundry: Introduction to Module Development](https://foundryvtt.com/article/module-development/) — manifest, lifecycle, package shape, ES modules.
-- [Foundry v14 API index](https://foundryvtt.com/api/v14/) — Scenes, Notes, Journals, Regions, ApplicationV2, canvas APIs.\n- [Native Foundry Scene Regions guide](https://foundryvtt.com/article/scene-regions/) — Regions, shapes/holes, Behaviors, and token movement-cost boundaries.
+- [Foundry v14 API index](https://foundryvtt.com/api/v14/) — Scenes, Notes, Journals, Regions, ApplicationV2, canvas APIs.
+- [Native Foundry Scene Regions guide](https://foundryvtt.com/article/scene-regions/) — Regions, shapes/holes, Behaviors, and token movement-cost boundaries.
 - [LegendKeeper developer guide](https://www.legendkeeper.com/developers/) and [style guide](https://www.legendkeeper.com/developers/style/) — map/pin/page interaction patterns.
 - [Indy Route README](https://github.com/jwrpalmer99/indy-route) — route presentation and per-Scene storage reference.
