@@ -1,6 +1,6 @@
-# Architecture proposal — v0.1
+# Architecture — revised Phase 2 boundaries
 
-**Status:** review draft, not an implementation specification or an assertion that every API call is verified.  
+**Status:** Phase 1 implemented; Phase 2a v0.2.1 under GM test; Phase 2b–2d design revised October 23, 2026. Future slices are not yet implemented.  
 **Target:** Foundry VTT v14; game-system agnostic.  
 **Module identity:** `fvtt-atlas-navigation`.
 
@@ -16,13 +16,13 @@ The first useful release is **GM-only**. The user-facing concept is journal-styl
 | --- | --- | --- |
 | Atlas image, dimensions, coordinate system | `Scene` | Reuse native Scene documents; no parallel map backend |
 | Places and map pins | `NoteDocument` + linked `JournalEntry`/`JournalEntryPage` | Reference existing documents and their permissions |
-| Geographic terrain polygons | `RegionDocument` | Later phase; not needed to draw a road |
-| Authored roads and junctions | `flags.fvtt-atlas-navigation.atlas` on each Scene | Module-managed, versioned data |
+| Geographic terrain polygons, shapes, holes, level scope | Native `RegionDocument` | Reuse as-is, without copying geometry or replacing behaviors |
+| Authored roads and junctions | `flags.fvtt-atlas-navigation.atlas` on each Scene | Module-managed, versioned data |\n| Region-to-atlas terrain link | Optional future `flags.fvtt-atlas-navigation.terrain` on each Region | Controlled tag and explicit speed multiplier; no automatic interpretation of native token movement cost |
 | Searchable adjacency graph | Pure in-memory projection of road data | Derived, not an independently persisted document |
 | Highlighted route | Temporary route result + canvas overlay | Does not modify the authored roads |
 | Controls / side panel | Foundry `ApplicationV2` or supported v14 UI conventions | GM editing and route query |
 | Visual road/network overlay | Module-owned canvas overlay/layer | Registration, ordering, teardown verified against v14 |
-| UI/session preferences | Foundry module settings / client preferences as appropriate | Not core road data |
+| Distance and measurement units | Native Scene Grid settings by default; deliberate manual override | Avoid duplicate per-Scene km/mi inputs; optional global **display preference** later |\n| UI/session preferences | Foundry module settings / client preferences as appropriate | Not core road data |
 
 Foundry v14 documents, application classes, and canvas groups are documented in the [v14 API](https://foundryvtt.com/api/v14/). The final overlay registration and lifecycle hooks must be confirmed against that exact version before coding.
 
@@ -58,7 +58,7 @@ The exact JSON contract is in [DATA_MODEL.md](DATA_MODEL.md). Documented example
 
 Scene screen zoom/pan must not change stored coordinates. Render by transforming Scene coordinates through Foundry's canvas mechanism.
 
-A scene-specific calibration converts polyline pixel lengths to a travel unit such as miles or kilometers. Default to a map-derived or explicitly entered scale; never silently infer real distance from image pixels. Record calibration provenance when feasible, and show uncalibrated pixel distance or an explicit "calibration required" state until set. Avoid a second conflicting measurement model alongside Foundry's own grid settings; investigate whether the Scene grid distance is sufficient before adding a custom value.
+**Revised default:** derive travel scale and units from the native Scene Grid (`grid.distance`, `grid.size`, `grid.units`) when valid; allow an explicit per-Scene manual override only when needed. Never derive travel units from raw image pixels alone. Check hex and gridless measurements, since a Foundry grid step and a continuous polyline may not have identical semantics. **Keep existing schema v1 manual calibrations intact** and require a documented, lossless migration or affirmative GM switch before using the new default on an existing Scene. A possible later global Metric/Imperial choice is only a display conversion.
 
 ### Routing
 
@@ -68,7 +68,7 @@ Initial endpoints are selected network junctions. Later, support snapping a chos
 
 Handle absent endpoints, no connecting route, degenerate geometry, duplicate IDs, bad calibration, and stale Scene selection with explicit user feedback. A disconnected network is normal, not an exception.
 
-Shortest travel **time** and terrain/weather weights are future algorithm options. Keep distance, time, money, and display animation conceptually distinct.
+Shortest-distance computation is Phase 3a. **Phase 3b**, requiring separate runtime approval, may optimize travel time using linked native Region geometry and explicit terrain speed multipliers. Keep distance, time, money, and display animation conceptually distinct.
 
 ## 5. Rendering and interaction
 
@@ -80,9 +80,22 @@ Use separate conceptual layers:
 
 Lifecycle: initialize services, show overlays when a Scene becomes ready, refresh on changes, and fully detach listeners/graphics when canvas changes or module deactivates. Throttle/reuse hit testing and graphics for large road collections. Never make core graph behavior depend on the presence of a rendered canvas.
 
-Initial GM workflow: enable atlas Scene → calibrate scale → add/connect roads → save → choose start/end junction → calculate → display route/distance → edit/recalculate.
+Revised planned GM workflow: open Scene Configuration → Atlas tab/section → confirm native Grid measurement or optional override → create a road/waypoint from the list → author its actual geometry via Atlas canvas tools → optionally link existing native Regions as terrain → save → (Phase 3) choose endpoints and calculate the route. The Atlas entry should appear on every Scene without creating flags merely by opening it.
 
 Native map Notes should still open their permitted linked journals as Foundry expects. The module must not replace the Journal permission system with a custom duplicate.
+
+### Native Scene Regions and travel difficulty
+
+Use a **Scene's existing Regions**, including all their constituent shapes, holes, and level/elevation restrictions, as the source of terrain geometry. A GM associates a Region with the Atlas through controlled module metadata (for example, a `rocky` tag with `speedMultiplier: 0.5`) while the Region's own name, shapes, Behaviors, and permissions remain native. Region names themselves are not machine-readable travel rules.
+
+- The Scene Atlas tab/section lists linked Regions and opens their native configuration. The GM continues to draw and manage the actual Region geometry with Foundry's Region tools.
+- Region presence does not create an intersection junction in the road graph. Road junctions remain explicit graph IDs.
+- Derived geometry splits **each road polyline** into distances lying inside and outside Region polygons, respecting holes, levels, and overlapping Region policies. A 0.5 speed factor doubles time inside the Region; it does not double length.
+- Initial overlap policy proposal: apply the slowest eligible Region on a sub-length, not their product. An explicit closure policy is later work.
+- Native **Modify Movement Cost** Region Behaviors are token movement mechanisms whose semantics may depend on game-system movement modes. The Atlas planner must not automatically apply or overwrite them. Explicit interoperability can be reviewed later.
+- Changes to Regions and Scene Grid invalidate derived travel calculations but do not mutate the authored road geometry.
+
+See [revised Phase 2 design](PHASE2_DESIGN.md) for UI sketches, scope gates, and proposed metadata. The current v1 atlas schema remains unchanged until a versioned migration is implemented.
 
 ## 6. Player visibility and trust
 
@@ -111,14 +124,14 @@ LegendKeeper's [developer portal](https://www.legendkeeper.com/developers/) docu
 - Scene-based atlas, namespaced flags, explicit graph junctions/segments, GM-only first.
 - Pure routing engine, shortest path by geometric length, temporary route output.
 - No mandatory libraries or system dependencies.
-- No early automatic token movement, complex fog, or cross-Scene routing.
+- No early automatic token movement, complex fog, or cross-Scene routing.\n- Native Scene Grid as measurement source; native Region shapes as terrain source; use namespaced flags only for module-owned terrain semantics.
 
 **Review before implementation**
 
-- Whether Foundry Scene grid distance can be the primary calibration source for most atlas images.
+- Validate continuous road-scale conversion for square, hexagonal, and gridless Scenes using native Scene Grid measurements; decide explicit overrides and v1 migration semantics.
 - Exact v14 canvas overlay registration point, ordering, hit-testing, and cleanup.
 - Whether native Notes sufficiently cover POIs without additional marker metadata.
-- Editing UX for joining/cutting roads, deleting junctions, and undo/redo.
+- Editing UX for joining/cutting roads, deleting junctions, and undo/redo.\n- Stable v14 Atlas tab/section injection without private SceneConfig overrides, and native Region geometry interoperability.
 - How player-safe network visibility should be represented and transmitted when that phase starts.
 - Size/performance threshold at which Scene flags need reconsideration.
 - JS vs TypeScript and bundler choice (prefer the smallest maintainable setup).
@@ -126,6 +139,6 @@ LegendKeeper's [developer portal](https://www.legendkeeper.com/developers/) docu
 ## 9. Primary technical references
 
 - [Foundry: Introduction to Module Development](https://foundryvtt.com/article/module-development/) — manifest, lifecycle, package shape, ES modules.
-- [Foundry v14 API index](https://foundryvtt.com/api/v14/) — Scenes, Notes, Journals, Regions, ApplicationV2, canvas APIs.
+- [Foundry v14 API index](https://foundryvtt.com/api/v14/) — Scenes, Notes, Journals, Regions, ApplicationV2, canvas APIs.\n- [Native Foundry Scene Regions guide](https://foundryvtt.com/article/scene-regions/) — Regions, shapes/holes, Behaviors, and token movement-cost boundaries.
 - [LegendKeeper developer guide](https://www.legendkeeper.com/developers/) and [style guide](https://www.legendkeeper.com/developers/style/) — map/pin/page interaction patterns.
 - [Indy Route README](https://github.com/jwrpalmer99/indy-route) — route presentation and per-Scene storage reference.
