@@ -1,4 +1,4 @@
-# Atlas data model — schema v3 (Phase 2c v0.2.7)
+# Atlas data model — schema v3 (Phase 2c v0.2.8)
 
 **Current contract:** Each Foundry Scene stores one validated `flags.fvtt-atlas-navigation.atlas` payload. Schema v3 separates a **named logical road** from one or more **graph segments**, which can be split at junctions without duplicating a name in the road list.
 
@@ -24,6 +24,10 @@ Migration is deliberately explicit:
 4. New Scenes start with empty v3; empty old Scenes upgrade when their first road is saved.
 
 Since v0.2.7, potential connections are proposed and confirmed by the GM before affecting topology. On newly drawn roads, Finish Road prompts for any endpoint snap (including shortcuts touching two distinct named roads). Dragged junctions similarly prompt before attaching to a different existing graph node or a road interior. Declining a dragged-junction connection reverts that pending drag; approving splits the target segment if necessary, retains logical `roadId` ownership and road names, and stages the change for Save Points. Shared source junctions bring all their incident road sections into the new connection. A node-target attachment removes the now-unused source junction record; an edge-target split reuses the source junction ID and allocates one new segment ID. There is **no silent name merge**—the separate Merge connected roads action alone changes group membership. Orphan nodes from deletions are never offered as new snap destinations.
+
+In v0.2.8 a GM can explicitly **detach one named road from a shared node** by Alt/Option-clicking its gold edit handle and confirming. The `detach-node` staged edit allocates one new node ID at the old node's coordinates and rewires only segments with the selected `roadId` that touch the old node. Other road IDs and their incident sections stay at the old node; no edges, roads, names or shapes are removed, and the original node stays valid. The detached handle can then move independently or attach elsewhere with another confirmation. Detach is rejected when no other named road shares the node. Undo/Cancel and revision-checked Save Points replay the operation without a schema migration.
+
+**Counts in the Scene Atlas list describe internal graph segments**, not the number of independently drawn lines or visually distinct branches. Splitting one road's segment at a new junction adds an internal segment, even though its logical road name and visual continuity stay the same.
 
 Road geometry editor operations are validated, revision-checked and staged in memory until **Save Points**. `move-node` changes a shared graph node and thus all connected segments; `connect-node`, `move-bend`, `insert-bend`, and `remove-bend` only alter the appropriate segment's interior `via` point list. Undo/Cancel discard uncommitted work. No Foundry `WallDocument` or `DrawingDocument` is created, and no movement/sight collision is introduced. The module uses native Scene Grid exclusively for future distance, never an independent scale.
 
