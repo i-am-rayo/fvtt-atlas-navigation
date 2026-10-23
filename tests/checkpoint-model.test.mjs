@@ -3,7 +3,7 @@ import test from "node:test";
 import { createEmptyAtlas, validateAtlas, upgradeAtlasCheckpoints } from "../scripts/atlas-model.js";
 import { addRoadCheckpoint, editRoadCheckpoint, removeRoadCheckpoint,
   listRoadCheckpoints } from "../scripts/checkpoint-model.js";
-import { applyRoadGeometryEdit, listRoadJunctions, mergeRoadGroups, removeRoad } from "../scripts/road-model.js";
+import { addRoad, applyRoadGeometryEdit, listRoadJunctions, mergeRoadGroups, removeRoad } from "../scripts/road-model.js";
 
 const fixture = () => ({
   ...createEmptyAtlas(),
@@ -183,4 +183,36 @@ test("v4 rejects stale, duplicate or malformed checkpoint payloads without losin
   }), /duplicate checkpoint ID/);
   assert.throws(() => validateAtlas({ ...initial, checkpoints: undefined }), /array/);
   assert.throws(() => validateAtlas({ ...initial, checkpoints: [] , extra: true }), /unsupported field/);
+});
+
+
+test("a conflicting checkpoint at a merged road node refuses merging instead of silently dropping metadata", () => {
+  let atlas = addRoadCheckpoint(fixture(), {
+    roadId: "main", candidate: { kind: "node", nodeId: "b" },
+    name: "Main Junction", elevationMeters: 10, idFactory: factory()
+  });
+  atlas = addRoadCheckpoint(atlas, {
+    roadId: "spur", candidate: { kind: "node", nodeId: "b" },
+    name: "Spur Junction", elevationMeters: 15, idFactory: factory()
+  });
+  assert.equal(atlas.checkpoints.length, 2);
+  assert.throws(() => mergeRoadGroups(atlas, {
+    keepRoadId: "main", mergeRoadId: "spur"
+  }), /duplicate checkpoint on road node/);
+  assert.equal(atlas.checkpoints.length, 2, "failed merge does not mutate authored data");
+});
+
+test("ordinary road creation on upgraded v4 atlas preserves preexisting checkpoints", () => {
+  const prior = addRoadCheckpoint(fixture(), {
+    roadId: "main", candidate: { kind: "node", nodeId: "a" },
+    name: "Camp", elevationMeters: 0, idFactory: factory()
+  });
+  const next = addRoad(prior, {
+    name: "New Road",
+    points: [{ x: 350, y: 100 }, { x: 450, y: 100 }],
+    idFactory: factory()
+  });
+  assert.equal(next.schemaVersion, 4);
+  assert.deepEqual(next.checkpoints, prior.checkpoints);
+  assert.equal(next.roads.length, prior.roads.length + 1);
 });
