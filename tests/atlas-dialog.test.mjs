@@ -123,10 +123,14 @@ test("a new Scene defaults to native Grid; unusable Grid cannot be selected", as
     assert.equal(elements(dialog.options.content, "select")[0].children[0].attributes.has("selected"), true);
     const save = dialog.options.buttons.find(button => button.action === "save");
 
+    assert.equal(await save.callback(null, { form: formFor({ source: "manual", scale: "" }) }), false,
+      "an empty Manual override must not silently switch to Grid");
+    assert.equal(stored, undefined);
+
     scene.grid.distance = 0; // Grid was modified while the dialog was open
     assert.equal(await save.callback(null, { form: formFor({ source: "scene-grid" }) }), false);
     assert.equal(stored, undefined);
-    assert.equal(errors.length, 1);
+    assert.equal(errors.length, 2);
   } finally {
     globalThis.document = previous.document;
     globalThis.game = previous.game;
