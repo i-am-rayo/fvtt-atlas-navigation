@@ -2,19 +2,20 @@
 
 A developing **standalone, system-agnostic atlas and road-navigation module for Foundry Virtual Tabletop v14**.
 
-> **Current build: Phase 2b development (v0.2.3), awaiting final Foundry v14 verification.** Phase 1 startup and URL installation were tested and merged. The owner confirmed that the GM-only native Atlas tab and save flow work in v0.2.3. This revision removes independent scale overrides, relying solely on Foundry's native Scene measurements while preserving historical data. **Roads, Waypoints, Region linking, and route calculation are not implemented yet**; their approved design reuses Foundry's native Region Behaviors.
+> **Current test build: Phase 2c (v0.2.4).** The GM verified Phase 2b native Scene Grid values updating correctly. This build replaces the redundant Configure Atlas dialog and enabled toggle with **Roads [+]** in the native Scene Atlas tab, plus first-pass map drawing and saved road management. It has not yet been tested live in Foundry. Draft PR #3 is unmerged.
 
 ## What works now
 
-- The Phase 1 module bootstrap, GM startup setting, and URL-based installation.
-- A GM-only **Atlas** tab in native Scene Configuration, with a supported in-sheet fallback if a custom Scene sheet cannot display it.
-- Enable/disable atlas mode per Scene, preserving data when disabled.
-- Use **native Scene Grid distance and units exclusively**, without storing or applying an Atlas-specific scale. Historical manual calibration values are retained for data safety but ignored.
-- Validate and persist versioned Scene flags with revision checks; no game-system-specific dependency.
-- Show an explicitly dismissible save notification in the current development build.
-- [Phase 2b installation and smoke-test instructions (v0.2.3)](docs/PHASE2_TESTING.md).
+- Phase 1 bootstrap, GM startup diagnostic setting, and URL-based installation.
+- A GM-only **Atlas** tab in native Scene Configuration, with an in-sheet fallback for custom sheets.
+- **Roads [+]:** start a drawing session on the configured Scene, click two or more map positions to add bends, **Finish Road** (or Enter) to save; Backspace undoes the last draft point; Esc/Cancel discards the draft.
+- Saved roads appear in the Atlas list. Highlight a road on the GM canvas, rename or delete it with confirmation. A Scene with roads has an active Atlas automatically; **there is no separate toggle**.
+- Endpoints near existing junctions (14 Scene pixels) reuse their IDs. Lines that cross visually **do not** connect automatically. Existing saved junctions are retained on road deletion.
+- Road geometry is stored as versioned per-Scene flags with permissions/revision checks; historical manual calibration values are preserved but ignored.
+- Native **Scene Grid** distance and units remain the only measurement source. **Route lengths and navigation have not been implemented**; road lines do not yet display distance labels.
+- [Phase 2c installation and Foundry smoke-test instructions (v0.2.4)](docs/PHASE2_TESTING.md).
 
-This test build is **not** a usable road editor yet. Phase 2c will add road/waypoint authoring; Phase 2d adds optional native Region links. For the earlier Phase 1 check, see [Phase 1 test notes](docs/INSTALLATION.md).
+**Still to build:** editing existing road points, a dedicated Waypoints/junction manager, linking native Regions, route calculation and terrain-based travel, and player reveal/hide. The module remains GM-only for editing. For Phase 1 history, see [Phase 1 test notes](docs/INSTALLATION.md).
 
 ## Vision
 
@@ -33,7 +34,7 @@ Core goals:
 
 1. Activate the module in a Foundry v14 world.
 2. Open the Atlas tab in native Scene Configuration. Measurement is inherited automatically from the Scene's Grid tab.
-3. Draw, connect, edit, and persist road junctions/segments via GM canvas controls.
+3. Use Roads [+] to draw/persist road segments; future tools will support editing their saved geometry and explicit waypoint management.
 4. Pick two network points and calculate the shortest connected route.
 5. See the highlighted path and total distance; receive a clear "no route" result for disconnected roads.
 6. Reload and confirm the authored network persists.
