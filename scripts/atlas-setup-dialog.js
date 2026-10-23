@@ -1,5 +1,5 @@
 import { readAtlas, saveAtlasSetup } from "./atlas-storage.js";
-import { differsFromSceneGrid, readSceneGridScale } from "./scene-grid.js";
+import { readSceneGridScale } from "./scene-grid.js";
 
 const label = key => game.i18n.localize(key);
 
@@ -46,55 +46,13 @@ function buildContent(scene, atlas, error) {
   paragraph(root, label("FVTTATLAS.Atlas.Measurement"), "atlas-measurement-heading");
   if (grid) {
     paragraph(root,
-      `${label("FVTTATLAS.Atlas.NativeGrid")}: ${grid.unitsPerSpace} ${grid.unit} /
-      ${grid.pixelsPerSpace} px (≈ ${Number(grid.unitsPerPixel.toPrecision(7))} ${grid.unit}/px)`
-        .replace(/\s+/g, " ").trim(),
+      `${label("FVTTATLAS.Atlas.NativeGrid")}: ${grid.unitsPerSpace} ${grid.unit} / ${grid.pixelsPerSpace} px`,
       "hint");
   } else {
     paragraph(root, label("FVTTATLAS.Atlas.GridUnavailable"), "hint");
   }
 
-  const source = document.createElement("select");
-  source.name = "measurementSource";
-  const initial = atlas.calibration || !grid ? "manual" : "scene-grid";
-  for (const [value, key] of [
-    ["scene-grid", "FVTTATLAS.Atlas.SourceGrid"],
-    ["manual", "FVTTATLAS.Atlas.SourceManual"]
-  ]) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.setAttribute("value", value);
-    option.textContent = label(key);
-    if (value === initial) option.setAttribute("selected", "");
-    if (value === "scene-grid" && !grid) option.setAttribute("disabled", "");
-    source.appendChild(option);
-  }
-  field(root, label("FVTTATLAS.Atlas.MeasurementSource"), source,
-    "FVTTATLAS.Atlas.MeasurementSourceHint");
-
-  const scale = document.createElement("input");
-  scale.name = "unitsPerPixel";
-  scale.type = "number";
-  scale.min = "0";
-  scale.step = "any";
-  scale.placeholder = "0.05";
-  scale.setAttribute("value", atlas.calibration ? String(atlas.calibration.unitsPerPixel) : "");
-  field(root, label("FVTTATLAS.Atlas.UnitsPerPixel"), scale, "FVTTATLAS.Atlas.ManualScaleHint");
-
-  const unit = document.createElement("input");
-  unit.name = "unit";
-  unit.type = "text";
-  unit.maxLength = 12;
-  unit.placeholder = "km";
-  unit.setAttribute("value", atlas.calibration?.unit ?? grid?.unit ?? "");
-  field(root, label("FVTTATLAS.Atlas.Unit"), unit, "FVTTATLAS.Atlas.ManualUnitHint");
-
-  if (atlas.calibration && grid) {
-    paragraph(root, label("FVTTATLAS.Atlas.SwitchToGridWarning"), "hint");
-    if (differsFromSceneGrid(atlas.calibration, grid)) {
-      paragraph(root, label("FVTTATLAS.Atlas.ScaleDifference"), "hint");
-    }
-  }
+  paragraph(root, label("FVTTATLAS.Atlas.NativeOnly"), "hint");
   paragraph(root, label("FVTTATLAS.Atlas.OneEditor"), "hint");
   return root;
 }
@@ -122,31 +80,8 @@ export function createAtlasSetupDialogClass(DialogV2) {
             try {
               const form = button.form;
               const enabled = form.elements.namedItem("atlasEnabled").checked;
-              const source = form.elements.namedItem("measurementSource").value;
-              let calibration;
-              if (source === "scene-grid") {
-                if (!readSceneGridScale(scene)) {
-                  throw new Error(label("FVTTATLAS.Atlas.GridUnavailable"));
-                }
-                // Explicitly selecting Grid removes a prior v1 manual override.
-                calibration = null;
-              } else if (source === "manual") {
-                const scaleText = form.elements.namedItem("unitsPerPixel").value.trim();
-                if (scaleText === "" && readSceneGridScale(scene)) {
-                  throw new Error(label("FVTTATLAS.Atlas.ManualValueRequired"));
-                }
-                calibration = scaleText === "" ? null : {
-                  source: "manual",
-                  unitsPerPixel: Number(scaleText),
-                  unit: form.elements.namedItem("unit").value.trim()
-                };
-              } else {
-                throw new Error("Unsupported Atlas measurement source");
-              }
-
               await saveAtlasSetup(scene, {
                 enabled,
-                calibration,
                 expectedRevision: atlas.revision
               });
               ui.notifications.info(label("FVTTATLAS.Atlas.Saved"), { permanent: true });
