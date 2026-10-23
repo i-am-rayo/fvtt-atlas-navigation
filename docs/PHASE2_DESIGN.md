@@ -1,3 +1,5 @@
+> **Implemented Phase 2c v0.2.6 checkpoint:** The Atlas tab manages named logical roads separately from topological segments. A spur may split a segment without duplicating its road name in the list. Older v2 networks require explicit GM organization; existing same-name sections never merge automatically. Connected named road groups may be explicitly merged. Edit Points uses module-owned draggable white bends and gold shared-junction handles, with insert/remove, Undo, Cancel and Save. It does not create core WallDocuments or closed polygons. Dedicated Waypoints, Region linking, route selection, and appearance controls remain later work.
+
 # Phase 2 revised design — Scene Atlas, roads, waypoints, and Regions
 
 ## Phase 2c v0.2.5 implementation (October 23, 2026)
