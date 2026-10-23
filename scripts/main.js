@@ -16,7 +16,6 @@ import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
 import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
 
-const STARTUP_NOTICE_SETTING = "showStartupNotice";
 const roadCanvas = new RoadCanvasController();
 
 function ensureIdle(scene) {
@@ -429,14 +428,6 @@ function actions() {
 
 Hooks.once("init", () => {
   registerWorldTravelPresets();
-  game.settings.register(MODULE_ID, STARTUP_NOTICE_SETTING, {
-    name: "FVTTATLAS.Settings.ShowStartupNotice.Name",
-    hint: "FVTTATLAS.Settings.ShowStartupNotice.Hint",
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: false
-  });
   const roadActions = actions();
   Hooks.on("renderSceneConfig", (app, element) => {
     addAtlasRoadsToSceneConfig(app, element, roadActions);
@@ -458,7 +449,4 @@ Hooks.once("ready", () => {
     console.warn("[" + MODULE_ID + "] Scene Atlas tab unavailable; using in-sheet fallback.", error);
   }
   console.info("[" + MODULE_ID + "] Module ready");
-  if (game.settings.get(MODULE_ID, STARTUP_NOTICE_SETTING)) {
-    ui.notifications.info(game.i18n.localize("FVTTATLAS.Notifications.Ready"));
-  }
 });
