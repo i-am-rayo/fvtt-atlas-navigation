@@ -1,9 +1,14 @@
 /**
- * Read-only Scene Grid distance calibration for atlas route measurements.
+ * Read the native Scene Grid's configured distance, unit, and pixel size.
  *
- * The Scene remains the source of truth. Schema v1 stores ONLY a manual
- * override; a null calibration means "follow this Scene's Grid" when valid.
- * No Foundry globals are needed here.
+ * A raw units-per-pixel ratio is intentionally NOT exposed: it cannot replace
+ * the native measured distance across square/hex/gridless cells.
+ * When routes are implemented, measure their actual Scene-space waypoints
+ * through Foundry v14's canvas.grid.measurePath(...).distance, matching
+ * the grid rules used by native measurement tools.
+ *
+ * Legacy v1 atlas.calibration objects are intentionally ignored. They remain
+ * in persisted flags for reversible migration, never as active travel rules.
  */
 export function readSceneGridScale(scene) {
   const grid = scene?.grid;
@@ -12,14 +17,9 @@ export function readSceneGridScale(scene) {
   const distance = grid.distance;
   const unit = typeof grid.units === "string" ? grid.units.trim() : "";
   if (!Number.isFinite(size) || size <= 0 ||
-      !Number.isFinite(distance) || distance <= 0 || !unit) return null;
-
-  const unitsPerPixel = distance / size;
-  if (!Number.isFinite(unitsPerPixel) || unitsPerPixel <= 0) return null;
+      !Number.isFinite(distance) || distance <= 0) return null;
 
   return {
-    source: "scene-grid",
-    unitsPerPixel,
     unit,
     pixelsPerSpace: size,
     unitsPerSpace: distance,
@@ -27,17 +27,3 @@ export function readSceneGridScale(scene) {
   };
 }
 
-/** Existing v1 manual data takes precedence until an explicit GM switch. */
-export function resolveAtlasScale(scene, atlas) {
-  if (atlas?.calibration) return { ...atlas.calibration };
-  return readSceneGridScale(scene);
-}
-
-/** Used for an informational warning; never silently replaces an override. */
-export function differsFromSceneGrid(manual, gridScale) {
-  if (!manual || !gridScale || manual.source !== "manual") return false;
-  if (manual.unit.trim().toLowerCase() !== gridScale.unit.toLowerCase()) return true;
-  const relative = Math.abs(manual.unitsPerPixel - gridScale.unitsPerPixel) /
-    Math.max(manual.unitsPerPixel, gridScale.unitsPerPixel);
-  return relative > 0.001;
-}
