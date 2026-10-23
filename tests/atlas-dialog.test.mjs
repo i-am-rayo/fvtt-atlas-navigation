@@ -22,25 +22,28 @@ function elements(root, tag) {
   return result;
 }
 
-function formFor({ enabled = true, source = "manual", scale = "0.05", unit = "km" } = {}) {
-  const values = {
-    atlasEnabled: { checked: enabled },
-    measurementSource: { value: source },
-    unitsPerPixel: { value: scale },
-    unit: { value: unit }
-  };
-  return { elements: { namedItem: name => values[name] } };
+function formFor(enabled = true) {
+  return { elements: { namedItem: name => name === "atlasEnabled" ?
+    { checked: enabled } : undefined } };
 }
 
-test("DialogV2 serializes legacy v1 manual defaults and switches to Grid only by explicit selection", async () => {
+function globals() {
   const previous = { document: globalThis.document, game: globalThis.game, ui: globalThis.ui };
+  globalThis.document = { createElement: tag => new Element(tag) };
+  globalThis.game = { user: { isGM: true }, i18n: { localize: key => key } };
+  return () => {
+    globalThis.document = previous.document;
+    globalThis.game = previous.game;
+    globalThis.ui = previous.ui;
+  };
+}
+
+test("old manual calibration is dormant but retained intact when changing Atlas enabled", async () => {
+  const restore = globals();
   let stored = {
-    schemaVersion: 1,
-    revision: 2,
-    enabled: true,
+    schemaVersion: 1, revision: 2, enabled: true,
     calibration: { source: "manual", unitsPerPixel: 0.05, unit: "km" },
-    nodes: [],
-    segments: []
+    nodes: [], segments: []
   };
   const confirmations = [];
   let refreshed = 0;
@@ -51,58 +54,40 @@ test("DialogV2 serializes legacy v1 manual defaults and switches to Grid only by
     canUserModify() { return true; },
     async setFlag(_namespace, _key, next) { stored = next; }
   };
-
   try {
-    globalThis.document = { createElement: tag => new Element(tag) };
-    globalThis.game = { user: { isGM: true }, i18n: { localize: key => key } };
-    globalThis.ui = {
-      notifications: {
-        info: (...args) => confirmations.push(args),
-        error: error => { throw Error("Unexpected save error: " + error); }
-      }
-    };
+    globalThis.ui = { notifications: {
+      info: (...args) => confirmations.push(args),
+      error: error => { throw Error("Unexpected save error: " + error); }
+    } };
     class MockDialogV2 { constructor(options) { this.options = options; } }
     const AtlasDialog = createAtlasSetupDialogClass(MockDialogV2);
     const dialog = new AtlasDialog(scene, () => { refreshed++; });
     const inputs = elements(dialog.options.content, "input");
-    assert.equal(inputs.length, 3);
+    assert.equal(inputs.length, 1, "only the enabled checkbox is editable");
     assert.equal(inputs[0].attributes.has("checked"), true);
-    assert.equal(inputs[1].attributes.get("value"), "0.05");
-    assert.equal(inputs[2].attributes.get("value"), "km");
-    const sourceSelect = elements(dialog.options.content, "select")[0];
-    assert.equal(sourceSelect.children[1].attributes.has("selected"), true, "saved manual must be selected");
+    assert.equal(elements(dialog.options.content, "select").length, 0, "no measurement source override");
+    assert.equal(elements(dialog.options.content, "input").some(i => i.name === "unitsPerPixel"), false);
 
     const save = dialog.options.buttons.find(button => button.action === "save");
-    assert.equal(await save.callback(null, { form: formFor() }), true);
+    assert.equal(await save.callback(null, { form: formFor(false) }), true);
+    assert.equal(stored.enabled, false);
     assert.equal(stored.revision, 3);
     assert.deepEqual(stored.calibration, { source: "manual", unitsPerPixel: 0.05, unit: "km" });
     assert.equal(refreshed, 1);
 
-    const reopened = new AtlasDialog(scene, () => { refreshed++; });
-    const select = elements(reopened.options.content, "select")[0];
-    assert.equal(select.children[1].attributes.has("selected"), true);
-    const saveGrid = reopened.options.buttons.find(button => button.action === "save");
-    assert.equal(await saveGrid.callback(null, { form: formFor({ source: "scene-grid" }) }), true);
-    assert.equal(stored.calibration, null, "an explicit switch opts into native Grid in v1");
-    assert.equal(stored.revision, 4);
-    assert.equal(refreshed, 2);
-
-    const afterGrid = new AtlasDialog(scene);
-    const selectedGrid = elements(afterGrid.options.content, "select")[0];
-    assert.equal(selectedGrid.children[0].attributes.has("selected"), true);
-    assert.equal(confirmations.length, 2);
+    const reopened = new AtlasDialog(scene);
+    assert.equal(elements(reopened.options.content, "input")[0].attributes.has("checked"), false);
+    assert.equal(elements(reopened.options.content, "select").length, 0);
+    assert.equal(confirmations.length, 1);
     assert.deepEqual(confirmations[0][1], { permanent: true });
   } finally {
-    globalThis.document = previous.document;
-    globalThis.game = previous.game;
-    globalThis.ui = previous.ui;
+    restore();
   }
 });
 
-test("a new Scene defaults to native Grid; unusable Grid cannot be selected", async () => {
-  const previous = { document: globalThis.document, game: globalThis.game, ui: globalThis.ui };
+test("new Scenes persist only enabled state; Grid changes require no Atlas migration", async () => {
+  const restore = globals();
   let stored;
-  const errors = [];
   const scene = {
     id: "scene-2", name: "New Scene",
     grid: { size: 100, distance: 2, units: "mi" },
@@ -111,29 +96,21 @@ test("a new Scene defaults to native Grid; unusable Grid cannot be selected", as
     async setFlag(_namespace, _key, next) { stored = next; }
   };
   try {
-    globalThis.document = { createElement: tag => new Element(tag) };
-    globalThis.game = { user: { isGM: true }, i18n: { localize: key => key } };
-    globalThis.ui = { notifications: {
-      info() {},
-      error(message) { errors.push(message); }
-    } };
+    globalThis.ui = { notifications: { info() {}, error(message) { throw Error(message); } } };
     class MockDialogV2 { constructor(options) { this.options = options; } }
     const AtlasDialog = createAtlasSetupDialogClass(MockDialogV2);
     const dialog = new AtlasDialog(scene);
-    assert.equal(elements(dialog.options.content, "select")[0].children[0].attributes.has("selected"), true);
+    assert.equal(stored, undefined, "opening configuration is read-only");
+    assert.equal(elements(dialog.options.content, "input").length, 1);
     const save = dialog.options.buttons.find(button => button.action === "save");
-
-    assert.equal(await save.callback(null, { form: formFor({ source: "manual", scale: "" }) }), false,
-      "an empty Manual override must not silently switch to Grid");
-    assert.equal(stored, undefined);
-
-    scene.grid.distance = 0; // Grid was modified while the dialog was open
-    assert.equal(await save.callback(null, { form: formFor({ source: "scene-grid" }) }), false);
-    assert.equal(stored, undefined);
-    assert.equal(errors.length, 2);
+    assert.equal(await save.callback(null, { form: formFor(true) }), true);
+    assert.equal(stored.calibration, null, "new flags never store a duplicate scale");
+    assert.equal(stored.enabled, true);
+    scene.grid.distance = 0;
+    const reopened = new AtlasDialog(scene);
+    assert.equal(elements(reopened.options.content, "input").length, 1,
+      "a missing/invalid grid does not switch on manual scale editing");
   } finally {
-    globalThis.document = previous.document;
-    globalThis.game = previous.game;
-    globalThis.ui = previous.ui;
+    restore();
   }
 });
