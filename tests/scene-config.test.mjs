@@ -1,14 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addAtlasSetupToSceneConfig, registerAtlasSceneTab } from "../scripts/scene-config.js";
+import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "../scripts/scene-config.js";
 
 class Element {
-  constructor(tag) {
-    this.tag = tag;
-    this.attributes = new Map();
-    this.children = [];
-    this.listeners = new Map();
-  }
+  constructor(tag) { this.tag = tag; this.attributes = new Map(); this.children = []; this.listeners = new Map(); }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   appendChild(child) { this.children.push(child); }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
@@ -16,26 +11,24 @@ class Element {
 
 function buttons(root) {
   const result = [];
-  const visit = n => {
-    if (n.tag === "button") result.push(n);
-    for (const child of n.children) visit(child);
-  };
+  const visit = n => { if (n.tag === "button") result.push(n); for (const child of n.children) visit(child); };
   visit(root);
   return result;
 }
 
-test("registers one Atlas tab/part via v14 public SceneConfig TABS/PARTS without touching private methods", () => {
+function textContents(root) {
+  return [root.textContent ?? "", ...root.children.map(textContents)].join(" ");
+}
+
+test("registers one Atlas tab/part via v14 SceneConfig TABS/PARTS", () => {
   class SceneConfig {}
   SceneConfig.TABS = { sheet: { initial: "basics", tabs: [
     { id: "basics" }, { id: "grid" }, { id: "levels" }, { id: "misc" }
   ] } };
   SceneConfig.PARTS = {
-    tabs: { template: "tabs" },
-    basics: { template: "basics" },
-    grid: { template: "grid" },
-    levels: { template: "levels" },
-    misc: { template: "misc" },
-    footer: { template: "footer" }
+    tabs: { template: "tabs" }, basics: { template: "basics" },
+    grid: { template: "grid" }, levels: { template: "levels" },
+    misc: { template: "misc" }, footer: { template: "footer" }
   };
   assert.equal(registerAtlasSceneTab(SceneConfig), true);
   assert.deepEqual(SceneConfig.TABS.sheet.tabs.map(t => t.id),
@@ -47,83 +40,96 @@ test("registers one Atlas tab/part via v14 public SceneConfig TABS/PARTS without
   assert.equal(registerAtlasSceneTab(null), false);
 });
 
-test("renders inside Atlas tab and edits configured Scene, never the currently viewed Scene", async () => {
+test("Roads plus opens drawing against the configured Scene; no Configure dialog", async () => {
   const previous = { document: globalThis.document, game: globalThis.game, ui: globalThis.ui };
   let mounted = null;
   const nativeRoot = {
     querySelector: selector => selector === "[data-fvtt-atlas-setup]" ? mounted : null,
-    appendChild(node) {
-      mounted = node;
-      node.remove = () => { mounted = null; };
-    }
+    appendChild(n) { mounted = n; n.remove = () => { mounted = null; }; }
   };
   const element = { matches: () => false, querySelector: selector =>
     selector === "[data-fvtt-atlas-scene-root]" ? nativeRoot : null };
   const scene = {
-    id: "configured-not-viewed", name: "Configured Scene",
-    grid: { size: 49, distance: 7.5, units: "km" },
-    getFlag: () => null,
-    canUserModify: () => true
+    id: "configured", grid: { size: 49, distance: 8, units: "km" },
+    getFlag: () => null, canUserModify: () => true
   };
-  let opened;
-  let refresh;
-
+  let begun;
+  const actions = {
+    begin: (chosen, refresh) => { begun = { chosen, refresh }; },
+    draft: () => null, finish() {}, cancel() {}, select() {}, rename() {}, remove() {}
+  };
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
-    globalThis.game = { user: { isGM: true }, i18n: { localize: key => key, lang: "en" } };
-    globalThis.ui = { notifications: { error: message => { throw Error(message); } } };
-
-    const opener = async (chosen, callback) => { opened = chosen; refresh = callback; };
-    addAtlasSetupToSceneConfig({ document: scene }, element, opener);
-    assert.ok(mounted, "the native Atlas root must contain the panel");
+    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k, lang: "en" } };
+    globalThis.ui = { notifications: { error: m => { throw Error(m); } } };
+    addAtlasRoadsToSceneConfig({ document: scene }, element, actions);
+    assert.ok(mounted);
     assert.equal(mounted.attributes.has("data-fvtt-atlas-setup"), true);
-    const button = buttons(mounted)[0];
-    assert.equal(button.type, "button");
-    let prevented = false;
-    await button.listeners.get("click")({ preventDefault() { prevented = true; } });
-    assert.equal(prevented, true);
-    assert.equal(opened, scene);
-    assert.equal(typeof refresh, "function");
-
+    assert.equal(buttons(mounted).length, 1, "empty atlas has only the Roads add button");
+    const plus = buttons(mounted)[0];
+    assert.equal(plus.textContent, "+");
+    assert.equal(plus.type, "button");
+    await plus.listeners.get("click")({ preventDefault() {} });
+    assert.equal(begun.chosen, scene);
     const old = mounted;
-    refresh();
-    assert.notEqual(mounted, old, "after saving, refresh the native tab summary");
+    begun.refresh();
+    assert.notEqual(mounted, old, "refresh replaces the road panel");
+    assert.doesNotMatch(textContents(mounted), /Configure Atlas|Use this Scene as an atlas/);
 
     globalThis.game.user.isGM = false;
     mounted = null;
-    addAtlasSetupToSceneConfig({ document: scene }, element, opener);
-    assert.equal(mounted, null, "players must not see Atlas authoring controls");
-  } finally {
-    globalThis.document = previous.document;
-    globalThis.game = previous.game;
-    globalThis.ui = previous.ui;
-  }
+    addAtlasRoadsToSceneConfig({ document: scene }, element, actions);
+    assert.equal(mounted, null, "players cannot see authoring controls");
+  } finally { Object.assign(globalThis, previous); }
 });
 
-test("a customized Scene sheet gets an in-sheet Misc fallback, not a banner above its tabs", () => {
+test("a Scene with roads shows select, rename, delete without activation toggles", () => {
   const previous = { document: globalThis.document, game: globalThis.game };
   let mounted = null;
-  const misc = {
-    querySelector: () => null,
-    appendChild: node => { mounted = node; }
+  const nativeRoot = {
+    querySelector: () => null, appendChild: n => { mounted = n; }
   };
-  const element = { matches: () => false, querySelector: selector => {
-    if (selector === '[data-tab="misc"]') return misc;
-    return null;
-  } };
+  const element = { querySelector: selector =>
+    selector === "[data-fvtt-atlas-scene-root]" ? nativeRoot : null };
   const scene = {
-    id: "fallback", name: "Fallback Scene",
-    grid: { size: 100, distance: 5, units: "ft" },
-    getFlag: () => null,
-    canUserModify: () => true
+    id: "filled", grid: { size: 100, distance: 5, units: "mi" },
+    canUserModify: () => true,
+    getFlag: () => ({
+      schemaVersion: 1, revision: 2, enabled: false, calibration: null,
+      nodes: [{ id: "a", x: 0, y: 0 }, { id: "b", x: 100, y: 0 }],
+      segments: [{ id: "r1", from: "a", to: "b", via: [], name: "North Road", bidirectional: true }]
+    })
   };
+  let selected;
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
-    globalThis.game = { user: { isGM: true }, i18n: { localize: key => key, lang: "en" } };
-    addAtlasSetupToSceneConfig({ document: scene }, element, async () => {});
-    assert.ok(mounted, "append to Misc when custom tab part is unavailable");
-  } finally {
-    globalThis.document = previous.document;
-    globalThis.game = previous.game;
-  }
+    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k, lang: "en" } };
+    addAtlasRoadsToSceneConfig({ document: scene }, element, {
+      begin() {}, draft: () => null, finish() {}, cancel() {},
+      select: (scene, id) => { selected = id; }, rename() {}, remove() {}
+    });
+    assert.equal(buttons(mounted).length, 4);
+    assert.match(textContents(mounted), /North Road/);
+    assert.doesNotMatch(textContents(mounted), /Configure Atlas/);
+    buttons(mounted)[1].listeners.get("click")({ preventDefault() {} });
+    assert.equal(selected, "r1");
+  } finally { Object.assign(globalThis, previous); }
+});
+
+test("custom Scene sheet gets an in-sheet Misc fallback", () => {
+  const previous = { document: globalThis.document, game: globalThis.game };
+  let mounted = null;
+  const misc = { querySelector: () => null, appendChild: n => { mounted = n; } };
+  const element = { matches: () => false, querySelector: selector =>
+    selector === '[data-tab="misc"]' ? misc : null };
+  const scene = { id: "fallback", grid: { size: 100, distance: 5, units: "ft" },
+    getFlag: () => null, canUserModify: () => true };
+  try {
+    globalThis.document = { createElement: tag => new Element(tag) };
+    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k, lang: "en" } };
+    addAtlasRoadsToSceneConfig({ document: scene }, element, {
+      begin() {}, draft: () => null, finish() {}, cancel() {}, select() {}, rename() {}, remove() {}
+    });
+    assert.ok(mounted);
+  } finally { Object.assign(globalThis, previous); }
 });
