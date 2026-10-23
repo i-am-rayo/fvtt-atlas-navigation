@@ -1,6 +1,6 @@
 # Phase 2a — Scene atlas setup and calibration smoke test
 
-This is the **first vertical slice of Phase 2**, not a road editor yet. It enables one Scene as an atlas and stores a manual travel scale in a validated, versioned Scene flag. Road drawing, junction editing, overlays, and routing are **not implemented**.
+This documents the **implemented 0.2.1 vertical slice**, not the revised future UI. It enables one Scene as an atlas and stores a manual travel scale in a validated, versioned Scene flag. Road drawing, junction editing, native Region linking, overlays, and routing are **not implemented**. The approved [revised Phase 2 design](PHASE2_DESIGN.md) will replace the top-of-sheet launcher with a better Atlas management surface and read native Scene Grid measurements by default; it is not yet available in this test build.
 
 ## Install this development build
 
@@ -49,7 +49,7 @@ The revision increments after every successful save. Never manually set or paste
 
 ## Permission and concurrency checks
 
-- As a non-GM player, the Atlas Setup settings menu must be restricted. No canvas overlay or atlas network is intentionally presented to players.
+- As a non-GM player, the Atlas Setup button inside Scene Configuration must not be available. No canvas overlay or atlas network is intentionally presented to players.
 - For this development slice, **use only one GM editor at a time**. If another GM changes a Scene flag while your dialog is open, a revision mismatch should reject your save, but the compare/check and write are not atomic across clients.
 - Do not put secrets in Scene flags. Hiding an interface does not establish confidentiality against player clients.
 
@@ -66,6 +66,7 @@ These cover the v1 atlas schema, invalid endpoints, nonfinite coordinates, zero-
 
 ## Out of scope / next Phase 2 slice
 
+- Native-looking Atlas management section/tab, Scene Grid measurement default, and eventual Region linking (revised Phase 2b/2d; see [design](PHASE2_DESIGN.md))
 - Canvas road and node overlay
 - Drawing, moving, connecting, disconnecting, and deleting junctions/segments
 - Route computation (Phase 3)
