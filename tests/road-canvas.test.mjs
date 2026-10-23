@@ -52,11 +52,15 @@ function setup() {
     notify[name] = message => notifications[name].push(message);
   }
   let n = 0;
+  const prompts = [];
+  let approve = true;
   const controller = new RoadCanvasController({
     canvasProvider: () => canvas, doc: () => doc,
-    idFactory: () => "node" + ++n, notify: () => notify
+    idFactory: () => "node" + ++n, notify: () => notify,
+    confirmAttach: async details => { prompts.push(details); return approve; }
   });
-  return { controller, scene, canvas, listeners, docListeners, notifications, Graphics };
+  return { controller, scene, canvas, listeners, docListeners, notifications, Graphics,
+    prompts, approve: value => { approve = value; } };
 }
 
 function pointEvent(x, y) {
@@ -249,4 +253,136 @@ test("point editing ends on Scene configuration close without mutating flags",as
   assert.equal(m.listeners.size,0);
   assert.deepEqual(readAtlas(m.scene),before);
  } finally {m.controller.tearDown();Object.assign(globalThis,prev);}
+});
+
+test("double-click a road inserts a bend through the dedicated dblclick handler", async () => {
+  const prev = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.PIXI = { Graphics: m.Graphics };
+    m.controller.start(m.scene, () => {});
+    m.listeners.get("pointerdown")(pointEvent(20, 30));
+    m.listeners.get("pointerdown")(pointEvent(60, 30));
+    assert.equal(await m.controller.finish(), true);
+    const initial = readAtlas(m.scene);
+    m.controller.startPointEdit(m.scene, initial.roads[0].id, () => {});
+    assert.ok(m.listeners.has("dblclick"));
+    m.listeners.get("dblclick")(pointEvent(40, 30));
+    assert.equal(m.controller.getDraft(m.scene).dirty, true);
+    assert.equal(readAtlas(m.scene).segments[0].via.length, 0,
+      "new bends must remain unsaved until Save Points");
+    assert.equal(await m.controller.finish(), true);
+    assert.deepEqual(readAtlas(m.scene).segments[0].via, [{ x: 70, y: 30 }]);
+    assert.equal(m.listeners.size, 0);
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, prev);
+  }
+});
+
+test("new-road attachment needs approval and never merges names", async () => {
+  const prev = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k } };
+    globalThis.PIXI = { Graphics: m.Graphics };
+    m.controller.start(m.scene, () => {});
+    m.listeners.get("pointerdown")(pointEvent(20, 30));
+    m.listeners.get("pointerdown")(pointEvent(60, 30));
+    assert.equal(await m.controller.finish(), true);
+    const baseline = readAtlas(m.scene);
+    m.approve(false);
+    m.controller.start(m.scene, () => {});
+    m.listeners.get("pointerdown")(pointEvent(40, 30));
+    m.listeners.get("pointerdown")(pointEvent(50, 70));
+    assert.equal(await m.controller.finish(), false, "GM declined connection");
+    assert.equal(readAtlas(m.scene).revision, baseline.revision);
+    assert.equal(readAtlas(m.scene).roads.length, 1);
+    assert.deepEqual(m.prompts[0].targetNames, ["Road 1"]);
+    assert.equal(m.controller.getDraft(m.scene).points, 2, "draft remains available");
+    m.controller.cancel();
+    m.approve(true);
+    m.controller.start(m.scene, () => {});
+    m.listeners.get("pointerdown")(pointEvent(40, 30));
+    m.listeners.get("pointerdown")(pointEvent(50, 70));
+    assert.equal(await m.controller.finish(), true);
+    const joined = readAtlas(m.scene);
+    assert.deepEqual(joined.roads.map(r => r.name), ["Road 1", "Road 2"]);
+    assert.equal(joined.segments.filter(s => s.roadId === joined.roads[0].id).length, 2);
+    assert.equal(m.prompts.length, 2, "both attempted snaps asked for approval");
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, prev);
+  }
+});
+
+test("dragged junction asks approval and can join another road without merging names", async () => {
+  const prev = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k } };
+    globalThis.PIXI = { Graphics: m.Graphics };
+    m.controller.start(m.scene, () => {});
+    m.listeners.get("pointerdown")(pointEvent(20, 30));
+    m.listeners.get("pointerdown")(pointEvent(60, 30));
+    assert.equal(await m.controller.finish(), true);
+    m.controller.start(m.scene, () => {});
+    m.listeners.get("pointerdown")(pointEvent(20, 55));
+    m.listeners.get("pointerdown")(pointEvent(60, 55));
+    assert.equal(await m.controller.finish(), true);
+    const initial = readAtlas(m.scene);
+    const spurId = initial.roads[1].id;
+    m.approve(false);
+    m.controller.startPointEdit(m.scene, spurId, () => {});
+    m.listeners.get("pointerdown")(pointEvent(20, 55));
+    m.listeners.get("pointermove")(pointEvent(40, 30));
+    await m.listeners.get("pointerup")(pointEvent(40, 30));
+    assert.equal(m.controller.getDraft(m.scene).dirty, false,
+      "declining must revert the proposed drag, not leave a false visual join");
+    m.approve(true);
+    m.listeners.get("pointerdown")(pointEvent(20, 55));
+    m.listeners.get("pointermove")(pointEvent(40, 30));
+    await m.listeners.get("pointerup")(pointEvent(40, 30));
+    assert.equal(m.controller.getDraft(m.scene).dirty, true);
+    assert.equal(m.prompts.length, 2);
+    assert.deepEqual(m.prompts[1].sourceNames, ["Road 2"]);
+    assert.deepEqual(m.prompts[1].targetNames, ["Road 1"]);
+    assert.equal(readAtlas(m.scene).revision, initial.revision, "pending edit only");
+    assert.equal(await m.controller.finish(), true);
+    const after = readAtlas(m.scene);
+    assert.deepEqual(after.roads.map(r=>r.name),["Road 1","Road 2"]);
+    assert.equal(after.segments.length,3);
+    assert.equal(m.listeners.size,0);
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, prev);
+  }
+});
+
+test("one new shortcut connecting two differently named roads requires one explicit review", async () => {
+  const prev = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k } };
+    globalThis.PIXI = { Graphics: m.Graphics };
+    const draw = async (from, to) => {
+      m.controller.start(m.scene, () => {});
+      m.listeners.get("pointerdown")(pointEvent(...from));
+      m.listeners.get("pointerdown")(pointEvent(...to));
+      return m.controller.finish();
+    };
+    assert.equal(await draw([20,30],[60,30]), true);
+    assert.equal(await draw([20,80],[60,80]), true);
+    assert.equal(await draw([40,30],[40,80]), true);
+    const atlas = readAtlas(m.scene);
+    assert.deepEqual(atlas.roads.map(r => r.name), ["Road 1","Road 2","Road 3"]);
+    assert.deepEqual(m.prompts.map(p=>p.targetNames), [["Road 1","Road 2"]]);
+    assert.equal(atlas.segments.length, 5,
+      "both main roads are subdivided topologically, but not logically merged");
+    assert.equal(atlas.roads.length, 3);
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, prev);
+  }
 });
