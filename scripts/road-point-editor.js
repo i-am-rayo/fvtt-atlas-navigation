@@ -9,13 +9,14 @@ import { toAtlasPoint } from "./road-coordinates.js";
  * temporary until the GM presses Save Points; Esc/Cancel restores the Scene.
  */
 export class RoadPointEditor {
-  constructor({ canvasProvider, doc, notify, refresh, confirmAttach, confirmDetach, idFactory }) {
+  constructor({ canvasProvider, doc, notify, refresh, confirmAttach, confirmDetach, chooseBranch, idFactory }) {
     this.canvasProvider = canvasProvider;
     this.doc = doc;
     this.notify = notify;
     this.refresh = refresh;
     this.confirmAttach = confirmAttach;
     this.confirmDetach = confirmDetach;
+    this.chooseBranch = chooseBranch;
     this.idFactory = idFactory;
     this.session = null;
     this.saving = false;
@@ -163,7 +164,37 @@ export class RoadPointEditor {
           const otherIds = new Set(affected.filter(segment => segment.roadId !== roadId)
             .map(segment => segment.roadId));
           if (!otherIds.size) {
-            this.notify()?.warn?.(game.i18n.localize("FVTTATLAS.Roads.NotShared"));
+            // Named-road merges can leave a branch whose incident sections
+            // all belong to ONE road. Detach one arm, not the entire road.
+            if (affected.length < 3) {
+              this.notify()?.warn?.(game.i18n.localize("FVTTATLAS.Roads.NotShared"));
+              return;
+            }
+            const roadName = s.working.roads.find(road => road.id === roadId)?.name;
+            const junction = s.working.nodes.find(n => n.id === handle.nodeId);
+            s.confirming = true;
+            s.selectedHandle = null;
+            this.refresh();
+            try {
+              const segmentId = await this.chooseBranch({
+                roadName,
+                junction: { ...junction, nodes: s.working.nodes },
+                sections: affected
+              });
+              if (this.session !== s || !segmentId) return;
+              const newNodeId = this.idFactory();
+              this.#perform({
+                kind: "detach-branch", nodeId: handle.nodeId,
+                segmentId, newNodeId
+              });
+              s.selectedHandle = { kind: "node", nodeId: newNodeId,
+                x: handle.x, y: handle.y };
+              this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Roads.DetachBranchNotice"));
+            } catch (error) { this.notify()?.error?.(error.message); }
+            finally {
+              s.confirming = false;
+              if (this.session === s) this.refresh();
+            }
             return;
           }
           const roadName = s.working.roads.find(road => road.id === roadId)?.name;
