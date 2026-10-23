@@ -1,11 +1,11 @@
 # Phase 2 revised design — Scene Atlas, roads, waypoints, and Regions
 
 **Decision date:** October 23, 2026. **Target:** Foundry VTT v14, system agnostic.
-**Status:** approved design. Phase 2b Scene tab and native-only Grid measurement are implemented in the **v0.2.3 development build**. The owner confirmed tab placement/saving with v0.2.2; 0.2.3 awaits retesting. Phase 2c/2d and all Region-aware route computations are not implemented. The persisted Scene atlas schema remains v1 and draft PR #3 remains unmerged.
+**Status:** approved design. The owner verified v0.2.3 native Grid updates in Foundry v14. **v0.2.4 is a Phase 2c first test slice** with Roads [+], click-to-draw, and road management. Waypoint-specific editing, Region linking, and all route calculations remain unimplemented. The Scene flag schema remains v1 and draft PR #3 remains unmerged.
 
 ## 1. GM experience and ownership
 
-The **v0.2.3 build** registers an **Atlas** tab in native Scene Configuration alongside Basics, Grid, and Levels. It replaces v0.2.1's awkward above-form control. A supported in-sheet Misc/Grid fallback is available for nonstandard sheets; its tab placement and saving were confirmed in Foundry v14 using v0.2.2.
+The **v0.2.4 build** registers an **Atlas** tab in native Scene Configuration alongside Basics, Grid, and Levels. It replaces v0.2.1's awkward above-form control. A supported in-sheet Misc/Grid fallback is available for nonstandard sheets; its tab placement and saving were confirmed in Foundry v14 using v0.2.2.
 
 | Atlas section | GM work | Canonical data |
 | --- | --- | --- |
@@ -14,7 +14,7 @@ The **v0.2.3 build** registers an **Atlas** tab in native Scene Configuration al
 | **Terrain Regions** | Link/unlink **existing native Regions**; show native Region name, active movement-related Behaviors, warnings, and an action to open native Region configuration | Native Region shapes/name/levels/Behaviors; minimal Atlas opt-in association only |
 | **Measurement** | Display the native Scene's grid size/distance/unit; configure them only in the native Grid tab | Native Scene Grid exclusively; no Atlas scale flag |
 
-A GM should be able to find the Atlas section on any Scene without explicitly enabling a special mode. For existing worlds, preserve the v1 `enabled` flag until a documented, lossless migration defines what replaces it. Opening a sheet alone must not write flags.
+A GM can find the Atlas section on any Scene without explicitly enabling it. **Presence of saved roads** determines whether the Scene has an active Atlas; there is no longer a separate Configure Atlas button or activation checkbox. The legacy v1 `enabled` flag stays in persisted data and is synchronized by road add/delete; older Scenes with enabled flags but zero roads display as unconfigured. A full migration will be separately reviewed. Opening a sheet alone never writes flags.
 
 **The tab is a management surface, not a spatial drawing canvas.**
 
@@ -26,6 +26,13 @@ A GM should be able to find the Atlas section on any Scene without explicitly en
 ### Foundry v14 UI integration rule
 
 Investigate supported ApplicationV2/SceneConfig tab extension conventions first. Do not monkey-patch private SceneConfig methods or overwrite core templates to add a tab. If a stable hook-based tab cannot be implemented safely, provide an in-sheet Atlas entry that opens a standalone native-looking Atlas manager, and validate its placement with an actual Foundry v14 build. The current top-of-form banner is not an accepted final UI.
+
+### Phase 2c first editor behavior (v0.2.4)
+
+- Each saved Roads entry is one named, bidirectional v1 segment with optional intermediate bend points. The [+] button activates click-to-place drawing on the **viewed** Scene; the Scene being configured must be on the canvas. Finish (or Enter) saves two or more points; Cancel (or Esc) abandons them; Backspace removes the last unsaved point. An overlay shows saved lines and the draft to the GM.
+- Two road endpoints within 14 Scene pixels of existing junctions share that junction ID. Merely crossing a line does not create a connection. Creating a junction *in the middle of an existing segment* and dragging/editing saved vertices remain future tasks; do not infer connectivity by visual proximity to a bend.
+- Road deletion preserves orphaned junction nodes to avoid cascading loss; later cleanup tools may handle unused nodes. Roads with no saved segments are inactive. Older explicit enabled values remain as historical metadata, not a UI switch.
+- This is a road network authoring test build, not a usable navigation/router: no authoritative road distance, itinerary, token terrain, or player-facing overlay yet.
 
 ## 2. Distance: native Scene Grid is the **only** measurement source
 
@@ -74,8 +81,8 @@ The owner authorized Phase 2 development, **not automatic expansion of runtime P
 
 | Slice | Implement after review | Gate |
 | --- | --- | --- |
-| **2b — UI and native measurement** | **Implemented in v0.2.3, pending regression acceptance:** native Atlas tab, native Scene Grid only, legacy manual values safely dormant | Two different Scenes, hex/gridless settings, old manual values retained but ignored |
-| **2c — Road/waypoint authoring** | Scene Atlas list with plus controls; canvas road/junction editing; stable graph persistence and undo/confirmation | Connectivity, branch/crossing, save/reload, pan/zoom |
+| **2b — UI and native measurement** | **Verified by owner in v0.2.3:** native Atlas tab, native Scene Grid only, legacy manual values safely dormant | Native Grid update from 7.5 to 8 shown correctly in Atlas; further square/hex/gridless coverage encouraged |
+| **2c — Road/waypoint authoring** | **v0.2.4 first slice:** Roads [+], click-to-place polyline bends, Finish/Cancel/Backspace, list/highlight/rename/delete, endpoint snap and revision-checked Scene flags. **Next:** explicit junction/waypoint tools, drag/edit points, richer connectivity | First-slice GM manual tests: Scene context, drawing and pan/zoom, endpoint snapping, save/reload, player access |
 | **2d — Region linking** | Native Region picker/link, optional display labels, active Behavior summary, and minimal GM-only association metadata; never edit native terrain costs | Multi-shape, hole, overlap, levels, enabled/disabled Behaviors, renamed/deleted Region fixtures |
 | **3a — Shortest distance** | Pure geometry graph and shortest-distance route with route overlay | Existing Phase 3 MVP acceptance |
 | **3b — Token-aware terrain cost/travel time** | Verify public token terrain-path APIs, preview native movement cost on roads, optional cost-aware routing; separate party speed/time conversion | New approval/Phase 3 gate; real v14 token/system tests, overlapping Behaviors, unavailable token handling |
