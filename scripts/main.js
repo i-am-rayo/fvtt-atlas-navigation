@@ -1,6 +1,6 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * Phase 2c: v0.2.9 adds explicit graph waypoints and bend promotion.
+ * Phase 2c: v0.2.10 separates junction topology from future descriptive waypoints.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
@@ -27,11 +27,11 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.StartNotice"));
     },
     draft: scene => roadCanvas.getDraft(scene),
-    beginWaypoint(scene, refresh) {
-      roadCanvas.startWaypoint(scene, refresh);
-      ui.notifications.info(game.i18n.localize("FVTTATLAS.Waypoints.StartNotice"));
+    beginJunction(scene, refresh) {
+      roadCanvas.startJunction(scene, refresh);
+      ui.notifications.info(game.i18n.localize("FVTTATLAS.Junctions.StartNotice"));
     },
-    selectWaypoint: (scene, nodeId) => roadCanvas.selectWaypoint(scene, nodeId),
+    selectJunction: (scene, nodeId) => roadCanvas.selectJunction(scene, nodeId),
     beginPointEdit(scene, roadId, refresh) {
       roadCanvas.startPointEdit(scene, roadId, refresh);
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.EditNotice"));
