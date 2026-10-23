@@ -46,7 +46,7 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 
 - **2b — Native Scene integration and scale:** Replace the awkward above-form banner with an Atlas tab/section or safely integrated sheet entry; display Grid scale/units as the default, retain explicit per-Scene override and all prior manual calibration records. Optionally show a later global display-unit preference; do not require duplicate unit entry.
 - **2c — Roads and waypoints:** Add `+` controls for road and waypoint lists, with naming/selection/deletion inside the Scene Atlas management UI; add/move/draw/connect polyline junctions with a separate GM canvas toolset. Persist and validate stable IDs in Scene flags.
-- **2d — Native Region linking:** Select existing Scene `RegionDocument` areas instead of recreating their geometry. Associate optional Atlas terrain tags and explicit speed multipliers through namespaced metadata; display linked native Regions in the tab and provide access to native Region editing. **No travel-time effects are calculated in Phase 2.**
+- **2d — Native Region linking:** Select existing Scene `RegionDocument` areas instead of recreating their geometry. Persist only minimal Atlas link metadata, display native Region names and active movement-related Behaviors, and open the existing Region editor for all terrain configuration. Optional Atlas labels are visual only; **no parallel speed multipliers, stacking rules, or travel-time calculation in Phase 2.**
 
 **Acceptance**
 
@@ -56,13 +56,13 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 - [ ] Roads share junctions only when explicitly connected; saving/reloading preserves stable IDs, coordinates, and scale provenance.
 - [ ] Invalid references, zero-length segments, and dangling links are prevented; deletion requires clear confirmation or prevents destructive cascades.
 - [ ] Native Regions can be linked/unlinked without replacing native shapes, holes, Behaviors, permissions, or levels.
-- [ ] The Region list and terrain metadata persist, while unlinked Regions have no Atlas effect; deleted/renamed Regions create recoverable reference updates/warnings.
-- [ ] Region test fixtures cover multiple shapes, holes, overlapping areas, and levels; actual road–Region intersection calculations are staged for Phase 3b.
+- [ ] Region link associations persist without copying or modifying native Behaviors. Unlinked Regions are excluded from **Atlas terrain-aware planning**, but can still affect actual tokens in Foundry. Deleted/renamed Regions create recoverable reference updates/warnings.
+- [ ] Region test fixtures cover multiple shapes, holes, overlaps, levels, and native enabled/disabled Behaviors; actual terrain-aware movement cost preview is staged for Phase 3b.
 - [ ] Distinct Scenes maintain independent networks and Region associations; single-GM editing limits are documented and tested.
 
 ## Phase 3 — Real routing (core GM MVP)
 
-**Phase 3a** delivers shortest-distance routing as originally scoped; **Phase 3b**, requiring its own implementation approval, adds Region-aware travel-time calculations and fastest-route selection. Terrain-aware planning must not be confused with Foundry's token movement-cost Region behavior.
+**Phase 3a** delivers shortest-distance routing as originally scoped; **Phase 3b**, requiring its own implementation approval, explores native token-aware Region movement costs and optional fastest-cost route selection. Atlas must use Foundry's movement mechanics rather than invent separate terrain multipliers. Estimating overland time is a separate travel-speed concern.
 
 **Deliverables**
 
@@ -80,7 +80,7 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 - [ ] Route queries never mutate or duplicate authored road data.
 - [ ] Route remains visible/accurate when zooming and recalculates after edits.
 
-**Phase 3a is the initial functional GM-only milestone.** Phase 3b will split road polylines by linked Region polygon geometry, apply explicit speed multipliers to intersecting lengths, and compare shortest versus fastest routes. It needs base travel speed and tests for holes, overlaps, levels, closures, and changing Region geometry.
+**Phase 3a is the initial functional GM-only milestone.** Proposed Phase 3b will evaluate road paths with Foundry v14's token-specific terrain movement API (`Token#createTerrainMovementPath` and `Token#measureMovementPath`), including existing Region Behaviors. This requires a selected party token/movement action, verification of whether native path calculations can filter to Atlas-linked Regions safely, and tests for mixed systems, overlapping costs, levels, and Region changes. Distances stay geometric; conversion from movement cost to hours/days requires explicit party travel speed.
 
 ## Phase 4 — Maps, places, and usability polish
 
@@ -120,7 +120,7 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 
 Consider only after a stable base:
 
-- Additional travel modes, advanced terrain stacking/priority policies, road closures, and system-neutral travel-cost models beyond the approved Phase 3b proposal.
+- Optional travel profiles, road closures, cross-system cost presentation, and broader terrain-rule integration **without duplicating native Foundry Region Behavior logic**.
 - Saved itineraries, animated travel playback, and optional token-follow movement.
 - Cross-Scene/world atlas navigation, performance indexes, richer categorization.
 - Fog/exploration interplay and accessibility/localization polish.
@@ -134,8 +134,8 @@ Each optional feature gets its own data-model revision, risks, and tests. Do not
 - Schema validity, missing/duplicate IDs, nonfinite coordinates, degenerate polylines.
 - Junction connectivity including bridges/non-connected intersections.
 - Distance sum with Scene Grid scale or explicit override, zero/missing calibration behavior.
-- Linked Region reference validation and geometry fixtures: multiple shapes, holes, overlap, level, road polyline clipping, and invalidated caches.
-- Once Phase 3b is approved: travel time on partially affected segments, shortest-vs-fastest route divergence, and no double-counting in overlapping Regions.
+- Linked Region reference validation and fixtures: multiple shapes, holes, overlaps, levels, Behavior state changes, and invalidated native cost previews.
+- Once Phase 3b is approved: selected-token movement-cost previews with native movement modes, system-specific Behaviors, overlaps (including native multiplicative stacking), region/level boundaries, and fallback when no token context exists.
 - Dijkstra correctness: branches, cycles, ties, disconnected components, one-node routes.
 - Serialization round-trip and migration fixtures once schemas change.
 
@@ -143,7 +143,7 @@ Each optional feature gets its own data-model revision, risks, and tests. Do not
 
 - Install/enable/disable; blank/large Scene; switching and reloading Scenes.
 - Native Note/Journal interaction and ownership checks.
-- Native Region interactions, module metadata isolation, Region deletion/edits, and interoperability with built-in Modify Movement Cost behaviors.
+- Native Region interactions, module link-metadata isolation, Region deletion/edits, and native token movement-cost behavior interoperability (plus system-provided behaviors where present).
 - Canvas pan/zoom, route overlay stacking, hit testing, and cleanup.
 - Two browser clients (GM and player), especially before Phase 5.
 - Multiple game systems; small and comparatively dense road networks.
