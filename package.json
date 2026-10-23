@@ -1,10 +1,10 @@
 {
   "name": "fvtt-atlas-navigation",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check scripts/main.js && node --check scripts/atlas-model.js && node --check scripts/atlas-storage.js && node --check scripts/atlas-setup-dialog.js && node --check scripts/scene-config.js && node --test",
+    "check": "node --check scripts/main.js && node --check scripts/atlas-model.js && node --check scripts/atlas-storage.js && node --check scripts/atlas-setup-dialog.js && node --check scripts/scene-config.js && node --check scripts/scene-grid.js && node --test",
     "test": "node --test"
   },
   "engines": {
