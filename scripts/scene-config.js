@@ -414,7 +414,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   const generatedSection = node("fieldset");
   generatedSection.appendChild(node("legend", label("FVTTATLAS.Generated.Title")));
   generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.Hint"), "hint"));
-  const available = atlas.schemaVersion === 4 ? atlas.roads.filter(r =>
+  const available = atlas.schemaVersion >= 4 ? atlas.roads.filter(r =>
     atlas.checkpoints.filter(c => c.roadId === r.id).length > 0) : [];
   if (!available.length) {
     generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.NoCheckpoints"), "hint"));
