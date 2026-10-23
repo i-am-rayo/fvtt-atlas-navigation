@@ -109,6 +109,8 @@ test("a Scene with roads shows select, rename, delete without activation toggles
       select: (scene, id) => { selected = id; }, rename() {}, remove() {}
     });
     assert.equal(buttons(mounted).length, 4);
+    assert.match(buttons(mounted)[0].textContent, /FVTTATLAS.Roads.Anchor/);
+    assert.ok(!buttons(mounted).some(b => b.textContent === "+"), "v1 graph cannot silently add v2 roads");
     assert.match(textContents(mounted), /North Road/);
     assert.doesNotMatch(textContents(mounted), /Configure Atlas/);
     buttons(mounted)[1].listeners.get("click")({ preventDefault() {} });
@@ -131,5 +133,35 @@ test("custom Scene sheet gets an in-sheet Misc fallback", () => {
       begin() {}, draft: () => null, finish() {}, cancel() {}, select() {}, rename() {}, remove() {}
     });
     assert.ok(mounted);
+  } finally { Object.assign(globalThis, previous); }
+});
+
+test("anchored v2 road list exposes redrawing while preserving normal controls", () => {
+  const previous = { document: globalThis.document, game: globalThis.game };
+  let mounted = null;
+  const nativeRoot = { querySelector: () => null, appendChild: n => { mounted = n; } };
+  const element = { querySelector: selector =>
+    selector === "[data-fvtt-atlas-scene-root]" ? nativeRoot : null };
+  const scene = {
+    id: "v2", grid: { size: 100, distance: 5, units: "km" },
+    canUserModify: () => true,
+    getFlag: () => ({
+      schemaVersion: 2, coordinateSpace: "image", revision: 3,
+      enabled: true, calibration: null,
+      nodes: [{ id: "a", x: 0, y: 0 }, { id: "b", x: 100, y: 0 }],
+      segments: [{ id: "r", from: "a", to: "b", via: [], name: "South Road", bidirectional: true }]
+    })
+  };
+  let editedId;
+  try {
+    globalThis.document = { createElement: tag => new Element(tag) };
+    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k, lang: "en" } };
+    addAtlasRoadsToSceneConfig({ document: scene }, element, {
+      begin() {}, draft: () => null, finish() {}, cancel() {}, select() {}, rename() {}, remove() {},
+      reshape: (_scene, id) => { editedId = id; }
+    });
+    assert.equal(buttons(mounted).length, 5, "plus, select, redraw, rename, delete");
+    buttons(mounted)[2].listeners.get("click")({ preventDefault() {} });
+    assert.equal(editedId, "r");
   } finally { Object.assign(globalThis, previous); }
 });
