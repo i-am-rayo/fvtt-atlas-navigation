@@ -95,7 +95,7 @@ test("click-to-draw uses canvas coordinates and saves with visible feedback", as
     assert.equal(atlas.segments.length, 1);
     assert.ok(m.notifications.info.some(s => s.includes("saved")));
     assert.ok(refreshes >= 3);
-    m.controller.selectRoad(m.scene, atlas.segments[0].id);
+    m.controller.selectRoad(m.scene, atlas.roads[0].id);
     assert.ok(m.controller.graphics.strokes > 0);
   } finally {
     m.controller.tearDown();
@@ -175,7 +175,7 @@ test("closing the Scene Config cancels drafts and releases selected highlights",
     m.listeners.get("pointerdown")(pointEvent(20, 30));
     m.listeners.get("pointerdown")(pointEvent(50, 30));
     assert.equal(await m.controller.finish(), true);
-    const roadId = readAtlas(m.scene).segments[0].id;
+    const roadId = readAtlas(m.scene).roads[0].id;
     m.controller.selectRoad(m.scene, roadId);
     assert.equal(m.controller.selectedRoadId, roadId);
     m.controller.endEditor(m.scene);
@@ -186,27 +186,67 @@ test("closing the Scene Config cancels drafts and releases selected highlights",
   }
 });
 
-test("bend redrawing retains original endpoint IDs", async () => {
-  const prev = { game: globalThis.game, PIXI: globalThis.PIXI };
-  const m = setup();
-  try {
-    globalThis.game = { user: { isGM: true } };
-    globalThis.PIXI = { Graphics: m.Graphics };
-    m.controller.start(m.scene, () => {});
-    m.listeners.get("pointerdown")(pointEvent(20, 30));
-    m.listeners.get("pointerdown")(pointEvent(50, 30));
-    assert.equal(await m.controller.finish(), true);
-    const old = readAtlas(m.scene).segments[0];
-    m.controller.startReshape(m.scene, old.id, () => {});
-    m.listeners.get("pointerdown")(pointEvent(35, 50));
-    assert.equal(await m.controller.finish(), true);
-    const updated = readAtlas(m.scene).segments[0];
-    assert.equal(updated.id, old.id);
-    assert.equal(updated.from, old.from);
-    assert.equal(updated.to, old.to);
-    assert.deepEqual(updated.via, [{ x: 60, y: 70 }]);
-  } finally {
-    m.controller.tearDown();
-    Object.assign(globalThis, prev);
-  }
+
+test("drag handles preview without writes; undo, cancel, and save are reversible",async()=>{
+ const prev={game:globalThis.game,PIXI:globalThis.PIXI};
+ const m=setup();
+ try {
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Graphics:m.Graphics};
+  m.controller.start(m.scene,()=>{});
+  m.listeners.get("pointerdown")(pointEvent(20,30));
+  m.listeners.get("pointerdown")(pointEvent(35,40));
+  m.listeners.get("pointerdown")(pointEvent(50,30));
+  assert.equal(await m.controller.finish(),true);
+  const prior=readAtlas(m.scene), roadId=prior.roads[0].id;
+  const startBend=prior.segments[0].via[0];
+  assert.deepEqual(startBend,{x:60,y:50});
+  m.controller.startPointEdit(m.scene,roadId,()=>{});
+  assert.equal(m.controller.getDraft(m.scene).mode,"points");
+  m.listeners.get("pointerdown")(pointEvent(35,40));
+  m.listeners.get("pointermove")(pointEvent(40,50));
+  assert.deepEqual(readAtlas(m.scene).segments[0].via[0],startBend,"drag is not persisted");
+  m.listeners.get("pointerup")(pointEvent(40,50));
+  assert.equal(m.controller.getDraft(m.scene).dirty,true);
+  m.controller.undo();
+  assert.equal(m.controller.getDraft(m.scene).dirty,false);
+  m.listeners.get("pointerdown")(pointEvent(35,40));
+  m.listeners.get("pointermove")(pointEvent(40,50));
+  m.listeners.get("pointerup")(pointEvent(40,50));
+  m.controller.cancel();
+  assert.deepEqual(readAtlas(m.scene).segments[0].via[0],startBend,"Cancel discards pending edits");
+  assert.equal(m.listeners.size,0);
+  m.controller.startPointEdit(m.scene,roadId,()=>{});
+  m.listeners.get("pointerdown")(pointEvent(35,40));
+  m.listeners.get("pointermove")(pointEvent(40,50));
+  m.listeners.get("pointerup")(pointEvent(40,50));
+  assert.equal(await m.controller.finish(),true);
+  assert.deepEqual(readAtlas(m.scene).segments[0].via[0],{x:70,y:70});
+  assert.equal(readAtlas(m.scene).segments[0].id,prior.segments[0].id);
+  assert.equal(readAtlas(m.scene).segments[0].from,prior.segments[0].from);
+  assert.equal(m.listeners.size,0);
+  assert.ok(m.notifications.info.some(message=>message.includes("points saved")));
+ } finally {m.controller.tearDown();Object.assign(globalThis,prev);}
+});
+
+test("point editing ends on Scene configuration close without mutating flags",async()=>{
+ const prev={game:globalThis.game,PIXI:globalThis.PIXI};
+ const m=setup();
+ try {
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Graphics:m.Graphics};
+  m.controller.start(m.scene,()=>{});
+  m.listeners.get("pointerdown")(pointEvent(20,30));
+  m.listeners.get("pointerdown")(pointEvent(50,30));
+  assert.equal(await m.controller.finish(),true);
+  const before=readAtlas(m.scene);
+  m.controller.startPointEdit(m.scene,before.roads[0].id,()=>{});
+  m.listeners.get("pointerdown")(pointEvent(20,30));
+  m.listeners.get("pointermove")(pointEvent(25,35));
+  m.listeners.get("pointerup")(pointEvent(25,35));
+  m.controller.endEditor(m.scene);
+  assert.equal(m.controller.getDraft(m.scene),null);
+  assert.equal(m.listeners.size,0);
+  assert.deepEqual(readAtlas(m.scene),before);
+ } finally {m.controller.tearDown();Object.assign(globalThis,prev);}
 });
