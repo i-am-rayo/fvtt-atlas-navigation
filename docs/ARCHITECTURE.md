@@ -1,3 +1,5 @@
+> **v0.2.9 topology addendum:** Promote an existing `via[]` bend or insert a junction on a road edge only by explicit GM action. Both operations create one stable node ID, split the selected segment into two edges owned by the *same* logical `roadId`, preserve the first edge ID, and stage a reversible point-editor operation. Separate named roads intersecting geometrically do not join; a later drag-to-connect requires confirmation. Waypoints are existing Scene graph nodes, not new Foundry documents or duplicated Region geometry. The Atlas list renders a bounded window of up to 25 active junctions; lookups occur on deliberate editor actions, not every animation frame. No schema migration or new scene measurement rules are necessary.
+
 # Architecture — revised Phase 2 boundaries
 
 **Status:** Phase 1 merged; Phase 2b native Grid verified; Phase 2c v0.2.5 map padding and road-junction editing owner-verified; v0.2.6 adds logical `roads[]` grouping and draggable point edits (pending live Foundry v14 test). Phase 2d Region linking and Phase 3 routing remain planned.
