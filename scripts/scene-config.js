@@ -1,9 +1,19 @@
 import { readAtlas } from "./atlas-storage.js";
 import { readSceneGridScale } from "./scene-grid.js";
-import { getRoadMergeCandidates } from "./road-model.js";
+import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
+const junctionFilters = new Map();
+
+function junctionFilterFor(scene, atlas) {
+  let state = junctionFilters.get(scene.id);
+  if (!state || !atlas.roads?.some(road => road.id === state.roadId)) {
+    state = { roadId: atlas.roads?.[0]?.id ?? null, scope: "selected" };
+    junctionFilters.set(scene.id, state);
+  }
+  return state;
+}
 
 /**
  * Extend Foundry v14's documented public TABS/PARTS configuration.
@@ -115,7 +125,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   section.appendChild(header);
 
   const draft = actions.draft(scene);
-  if (draft && draft.mode !== "waypoint" && draft.source !== "waypoint") {
+  if (draft && draft.mode !== "junction" && draft.source !== "junction") {
     section.appendChild(node("p", draft.mode === "points" ?
       label("FVTTATLAS.Roads.PointEditHint") : (label("FVTTATLAS.Roads.Drawing") + " " +
       draft.points + " " + label("FVTTATLAS.Roads.Points")), "hint"));
@@ -159,7 +169,15 @@ function atlasPanel(scene, atlas, actions, refresh) {
     row.appendChild(description);
     const controls = node("div", undefined, "form-fields");
     controls.appendChild(button("◎", label("FVTTATLAS.Roads.Highlight"),
-      () => actions.select(scene, road.id)));
+      () => {
+        if (atlas.schemaVersion === 3) {
+          const state = junctionFilterFor(scene, atlas);
+          state.roadId = road.id;
+          state.scope = "selected";
+          refresh();
+        }
+        return actions.select(scene, road.id);
+      }));
     if (atlas.schemaVersion === 3) {
       controls.appendChild(button("⌖", label("FVTTATLAS.Roads.EditPoints"),
         () => actions.beginPointEdit(scene, road.id, refresh)));
@@ -177,33 +195,33 @@ function atlasPanel(scene, atlas, actions, refresh) {
   }
   root.appendChild(section);
 
-  // Junctions are actual graph nodes, not visual bends. Keep the list bounded
-  // so dense road networks do not flood the Scene Configuration sheet.
-  const waypointSection = node("fieldset");
-  const waypointLegend = node("legend");
-  const waypointHeader = node("span");
-  waypointHeader.style.display = "inline-flex";
-  waypointHeader.style.alignItems = "center";
-  waypointHeader.style.gap = "0.35rem";
-  waypointHeader.appendChild(node("span", label("FVTTATLAS.Waypoints.Title")));
-  const addWaypoint = button("+", label("FVTTATLAS.Waypoints.Add"),
-    () => actions.beginWaypoint(scene, refresh));
-  addWaypoint.style.flex = "0 0 auto";
-  addWaypoint.style.width = "1.65rem";
-  addWaypoint.style.minWidth = "1.65rem";
-  addWaypoint.style.padding = "0";
-  addWaypoint.disabled = atlas.schemaVersion !== 3 || !atlas.segments.length || !!draft;
-  waypointHeader.appendChild(addWaypoint);
-  waypointLegend.appendChild(waypointHeader);
-  waypointSection.appendChild(waypointLegend);
-  waypointSection.appendChild(node("p", label("FVTTATLAS.Waypoints.Hint"), "hint"));
+  // A graph endpoint or degree-2 subdivision is not a routing junction.
+  // Retain every stored node, including old migrations; filter only the UI.
+  const junctionSection = node("fieldset");
+  const junctionLegend = node("legend");
+  const junctionHeader = node("span");
+  junctionHeader.style.display = "inline-flex";
+  junctionHeader.style.alignItems = "center";
+  junctionHeader.style.gap = "0.35rem";
+  junctionHeader.appendChild(node("span", label("FVTTATLAS.Junctions.Title")));
+  const addJunction = button("+", label("FVTTATLAS.Junctions.Add"),
+    () => actions.beginJunction(scene, refresh));
+  addJunction.style.flex = "0 0 auto";
+  addJunction.style.width = "1.65rem";
+  addJunction.style.minWidth = "1.65rem";
+  addJunction.style.padding = "0";
+  addJunction.disabled = atlas.schemaVersion !== 3 || !atlas.segments.length || !!draft;
+  junctionHeader.appendChild(addJunction);
+  junctionLegend.appendChild(junctionHeader);
+  junctionSection.appendChild(junctionLegend);
+  junctionSection.appendChild(node("p", label("FVTTATLAS.Junctions.Hint"), "hint"));
 
-  if (draft?.mode === "waypoint") {
-    waypointSection.appendChild(node("p", label("FVTTATLAS.Waypoints.Picking"), "hint"));
-    waypointSection.appendChild(button(label("FVTTATLAS.Roads.Cancel"),
+  if (draft?.mode === "junction") {
+    junctionSection.appendChild(node("p", label("FVTTATLAS.Junctions.Picking"), "hint"));
+    junctionSection.appendChild(button(label("FVTTATLAS.Roads.Cancel"),
       label("FVTTATLAS.Roads.Cancel"), () => actions.cancel()));
-  } else if (draft?.mode === "points" && draft.source === "waypoint") {
-    waypointSection.appendChild(node("p", label("FVTTATLAS.Waypoints.Editing"), "hint"));
+  } else if (draft?.mode === "points" && draft.source === "junction") {
+    junctionSection.appendChild(node("p", label("FVTTATLAS.Junctions.Editing"), "hint"));
     const controls = node("div", undefined, "form-fields");
     controls.appendChild(button(label("FVTTATLAS.Roads.SavePoints"),
       label("FVTTATLAS.Roads.SavePoints"), () => actions.finish()));
@@ -213,50 +231,83 @@ function atlasPanel(scene, atlas, actions, refresh) {
     }
     controls.appendChild(button(label("FVTTATLAS.Roads.CancelEdits"),
       label("FVTTATLAS.Roads.CancelEdits"), () => actions.cancel()));
-    waypointSection.appendChild(controls);
+    junctionSection.appendChild(controls);
   }
 
-  if (atlas.schemaVersion === 3) {
-    const activeIds = new Map();
-    const roadNames = new Map(atlas.roads.map(road => [road.id, road.name]));
-    for (const segment of atlas.segments) {
-      for (const id of [segment.from, segment.to]) {
-        if (!activeIds.has(id)) activeIds.set(id, new Set());
-        activeIds.get(id).add(segment.roadId);
+  if (atlas.schemaVersion === 3 && atlas.roads.length) {
+    const state = junctionFilterFor(scene, atlas);
+    const filters = node("div", undefined, "form-fields");
+    const select = (options, value, title, onChange) => {
+      const element = node("select");
+      element.setAttribute("aria-label", label(title));
+      element.title = label(title);
+      for (const [id, name] of options) {
+        const option = node("option", name);
+        option.value = id;
+        element.appendChild(option);
       }
-    }
-    const all = atlas.nodes.filter(n => activeIds.has(n.id));
-    const shared = all.filter(n => activeIds.get(n.id).size > 1).length;
-    waypointSection.appendChild(node("p",
-      all.length + " " + label("FVTTATLAS.Waypoints.Count") + " · " +
-      shared + " " + label("FVTTATLAS.Waypoints.Shared"), "hint"));
-    const visible = all.slice(-25).reverse();
+      element.value = value;
+      element.addEventListener("change", () => onChange(element.value));
+      return element;
+    };
+    const byRoad = select(atlas.roads.map(r => [r.id, r.name]), state.roadId,
+      "FVTTATLAS.Junctions.RoadFilter", value => {
+        state.roadId = value;
+        refresh();
+      });
+    byRoad.style.maxWidth = "15rem";
+    filters.appendChild(byRoad);
+    const byScope = select([
+      ["selected", label("FVTTATLAS.Junctions.Selected")],
+      ["connected", label("FVTTATLAS.Junctions.Connected")],
+      ["scene", label("FVTTATLAS.Junctions.All")]
+    ], state.scope, "FVTTATLAS.Junctions.ScopeFilter", value => {
+      state.scope = value;
+      refresh();
+    });
+    filters.appendChild(byScope);
+    junctionSection.appendChild(filters);
+    const all = listRoadJunctions(atlas);
+    const filtered = listRoadJunctions(atlas, state);
+    junctionSection.appendChild(node("p",
+      filtered.length + " / " + all.length + " " +
+      label("FVTTATLAS.Junctions.Count"), "hint"));
+    const visible = filtered.slice(-25).reverse();
+    const roadNames = new Map(atlas.roads.map(r => [r.id, r.name]));
     for (const item of visible) {
       const row = node("div", undefined, "form-group");
-      row.setAttribute("data-atlas-waypoint-id", item.id);
+      row.setAttribute("data-atlas-junction-id", item.id);
       const description = node("div");
       description.style.flex = "1 1 auto";
       description.style.minWidth = "0";
       description.appendChild(node("span",
-        label("FVTTATLAS.Waypoints.Junction") + " · " + item.id.slice(-6)));
+        label("FVTTATLAS.Junctions.Junction") + " · " + item.id.slice(-6)));
       const owners = node("div",
-        [...activeIds.get(item.id)].map(id => roadNames.get(id) || id).join(", "),
-        "hint");
+        item.roadIds.map(id => roadNames.get(id) || id).join(", "), "hint");
       owners.style.fontSize = "0.8em";
       description.appendChild(owners);
       row.appendChild(description);
       const controls = node("div", undefined, "form-fields");
-      controls.appendChild(button("◎", label("FVTTATLAS.Waypoints.Highlight"),
-        () => actions.selectWaypoint(scene, item.id)));
+      controls.appendChild(button("◎", label("FVTTATLAS.Junctions.Highlight"),
+        () => actions.selectJunction(scene, item.id)));
       row.appendChild(controls);
-      waypointSection.appendChild(row);
+      junctionSection.appendChild(row);
     }
-    if (all.length > visible.length) {
-      waypointSection.appendChild(node("p",
-        label("FVTTATLAS.Waypoints.Recent") + " " + visible.length +
-        " / " + all.length, "hint"));
+    if (!filtered.length) {
+      junctionSection.appendChild(node("p", label("FVTTATLAS.Junctions.None"), "hint"));
+    } else if (filtered.length > visible.length) {
+      junctionSection.appendChild(node("p",
+        label("FVTTATLAS.Junctions.Recent") + " " + visible.length +
+        " / " + filtered.length, "hint"));
     }
   }
+  root.appendChild(junctionSection);
+
+  // Descriptive points/Journal-linked Notes are a separate future feature.
+  // A road bend, endpoint or pass-through graph node is not a Waypoint.
+  const waypointSection = node("fieldset");
+  waypointSection.appendChild(node("legend", label("FVTTATLAS.Waypoints.Title")));
+  waypointSection.appendChild(node("p", label("FVTTATLAS.Waypoints.Future"), "hint"));
   root.appendChild(waypointSection);
 
   const measurement = node("fieldset");
