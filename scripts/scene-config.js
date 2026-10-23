@@ -435,8 +435,12 @@ function atlasPanel(scene, atlas, actions, refresh) {
     let selected = generatorState.get(scene.id);
     if (!selected || !available.some(r => r.id === selected.roadId)) {
       selected = { roadId: available[0].id, kind: "checkpoint",
-        presetId: available[0].travelPresetId ?? null };
+        presetId: available[0].travelPresetId ?? null, presetEdited: false };
       generatorState.set(scene.id, selected);
+    }
+    // Road-default changes flow into the generator unless the GM chose an override.
+    if (!selected.presetEdited) {
+      selected.presetId = available.find(r => r.id === selected.roadId)?.travelPresetId ?? null;
     }
     if (selected.presetId !== null && selected.presetId !== undefined &&
         !presetById.has(selected.presetId)) selected.presetId = null;
@@ -463,6 +467,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
       value => {
         selected.roadId = value; selected.first = null; selected.last = null;
         selected.presetId = available.find(r => r.id === value)?.travelPresetId ?? null;
+        selected.presetEdited = false;
       }));
     const checkpoints = atlas.checkpoints.filter(c => c.roadId === selected.roadId);
     addField("FVTTATLAS.Generated.Kind", makeSelect([
@@ -489,7 +494,10 @@ function atlasPanel(scene, atlas, actions, refresh) {
             " (cost ×" + p.movementCostMultiplier + ")"
         ])];
       addField("FVTTATLAS.Travel.CorridorPreset", makeSelect(
-        choices, selected.presetId ?? "", value => { selected.presetId = value || null; }));
+        choices, selected.presetId ?? "", value => {
+          selected.presetId = value || null;
+          selected.presetEdited = true;
+        }));
       generatedSection.appendChild(node("p",
         label("FVTTATLAS.Travel.NotApplied"), "hint"));
     }
