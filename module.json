@@ -2,8 +2,8 @@
   "id": "fvtt-atlas-navigation",
   "type": "module",
   "title": "FVTT Atlas Navigation",
-  "description": "System-agnostic Foundry VTT v14 atlas navigation. Phase 2b adds native Scene Atlas configuration and Scene Grid-first measurement; roads and routes are in development.",
-  "version": "0.2.2",
+  "description": "System-agnostic Foundry VTT v14 atlas navigation. Phase 2b adds a native Scene Atlas tab and follows native Scene Grid measurements exclusively; road editing remains in development.",
+  "version": "0.2.3",
   "authors": [
     {
       "name": "i-am-rayo",
