@@ -2,8 +2,8 @@
   "id": "fvtt-atlas-navigation",
   "type": "module",
   "title": "FVTT Atlas Navigation",
-  "description": "Foundry v14 Scene Atlas with named roads, checkpoints, native Region generation, and world-wide Land/Air/Water corridor travel presets.",
-  "version": "0.2.15.2",
+  "description": "Foundry v14 Scene Atlas with named roads, checkpoints, native Region generation, world travel presets and opt-in native movement costs.",
+  "version": "0.2.16",
   "authors": [
     {
       "name": "i-am-rayo",
@@ -26,6 +26,6 @@
   "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
   "readme": "README.md",
   "media": [],
-  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2g-travel-presets/module.json",
-  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2g-travel-presets.zip"
+  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2h-native-movement-costs/module.json",
+  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2h-native-movement-costs.zip"
 }
