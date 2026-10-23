@@ -3,10 +3,12 @@ import { readSceneGridScale } from "./scene-grid.js";
 import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
 import { listSceneRegions } from "./region-atlas.js";
 import { listRoadCheckpoints } from "./checkpoint-model.js";
+import { listGeneratedRegions } from "./generated-region.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
 const junctionFilters = new Map();
+const generatorState = new Map();
 
 function junctionFilterFor(scene, atlas) {
   let state = junctionFilters.get(scene.id);
@@ -404,6 +406,113 @@ function atlasPanel(scene, atlas, actions, refresh) {
     }
   }
   root.appendChild(checkpointSection);
+
+
+  // v0.2.14: generate separate opt-in native Regions around one checkpoint
+  // or along one unambiguous chain between two checkpoints on the SAME road.
+  // No bulk or automatic generation occurs merely by opening this sheet.
+  const generatedSection = node("fieldset");
+  generatedSection.appendChild(node("legend", label("FVTTATLAS.Generated.Title")));
+  generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.Hint"), "hint"));
+  const available = atlas.schemaVersion === 4 ? atlas.roads.filter(r =>
+    atlas.checkpoints.filter(c => c.roadId === r.id).length > 0) : [];
+  if (!available.length) {
+    generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.NoCheckpoints"), "hint"));
+  } else {
+    let selected = generatorState.get(scene.id);
+    if (!selected || !available.some(r => r.id === selected.roadId)) {
+      selected = { roadId: available[0].id, kind: "checkpoint" };
+      generatorState.set(scene.id, selected);
+    }
+    const makeSelect = (choices, current, changed) => {
+      const select = node("select");
+      for (const [value, name] of choices) {
+        const option = node("option", name);
+        option.value = value;
+        select.appendChild(option);
+      }
+      select.value = current;
+      select.addEventListener("change", () => { changed(select.value); refresh(); });
+      return select;
+    };
+    const addField = (title, control) => {
+      const row = node("div", undefined, "form-group");
+      const fieldLabel = node("label", label(title));
+      row.appendChild(fieldLabel);
+      row.appendChild(control);
+      generatedSection.appendChild(row);
+    };
+    addField("FVTTATLAS.Generated.Road", makeSelect(
+      available.map(r => [r.id, r.name]), selected.roadId,
+      value => { selected.roadId = value; selected.first = null; selected.last = null; }));
+    const checkpoints = atlas.checkpoints.filter(c => c.roadId === selected.roadId);
+    addField("FVTTATLAS.Generated.Kind", makeSelect([
+      ["checkpoint", label("FVTTATLAS.Generated.Checkpoint")],
+      ["corridor", label("FVTTATLAS.Generated.Corridor")]
+    ], selected.kind, value => { selected.kind = value; }));
+    const first = checkpoints.some(c => c.id === selected.first)
+      ? selected.first : checkpoints[0].id;
+    selected.first = first;
+    addField("FVTTATLAS.Generated.From", makeSelect(
+      checkpoints.map(c => [c.id, c.name]), first,
+      value => { selected.first = value; }));
+    if (selected.kind === "corridor") {
+      const other = checkpoints.filter(c => c.id !== first);
+      if (!other.some(c => c.id === selected.last)) selected.last = other[0]?.id ?? null;
+      if (other.length) addField("FVTTATLAS.Generated.To", makeSelect(
+        other.map(c => [c.id, c.name]), selected.last,
+        value => { selected.last = value; }));
+    }
+    const width = node("input");
+    width.type = "number";
+    width.min = "0.25";
+    width.max = "3";
+    width.step = "0.25";
+    width.value = String(selected.widthCells ?? 0.5);
+    width.setAttribute("aria-label", label("FVTTATLAS.Generated.Width"));
+    width.addEventListener("change", () => { selected.widthCells = Number(width.value); });
+    addField("FVTTATLAS.Generated.Width", width);
+    const create = button(label("FVTTATLAS.Generated.Preview"),
+      label("FVTTATLAS.Generated.Preview"),
+      () => actions.generateRegion(scene, {
+        kind: selected.kind, roadId: selected.roadId,
+        checkpointId: selected.first,
+        endCheckpointId: selected.kind === "corridor" ? selected.last : null,
+        widthCells: Number(width.value)
+      }, refresh));
+    create.disabled = !!draft || (selected.kind === "corridor" && checkpoints.length < 2);
+    generatedSection.appendChild(create);
+  }
+  const generated = listGeneratedRegions(scene);
+  if (generated.length) {
+    generatedSection.appendChild(node("p",
+      generated.length + " " + label("FVTTATLAS.Generated.Existing"), "hint"));
+  }
+  for (const region of generated.slice(0, 50)) {
+    const row = node("div", undefined, "form-group");
+    const detail = node("div");
+    detail.style.flex = "1 1 auto";
+    detail.appendChild(node("span", region.name));
+    detail.appendChild(node("div", region.invalid ?
+      label("FVTTATLAS.Generated.Invalid") :
+      region.modified ? label("FVTTATLAS.Generated.Modified") :
+      label("FVTTATLAS.Generated.Managed"), "hint"));
+    row.appendChild(detail);
+    const controls = node("div", undefined, "form-fields");
+    controls.appendChild(button("⚙", label("FVTTATLAS.Regions.Configure"),
+      () => actions.configureRegion(scene, region.id)));
+    if (!region.invalid) {
+      const regenerate = button("↻", label("FVTTATLAS.Generated.Regenerate"),
+        () => actions.regenerateRegion(scene, region, refresh));
+      regenerate.disabled = !!draft || region.modified;
+      controls.appendChild(regenerate);
+    }
+    row.appendChild(controls);
+    generatedSection.appendChild(row);
+  }
+  if (generated.length > 50) generatedSection.appendChild(node("p",
+    label("FVTTATLAS.Generated.Limit"), "hint"));
+  root.appendChild(generatedSection);
 
   // Phase 2d associates existing native RegionDocuments. No Atlas geometry or
   // terrain modifiers are stored here; Foundry's Region editor stays canonical.

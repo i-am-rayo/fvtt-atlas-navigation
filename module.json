@@ -2,8 +2,8 @@
   "id": "fvtt-atlas-navigation",
   "type": "module",
   "title": "FVTT Atlas Navigation",
-  "description": "System-agnostic Foundry v14 Scene Atlas with GM-authored road junctions and opt-in native Region links and named road checkpoints with elevations.",
-  "version": "0.2.13",
+  "description": "Foundry v14 Scene Atlas with GM-authored roads, checkpoints/elevation, optional previewed native checkpoint and corridor Regions.",
+  "version": "0.2.14",
   "authors": [
     {
       "name": "i-am-rayo",
@@ -26,6 +26,6 @@
   "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
   "readme": "README.md",
   "media": [],
-  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2e-checkpoints-elevation/module.json",
-  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2e-checkpoints-elevation.zip"
+  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2f-generated-regions/module.json",
+  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2f-generated-regions.zip"
 }

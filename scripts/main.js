@@ -1,6 +1,6 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * v0.2.13 adds GM-authored named/elevated road checkpoints without native Region mutations.
+ * v0.2.14 adds optional, previewed native Regions derived from road checkpoints.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
@@ -11,6 +11,7 @@ import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
 import { getRoadMergeCandidates } from "./road-model.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
+import { planSceneGeneratedRegion, saveGeneratedNativeRegion } from "./generated-region.js";
 
 const STARTUP_NOTICE_SETTING = "showStartupNotice";
 const roadCanvas = new RoadCanvasController();
@@ -18,6 +19,49 @@ const roadCanvas = new RoadCanvasController();
 function ensureIdle(scene) {
   if (roadCanvas.getDraft(scene)) {
     throw new Error("Save or cancel your current road edits first.");
+  }
+}
+
+
+async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}) {
+  ensureIdle(scene);
+  const plan = planSceneGeneratedRegion(scene, settings);
+  const summary = document.createElement("div");
+  for (const message of [
+    plan.name,
+    plan.kind === "checkpoint"
+      ? "A native Region around this one checkpoint."
+      : "A native corridor following the connected road geometry.",
+    "Half-width: " + plan.generatedRegion.widthCells + " grid cells (" +
+      Math.round(plan.radius * 100) / 100 + " px). " +
+      plan.shapes.length + " native shape(s).",
+    regenerate
+      ? "Regenerate only if its native geometry was not manually edited. Existing name, Levels, Behaviors and visibility are preserved."
+      : "Create one linked native Region with no Behaviors. Configure Behaviors manually using Foundry's Region editor.",
+    "The tinted map overlay is a preview only. Region geometry will be saved only after confirmation."
+  ]) {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = message;
+    summary.appendChild(paragraph);
+  }
+  roadCanvas.showRegionPreview(scene, plan);
+  try {
+    const approved = await foundry.applications.api.DialogV2.confirm({
+      window: { title: regenerate ? "Regenerate native road Region" : "Create native road Region" },
+      content: summary,
+      yes: { label: regenerate ? "Regenerate Region" : "Create Region" },
+      rejectClose: false, modal: true
+    });
+    if (!approved) return;
+    if (!roadCanvas.isRegionPreviewActive(scene, plan)) {
+      throw new Error("The Scene or Atlas editor changed while the Region preview was open. Nothing was created.");
+    }
+    const result = await saveGeneratedNativeRegion(scene, plan, { regenerate });
+    ui.notifications.info(result.created
+      ? "Atlas created one linked native Region. Add Behaviors in the native Region editor."
+      : "Atlas regenerated the Region geometry; native Behaviors were preserved.");
+  } finally {
+    roadCanvas.clearRegionPreview();
   }
 }
 
@@ -29,6 +73,23 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.StartNotice"));
     },
     draft: scene => roadCanvas.getDraft(scene),
+    async generateRegion(scene, settings, refresh) {
+      await previewAndSaveRegion(scene, settings);
+      refresh();
+    },
+    async regenerateRegion(scene, entry, refresh) {
+      if (!entry.metadata || entry.modified) {
+        throw new Error("Manual Region geometry must be preserved; regeneration is unavailable.");
+      }
+      const meta = entry.metadata;
+      await previewAndSaveRegion(scene, {
+        kind: meta.kind, roadId: meta.roadId,
+        checkpointId: meta.checkpointIds[0],
+        endCheckpointId: meta.kind === "corridor" ? meta.checkpointIds[1] : null,
+        widthCells: meta.widthCells
+      }, { regenerate: true });
+      refresh();
+    },
     beginJunction(scene, refresh) {
       roadCanvas.startJunction(scene, refresh);
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Junctions.StartNotice"));

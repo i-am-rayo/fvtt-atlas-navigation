@@ -212,6 +212,7 @@ export class RoadCanvasController {
     this.selectedJunctionId = null;
     this.selectedCheckpointId = null;
     this.saving = false;
+    this.regionPreview = null;
     this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
       confirmAttach, confirmDetach, chooseBranch, idFactory, refresh: () => this.refresh() });
   }
@@ -264,6 +265,28 @@ export class RoadCanvasController {
     this.selectedRoadId = null;
     this.selectedJunctionId = null;
     this.selectedCheckpointId = null;
+    this.regionPreview = null;
+    this.refresh();
+  }
+
+  /** Preview is disposable GM-only canvas graphics, never a native Region. */
+  showRegionPreview(scene, plan) {
+    const view = this.canvasProvider();
+    if (!globalThis.game?.user?.isGM || !view?.ready || view.scene?.id !== scene.id) {
+      throw new Error("View this Scene as GM to preview generated Regions.");
+    }
+    if (this.getDraft(scene)) throw new Error("Finish or cancel road editing first.");
+    this.regionPreview = { sceneId: scene.id, plan, points: plan.points, radius: plan.radius };
+    this.refresh();
+  }
+
+  isRegionPreviewActive(scene, plan) {
+    return this.regionPreview?.sceneId === scene?.id &&
+      this.regionPreview.plan === plan && this.canvasProvider()?.scene?.id === scene.id;
+  }
+
+  clearRegionPreview() {
+    this.regionPreview = null;
     this.refresh();
   }
 
@@ -701,6 +724,16 @@ export class RoadCanvasController {
     if (editing && editing.sceneId === canvas.scene.id) {
       atlas = editing.drag?.preview ?? editing.working;
     }
+    if (this.regionPreview?.sceneId === canvas.scene.id) {
+      const preview = this.regionPreview;
+      if (preview.points.length > 1) {
+        drawLine(g, preview.points, 0x7bdb9c, preview.radius * 2, 0.38);
+      }
+      if (typeof g.circle === "function" && typeof g.fill === "function") {
+        for (const point of preview.points) g.circle(point.x, point.y, preview.radius)
+          .fill({ color: 0x7bdb9c, alpha: 0.22 });
+      }
+    }
     const nodes = new Map(atlas.nodes.map(n => [n.id, n]));
     for (const segment of atlas.segments) {
       const from = nodes.get(segment.from);
@@ -759,5 +792,6 @@ export class RoadCanvasController {
     this.selectedRoadId = null;
     this.selectedJunctionId = null;
     this.selectedCheckpointId = null;
+    this.regionPreview = null;
   }
 }
