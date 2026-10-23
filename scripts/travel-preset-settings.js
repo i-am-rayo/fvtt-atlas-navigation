@@ -126,14 +126,15 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
     const nameLabel = node("label", "Preset name");
     const name = node("input");
     name.name = "presetName"; name.required = true; name.maxLength = 120;
-    name.value = existing?.name ?? "";
+    // DialogV2 serializes its content element, so use reflected HTML defaults.
+    name.defaultValue = existing?.name ?? "";
     container.append(nameLabel, name);
     container.appendChild(node("label", "Travel type"));
     const mode = node("select");
     mode.name = "presetMode";
     for (const [key, label] of Object.entries(TYPE_LABELS)) {
       const option = node("option", label);
-      option.value = key; option.selected = key === (existing?.mode ?? initialMode);
+      option.value = key; option.defaultSelected = key === (existing?.mode ?? initialMode);
       mode.appendChild(option);
     }
     container.appendChild(mode);
@@ -141,13 +142,16 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
     const cost = node("input");
     cost.type = "number"; cost.step = "0.05"; cost.min = "0.1"; cost.max = "10";
     cost.required = true; cost.name = "presetCost";
-    cost.value = String(existing?.movementCostMultiplier ?? 1);
+    cost.defaultValue = String(existing?.movementCostMultiplier ?? 1);
     container.appendChild(cost);
     container.appendChild(node("p",
       "This value is a preset suggestion only in v0.2.15. Region Behaviors remain unchanged."));
+    // Foundry v14 requires a plain, attribute-free outer div for HTMLElement dialog content.
+    const dialogContent = node("div");
+    dialogContent.appendChild(container);
     const result = await foundry.applications.api.DialogV2.input({
       window: { title: existing ? "Edit Atlas Travel Preset" : "Add Atlas Travel Preset" },
-      content: container,
+      content: dialogContent,
       ok: { label: existing ? "Save Preset" : "Add Preset" },
       rejectClose: false, modal: true
     });
