@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEmptyAtlas } from "../scripts/atlas-model.js";
-import { addRoad, renameRoad, removeRoad, reshapeRoad, findRoadSnap, suggestRoadName } from "../scripts/road-model.js";
+import { addRoad, renameRoad, removeRoad, reshapeRoad, findRoadSnap, suggestRoadName, mergeRoadGroups, getRoadMergeCandidates, applyRoadGeometryEdit } from "../scripts/road-model.js";
 
 function makeIds() {
   let i = 0;
@@ -17,7 +17,7 @@ test("new roads form named Scene-space polylines with stable junctions", () => {
   assert.equal(first.segments.length, 1);
   assert.equal(first.nodes.length, 2);
   assert.equal(first.enabled, true);
-  assert.equal(first.segments[0].name, "Road 1");
+  assert.equal(first.roads[0].name, "Road 1");
   assert.deepEqual(first.segments[0].via, [{ x: 20, y: 40 }]);
   assert.equal(source.segments.length, 0, "road operations do not mutate original state");
 });
@@ -33,7 +33,7 @@ test("new roads join existing junctions only when endpoints are nearby", () => {
   assert.equal(second.nodes.length, 3, "start was snapped to first road's junction");
   assert.equal(second.segments[0].from, second.segments[1].from);
   assert.notEqual(second.segments[0].to, second.segments[1].to);
-  assert.equal(second.segments[1].name, "Road 2");
+  assert.equal(second.roads[1].name, "Road 2");
 });
 
 test("crossing road geometry does not create graph topology", () => {
@@ -52,10 +52,10 @@ test("rename and delete preserve all unrelated roads and junction data", () => {
   const first = addRoad(createEmptyAtlas(), {
     points: [{ x: 0, y: 0 }, { x: 50, y: 0 }], idFactory: makeIds()
   });
-  const renamed = renameRoad(first, { segmentId: first.segments[0].id, name: " Northern Pass " });
-  assert.equal(renamed.segments[0].name, "Northern Pass");
-  assert.equal(first.segments[0].name, "Road 1");
-  const removed = removeRoad(renamed, { segmentId: renamed.segments[0].id });
+  const renamed = renameRoad(first, { roadId: first.roads[0].id, name: " Northern Pass " });
+  assert.equal(renamed.roads[0].name, "Northern Pass");
+  assert.equal(first.roads[0].name, "Road 1");
+  const removed = removeRoad(renamed, { roadId: renamed.roads[0].id });
   assert.equal(removed.enabled, false);
   assert.equal(removed.segments.length, 0);
   assert.equal(removed.nodes.length, 2, "deletion must not cascade into junction data");
@@ -71,8 +71,8 @@ test("invalid input or stale Road IDs cannot silently write an invalid graph", (
   assert.throws(() => addRoad(empty, {
     points: [{ x: Infinity, y: 0 }, { x: 50, y: 0 }], idFactory: makeIds()
   }), /finite/);
-  assert.throws(() => renameRoad(empty, { segmentId: "missing", name: "No" }), /no longer exists/);
-  assert.throws(() => removeRoad(empty, { segmentId: "missing" }), /no longer exists/);
+  assert.throws(() => renameRoad(empty, { roadId: "missing", name: "No" }), /no longer exists/);
+  assert.throws(() => removeRoad(empty, { roadId: "missing" }), /no longer exists/);
   assert.throws(() => addRoad(empty, {
     points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], idFactory: () => "same"
   }), /unique/);
@@ -94,8 +94,8 @@ test("joining the middle of a road splits the existing edge into shared junction
   assert.equal(oldLeft.id, originalId, "first half retains old ID");
   assert.equal(oldLeft.to, oldRight.from);
   assert.equal(oldRight.from, trail.from, "new road shares real junction ID");
-  assert.equal(oldLeft.name, "Old Road");
-  assert.equal(oldRight.name, "Old Road");
+  assert.equal(oldLeft.roadId, first.roads[0].id);
+  assert.equal(oldRight.roadId, first.roads[0].id);
   assert.deepEqual(joined.nodes.find(n => n.id === trail.from), { id: trail.from, x: 49, y: 0 });
   assert.equal(first.segments.length, 1, "source graph not mutated");
   assert.deepEqual(oldLeft.via, [{ x: 40, y: 0 }]);
@@ -144,4 +144,55 @@ test("joining exactly at an existing bend creates a real junction without duplic
   assert.equal(joined.segments[1].from, joined.segments[2].from);
   assert.deepEqual(joined.segments[0].via, []);
   assert.deepEqual(joined.segments[1].via, []);
+});
+
+test("a spur splits geometry but retains one named parent road", () => {
+  const base = addRoad(createEmptyAtlas(), {
+    points: [{x:0,y:0}, {x:100,y:0}], name:"Main Road", idFactory:makeIds()
+  });
+  const joined = addRoad(base, {
+    points:[{x:50,y:3}, {x:50,y:100}], name:"Spur",
+    idFactory:(() => { let n=100; return () => "id"+ ++n; })()
+  });
+  assert.equal(joined.roads.length, 2);
+  assert.deepEqual(joined.roads.map(r=>r.name), ["Main Road","Spur"]);
+  assert.equal(joined.segments.filter(s=>s.roadId===joined.roads[0].id).length,2);
+  const keep = joined.roads[0].id, merge = joined.roads[1].id;
+  assert.deepEqual(getRoadMergeCandidates(joined,keep).map(r=>r.id),[merge]);
+  const combined = mergeRoadGroups(joined,{keepRoadId:keep,mergeRoadId:merge});
+  assert.equal(combined.roads.length,1);
+  assert.equal(combined.segments.length,3);
+  assert.ok(combined.segments.every(s=>s.roadId===keep));
+  assert.deepEqual(joined.roads.map(r=>r.name),["Main Road","Spur"]);
+});
+
+test("point operations move junctions for all joined segments without losing topology", () => {
+  const base = addRoad(createEmptyAtlas(), {
+    points:[{x:0,y:0},{x:50,y:20},{x:100,y:0}], name:"Main", idFactory:makeIds()
+  });
+  const joined = addRoad(base, {
+    points:[{x:50,y:20},{x:50,y:80}],name:"Branch",
+    idFactory:(() => { let n=200; return () => "id"+ ++n; })()
+  });
+  const roadId=joined.roads[0].id;
+  const junction=joined.segments[0].to;
+  const moved=applyRoadGeometryEdit(joined,{roadId,operation:{kind:"move-node",nodeId:junction,x:60,y:30}});
+  assert.deepEqual(moved.nodes.find(n=>n.id===junction),{id:junction,x:60,y:30});
+  assert.equal(moved.segments[0].to,moved.segments[1].from);
+  assert.equal(moved.segments[1].from,moved.segments[2].from);
+  assert.notDeepEqual(moved.nodes,joined.nodes);
+  assert.throws(()=>applyRoadGeometryEdit(moved,{roadId,operation:{kind:"move-node",nodeId:junction,x:NaN,y:4}}),/finite/);
+});
+
+test("point insertion, dragging and removal are controlled and reversible",()=>{
+ const base=addRoad(createEmptyAtlas(),{points:[{x:0,y:0},{x:100,y:0}],idFactory:makeIds()});
+ const roadId=base.roads[0].id, segmentId=base.segments[0].id;
+ const inserted=applyRoadGeometryEdit(base,{roadId,operation:{kind:"insert-bend",segmentId,edgeIndex:0,x:50,y:0}});
+ assert.deepEqual(inserted.segments[0].via,[{x:50,y:0}]);
+ const moved=applyRoadGeometryEdit(inserted,{roadId,operation:{kind:"move-bend",segmentId,viaIndex:0,x:50,y:25}});
+ assert.deepEqual(moved.segments[0].via,[{x:50,y:25}]);
+ const removed=applyRoadGeometryEdit(moved,{roadId,operation:{kind:"remove-bend",segmentId,viaIndex:0}});
+ assert.deepEqual(removed.segments[0].via,[]);
+ assert.deepEqual(base.segments[0].via,[]);
+ assert.throws(()=>applyRoadGeometryEdit(base,{roadId,operation:{kind:"remove-bend",segmentId,viaIndex:0}}),/index/);
 });
