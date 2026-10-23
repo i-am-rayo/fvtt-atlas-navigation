@@ -26,6 +26,7 @@ export class RoadPointEditor {
     if (!s || !scene || scene.id !== s.sceneId) return null;
     return {
       mode: "points",
+      source: s.source,
       points: roadHandles(s.working, s.roadId).length,
       dirty: s.operations.length > 0,
       canUndo: s.operations.length > 0,
@@ -78,7 +79,27 @@ export class RoadPointEditor {
     this.#notifyChange(s.onChange);
   }
 
-  start(scene, roadId, onChange) {
+  /**
+   * Stage an explicit split as a new gold junction. Nothing is saved until
+   * Save Points; the existing road ID/name and the first segment ID remain.
+   */
+  insertJunction(candidate) {
+    const s = this.session;
+    if (!s || this.saving || s.confirming || candidate?.kind !== "edge") {
+      throw new Error("Start editing a road before adding a junction.");
+    }
+    const nodeId = this.idFactory();
+    this.#perform({
+      kind: "create-junction", segmentId: candidate.segmentId,
+      edgeIndex: candidate.edgeIndex, atVertex: candidate.atVertex === true,
+      x: candidate.x, y: candidate.y, newNodeId: nodeId,
+      newSegmentId: this.idFactory()
+    });
+    s.selectedHandle = { kind: "node", nodeId, x: candidate.x, y: candidate.y };
+    return nodeId;
+  }
+
+  start(scene, roadId, onChange, { source = "road" } = {}) {
     if (!globalThis.game?.user?.isGM ||
         !scene?.canUserModify?.(game.user, "update")) {
       throw new Error("Only a GM may edit Atlas road points.");
@@ -97,7 +118,7 @@ export class RoadPointEditor {
     }
     const s = {
       scene, sceneId: scene.id, roadId, expectedRevision: atlas.revision,
-      working: atlas, history: [atlas], operations: [], element, onChange,
+      working: atlas, history: [atlas], operations: [], element, onChange, source,
       drag: null, confirming: false, selectedHandle: null, onDown: null, onMove: null,
       onUp: null, onDoubleClick: null, onKeydown: null
     };
@@ -114,6 +135,17 @@ export class RoadPointEditor {
             this.#perform({ kind: "remove-bend", segmentId: handle.segmentId,
               viaIndex: handle.viaIndex });
             s.selectedHandle = null;
+          } catch (error) { this.notify()?.error?.(error.message); }
+          return;
+        }
+        if (event.shiftKey && handle.kind === "bend") {
+          try {
+            this.insertJunction({
+              kind: "edge", segmentId: handle.segmentId,
+              edgeIndex: handle.viaIndex + 1, atVertex: true,
+              x: handle.x, y: handle.y
+            });
+            this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Waypoints.PromotedNotice"));
           } catch (error) { this.notify()?.error?.(error.message); }
           return;
         }
