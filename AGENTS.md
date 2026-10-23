@@ -38,7 +38,9 @@ If a requested change conflicts with these documents, explain the conflict and p
 - Topological connections are explicit. Two lines crossing on the image do **not** automatically create a junction.
 - Geometry/routing/validation should be pure, testable code; keep Foundry document access and canvas rendering in adapters.
 - Preserve stable IDs, reject malformed links and nonfinite coordinates, and plan migrations before changing a persisted schema.
-- Link Regions with validated, versioned module-owned metadata (tag and explicit speed multiplier) only after reviewing a persisted schema. Ordinary Regions without this metadata have no Atlas travel effect. Do **not** automatically interpret native `Modify Movement Cost` Behaviors, whose token movement semantics may depend on the game system.\n- A 0.5× speed factor affects **time**, not geometric length. Applied Region geometry must intersect road polyline intervals precisely, respecting holes/levels and a deliberate overlap policy. Phase 2 stores links, Phase 3b (separate approval) computes time.\n- No reliance on any specific game system, actor fields, or third-party route module.
+- Link Regions with validated, versioned module-owned metadata (tag and explicit speed multiplier) only after reviewing a persisted schema. Ordinary Regions without this metadata have no Atlas travel effect. Do **not** automatically interpret native `Modify Movement Cost` Behaviors, whose token movement semantics may depend on the game system.
+- A 0.5× speed factor affects **time**, not geometric length. Applied Region geometry must intersect road polyline intervals precisely, respecting holes/levels and a deliberate overlap policy. Phase 2 stores links, Phase 3b (separate approval) computes time.
+- No reliance on any specific game system, actor fields, or third-party route module.
 
 ## Permissions and privacy
 
