@@ -1,6 +1,6 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * v0.2.16 adds separately confirmed native movement cost to generated corridors.
+ * v0.2.17 adds separately confirmed multi-action cost presets to corridors.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
@@ -13,8 +13,9 @@ import { sceneImageOrigin } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost } from "./generated-region.js";
-import { availableMovementActions, readPreset }
+import { availableMovementActions, readPreset, previewNativeMovementCost }
   from "./native-movement-cost.js";
+import { presetCostSummary } from "./travel-preset-model.js";
 import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
 
@@ -33,9 +34,19 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
   const summary = document.createElement("div");
   const nativeOptIn = !regenerate && plan.kind === "corridor" && !!settings.applyNativeCost;
   const selectedPreset = !regenerate && settings.presetId ? readPreset(settings.presetId) : null;
-  const action = nativeOptIn ? availableMovementActions().find(a => a.id === settings.movementAction) : null;
-  if (nativeOptIn && !action) throw new Error("Choose a supported movement action to apply this native cost.");
-  const multiplier = nativeOptIn ? selectedPreset?.movementCostMultiplier : null;
+  const perMode = nativeOptIn && selectedPreset?.movementCosts !== null;
+  const action = nativeOptIn && !perMode
+    ? availableMovementActions().find(a => a.id === settings.movementAction) : null;
+  if (nativeOptIn && !selectedPreset) throw new Error("Choose a world travel preset first.");
+  if (nativeOptIn && !perMode && !action) {
+    throw new Error("Choose a supported movement action to apply this native cost.");
+  }
+  const preflight = nativeOptIn
+    ? previewNativeMovementCost(selectedPreset.id, perMode ? null : settings.movementAction)
+    : null;
+  if (preflight && !preflight.ok) throw new Error(preflight.message);
+  const multiplier = nativeOptIn && !perMode ? selectedPreset.movementCostMultiplier : null;
+  const expectedCosts = nativeOptIn && perMode ? {...selectedPreset.movementCosts} : null;
   for (const message of [
     plan.name,
     plan.kind === "checkpoint"
@@ -49,11 +60,14 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
       : nativeOptIn
         ? "Create one linked native Region WITH one native Modify Movement Cost Behavior, after this confirmation. No other Region is changed."
         : "Create one linked native Region without native Behaviors. Its travel preset stays descriptive metadata until explicitly applied.",
-    ...(selectedPreset ? ["Travel preset: " + selectedPreset.name + " (cost ×" +
-      selectedPreset.movementCostMultiplier + ")."] : []),
-    ...(nativeOptIn ? ["Native movement action: " +
-      (game.i18n.localize(action.label) || action.label) + " (" + action.id + "). " +
-      "Foundry validates the value for this system before saving."] : []),
+    ...(selectedPreset ? ["Travel preset: " + selectedPreset.name + " (" +
+      presetCostSummary(selectedPreset) + ")."] : []),
+    ...(nativeOptIn ? [perMode
+      ? "Native movement costs: " + presetCostSummary(selectedPreset) +
+        ". One Behavior will contain all explicitly selected actions."
+      : "Native movement action: " +
+        (game.i18n.localize(action.label) || action.label) + " (" + action.id + "). " +
+        "Foundry validates the value for this system before saving."] : []),
     "The tinted map overlay is a preview only. Region geometry will be saved only after confirmation."
   ]) {
     const paragraph = document.createElement("p");
@@ -74,8 +88,9 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
     }
     const result = await saveGeneratedNativeRegion(scene, plan, {
       regenerate, presetId: regenerate ? null : (settings.presetId ?? null),
-      movementAction: nativeOptIn ? settings.movementAction : null,
-      expectedMultiplier: nativeOptIn ? multiplier : null
+      applyNativeCost: nativeOptIn,
+      movementAction: nativeOptIn && !perMode ? settings.movementAction : null,
+      expectedMultiplier: multiplier, expectedCosts
     });
     ui.notifications.info(result.created
       ? nativeOptIn
@@ -95,7 +110,7 @@ async function promptTravelPreset(title, currentId = null) {
   const options = [["", "None (no Atlas travel preset)"],
     ...readWorldTravelPresets().presets.map(p => [
       p.id, p.mode.toUpperCase() + " — " + p.name +
-        " (cost ×" + p.movementCostMultiplier + ")"
+        " (" + presetCostSummary(p) + ")"
     ])];
   for (const [id, name] of options) {
     const option = document.createElement("option");
@@ -163,40 +178,46 @@ function actions() {
         throw new Error("Choose an Atlas-generated corridor with a saved travel preset.");
       }
       const preset = readPreset(entry.presetId);
-      const actions = availableMovementActions();
-      if (!actions.length) throw new Error("This system exposes no supported native movement actions.");
-      const content = document.createElement("div");
-      const description = document.createElement("p");
-      description.textContent = "Add one native Modify Movement Cost Behavior to " +
-        entry.name + " using " + preset.name + " (cost ×" +
-        preset.movementCostMultiplier + "). Native Behaviors already present are never replaced.";
-      const select = document.createElement("select");
-      select.name = "atlasMovementAction";
-      const placeholder = document.createElement("option");
-      placeholder.value = "";
-      placeholder.textContent = "Choose movement action…";
-      placeholder.setAttribute("selected", "");
-      select.appendChild(placeholder);
-      for (const action of actions) {
-        const option = document.createElement("option");
-        option.value = action.id;
-        option.textContent = game.i18n.localize(action.label) || action.label;
-        select.appendChild(option);
+      const perMode = preset.movementCosts !== null;
+      const registered = availableMovementActions();
+      if (!registered.length) throw new Error("This system exposes no supported native movement actions.");
+      let action = null;
+      if (!perMode) {
+        const content = document.createElement("div");
+        const description = document.createElement("p");
+        description.textContent = "Legacy preset: choose one native movement action for " +
+          preset.name + " (" + presetCostSummary(preset) + ").";
+        const select = document.createElement("select");
+        select.name = "atlasMovementAction";
+        const placeholder = document.createElement("option");
+        placeholder.value = ""; placeholder.textContent = "Choose movement action…";
+        placeholder.defaultSelected = true;
+        select.appendChild(placeholder);
+        for (const available of registered) {
+          const option = document.createElement("option");
+          option.value = available.id;
+          option.textContent = game.i18n.localize(available.label) || available.label;
+          select.appendChild(option);
+        }
+        content.append(description, select);
+        const choice = await DialogV2.input({
+          window: { title: "Apply native movement cost — " + entry.name },
+          content, ok: { label: "Review Cost" }, rejectClose: false, modal: true
+        });
+        if (!choice) return;
+        action = registered.find(available => available.id === choice.atlasMovementAction);
+        if (!action) throw new Error("Choose a valid movement action before applying.");
       }
-      content.append(description, select);
-      const choice = await DialogV2.input({
-        window: { title: "Apply native movement cost — " + entry.name },
-        content, ok: { label: "Review Cost" }, rejectClose: false, modal: true
-      });
-      if (!choice) return;
-      const chosen = actions.find(a => a.id === choice.atlasMovementAction);
-      if (!chosen) throw new Error("Choose a valid movement action before applying.");
+      const preflight = previewNativeMovementCost(preset.id, action?.id ?? null);
+      if (!preflight.ok) throw new Error(preflight.message);
+      const multiplier = perMode ? null : preset.movementCostMultiplier;
+      const expectedCosts = perMode ? { ...preset.movementCosts } : null;
       const confirm = document.createElement("div");
       const notice = document.createElement("p");
-      notice.textContent = "Apply " + preset.name + " at cost ×" +
-        preset.movementCostMultiplier + " to movement action " +
-        (game.i18n.localize(chosen.label) || chosen.label) +
-        " on this Region only? No existing native Behavior will be changed.";
+      notice.textContent = "Apply " + preset.name + " (" + presetCostSummary(preset) +
+        (action ? "; action " + (game.i18n.localize(action.label) || action.label) : "") +
+        ") as ONE native Modify Movement Cost Behavior on " + entry.name +
+        "? No existing native Behavior will be changed.";
       confirm.appendChild(notice);
       const approved = await DialogV2.confirm({
         window: { title: "Confirm native movement-cost Behavior" },
@@ -205,8 +226,8 @@ function actions() {
       });
       if (!approved) return;
       await applyGeneratedRegionMovementCost(scene, entry.id, {
-        movementAction: chosen.id, expectedPresetId: preset.id,
-        expectedMultiplier: preset.movementCostMultiplier
+        movementAction: action?.id ?? null, expectedPresetId: preset.id,
+        expectedMultiplier: multiplier, expectedCosts
       });
       refresh();
       ui.notifications.info("Native Modify Movement Cost Behavior added. Review it in Foundry's Region editor.");
