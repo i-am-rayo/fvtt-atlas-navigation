@@ -22,6 +22,8 @@
 
 # Roadmap and acceptance criteria — revised Phase 2 design
 
+> **v0.2.22 GM authoring test gate (October 24, 2026):** Zoom-responsive checkpoint overlays (screen-clamped; no saved node or Region changes); curated offline RPG/Fantasy icon discovery with the complete catalog still in Advanced; idle GM-only Shift-click to open checkpoint/road appearance settings; and compact modeless controls while authoring roads and road points, with Scene Configuration minimized. New-road name, travel preset and optional appearance are staged and committed atomically. Existing point-edit Shift-click conversion takes precedence. No player visibility, automated native Regions, or route calculations in this slice. Require live Foundry v14 owner acceptance before merging.
+
 > **v0.2.20.1 live owner feedback patch:** Correct `[object Object]` canvas road-name text, add label font color, introduce World Land/Air/Water road-overlay appearance profiles selected by assigned travel surface category, and visibly differentiate road drawing styles from native Region preset colors and Behaviors in module and Scene settings. Preserve World flat-style v1 and Scene v6 data without automatic writes; first confirmed new road style uses v7. Keep stacked PR #12 draft until owner validation. Font Awesome/asset checkpoint icon selection remains scoped to future v0.2.21.
 
 ## Phase 2c v0.2.5 implementation (October 23, 2026)

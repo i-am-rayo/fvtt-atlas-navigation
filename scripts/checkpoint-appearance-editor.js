@@ -67,10 +67,23 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     iconSection.appendChild(legend);
     const search = el("input");
     search.type = "search";
-    search.placeholder = "Search over 2,000 icons: bridge, ship, castle, cave…";
+    search.placeholder = "Search fantasy icons: bridge, ship, castle, cave…";
     search.setAttribute("aria-label", "Filter checkpoint icons");
     search.style.width = "100%";
     iconSection.appendChild(search);
+    const categoryFilter = select([
+      ["rpg", "RPG & fantasy (recommended)"],
+      ["settlements", "Settlements & structures"],
+      ["travel", "Roads & travel"],
+      ["nature", "Nature & terrain"],
+      ["danger", "Combat & danger"],
+      ["magic", "Magic & mystery"],
+      ["creatures", "Characters & creatures"],
+      ["all", "Advanced — all icons, including modern brands"]
+    ], "rpg");
+    categoryFilter.setAttribute("aria-label", "RPG icon category");
+    categoryFilter.style.cssText = "width:100%;margin-top:0.4rem;";
+    iconSection.appendChild(categoryFilter);
     const styleFilter = select([
       ["all", "All Free icon styles"], ["solid", "Solid"],
       ["regular", "Regular"], ["brands", "Brands"]
@@ -141,16 +154,18 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       quick.appendChild(iconButton(name, name, originalIcon(name), true));
     }
     iconSection.appendChild(grid);
-    const more = el("button", "Show 60 more icons");
+    const pageSize = 36;
+    const more = el("button", "Show 36 more icons");
     more.type = "button";
     more.style.cssText = "display:block;margin:0.5rem auto;";
     iconSection.appendChild(more);
-    let visible = 60;
+    let visible = pageSize;
     let matching = [];
     const renderIcons = (newSearch = false) => {
       if (newSearch) {
-        visible = 60;
-        matching = findCheckpointIcons(search.value, styleFilter.value);
+        visible = pageSize;
+        matching = findCheckpointIcons(search.value, styleFilter.value,
+          categoryFilter.value);
       }
       for (const [id] of choices) if (!CHECKPOINT_ICONS.includes(id)) choices.delete(id);
       grid.replaceChildren();
@@ -163,8 +178,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       syncSelection();
     };
     search.addEventListener("input", () => renderIcons(true));
+    categoryFilter.addEventListener("change", () => renderIcons(true));
     styleFilter.addEventListener("change", () => renderIcons(true));
-    more.addEventListener("click", () => { visible += 60; renderIcons(); });
+    more.addEventListener("click", () => { visible += pageSize; renderIcons(); });
     renderIcons(true);
     root.appendChild(fields);
     root.appendChild(iconSection);

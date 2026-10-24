@@ -81,6 +81,53 @@ function pointEvent(x, y) {
   };
 }
 
+test("v0.2.22 idle GM Shift-click opens a road without requiring label visibility", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.PIXI = { Graphics: m.Graphics };
+    m.canvas.stage = { scale: { x: 1 } };
+    let id = 0;
+    const saved = addRoad(createEmptyAtlas(), {
+      points: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
+      name: "Quiet road", idFactory: () => "shift" + ++id
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", saved);
+    const hits = [];
+    m.controller.setShortcutHandler((scene, target) => hits.push({ scene, target }));
+    assert.ok(m.listeners.has("pointerdown"));
+    const ordinary = { ...pointEvent(25, 15), shiftKey: false };
+    m.listeners.get("pointerdown")(ordinary);
+    await Promise.resolve();
+    assert.equal(hits.length, 0);
+    const selected = { ...pointEvent(25, 15), shiftKey: true };
+    m.listeners.get("pointerdown")(selected);
+    await Promise.resolve();
+    assert.deepEqual(hits.map(hit => hit.target),
+      [{ kind: "road", id: saved.roads[0].id }]);
+    m.controller.tearDown();
+    assert.equal(m.listeners.has("pointerdown"), false);
+  } finally { Object.assign(globalThis, previous); }
+});
+
+test("v0.2.22 canvas zoom redraws checkpoint overlay after a short debounce", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.PIXI = { Graphics: m.Graphics };
+    m.canvas.stage = { scale: { x: 1 } };
+    m.controller.refresh();
+    assert.equal(m.controller.lastZoom, 1);
+    m.canvas.stage.scale.x = 3;
+    m.controller.onCanvasPan(m.canvas);
+    await new Promise(resolve => setTimeout(resolve, 85));
+    assert.equal(m.controller.lastZoom, 3);
+    m.controller.tearDown();
+  } finally { Object.assign(globalThis, previous); }
+});
+
 test("v0.2.20 named road styles draw dashed overlay and show one hover label", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
   const m = setup();

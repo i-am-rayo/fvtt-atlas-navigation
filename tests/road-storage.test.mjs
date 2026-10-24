@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readAtlas } from "../scripts/atlas-storage.js";
 import { saveNewRoad, saveRenamedRoad, saveRemovedRoad, saveReshapedRoad, saveAnchoredLegacyRoads, saveOrganizedRoads, saveMergedRoads, savePointEdits } from "../scripts/road-storage.js";
+import { createEmptyAtlas, validateAtlas } from "../scripts/atlas-model.js";
+import { defaultTravelPresets } from "../scripts/travel-preset-model.js";
+import { DEFAULT_ROAD_APPEARANCE } from "../scripts/road-appearance.js";
 
 function mockScene(initial) {
   let stored = initial;
@@ -25,6 +28,37 @@ function mockScene(initial) {
 }
 
 function ids() { let i = 0; return () => "id" + ++i; }
+
+test("v0.2.22 creates a typed named road with optional appearance in one flagged revision", async () => {
+  const previous = globalThis.game;
+  const presets = defaultTravelPresets();
+  const chosen = presets.presets.find(preset => preset.mode === "water");
+  assert.ok(chosen);
+  globalThis.game = { user: { isGM: true }, settings: { get: () => presets } };
+  try {
+    const scene = mockScene(createEmptyAtlas());
+    const custom = { ...DEFAULT_ROAD_APPEARANCE, color: "#123456", pattern: "dashed",
+      labelVisibility: "always", textColor: "#ffeedd" };
+    const saved = await saveNewRoad(scene, {
+      points: [{ x: 10, y: 30 }, { x: 100, y: 50 }],
+      name: "Silver Estuary", expectedRevision: 0, idFactory: ids(),
+      presetId: chosen.id, appearance: custom
+    });
+    assert.equal(saved.revision, 1);
+    assert.equal(saved.schemaVersion, 7);
+    assert.equal(saved.roads[0].name, "Silver Estuary");
+    assert.equal(saved.roads[0].travelPresetId, chosen.id);
+    assert.deepEqual(saved.roads[0].appearance, custom);
+    assert.equal(scene.writes, 1);
+    assert.deepEqual(validateAtlas(saved), saved);
+    assert.throws(() => saveNewRoad(scene, {
+      points: [{ x: 0, y: 0 }, { x: 10, y: 10 }],
+      name: "Bad preset", expectedRevision: 1, idFactory: ids(),
+      presetId: "unknown-id"
+    }), /existing world travel preset/);
+    assert.equal(scene.writes, 1);
+  } finally { globalThis.game = previous; }
+});
 
 test("GM can create, rename and delete a Scene road without changing old calibration", async () => {
   const prior = globalThis.game;

@@ -1,8 +1,9 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * v0.2.20.1 fixes Pixi road labels and adds Land/Air/Water appearance defaults.
+ * v0.2.22 adds GM-only authoring shortcuts and a floating road editor.
  */
-import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
+import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
+  getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
@@ -25,8 +26,52 @@ import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
 import { AtlasCheckpointAppearanceEditor } from "./checkpoint-appearance-editor.js";
+import { AtlasRoadEditorDock } from "./road-editor-dock.js";
 
 const roadCanvas = new RoadCanvasController();
+let roadDock = null;
+
+function syncRoadDock(scene, refresh) {
+  refresh();
+  if (roadDock?.scene?.id !== scene.id) return;
+  if (!roadCanvas.getDraft(scene)) {
+    roadDock.finished = true;
+    void roadDock.close();
+  } else if (roadDock.rendered) void roadDock.render(true);
+}
+
+/** Keep the full Scene sheet out of the map while transient point tools run. */
+function openRoadDock(scene, refresh) {
+  const previous = roadDock;
+  if (previous) {
+    previous.finished = true;
+    void previous.close();
+    roadDock = null;
+  }
+  const sceneSheet = getAtlasSceneConfig(scene);
+  const dock = new AtlasRoadEditorDock({
+    scene, controller: roadCanvas, sceneSheet,
+    onFinish: () => roadCanvas.finish(),
+    onCancel: () => roadCanvas.cancel(),
+    onClosed: () => {
+      if (roadDock === dock) roadDock = null;
+      refresh();
+    }
+  });
+  roadDock = dock;
+  void Promise.resolve(dock.render(true)).then(() => {
+    if (roadDock === dock && sceneSheet?.rendered) void sceneSheet.minimize?.();
+  }).catch(error => {
+    if (roadDock === dock) roadDock = null;
+    roadCanvas.cancel();
+    ui.notifications.error(error.message || String(error));
+  });
+}
+
+function beginRoadDock(scene, refresh, start) {
+  start(() => syncRoadDock(scene, refresh));
+  openRoadDock(scene, refresh);
+}
 
 function ensureIdle(scene) {
   if (roadCanvas.getDraft(scene)) {
@@ -147,7 +192,7 @@ function actions() {
   const DialogV2 = foundry.applications.api.DialogV2;
   return {
     begin(scene, refresh) {
-      roadCanvas.start(scene, refresh);
+      beginRoadDock(scene, refresh, onChange => roadCanvas.start(scene, onChange));
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.StartNotice"));
     },
     draft: scene => roadCanvas.getDraft(scene),
@@ -393,7 +438,18 @@ function actions() {
       refresh();
     },
     beginJunction(scene, refresh) {
-      roadCanvas.startJunction(scene, refresh);
+      roadCanvas.startJunction(scene, () => {
+        refresh();
+        if (roadCanvas.getDraft(scene)?.mode === "points" && !roadDock) {
+          openRoadDock(scene, refresh);
+        }
+        if (roadDock?.scene?.id === scene.id) {
+          if (!roadCanvas.getDraft(scene)) {
+            roadDock.finished = true;
+            void roadDock.close();
+          } else if (roadDock.rendered) void roadDock.render(true);
+        }
+      });
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Junctions.StartNotice"));
     },
     selectJunction: (scene, nodeId) => roadCanvas.selectJunction(scene, nodeId),
@@ -480,7 +536,7 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.Removed"));
     },
     beginPointEdit(scene, roadId, refresh) {
-      roadCanvas.startPointEdit(scene, roadId, refresh);
+      beginRoadDock(scene, refresh, onChange => roadCanvas.startPointEdit(scene, roadId, onChange));
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.EditNotice"));
     },
     undo: () => roadCanvas.undo(),
@@ -674,12 +730,38 @@ Hooks.once("init", () => {
   registerWorldTravelPresets();
   registerWorldRoadAppearance(() => roadCanvas.refresh());
   const roadActions = actions();
+  roadCanvas.setShortcutHandler((scene, target) => {
+    ensureIdle(scene);
+    const atlas = readAtlas(scene);
+    const refresh = () => refreshAtlasSceneConfig(scene);
+    if (target.kind === "checkpoint") {
+      const checkpoint = atlas.checkpoints?.find(c => c.id === target.id);
+      if (checkpoint) roadActions.editCheckpointAppearance(scene, checkpoint, refresh);
+    } else if (target.kind === "road") {
+      const road = atlas.roads?.find(r => r.id === target.id);
+      if (road) return roadActions.editRoadAppearance(scene, road, refresh);
+    }
+  });
   Hooks.on("renderSceneConfig", (app, element) => {
     addAtlasRoadsToSceneConfig(app, element, roadActions);
   });
-  Hooks.on("closeSceneConfig", app => roadCanvas.endEditor(app?.document));
+  Hooks.on("closeSceneConfig", app => {
+    if (roadDock?.sceneSheet === app) {
+      roadDock.finished = true;
+      void roadDock.close();
+    }
+    roadCanvas.endEditor(app?.document);
+    forgetAtlasSceneConfig(app);
+  });
   Hooks.on("canvasReady", () => roadCanvas.refresh());
-  Hooks.on("canvasTearDown", () => roadCanvas.tearDown());
+  Hooks.on("canvasTearDown", () => {
+    if (roadDock) {
+      roadDock.finished = true;
+      void roadDock.close();
+    }
+    roadCanvas.tearDown();
+  });
+  Hooks.on("canvasPan", view => roadCanvas.onCanvasPan(view));
   Hooks.on("updateScene", scene => {
     if (globalThis.canvas?.ready && canvas.scene?.id === scene.id) roadCanvas.refresh();
   });

@@ -902,6 +902,23 @@ function atlasPanel(scene, atlas, actions, refresh) {
  * All Atlas buttons are type=button: they save only Atlas flags, never submit
  * unrelated core Scene form fields.
  */
+const openAtlasSheets = new Map();
+
+/** The visible Scene configuration remains the owner of Atlas operations. */
+export function getAtlasSceneConfig(scene) {
+  return openAtlasSheets.get(scene?.id)?.app ?? null;
+}
+
+export function refreshAtlasSceneConfig(scene) {
+  openAtlasSheets.get(scene?.id)?.refresh?.();
+}
+
+export function forgetAtlasSceneConfig(app) {
+  if (openAtlasSheets.get(app?.document?.id)?.app === app) {
+    openAtlasSheets.delete(app.document.id);
+  }
+}
+
 export function addAtlasRoadsToSceneConfig(app, element, actions) {
   const scene = app?.document;
   if (!globalThis.game?.user?.isGM ||
@@ -921,6 +938,7 @@ export function addAtlasRoadsToSceneConfig(app, element, actions) {
     if (app.rendered === false) return;
     addAtlasRoadsToSceneConfig(app, element, actions);
   };
+  openAtlasSheets.set(scene.id, { app, refresh });
 
   let panel;
   try { panel = atlasPanel(scene, readAtlas(scene), actions, refresh); }

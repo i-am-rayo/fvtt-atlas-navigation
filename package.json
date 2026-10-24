@@ -1,10 +1,10 @@
 {
   "name": "fvtt-atlas-navigation",
-  "version": "0.2.21.1",
+  "version": "0.2.22",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check scripts/main.js && node --check scripts/atlas-model.js && node --check scripts/atlas-storage.js && node --check scripts/road-model.js && node --check scripts/road-storage.js && node --check scripts/road-appearance.js && node --check scripts/road-appearance-settings.js && node --check scripts/checkpoint-icon-catalog.js && node --check scripts/checkpoint-appearance.js && node --check scripts/checkpoint-appearance-editor.js && node --check scripts/region-atlas.js && node --check scripts/generated-region-model.js && node --check scripts/generated-region.js && node --check scripts/native-movement-cost.js && node --check scripts/travel-preset-model.js && node --check scripts/travel-preset-settings.js && node --check scripts/scene-grid.js && node --test",
+    "check": "node --check scripts/main.js && node --check scripts/atlas-model.js && node --check scripts/atlas-storage.js && node --check scripts/road-model.js && node --check scripts/road-storage.js && node --check scripts/road-editor-dock.js && node --check scripts/atlas-canvas-hit.js && node --check scripts/road-appearance.js && node --check scripts/road-appearance-settings.js && node --check scripts/checkpoint-icon-catalog.js && node --check scripts/checkpoint-appearance.js && node --check scripts/checkpoint-appearance-editor.js && node --check scripts/region-atlas.js && node --check scripts/generated-region-model.js && node --check scripts/generated-region.js && node --check scripts/native-movement-cost.js && node --check scripts/travel-preset-model.js && node --check scripts/travel-preset-settings.js && node --check scripts/scene-grid.js && node --test",
     "test": "node --test"
   },
   "engines": {

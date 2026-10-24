@@ -1,4 +1,17 @@
-# v0.2.21.1 — Expanded checkpoint appearance (draft test gate)
+# v0.2.22 — Map authoring and checkpoint scaling (draft test gate)
+
+Install the `feature/phase-2n-authoring-interactions` development branch, reload Foundry v14, and confirm module version **0.2.22**. Back up the World. Use a Scene with existing roads, checkpoints, and a generated native Region.
+
+1. **Zoom/readability:** Zoom to 25%, 50%, 100%, 200%, 400%. Checkpoint glyphs remain recognizable and labels legible; their node positions and native Regions do not move. Saving/reopening retains the original 12–64 px icon setting.
+2. **Fantasy-first picker:** Open checkpoint 🖼 settings. RPG & fantasy is the default and excludes brands. Try the Settlements, Travel, Nature, Danger, Magic, Creatures categories and search. Verify 36-at-a-time paging. In Advanced, search `github` and confirm a Brand icon can still be selected or reopened from an old Scene. No API key or network required.
+3. **GM shortcuts:** With no authoring session, Shift-click a checkpoint icon/graph point to open its appearance editor. Shift-click a road section to open road appearance even if its name is not visible. Ordinary clicks should not launch either. While Edit Points is active, Shift-click bend promotion/junction demotion must still work without launching appearance settings.
+4. **New road dock:** Select Roads [+]. Scene Config should minimize, leaving the dock and the unobstructed map. Stage name, Water/Air preset, per-road override color, dash style, width and label mode, draw at least two points, and Finish Road. Reopen Atlas and confirm these values persist with the road, without changes to native Regions or Behaviors. Cancel another draft and verify no Scene flag write.
+5. **Existing points and junctions:** Use Edit Points or Junctions [+] to stage edits; inspect floating Save Points/Undo/Cancel. Closing the dock or using Escape discards unsaved edits and restores the Scene sheet. Re-enter edit mode and confirm no stale handlers or highlights; saving retains stable IDs.
+6. **Player and regression test:** Player canvas remains unaffected (no GM-only shortcut or Atlas drawing overlay). Native movement-cost behaviors and styles from v0.2.21.1 remain intact. Merely opening a pre-v8 Scene causes no migration. Player discovery/visibility and routing remain deferred.
+
+Automated tests exercise filter, zoom, hit priority, canvas shortcuts, draft controls, and atomic saves. Live Foundry v14 visual and permission acceptance is still required before merging the stacked draft PR.
+
+# v0.2.21.1 — Expanded checkpoint appearance (previous test gate)
 
 Install the `feature/phase-2m-checkpoint-appearance` draft branch, reload Foundry v14 and verify **0.2.21.1**. Test on a World backup; the first checkpoint appearance save on pre-v8 data still upgrades the Scene to schema v8, exactly as v0.2.21.
 
