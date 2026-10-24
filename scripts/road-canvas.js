@@ -8,6 +8,9 @@ import { readWorldRoadAppearance, resolveRoadAppearance,
   roadStrokeSpans, roadLabelPoint, roadAppearanceMode } from "./road-appearance.js";
 import { defaultTravelPresets, validateTravelPresets,
   TRAVEL_PRESET_SETTING } from "./travel-preset-model.js";
+import { checkpointIconPath, checkpointFontIcon, checkpointMarkerPosition,
+  resolveCheckpointAppearance }
+  from "./checkpoint-appearance.js";
 
 function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "solid") {
   if (points.length < 2) return;
@@ -232,6 +235,10 @@ export class RoadCanvasController {
     this.graphicsCanvas = null;
     this.labels = [];
     this.hoveredRoadId = null;
+    this.hoveredCheckpointId = null;
+    this.checkpointHoverGeometry = [];
+    this.textureCache = new Map();
+    this.fontStatus = new Map();
     this.hoverCanvasElement = null;
     this.hoverHandler = null;
     this.hoverExitHandler = null;
@@ -747,19 +754,23 @@ export class RoadCanvasController {
     this.hoverHandler = null;
     this.hoverExitHandler = null;
     this.hoveredRoadId = null;
+    this.hoveredCheckpointId = null;
     this.hoverGeometry = [];
+    this.checkpointHoverGeometry = [];
   }
 
   #trackHover(canvas) {
-    if (!this.hoverGeometry.length) {
+    if (!this.hoverGeometry.length && !this.checkpointHoverGeometry.length) {
       if (this.hoverCanvasElement) this.#stopHover();
       return;
     }
     const element = canvas.app?.canvas ?? canvas.app?.view;
     if (this.hoverCanvasElement === element) return;
     const geometry = this.hoverGeometry;
+    const checkpoints = this.checkpointHoverGeometry;
     this.#stopHover();
     this.hoverGeometry = geometry;
+    this.checkpointHoverGeometry = checkpoints;
     if (!element?.addEventListener) return;
     this.hoverCanvasElement = element;
     this.hoverHandler = event => {
@@ -769,6 +780,13 @@ export class RoadCanvasController {
       this.lastHoverAt = Date.now();
       const point = canvas.canvasCoordinatesFromClient?.({ x: event.clientX, y: event.clientY });
       if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return;
+      let nextCheckpoint = null;
+      for (const candidate of this.checkpointHoverGeometry) {
+        if (Math.hypot(point.x - candidate.x, point.y - candidate.y) <= candidate.radius) {
+          nextCheckpoint = candidate.id;
+          break;
+        }
+      }
       let next = null;
       for (const candidate of this.hoverGeometry) {
         if (nearRoadLine(point, candidate.path, candidate.tolerance)) {
@@ -776,14 +794,16 @@ export class RoadCanvasController {
           break;
         }
       }
-      if (next !== this.hoveredRoadId) {
+      if (next !== this.hoveredRoadId || nextCheckpoint !== this.hoveredCheckpointId) {
         this.hoveredRoadId = next;
+        this.hoveredCheckpointId = nextCheckpoint;
         this.refresh();
       }
     };
     this.hoverExitHandler = () => {
-      if (this.hoveredRoadId !== null) {
+      if (this.hoveredRoadId !== null || this.hoveredCheckpointId !== null) {
         this.hoveredRoadId = null;
+        this.hoveredCheckpointId = null;
         this.refresh();
       }
     };
@@ -791,7 +811,7 @@ export class RoadCanvasController {
     element.addEventListener("pointerleave", this.hoverExitHandler);
   }
 
-  #addLabel(graphics, name, point, textColor) {
+  #addLabel(graphics, name, point, textColor, anchorX = 0.5) {
     if (!globalThis.PIXI?.Text || !graphics.addChild) return;
     const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
     const color = Number.parseInt(textColor.slice(1), 16);
@@ -804,11 +824,100 @@ export class RoadCanvasController {
       ? { ...common, stroke: { color: 0x000000, width: 3 } }
       : { ...common, stroke: 0x000000, strokeThickness: 3 };
     const label = new PIXI.Text(String(name), style);
-    label.anchor?.set?.(0.5);
+    label.anchor?.set?.(anchorX, 0.5);
     label.position?.set?.(point.x, point.y);
     label.eventMode = "none";
     graphics.addChild(label);
     this.labels.push(label);
+  }
+
+  #addCheckpointLabels(graphics, checkpointName, roadName, appearance, point) {
+    if (!globalThis.PIXI?.Text || !graphics.addChild) return;
+    const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
+    const fill = Number.parseInt(appearance.textColor.slice(1), 16);
+    const add = (content, y, fontSize, fontWeight, fontStyle) => {
+      const style = { fontFamily: "Arial", fontSize, fontWeight, fontStyle,
+        fill, align: "left",
+        ...(major >= 8 ? { stroke: { color: 0x000000, width: 3 } }
+          : { stroke: 0x000000, strokeThickness: 3 }) };
+      const label = new PIXI.Text(String(content), style);
+      label.anchor?.set?.(0, 0.5);
+      label.position?.set?.(point.x + appearance.size / 2 + 12, y);
+      label.eventMode = "none";
+      graphics.addChild(label);
+      this.labels.push(label);
+    };
+    const secondLine = Boolean(appearance.showRoadName && roadName);
+    add(checkpointName, point.y - (secondLine ? 9 : 0), 16, "bold", "normal");
+    if (secondLine) add(roadName, point.y + 10, 12, "normal", "italic");
+  }
+
+  #fontReady(font) {
+    const key = font.family + ":" + font.weight;
+    const state = this.fontStatus.get(key);
+    if (state) return state === "ready";
+    const fontSet = globalThis.document?.fonts;
+    if (!fontSet?.load) return true; // No FontFaceSet in deterministic Node mocks.
+    this.fontStatus.set(key, "loading");
+    const descriptor = font.weight + ' 24px "' + font.family + '"';
+    Promise.resolve().then(() => fontSet.load(descriptor)).then(faces => {
+      if (!faces?.length) throw new Error("Font Awesome face was not registered");
+      this.fontStatus.set(key, "ready");
+      this.refresh();
+    }).catch(error => {
+      this.fontStatus.set(key, "error");
+      console.warn("[fvtt-atlas-navigation] Checkpoint icon font unavailable:", error);
+    });
+    return false;
+  }
+
+  #iconTexture(src) {
+    if (!src || !globalThis.foundry?.canvas?.loadTexture) return null;
+    if (this.textureCache.has(src)) return this.textureCache.get(src);
+    this.textureCache.set(src, null);
+    Promise.resolve().then(() => foundry.canvas.loadTexture(src)).then(texture => {
+      if (!texture) throw new Error("No usable texture returned");
+      this.textureCache.set(src, texture);
+      this.refresh();
+    }).catch(error => {
+      // Keep a null cache entry rather than retrying every canvas refresh.
+      console.warn("[fvtt-atlas-navigation] Checkpoint icon could not load:", src, error);
+    });
+    return null;
+  }
+
+  #drawCheckpoint(graphics, position, checkpoint, appearance) {
+    const selected = checkpoint.id === this.selectedCheckpointId;
+    const color = selected ? 0x8ef6c5 : Number.parseInt(appearance.color.slice(1), 16);
+    const marker = checkpointMarkerPosition(position, appearance);
+    const src = checkpointIconPath(appearance);
+    const texture = this.#iconTexture(src);
+    const font = appearance.type === "fa" ? checkpointFontIcon(appearance.icon) : null;
+    if (appearance.type !== "dot") drawDot(graphics, position, color, 3);
+    if (selected) drawDot(graphics, marker, 0x8ef6c5, appearance.size / 2 + 4);
+    if (texture && globalThis.PIXI?.Sprite && graphics.addChild) {
+      const sprite = new PIXI.Sprite(texture);
+      sprite.anchor?.set?.(0.5);
+      sprite.position?.set?.(marker.x, marker.y);
+      sprite.width = appearance.size;
+      sprite.height = appearance.size;
+      sprite.eventMode = "none";
+      if (appearance.type === "fa") sprite.tint = color;
+      graphics.addChild(sprite);
+      this.labels.push(sprite);
+    } else if (font && globalThis.PIXI?.Text && graphics.addChild && this.#fontReady(font)) {
+      const glyph = new PIXI.Text(font.glyph, {
+        fontFamily: font.family, fontWeight: font.weight,
+        fontSize: appearance.size, fill: color, align: "center"
+      });
+      glyph.anchor?.set?.(0.5);
+      glyph.position?.set?.(marker.x, marker.y);
+      glyph.eventMode = "none";
+      graphics.addChild(glyph);
+      this.labels.push(glyph);
+    } else {
+      drawDot(graphics, marker, color, selected ? 10 : 6);
+    }
   }
 
   refresh() {
@@ -852,6 +961,7 @@ export class RoadCanvasController {
       defaultTravelPresets()).presets;
     const labelAnchors = new Map();
     this.hoverGeometry = [];
+    this.checkpointHoverGeometry = [];
     for (const segment of atlas.segments) {
       const from = nodes.get(segment.from);
       const to = nodes.get(segment.to);
@@ -884,14 +994,31 @@ export class RoadCanvasController {
         this.#addLabel(g, item.road.name, item.point, item.style.textColor);
       }
     }
-    this.#trackHover(canvas);
     for (const checkpoint of atlas.checkpoints ?? []) {
       const point = nodes.get(checkpoint.nodeId);
       if (!point) continue;
-      drawDot(g, toCanvasPoint(canvas, atlas, point),
-        checkpoint.id === this.selectedCheckpointId ? 0x8ef6c5 : 0x9c7bf0,
-        checkpoint.id === this.selectedCheckpointId ? 10 : 6);
+      const position = toCanvasPoint(canvas, atlas, point);
+      const appearance = resolveCheckpointAppearance(checkpoint.appearance);
+      this.#drawCheckpoint(g, position, checkpoint, appearance);
+      if (appearance.labelMode === "hover") {
+        const marker = checkpointMarkerPosition(position, appearance);
+        this.checkpointHoverGeometry.push({
+          id: checkpoint.id, x: position.x, y: position.y,
+          radius: 10
+        });
+        if (appearance.type !== "dot") this.checkpointHoverGeometry.push({
+          id: checkpoint.id, x: marker.x, y: marker.y,
+          radius: Math.max(10, appearance.size / 2 + 5)
+        });
+      }
+      if (appearance.labelMode === "always" ||
+          (appearance.labelMode === "hover" && this.hoveredCheckpointId === checkpoint.id)) {
+        const roadName = roads.get(checkpoint.roadId)?.name;
+        this.#addCheckpointLabels(g, checkpoint.name, roadName, appearance,
+          checkpointMarkerPosition(position, appearance));
+      }
     }
+    this.#trackHover(canvas);
     if (this.selectedJunctionId) {
       const selected = nodes.get(this.selectedJunctionId);
       if (selected && atlas.segments.some(s =>

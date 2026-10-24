@@ -1,4 +1,5 @@
-import { validateAtlas, upgradeAtlasCheckpoints } from "./atlas-model.js";
+import { validateAtlas, upgradeAtlasCheckpoints, upgradeAtlasCheckpointAppearance } from "./atlas-model.js";
+import { validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { applyRoadGeometryEdit } from "./road-model.js";
 
 const MAX_NAME = 120;
@@ -80,8 +81,24 @@ export function addRoadCheckpoint(atlas, {
     ...current,
     checkpoints: [...current.checkpoints, {
       id: checkpointId, roadId, nodeId,
-      name: cleanName(name), elevationMeters: elevation(elevationMeters)
+      name: cleanName(name), elevationMeters: elevation(elevationMeters),
+      ...(current.schemaVersion >= 8 ? { appearance: null } : {})
     }]
+  });
+}
+
+/** Explicit style update without touching names, elevation, graph or native Regions. */
+export function editCheckpointAppearance(atlas, { checkpointId, appearance }) {
+  const previous = validateAtlas(atlas);
+  if (!previous.checkpoints?.some(c => c.id === checkpointId)) {
+    throw new Error("Checkpoint no longer exists in this Scene.");
+  }
+  if (appearance === null && previous.schemaVersion < 8) return previous;
+  const value = appearance === null ? null : validateCheckpointAppearance(appearance);
+  const current = upgradeAtlasCheckpointAppearance(previous);
+  return validateAtlas({
+    ...current, checkpoints: current.checkpoints.map(c =>
+      c.id === checkpointId ? { ...c, appearance: value } : c)
   });
 }
 

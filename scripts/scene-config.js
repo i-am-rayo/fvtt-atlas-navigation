@@ -472,12 +472,23 @@ function atlasPanel(scene, atlas, actions, refresh) {
         ? label("FVTTATLAS.Checkpoints.Unknown")
         : format(checkpoint.elevationMeters) + " m";
       description.appendChild(node("div", checkpoint.roadName + " · " + meters, "hint"));
+      if (checkpoint.appearance) {
+        const a = checkpoint.appearance;
+        const detail = node("div",
+          "Checkpoint overlay: " + (a.type === "fa" ? "FA " + a.icon :
+            a.type === "image" ? "custom image" : "dot") +
+          " · label " + a.labelMode + (a.showRoadName ? " + road name" : ""), "hint");
+        detail.style.fontSize = "0.8em";
+        description.appendChild(detail);
+      }
       row.appendChild(description);
       const controls = node("div", undefined, "form-fields");
       controls.appendChild(button("◎", label("FVTTATLAS.Checkpoints.Highlight"),
         () => actions.selectCheckpoint(scene, checkpoint.id)));
       controls.appendChild(button("✎", label("FVTTATLAS.Checkpoints.Edit"),
         () => actions.editCheckpoint(scene, checkpoint, refresh)));
+      controls.appendChild(button("🖼", "CHECKPOINT OVERLAY — Set Font Awesome icon / image, size, colors and name labels",
+        () => actions.editCheckpointAppearance(scene, checkpoint, refresh)));
       controls.appendChild(button("×", label("FVTTATLAS.Checkpoints.Delete"),
         () => actions.removeCheckpoint(scene, checkpoint, refresh)));
       row.appendChild(controls);

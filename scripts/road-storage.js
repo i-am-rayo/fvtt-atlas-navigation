@@ -1,4 +1,5 @@
-import { addRoadCheckpoint, editRoadCheckpoint, removeRoadCheckpoint } from "./checkpoint-model.js";
+import { addRoadCheckpoint, editRoadCheckpoint, removeRoadCheckpoint,
+  editCheckpointAppearance } from "./checkpoint-model.js";
 import { addRoad, removeRoad, renameRoad, reshapeRoad, mergeRoadGroups, applyRoadGeometryEdit } from "./road-model.js";
 import { anchorLegacyAtlas, upgradeAtlasRoadGroups, upgradeAtlasTravelPresets,
   upgradeAtlasRoadTextAppearance, validateAtlas } from "./atlas-model.js";
@@ -93,6 +94,11 @@ export function saveNewCheckpoint(scene, { roadId, candidate, name, elevationMet
 export function saveEditedCheckpoint(scene, { checkpointId, name, elevationMeters, expectedRevision }) {
   return saveChange(scene, expectedRevision, previous =>
     editRoadCheckpoint(previous, { checkpointId, name, elevationMeters }));
+}
+
+export function saveCheckpointAppearance(scene, { checkpointId, appearance, expectedRevision }) {
+  return saveChange(scene, expectedRevision, previous =>
+    editCheckpointAppearance(previous, { checkpointId, appearance }));
 }
 
 export function saveRemovedCheckpoint(scene, { checkpointId, expectedRevision }) {

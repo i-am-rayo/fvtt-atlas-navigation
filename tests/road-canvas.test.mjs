@@ -4,6 +4,8 @@ import { RoadCanvasController } from "../scripts/road-canvas.js";
 import { readAtlas } from "../scripts/atlas-storage.js";
 import { createEmptyAtlas, upgradeAtlasRoadAppearance } from "../scripts/atlas-model.js";
 import { addRoad } from "../scripts/road-model.js";
+import { addRoadCheckpoint, editCheckpointAppearance } from "../scripts/checkpoint-model.js";
+import { DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
 
 function setup() {
   const listeners = new Map();
@@ -126,6 +128,137 @@ test("v0.2.20 named road styles draw dashed overlay and show one hover label", a
   } finally {
     m.controller.tearDown();
     m.Graphics.prototype.stroke = oldStroke;
+    Object.assign(globalThis, previous);
+  }
+});
+
+test("v0.2.21 checkpoint icons load locally and labels include owning road on hover", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI,
+    foundry: globalThis.foundry };
+  const m = setup();
+  const loadedPaths = [];
+  const sprites = [];
+  class Sprite {
+    constructor(texture) {
+      this.texture = texture; this.anchor = { set() {} };
+      this.position = { set(x, y) { this.x = x; this.y = y; } };
+      this.destroyed = false; sprites.push(this);
+    }
+    destroy() { this.destroyed = true; }
+  }
+  class Text {
+    constructor(content, style) {
+      this.text = String(content); this.style = style;
+      this.anchor = { set() {} }; this.position = { set(x, y) { this.x = x; this.y = y; } };
+    }
+    destroy() {}
+  }
+  m.Graphics.prototype.addChild = function(obj) { obj.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.foundry = { canvas: { loadTexture: async src => {
+      loadedPaths.push(src); return { src };
+    } } };
+    globalThis.PIXI = { Graphics: m.Graphics, Sprite, Text };
+    let n = 0;
+    const road = addRoad(createEmptyAtlas(), {
+      points: [{ x: 20, y: 30 }, { x: 120, y: 30 }],
+      name: "Mountain Track", idFactory: () => "appearance" + ++n
+    });
+    const cp = addRoadCheckpoint(road, {
+      roadId: road.roads[0].id,
+      candidate: { kind: "node", nodeId: road.segments[0].from },
+      name: "Pass", elevationMeters: 300, idFactory: () => "appearance" + ++n
+    });
+    const styled = editCheckpointAppearance(cp, {
+      checkpointId: cp.checkpoints[0].id,
+      appearance: { ...DEFAULT_CHECKPOINT_APPEARANCE,
+        type: "fa", icon: "mountain", size: 32, color: "#ffaa11",
+        labelMode: "hover", showRoadName: true }
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", styled);
+    m.controller.refresh();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(loadedPaths,
+      ["modules/fvtt-atlas-navigation/assets/checkpoint-icons/mountain.svg"]);
+    assert.equal(sprites.length, 1, "one sprite is shown when texture finishes loading");
+    assert.equal(sprites[0].width, 32);
+    assert.equal(sprites[0].tint, 0xffaa11);
+    assert.equal(sprites[0].position.x, 30);
+    assert.equal(sprites[0].position.y, 36, "visual icon sits above original node at y=60");
+    assert.equal(m.controller.labels.filter(x => x instanceof Text).length, 0);
+    // canvas point x=sceneX(10)+20, y=sceneY(30)+30 => client midpoint (15,30).
+    m.listeners.get("pointermove")(pointEvent(15, 30));
+    const title = m.controller.labels.find(l => l instanceof Text && l.text === "Pass");
+    const subtitle = m.controller.labels.find(l => l instanceof Text &&
+      l.text === "Mountain Track");
+    assert.ok(title && subtitle, "checkpoint hover has distinct name and road labels");
+    assert.equal(title.style.fontSize, 16);
+    assert.equal(title.style.fontWeight, "bold");
+    assert.equal(subtitle.style.fontSize, 12);
+    assert.equal(subtitle.style.fontStyle, "italic");
+    assert.ok(subtitle.position.y > title.position.y);
+    m.listeners.get("pointerleave")();
+    assert.equal(m.controller.labels.filter(x => x instanceof Text).length, 0);
+    m.controller.tearDown();
+    assert.ok(sprites.some(s => s.destroyed), "sprites released on teardown");
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, previous);
+  }
+});
+
+test("v0.2.21.1 font glyph renders above checkpoint and hover works on icon", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI,
+    foundry: globalThis.foundry, document: globalThis.document };
+  const m = setup();
+  class Text {
+    constructor(content, style) {
+      this.text = String(content); this.style = style;
+      this.position = { set(x, y) { this.x = x; this.y = y; } };
+      this.anchor = { set() {} };
+    }
+    destroy() {}
+  }
+  m.Graphics.prototype.addChild = function(label) { label.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    globalThis.document = { fonts: { load: async () => [{}] } };
+    globalThis.foundry = { canvas: { loadTexture: async () => {
+      throw new Error("font icon must never request a texture");
+    } } };
+    let n = 0;
+    const road = addRoad(createEmptyAtlas(), {
+      name: "The Underpass", points: [{ x: 20, y: 30 }, { x: 140, y: 30 }],
+      idFactory: () => "font" + ++n
+    });
+    const cp = addRoadCheckpoint(road, {
+      roadId: road.roads[0].id,
+      candidate: { kind: "node", nodeId: road.segments[0].from },
+      name: "Crossing", elevationMeters: 0, idFactory: () => "font" + ++n
+    });
+    const styled = editCheckpointAppearance(cp, {
+      checkpointId: cp.checkpoints[0].id,
+      appearance: { ...DEFAULT_CHECKPOINT_APPEARANCE, type: "fa",
+        icon: "brands:github", size: 40, labelMode: "hover" }
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", styled);
+    m.controller.refresh();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const glyph = m.controller.labels.find(l => l instanceof Text &&
+      l.style.fontFamily === "Atlas FA 7 Brands");
+    assert.ok(glyph, "a locally loaded webfont glyph is shown without any image requests");
+    assert.equal(glyph.position.y, 32, "40 px glyph floats 28 px above node at y=60");
+    assert.equal(glyph.style.fontSize, 40);
+    // Clicking/hovering the floating graphic is visually separate from the node.
+    m.listeners.get("pointermove")(pointEvent(15, 16));
+    assert.ok(m.controller.labels.some(l => l instanceof Text && l.text === "Crossing"));
+    assert.ok(!m.controller.labels.some(l => l.text === "The Underpass"),
+      "road subtitle stays optional");
+  } finally {
+    m.controller.tearDown();
     Object.assign(globalThis, previous);
   }
 });

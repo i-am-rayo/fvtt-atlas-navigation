@@ -1,5 +1,6 @@
 import { validateRoadAppearance, validateLegacyRoadAppearance,
   DEFAULT_ROAD_APPEARANCE } from "./road-appearance.js";
+import { validateCheckpointAppearance } from "./checkpoint-appearance.js";
 
 /**
  * Pure atlas data validation. No Foundry globals are used in this module.
@@ -12,6 +13,7 @@ export const CHECKPOINT_ATLAS_SCHEMA_VERSION = 4;
 export const TRAVEL_ATLAS_SCHEMA_VERSION = 5;
 export const APPEARANCE_ATLAS_SCHEMA_VERSION = 6;
 export const TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION = 7;
+export const CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION = 8;
 export const IMAGE_ATLAS_SCHEMA_VERSION = 2;
 export const LEGACY_ATLAS_SCHEMA_VERSION = 1;
 const MAX_NODES = 10000;
@@ -83,7 +85,9 @@ export function validateAtlas(value) {
   const data = record(value, "root");
   const legacy = data.schemaVersion === LEGACY_ATLAS_SCHEMA_VERSION;
   const imageV2 = data.schemaVersion === IMAGE_ATLAS_SCHEMA_VERSION;
-  const withTextAppearance = data.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION;
+  const withCheckpointAppearance = data.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION;
+  const withTextAppearance = data.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
+    withCheckpointAppearance;
   const withAppearance = data.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION || withTextAppearance;
   const withTravel = data.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION || withAppearance;
   const withCheckpoints = data.schemaVersion === CHECKPOINT_ATLAS_SCHEMA_VERSION || withTravel;
@@ -215,7 +219,9 @@ export function validateAtlas(value) {
     ]));
     for (const [index, value] of data.checkpoints.entries()) {
       const c = record(value, "checkpoints[" + index + "]");
-      fields(c, ["id", "roadId", "nodeId", "name", "elevationMeters"], "checkpoint");
+      fields(c, withCheckpointAppearance
+        ? ["id", "roadId", "nodeId", "name", "elevationMeters", "appearance"]
+        : ["id", "roadId", "nodeId", "name", "elevationMeters"], "checkpoint");
       const checkpointId = id(c.id, "checkpoint ID");
       if (checkpointIds.has(checkpointId)) fail("duplicate checkpoint ID " + checkpointId);
       checkpointIds.add(checkpointId);
@@ -234,8 +240,14 @@ export function validateAtlas(value) {
           (!Number.isFinite(c.elevationMeters) || Math.abs(c.elevationMeters) > 10000000)) {
         fail("checkpoint " + checkpointId + " needs a finite elevation in meters, or null");
       }
+      if (withCheckpointAppearance && !Object.hasOwn(c, "appearance")) {
+        fail("checkpoint " + checkpointId + " is missing appearance data");
+      }
       checkpoints.push({ id: checkpointId, roadId, nodeId,
-        name: c.name.trim(), elevationMeters: c.elevationMeters });
+        name: c.name.trim(), elevationMeters: c.elevationMeters,
+        ...(withCheckpointAppearance ? {
+          appearance: c.appearance === null ? null : validateCheckpointAppearance(c.appearance)
+        } : {}) });
     }
   }
 
@@ -302,7 +314,8 @@ export function upgradeAtlasCheckpoints(atlas) {
   if (old.schemaVersion === CHECKPOINT_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
+      old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
   if (old.schemaVersion !== ATLAS_SCHEMA_VERSION) {
     throw new Error("Organize named roads before adding checkpoints.");
   }
@@ -318,7 +331,8 @@ export function upgradeAtlasTravelPresets(atlas) {
   const old = validateAtlas(atlas);
   if (old.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
+      old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
   const withCheckpoints = old.schemaVersion === ATLAS_SCHEMA_VERSION
     ? upgradeAtlasCheckpoints(old) : old;
   if (withCheckpoints.schemaVersion !== CHECKPOINT_ATLAS_SCHEMA_VERSION) {
@@ -335,7 +349,8 @@ export function upgradeAtlasTravelPresets(atlas) {
 export function upgradeAtlasRoadAppearance(atlas) {
   const old = validateAtlas(atlas);
   if (old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
+      old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
   const current = upgradeAtlasTravelPresets(old);
   return validateAtlas({
     ...current,
@@ -347,10 +362,21 @@ export function upgradeAtlasRoadAppearance(atlas) {
 /** First post-v0.2.20 style save adds label color without rewriting old Scenes on load. */
 export function upgradeAtlasRoadTextAppearance(atlas) {
   const current = upgradeAtlasRoadAppearance(atlas);
-  if (current.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION) return current;
+  if (current.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      current.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION) return current;
   return validateAtlas({ ...current, schemaVersion: TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION,
     roads: current.roads.map(road => ({ ...road,
       appearance: road.appearance
         ? { ...road.appearance, textColor: DEFAULT_ROAD_APPEARANCE.textColor }
         : null })) });
+}
+
+/** First explicitly saved checkpoint style adds null overrides; no Scene read changes flags. */
+export function upgradeAtlasCheckpointAppearance(atlas) {
+  const current = upgradeAtlasRoadTextAppearance(atlas);
+  if (current.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION) return current;
+  return validateAtlas({
+    ...current, schemaVersion: CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION,
+    checkpoints: current.checkpoints.map(checkpoint => ({ ...checkpoint, appearance: null }))
+  });
 }
