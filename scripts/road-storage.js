@@ -175,6 +175,23 @@ export async function saveRoadTravelPreset(scene, { roadId, presetId = null, exp
   });
 }
 
+/** Save a complete Shift-click road inspector in one revision-checked flag update. */
+export function saveRoadPresentation(scene, {
+  roadId, name, appearance, playerVisible, expectedRevision
+}) {
+  const style = appearance === null ? null : validateRoadAppearance(appearance);
+  return saveChange(scene, expectedRevision, previous => {
+    if (!previous.roads?.some(road => road.id === roadId)) {
+      throw new Error("The named road no longer exists.");
+    }
+    const named = renameRoad(previous, { roadId, name });
+    const current = upgradeAtlasRoadTextAppearance(named);
+    const styled = { ...current, roads: current.roads.map(road =>
+      road.id === roadId ? { ...road, appearance: style } : road) };
+    return setRoadPlayerVisibility(styled, { roadId, visible: playerVisible });
+  });
+}
+
 /** Only this single GM request may migrate the Scene flag to v6. */
 export function saveRoadAppearance(scene, { roadId, appearance, expectedRevision }) {
   const value = appearance === null ? null : validateRoadAppearance(appearance);

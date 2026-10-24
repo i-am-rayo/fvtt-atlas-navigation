@@ -1,3 +1,13 @@
+# v0.2.24.1 — Player zoom / public road name hover / road inspector follow-up
+
+- **Player browser:** reveal two nearby checkpoints and zoom out until the cluster count appears; zoom in without changing the Scene, and verify that the count disappears and the individual icons return. Re-test pan and multiple zoom changes. Hidden roads must remain invisible.
+- **Player browser:** reveal a road configured to show labels On Hover; hovering its visible line should show **only that revealed road's name**. Hidden road names and checkpoint name/road/elevation information must not appear. Verify Off/Always behavior, leaving the line, hiding again, and no player Shift-click editing.
+- **GM browser:** while idle, Shift+left-click a road and edit its name and visible-to-players checkbox in Road Settings. Confirm that both persist after reload. Change color/line label settings when desired, while preserving unrelated roads/Regions/Behaviors.
+- **Appearance inheritance:** on a road without a custom style, saving only name or visibility must not freeze its World Land/Air/Water defaults. Changing the World default afterward should still update the existing road's appearance.
+- **Text quality:** compare GM checkpoint labels, road labels, elevation hover, and player public road hover at 0.5×, 1×, 2×, and 3× zoom. Check crispness and spacing on the actual Foundry/Pixi runtime.
+
+Live two-client visual acceptance remains required; this patch does not provide confidentiality of raw Scene flags and does not change native movement.
+
 # v0.2.24 — Player visual visibility and checkpoint inspector (draft two-client gate)
 
 Back up a Foundry v14 World, install the `feature/phase-2p-player-visibility` branch, and connect a **GM and ordinary player at the same time** to the same Scene. Confirm the module reports **0.2.24**. These changes are unmerged pending your test.

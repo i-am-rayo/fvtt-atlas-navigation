@@ -9,7 +9,7 @@ import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
   saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset,
-  saveRoadAppearance, saveRoadPlayerVisibility,
+  saveRoadAppearance, saveRoadPresentation, saveRoadPlayerVisibility,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
 import { getRoadMergeCandidates } from "./road-model.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
@@ -225,24 +225,46 @@ function actions() {
       const content = document.createElement("div");
       const hint = document.createElement("p");
       const mode = roadAppearanceMode(actual, readWorldTravelPresets().presets);
-      hint.textContent = "Override the World " + mode + " road-overlay appearance for " +
-        actual.name + ". This changes road lines and names only—never generated " +
-        "native Region colors or movement rules.";
-      content.append(hint, roadAppearanceForm(resolveRoadAppearance(actual,
-        readWorldRoadAppearance(), mode)));
+      hint.textContent = "Edit this road's name, player visibility and line appearance. " +
+        "Unchanged World-default appearance continues to inherit Land / Air / Water settings. " +
+        "Native Region colors, geometry and movement rules are not affected.";
+      const nameRow = document.createElement("label");
+      nameRow.className = "form-group";
+      const nameLabel = document.createElement("span");
+      nameLabel.textContent = "Road name";
+      const name = document.createElement("input");
+      name.type = "text"; name.name = "atlasRoadName"; name.maxLength = 120;
+      name.required = true; name.value = actual.name; name.defaultValue = actual.name;
+      nameRow.append(nameLabel, name);
+      const visibilityRow = document.createElement("label");
+      visibilityRow.className = "form-group";
+      const visibilityLabel = document.createElement("span");
+      visibilityLabel.textContent = "Visible to players (visual only)";
+      const visibility = document.createElement("input");
+      visibility.type = "checkbox"; visibility.name = "atlasRoadVisible";
+      visibility.value = "true"; visibility.checked = actual.playerVisible === true;
+      visibility.defaultChecked = visibility.checked;
+      visibilityRow.append(visibilityLabel, visibility);
+      const baseline = resolveRoadAppearance(actual, readWorldRoadAppearance(), mode);
+      content.append(hint, nameRow, visibilityRow, roadAppearanceForm(baseline));
       const result = await DialogV2.input({
-        window: { title: "Road Appearance — " + actual.name },
-        content, ok: { label: "Save Road Appearance" },
+        window: { title: "Road Settings — " + actual.name },
+        content, ok: { label: "Save Road Settings" },
         rejectClose: false, modal: true
       });
       if (!result) return;
-      await saveRoadAppearance(scene, {
-        roadId: road.id, appearance: roadAppearanceFromForm(result),
-        expectedRevision: atlas.revision
+      const selected = roadAppearanceFromForm(result);
+      const inherits = actual.appearance == null &&
+        Object.keys(selected).every(key => selected[key] === baseline[key]);
+      await saveRoadPresentation(scene, {
+        roadId: road.id, name: String(result.atlasRoadName ?? ""),
+        playerVisible: result.atlasRoadVisible === true ||
+          result.atlasRoadVisible === "true" || result.atlasRoadVisible === "on",
+        appearance: inherits ? null : selected, expectedRevision: atlas.revision
       });
       roadCanvas.refresh();
       refresh();
-      ui.notifications.info("Atlas road appearance saved.");
+      ui.notifications.info("Atlas road settings saved.");
     },
     async resetRoadAppearance(scene, road, refresh) {
       ensureIdle(scene);

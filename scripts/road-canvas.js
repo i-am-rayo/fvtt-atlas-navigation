@@ -18,6 +18,14 @@ import { checkpointIconPath, checkpointFontIcon, checkpointMarkerPosition,
   resolveCheckpointAppearance }
   from "./checkpoint-appearance.js";
 
+/** Pixi canvas-backed text needs more texels than its on-screen font size at zoom. */
+function sharpenText(label, zoom = 1) {
+  if (!label || !("resolution" in label)) return;
+  const ratio = globalThis.window?.devicePixelRatio ?? 1;
+  const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  label.resolution = Math.min(4, Math.max(2, ratio, Math.ceil(scale * 2)));
+}
+
 function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "solid") {
   if (points.length < 2) return;
   const spans = roadStrokeSpans(points, pattern, width);
@@ -256,6 +264,11 @@ export class RoadCanvasController {
     this.shortcutPointerHandler = null;
     this.hoverGeometry = [];
     this.lastHoverAt = 0;
+    this.playerHoveredRoadId = null;
+    this.playerHoverGeometry = [];
+    this.playerHoverCanvasElement = null;
+    this.playerMoveHandler = null;
+    this.playerExitHandler = null;
     this.draft = null;
     this.selectedRoadId = null;
     this.selectedJunctionId = null;
@@ -902,19 +915,22 @@ export class RoadCanvasController {
     if (this.shortcutHandler) element.addEventListener("pointerdown", this.shortcutPointerHandler, true);
   }
 
-  #addLabel(graphics, name, point, textColor, anchorX = 0.5) {
+  #addLabel(graphics, name, point, textColor, anchorX = 0.5, zoom = 1) {
     if (!globalThis.PIXI?.Text || !graphics.addChild) return;
     const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
     const color = Number.parseInt(textColor.slice(1), 16);
-    const common = { fontFamily: "Arial", fontSize: 16,
+    const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+    const fontSize = Math.max(12, Math.min(22, 16 * Math.sqrt(scale))) / scale;
+    const common = { fontFamily: "Arial", fontSize,
       fill: color, align: "center" };
     // Pixi v7 and v8 both accept a positional string; the v8 options-object
     // signature can become '[object Object]' on Foundry's older Text runtime.
     // Use the cross-version text-first form until v14 runtime capability is verified.
     const style = major >= 8
-      ? { ...common, stroke: { color: 0x000000, width: 3 } }
-      : { ...common, stroke: 0x000000, strokeThickness: 3 };
+      ? { ...common, stroke: { color: 0x000000, width: 2 / scale } }
+      : { ...common, stroke: 0x000000, strokeThickness: 2 / scale };
     const label = new PIXI.Text(String(name), style);
+    sharpenText(label, zoom);
     label.anchor?.set?.(anchorX, 0.5);
     label.position?.set?.(point.x, point.y);
     label.eventMode = "none";
@@ -934,9 +950,10 @@ export class RoadCanvasController {
     const add = (content, y, fontSize, fontWeight, fontStyle) => {
       const style = { fontFamily: "Arial", fontSize, fontWeight, fontStyle,
         fill, align: "left",
-        ...(major >= 8 ? { stroke: { color: 0x000000, width: 3 } }
-          : { stroke: 0x000000, strokeThickness: 3 }) };
+        ...(major >= 8 ? { stroke: { color: 0x000000, width: 2 / scale } }
+          : { stroke: 0x000000, strokeThickness: 2 / scale }) };
       const label = new PIXI.Text(String(content), style);
+      sharpenText(label, zoom);
       label.anchor?.set?.(0, 0.5);
       label.position?.set?.(point.x + size / 2 + 12 / scale, y);
       label.eventMode = "none";
@@ -959,6 +976,7 @@ export class RoadCanvasController {
       ...(major >= 8 ? { stroke: { color: 0x101828, width: 4 / scale } }
         : { stroke: 0x101828, strokeThickness: 4 / scale }) };
     const label = new PIXI.Text(String(content), style);
+    sharpenText(label, zoom);
     label.anchor?.set?.(0, 0);
     label.position?.set?.(point.x + xOffset / scale, point.y + yOffset / scale);
     label.eventMode = "none";
@@ -978,6 +996,7 @@ export class RoadCanvasController {
       fontFamily: "Arial", fontSize: (group.members.length > 99 ? 12 : 15) / scale,
       fontWeight: "bold", fill: 0xffffff, align: "center"
     });
+    sharpenText(count, zoom);
     count.anchor?.set?.(0.5);
     count.position?.set?.(group.x, group.y);
     count.eventMode = "none";
@@ -1055,12 +1074,14 @@ export class RoadCanvasController {
     }
   }
 
-  /** Player presentation is deliberately graphics-only: no names, hover, edit tools. */
+  /** Player projection permits revealed road labels only, never hidden-road or checkpoint info. */
   #drawPlayerOverlay(canvas, graphics, atlas, zoom) {
     const visible = playerAtlasOverlay(atlas);
     const nodes = new Map(visible.nodes.map(node => [node.id, node]));
     const roads = new Map(visible.roads.map(road => [road.id, road]));
     const worldDefaults = readWorldRoadAppearance();
+    const labelAnchors = new Map();
+    const hoverPaths = [];
     const presets = validateTravelPresets(
       globalThis.game?.settings?.get?.("fvtt-atlas-navigation", TRAVEL_PRESET_SETTING) ??
       defaultTravelPresets()).presets;
@@ -1074,6 +1095,21 @@ export class RoadCanvasController {
       const path = [from, ...segment.via, to].map(point => toCanvasPoint(canvas, atlas, point));
       drawLine(graphics, path, Number.parseInt(style.color.slice(1), 16),
         style.width, style.opacity, style.pattern);
+      if (style.labelVisibility !== "off") {
+        hoverPaths.push({ roadId: road.id, path,
+          tolerance: Math.max(style.width + 2, 8 / zoom) });
+        const length = path.slice(1).reduce((sum, point, i) =>
+          sum + Math.hypot(point.x - path[i].x, point.y - path[i].y), 0);
+        if (length > (labelAnchors.get(road.id)?.length ?? -1)) {
+          labelAnchors.set(road.id, { road, style, length, point: roadLabelPoint(path) });
+        }
+      }
+    }
+    for (const [roadId, item] of labelAnchors) {
+      if (item.style.labelVisibility === "always" ||
+          (item.style.labelVisibility === "hover" && this.playerHoveredRoadId === roadId)) {
+        this.#addLabel(graphics, item.road.name, item.point, item.style.textColor, 0.5, zoom);
+      }
     }
     const markers = visible.checkpoints.flatMap(checkpoint => {
       const node = nodes.get(checkpoint.nodeId);
@@ -1091,10 +1127,58 @@ export class RoadCanvasController {
         this.#drawCheckpoint(graphics, position, checkpoint, appearance, zoom);
       }
     }
+    this.#trackPlayerRoadHover(canvas, hoverPaths);
+  }
+
+  /** Player mouse listeners can only identify roads in the sanitized, visible projection. */
+  #trackPlayerRoadHover(canvas, candidates) {
+    const element = canvas.app?.canvas ?? canvas.app?.view;
+    if (!element?.addEventListener || !candidates.length) {
+      this.#stopPlayerRoadHover();
+      return;
+    }
+    this.playerHoverGeometry = candidates;
+    if (this.playerHoverCanvasElement === element) return;
+    this.#stopPlayerRoadHover();
+    this.playerHoverGeometry = candidates;
+    this.playerHoverCanvasElement = element;
+    this.playerMoveHandler = event => {
+      if (this.canvasProvider()?.scene?.id !== canvas.scene?.id) return;
+      if (Date.now() - this.lastHoverAt < 65) return;
+      this.lastHoverAt = Date.now();
+      const point = canvas.canvasCoordinatesFromClient?.({ x: event.clientX, y: event.clientY });
+      if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return;
+      const hit = this.playerHoverGeometry.find(candidate =>
+        nearRoadLine(point, candidate.path, candidate.tolerance));
+      const roadId = hit?.roadId ?? null;
+      if (roadId !== this.playerHoveredRoadId) {
+        this.playerHoveredRoadId = roadId;
+        this.refresh();
+      }
+    };
+    this.playerExitHandler = () => {
+      if (this.playerHoveredRoadId !== null) {
+        this.playerHoveredRoadId = null;
+        this.refresh();
+      }
+    };
+    element.addEventListener("pointermove", this.playerMoveHandler);
+    element.addEventListener("pointerleave", this.playerExitHandler);
+  }
+
+  #stopPlayerRoadHover() {
+    this.playerHoverCanvasElement?.removeEventListener?.("pointermove", this.playerMoveHandler);
+    this.playerHoverCanvasElement?.removeEventListener?.("pointerleave", this.playerExitHandler);
+    this.playerHoverCanvasElement = null;
+    this.playerMoveHandler = null;
+    this.playerExitHandler = null;
+    this.playerHoveredRoadId = null;
+    this.playerHoverGeometry = [];
   }
 
   #clearPlayerOverlay() {
     this.#stopHover();
+    this.#stopPlayerRoadHover();
     this.#clearLabels();
     if (!this.graphics) return;
     this.graphics.parent?.removeChild?.(this.graphics);
@@ -1143,6 +1227,7 @@ export class RoadCanvasController {
       this.#drawPlayerOverlay(canvas, g, atlas, zoom);
       return;
     }
+    this.#stopPlayerRoadHover();
     const editing = this.pointEditor.session;
     if (editing && editing.sceneId === canvas.scene.id) {
       atlas = editing.drag?.preview ?? editing.working;
@@ -1196,7 +1281,7 @@ export class RoadCanvasController {
     for (const [roadId, item] of labelAnchors) {
       if (item.style.labelVisibility === "always" ||
           (item.style.labelVisibility === "hover" && this.hoveredRoadId === roadId)) {
-        this.#addLabel(g, item.road.name, item.point, item.style.textColor);
+        this.#addLabel(g, item.road.name, item.point, item.style.textColor, 0.5, zoom);
       }
     }
     const checkpointMarkers = [];
@@ -1287,7 +1372,7 @@ export class RoadCanvasController {
 
   /** Foundry v14 canvasPan hook: redraw only for zoom changes, not ordinary pans. */
   onCanvasPan(view) {
-    if (view !== this.canvasProvider() || !view?.ready || !globalThis.game?.user?.isGM) return;
+    if (view !== this.canvasProvider() || !view?.ready || !globalThis.game?.user) return;
     const zoom = view.stage?.scale?.x;
     if (!Number.isFinite(zoom) || Math.abs(zoom - (this.lastZoom ?? zoom)) < 0.01) return;
     if (this.zoomRefreshTimer !== null) clearTimeout(this.zoomRefreshTimer);
@@ -1302,6 +1387,7 @@ export class RoadCanvasController {
     this.zoomRefreshTimer = null;
     this.lastZoom = null;
     this.#stopHover();
+    this.#stopPlayerRoadHover();
     this.#clearLabels();
     if (this.draft && !this.saving) this.cancel();
     if (this.pointEditor.session && !this.pointEditor.saving) this.pointEditor.cancel();

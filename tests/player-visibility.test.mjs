@@ -6,7 +6,7 @@ import { addRoadCheckpoint } from "../scripts/checkpoint-model.js";
 import { playerAtlasOverlay, setRoadPlayerVisibility,
   setCheckpointPlayerVisibility } from "../scripts/player-visibility.js";
 import { saveRoadPlayerVisibility, saveCheckpointPlayerVisibility,
-  saveCheckpointPresentation } from "../scripts/road-storage.js";
+  saveCheckpointPresentation, saveRoadPresentation } from "../scripts/road-storage.js";
 import { DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
 
 function fixture() {
@@ -130,5 +130,43 @@ test("one GM checkpoint inspector save updates name, appearance and visibility a
       roadId, visible: false, expectedRevision: 3
     }), /Only a GM/);
     assert.equal(writes, 3);
+  } finally { globalThis.game = previousGame; }
+});
+
+
+test("v0.2.24.1 road inspector updates name, visibility and appearance in one write", async () => {
+  const previousGame = globalThis.game;
+  globalThis.game = { user: { isGM: true } };
+  const initial = fixture();
+  let stored = initial;
+  let writes = 0;
+  const scene = { canUserModify: () => true, getFlag: () => stored,
+    setFlag: async (_scope, _key, updated) => { writes++; stored = updated; } };
+  try {
+    const roadId = initial.roads[0].id;
+    const checkpointId = initial.checkpoints[0].id;
+    const shown = await saveRoadPresentation(scene, {
+      roadId, name: "Known Trade Road", appearance: null, playerVisible: true,
+      expectedRevision: initial.revision
+    });
+    assert.equal(writes, 1);
+    assert.equal(shown.schemaVersion, 9);
+    assert.equal(shown.revision, initial.revision + 1);
+    assert.equal(shown.roads[0].name, "Known Trade Road");
+    assert.equal(shown.roads[0].appearance, null, "unmodified World defaults keep inheriting");
+    assert.equal(shown.roads[0].playerVisible, true);
+    assert.equal(shown.checkpoints[0].id, checkpointId);
+    assert.equal(shown.checkpoints[0].playerVisible, false);
+    await assert.rejects(saveRoadPresentation(scene, {
+      roadId, name: "Stale", appearance: null, playerVisible: false,
+      expectedRevision: initial.revision
+    }), /changed since/);
+    assert.equal(writes, 1);
+    globalThis.game.user.isGM = false;
+    await assert.rejects(saveRoadPresentation(scene, {
+      roadId, name: "Denied", appearance: null, playerVisible: false,
+      expectedRevision: shown.revision
+    }), /Only a GM/);
+    assert.equal(writes, 1);
   } finally { globalThis.game = previousGame; }
 });

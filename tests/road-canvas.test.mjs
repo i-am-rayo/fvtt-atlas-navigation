@@ -1009,3 +1009,87 @@ test("Shift-click a shared junction refuses conversion without disconnecting roa
     m.controller.cancel();
   } finally { m.controller.tearDown();Object.assign(globalThis,previous); }
 });
+
+
+test("v0.2.24.1 player zoom redraws revealed clusters into individual icons", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  class Text {
+    constructor(value) { this.text = String(value); this.anchor = { set() {} };
+      this.position = { set() {} }; }
+    destroy() {}
+  }
+  m.Graphics.prototype.addChild = function(label) { label.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: false } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    m.canvas.stage = { scale: { x: 0.5 } };
+    let i = 0;
+    const idFactory = () => "player-zoom" + ++i;
+    let atlas = addRoad(createEmptyAtlas(), {
+      points: [{ x: 10, y: 10 }, { x: 50, y: 10 }], name: "Private road", idFactory
+    });
+    for (const [nodeId, name] of [
+      [atlas.segments[0].from, "First"], [atlas.segments[0].to, "Second"]
+    ]) {
+      atlas = addRoadCheckpoint(atlas, { roadId: atlas.roads[0].id,
+        candidate: { kind: "node", nodeId }, name, idFactory });
+      atlas = setCheckpointPlayerVisibility(atlas, {
+        checkpointId: atlas.checkpoints.at(-1).id, visible: true
+      });
+    }
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    assert.ok(m.controller.labels.some(label => label.text === "2"),
+      "player sees clustered count when zoomed out");
+    m.canvas.stage.scale.x = 2;
+    m.controller.onCanvasPan(m.canvas);
+    await new Promise(resolve => setTimeout(resolve, 85));
+    assert.equal(m.controller.lastZoom, 2, "non-GM zoom was redrawn");
+    assert.ok(!m.controller.labels.some(label => label.text === "2"),
+      "cluster count disappears once checkpoints separate");
+    assert.equal(m.controller.graphics.strokes, 0, "hidden road is not revealed");
+  } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
+});
+
+test("v0.2.24.1 player road hover reveals only permitted names at crisp resolution", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  class Text {
+    constructor(value, style) { this.text = String(value); this.style = style;
+      this.resolution = 1;
+      this.anchor = { set() {} }; this.position = { set() {} }; }
+    destroy() {}
+  }
+  m.Graphics.prototype.addChild = function(label) { label.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: false } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    m.canvas.stage = { scale: { x: 2 } };
+    let i = 0;
+    const idFactory = () => "player-hover" + ++i;
+    let atlas = addRoad(createEmptyAtlas(), {
+      name: "Hidden Trade Road", points: [{ x: 20, y: 100 }, { x: 150, y: 100 }], idFactory
+    });
+    atlas = addRoad(atlas, {
+      name: "Public Way", points: [{ x: 20, y: 30 }, { x: 150, y: 30 }], idFactory
+    });
+    atlas = upgradeAtlasRoadAppearance(atlas);
+    atlas.roads[0].appearance = { color: "#aabbcc", width: 4, opacity: 0.9,
+      pattern: "solid", labelVisibility: "hover" };
+    atlas.roads[1].appearance = { color: "#aabbcc", width: 4, opacity: 0.9,
+      pattern: "solid", labelVisibility: "hover" };
+    atlas = setRoadPlayerVisibility(atlas, { roadId: atlas.roads[1].id, visible: true });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    assert.ok(m.listeners.has("pointermove"), "only visible road gets a hover listener");
+    assert.equal(m.listeners.has("pointerdown"), false, "no player editing shortcuts");
+    m.listeners.get("pointermove")(pointEvent(15, 30));
+    const label = m.controller.labels.find(item => item.text === "Public Way");
+    assert.ok(label, "road name appears for revealed road");
+    assert.ok(label.resolution >= 2, "road name is rasterized at higher resolution");
+    assert.ok(!m.controller.labels.some(item => item.text === "Hidden Trade Road"));
+    m.listeners.get("pointerleave")();
+    assert.ok(!m.controller.labels.some(item => item.text === "Public Way"));
+  } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
+});
