@@ -30,6 +30,7 @@ class ElementStub {
   set maxLength(value) { this.setAttribute("maxlength", value); }
   set defaultValue(value) { this.setAttribute("value", value); }
   set defaultSelected(value) { if (value) this.setAttribute("selected", ""); }
+  set defaultChecked(value) { if (value) this.setAttribute("checked", ""); }
   set type(value) { this.setAttribute("type", value); }
   set step(value) { this.setAttribute("step", value); }
   set min(value) { this.setAttribute("min", value); }
@@ -57,7 +58,19 @@ function namedField(parent, name) {
 test("Add and Edit use plain v14 DialogV2 content and persist serialized form defaults", async () => {
   const seen = [];
   globalThis.document = { createElement: tag => new ElementStub(tag) };
-  globalThis.game = { user: { isGM: true } };
+  globalThis.game = { user: { isGM: true }, i18n: {localize: s=>s} };
+  class CostModel {
+    static schema = { fields: { difficulties: {} } };
+    constructor(data) { this.data = data; }
+    validate() {return true;}
+    toObject() {return this.data;}
+  }
+  globalThis.CONFIG = {
+    RegionBehavior: {dataModels: {modifyMovementCost: CostModel}},
+    Token: {movement: {actions: {
+      walk:{label:"Walk"}, fly:{label:"Fly"}, burrow:{label:"Burrow"}
+    }}}
+  };
   globalThis.foundry = {
     applications: { api: {
       ApplicationV2: class {},
@@ -83,10 +96,23 @@ test("Add and Edit use plain v14 DialogV2 content and persist serialized form de
   assert.equal(editMode.children.find(option => option.getAttribute("selected") !== null)
     .getAttribute("value"), "air");
 
+  await settings._editPreset({ id: "mode", mode: "land", name: "Stone",
+    movementCostMultiplier: 1, movementCosts:{walk:0.75,burrow:2.25} });
+  assert.equal(namedField(seen[1], "atlasPerMode").getAttribute("checked"), "");
+  assert.equal(namedField(seen[1], "atlasAction_walk").getAttribute("checked"), "");
+  assert.equal(namedField(seen[1], "atlasAction_burrow").getAttribute("checked"), "");
+  assert.equal(namedField(seen[1], "atlasAction_fly").getAttribute("checked"), null);
+  assert.equal(namedField(seen[1], "atlasCost_walk").getAttribute("value"), "0.75");
+  assert.equal(namedField(seen[1], "atlasCost_burrow").getAttribute("value"), "2.25");
+
+  await settings._editPreset({ id: "fractional", mode: "water", name: "Custom",
+    movementCostMultiplier: 1, movementCosts:{walk:1.1} });
+  assert.equal(namedField(seen[2], "atlasCost_walk").tag, "input");
+  assert.equal(namedField(seen[2], "atlasCost_walk").getAttribute("value"), "1.1");
   await settings._editPreset(null, "water");
-  assert.equal(namedField(seen[1], "presetName").getAttribute("value"), "");
-  assert.equal(namedField(seen[1], "presetCost").getAttribute("value"), "1");
-  const addMode = namedField(seen[1], "presetMode");
+  assert.equal(namedField(seen[3], "presetName").getAttribute("value"), "");
+  assert.equal(namedField(seen[3], "presetCost").getAttribute("value"), "1");
+  const addMode = namedField(seen[3], "presetMode");
   assert.equal(addMode.children.find(option => option.getAttribute("selected") !== null)
     .getAttribute("value"), "water");
 });
