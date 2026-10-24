@@ -138,12 +138,36 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
       mode.appendChild(option);
     }
     container.appendChild(mode);
-    container.appendChild(node("label", "Native movement-cost multiplier (0.10–10.00)"));
-    const cost = node("input");
-    cost.type = "number"; cost.step = "0.05"; cost.min = "0.1"; cost.max = "10";
-    cost.required = true; cost.name = "presetCost";
-    cost.defaultValue = String(existing?.movementCostMultiplier ?? 1);
-    container.appendChild(cost);
+    const originalCost = existing?.movementCostMultiplier ?? 1;
+    const quarterStep = originalCost >= 0.25 &&
+      Math.abs(originalCost * 4 - Math.round(originalCost * 4)) < 1e-8;
+    if (quarterStep) {
+      container.appendChild(node("label", "Suggested movement-cost multiplier (×0.25–×10.00)"));
+      // Foundry v14's own range-picker includes a linked editable number box.
+      // Set reflected HTML attributes: DialogV2.input serializes this subtree.
+      const cost = node("range-picker");
+      cost.setAttribute("name", "presetCost");
+      cost.setAttribute("min", "0.25");
+      cost.setAttribute("max", "10");
+      cost.setAttribute("step", "0.25");
+      cost.setAttribute("value", String(originalCost));
+      container.appendChild(cost);
+    } else {
+      // Preserve older fractional preset suggestions such as ×1.10 or ×1.15.
+      // Merely opening/editing their name must never snap existing World data.
+      container.appendChild(node("label", "Existing custom movement-cost multiplier (0.10–10.00)"));
+      const cost = node("input");
+      cost.type = "number"; cost.step = "0.05"; cost.min = "0.1"; cost.max = "10";
+      cost.required = true; cost.name = "presetCost";
+      cost.defaultValue = String(originalCost);
+      container.appendChild(cost);
+      container.appendChild(node("p",
+        "This older cost is not on a 0.25 step. It remains unchanged unless you edit it; " +
+        "you can enter a compatible value such as ×1.00 or ×1.25, save, then reopen to use the slider."));
+    }
+    container.appendChild(node("p",
+      "The slider uses quarter steps observed in Foundry v14. Other game systems may apply different limits; " +
+      "Atlas checks the exact selected movement action before creating a native Region Behavior."));
     container.appendChild(node("p",
       "Editing a preset never updates an existing Region Behavior. Native costs require a separate, confirmed Atlas action."));
     // Foundry v14 requires a plain, attribute-free outer div for HTMLElement dialog content.
