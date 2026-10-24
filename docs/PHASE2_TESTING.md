@@ -1,3 +1,15 @@
+## v0.2.18.1 — New corridor native-cost checkbox re-render hotfix
+
+1. Install/reload v0.2.18.1 and verify the version under Module Management. Open an existing Scene with at least two checkpoints on a named road.
+2. Scene Configuration → Atlas → Generated Road Regions. Choose **One corridor between checkpoints**, set a named road, both endpoints, and a configured **per-movement** surface preset. Check **Apply native movement cost**. The Atlas tab must remain fully visible (no `perMode is not defined`); the preview button should be available if the native values are compatible.
+3. Uncheck then re-check. Switch between a per-mode preset and a legacy single-cost preset, and between corridor and checkpoint. No crash; legacy single-cost should require a supported action.
+4. Preview/confirm creation of one Region with a compatible per-mode preset. Verify exactly one native Modify Movement Cost Behavior with the configured independent actions; Region color comes from the selected preset. Canceling creates nothing. Existing Regions/Behaviors must remain unchanged.
+5. Verify non-GM cannot create/edit. Reload Scene Configuration and repeat. Back up the World before upgrading, as usual.
+
+**Regression performed:** in-memory UI test confirmed v0.2.18 displayed `perMode is not defined` after ticking the checkbox, while v0.2.18.1 rendered its one-Behavior summary instead. Full Node suite and live Foundry v14 remain owner acceptance tasks.
+
+---
+
 ## v0.2.18 — native surface color, shared filters and status (owner acceptance pending)
 
 1. Back up the World. Update/reload the module and verify v0.2.18. Open Module Settings → Atlas Presets; edit **Stone Road** color to `#2288AA` without changing its Walk/Fly/Swim/Burrow values. Save/reopen; verify the swatch and numeric native costs. Create a new custom Water preset with a different color and one supported cost. Existing catalog v1/v2 values and preset IDs must remain intact on opening; no write occurs until explicitly saving.

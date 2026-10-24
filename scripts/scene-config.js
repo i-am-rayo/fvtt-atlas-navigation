@@ -544,6 +544,11 @@ function atlasPanel(scene, atlas, actions, refresh) {
         other.map(c => [c.id, c.name]), selected.last,
         value => { selected.last = value; }));
     }
+    // Shared with the Preview button state below; keep it outside the
+    // corridor-only block so opting in cannot crash the Atlas render.
+    const presetForCost = presetById.get(selected.presetId);
+    const perMode = selected.kind === "corridor" &&
+      !!presetForCost && presetForCost.movementCosts !== null;
     if (selected.kind === "corridor") {
       const choices = [["", label("FVTTATLAS.Travel.None")],
         ...travelPresets.map(p => [
@@ -558,8 +563,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
           selected.movementAction = "";
         }));
       const supported = availableMovementActions();
-      const selectedPreset = presetById.get(selected.presetId);
-      const perMode = selectedPreset && selectedPreset.movementCosts !== null;
+      const selectedPreset = presetForCost;
       const costOption = node("label");
       costOption.style.display = "flex";
       costOption.style.gap = "0.5rem";
