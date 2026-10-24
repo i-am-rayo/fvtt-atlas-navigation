@@ -4,9 +4,9 @@ import { MODULE_ID } from "../scripts/atlas-storage.js";
 import { defaultTravelPresets } from "../scripts/travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions,
   buildNativeMovementCostBehavior, previewNativeMovementCost, nativeCostSummary,
-  nativeCostPresetStatus } from "../scripts/native-movement-cost.js";
+  nativeCostPresetStatus, editableManagedNativeCost } from "../scripts/native-movement-cost.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
-  applyGeneratedRegionMovementCost } from "../scripts/generated-region.js";
+  applyGeneratedRegionMovementCost, updateGeneratedRegionMovementCost } from "../scripts/generated-region.js";
 
 class NativeModel {
   static schema = { fields: { difficulties: {} } };
@@ -402,4 +402,104 @@ test("v0.2.18 advisory distinguishes un-applied, matching, stale and GM-edited c
    action:"walk",multiplier:1.5},actualCosts:{walk:1.5,fly:1}};
  assert.equal(nativeCostPresetStatus(single,legacy).state,"current");
  assert.equal(nativeCostPresetStatus(single,{...legacy,movementCostMultiplier:2}).state,"outdated");
+});
+
+
+test("v0.2.19 existing corridor refreshes only its untouched Atlas native costs in place", async()=>{
+  const {scene,regions,settings,changeWorld}=setup();
+  const world=defaultTravelPresets();
+  world.presets.find(p=>p.id==="land-stone").movementCosts={walk:0.75,fly:2};
+  changeWorld(world);
+  await saveGeneratedNativeRegion(scene,planSceneGeneratedRegion(scene,settings),{
+    presetId:"land-stone",applyNativeCost:true,expectedCosts:{walk:0.75,fly:2}
+  });
+  const region=regions.get("native1");
+  const behavior=region.behaviors[0];
+  behavior.id="atlasCost1";
+  behavior.canUserModify=()=>true;
+  const other={id:"pause1",type:"pauseGame",disabled:false,system:{},
+    flags:{},name:"Secret event"};
+  region.behaviors.push(other);
+  const beforeShapes=structuredClone(region.shapes);
+  const beforeColor=region.color;
+  const beforeAssociation=structuredClone(region.flags[MODULE_ID].travelPreset);
+  let calls=0;
+  region.updateEmbeddedDocuments=async(type, updates)=>{
+    assert.equal(type,"RegionBehavior");
+    assert.equal(updates.length,1);
+    const u=updates[0];
+    assert.equal(u._id,behavior.id);
+    calls++;
+    Object.assign(behavior.system.difficulties,u["system.difficulties"]);
+    behavior.flags[MODULE_ID].nativeMovementCost=
+      structuredClone(u["flags."+MODULE_ID+".nativeMovementCost"]);
+    return [behavior];
+  };
+  const next=defaultTravelPresets();
+  next.presets.find(p=>p.id==="land-stone").movementCosts={walk:1.25,swim:3};
+  changeWorld(next);
+  globalThis.CONFIG.Token.movement.actions.swim={label:"Swim"};
+  assert.equal(editableManagedNativeCost(nativeCostSummary(region)),true);
+  await updateGeneratedRegionMovementCost(scene,"native1",{
+    expectedPresetId:"land-stone",expectedBehaviorId:"atlasCost1",
+    expectedPreviousCosts:{fly:2,walk:0.75},
+    expectedCosts:{walk:1.25,swim:3}
+  });
+  assert.equal(calls,1);
+  assert.equal(region.behaviors.length,2,"must not add another cost Behavior");
+  assert.equal(region.behaviors[0],behavior,"native Behavior retains stable ID");
+  assert.equal(region.behaviors[1],other,"other Behaviors unchanged");
+  assert.deepEqual(behavior.system.difficulties,
+    {walk:1.25,fly:1,swim:3},"removed Fly override must become neutral");
+  assert.deepEqual(behavior.flags[MODULE_ID].nativeMovementCost.movementCosts,
+    {walk:1.25,swim:3});
+  assert.deepEqual(region.shapes,beforeShapes);
+  assert.equal(region.color,beforeColor);
+  assert.deepEqual(region.flags[MODULE_ID].travelPreset,beforeAssociation);
+  assert.equal(nativeCostPresetStatus(nativeCostSummary(region),
+    next.presets.find(p=>p.id==="land-stone")).state,"current");
+});
+
+test("v0.2.19 native-cost refresh fails closed on edits, disabled costs, duplicates and stale selections", async()=>{
+  const {scene,regions,settings,changeWorld}=setup();
+  const world=defaultTravelPresets();
+  world.presets.find(p=>p.id==="land-stone").movementCosts={walk:1.5};
+  changeWorld(world);
+  await saveGeneratedNativeRegion(scene,planSceneGeneratedRegion(scene,settings),{
+    presetId:"land-stone",applyNativeCost:true,expectedCosts:{walk:1.5}
+  });
+  const region=regions.get("native1");
+  const behavior=region.behaviors[0];
+  behavior.id="cost1";
+  behavior.canUserModify=()=>true;
+  let writes=0;
+  region.updateEmbeddedDocuments=async()=>{writes++;return [behavior];};
+  const requested={expectedPresetId:"land-stone",expectedBehaviorId:"cost1",
+    expectedPreviousCosts:{walk:1.5},expectedCosts:{walk:1.5}};
+  const refresh=()=>updateGeneratedRegionMovementCost(scene,"native1",requested);
+  behavior.system.difficulties.walk=2;
+  assert.equal(editableManagedNativeCost(nativeCostSummary(region)),false);
+  await assert.rejects(refresh(),/manually edited/);
+  behavior.system.difficulties.walk=1.5;
+  behavior.system.difficulties.swim=3;
+  await assert.rejects(refresh(),/manually edited/,"extra native override is manual");
+  delete behavior.system.difficulties.swim;
+  behavior.disabled=true;
+  await assert.rejects(refresh(),/disabled/);
+  behavior.disabled=false;
+  region.behaviors.push({...behavior,id:"other",flags:{}});
+  await assert.rejects(refresh(),/duplicated/);
+  region.behaviors.pop();
+  await assert.rejects(()=>updateGeneratedRegionMovementCost(scene,"native1",{
+    ...requested,expectedPreviousCosts:{walk:2}
+  }),/changed since confirmation/);
+  await assert.rejects(()=>updateGeneratedRegionMovementCost(scene,"native1",{
+    ...requested,expectedCosts:{walk:2}
+  }),/world preset costs changed/);
+  region.flags[MODULE_ID].travelPreset.presetId="water-rough";
+  await assert.rejects(refresh(),/travel preset changed/);
+  region.flags[MODULE_ID].travelPreset.presetId="land-stone";
+  globalThis.game.user.isGM=false;
+  await assert.rejects(refresh(),/Only a GM/);
+  assert.equal(writes,0);
 });

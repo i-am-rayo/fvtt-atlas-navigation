@@ -168,7 +168,7 @@ export function nativeCostBehaviors(region) {
 
 export function nativeCostSummary(region) {
   const existing = nativeCostBehaviors(region);
-  if (!existing.length) return { existing: false, managed: false, detail: null, actualCosts: null };
+  if (!existing.length) return { existing: false, managed: false, detail: null, actualCosts: null, behaviorId: null };
   const behavior = existing[0];
   const flag = behavior.getFlag?.(MODULE_ID, ATLAS_MOVEMENT_COST_FLAG) ??
     behavior.flags?.[MODULE_ID]?.[ATLAS_MOVEMENT_COST_FLAG];
@@ -188,7 +188,7 @@ export function nativeCostSummary(region) {
       /^[A-Za-z0-9_.-]{1,128}$/.test(id) && Number.isFinite(value)))
     : null;
   return { existing: true, managed: !!(legacy || multiple),
-    detail: legacy || multiple ? flag : null,
+    detail: legacy || multiple ? flag : null, behaviorId: behavior.id ?? null,
     count: existing.length, actualCosts, disabled: behavior.disabled === true };
 }
 
@@ -226,4 +226,24 @@ export function nativeCostPresetStatus(nativeCost, preset) {
   return matches
     ? { state: "current", label: "Native costs match world preset" }
     : { state: "outdated", label: "World preset changed since native cost was applied" };
+}
+
+
+/**
+ * Conservative in-place cost refresh eligibility. A GM may only refresh one
+ * unmodified, enabled, Atlas-provenance Behavior; neutral system defaults are
+ * harmless but extra non-neutral native overrides require manual review.
+ */
+export function editableManagedNativeCost(nativeCost) {
+  if (!nativeCost?.existing || nativeCost.count !== 1 ||
+      !nativeCost.managed || nativeCost.disabled ||
+      !nativeCost.behaviorId || !nativeCost.actualCosts) return false;
+  const flag = nativeCost.detail;
+  const authored = flag?.schemaVersion === 1
+    ? { [flag.action]: flag.multiplier } : flag?.movementCosts;
+  if (!authored || !Object.keys(authored).length) return false;
+  return Object.entries(authored).every(([mode, cost]) =>
+    nativeCost.actualCosts[mode] === cost) &&
+    Object.entries(nativeCost.actualCosts).every(([mode, cost]) =>
+      Object.hasOwn(authored, mode) || cost === 1);
 }

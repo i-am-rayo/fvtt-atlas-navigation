@@ -13,7 +13,7 @@ import { sceneImageOrigin } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
-  applyGeneratedRegionPresetColor } from "./generated-region.js";
+  applyGeneratedRegionPresetColor, updateGeneratedRegionMovementCost } from "./generated-region.js";
 import { availableMovementActions, readPreset, previewNativeMovementCost }
   from "./native-movement-cost.js";
 import { presetCostSummary } from "./travel-preset-model.js";
@@ -258,6 +258,74 @@ function actions() {
       });
       refresh();
       ui.notifications.info("Native Modify Movement Cost Behavior added. Review it in Foundry's Region editor.");
+    },
+    async updateGeneratedRegionCost(scene, entry, refresh) {
+      ensureIdle(scene);
+      if (entry.metadata?.kind !== "corridor" || !entry.presetId ||
+          !entry.nativeCost?.managed || !entry.nativeCost.behaviorId) {
+        throw new Error("Choose a corridor with one Atlas-authored native cost Behavior.");
+      }
+      const preset = readPreset(entry.presetId);
+      const perMode = preset.movementCosts !== null;
+      let action = null;
+      if (!perMode) {
+        const content = document.createElement("div");
+        const description = document.createElement("p");
+        description.textContent = "Legacy preset: choose one supported movement action for " +
+          preset.name + " (" + presetCostSummary(preset) + ").";
+        const select = document.createElement("select");
+        select.name = "atlasMovementAction";
+        const placeholder = document.createElement("option");
+        placeholder.value = ""; placeholder.textContent = "Choose movement action…";
+        placeholder.defaultSelected = true;
+        select.appendChild(placeholder);
+        for (const available of availableMovementActions()) {
+          const option = document.createElement("option");
+          option.value = available.id;
+          option.textContent = game.i18n.localize(available.label) || available.label;
+          select.appendChild(option);
+        }
+        content.append(description, select);
+        const choice = await DialogV2.input({
+          window: { title: "Refresh native movement cost — " + entry.name },
+          content, ok: { label: "Review Cost" }, rejectClose: false, modal: true
+        });
+        if (!choice) return;
+        action = availableMovementActions().find(item =>
+          item.id === choice.atlasMovementAction);
+        if (!action) throw new Error("Choose a supported native movement action.");
+      }
+      const preflight = previewNativeMovementCost(preset.id, action?.id ?? null);
+      if (!preflight.ok) throw new Error(preflight.message);
+      const authored = entry.nativeCost.detail;
+      const oldCosts = authored.schemaVersion === 1
+        ? { [authored.action]: authored.multiplier }
+        : { ...authored.movementCosts };
+      const expectedCosts = perMode ? { ...preset.movementCosts } : null;
+      const expectedMultiplier = perMode ? null : preset.movementCostMultiplier;
+      const content = document.createElement("div");
+      const notice = document.createElement("p");
+      notice.textContent = "Refresh ONE existing Atlas-authored Modify Movement Cost Behavior in place on " +
+        entry.name + " using " + preset.name + " (" + presetCostSummary(preset) + "). " +
+        "Modes no longer selected by the preset become neutral ×1. " +
+        "The Region, shapes, Levels, other Behaviors, color and travel preset assignment remain unchanged. " +
+        "Atlas refuses manually edited, disabled, or duplicated native costs.";
+      content.appendChild(notice);
+      const approved = await DialogV2.confirm({
+        window: { title: "Refresh Atlas native corridor costs" },
+        content, yes: { label: "Refresh Native Costs" },
+        rejectClose: false, modal: true
+      });
+      if (!approved) return;
+      await updateGeneratedRegionMovementCost(scene, entry.id, {
+        expectedPresetId: preset.id,
+        expectedBehaviorId: entry.nativeCost.behaviorId,
+        expectedPreviousCosts: oldCosts,
+        expectedCosts, expectedMultiplier,
+        movementAction: action?.id ?? null
+      });
+      refresh();
+      ui.notifications.info("Atlas refreshed the existing native cost Behavior in place. No Region was deleted or recreated.");
     },
     async regenerateRegion(scene, entry, refresh) {
       if (!entry.metadata || entry.modified) {

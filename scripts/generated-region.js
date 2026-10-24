@@ -9,7 +9,8 @@ import { buildGeneratedRegionPlan, GENERATED_REGION_FLAG, shapeSignature,
 import { REGION_TRAVEL_PRESET_FLAG, TRAVEL_PRESET_SETTING,
   TRAVEL_PRESET_SCHEMA_VERSION, validateTravelPresets, validateRegionTravelFlag }
   from "./travel-preset-model.js";
-import { buildNativeMovementCostBehavior, nativeCostBehaviors, nativeCostSummary, sameMovementCosts }
+import { buildNativeMovementCostBehavior, nativeCostBehaviors, nativeCostSummary,
+  editableManagedNativeCost, sameMovementCosts }
   from "./native-movement-cost.js";
 
 function checkScene(scene) {
@@ -250,4 +251,79 @@ export async function applyGeneratedRegionPresetColor(scene, regionId, {
   if (region.color === preset.color) return false;
   await region.update({ color: preset.color });
   return true;
+}
+
+
+/**
+ * Refresh an existing Atlas-authored native cost in place. Unlike creating a
+ * second corridor or adding a second Behavior, this preserves the Region ID,
+ * its shapes/Levels/color/visibility, all unrelated Behaviors and the Behavior
+ * document ID. Manual or disabled cost Behaviors must be edited in Foundry.
+ */
+export async function updateGeneratedRegionMovementCost(scene, regionId, {
+  expectedPresetId, expectedBehaviorId, expectedPreviousCosts,
+  expectedMultiplier = null, expectedCosts = null, movementAction = null
+} = {}) {
+  checkScene(scene);
+  const region = scene.regions?.get(regionId);
+  if (!region?.canUserModify?.(game.user, "update")) {
+    throw new Error("Choose an editable Atlas-generated native Region.");
+  }
+  const generated = validateGeneratedRegionFlag(
+    region.getFlag(MODULE_ID, GENERATED_REGION_FLAG));
+  if (generated?.kind !== "corridor") {
+    throw new Error("Only Atlas-generated corridors can refresh their native movement cost.");
+  }
+  const savedPreset = validateRegionTravelFlag(
+    region.getFlag(MODULE_ID, REGION_TRAVEL_PRESET_FLAG));
+  if (!savedPreset || savedPreset.presetId !== expectedPresetId) {
+    throw new Error("This corridor's travel preset changed. Open the action again.");
+  }
+  const native = nativeCostSummary(region);
+  if (!editableManagedNativeCost(native) ||
+      native.behaviorId !== expectedBehaviorId) {
+    throw new Error("The native cost was manually edited, disabled, replaced or duplicated. Atlas will not overwrite it; review it in Foundry.");
+  }
+  const previous = native.detail.schemaVersion === 1
+    ? { [native.detail.action]: native.detail.multiplier }
+    : native.detail.movementCosts;
+  if (!sameMovementCosts(previous, expectedPreviousCosts)) {
+    throw new Error("The native cost changed since confirmation. Open the action again.");
+  }
+  const behavior = nativeCostBehaviors(region)[0];
+  if (!behavior?.canUserModify?.(game.user, "update") ||
+      typeof region.updateEmbeddedDocuments !== "function") {
+    throw new Error("This native Region Behavior is not editable.");
+  }
+  const replacement = buildNativeMovementCostBehavior(savedPreset.presetId, movementAction);
+  if (!confirmedCostSnapshot(replacement, expectedMultiplier, expectedCosts)) {
+    throw new Error("The world preset costs changed since confirmation. Open the action again.");
+  }
+  const nextFlag = replacement.flags[MODULE_ID].nativeMovementCost;
+  const selected = nextFlag.schemaVersion === 1
+    ? { [nextFlag.action]: nextFlag.multiplier } : nextFlag.movementCosts;
+  // Foundry document updates merge native maps. Explicit neutral ×1 values
+  // disable former Atlas-authored modes that are not in the new preset.
+  // They must not retain the old non-neutral cost as a hidden override.
+  const difficulties = { ...selected };
+  for (const mode of Object.keys(previous)) {
+    if (!Object.hasOwn(difficulties, mode)) difficulties[mode] = 1;
+  }
+  const updated = await region.updateEmbeddedDocuments("RegionBehavior", [{
+    _id: behavior.id,
+    "system.difficulties": difficulties,
+    ["flags." + MODULE_ID + ".nativeMovementCost"]: nextFlag
+  }]);
+  if (!updated?.length) throw new Error("Foundry did not update the native cost Behavior.");
+  const after = nativeCostSummary(region);
+  if (!after.managed || after.behaviorId !== behavior.id ||
+      !sameMovementCosts(after.detail?.schemaVersion === 1
+        ? { [after.detail.action]: after.detail.multiplier }
+        : after.detail?.movementCosts, selected) ||
+      !after.actualCosts ||
+      Object.entries(difficulties).some(([mode, cost]) =>
+        (after.actualCosts[mode] ?? 1) !== cost)) {
+    throw new Error("Foundry did not retain the refreshed native costs exactly. Review this Behavior in Foundry; no other Region was changed.");
+  }
+  return updated[0];
 }
