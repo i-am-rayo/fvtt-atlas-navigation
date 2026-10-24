@@ -1,3 +1,13 @@
+## v0.2.17.1 hotfix — targeted live Foundry v14 retest
+
+1. Keep a backup of the World. Open the existing "Rough Waters" preset (Walk ×10, Fly ×1.50, Swim ×1.50, Burrow ×10); verify all selected values are unchanged.
+2. Open the generated Sea corridor with no native Modify Movement Cost Behavior. Use the separately confirmed **⬆ Apply Native Cost** button. Previously this failed with "world preset costs changed since confirmation"; it should now create exactly one native Behavior with all selected movement costs.
+3. Open the native Region editor to verify the four requested costs. Retry the apply action to ensure Atlas refuses to stack a second Behavior. Reassigning or editing a world preset must not rewrite the existing native Behavior.
+4. Attempt a genuinely stale confirmation or an off-quarter cost (e.g. ×1.10 under the owner's v14.368 system); it must still refuse the write, rather than silently rounding. An unsupported system action must also fail atomically.
+5. Check the legacy scalar single-action flow, metadata-only Region creation, GM/non-GM permissions, and Scene reload. No Region geometry, other Behaviors or travel preset IDs should change during installation.
+
+**Live GM acceptance still pending.** This is a focused hotfix, not additional corridor features.
+
 ## v0.2.17 live Foundry v14 owner acceptance (stacked on v0.2.16.2)
 
 1. Back up the test World. Confirm Module Settings → Atlas Presets still lists all old preset IDs/names and a legacy off-step multiplier like ×1.10 without rounding or writing settings just by opening the dialog.
