@@ -1,3 +1,18 @@
+# v0.2.20.1 — Road label fix, category defaults and clearer menus (draft test gate)
+
+Back up the World. Install v0.2.20.1. Verify the installed version and reopen a Scene with Land, Air and Water roads (ideally also an older v6 custom road and generated native corridor Region).
+
+1. Set a road's name labels to Always or Hover. Check that the actual named road (e.g. "West to East — South Sea") appears as text, **never `[object Object]`**, and that its text color matches the chosen hex setting; pan, zoom, reload and hover again.
+2. Open Game Settings → Atlas **Road Overlay Appearance**. Confirm that Land, Air and Water have separate editable line colors, width, opacity, stroke and label style/text color. Change only the Water profile and save; a named road assigned a Water travel preset should change, Land/Air roads should not. An unassigned road should use Land. Individual road overrides should take precedence; ↺ should return the road to its assigned category profile.
+3. If this World used v0.2.20's flat appearance setting, merely opening the new settings must **not write a World setting**. It initially applies the old style to all three categories; after a GM saves the new panel, they can diverge independently.
+4. Check that the two World menus are plainly labeled **Road Overlay Appearance** versus **Region Surfaces & Costs**. Scene Atlas Roads describes its **Atlas road overlay**; Generated Road Regions and linked native Regions identify **native Foundry Regions**. A road's 🖌 style action changes only the overlay; native Region 🎨 applies color only after separate confirmation.
+5. Check an existing schema-v6 custom road with movement presets and checkpoints. Opening must not rewrite it; explicitly saving updated text color upgrades to v7 preserving IDs, paths, checkpoints, surface associations, generated native Region geometry/Behaviors and movement costs. Existing road labels remain readable when the per-mode World default text color changes.
+6. Verify GM versus non-GM authoring, two Scenes, draft point edits, road merge, hover cleanup and no unexpected native Region changes.
+
+Automated Node tests do not substitute for real Foundry v14 visual/permission testing. Keep PR #12 in draft and do not merge before owner sign-off.
+
+---
+
 # v0.2.20 — Named Road Appearance (draft test gate)
 
 Back up the World. Install the v0.2.20 branch and verify the module version. Use one Scene with multiple roads, bends, a fork, checkpoints and at least one native Atlas-generated corridor Region.

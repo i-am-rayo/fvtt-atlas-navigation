@@ -1,7 +1,7 @@
 import { addRoadCheckpoint, editRoadCheckpoint, removeRoadCheckpoint } from "./checkpoint-model.js";
 import { addRoad, removeRoad, renameRoad, reshapeRoad, mergeRoadGroups, applyRoadGeometryEdit } from "./road-model.js";
 import { anchorLegacyAtlas, upgradeAtlasRoadGroups, upgradeAtlasTravelPresets,
-  upgradeAtlasRoadAppearance, validateAtlas } from "./atlas-model.js";
+  upgradeAtlasRoadTextAppearance, validateAtlas } from "./atlas-model.js";
 import { validateRoadAppearance } from "./road-appearance.js";
 import { TRAVEL_PRESET_SETTING, validateTravelPresets, validateTravelPresetId } from "./travel-preset-model.js";
 import { ATLAS_FLAG, MODULE_ID, readAtlas } from "./atlas-storage.js";
@@ -135,7 +135,7 @@ export function saveRoadAppearance(scene, { roadId, appearance, expectedRevision
     }
     // A reset on an older Scene is already a no-op; preserve its schema.
     if (value === null && previous.schemaVersion < 6) return previous;
-    const current = upgradeAtlasRoadAppearance(previous);
+    const current = upgradeAtlasRoadTextAppearance(previous);
     return { ...current, roads: current.roads.map(road =>
       road.id === roadId ? { ...road, appearance: value } : road) };
   });

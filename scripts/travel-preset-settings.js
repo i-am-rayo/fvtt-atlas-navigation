@@ -25,9 +25,9 @@ export function registerWorldTravelPresets() {
     default: defaultTravelPresets()
   });
   game.settings.registerMenu(MODULE_ID, "atlasTravelPresetsMenu", {
-    name: "Atlas Presets",
-    label: "Configure Corridor Travel Presets",
-    hint: "Manage reusable Land, Air and Water travel conditions for all Scenes in this World.",
+    name: "Atlas — Region Surfaces & Costs",
+    label: "Configure Corridor Surface and Movement Presets",
+    hint: "Land, Air and Water travel surfaces for generated native Regions and their optional movement costs; road overlay styles are separate.",
     icon: "fa-solid fa-route",
     type: AtlasTravelPresetSettings,
     restricted: true

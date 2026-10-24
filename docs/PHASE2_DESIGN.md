@@ -16,6 +16,8 @@
 
 # Phase 2 revised design — Scene Atlas, roads, waypoints, and Regions
 
+> **v0.2.20.1 World style categories and native Region distinction:** World Road Overlay Appearance displays Land/Air/Water profiles with independent line color, pattern, width, opacity, label visibility and label text color. Selecting a named road's travel surface chooses its category as its default, without tying actual Region.color to the road's overlay style. Explicit named-road override remains highest priority. The previously saved flat default expands to three profiles only in memory; v6 saved road overrides remain readable until explicit v7 migration. Scene Atlas and Module Settings visibly separate roads (Atlas canvas overlay) from native Regions (shapes and behaviors). Fix the observed v14 `[object Object]` name text. Icon picker still deferred to v0.2.21.
+
 ## Phase 2c v0.2.5 implementation (October 23, 2026)
 
 This next **development test build**, following the owner's v0.2.4 tests, adds image-local schema v2 roads with an explicit one-time GM anchoring action for existing v1 maps; nearest-interior road splitting when a new road endpoint joins an existing path; bend redrawing with fixed junction endpoints; and automatic temporary highlight/draft cleanup on closing Scene Configuration. The underlying graph remains per Scene and Foundry-native Grid distance remains untouched. Unit tests do not replace in-client Foundry v14 testing.

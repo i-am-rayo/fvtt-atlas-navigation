@@ -90,7 +90,8 @@ test("v0.2.20 named road styles draw dashed overlay and show one hover label", a
   };
   m.Graphics.prototype.addChild = function(label) { label.parent = this; };
   class Text {
-    constructor({ text }) { this.text = text; this.anchor = { set() {} };
+    constructor(text, style) { this.text = String(text); this.style = style;
+      this.anchor = { set() {} };
       this.position = { set() {} }; this.destroyed = false; }
     destroy() { this.destroyed = true; }
   }
@@ -116,6 +117,8 @@ test("v0.2.20 named road styles draw dashed overlay and show one hover label", a
     m.listeners.get("pointermove")(pointEvent(25, 15));
     assert.equal(m.controller.labels.length, 1, "one label for one named road");
     assert.equal(m.controller.labels[0].text, "King's Road");
+    assert.equal(m.controller.labels[0].style.fill, 0xffffff,
+      "legacy v6 labels inherit the white text default");
     m.listeners.get("pointerleave")();
     assert.equal(m.controller.labels.length, 0, "label cleared after hover");
     m.controller.tearDown();

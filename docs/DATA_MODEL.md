@@ -18,6 +18,8 @@
 
 # Atlas data model — schema v3 (Phase 2c v0.2.8)
 
+> **v0.2.20.1 additive appearance schema v7:** v0.2.20 World setting `roadAppearanceDefaults` had one five-field object. New reads normalize that **in memory** into `{schemaVersion:2, profiles:{land,air,water}}`, each with six strictly validated fields including `textColor`; only explicit World Save persists the new shape. Selected named-road `travelPresetId` references the world travel preset's existing category and picks the corresponding Land/Air/Water appearance; unassigned roads fall back to Land, per-road overrides win. Scene v6 exact five-field overrides are valid unchanged; first confirmed new style save upgrades to validated Scene v7 (`appearance:null | {color,width,opacity,pattern,labelVisibility,textColor}`), retaining all road/segment/checkpoint IDs, elevations and preset references. No Scene writes on read, no Region shape/color/Behavior changes and no token movement effect.
+
 **Current contract:** Each Foundry Scene stores one validated `flags.fvtt-atlas-navigation.atlas` payload. Schema v3 separates a **named logical road** from one or more **graph segments**, which can be split at junctions without duplicating a name in the road list.
 
 ```json

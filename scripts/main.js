@@ -1,6 +1,6 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * v0.2.20 adds configurable named-road appearance with world defaults.
+ * v0.2.20.1 fixes Pixi road labels and adds Land/Air/Water appearance defaults.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
@@ -22,7 +22,8 @@ import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
 import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance }
   from "./road-appearance-settings.js";
-import { readWorldRoadAppearance, resolveRoadAppearance } from "./road-appearance.js";
+import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
+  from "./road-appearance.js";
 
 const roadCanvas = new RoadCanvasController();
 
@@ -176,9 +177,12 @@ function actions() {
       if (!actual) throw new Error("The named road no longer exists.");
       const content = document.createElement("div");
       const hint = document.createElement("p");
-      hint.textContent = "Override World appearance defaults for " + actual.name +
-        ". This changes the Atlas overlay only, not generated Regions or movement rules.";
-      content.append(hint, roadAppearanceForm(resolveRoadAppearance(actual, readWorldRoadAppearance())));
+      const mode = roadAppearanceMode(actual, readWorldTravelPresets().presets);
+      hint.textContent = "Override the World " + mode + " road-overlay appearance for " +
+        actual.name + ". This changes road lines and names only—never generated " +
+        "native Region colors or movement rules.";
+      content.append(hint, roadAppearanceForm(resolveRoadAppearance(actual,
+        readWorldRoadAppearance(), mode)));
       const result = await DialogV2.input({
         window: { title: "Road Appearance — " + actual.name },
         content, ok: { label: "Save Road Appearance" },

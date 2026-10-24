@@ -1,6 +1,7 @@
 import { MODULE_ID } from "./atlas-storage.js";
-import { DEFAULT_ROAD_APPEARANCE, ROAD_APPEARANCE_SETTING, readWorldRoadAppearance,
-  ROAD_LINE_PATTERNS, ROAD_LABEL_VISIBILITY, validateRoadAppearance }
+import { DEFAULT_WORLD_ROAD_APPEARANCE, ROAD_APPEARANCE_SETTING, readWorldRoadAppearance,
+  ROAD_LINE_PATTERNS, ROAD_LABEL_VISIBILITY, ROAD_APPEARANCE_MODES,
+  validateRoadAppearance, validateWorldRoadAppearance }
   from "./road-appearance.js";
 
 const element = (tag, value = "") => {
@@ -45,6 +46,7 @@ export function roadAppearanceForm(appearance) {
     root.appendChild(row);
   };
   input("Road color", "atlasRoadColor", "color", current.color);
+  input("Road name text color", "atlasRoadTextColor", "color", current.textColor);
   input("Line width (px)", "atlasRoadWidth", "number", current.width,
     { min: 1, max: 16, step: 0.5 });
   input("Opacity", "atlasRoadOpacity", "number", current.opacity,
@@ -59,6 +61,7 @@ export function roadAppearanceForm(appearance) {
 export function roadAppearanceFromForm(values) {
   return validateRoadAppearance({
     color: String(values.atlasRoadColor ?? ""),
+    textColor: String(values.atlasRoadTextColor ?? ""),
     width: Number(values.atlasRoadWidth),
     opacity: Number(values.atlasRoadOpacity),
     pattern: String(values.atlasRoadPattern ?? ""),
@@ -69,28 +72,45 @@ export function roadAppearanceFromForm(values) {
 export class AtlasRoadAppearanceSettings extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-road-appearance",
-    window: { title: "Atlas Settings — Road Appearance Defaults", resizable: true },
-    position: { width: 490, height: 440 }
+    window: { title: "Atlas — Road Overlay Appearance (Land / Air / Water)", resizable: true },
+    position: { width: 560, height: 670 }
   };
 
   async _renderHTML() {
     const root = element("div");
     root.style.cssText = "padding:1rem;display:grid;gap:0.75rem;overflow:auto;height:100%;";
-    root.appendChild(element("p", "World defaults for named roads without a custom appearance. " +
-      "These styles are visual only: no road geometry, native Regions, or movement costs change."));
-    const form = roadAppearanceForm(readWorldRoadAppearance());
-    form.dataset.atlasRoadAppearance = "";
-    root.appendChild(form);
+    root.appendChild(element("p", "ROAD OVERLAY APPEARANCE — Land, Air and Water " +
+      "share category defaults across Scenes. A named road takes the category of its assigned " +
+      "travel surface preset (or Land when unassigned). These visuals do not alter native " +
+      "Region colors, geometry or movement costs."));
+    const catalog = readWorldRoadAppearance();
+    const forms = new Map();
+    for (const mode of ROAD_APPEARANCE_MODES) {
+      const fieldset = element("fieldset");
+      const title = mode.charAt(0).toUpperCase() + mode.slice(1);
+      const legend = element("legend", title + " Road Overlay");
+      legend.style.fontWeight = "bold";
+      fieldset.appendChild(legend);
+      const form = roadAppearanceForm(catalog.profiles[mode]);
+      form.dataset.atlasRoadAppearance = mode;
+      form.style.padding = "0.5rem";
+      fieldset.appendChild(form);
+      root.appendChild(fieldset);
+      forms.set(mode, form);
+    }
     const save = element("button", "Save Appearance Defaults");
     save.type = "button";
     save.addEventListener("click", async () => {
       save.disabled = true;
       try {
         if (!game.user?.isGM) throw new Error("Only a GM may edit road appearance defaults.");
-        const values = Object.fromEntries([...form.querySelectorAll("[name]")]
-          .map(field => [field.name, field.value]));
+        const profiles = Object.fromEntries([...forms].map(([mode, form]) => {
+          const values = Object.fromEntries([...form.querySelectorAll("[name]")]
+            .map(field => [field.name, field.value]));
+          return [mode, roadAppearanceFromForm(values)];
+        }));
         await game.settings.set(MODULE_ID, ROAD_APPEARANCE_SETTING,
-          roadAppearanceFromForm(values));
+          validateWorldRoadAppearance({ schemaVersion: 2, profiles }));
         ui.notifications.info("Atlas world road appearance defaults saved.");
         this.close();
       } catch (error) {
@@ -107,14 +127,14 @@ export class AtlasRoadAppearanceSettings extends foundry.applications.api.Applic
 
 export function registerWorldRoadAppearance(onChange = () => {}) {
   game.settings.register(MODULE_ID, ROAD_APPEARANCE_SETTING, {
-    name: "Atlas Road Appearance Defaults",
-    hint: "Shared colors, line patterns and road-label preferences for all Scenes.",
+    name: "Atlas Road Overlay Appearance Profiles",
+    hint: "Land / Air / Water World-shared line and road-name styles; separate from native Regions.",
     scope: "world", config: false, type: Object,
-    default: { ...DEFAULT_ROAD_APPEARANCE }, onChange
+    default: structuredClone(DEFAULT_WORLD_ROAD_APPEARANCE), onChange
   });
   game.settings.registerMenu(MODULE_ID, "atlasRoadAppearanceMenu", {
-    name: "Atlas Appearance Defaults", label: "Configure Road Appearance",
-    hint: "Edit World-wide named-road drawing defaults (not Region surface colors).",
+    name: "Atlas — Road Overlay Appearance", label: "Configure Land / Air / Water Road Styles",
+    hint: "Atlas-drawn line and text colors only. Region surface colors and movement cost presets are separate.",
     icon: "fa-solid fa-palette", type: AtlasRoadAppearanceSettings, restricted: true
   });
 }

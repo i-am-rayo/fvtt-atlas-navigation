@@ -24,6 +24,8 @@
 
 # Agent and contributor instructions
 
+> **v0.2.20.1 owner-reported label and appearance refinement (October 24, 2026):** In live v14 the Road label shows `[object Object]` while hover works. Fix Pixi Text's string argument compatibility and add road-name text color. World Atlas Road Appearance should be split into Land/Air/Water category profiles, keyed by the existing assigned travel surface category (unassigned road → Land), with explicit per-road overrides remaining higher priority. Read v0.2.20's flat World setting into three profiles in memory only; save v2 World catalog only on explicit GM action. Existing Scene v6 five-field overrides must stay readable; add schema v7 exact six-field appearance only on explicit new style save. Clarify native Region versus Atlas road-overlay controls in World menus and Scene Atlas. Preserve all native Region shapes, Behaviors, Levels, color and movement costs. Stage as draft patch to PR #12; no merge before live v14 sign-off. v0.2.21 checkpoint icons remain deferred.
+
 ## Project identity
 
 - Repository: `i-am-rayo/fvtt-atlas-navigation`

@@ -5,7 +5,9 @@ import { roadHandles } from "./road-hit.js";
 import { attachmentRoadNames, findRoadSnap, suggestRoadName } from "./road-model.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
-  roadStrokeSpans, roadLabelPoint } from "./road-appearance.js";
+  roadStrokeSpans, roadLabelPoint, roadAppearanceMode } from "./road-appearance.js";
+import { defaultTravelPresets, validateTravelPresets,
+  TRAVEL_PRESET_SETTING } from "./travel-preset-model.js";
 
 function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "solid") {
   if (points.length < 2) return;
@@ -789,12 +791,19 @@ export class RoadCanvasController {
     element.addEventListener("pointerleave", this.hoverExitHandler);
   }
 
-  #addLabel(graphics, name, point) {
+  #addLabel(graphics, name, point, textColor) {
     if (!globalThis.PIXI?.Text || !graphics.addChild) return;
-    const label = new PIXI.Text({ text: name, style: {
-      fontFamily: "Arial", fontSize: 16, fill: 0xffffff,
-      stroke: { color: 0x000000, width: 3 }, align: "center"
-    } });
+    const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
+    const color = Number.parseInt(textColor.slice(1), 16);
+    const common = { fontFamily: "Arial", fontSize: 16,
+      fill: color, align: "center" };
+    // Pixi v7 and v8 both accept a positional string; the v8 options-object
+    // signature can become '[object Object]' on Foundry's older Text runtime.
+    // Use the cross-version text-first form until v14 runtime capability is verified.
+    const style = major >= 8
+      ? { ...common, stroke: { color: 0x000000, width: 3 } }
+      : { ...common, stroke: 0x000000, strokeThickness: 3 };
+    const label = new PIXI.Text(String(name), style);
     label.anchor?.set?.(0.5);
     label.position?.set?.(point.x, point.y);
     label.eventMode = "none";
@@ -838,6 +847,9 @@ export class RoadCanvasController {
     const nodes = new Map(atlas.nodes.map(n => [n.id, n]));
     const roads = new Map((atlas.roads ?? []).map(r => [r.id, r]));
     const worldDefaults = readWorldRoadAppearance();
+    const travelPresets = validateTravelPresets(
+      globalThis.game?.settings?.get?.("fvtt-atlas-navigation", TRAVEL_PRESET_SETTING) ??
+      defaultTravelPresets()).presets;
     const labelAnchors = new Map();
     this.hoverGeometry = [];
     for (const segment of atlas.segments) {
@@ -847,7 +859,8 @@ export class RoadCanvasController {
       const path = [from, ...segment.via, to].map(p => toCanvasPoint(canvas, atlas, p));
       const highlighted = this.selectedRoadId === (atlas.schemaVersion >= 3 ? segment.roadId : segment.id);
       const road = roads.get(segment.roadId) ?? segment;
-      const style = resolveRoadAppearance(road, worldDefaults);
+      const style = resolveRoadAppearance(road, worldDefaults,
+        roadAppearanceMode(road, travelPresets));
       const color = highlighted ? 0xffd166 : Number.parseInt(style.color.slice(1), 16);
       drawLine(g, path, color, style.width + (highlighted ? 2 : 0),
         highlighted ? 1 : style.opacity, style.pattern);
@@ -868,7 +881,7 @@ export class RoadCanvasController {
     for (const [roadId, item] of labelAnchors) {
       if (item.style.labelVisibility === "always" ||
           (item.style.labelVisibility === "hover" && this.hoveredRoadId === roadId)) {
-        this.#addLabel(g, item.road.name, item.point);
+        this.#addLabel(g, item.road.name, item.point, item.style.textColor);
       }
     }
     this.#trackHover(canvas);

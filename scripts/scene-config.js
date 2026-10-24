@@ -6,7 +6,8 @@ import { listRoadCheckpoints } from "./checkpoint-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { presetCostSummary } from "./travel-preset-model.js";
-import { readWorldRoadAppearance, resolveRoadAppearance } from "./road-appearance.js";
+import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
+  from "./road-appearance.js";
 import { availableMovementActions, unavailableMovementActions,
   previewNativeMovementCost, nativeCostPresetStatus,
   editableManagedNativeCost } from "./native-movement-cost.js";
@@ -169,6 +170,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
   titleGroup.style.alignItems = "center";
   titleGroup.style.gap = "0.35rem";
   titleGroup.appendChild(node("span", label("FVTTATLAS.Roads.Title")));
+  const roadBadge = node("span", "· Atlas road overlay");
+  roadBadge.style.cssText = "font-size:0.75em;opacity:0.75;";
+  titleGroup.appendChild(roadBadge);
   if (!legacy && !needsOrganize) {
     const add = button("+", label("FVTTATLAS.Roads.Add"), () => actions.begin(scene, refresh));
     add.style.flex = "0 0 auto";
@@ -215,16 +219,17 @@ function atlasPanel(scene, atlas, actions, refresh) {
     description.style.minWidth = "0";
     description.appendChild(node("span", roadName));
     if (atlas.schemaVersion >= 3) {
-      const style = resolveRoadAppearance(road, worldRoadAppearance);
+      const mode = roadAppearanceMode(road, travelPresets);
+      const style = resolveRoadAppearance(road, worldRoadAppearance, mode);
       const subtitle = node("div", undefined, "hint");
       subtitle.style.fontSize = "0.8em";
       const swatch = node("span", "● ");
       swatch.style.color = style.color;
       subtitle.appendChild(swatch);
       subtitle.appendChild(node("span",
-        `${style.pattern} · ${style.width}px · ${style.labelVisibility === "off" ?
+        `${mode} overlay · ${style.pattern} · ${style.width}px · ${style.labelVisibility === "off" ?
           "labels off" : "labels " + style.labelVisibility}` +
-        (road.appearance ? " (custom)" : " (World default)")));
+        (road.appearance ? " (road override)" : " (World " + mode + " default)")));
       description.appendChild(subtitle);
     }
     if (count > 1) {
@@ -256,10 +261,10 @@ function atlasPanel(scene, atlas, actions, refresh) {
         return actions.select(scene, road.id);
       }));
     if (atlas.schemaVersion >= 3) {
-      controls.appendChild(button("🎨", "Edit road color, line style and labels",
+      controls.appendChild(button("🖌", "ROAD OVERLAY — Edit line, pattern and label text color (does not change native Regions)",
         () => actions.editRoadAppearance(scene, road, refresh)));
       if (road.appearance) {
-        controls.appendChild(button("↺", "Reset road appearance to World defaults",
+        controls.appendChild(button("↺", "ROAD OVERLAY — Reset style to its Land/Air/Water World default",
           () => actions.resetRoadAppearance(scene, road, refresh)));
       }
       controls.appendChild(button("◈", label("FVTTATLAS.Travel.AssignRoad"),
@@ -494,8 +499,12 @@ function atlasPanel(scene, atlas, actions, refresh) {
   // No bulk or automatic generation occurs merely by opening this sheet.
   const generated = listGeneratedRegions(scene);
   const generatedSection = node("fieldset");
-  generatedSection.appendChild(node("legend", label("FVTTATLAS.Generated.Title")));
+  generatedSection.appendChild(node("legend", label("FVTTATLAS.Generated.Title") +
+    " · Native Regions"));
   generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.Hint"), "hint"));
+  generatedSection.appendChild(node("p",
+    "REGION SETTINGS — Preset colors and movement costs below affect native Foundry Regions " +
+    "only after the separate GM-confirmed action. They do not change Atlas road lines or labels.", "hint"));
   if (sharedFilter && atlas.schemaVersion >= 4) {
     generatedSection.appendChild(sharedRoadFilters(atlas, sharedFilter, refresh));
   }
@@ -721,7 +730,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
           "background:" + preset.color + ";";
         const colorLine = node("div", undefined, "hint");
         colorLine.append(swatch, node("span",
-          "Surface color " + preset.color + (colorMatches
+          "Native Region surface color " + preset.color + (colorMatches
             ? " · Applied" : " · Region differs (manual or older color)")));
         detail.appendChild(colorLine);
         const costState = nativeCostPresetStatus(region.nativeCost, preset);
@@ -753,7 +762,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
       if (region.metadata?.kind === "corridor") {
         controls.appendChild(button("◈", label("FVTTATLAS.Travel.AssignRegion"),
           () => actions.assignGeneratedRegionTravelPreset(scene, region, refresh)));
-        const color = button("🎨", "Apply surface preset color (with confirmation)",
+        const color = button("🎨", "NATIVE REGION COLOR — Apply surface preset color (with confirmation)",
           () => actions.applyGeneratedRegionColor(scene, region, refresh));
         color.disabled = !!draft || !presetById.has(region.presetId) ||
           String(region.color ?? "").toUpperCase() ===
@@ -795,6 +804,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
   regionHeader.style.alignItems = "center";
   regionHeader.style.gap = "0.35rem";
   regionHeader.appendChild(node("span", label("FVTTATLAS.Regions.Title")));
+  const regionBadge = node("span", "· Foundry Region Documents");
+  regionBadge.style.cssText = "font-size:0.75em;opacity:0.75;";
+  regionHeader.appendChild(regionBadge);
   const nativeRegions = listSceneRegions(scene);
   const roadByGeneratedRegionId = new Map(generated.filter(r => r.metadata)
     .map(r => [r.id, r.metadata.roadId]));

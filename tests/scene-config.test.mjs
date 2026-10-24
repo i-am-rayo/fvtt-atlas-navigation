@@ -521,6 +521,14 @@ test("v0.2.19 duplicate corridor points to existing surface controls and enables
     const actions={draft:()=>null,begin(){},select(){},rename(){},remove(){},
       generateRegion(){},updateGeneratedRegionCost(_scene,entry){updatedId=entry.id;}};
     addAtlasRoadsToSceneConfig({document:scene,rendered:true},element,actions);
+    assert.match(textContents(mounted),/Atlas road overlay/);
+    assert.match(textContents(mounted),/REGION SETTINGS/);
+    assert.ok(visit(mounted,e=>e.tag==="button"&&
+      e.title?.startsWith("ROAD OVERLAY")),
+    "Road style button clearly describes display-only styling");
+    assert.ok(visit(mounted,e=>e.tag==="button"&&
+      e.title?.startsWith("NATIVE REGION COLOR")),
+    "generated native Region coloring has an explicitly distinct action");
     const kind=visit(mounted,e=>e.tag==="select"&&e.value==="checkpoint");
     kind.value="corridor";kind.listeners.get("change")();
     assert.match(textContents(mounted),/Already generated.*Keep this native Region/);
