@@ -1,4 +1,16 @@
-# v0.2.22 — Map authoring and checkpoint scaling (draft test gate)
+# v0.2.23 — Advanced GM checkpoint presentation (draft test gate)
+
+Install the `feature/phase-2o-checkpoint-presentation` branch in a backed-up Foundry v14 World and confirm **0.2.23**. Test a Scene with both adjacent and widely separated checkpoints, old saved icons and generated native Regions.
+
+1. Open a checkpoint's 🖼 editor. The new icon browser should show Search / Category / Style on the left, a larger selected-icon preview with a readable name/metadata, and compact icons on the right. Try thematic chips for Places, Travel, Nature, Danger, Magic and Creatures. Search and click a different icon; the preview must update *before* Save. Existing saved icons (including Advanced Brands) remain available. Verify the 36-item page limit, empty results hint, and Foundry custom-image picker.
+2. With two checkpoints about 40–100 Scene pixels apart, zoom out and confirm they group into a numbered marker. Hover the group to see an abbreviated checkpoint-name list. Zoom in and verify both original markers reappear, their names/elevations and unique IDs are intact, and they can be edited independently. Shift-click a cluster must ask for zoom rather than accidentally editing one member.
+3. Hover an ordinary checkpoint, even if its label mode is Off: confirm a read-only mini-preview with name, owning road and elevation (when available). Check that Always/Hover labels still use bold checkpoint name and smaller italic road subtitle. Test low zoom, high zoom, pan, and a Scene switch for text readability and stale overlay cleanup.
+4. Editing road points must retain individual geometry handles and existing Shift-click promote/demote behavior. Creating a native checkpoint/corridor Region should remain opt-in; changing icons, grouping or hovering must not change its shape, cost Behavior, level or preset.
+5. As an ordinary player, Atlas still draws **no** player roads/checkpoint overlay. The player visibility design has a separate two-client review and is **not active** in this build: [review checklist](PLAYER_VISIBILITY_REVIEW.md). The owner previously accepted visual-only hiding, but it must not be confused with data confidentiality.
+
+Automated tests verify pure clustering/density bounds, read-only preview composition, icon-gallery selection and prior graph/Region regressions. Live GM and player checks are still required before merging.
+
+# v0.2.22 — Map authoring and checkpoint scaling (previous test gate)
 
 Install the `feature/phase-2n-authoring-interactions` development branch, reload Foundry v14, and confirm module version **0.2.22**. Back up the World. Use a Scene with existing roads, checkpoints, and a generated native Region.
 

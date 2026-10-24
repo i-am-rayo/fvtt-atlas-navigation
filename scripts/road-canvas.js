@@ -5,6 +5,8 @@ import { roadHandles } from "./road-hit.js";
 import { attachmentRoadNames, findRoadSnap, suggestRoadName } from "./road-model.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 import { atlasShortcutTarget } from "./atlas-canvas-hit.js";
+import { groupCheckpointMarkers, checkpointQuickInfo,
+  clusterQuickInfo } from "./checkpoint-clusters.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
   roadStrokeSpans, roadLabelPoint, roadAppearanceMode } from "./road-appearance.js";
 import { defaultTravelPresets, validateTravelPresets,
@@ -239,7 +241,9 @@ export class RoadCanvasController {
     this.labels = [];
     this.hoveredRoadId = null;
     this.hoveredCheckpointId = null;
+    this.hoveredClusterId = null;
     this.checkpointHoverGeometry = [];
+    this.clusterHoverGeometry = [];
     this.textureCache = new Map();
     this.fontStatus = new Map();
     this.lastZoom = null;
@@ -784,6 +788,7 @@ export class RoadCanvasController {
   /** Installed by the Scene Atlas authoring bootstrap, never player-facing. */
   setShortcutHandler(callback) {
     this.shortcutHandler = callback;
+    this.#stopHover(); // Rebind pointerdown if a shortcut was installed after canvasReady.
     this.refresh();
   }
 
@@ -797,12 +802,15 @@ export class RoadCanvasController {
     this.shortcutPointerHandler = null;
     this.hoveredRoadId = null;
     this.hoveredCheckpointId = null;
+    this.hoveredClusterId = null;
     this.hoverGeometry = [];
     this.checkpointHoverGeometry = [];
+    this.clusterHoverGeometry = [];
   }
 
   #trackHover(canvas) {
     if (!this.hoverGeometry.length && !this.checkpointHoverGeometry.length &&
+        !this.clusterHoverGeometry.length &&
         !this.shortcutHandler) {
       if (this.hoverCanvasElement) this.#stopHover();
       return;
@@ -811,9 +819,11 @@ export class RoadCanvasController {
     if (this.hoverCanvasElement === element) return;
     const geometry = this.hoverGeometry;
     const checkpoints = this.checkpointHoverGeometry;
+    const clusters = this.clusterHoverGeometry;
     this.#stopHover();
     this.hoverGeometry = geometry;
     this.checkpointHoverGeometry = checkpoints;
+    this.clusterHoverGeometry = clusters;
     if (!element?.addEventListener) return;
     this.hoverCanvasElement = element;
     this.hoverHandler = event => {
@@ -824,6 +834,13 @@ export class RoadCanvasController {
       const point = canvas.canvasCoordinatesFromClient?.({ x: event.clientX, y: event.clientY });
       if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return;
       let nextCheckpoint = null;
+      let nextCluster = null;
+      for (const candidate of this.clusterHoverGeometry) {
+        if (Math.hypot(point.x - candidate.x, point.y - candidate.y) <= candidate.radius) {
+          nextCluster = candidate.id;
+          break;
+        }
+      }
       for (const candidate of this.checkpointHoverGeometry) {
         if (Math.hypot(point.x - candidate.x, point.y - candidate.y) <= candidate.radius) {
           nextCheckpoint = candidate.id;
@@ -837,16 +854,20 @@ export class RoadCanvasController {
           break;
         }
       }
-      if (next !== this.hoveredRoadId || nextCheckpoint !== this.hoveredCheckpointId) {
+      if (next !== this.hoveredRoadId || nextCheckpoint !== this.hoveredCheckpointId ||
+          nextCluster !== this.hoveredClusterId) {
         this.hoveredRoadId = next;
         this.hoveredCheckpointId = nextCheckpoint;
+        this.hoveredClusterId = nextCluster;
         this.refresh();
       }
     };
     this.hoverExitHandler = () => {
-      if (this.hoveredRoadId !== null || this.hoveredCheckpointId !== null) {
+      if (this.hoveredRoadId !== null || this.hoveredCheckpointId !== null ||
+          this.hoveredClusterId !== null) {
         this.hoveredRoadId = null;
         this.hoveredCheckpointId = null;
+        this.hoveredClusterId = null;
         this.refresh();
       }
     };
@@ -859,6 +880,13 @@ export class RoadCanvasController {
         x: event.clientX, y: event.clientY
       });
       if (!Number.isFinite(position?.x) || !Number.isFinite(position?.y)) return;
+      if (this.clusterHoverGeometry.some(item =>
+        Math.hypot(position.x - item.x, position.y - item.y) <= item.radius)) {
+        event.preventDefault?.();
+        event.stopImmediatePropagation?.();
+        this.notify()?.info?.("Zoom in to select an individual Atlas checkpoint.");
+        return;
+      }
       const atlas = readAtlas(canvas.scene);
       const target = atlasShortcutTarget(atlas, position,
         point => toCanvasPoint(canvas, atlas, point), canvas.stage?.scale?.x ?? 1);
@@ -919,6 +947,41 @@ export class RoadCanvasController {
       nameScreenSize * textScale, "bold", "normal");
     if (secondLine) add(roadName, point.y + 10 * textScale,
       roadScreenSize * textScale, "normal", "italic");
+  }
+
+  #addQuickInfo(graphics, content, point, zoom) {
+    if (!globalThis.PIXI?.Text || !graphics.addChild) return;
+    const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+    const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
+    const style = { fontFamily: "Arial", fontSize: 13 / scale, fill: 0xfff2c8,
+      align: "left", lineHeight: 17 / scale,
+      ...(major >= 8 ? { stroke: { color: 0x101828, width: 4 / scale } }
+        : { stroke: 0x101828, strokeThickness: 4 / scale }) };
+    const label = new PIXI.Text(String(content), style);
+    label.anchor?.set?.(0, 0);
+    label.position?.set?.(point.x + 17 / scale, point.y + 8 / scale);
+    label.eventMode = "none";
+    graphics.addChild(label);
+    this.labels.push(label);
+  }
+
+  #drawCheckpointCluster(graphics, group, zoom) {
+    const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+    const highlighted = group.members.some(item => item.id === this.selectedCheckpointId);
+    const radius = 17 / scale;
+    drawDot(graphics, group, highlighted ? 0x8ef6c5 : 0x4d70b5, radius);
+    drawDot(graphics, group, 0x1a2545, radius * 0.7);
+    if (!globalThis.PIXI?.Text || !graphics.addChild) return;
+    const count = new PIXI.Text(group.members.length > 99 ? "99+" :
+      String(group.members.length), {
+      fontFamily: "Arial", fontSize: (group.members.length > 99 ? 12 : 15) / scale,
+      fontWeight: "bold", fill: 0xffffff, align: "center"
+    });
+    count.anchor?.set?.(0.5);
+    count.position?.set?.(group.x, group.y);
+    count.eventMode = "none";
+    graphics.addChild(count);
+    this.labels.push(count);
   }
 
   #fontReady(font) {
@@ -1036,6 +1099,7 @@ export class RoadCanvasController {
     const labelAnchors = new Map();
     this.hoverGeometry = [];
     this.checkpointHoverGeometry = [];
+    this.clusterHoverGeometry = [];
     for (const segment of atlas.segments) {
       const from = nodes.get(segment.from);
       const to = nodes.get(segment.to);
@@ -1068,28 +1132,49 @@ export class RoadCanvasController {
         this.#addLabel(g, item.road.name, item.point, item.style.textColor);
       }
     }
+    const checkpointMarkers = [];
     for (const checkpoint of atlas.checkpoints ?? []) {
       const point = nodes.get(checkpoint.nodeId);
       if (!point) continue;
       const position = toCanvasPoint(canvas, atlas, point);
       const appearance = resolveCheckpointAppearance(checkpoint.appearance);
-      this.#drawCheckpoint(g, position, checkpoint, appearance, zoom);
-      if (appearance.labelMode === "hover") {
-        const marker = checkpointMarkerPosition(position, appearance, zoom);
-        this.checkpointHoverGeometry.push({
-          id: checkpoint.id, x: position.x, y: position.y,
-          radius: 10 / zoom
-        });
-        if (appearance.type !== "dot") this.checkpointHoverGeometry.push({
-          id: checkpoint.id, x: marker.x, y: marker.y,
-          radius: Math.max(10 / zoom, checkpointCanvasSize(appearance.size, zoom) / 2 + 5 / zoom)
-        });
+      const marker = checkpointMarkerPosition(position, appearance, zoom);
+      checkpointMarkers.push({ id: checkpoint.id, x: marker.x, y: marker.y,
+        checkpoint, position, appearance });
+    }
+    const groups = groupCheckpointMarkers(checkpointMarkers,
+      editing || this.draft ? Math.max(zoom, 1.5) : zoom);
+    for (const group of groups) {
+      if (group.members.length > 1) {
+        this.#drawCheckpointCluster(g, group, zoom);
+        this.clusterHoverGeometry.push({ id: group.id, x: group.x, y: group.y,
+          radius: 20 / zoom });
+        if (this.hoveredClusterId === group.id) {
+          this.#addQuickInfo(g, clusterQuickInfo(group.members), group, zoom);
+        }
+        continue;
       }
-      if (appearance.labelMode === "always" ||
-          (appearance.labelMode === "hover" && this.hoveredCheckpointId === checkpoint.id)) {
-        const roadName = roads.get(checkpoint.roadId)?.name;
+      const item = group.members[0];
+      const { checkpoint, position, appearance } = item;
+      this.#drawCheckpoint(g, position, checkpoint, appearance, zoom);
+      this.checkpointHoverGeometry.push({ id: checkpoint.id, x: position.x,
+        y: position.y, radius: 10 / zoom });
+      if (appearance.type !== "dot") this.checkpointHoverGeometry.push({
+        id: checkpoint.id, x: group.x, y: group.y,
+        radius: Math.max(10 / zoom, checkpointCanvasSize(appearance.size, zoom) / 2 + 5 / zoom)
+      });
+      const roadName = roads.get(checkpoint.roadId)?.name;
+      const hovered = this.hoveredCheckpointId === checkpoint.id;
+      if (appearance.labelMode === "always" || (appearance.labelMode === "hover" && hovered)) {
         this.#addCheckpointLabels(g, checkpoint.name, roadName, appearance,
-          checkpointMarkerPosition(position, appearance, zoom), zoom);
+          group, zoom);
+      }
+      if (hovered) {
+        const full = checkpointQuickInfo(checkpoint, roads.get(checkpoint.roadId));
+        const preview = appearance.labelMode === "off" ? full : full.split("\n")
+          .filter(line => line.startsWith("Elevation:") ||
+            (!appearance.showRoadName && line.startsWith("Road:"))).join("\n");
+        if (preview) this.#addQuickInfo(g, preview, group, zoom);
       }
     }
     this.#trackHover(canvas);
@@ -1159,5 +1244,6 @@ export class RoadCanvasController {
     this.selectedJunctionId = null;
     this.selectedCheckpointId = null;
     this.regionPreview = null;
+    this.hoveredClusterId = null;
   }
 }

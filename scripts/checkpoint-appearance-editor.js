@@ -1,4 +1,4 @@
-import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT, checkpointFontIcon,
+import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT, CHECKPOINT_FREE_ICONS, checkpointFontIcon,
   findCheckpointIcons,
   resolveCheckpointAppearance, validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { readAtlas } from "./atlas-storage.js";
@@ -9,6 +9,7 @@ const el = (tag, label) => {
   if (label !== undefined) item.textContent = label;
   return item;
 };
+const ICON_DETAILS = new Map(CHECKPOINT_FREE_ICONS.map(icon => [icon.id, icon]));
 
 /** Explicit GM editor. Icon choice and search never modify the Scene before Save. */
 export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.ApplicationV2 {
@@ -35,9 +36,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const appearance = resolveCheckpointAppearance(current.appearance);
     const root = el("div");
     root.style.cssText = "padding:0.85rem;display:grid;gap:0.6rem;overflow:auto;height:100%;";
-    root.appendChild(el("p", "CHECKPOINT OVERLAY — " + current.name +
-      ". The icon and labels are Atlas graphics, not native Regions. " +
-      "Existing checkpoints keep their original purple dot unless customized."));
+    root.appendChild(el("p", "CHECKPOINT — " + current.name +
+      ". Choose an icon, check its preview, then save. All icons work offline; " +
+      "saved graph points and native Regions never move."));
     const fields = el("div");
     fields.style.cssText = "display:grid;gap:0.55rem;";
     const field = (title, control) => {
@@ -63,14 +64,24 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       ["image", "Custom Foundry image"]
     ], appearance.type));
     const iconSection = el("fieldset");
-    const legend = el("legend", "Font Awesome Free — searchable icon selection");
+    iconSection.style.cssText = "min-width:0;padding:0.6rem;border:1px solid var(--color-border-light-tertiary,#666);";
+    const legend = el("legend", "ICON LIBRARY — browse, filter & preview");
     iconSection.appendChild(legend);
+    const browser = el("div");
+    browser.style.cssText = "display:grid;grid-template-columns: minmax(180px,1fr) minmax(280px,2fr);gap:0.8rem;min-width:0;align-items:start;";
+    const sidebar = el("div");
+    sidebar.style.cssText = "display:grid;gap:0.5rem;min-width:0;";
+    const gallery = el("div");
+    gallery.style.cssText = "display:grid;gap:0.45rem;min-width:0;";
+    browser.append(sidebar, gallery);
+    iconSection.appendChild(browser);
     const search = el("input");
     search.type = "search";
     search.placeholder = "Search fantasy icons: bridge, ship, castle, cave…";
     search.setAttribute("aria-label", "Filter checkpoint icons");
     search.style.width = "100%";
-    iconSection.appendChild(search);
+    sidebar.appendChild(el("strong", "Search"));
+    sidebar.appendChild(search);
     const categoryFilter = select([
       ["rpg", "RPG & fantasy (recommended)"],
       ["settlements", "Settlements & structures"],
@@ -83,27 +94,62 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     ], "rpg");
     categoryFilter.setAttribute("aria-label", "RPG icon category");
     categoryFilter.style.cssText = "width:100%;margin-top:0.4rem;";
-    iconSection.appendChild(categoryFilter);
+    sidebar.appendChild(el("small", "Theme / category"));
+    sidebar.appendChild(categoryFilter);
     const styleFilter = select([
       ["all", "All Free icon styles"], ["solid", "Solid"],
       ["regular", "Regular"], ["brands", "Brands"]
     ], "all");
     styleFilter.setAttribute("aria-label", "Font Awesome icon style");
     styleFilter.style.cssText = "width:100%;margin-top:0.4rem;";
-    iconSection.appendChild(styleFilter);
+    sidebar.appendChild(el("small", "Icon style"));
+    sidebar.appendChild(styleFilter);
+    const preview = el("section");
+    preview.style.cssText = "display:grid;justify-items:center;gap:0.3rem;padding:0.65rem;" +
+      "border:1px solid #8a70c6;border-radius:0.5rem;min-width:0;";
+    preview.setAttribute("aria-label", "Selected icon preview");
+    const previewImage = el("div");
+    previewImage.style.cssText = "height:56px;min-width:56px;display:grid;place-items:center;";
+    const previewName = el("strong");
+    const previewDetails = el("small");
+    previewDetails.style.cssText = "text-align:center;overflow-wrap:anywhere;";
+    preview.append(previewImage, previewName, previewDetails);
+    sidebar.appendChild(preview);
     const chosen = el("div");
     chosen.style.cssText = "display:flex;align-items:center;gap:0.5rem;margin:0.5rem 0;";
-    iconSection.appendChild(chosen);
+    sidebar.appendChild(chosen);
+    const tabs = el("div");
+    tabs.style.cssText = "display:flex;gap:0.25rem;flex-wrap:wrap;";
+    const categoryTabs = [
+      ["rpg", "RPG picks"], ["settlements", "Places"], ["travel", "Travel"],
+      ["nature", "Nature"], ["danger", "Danger"], ["magic", "Magic"],
+      ["creatures", "Creatures"], ["all", "All / Advanced"]
+    ];
+    const tabButtons = [];
+    for (const [id, name] of categoryTabs) {
+      const tab = el("button", name);
+      tab.type = "button";
+      tab.setAttribute("aria-label", `Browse ${name} checkpoint icons`);
+      tab.style.cssText = "padding:0.25rem 0.45rem;border-radius:0.35rem;";
+      tab.addEventListener("click", () => {
+        categoryFilter.value = id;
+        renderIcons(true);
+      });
+      tabButtons.push([id, tab]);
+      tabs.appendChild(tab);
+    }
+    gallery.appendChild(tabs);
     const quickTitle = el("small", "Original quick picks (existing icons remain compatible)");
-    iconSection.appendChild(quickTitle);
+    gallery.appendChild(quickTitle);
     const quick = el("div");
     quick.style.cssText = "display:flex;flex-wrap:wrap;gap:0.25rem;margin:0.3rem 0 0.6rem;";
-    iconSection.appendChild(quick);
+    gallery.appendChild(quick);
     const results = el("small");
     results.setAttribute("aria-live", "polite");
-    iconSection.appendChild(results);
+    gallery.appendChild(results);
     const grid = el("div");
-    grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(105px,1fr));gap:0.35rem;margin-top:0.5rem;";
+    grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));" +
+      "gap:0.35rem;max-height:325px;overflow-y:auto;padding:0.2rem;";
     let selected = appearance.icon;
     const choices = new Map();
     const fontGlyph = id => {
@@ -122,8 +168,20 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       return img;
     };
     const syncSelection = () => {
+      const details = ICON_DETAILS.get(selected);
+      const largeGlyph = CHECKPOINT_ICONS.includes(selected)
+        ? originalIcon(selected) : fontGlyph(selected);
+      largeGlyph.style.fontSize = "46px";
+      if (CHECKPOINT_ICONS.includes(selected)) {
+        largeGlyph.style.width = "44px";
+        largeGlyph.style.height = "44px";
+      }
+      previewImage.replaceChildren(largeGlyph);
+      previewName.textContent = details?.label ?? selected;
+      previewDetails.textContent = (details
+        ? `${selected.split(":")[0]} · ${details.terms || "Font Awesome Free"}`
+        : "Classic Atlas icon · existing save compatible");
       chosen.replaceChildren(el("strong", "Selected:"),
-        CHECKPOINT_ICONS.includes(selected) ? originalIcon(selected) : fontGlyph(selected),
         el("span", selected));
       for (const [id, button] of choices) {
         button.style.borderColor = id === selected ? "#8a70c6" : "transparent";
@@ -153,12 +211,12 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     for (const name of CHECKPOINT_ICONS) {
       quick.appendChild(iconButton(name, name, originalIcon(name), true));
     }
-    iconSection.appendChild(grid);
+    gallery.appendChild(grid);
     const pageSize = 36;
     const more = el("button", "Show 36 more icons");
     more.type = "button";
     more.style.cssText = "display:block;margin:0.5rem auto;";
-    iconSection.appendChild(more);
+    gallery.appendChild(more);
     let visible = pageSize;
     let matching = [];
     const renderIcons = (newSearch = false) => {
@@ -174,6 +232,11 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       }
       results.textContent = matching.length + " matching Free icons · showing " +
         Math.min(visible, matching.length) + ". Bundled locally; no API key needed.";
+      if (!matching.length) results.textContent += " Try another category or Advanced.";
+      for (const [id, tab] of tabButtons) {
+        tab.style.borderColor = id === categoryFilter.value ? "#9c7bf0" : "transparent";
+        tab.setAttribute("aria-pressed", String(id === categoryFilter.value));
+      }
       more.hidden = visible >= matching.length;
       syncSelection();
     };

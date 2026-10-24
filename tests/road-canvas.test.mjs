@@ -128,6 +128,103 @@ test("v0.2.22 canvas zoom redraws checkpoint overlay after a short debounce", as
   } finally { Object.assign(globalThis, previous); }
 });
 
+test("v0.2.23 GM canvas clusters nearby checkpoints, previews names, and expands on zoom", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  class Text {
+    constructor(text, style) {
+      this.text = String(text); this.style = style;
+      this.anchor = { set() {} }; this.position = { set() {} };
+    }
+    destroy() {}
+  }
+  m.Graphics.prototype.addChild = function(node) { node.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    m.canvas.stage = { scale: { x: 0.5 } };
+    let id = 0;
+    const idFactory = () => "near" + ++id;
+    let atlas = addRoad(createEmptyAtlas(), {
+      points: [{ x: 10, y: 10 }, { x: 50, y: 10 }],
+      name: "Stone Road", idFactory
+    });
+    atlas = addRoadCheckpoint(atlas, {
+      candidate: { kind: "node", nodeId: atlas.segments[0].from },
+      roadId: atlas.roads[0].id, name: "Bridge", elevationMeters: 10, idFactory
+    });
+    atlas = addRoadCheckpoint(atlas, {
+      candidate: { kind: "node", nodeId: atlas.segments[0].to },
+      roadId: atlas.roads[0].id, name: "Ford", elevationMeters: 20, idFactory
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    assert.equal(m.controller.clusterHoverGeometry.length, 1);
+    assert.equal(m.controller.checkpointHoverGeometry.length, 0);
+    const group = m.controller.clusterHoverGeometry[0];
+    m.listeners.get("pointermove")({ clientX: group.x / 2, clientY: group.y / 2 });
+    assert.ok(m.controller.labels.some(label => label.text.includes("2 checkpoints")));
+    assert.ok(m.controller.labels.some(label => label.text.includes("Bridge")));
+    let shortcuts = 0;
+    m.controller.setShortcutHandler(() => { shortcuts++; });
+    const event = { ...pointEvent(group.x / 2, group.y / 2), shiftKey: true };
+    m.listeners.get("pointerdown")(event);
+    await Promise.resolve();
+    assert.equal(shortcuts, 0, "collapsed cluster must not open the wrong checkpoint");
+    assert.match(m.notifications.info.at(-1), /Zoom in/);
+    m.canvas.stage.scale.x = 2;
+    m.controller.refresh();
+    assert.equal(m.controller.clusterHoverGeometry.length, 0);
+    assert.ok(m.controller.checkpointHoverGeometry.length >= 2);
+    m.controller.tearDown();
+  } finally { Object.assign(globalThis, previous); }
+});
+
+test("v0.2.23 checkpoint quick info works with labels Off without changing Scene flags", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  class Text {
+    constructor(text, style) {
+      this.text = String(text); this.style = style;
+      this.anchor = { set() {} }; this.position = { set() {} };
+    }
+    destroy() {}
+  }
+  m.Graphics.prototype.addChild = function(node) { node.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    m.canvas.stage = { scale: { x: 2 } };
+    let n = 0;
+    const idFactory = () => "quick" + ++n;
+    let atlas = addRoad(createEmptyAtlas(), {
+      points: [{ x: 20, y: 30 }, { x: 170, y: 30 }],
+      name: "Quiet Trail", idFactory
+    });
+    atlas = addRoadCheckpoint(atlas, {
+      candidate: { kind: "node", nodeId: atlas.segments[0].from },
+      roadId: atlas.roads[0].id, name: "Old Watchtower",
+      elevationMeters: 125, idFactory
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    const persisted = readAtlas(m.scene);
+    assert.equal(m.controller.labels.length, 0);
+    const checkpoint = m.controller.checkpointHoverGeometry[0];
+    m.listeners.get("pointermove")(pointEvent(checkpoint.x / 2, checkpoint.y / 2));
+    const preview = m.controller.labels.find(label => label.text.includes("Old Watchtower"));
+    assert.ok(preview);
+    assert.match(preview.text, /Road: Quiet Trail/);
+    assert.match(preview.text, /Elevation: 125 m/);
+    assert.deepEqual(readAtlas(m.scene), persisted, "hover presentation is read-only");
+    m.listeners.get("pointerleave")();
+    assert.equal(m.controller.labels.length, 0);
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, previous);
+  }
+});
+
 test("v0.2.20 named road styles draw dashed overlay and show one hover label", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
   const m = setup();
