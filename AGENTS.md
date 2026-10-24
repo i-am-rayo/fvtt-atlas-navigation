@@ -37,6 +37,8 @@
 
 ## Current schema/padding migration safety (Phase 2c v0.2.11)
 
+> **October 24, 2026 — v0.2.23 authorized after successful v0.2.22 owner test:** Implement a more usable offline checkpoint icon library, transient zoom-level checkpoint grouping and GM-hover quick information previews. Player road/checkpoint visibility remains a **separate** two-client Foundry v14 review gate even though the owner accepted visual-only hiding; no player-facing Scene flag rendering, network changes, or schemas should be activated in this presentation slice. Preserve native Regions, Behaviors, geometry, movement costs and phase boundaries. Stage a stacked draft PR pending live testing.
+
 > **October 24, 2026 — v0.2.22 owner-authorized GM-only authoring UX:** After v0.2.21.1, implement zoom-aware checkpoint display sizing, a curated offline fantasy-first Font Awesome Free search with Advanced full-catalog access, idle GM Shift-click for checkpoint/road appearance settings, and a compact modeless floating Road Editor while the native Scene sheet is minimized. Draft new-road name, World travel preset, and optional appearance in memory; save once with new geometry. Point-edit Shift-click bend/junction semantics must win over appearance shortcuts. Preserve old schemas and native Region Shapes/Levels/Behaviors; no player discovery/visibility, routing, or other automatic native rules. Keep a stacked draft PR pending live Foundry v14 verification.
 
 - Do not silently reinterpret legacy schema v1 absolute-canvas coordinates as image-local positions. A GM must explicitly anchor them using the currently aligned Scene image origin. Preserve existing graph IDs/names and Scene revision checks. Never erase or bulk reset maps.

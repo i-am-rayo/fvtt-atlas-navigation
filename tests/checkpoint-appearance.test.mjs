@@ -238,6 +238,20 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(all(root).some(node => node.tag === "button" &&
       node.title?.startsWith("brands:github — ")), "search draws relevant brand glyphs");
     assert.ok(all(root).filter(node => node.tag === "button").length < 85);
+    const magicTab = all(root).find(node => node.tag === "button" &&
+      node.textContent === "Magic");
+    assert.ok(magicTab, "redesigned icon browser includes one-click thematic tabs");
+    search.value = "";
+    magicTab.listeners.get("click")();
+    assert.equal(category.value, "magic");
+    const magicIcon = all(root).find(node => node.tag === "button" &&
+      node.title?.startsWith("solid:wand-magic — "));
+    assert.ok(magicIcon);
+    magicIcon.listeners.get("click")();
+    const preview = all(root).find(node => node.tag === "section" &&
+      node.children.some(child => child.tag === "strong"));
+    assert.ok(preview?.children[1].textContent.toLowerCase().includes("wand"),
+      "selected icon displays its own larger preview and human-readable title");
   } finally {
     Object.assign(globalThis, previous);
   }
