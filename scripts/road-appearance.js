@@ -8,7 +8,7 @@ export const ROAD_CURVE_SETTING = "roadCurvature";
 export const ROAD_CURVE_PRESETS = Object.freeze({
   off: 0, gentle: 0.35, moderate: 0.7, strong: 1
 });
-export const DEFAULT_ROAD_CURVE_PRESET = "gentle";
+export const DEFAULT_ROAD_CURVE_PRESET = "strong";
 
 export const DEFAULT_ROAD_APPEARANCE = Object.freeze({
   color: "#35c9ef",
