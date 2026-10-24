@@ -95,7 +95,7 @@ test("v0.2.25 global curvature offers restricted World presets and live refresh"
     assert.equal(curve.scope, "world");
     assert.equal(curve.config, true);
     assert.equal(curve.type, String);
-    assert.equal(curve.default, "gentle");
+    assert.equal(curve.default, "strong");
     assert.deepEqual(Object.keys(curve.choices), ["off", "gentle", "moderate", "strong"]);
     curve.onChange("moderate");
     assert.equal(repaints, 1, "changing only curvature repaints existing roads");
