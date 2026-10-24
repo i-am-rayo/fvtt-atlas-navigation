@@ -1,3 +1,17 @@
+## v0.2.17 live Foundry v14 owner acceptance (stacked on v0.2.16.2)
+
+1. Back up the test World. Confirm Module Settings → Atlas Presets still lists all old preset IDs/names and a legacy off-step multiplier like ×1.10 without rounding or writing settings just by opening the dialog.
+2. Add a new Stone Road test preset under Land. Select independent **Walk ×0.75, Fly ×1.00, Burrow ×2.25** (when system supports Burrow); leave Swim unchecked as **No override**. Verify Foundry range-pickers allow ×2 and larger up to ×10.
+3. Save and reopen the world preset. Verify each selected action and multiplier survived, and disabled/unavailable system actions cannot be newly authored. Existing unavailable action keys must not disappear from a per-movement preset after an unrelated edit.
+4. Create a test road with two checkpoints and a generated corridor. With native opt-in **off**, verify no Region Behavior is created even if a preset is assigned.
+5. For a different test corridor, enable native opt-in with the new per-movement preset, preview and confirm. Verify Foundry's Region editor shows **exactly one** active native Modify Movement Cost Behavior, with all selected actions' costs and no Swim override. Validate any native movement effect with actual tokens.
+6. Assign a per-mode preset to an existing generated corridor and use ⬆. Confirm it adds one Behavior with all selected costs; second application, a manual (even disabled) native cost Behavior, or incompatible/normalized native values must be rejected without writing.
+7. Edit the world preset, then regenerate corridor geometry. Verify the existing Region Behavior retains its original costs and native Levels, name and geometry-edit protections remain intact. Verify a pending confirmation cannot apply a stale preset snapshot.
+8. Verify an existing legacy preset still prompts for a single supported movement action, and already-created schema-v1 native Behavior provenance still displays.
+9. Repeat UI visibility and mutation checks as a non-GM. Test saving/reloading the World and switching Scenes. No routing, movement prohibition, vehicle rule, color, or broad filter feature is in scope.
+
+**Not yet live-verified in this draft:** GM/non-GM Foundry v14 application tests, any game-system-specific native field compatibility or token movement behavior. Prior v0.2.16.2 Swim check was owner verified.
+
 # Phase 2h — v0.2.16.2 GM acceptance: native cost normalization hotfix
 
 **Status (October 24, 2026):** v0.2.15.1 preset editing and reference assignment were verified by the owner. The small v0.2.15.2 startup setting cleanup was staged afterward. **This v0.2.16.2 native Behavior integration is a draft and requires live Foundry v14 testing before merge.** Back up the World and keep one GM editing a Scene at once. No Region or world preset is retroactively changed just by installing/updating.
