@@ -7,7 +7,8 @@ import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { presetCostSummary } from "./travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions,
-  previewNativeMovementCost, nativeCostPresetStatus } from "./native-movement-cost.js";
+  previewNativeMovementCost, nativeCostPresetStatus,
+  editableManagedNativeCost } from "./native-movement-cost.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -470,6 +471,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   // v0.2.14: generate separate opt-in native Regions around one checkpoint
   // or along one unambiguous chain between two checkpoints on the SAME road.
   // No bulk or automatic generation occurs merely by opening this sheet.
+  const generated = listGeneratedRegions(scene);
   const generatedSection = node("fieldset");
   generatedSection.appendChild(node("legend", label("FVTTATLAS.Generated.Title")));
   generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.Hint"), "hint"));
@@ -625,6 +627,13 @@ function atlasPanel(scene, atlas, actions, refresh) {
           "hint"));
       }
     }
+    const selectedCheckpointIds = selected.kind === "corridor"
+      ? [selected.first, selected.last].sort()
+      : [selected.first];
+    const existingInterval = generated.find(region => region.metadata && !region.invalid &&
+      region.metadata.roadId === selected.roadId &&
+      region.metadata.kind === selected.kind &&
+      region.metadata.checkpointIds.join("|") === selectedCheckpointIds.join("|"));
     const width = node("input");
     width.type = "number";
     width.min = "0.25";
@@ -649,9 +658,17 @@ function atlasPanel(scene, atlas, actions, refresh) {
       (selected.kind === "corridor" && selected.applyNativeCost &&
         ((!perMode && !selected.movementAction) ||
           selected.nativeCostPreview?.ok !== true));
+    if (existingInterval) {
+      generatedSection.appendChild(node("p",
+        "Already generated: " + existingInterval.name +
+        (existingInterval.metadata.kind === "corridor"
+          ? ". Keep this native Region; use ◈ to change its surface preset, 🎨 to apply its color, and ↺ Cost to refresh unmodified Atlas-native movement costs below. Regenerate updates geometry only."
+          : ". Keep this native checkpoint Region; use Regenerate below only if its geometry is unmodified."),
+        "hint"));
+    }
+    create.disabled ||= !!existingInterval;
     generatedSection.appendChild(create);
   }
-  const generated = listGeneratedRegions(scene);
   const visibleGenerated = generated.filter(region => !region.metadata ||
     shownRoads.has(region.metadata.roadId));
   if (generated.length) {
@@ -728,6 +745,13 @@ function atlasPanel(scene, atlas, actions, refresh) {
           (presetById.get(region.presetId)?.movementCosts !== null &&
             !Object.keys(presetById.get(region.presetId)?.movementCosts ?? {}).length);
         controls.appendChild(apply);
+        if (region.nativeCost.existing) {
+          const update = button("↺", "Refresh this corridor's Atlas-managed native movement costs (confirmation)",
+            () => actions.updateGeneratedRegionCost(scene, region, refresh));
+          update.disabled = !!draft || !presetById.has(region.presetId) ||
+            !editableManagedNativeCost(region.nativeCost);
+          controls.appendChild(update);
+        }
       }
       const regenerate = button("↻", label("FVTTATLAS.Generated.Regenerate"),
         () => actions.regenerateRegion(scene, region, refresh));

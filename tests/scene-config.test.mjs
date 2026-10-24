@@ -454,3 +454,82 @@ test("v0.2.18.1 corridor native-cost checkbox re-renders Atlas without perMode s
    for(const [key,value] of Object.entries(saved))globalThis[key]=value;
  }
 });
+
+
+test("v0.2.19 duplicate corridor points to existing surface controls and enables native refresh",async()=>{
+  const saved={document:globalThis.document,game:globalThis.game,
+    CONFIG:globalThis.CONFIG,ui:globalThis.ui};
+  class NativeModel {
+    static schema={fields:{difficulties:{}}};
+    constructor(source){this.data=source;}
+    validate(){return true;}
+    toObject(){return structuredClone(this.data);}
+  }
+  const preset={id:"land-stone",mode:"land",name:"Stone Road",color:"#9CA3AF",
+    movementCostMultiplier:1,movementCosts:{walk:0.75}};
+  const atlas={
+    schemaVersion:5,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
+    roads:[{id:"bridge",name:"Bridge",travelPresetId:"land-stone"}],
+    nodes:[{id:"n1",x:0,y:0},{id:"n2",x:100,y:0}],
+    segments:[{id:"edge",roadId:"bridge",from:"n1",to:"n2",
+      via:[],bidirectional:true}],
+    checkpoints:[{id:"c1",roadId:"bridge",nodeId:"n1",name:"East",elevationMeters:0},
+      {id:"c2",roadId:"bridge",nodeId:"n2",name:"West",elevationMeters:5}]
+  };
+  const cost={id:"cost1",type:"modifyMovementCost",name:"Atlas · Stone",
+    system:{difficulties:{walk:0.75}},disabled:false,
+    flags:{"fvtt-atlas-navigation":{nativeMovementCost:{schemaVersion:2,
+      presetId:"land-stone",movementCosts:{walk:0.75}}}}};
+  const region={id:"native",name:"Bridge corridor",color:"#9CA3AF",
+    shapes:[],behaviors:[cost],
+    flags:{"fvtt-atlas-navigation":{atlas:{schemaVersion:1,linked:true},
+      travelPreset:{schemaVersion:1,presetId:"land-stone"},
+      generatedRegion:{schemaVersion:1,kind:"corridor",roadId:"bridge",
+        checkpointIds:["c1","c2"],widthCells:0.5,gridSize:100,
+        shapeSignature:"00000000"}}},
+    getFlag(scope,key){return this.flags[scope]?.[key];}};
+  const scene={id:"update-surface-scene",grid:{size:100,distance:5,units:"ft"},
+    regions:new Map([[region.id,region]]),canUserModify:()=>true,getFlag:()=>atlas};
+  let mounted=null, updatedId=null;
+  const nativeRoot={querySelector:()=>null,appendChild:element=>{
+    mounted=element;element.remove=()=>{mounted=null;};
+  }};
+  const element={querySelector:selector=>
+    selector==="[data-fvtt-atlas-scene-root]"?nativeRoot:null};
+  const visit=(root,predicate)=>{
+    if(predicate(root))return root;
+    for(const child of root.children??[]){
+      const result=visit(child,predicate);
+      if(result)return result;
+    }
+    return null;
+  };
+  try {
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},
+      settings:{get:()=>({schemaVersion:3,presets:[preset]})},
+      i18n:{localize:key=>key,lang:"en"}};
+    globalThis.CONFIG={
+      RegionBehavior:{dataModels:{modifyMovementCost:NativeModel}},
+      Token:{movement:{actions:{walk:{label:"Walk"}}}}
+    };
+    globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    const actions={draft:()=>null,begin(){},select(){},rename(){},remove(){},
+      generateRegion(){},updateGeneratedRegionCost(_scene,entry){updatedId=entry.id;}};
+    addAtlasRoadsToSceneConfig({document:scene,rendered:true},element,actions);
+    const kind=visit(mounted,e=>e.tag==="select"&&e.value==="checkpoint");
+    kind.value="corridor";kind.listeners.get("change")();
+    assert.match(textContents(mounted),/Already generated.*Keep this native Region/);
+    const preview=visit(mounted,e=>e.tag==="button"&&
+      e.textContent==="FVTTATLAS.Generated.Preview");
+    assert.equal(preview.disabled,true,"duplicate creation is blocked before preview");
+    const refresh=visit(mounted,e=>e.tag==="button"&&
+      e.title==="Refresh this corridor's Atlas-managed native movement costs (confirmation)");
+    assert.ok(refresh,"existing corridor has in-place refresh control");
+    assert.equal(refresh.disabled,false);
+    await refresh.listeners.get("click")({preventDefault(){}});
+    assert.equal(updatedId,"native");
+  } finally {
+    for(const [key,value] of Object.entries(saved))globalThis[key]=value;
+  }
+});

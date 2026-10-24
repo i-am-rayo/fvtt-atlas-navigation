@@ -1,3 +1,19 @@
+# v0.2.19 — Existing generated corridor surface changes (draft test gate)
+
+Back up the Foundry World. Install from the v0.2.19 draft branch; verify the module reports **0.2.19**. Use a GM on a Scene with a named road, two checkpoints and a previously generated corridor with a native Atlas movement-cost Behavior from v0.2.17+.
+
+1. In Scene Atlas → Generated Road Regions, select the same named road and checkpoint interval as the existing Region, and choose **One corridor between checkpoints**. The Preview button must be disabled with an **Already generated** explanation; no duplicate Region is created. Existing checkpoint Regions are similarly protected.
+2. In that existing Region's row, use **◈** to assign a different world surface preset (e.g. Stone Road → Rough Seas). Verify the native Region ID and geometry are unchanged. Native costs/color should **not** auto-change.
+3. Use **🎨** to apply the new color, review the confirmation, and verify ONLY native `Region.color` changes. The old native cost should remain until separately confirmed.
+4. Use the new **↺ Refresh Native Costs** button (separate from geometry **↻ Regenerate**). Review confirmation, then verify exactly the original single Atlas-created Modify Movement Cost Behavior is updated **in place** (same Behavior ID, no second Behavior), with the new preset's supported Walk/Fly/Swim/Burrow costs. Previously selected actions absent in the new preset should be neutral ×1. Check the Region's other Behaviors, native Shapes, Levels, visibility, name, and color are preserved.
+5. Cancel the native refresh confirmation: no cost/metadata/Region changes. Edit the native cost manually, disable it, add an additional native cost Behavior, or replace it with an unmarked manual one: the refresh must be unavailable/refused. Edit a world preset after opening the confirmation: stale costs must be refused.
+6. Move the Region geometry by hand: regeneration must remain blocked; surface preset/color and guarded cost updates still must not touch geometry. Repeat on other Scenes and after full reload; no silent migration or bulk writes.
+7. Repeat with a non-GM client: no Atlas authoring controls and no permission to invoke these writes. Verify Foundry v14 token movement for a supported action after changing cost. **No Phase 3 terrain routing or overland time is claimed.**
+
+Scope: this is a **GM-confirmed native Behavior update** exception to the earlier append-only bridge and only for a single unchanged Atlas-provenance Behavior. Never overwrite native/manual costs. `npm run check` and live Foundry v14 acceptance must be recorded before merging. 
+
+---
+
 ## v0.2.18.1 — New corridor native-cost checkbox re-render hotfix
 
 1. Install/reload v0.2.18.1 and verify the version under Module Management. Open an existing Scene with at least two checkpoints on a named road.
