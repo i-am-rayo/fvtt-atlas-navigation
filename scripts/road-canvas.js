@@ -8,6 +8,8 @@ import { readWorldRoadAppearance, resolveRoadAppearance,
   roadStrokeSpans, roadLabelPoint, roadAppearanceMode } from "./road-appearance.js";
 import { defaultTravelPresets, validateTravelPresets,
   TRAVEL_PRESET_SETTING } from "./travel-preset-model.js";
+import { checkpointIconPath, resolveCheckpointAppearance }
+  from "./checkpoint-appearance.js";
 
 function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "solid") {
   if (points.length < 2) return;
@@ -232,6 +234,9 @@ export class RoadCanvasController {
     this.graphicsCanvas = null;
     this.labels = [];
     this.hoveredRoadId = null;
+    this.hoveredCheckpointId = null;
+    this.checkpointHoverGeometry = [];
+    this.textureCache = new Map();
     this.hoverCanvasElement = null;
     this.hoverHandler = null;
     this.hoverExitHandler = null;
@@ -747,19 +752,23 @@ export class RoadCanvasController {
     this.hoverHandler = null;
     this.hoverExitHandler = null;
     this.hoveredRoadId = null;
+    this.hoveredCheckpointId = null;
     this.hoverGeometry = [];
+    this.checkpointHoverGeometry = [];
   }
 
   #trackHover(canvas) {
-    if (!this.hoverGeometry.length) {
+    if (!this.hoverGeometry.length && !this.checkpointHoverGeometry.length) {
       if (this.hoverCanvasElement) this.#stopHover();
       return;
     }
     const element = canvas.app?.canvas ?? canvas.app?.view;
     if (this.hoverCanvasElement === element) return;
     const geometry = this.hoverGeometry;
+    const checkpoints = this.checkpointHoverGeometry;
     this.#stopHover();
     this.hoverGeometry = geometry;
+    this.checkpointHoverGeometry = checkpoints;
     if (!element?.addEventListener) return;
     this.hoverCanvasElement = element;
     this.hoverHandler = event => {
@@ -769,6 +778,13 @@ export class RoadCanvasController {
       this.lastHoverAt = Date.now();
       const point = canvas.canvasCoordinatesFromClient?.({ x: event.clientX, y: event.clientY });
       if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return;
+      let nextCheckpoint = null;
+      for (const candidate of this.checkpointHoverGeometry) {
+        if (Math.hypot(point.x - candidate.x, point.y - candidate.y) <= candidate.radius) {
+          nextCheckpoint = candidate.id;
+          break;
+        }
+      }
       let next = null;
       for (const candidate of this.hoverGeometry) {
         if (nearRoadLine(point, candidate.path, candidate.tolerance)) {
@@ -776,14 +792,16 @@ export class RoadCanvasController {
           break;
         }
       }
-      if (next !== this.hoveredRoadId) {
+      if (next !== this.hoveredRoadId || nextCheckpoint !== this.hoveredCheckpointId) {
         this.hoveredRoadId = next;
+        this.hoveredCheckpointId = nextCheckpoint;
         this.refresh();
       }
     };
     this.hoverExitHandler = () => {
-      if (this.hoveredRoadId !== null) {
+      if (this.hoveredRoadId !== null || this.hoveredCheckpointId !== null) {
         this.hoveredRoadId = null;
+        this.hoveredCheckpointId = null;
         this.refresh();
       }
     };
@@ -791,7 +809,7 @@ export class RoadCanvasController {
     element.addEventListener("pointerleave", this.hoverExitHandler);
   }
 
-  #addLabel(graphics, name, point, textColor) {
+  #addLabel(graphics, name, point, textColor, anchorX = 0.5) {
     if (!globalThis.PIXI?.Text || !graphics.addChild) return;
     const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
     const color = Number.parseInt(textColor.slice(1), 16);
@@ -804,11 +822,47 @@ export class RoadCanvasController {
       ? { ...common, stroke: { color: 0x000000, width: 3 } }
       : { ...common, stroke: 0x000000, strokeThickness: 3 };
     const label = new PIXI.Text(String(name), style);
-    label.anchor?.set?.(0.5);
+    label.anchor?.set?.(anchorX, 0.5);
     label.position?.set?.(point.x, point.y);
     label.eventMode = "none";
     graphics.addChild(label);
     this.labels.push(label);
+  }
+
+  #iconTexture(src) {
+    if (!src || !globalThis.foundry?.canvas?.loadTexture) return null;
+    if (this.textureCache.has(src)) return this.textureCache.get(src);
+    this.textureCache.set(src, null);
+    Promise.resolve().then(() => foundry.canvas.loadTexture(src)).then(texture => {
+      if (!texture) throw new Error("No usable texture returned");
+      this.textureCache.set(src, texture);
+      this.refresh();
+    }).catch(error => {
+      // Keep a null cache entry rather than retrying every canvas refresh.
+      console.warn("[fvtt-atlas-navigation] Checkpoint icon could not load:", src, error);
+    });
+    return null;
+  }
+
+  #drawCheckpoint(graphics, position, checkpoint, appearance) {
+    const selected = checkpoint.id === this.selectedCheckpointId;
+    const color = selected ? 0x8ef6c5 : Number.parseInt(appearance.color.slice(1), 16);
+    const src = checkpointIconPath(appearance);
+    const texture = this.#iconTexture(src);
+    if (selected) drawDot(graphics, position, 0x8ef6c5, appearance.size / 2 + 4);
+    if (texture && globalThis.PIXI?.Sprite && graphics.addChild) {
+      const sprite = new PIXI.Sprite(texture);
+      sprite.anchor?.set?.(0.5);
+      sprite.position?.set?.(position.x, position.y);
+      sprite.width = appearance.size;
+      sprite.height = appearance.size;
+      sprite.eventMode = "none";
+      if (appearance.type === "fa") sprite.tint = color;
+      graphics.addChild(sprite);
+      this.labels.push(sprite);
+    } else {
+      drawDot(graphics, position, color, selected ? 10 : 6);
+    }
   }
 
   refresh() {
@@ -852,6 +906,7 @@ export class RoadCanvasController {
       defaultTravelPresets()).presets;
     const labelAnchors = new Map();
     this.hoverGeometry = [];
+    this.checkpointHoverGeometry = [];
     for (const segment of atlas.segments) {
       const from = nodes.get(segment.from);
       const to = nodes.get(segment.to);
@@ -884,14 +939,29 @@ export class RoadCanvasController {
         this.#addLabel(g, item.road.name, item.point, item.style.textColor);
       }
     }
-    this.#trackHover(canvas);
     for (const checkpoint of atlas.checkpoints ?? []) {
       const point = nodes.get(checkpoint.nodeId);
       if (!point) continue;
-      drawDot(g, toCanvasPoint(canvas, atlas, point),
-        checkpoint.id === this.selectedCheckpointId ? 0x8ef6c5 : 0x9c7bf0,
-        checkpoint.id === this.selectedCheckpointId ? 10 : 6);
+      const position = toCanvasPoint(canvas, atlas, point);
+      const appearance = resolveCheckpointAppearance(checkpoint.appearance);
+      this.#drawCheckpoint(g, position, checkpoint, appearance);
+      if (appearance.labelMode === "hover") {
+        this.checkpointHoverGeometry.push({
+          id: checkpoint.id, x: position.x, y: position.y,
+          radius: Math.max(10, appearance.size / 2 + 6)
+        });
+      }
+      if (appearance.labelMode === "always" ||
+          (appearance.labelMode === "hover" && this.hoveredCheckpointId === checkpoint.id)) {
+        const roadName = roads.get(checkpoint.roadId)?.name;
+        const caption = checkpoint.name +
+          (appearance.showRoadName && roadName ? "\n" + roadName : "");
+        this.#addLabel(g, caption, {
+          x: position.x + appearance.size / 2 + 10, y: position.y
+        }, appearance.textColor, 0);
+      }
     }
+    this.#trackHover(canvas);
     if (this.selectedJunctionId) {
       const selected = nodes.get(this.selectedJunctionId);
       if (selected && atlas.segments.some(s =>

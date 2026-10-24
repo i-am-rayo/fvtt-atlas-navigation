@@ -1,4 +1,17 @@
-# v0.2.20.1 — Road label fix, category defaults and clearer menus (draft test gate)
+# v0.2.21 — Checkpoint icon and label appearance (draft test gate)
+
+Back up the World and install v0.2.21. Open a Foundry v14 Scene with old checkpoints, at least two roads and an existing generated native corridor Region.
+
+1. Open Scene → Atlas → Checkpoints. Unedited checkpoints still have purple dots. Use 🖼 on one, search for `ship` or `mountain`, select a Font Awesome Free icon, choose tint/size, label **On hover**, and **Include road name**. Save.
+2. Hover it: see checkpoint name and owning road name at the configured text color, without `[object Object]`; moving off hides it. Switch between **Always**, **Off**, and **Hover**, save/reopen and confirm behavior survives.
+3. Choose **Custom Foundry image**, click Browse and select a local PNG/WebP/SVG. Save/reload and verify; then **Reset to default dot**. Check that two checkpoints on the same road can have distinct marker styles.
+4. Edit its name/elevation with ✎, move its attached road node, change world Land/Air/Water road line defaults, and regenerate an unchanged native Region. Confirm icon metadata stays attached to the same checkpoint ID while road line styles and native Region shape, color, Levels and Behaviors remain independent.
+5. Test a second (non-GM) v14 client: it should still render **no** Atlas roads or checkpoints. Inspect whether non-GM can read raw Scene Atlas flags and capture the findings for a future player-safe visibility design; never use actual unrevealed campaign information for this test.
+6. Stale editor after another GM saves must refuse updates. Switching Scenes, closing Scene Config and canvas teardown must remove temporary labels/sprites; missing local image should fall back to dot rather than crash.
+
+Automated tests cover strict v8 validation/migration, permission/revision checks, icon allowlisting, safe paths and canvas sprite/hover lifecycle. Live GM/non-GM acceptance is required before merging. **Player visibility toggles are not yet implemented**, pending the two-client data exposure gate.
+
+# v0.2.20.1 — Road label fix, category defaults and clearer menus (previous test gate)
 
 Back up the World. Install v0.2.20.1. Verify the installed version and reopen a Scene with Land, Air and Water roads (ideally also an older v6 custom road and generated native corridor Region).
 

@@ -4,6 +4,8 @@ import { RoadCanvasController } from "../scripts/road-canvas.js";
 import { readAtlas } from "../scripts/atlas-storage.js";
 import { createEmptyAtlas, upgradeAtlasRoadAppearance } from "../scripts/atlas-model.js";
 import { addRoad } from "../scripts/road-model.js";
+import { addRoadCheckpoint, editCheckpointAppearance } from "../scripts/checkpoint-model.js";
+import { DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
 
 function setup() {
   const listeners = new Map();
@@ -126,6 +128,74 @@ test("v0.2.20 named road styles draw dashed overlay and show one hover label", a
   } finally {
     m.controller.tearDown();
     m.Graphics.prototype.stroke = oldStroke;
+    Object.assign(globalThis, previous);
+  }
+});
+
+test("v0.2.21 checkpoint icons load locally and labels include owning road on hover", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI,
+    foundry: globalThis.foundry };
+  const m = setup();
+  const loadedPaths = [];
+  const sprites = [];
+  class Sprite {
+    constructor(texture) {
+      this.texture = texture; this.anchor = { set() {} };
+      this.position = { set(x, y) { this.x = x; this.y = y; } };
+      this.destroyed = false; sprites.push(this);
+    }
+    destroy() { this.destroyed = true; }
+  }
+  class Text {
+    constructor(content, style) {
+      this.text = String(content); this.style = style;
+      this.anchor = { set() {} }; this.position = { set() {} };
+    }
+    destroy() {}
+  }
+  m.Graphics.prototype.addChild = function(obj) { obj.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.foundry = { canvas: { loadTexture: async src => {
+      loadedPaths.push(src); return { src };
+    } } };
+    globalThis.PIXI = { Graphics: m.Graphics, Sprite, Text };
+    let n = 0;
+    const road = addRoad(createEmptyAtlas(), {
+      points: [{ x: 20, y: 30 }, { x: 120, y: 30 }],
+      name: "Mountain Track", idFactory: () => "appearance" + ++n
+    });
+    const cp = addRoadCheckpoint(road, {
+      roadId: road.roads[0].id,
+      candidate: { kind: "node", nodeId: road.segments[0].from },
+      name: "Pass", elevationMeters: 300, idFactory: () => "appearance" + ++n
+    });
+    const styled = editCheckpointAppearance(cp, {
+      checkpointId: cp.checkpoints[0].id,
+      appearance: { ...DEFAULT_CHECKPOINT_APPEARANCE,
+        type: "fa", icon: "mountain", size: 32, color: "#ffaa11",
+        labelMode: "hover", showRoadName: true }
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", styled);
+    m.controller.refresh();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(loadedPaths,
+      ["modules/fvtt-atlas-navigation/assets/checkpoint-icons/mountain.svg"]);
+    assert.equal(sprites.length, 1, "one sprite is shown when texture finishes loading");
+    assert.equal(sprites[0].width, 32);
+    assert.equal(sprites[0].tint, 0xffaa11);
+    assert.equal(m.controller.labels.filter(x => x instanceof Text).length, 0);
+    // canvas point x=sceneX(10)+20, y=sceneY(30)+30 => client midpoint (15,30).
+    m.listeners.get("pointermove")(pointEvent(15, 30));
+    assert.ok(m.controller.labels.some(l => l instanceof Text &&
+      l.text === "Pass\nMountain Track"),
+    "checkpoint hover labels include the road name when opted in");
+    m.listeners.get("pointerleave")();
+    assert.equal(m.controller.labels.filter(x => x instanceof Text).length, 0);
+    m.controller.tearDown();
+    assert.ok(sprites.some(s => s.destroyed), "sprites released on teardown");
+  } finally {
+    m.controller.tearDown();
     Object.assign(globalThis, previous);
   }
 });

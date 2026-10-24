@@ -24,6 +24,7 @@ import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance
   from "./road-appearance-settings.js";
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
+import { AtlasCheckpointAppearanceEditor } from "./checkpoint-appearance-editor.js";
 
 const roadCanvas = new RoadCanvasController();
 
@@ -401,6 +402,17 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.StartNotice"));
     },
     selectCheckpoint: (scene, checkpointId) => roadCanvas.selectCheckpoint(scene, checkpointId),
+    editCheckpointAppearance(scene, checkpoint, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      if (!atlas.checkpoints?.some(c => c.id === checkpoint.id)) {
+        throw new Error("Checkpoint no longer exists.");
+      }
+      new AtlasCheckpointAppearanceEditor({
+        scene, checkpointId: checkpoint.id, expectedRevision: atlas.revision,
+        onSaved: () => { roadCanvas.refresh(); refresh(); }
+      }).render(true);
+    },
     async editCheckpoint(scene, checkpoint, refresh) {
       ensureIdle(scene);
       const atlas = readAtlas(scene);
