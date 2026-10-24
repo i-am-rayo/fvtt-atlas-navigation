@@ -102,9 +102,14 @@ export function previewNativeMovementCost(presetId, action = null,
         unknown.join(", ") + ". Edit the global preset or create a metadata-only corridor; nothing was saved." };
     }
   }
+  // Foundry v14 DataModel initialization may mutate the source passed to it
+  // while cleaning and adding default fields. Never let those transformations
+  // change the GM's requested values or the later confirmation/provenance
+  // snapshot; a separate input object is handed to the native model.
+  const requestedCosts = { ...costs };
   let nativeData;
   try {
-    const model = new Type({ difficulties: costs });
+    const model = new Type({ difficulties: { ...requestedCosts } });
     if (model.validate({ strict: true }) === false) {
       throw new Error("The native Behavior rejected these difficulties.");
     }
@@ -112,7 +117,7 @@ export function previewNativeMovementCost(presetId, action = null,
   } catch (error) {
     return { ok: false, message: "Foundry rejected the selected native movement costs: " + error.message };
   }
-  for (const [id, requested] of Object.entries(costs)) {
+  for (const [id, requested] of Object.entries(requestedCosts)) {
     const effective = nativeData?.difficulties?.[id];
     if (!Number.isFinite(effective)) {
       return { ok: false, message: "Foundry did not retain a native movement cost for " +
@@ -126,7 +131,7 @@ export function previewNativeMovementCost(presetId, action = null,
           ". Use a native-compatible value (in this v14 World, try multiples of 0.25). Atlas will not round it silently; nothing was saved." };
     }
   }
-  return { ok: true, nativeData, preset, costs: { ...costs },
+  return { ok: true, nativeData, preset, costs: requestedCosts,
     actionLabel: action ? choices.find(entry => entry.id === action)?.label : null };
 }
 
