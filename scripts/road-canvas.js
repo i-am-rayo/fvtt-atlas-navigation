@@ -8,6 +8,7 @@ import { atlasShortcutTarget } from "./atlas-canvas-hit.js";
 import { groupCheckpointMarkers, checkpointQuickInfo,
   clusterQuickInfo } from "./checkpoint-clusters.js";
 import { playerAtlasOverlay } from "./player-visibility.js";
+import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
   roadStrokeSpans, roadLabelPoint, roadAppearanceMode, readRoadCurvePreset,
   smoothRoadPath, roadCurveNeighbors } from "./road-appearance.js";
@@ -45,7 +46,8 @@ function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "so
   }
 }
 
-function nearRoadLine(position, path, tolerance) {
+function nearestRoadPoint(position, path, tolerance) {
+  let nearest = null, distance = tolerance;
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1], b = path[i];
     const dx = b.x - a.x, dy = b.y - a.y;
@@ -53,10 +55,43 @@ function nearRoadLine(position, path, tolerance) {
     if (!squared) continue;
     const t = Math.max(0, Math.min(1,
       ((position.x - a.x) * dx + (position.y - a.y) * dy) / squared));
-    if (Math.hypot(position.x - (a.x + dx * t),
-      position.y - (a.y + dy * t)) <= tolerance) return true;
+    const point = { x: a.x + dx * t, y: a.y + dy * t };
+    const candidate = Math.hypot(position.x - point.x, position.y - point.y);
+    if (candidate <= distance) { nearest = point; distance = candidate; }
   }
-  return false;
+  return nearest;
+}
+function nearRoadLine(position, path, tolerance) {
+  return nearestRoadPoint(position, path, tolerance) !== null;
+}
+/** A label for Always mode stays inside the current camera viewport. */
+function visibleRoadLabelPoint(canvas, paths) {
+  const rect = (canvas.app?.canvas ?? canvas.app?.view)?.getBoundingClientRect?.();
+  if (!rect || !canvas.canvasCoordinatesFromClient) return null;
+  const a = canvas.canvasCoordinatesFromClient({ x: rect.left, y: rect.top });
+  const b = canvas.canvasCoordinatesFromClient({ x: rect.right, y: rect.bottom });
+  if (![a.x, a.y, b.x, b.y].every(Number.isFinite)) return null;
+  const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x);
+  const minY = Math.min(a.y, b.y), maxY = Math.max(a.y, b.y);
+  const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+  let chosen = null, best = Infinity;
+  for (const path of paths) for (let i = 1; i < path.length; i++) {
+    const p = path[i - 1], q = path[i], dx = q.x - p.x, dy = q.y - p.y;
+    let lo = 0, hi = 1;
+    for (const [n, d] of [[-dx, p.x - minX], [dx, maxX - p.x],
+      [-dy, p.y - minY], [dy, maxY - p.y]]) {
+      if (!n) { if (d < 0) { lo = 1; hi = 0; break; } }
+      else if (n < 0) lo = Math.max(lo, d / n);
+      else hi = Math.min(hi, d / n);
+    }
+    if (lo > hi) continue;
+    const t = Math.max(lo, Math.min(hi,
+      (dx * (center.x - p.x) + dy * (center.y - p.y)) / (dx * dx + dy * dy || 1)));
+    const point = { x: p.x + t * dx, y: p.y + t * dy };
+    const distance = Math.hypot(point.x - center.x, point.y - center.y);
+    if (distance < best) { chosen = point; best = distance; }
+  }
+  return chosen;
 }
 
 function drawDot(graphics, point, color, radius = 5) {
@@ -250,6 +285,7 @@ export class RoadCanvasController {
     this.graphicsCanvas = null;
     this.labels = [];
     this.hoveredRoadId = null;
+    this.hoveredRoadPoint = null;
     this.hoveredCheckpointId = null;
     this.hoveredClusterId = null;
     this.checkpointHoverGeometry = [];
@@ -258,6 +294,7 @@ export class RoadCanvasController {
     this.fontStatus = new Map();
     this.lastZoom = null;
     this.zoomRefreshTimer = null;
+    this.fogRefreshTimer = null;
     this.hoverCanvasElement = null;
     this.hoverHandler = null;
     this.hoverExitHandler = null;
@@ -266,6 +303,7 @@ export class RoadCanvasController {
     this.hoverGeometry = [];
     this.lastHoverAt = 0;
     this.playerHoveredRoadId = null;
+    this.playerHoveredRoadPoint = null;
     this.playerHoveredCheckpointId = null;
     this.playerHoverGeometry = [];
     this.playerCheckpointHoverGeometry = [];
@@ -864,16 +902,18 @@ export class RoadCanvasController {
           break;
         }
       }
-      let next = null;
+      let next = null, nextPoint = null;
       for (const candidate of this.hoverGeometry) {
-        if (nearRoadLine(point, candidate.path, candidate.tolerance)) {
-          next = candidate.roadId;
-          break;
-        }
+        const hit = nearestRoadPoint(point, candidate.path, candidate.tolerance);
+        if (hit) { next = candidate.roadId; nextPoint = hit; break; }
       }
-      if (next !== this.hoveredRoadId || nextCheckpoint !== this.hoveredCheckpointId ||
-          nextCluster !== this.hoveredClusterId) {
+      const moved = nextPoint && (!this.hoveredRoadPoint ||
+        Math.hypot(nextPoint.x - this.hoveredRoadPoint.x,
+          nextPoint.y - this.hoveredRoadPoint.y) > 12 / (canvas.stage?.scale?.x || 1));
+      if (next !== this.hoveredRoadId || moved ||
+          nextCheckpoint !== this.hoveredCheckpointId || nextCluster !== this.hoveredClusterId) {
         this.hoveredRoadId = next;
+        this.hoveredRoadPoint = nextPoint;
         this.hoveredCheckpointId = nextCheckpoint;
         this.hoveredClusterId = nextCluster;
         this.refresh();
@@ -883,6 +923,7 @@ export class RoadCanvasController {
       if (this.hoveredRoadId !== null || this.hoveredCheckpointId !== null ||
           this.hoveredClusterId !== null) {
         this.hoveredRoadId = null;
+        this.hoveredRoadPoint = null;
         this.hoveredCheckpointId = null;
         this.hoveredClusterId = null;
         this.refresh();
@@ -1088,6 +1129,7 @@ export class RoadCanvasController {
     const adjacent = roadCurveNeighbors(visible);
     const labelAnchors = new Map();
     const hoverPaths = [];
+    const explored = point => atlasPointExplored(canvas, point);
     const presets = validateTravelPresets(
       globalThis.game?.settings?.get?.("fvtt-atlas-navigation", TRAVEL_PRESET_SETTING) ??
       defaultTravelPresets()).presets;
@@ -1104,28 +1146,33 @@ export class RoadCanvasController {
           before: neighbors?.before ? toCanvasPoint(canvas, atlas, neighbors.before) : null,
           after: neighbors?.after ? toCanvasPoint(canvas, atlas, neighbors.after) : null
         });
-      drawLine(graphics, path, Number.parseInt(style.color.slice(1), 16),
-        style.width, style.opacity, style.pattern);
-      if (style.labelVisibility !== "off") {
-        hoverPaths.push({ roadId: road.id, path,
-          tolerance: Math.max(style.width + 2, 8 / zoom) });
-        const length = path.slice(1).reduce((sum, point, i) =>
-          sum + Math.hypot(point.x - path[i].x, point.y - path[i].y), 0);
-        if (length > (labelAnchors.get(road.id)?.length ?? -1)) {
-          labelAnchors.set(road.id, { road, style, length, point: roadLabelPoint(path) });
+      for (const span of (canvas.scene?.tokenVision === true &&
+        canvas.scene?.fogExploration !== false ? exploredRoadSpans(path, explored) : [path])) {
+        drawLine(graphics, span, Number.parseInt(style.color.slice(1), 16),
+          style.width, style.opacity, style.pattern);
+        if (style.labelVisibility !== "off") {
+          hoverPaths.push({ roadId: road.id, path: span,
+            tolerance: Math.max(style.width + 2, 8 / zoom) });
+          const item = labelAnchors.get(road.id) ?? { road, style, paths: [] };
+          item.paths.push(span);
+          labelAnchors.set(road.id, item);
         }
       }
     }
     for (const [roadId, item] of labelAnchors) {
       if (item.style.labelVisibility === "always" ||
           (item.style.labelVisibility === "hover" && this.playerHoveredRoadId === roadId)) {
-        this.#addLabel(graphics, item.road.name, item.point, item.style.textColor, 0.5, zoom);
+        const point = item.style.labelVisibility === "hover" && this.playerHoveredRoadPoint
+            ? this.playerHoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths);
+          if (point) this.#addLabel(graphics, item.road.name,
+            { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom);
       }
     }
     const markers = visible.checkpoints.flatMap(checkpoint => {
       const node = nodes.get(checkpoint.nodeId);
       if (!node) return [];
       const position = toCanvasPoint(canvas, atlas, node);
+      if (!explored(position)) return [];
       const appearance = resolveCheckpointAppearance(checkpoint.appearance);
       const marker = checkpointMarkerPosition(position, appearance, zoom);
       return [{ id: checkpoint.id, x: marker.x, y: marker.y,
@@ -1177,13 +1224,21 @@ export class RoadCanvasController {
       if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return;
       const checkpoint = this.playerCheckpointHoverGeometry.find(candidate =>
         Math.hypot(point.x - candidate.x, point.y - candidate.y) <= candidate.radius);
-      const hit = checkpoint ? null : this.playerHoverGeometry.find(candidate =>
-        nearRoadLine(point, candidate.path, candidate.tolerance));
-      const roadId = hit?.roadId ?? null;
+      let roadId = null, roadPoint = null;
+      if (!checkpoint && atlasPointExplored(canvas, point)) {
+        for (const candidate of this.playerHoverGeometry) {
+          const hit = nearestRoadPoint(point, candidate.path, candidate.tolerance);
+          if (hit) { roadId = candidate.roadId; roadPoint = hit; break; }
+        }
+      }
       const checkpointId = checkpoint?.id ?? null;
-      if (roadId !== this.playerHoveredRoadId ||
+      const moved = roadPoint && (!this.playerHoveredRoadPoint ||
+        Math.hypot(roadPoint.x - this.playerHoveredRoadPoint.x,
+          roadPoint.y - this.playerHoveredRoadPoint.y) > 12 / (canvas.stage?.scale?.x || 1));
+      if (roadId !== this.playerHoveredRoadId || moved ||
           checkpointId !== this.playerHoveredCheckpointId) {
         this.playerHoveredRoadId = roadId;
+        this.playerHoveredRoadPoint = roadPoint;
         this.playerHoveredCheckpointId = checkpointId;
         this.refresh();
       }
@@ -1191,6 +1246,7 @@ export class RoadCanvasController {
     this.playerExitHandler = () => {
       if (this.playerHoveredRoadId !== null || this.playerHoveredCheckpointId !== null) {
         this.playerHoveredRoadId = null;
+        this.playerHoveredRoadPoint = null;
         this.playerHoveredCheckpointId = null;
         this.refresh();
       }
@@ -1315,15 +1371,19 @@ export class RoadCanvasController {
         const length = path.slice(1).reduce((sum, p, i) =>
           sum + Math.hypot(p.x - path[i].x, p.y - path[i].y), 0);
         if (length > (labelAnchors.get(road.id)?.length ?? -1)) {
-          labelAnchors.set(road.id, { road, style, length, point: roadLabelPoint(path) });
+          labelAnchors.set(road.id, { road, style, length, point: roadLabelPoint(path), paths: [] });
         }
       }
+      if (style.labelVisibility !== "off") labelAnchors.get(road.id)?.paths.push(path);
     }
     // One readable label per named road, never per internal topological section.
     for (const [roadId, item] of labelAnchors) {
       if (item.style.labelVisibility === "always" ||
           (item.style.labelVisibility === "hover" && this.hoveredRoadId === roadId)) {
-        this.#addLabel(g, item.road.name, item.point, item.style.textColor, 0.5, zoom);
+        const point = item.style.labelVisibility === "hover" && this.hoveredRoadPoint
+          ? this.hoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths) ?? item.point;
+        this.#addLabel(g, item.road.name,
+          { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom);
       }
     }
     const checkpointMarkers = [];
@@ -1412,11 +1472,20 @@ export class RoadCanvasController {
     }
   }
 
-  /** Foundry v14 canvasPan hook: redraw only for zoom changes, not ordinary pans. */
+  /** Redraw the player overlay as Foundry saves or expands explored fog. */
+  onFogRefresh() {
+    if (globalThis.game?.user?.isGM || this.fogRefreshTimer !== null) return;
+    this.fogRefreshTimer = setTimeout(() => {
+      this.fogRefreshTimer = null;
+      if (this.canvasProvider()?.ready) this.refresh();
+    }, 120);
+  }
+
+  /** Foundry v14 canvasPan hook: re-anchor labels while panning or zooming. */
   onCanvasPan(view) {
     if (view !== this.canvasProvider() || !view?.ready || !globalThis.game?.user) return;
     const zoom = view.stage?.scale?.x;
-    if (!Number.isFinite(zoom) || Math.abs(zoom - (this.lastZoom ?? zoom)) < 0.01) return;
+    if (!Number.isFinite(zoom)) return;
     if (this.zoomRefreshTimer !== null) clearTimeout(this.zoomRefreshTimer);
     this.zoomRefreshTimer = setTimeout(() => {
       this.zoomRefreshTimer = null;
@@ -1425,6 +1494,8 @@ export class RoadCanvasController {
   }
 
   tearDown() {
+    if (this.fogRefreshTimer !== null) clearTimeout(this.fogRefreshTimer);
+    this.fogRefreshTimer = null;
     if (this.zoomRefreshTimer !== null) clearTimeout(this.zoomRefreshTimer);
     this.zoomRefreshTimer = null;
     this.lastZoom = null;
