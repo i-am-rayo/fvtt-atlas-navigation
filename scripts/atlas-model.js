@@ -14,6 +14,7 @@ export const TRAVEL_ATLAS_SCHEMA_VERSION = 5;
 export const APPEARANCE_ATLAS_SCHEMA_VERSION = 6;
 export const TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION = 7;
 export const CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION = 8;
+export const PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION = 9;
 export const IMAGE_ATLAS_SCHEMA_VERSION = 2;
 export const LEGACY_ATLAS_SCHEMA_VERSION = 1;
 const MAX_NODES = 10000;
@@ -85,7 +86,9 @@ export function validateAtlas(value) {
   const data = record(value, "root");
   const legacy = data.schemaVersion === LEGACY_ATLAS_SCHEMA_VERSION;
   const imageV2 = data.schemaVersion === IMAGE_ATLAS_SCHEMA_VERSION;
-  const withCheckpointAppearance = data.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION;
+  const withPlayerVisibility = data.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION;
+  const withCheckpointAppearance = data.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
+    withPlayerVisibility;
   const withTextAppearance = data.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
     withCheckpointAppearance;
   const withAppearance = data.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION || withTextAppearance;
@@ -130,7 +133,8 @@ export function validateAtlas(value) {
     }
     for (const [index, value] of data.roads.entries()) {
       const r = record(value, "roads[" + index + "]");
-      fields(r, withAppearance ? ["id", "name", "travelPresetId", "appearance"] :
+      fields(r, withPlayerVisibility ? ["id", "name", "travelPresetId", "appearance", "playerVisible"] :
+        withAppearance ? ["id", "name", "travelPresetId", "appearance"] :
         withTravel ? ["id", "name", "travelPresetId"] : ["id", "name"], "road");
       const roadId = id(r.id, "road ID");
       if (roadIds.has(roadId)) fail("duplicate road ID " + roadId);
@@ -147,12 +151,16 @@ export function validateAtlas(value) {
       if (withAppearance && !Object.hasOwn(r, "appearance")) {
         fail("road " + roadId + " is missing appearance data");
       }
+      if (withPlayerVisibility && typeof r.playerVisible !== "boolean") {
+        fail("road " + roadId + " must explicitly set playerVisible");
+      }
       const appearance = withAppearance && r.appearance !== null
         ? (withTextAppearance ? validateRoadAppearance(r.appearance) :
           validateLegacyRoadAppearance(r.appearance)) : null;
       roads.push({ id: roadId, name: r.name.trim(),
         ...(withTravel ? { travelPresetId } : {}),
-        ...(withAppearance ? { appearance } : {}) });
+        ...(withAppearance ? { appearance } : {}),
+        ...(withPlayerVisibility ? { playerVisible: r.playerVisible } : {}) });
     }
   }
 
@@ -219,7 +227,9 @@ export function validateAtlas(value) {
     ]));
     for (const [index, value] of data.checkpoints.entries()) {
       const c = record(value, "checkpoints[" + index + "]");
-      fields(c, withCheckpointAppearance
+      fields(c, withPlayerVisibility
+        ? ["id", "roadId", "nodeId", "name", "elevationMeters", "appearance", "playerVisible"]
+        : withCheckpointAppearance
         ? ["id", "roadId", "nodeId", "name", "elevationMeters", "appearance"]
         : ["id", "roadId", "nodeId", "name", "elevationMeters"], "checkpoint");
       const checkpointId = id(c.id, "checkpoint ID");
@@ -243,11 +253,15 @@ export function validateAtlas(value) {
       if (withCheckpointAppearance && !Object.hasOwn(c, "appearance")) {
         fail("checkpoint " + checkpointId + " is missing appearance data");
       }
+      if (withPlayerVisibility && typeof c.playerVisible !== "boolean") {
+        fail("checkpoint " + checkpointId + " must explicitly set playerVisible");
+      }
       checkpoints.push({ id: checkpointId, roadId, nodeId,
         name: c.name.trim(), elevationMeters: c.elevationMeters,
         ...(withCheckpointAppearance ? {
           appearance: c.appearance === null ? null : validateCheckpointAppearance(c.appearance)
-        } : {}) });
+        } : {}),
+        ...(withPlayerVisibility ? { playerVisible: c.playerVisible } : {}) });
     }
   }
 
@@ -315,7 +329,8 @@ export function upgradeAtlasCheckpoints(atlas) {
       old.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
+      old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return old;
   if (old.schemaVersion !== ATLAS_SCHEMA_VERSION) {
     throw new Error("Organize named roads before adding checkpoints.");
   }
@@ -332,7 +347,8 @@ export function upgradeAtlasTravelPresets(atlas) {
   if (old.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
+      old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return old;
   const withCheckpoints = old.schemaVersion === ATLAS_SCHEMA_VERSION
     ? upgradeAtlasCheckpoints(old) : old;
   if (withCheckpoints.schemaVersion !== CHECKPOINT_ATLAS_SCHEMA_VERSION) {
@@ -350,7 +366,8 @@ export function upgradeAtlasRoadAppearance(atlas) {
   const old = validateAtlas(atlas);
   if (old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
+      old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return old;
   const current = upgradeAtlasTravelPresets(old);
   return validateAtlas({
     ...current,
@@ -363,7 +380,8 @@ export function upgradeAtlasRoadAppearance(atlas) {
 export function upgradeAtlasRoadTextAppearance(atlas) {
   const current = upgradeAtlasRoadAppearance(atlas);
   if (current.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      current.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION) return current;
+      current.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      current.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return current;
   return validateAtlas({ ...current, schemaVersion: TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION,
     roads: current.roads.map(road => ({ ...road,
       appearance: road.appearance
@@ -374,9 +392,21 @@ export function upgradeAtlasRoadTextAppearance(atlas) {
 /** First explicitly saved checkpoint style adds null overrides; no Scene read changes flags. */
 export function upgradeAtlasCheckpointAppearance(atlas) {
   const current = upgradeAtlasRoadTextAppearance(atlas);
-  if (current.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION) return current;
+  if (current.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      current.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return current;
   return validateAtlas({
     ...current, schemaVersion: CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION,
     checkpoints: current.checkpoints.map(checkpoint => ({ ...checkpoint, appearance: null }))
+  });
+}
+
+/** First GM-confirmed reveal/hide saves an explicit hidden-by-default v9 model. */
+export function upgradeAtlasPlayerVisibility(atlas) {
+  const current = upgradeAtlasCheckpointAppearance(atlas);
+  if (current.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return current;
+  return validateAtlas({
+    ...current, schemaVersion: PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION,
+    roads: current.roads.map(road => ({ ...road, playerVisible: false })),
+    checkpoints: current.checkpoints.map(checkpoint => ({ ...checkpoint, playerVisible: false }))
   });
 }

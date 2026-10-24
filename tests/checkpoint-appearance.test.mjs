@@ -188,7 +188,7 @@ test("checkpoint appearance storage requires GM permission and fresh revision", 
 
 test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider value", async () => {
   const previous = { foundry: globalThis.foundry, document: globalThis.document,
-    game: globalThis.game };
+    game: globalThis.game, ui: globalThis.ui };
   class Element {
     constructor(tag) {
       this.tag = tag;
@@ -209,12 +209,18 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
     globalThis.document = { createElement: tag => new Element(tag) };
     globalThis.game = { user: { isGM: true } };
+    globalThis.ui = { notifications: {
+      info() {}, error(message) { throw new Error(String(message)); }
+    } };
     const { AtlasCheckpointAppearanceEditor } = await import(
       "../scripts/checkpoint-appearance-editor.js");
     const data = upgradeAtlasCheckpointAppearance(fixture());
-    const scene = { canUserModify: () => true, getFlag: () => data };
+    let stored = data;
+    const scene = { canUserModify: () => true, getFlag: () => stored,
+      setFlag: async (_scope, _key, value) => { stored = value; } };
     const editor = new AtlasCheckpointAppearanceEditor({ scene,
       checkpointId: data.checkpoints[0].id, expectedRevision: data.revision });
+    editor.close = async () => {};
     const root = await editor._renderHTML();
     const buttons = all(root).filter(node => node.tag === "button");
     assert.ok(buttons.length < 85,
@@ -252,6 +258,26 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       node.children.some(child => child.tag === "strong"));
     assert.ok(preview?.children[1].textContent.toLowerCase().includes("wand"),
       "selected icon displays its own larger preview and human-readable title");
+    const name = all(root).find(node => node.tag === "input" && node.type === "text" &&
+      node.value === "Ridge Lookout");
+    const elevation = all(root).find(node => node.tag === "input" && node.type === "number");
+    const playerVisible = all(root).find(node => node.tag === "input" &&
+      node.type === "checkbox"); // Visibility is the first checkbox in the inspector.
+    assert.ok(name && elevation && playerVisible,
+      "Shift-click editor combines checkpoint name, elevation and player visibility");
+    name.value = "Revealed Lookout";
+    elevation.value = "640";
+    playerVisible.checked = true;
+    const save = all(root).find(node => node.tag === "button" &&
+      node.textContent === "Save Checkpoint Settings");
+    assert.ok(save);
+    save.listeners.get("click")();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(stored.schemaVersion, 9);
+    assert.equal(stored.revision, data.revision + 1);
+    assert.equal(stored.checkpoints[0].name, "Revealed Lookout");
+    assert.equal(stored.checkpoints[0].elevationMeters, 640);
+    assert.equal(stored.checkpoints[0].playerVisible, true);
   } finally {
     Object.assign(globalThis, previous);
   }

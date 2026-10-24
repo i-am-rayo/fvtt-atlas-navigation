@@ -2,7 +2,7 @@ import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT, CHECKPOINT_FREE_ICONS, checkpoi
   findCheckpointIcons,
   resolveCheckpointAppearance, validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { readAtlas } from "./atlas-storage.js";
-import { saveCheckpointAppearance } from "./road-storage.js";
+import { saveCheckpointPresentation } from "./road-storage.js";
 
 const el = (tag, label) => {
   const item = document.createElement(tag);
@@ -15,7 +15,7 @@ const ICON_DETAILS = new Map(CHECKPOINT_FREE_ICONS.map(icon => [icon.id, icon]))
 export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-checkpoint-appearance",
-    window: { title: "Atlas — Checkpoint Icon & Label", resizable: true },
+    window: { title: "Atlas — Checkpoint Settings", resizable: true },
     position: { width: 650, height: 700 }
   };
 
@@ -37,8 +37,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const root = el("div");
     root.style.cssText = "padding:0.85rem;display:grid;gap:0.6rem;overflow:auto;height:100%;";
     root.appendChild(el("p", "CHECKPOINT — " + current.name +
-      ". Choose an icon, check its preview, then save. All icons work offline; " +
-      "saved graph points and native Regions never move."));
+      ". Edit the name, elevation, appearance or player visibility. " +
+      "The underlying graph point and native Regions never move."));
     const fields = el("div");
     fields.style.cssText = "display:grid;gap:0.55rem;";
     const field = (title, control) => {
@@ -59,6 +59,23 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       box.value = value;
       return box;
     };
+    const name = el("input");
+    name.type = "text"; name.maxLength = 120; name.required = true; name.value = current.name;
+    name.setAttribute("aria-label", "Checkpoint name");
+    field("Checkpoint name", name);
+    const elevation = el("input");
+    elevation.type = "number"; elevation.step = "any";
+    elevation.value = current.elevationMeters === null ? "" : String(current.elevationMeters);
+    elevation.setAttribute("aria-label", "Checkpoint elevation in meters");
+    field("Elevation (meters; optional)", elevation);
+    const playerVisibility = el("input");
+    playerVisibility.type = "checkbox";
+    playerVisibility.checked = current.playerVisible === true;
+    playerVisibility.setAttribute("aria-label", "Checkpoint visible to players");
+    field("Visible to players (visual only)", playerVisibility);
+    const hint = el("small", "Player visibility does not hide Scene flag data from technical inspection. " +
+      "This checkpoint can be shown even if its road remains hidden.");
+    fields.appendChild(hint);
     const type = field("Checkpoint marker", select([
       ["dot", "Default dot"], ["fa", "Font Awesome Free icon"],
       ["image", "Custom Foundry image"]
@@ -302,7 +319,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     reset.addEventListener("click", () => void saveValue(null));
     const cancel = el("button", "Cancel");
     cancel.type = "button"; cancel.addEventListener("click", () => this.close());
-    const save = el("button", "Save Checkpoint Appearance");
+    const save = el("button", "Save Checkpoint Settings");
     save.type = "button";
     const saveValue = async value => {
       if (save.disabled) return;
@@ -317,13 +334,16 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           labelMode: mode.value, showRoadName: showRoad.checked,
           textColor: textColor.value
         });
-        await saveCheckpointAppearance(this.scene, {
-          checkpointId: this.checkpointId, appearance: next,
+        const raw = elevation.value.trim();
+        await saveCheckpointPresentation(this.scene, {
+          checkpointId: this.checkpointId, name: name.value,
+          elevationMeters: raw === "" ? null : Number(raw),
+          playerVisible: playerVisibility.checked, appearance: next,
           expectedRevision: this.expectedRevision
         });
         this.onSaved?.();
         await this.close();
-        ui.notifications.info("Atlas checkpoint appearance saved.");
+        ui.notifications.info("Atlas checkpoint settings saved.");
       } catch (error) {
         ui.notifications.error(error.message || String(error));
         save.disabled = false; reset.disabled = false;

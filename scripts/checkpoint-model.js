@@ -82,7 +82,8 @@ export function addRoadCheckpoint(atlas, {
     checkpoints: [...current.checkpoints, {
       id: checkpointId, roadId, nodeId,
       name: cleanName(name), elevationMeters: elevation(elevationMeters),
-      ...(current.schemaVersion >= 8 ? { appearance: null } : {})
+      ...(current.schemaVersion >= 8 ? { appearance: null } : {}),
+      ...(current.schemaVersion >= 9 ? { playerVisible: false } : {})
     }]
   });
 }

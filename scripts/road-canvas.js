@@ -7,6 +7,7 @@ import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 import { atlasShortcutTarget } from "./atlas-canvas-hit.js";
 import { groupCheckpointMarkers, checkpointQuickInfo,
   clusterQuickInfo } from "./checkpoint-clusters.js";
+import { playerAtlasOverlay } from "./player-visibility.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
   roadStrokeSpans, roadLabelPoint, roadAppearanceMode } from "./road-appearance.js";
 import { defaultTravelPresets, validateTravelPresets,
@@ -949,7 +950,7 @@ export class RoadCanvasController {
       roadScreenSize * textScale, "normal", "italic");
   }
 
-  #addQuickInfo(graphics, content, point, zoom) {
+  #addQuickInfo(graphics, content, point, zoom, { xOffset = 24, yOffset = 8 } = {}) {
     if (!globalThis.PIXI?.Text || !graphics.addChild) return;
     const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
     const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
@@ -959,7 +960,7 @@ export class RoadCanvasController {
         : { stroke: 0x101828, strokeThickness: 4 / scale }) };
     const label = new PIXI.Text(String(content), style);
     label.anchor?.set?.(0, 0);
-    label.position?.set?.(point.x + 17 / scale, point.y + 8 / scale);
+    label.position?.set?.(point.x + xOffset / scale, point.y + yOffset / scale);
     label.eventMode = "none";
     graphics.addChild(label);
     this.labels.push(label);
@@ -1054,9 +1055,70 @@ export class RoadCanvasController {
     }
   }
 
+  /** Player presentation is deliberately graphics-only: no names, hover, edit tools. */
+  #drawPlayerOverlay(canvas, graphics, atlas, zoom) {
+    const visible = playerAtlasOverlay(atlas);
+    const nodes = new Map(visible.nodes.map(node => [node.id, node]));
+    const roads = new Map(visible.roads.map(road => [road.id, road]));
+    const worldDefaults = readWorldRoadAppearance();
+    const presets = validateTravelPresets(
+      globalThis.game?.settings?.get?.("fvtt-atlas-navigation", TRAVEL_PRESET_SETTING) ??
+      defaultTravelPresets()).presets;
+    for (const segment of visible.segments) {
+      const from = nodes.get(segment.from), to = nodes.get(segment.to);
+      if (!from || !to) continue;
+      const road = roads.get(segment.roadId);
+      if (!road) continue;
+      const style = resolveRoadAppearance(road, worldDefaults,
+        roadAppearanceMode(road, presets));
+      const path = [from, ...segment.via, to].map(point => toCanvasPoint(canvas, atlas, point));
+      drawLine(graphics, path, Number.parseInt(style.color.slice(1), 16),
+        style.width, style.opacity, style.pattern);
+    }
+    const markers = visible.checkpoints.flatMap(checkpoint => {
+      const node = nodes.get(checkpoint.nodeId);
+      if (!node) return [];
+      const position = toCanvasPoint(canvas, atlas, node);
+      const appearance = resolveCheckpointAppearance(checkpoint.appearance);
+      const marker = checkpointMarkerPosition(position, appearance, zoom);
+      return [{ id: checkpoint.id, x: marker.x, y: marker.y,
+        checkpoint, position, appearance }];
+    });
+    for (const group of groupCheckpointMarkers(markers, zoom)) {
+      if (group.members.length > 1) this.#drawCheckpointCluster(graphics, group, zoom);
+      else {
+        const { checkpoint, position, appearance } = group.members[0];
+        this.#drawCheckpoint(graphics, position, checkpoint, appearance, zoom);
+      }
+    }
+  }
+
+  #clearPlayerOverlay() {
+    this.#stopHover();
+    this.#clearLabels();
+    if (!this.graphics) return;
+    this.graphics.parent?.removeChild?.(this.graphics);
+    this.graphics.destroy?.();
+    this.graphics = null;
+    this.graphicsCanvas = null;
+  }
+
   refresh() {
     const canvas = this.canvasProvider();
-    if (!canvas?.ready || !canvas.scene || !globalThis.game?.user?.isGM) return;
+    if (!canvas?.ready || !canvas.scene || !globalThis.game?.user) return;
+    if (!game.user.isGM) {
+      let revealed;
+      try { revealed = playerAtlasOverlay(readAtlas(canvas.scene)); }
+      catch (error) {
+        console.warn("[fvtt-atlas-navigation] Player overlay unavailable", error);
+        this.#clearPlayerOverlay();
+        return;
+      }
+      if (!revealed.segments.length && !revealed.checkpoints.length) {
+        this.#clearPlayerOverlay();
+        return;
+      }
+    }
     if (!this.graphics || this.graphicsCanvas !== canvas || this.graphics.destroyed) {
       if (!globalThis.PIXI?.Graphics || !canvas.interface?.addChild) return;
       this.graphics = new PIXI.Graphics();
@@ -1074,6 +1136,11 @@ export class RoadCanvasController {
     try { atlas = readAtlas(canvas.scene); }
     catch (error) {
       console.warn("[fvtt-atlas-navigation] Unable to draw Scene roads", error);
+      return;
+    }
+    if (!game.user.isGM) {
+      this.#stopHover();
+      this.#drawPlayerOverlay(canvas, g, atlas, zoom);
       return;
     }
     const editing = this.pointEditor.session;
@@ -1174,7 +1241,11 @@ export class RoadCanvasController {
         const preview = appearance.labelMode === "off" ? full : full.split("\n")
           .filter(line => line.startsWith("Elevation:") ||
             (!appearance.showRoadName && line.startsWith("Road:"))).join("\n");
-        if (preview) this.#addQuickInfo(g, preview, group, zoom);
+        if (preview) this.#addQuickInfo(g, preview, group, zoom, {
+          xOffset: checkpointCanvasSize(appearance.size, zoom) * zoom / 2 + 12,
+          yOffset: appearance.labelMode === "off" ? 13 :
+            appearance.showRoadName && roadName ? 27 : 21
+        });
       }
     }
     this.#trackHover(canvas);
