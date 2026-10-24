@@ -189,7 +189,7 @@ export function nativeCostSummary(region) {
     : null;
   return { existing: true, managed: !!(legacy || multiple),
     detail: legacy || multiple ? flag : null,
-    count: existing.length, actualCosts };
+    count: existing.length, actualCosts, disabled: behavior.disabled === true };
 }
 
 /**
@@ -202,6 +202,9 @@ export function nativeCostPresetStatus(nativeCost, preset) {
   if (!nativeCost?.existing) return { state: "not-applied", label: "Preset cost not applied" };
   if (!nativeCost.managed || nativeCost.count !== 1) {
     return { state: "manual", label: "Manual/multiple native costs — review in Foundry" };
+  }
+  if (nativeCost.disabled) {
+    return { state: "disabled", label: "Native cost Behavior is disabled in Foundry" };
   }
   const authored = nativeCost.detail;
   if (authored.presetId !== preset.id) {
