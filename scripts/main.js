@@ -9,7 +9,8 @@ import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
   saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset,
-  saveRoadAppearance } from "./road-storage.js";
+  saveRoadAppearance, saveRoadPlayerVisibility,
+  saveCheckpointPlayerVisibility } from "./road-storage.js";
 import { getRoadMergeCandidates } from "./road-model.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
@@ -458,6 +459,32 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.StartNotice"));
     },
     selectCheckpoint: (scene, checkpointId) => roadCanvas.selectCheckpoint(scene, checkpointId),
+    async toggleCheckpointPlayerVisibility(scene, checkpoint, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      const actual = atlas.checkpoints?.find(c => c.id === checkpoint.id);
+      if (!actual) throw new Error("Checkpoint no longer exists.");
+      await saveCheckpointPlayerVisibility(scene, {
+        checkpointId: checkpoint.id, visible: actual.playerVisible !== true,
+        expectedRevision: atlas.revision
+      });
+      roadCanvas.refresh(); refresh();
+      ui.notifications.info(actual.playerVisible === true
+        ? "Checkpoint hidden from players." : "Checkpoint now visible to players.");
+    },
+    async toggleRoadPlayerVisibility(scene, road, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      const actual = atlas.roads?.find(item => item.id === road.id);
+      if (!actual) throw new Error("Road no longer exists.");
+      await saveRoadPlayerVisibility(scene, {
+        roadId: road.id, visible: actual.playerVisible !== true,
+        expectedRevision: atlas.revision
+      });
+      roadCanvas.refresh(); refresh();
+      ui.notifications.info(actual.playerVisible === true
+        ? "Road hidden from players." : "Road now visible to players.");
+    },
     editCheckpointAppearance(scene, checkpoint, refresh) {
       ensureIdle(scene);
       const atlas = readAtlas(scene);

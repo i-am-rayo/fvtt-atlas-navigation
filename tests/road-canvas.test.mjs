@@ -6,6 +6,8 @@ import { createEmptyAtlas, upgradeAtlasRoadAppearance } from "../scripts/atlas-m
 import { addRoad } from "../scripts/road-model.js";
 import { addRoadCheckpoint, editCheckpointAppearance } from "../scripts/checkpoint-model.js";
 import { DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
+import { setRoadPlayerVisibility, setCheckpointPlayerVisibility }
+  from "../scripts/player-visibility.js";
 
 function setup() {
   const listeners = new Map();
@@ -223,6 +225,99 @@ test("v0.2.23 checkpoint quick info works with labels Off without changing Scene
     m.controller.tearDown();
     Object.assign(globalThis, previous);
   }
+});
+
+test("v0.2.24 GM elevation preview sits below the checkpoint and road labels", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  class Text {
+    constructor(text, style) {
+      this.text = String(text); this.style = style;
+      this.anchor = { set() {} };
+      this.position = { set(x, y) { this.x = x; this.y = y; } };
+    }
+    destroy() {}
+  }
+  m.Graphics.prototype.addChild = function(node) { node.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    m.canvas.stage = { scale: { x: 1 } };
+    let i = 0;
+    const idFactory = () => "elev" + ++i;
+    let atlas = addRoad(createEmptyAtlas(), {
+      points: [{ x: 20, y: 30 }, { x: 150, y: 30 }], name: "The Eyrie", idFactory
+    });
+    atlas = addRoadCheckpoint(atlas, {
+      candidate: { kind: "node", nodeId: atlas.segments[0].from },
+      roadId: atlas.roads[0].id, name: "Bridge West", elevationMeters: 120, idFactory
+    });
+    atlas = editCheckpointAppearance(atlas, {
+      checkpointId: atlas.checkpoints[0].id,
+      appearance: { ...DEFAULT_CHECKPOINT_APPEARANCE,
+        labelMode: "hover", showRoadName: true }
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    m.listeners.get("pointermove")(pointEvent(15, 30));
+    const labels = m.controller.labels;
+    const name = labels.find(item => item.text === "Bridge West");
+    const road = labels.find(item => item.text === "The Eyrie");
+    const elevation = labels.find(item => item.text === "Elevation: 120 m");
+    assert.ok(name && road && elevation);
+    assert.ok(name.position.y < road.position.y);
+    assert.ok(elevation.position.y > road.position.y + 10,
+      "elevation starts below the road subtitle, not across it");
+    assert.equal(elevation.position.x, name.position.x);
+  } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
+});
+
+test("v0.2.24 ordinary player sees only revealed lines and icons, never labels or shortcuts", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  const text = [];
+  class Text {
+    constructor(value) { this.text = String(value); text.push(this.text); }
+    destroy() {}
+  }
+  m.Graphics.prototype.addChild = function(node) { node.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: false } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    m.canvas.stage = { scale: { x: 1 } };
+    let i = 0;
+    const idFactory = () => "public" + ++i;
+    let atlas = addRoad(createEmptyAtlas(), {
+      points: [{ x: 20, y: 30 }, { x: 150, y: 30 }], name: "Secret Route", idFactory
+    });
+    atlas = addRoadCheckpoint(atlas, {
+      candidate: { kind: "node", nodeId: atlas.segments[0].from },
+      roadId: atlas.roads[0].id, name: "Hidden Shrine", elevationMeters: 999,
+      idFactory
+    });
+    const roadId = atlas.roads[0].id;
+    const checkpointId = atlas.checkpoints[0].id;
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    assert.equal(m.controller.graphics, null, "legacy atlas is player-hidden");
+    atlas = setCheckpointPlayerVisibility(atlas, { checkpointId, visible: true });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    assert.ok(m.controller.graphics, "visible checkpoint creates overlay");
+    assert.equal(m.controller.graphics.strokes, 0, "hidden road stays hidden");
+    assert.equal(m.listeners.has("pointermove"), false, "no player hover metadata");
+    assert.equal(m.listeners.has("pointerdown"), false, "no GM shortcut capture");
+    assert.deepEqual(text, [], "player receives neither hidden road nor checkpoint labels");
+    atlas = setRoadPlayerVisibility(atlas, { roadId, visible: true });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    assert.equal(m.controller.graphics.strokes, 1, "explicitly revealed road drawn");
+    atlas = setRoadPlayerVisibility(atlas, { roadId, visible: false });
+    atlas = setCheckpointPlayerVisibility(atlas, { checkpointId, visible: false });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    assert.equal(m.controller.graphics, null, "last hide removes player graphics entirely");
+  } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });
 
 test("v0.2.20 named road styles draw dashed overlay and show one hover label", async () => {

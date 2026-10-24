@@ -6,6 +6,8 @@ import { anchorLegacyAtlas, upgradeAtlasRoadGroups, upgradeAtlasTravelPresets,
 import { validateRoadAppearance } from "./road-appearance.js";
 import { TRAVEL_PRESET_SETTING, validateTravelPresets, validateTravelPresetId } from "./travel-preset-model.js";
 import { ATLAS_FLAG, MODULE_ID, readAtlas } from "./atlas-storage.js";
+import { setRoadPlayerVisibility, setCheckpointPlayerVisibility }
+  from "./player-visibility.js";
 
 /**
  * Scene flag writes are revision-checked, but not atomic compare-and-swap.
@@ -119,6 +121,27 @@ export function saveEditedCheckpoint(scene, { checkpointId, name, elevationMeter
 export function saveCheckpointAppearance(scene, { checkpointId, appearance, expectedRevision }) {
   return saveChange(scene, expectedRevision, previous =>
     editCheckpointAppearance(previous, { checkpointId, appearance }));
+}
+
+/** One GM-reviewed save for the complete Shift-click checkpoint inspector. */
+export function saveCheckpointPresentation(scene, {
+  checkpointId, name, elevationMeters, appearance, playerVisible, expectedRevision
+}) {
+  return saveChange(scene, expectedRevision, previous => {
+    const named = editRoadCheckpoint(previous, { checkpointId, name, elevationMeters });
+    const styled = editCheckpointAppearance(named, { checkpointId, appearance });
+    return setCheckpointPlayerVisibility(styled, { checkpointId, visible: playerVisible });
+  });
+}
+
+export function saveRoadPlayerVisibility(scene, { roadId, visible, expectedRevision }) {
+  return saveChange(scene, expectedRevision, previous =>
+    setRoadPlayerVisibility(previous, { roadId, visible }));
+}
+
+export function saveCheckpointPlayerVisibility(scene, { checkpointId, visible, expectedRevision }) {
+  return saveChange(scene, expectedRevision, previous =>
+    setCheckpointPlayerVisibility(previous, { checkpointId, visible }));
 }
 
 export function saveRemovedCheckpoint(scene, { checkpointId, expectedRevision }) {

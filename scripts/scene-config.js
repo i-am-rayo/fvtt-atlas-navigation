@@ -231,6 +231,10 @@ function atlasPanel(scene, atlas, actions, refresh) {
           "labels off" : "labels " + style.labelVisibility}` +
         (road.appearance ? " (road override)" : " (World " + mode + " default)")));
       description.appendChild(subtitle);
+      const playerStatus = node("div", road.playerVisible === true
+        ? "Visible to players" : "Hidden from players", "hint");
+      playerStatus.style.fontSize = "0.8em";
+      description.appendChild(playerStatus);
     }
     if (count > 1) {
       const metadata = node("div", `${count} ${label("FVTTATLAS.Roads.Segments")}`);
@@ -261,6 +265,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
         return actions.select(scene, road.id);
       }));
     if (atlas.schemaVersion >= 3) {
+      controls.appendChild(button(road.playerVisible === true ? "👁" : "◌",
+        road.playerVisible === true ? "Hide this road from players" : "Show this road to players (visual only)",
+        () => actions.toggleRoadPlayerVisibility(scene, road, refresh)));
       controls.appendChild(button("🖌", "ROAD OVERLAY — Edit line, pattern and label text color (does not change native Regions)",
         () => actions.editRoadAppearance(scene, road, refresh)));
       if (road.appearance) {
@@ -472,6 +479,10 @@ function atlasPanel(scene, atlas, actions, refresh) {
         ? label("FVTTATLAS.Checkpoints.Unknown")
         : format(checkpoint.elevationMeters) + " m";
       description.appendChild(node("div", checkpoint.roadName + " · " + meters, "hint"));
+      const visibility = node("div", checkpoint.playerVisible === true
+        ? "Checkpoint visible to players" : "Checkpoint hidden from players", "hint");
+      visibility.style.fontSize = "0.8em";
+      description.appendChild(visibility);
       if (checkpoint.appearance) {
         const a = checkpoint.appearance;
         const detail = node("div",
@@ -487,6 +498,10 @@ function atlasPanel(scene, atlas, actions, refresh) {
         () => actions.selectCheckpoint(scene, checkpoint.id)));
       controls.appendChild(button("✎", label("FVTTATLAS.Checkpoints.Edit"),
         () => actions.editCheckpoint(scene, checkpoint, refresh)));
+      controls.appendChild(button(checkpoint.playerVisible === true ? "👁" : "◌",
+        checkpoint.playerVisible === true ? "Hide checkpoint from players" :
+          "Show checkpoint to players (visual only)",
+        () => actions.toggleCheckpointPlayerVisibility(scene, checkpoint, refresh)));
       controls.appendChild(button("🖼", "CHECKPOINT OVERLAY — Set Font Awesome icon / image, size, colors and name labels",
         () => actions.editCheckpointAppearance(scene, checkpoint, refresh)));
       controls.appendChild(button("×", label("FVTTATLAS.Checkpoints.Delete"),

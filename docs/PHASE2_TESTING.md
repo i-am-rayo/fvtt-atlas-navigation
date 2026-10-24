@@ -1,3 +1,18 @@
+# v0.2.24 — Player visual visibility and checkpoint inspector (draft two-client gate)
+
+Back up a Foundry v14 World, install the `feature/phase-2p-player-visibility` branch, and connect a **GM and ordinary player at the same time** to the same Scene. Confirm the module reports **0.2.24**. These changes are unmerged pending your test.
+
+1. **Existing Scenes hidden:** Open a Scene containing existing roads/checkpoints. The GM still sees all Atlas lines/icons and native Regions. The player sees **no Atlas overlay** before a visibility toggle (reloading/reconnecting should not reveal anything).
+2. **Independent road/checkpoint reveal:** Scene Configuration → Atlas → Roads and Checkpoints now show a visibility status and an eye/empty-circle toggle. Reveal one road but not its checkpoints; the player sees *only that road's line*. Hide it, reveal just one checkpoint; the player sees *only that marker*, with no road line, name, altitude, hover info, or editing shortcut. Reveal both; verify both visible, then hide again and verify no lingering graphics. On old Scenes, first explicit GM toggle upgrades to v9; simply opening the tab does not write.
+3. **GM Shift-click checkpoint:** While no road/point edit is in progress, Shift + left-click a checkpoint icon or its node. The complete checkpoint settings editor should open. Rename it, adjust elevation, select an icon, and toggle Visible to Players; save and reopen to verify all fields persist in **one** Scene revision. Shift-click a road still opens road appearance; Shift-click bend promotion during point editing remains unchanged.
+4. **No elevation overlap:** For a checkpoint with label On Hover and road subtitle enabled, hover as GM. The elevation line should sit *under* the smaller italic road name, never on top of it. Test label Off/Always and zoom in/out.
+5. **Player bounds:** Player map graphics do not show checkpoint names, road names, elevation, hover previews, GM highlight dots, or shortcut tools, even if a chosen checkpoint's road remains hidden. Foundry's native Region colors/Behaviors/Levels and token movement costs must remain unchanged. Try an ordinary player with no Scene update rights and verify that toggles/editor are unavailable.
+6. **Lifecycle:** Try Scene switches, zoom/pan, two players, reload and reconnect, visibility toggles from the GM while players remain connected, and turning the module off/on. Verify real players see the toggles immediately after the Scene flag updates. Inspect the player's Scene flags/console if desired: **visual hiding is not secret data protection**.
+
+Automated tests verify strict v9 migrations, hidden-by-default controls, independent toggles, a projection that removes hidden-road checkpoint metadata, GM-only writes, GM/player canvas isolation, and elevation placement. A live two-client check is still mandatory before PR merge.
+
+---
+
 # v0.2.23 — Advanced GM checkpoint presentation (draft test gate)
 
 Install the `feature/phase-2o-checkpoint-presentation` branch in a backed-up Foundry v14 World and confirm **0.2.23**. Test a Scene with both adjacent and widely separated checkpoints, old saved icons and generated native Regions.

@@ -232,7 +232,8 @@ export function addRoad(atlas, {
   const roadId = uniqueId(roadIds, idFactory);
   const road = { id: roadId, name: cleanedName(name ?? suggestRoadName(current)),
     ...(current.schemaVersion >= 5 ? { travelPresetId: null } : {}),
-    ...(current.schemaVersion >= 6 ? { appearance: null } : {}) };
+    ...(current.schemaVersion >= 6 ? { appearance: null } : {}),
+    ...(current.schemaVersion >= 9 ? { playerVisible: false } : {}) };
   const segment = {
     id: uniqueId(segmentIds, idFactory), roadId,
     from, to, via: path.slice(1, -1), bidirectional: true
