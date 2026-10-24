@@ -1,6 +1,6 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * v0.2.17 adds separately confirmed multi-action cost presets to corridors.
+ * v0.2.18 adds world preset Region colors, shared filters and advisory status.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
@@ -12,7 +12,8 @@ import { getRoadMergeCandidates } from "./road-model.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
-  setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost } from "./generated-region.js";
+  setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
+  applyGeneratedRegionPresetColor } from "./generated-region.js";
 import { availableMovementActions, readPreset, previewNativeMovementCost }
   from "./native-movement-cost.js";
 import { presetCostSummary } from "./travel-preset-model.js";
@@ -61,7 +62,7 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
         ? "Create one linked native Region WITH one native Modify Movement Cost Behavior, after this confirmation. No other Region is changed."
         : "Create one linked native Region without native Behaviors. Its travel preset stays descriptive metadata until explicitly applied.",
     ...(selectedPreset ? ["Travel preset: " + selectedPreset.name + " (" +
-      presetCostSummary(selectedPreset) + ")."] : []),
+      presetCostSummary(selectedPreset) + "). Native Region color: " + selectedPreset.color + "."] : []),
     ...(nativeOptIn ? [perMode
       ? "Native movement costs: " + presetCostSummary(selectedPreset) +
         ". One Behavior will contain all explicitly selected actions."
@@ -90,7 +91,8 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
       regenerate, presetId: regenerate ? null : (settings.presetId ?? null),
       applyNativeCost: nativeOptIn,
       movementAction: nativeOptIn && !perMode ? settings.movementAction : null,
-      expectedMultiplier: multiplier, expectedCosts
+      expectedMultiplier: multiplier, expectedCosts,
+      expectedColor: regenerate ? undefined : selectedPreset?.color
     });
     ui.notifications.info(result.created
       ? nativeOptIn
@@ -171,6 +173,31 @@ function actions() {
       await setGeneratedRegionTravelPreset(scene, entry.id, presetId);
       refresh();
       ui.notifications.info("Atlas generated Region travel preset saved. Native Behaviors were not changed.");
+    },
+    async applyGeneratedRegionColor(scene, entry, refresh) {
+      ensureIdle(scene);
+      if (entry.metadata?.kind !== "corridor" || !entry.presetId) {
+        throw new Error("Choose a generated corridor with a surface preset.");
+      }
+      const preset = readPreset(entry.presetId);
+      const dialog = document.createElement("div");
+      const warning = document.createElement("p");
+      warning.textContent = "Apply " + preset.name + "'s native Region color " +
+        preset.color + " to " + entry.name + "? This changes only this Region's color. " +
+        "Any manual color will be replaced; native Behaviors, geometry and Levels remain unchanged.";
+      dialog.appendChild(warning);
+      const approved = await DialogV2.confirm({
+        window: { title: "Apply surface preset color" },
+        content: dialog, yes: { label: "Apply Color" },
+        rejectClose: false, modal: true
+      });
+      if (!approved) return;
+      await applyGeneratedRegionPresetColor(scene, entry.id, {
+        expectedPresetId: preset.id, expectedColor: preset.color,
+        expectedCurrentColor: entry.color
+      });
+      refresh();
+      ui.notifications.info("Atlas corridor Region color updated. Native Behaviors were untouched.");
     },
     async applyGeneratedRegionCost(scene, entry, refresh) {
       ensureIdle(scene);

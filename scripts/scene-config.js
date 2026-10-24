@@ -7,12 +7,52 @@ import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { presetCostSummary } from "./travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions,
-  previewNativeMovementCost } from "./native-movement-cost.js";
+  previewNativeMovementCost, nativeCostPresetStatus } from "./native-movement-cost.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
 const junctionFilters = new Map();
 const generatorState = new Map();
+
+/** Shared display scope; filtering never edits Scene graph or native Regions. */
+export function filteredRoadIds(atlas, state) {
+  const ids = new Set(atlas.roads?.map(r => r.id) ?? []);
+  if (state.scope === "scene") return ids;
+  const allowed = new Set(ids.has(state.roadId) ? [state.roadId] : []);
+  if (state.scope === "connected") {
+    const nodes = new Set(atlas.segments.filter(s => s.roadId === state.roadId)
+      .flatMap(s => [s.from, s.to]));
+    for (const segment of atlas.segments) {
+      if (nodes.has(segment.from) || nodes.has(segment.to)) allowed.add(segment.roadId);
+    }
+  }
+  return allowed;
+}
+
+function sharedRoadFilters(atlas, state, refresh) {
+  const filters = node("div", undefined, "form-fields");
+  const select = (choices, current, title, onChange) => {
+    const field = node("select");
+    field.setAttribute("aria-label", title);
+    field.title = title;
+    for (const [value, caption] of choices) {
+      const option = node("option", caption);
+      option.value = value;
+      field.appendChild(option);
+    }
+    field.value = current;
+    field.addEventListener("change", () => { onChange(field.value); refresh(); });
+    return field;
+  };
+  filters.appendChild(select(atlas.roads.map(r => [r.id, r.name]),
+    state.roadId, "Atlas displayed road", value => { state.roadId = value; }));
+  filters.appendChild(select([
+    ["selected", label("FVTTATLAS.Junctions.Selected")],
+    ["connected", label("FVTTATLAS.Junctions.Connected")],
+    ["scene", label("FVTTATLAS.Junctions.All")]
+  ], state.scope, "Atlas display scope", value => { state.scope = value; }));
+  return filters;
+}
 
 function junctionFilterFor(scene, atlas) {
   let state = junctionFilters.get(scene.id);
@@ -88,6 +128,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
   root.setAttribute("data-fvtt-atlas-setup", "");
   const travelPresets = readWorldTravelPresets().presets;
   const presetById = new Map(travelPresets.map(p => [p.id, p]));
+  const sharedFilter = atlas.schemaVersion >= 3 && atlas.roads?.length
+    ? junctionFilterFor(scene, atlas) : null;
+  const shownRoads = sharedFilter ? filteredRoadIds(atlas, sharedFilter) : new Set();
 
   // A configured road network is what makes this Scene an Atlas. The old
   // enabled flag remains persisted for v1 compatibility, but has no UI toggle.
@@ -430,6 +473,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
   const generatedSection = node("fieldset");
   generatedSection.appendChild(node("legend", label("FVTTATLAS.Generated.Title")));
   generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.Hint"), "hint"));
+  if (sharedFilter && atlas.schemaVersion >= 4) {
+    generatedSection.appendChild(sharedRoadFilters(atlas, sharedFilter, refresh));
+  }
   const available = atlas.schemaVersion >= 4 ? atlas.roads.filter(r =>
     atlas.checkpoints.filter(c => c.roadId === r.id).length > 0) : [];
   if (!available.length) {
@@ -470,6 +516,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
       available.map(r => [r.id, r.name]), selected.roadId,
       value => {
         selected.roadId = value; selected.first = null; selected.last = null;
+        if (sharedFilter && sharedFilter.scope !== "scene") sharedFilter.roadId = value;
         selected.presetId = available.find(r => r.id === value)?.travelPresetId ?? null;
         selected.presetEdited = false;
         selected.applyNativeCost = false;
@@ -601,11 +648,14 @@ function atlasPanel(scene, atlas, actions, refresh) {
     generatedSection.appendChild(create);
   }
   const generated = listGeneratedRegions(scene);
+  const visibleGenerated = generated.filter(region => !region.metadata ||
+    shownRoads.has(region.metadata.roadId));
   if (generated.length) {
     generatedSection.appendChild(node("p",
-      generated.length + " " + label("FVTTATLAS.Generated.Existing"), "hint"));
+      visibleGenerated.length + " / " + generated.length + " " +
+      label("FVTTATLAS.Generated.Existing"), "hint"));
   }
-  for (const region of generated.slice(0, 50)) {
+  for (const region of visibleGenerated.slice(0, 50)) {
     const row = node("div", undefined, "form-group");
     const detail = node("div");
     detail.style.flex = "1 1 auto";
@@ -620,6 +670,23 @@ function atlasPanel(scene, atlas, actions, refresh) {
               " (" + presetCostSummary(preset) + ")"
             : label("FVTTATLAS.Travel.MissingPreset")
           : label("FVTTATLAS.Travel.None"), "hint"));
+      if (preset) {
+        const currentColor = String(region.color ?? "").toUpperCase();
+        const colorMatches = currentColor === preset.color;
+        const swatch = node("span");
+        swatch.style.cssText = "display:inline-block;width:0.9rem;height:0.9rem;" +
+          "margin-right:0.4rem;border:1px solid currentColor;border-radius:0.15rem;" +
+          "background:" + preset.color + ";";
+        const colorLine = node("div", undefined, "hint");
+        colorLine.append(swatch, node("span",
+          "Surface color " + preset.color + (colorMatches
+            ? " · Applied" : " · Region differs (manual or older color)")));
+        detail.appendChild(colorLine);
+        const costState = nativeCostPresetStatus(region.nativeCost, preset);
+        const costLine = node("div", "Cost status: " + costState.label, "hint");
+        costLine.setAttribute("data-atlas-cost-status", costState.state);
+        detail.appendChild(costLine);
+      }
       if (region.nativeCost.existing) {
         const authored = region.nativeCost.detail;
         const summary = region.nativeCost.managed && authored
@@ -644,6 +711,12 @@ function atlasPanel(scene, atlas, actions, refresh) {
       if (region.metadata?.kind === "corridor") {
         controls.appendChild(button("◈", label("FVTTATLAS.Travel.AssignRegion"),
           () => actions.assignGeneratedRegionTravelPreset(scene, region, refresh)));
+        const color = button("🎨", "Apply surface preset color (with confirmation)",
+          () => actions.applyGeneratedRegionColor(scene, region, refresh));
+        color.disabled = !!draft || !presetById.has(region.presetId) ||
+          String(region.color ?? "").toUpperCase() ===
+          presetById.get(region.presetId)?.color;
+        controls.appendChild(color);
         const apply = button("⬆", label("FVTTATLAS.Cost.ApplyExisting"),
           () => actions.applyGeneratedRegionCost(scene, region, refresh));
         apply.disabled = !!draft || !region.presetId || !presetById.has(region.presetId) ||
@@ -660,7 +733,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
     row.appendChild(controls);
     generatedSection.appendChild(row);
   }
-  if (generated.length > 50) generatedSection.appendChild(node("p",
+  if (visibleGenerated.length > 50) generatedSection.appendChild(node("p",
     label("FVTTATLAS.Generated.Limit"), "hint"));
   root.appendChild(generatedSection);
 
@@ -674,6 +747,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
   regionHeader.style.gap = "0.35rem";
   regionHeader.appendChild(node("span", label("FVTTATLAS.Regions.Title")));
   const nativeRegions = listSceneRegions(scene);
+  const roadByGeneratedRegionId = new Map(generated.filter(r => r.metadata)
+    .map(r => [r.id, r.metadata.roadId]));
   const candidates = nativeRegions.filter(region => !region.linked && !region.invalidLink);
   const link = button("+", label("FVTTATLAS.Regions.Link"),
     () => actions.linkRegion(scene, refresh));
@@ -687,13 +762,23 @@ function atlasPanel(scene, atlas, actions, refresh) {
   regionLegend.appendChild(regionHeader);
   regionSection.appendChild(regionLegend);
   regionSection.appendChild(node("p", label("FVTTATLAS.Regions.Hint"), "hint"));
-  const linkedRegions = nativeRegions.filter(region => region.linked);
+  if (sharedFilter && atlas.schemaVersion >= 4) {
+    regionSection.appendChild(sharedRoadFilters(atlas, sharedFilter, refresh));
+    if (sharedFilter.scope !== "scene") regionSection.appendChild(node("p",
+      "Regions without a generated road association appear under All Scene.", "hint"));
+  }
+  const visibleNative = nativeRegions.filter(region =>
+    !sharedFilter || atlas.schemaVersion < 4 ||
+    (region.invalidLink && !roadByGeneratedRegionId.has(region.id)) ||
+    sharedFilter.scope === "scene" ||
+    shownRoads.has(roadByGeneratedRegionId.get(region.id)));
+  const linkedRegions = visibleNative.filter(region => region.linked);
   if (!nativeRegions.length) {
     regionSection.appendChild(node("p", label("FVTTATLAS.Regions.NoNative"), "hint"));
   } else if (!linkedRegions.length) {
     regionSection.appendChild(node("p", label("FVTTATLAS.Regions.None"), "hint"));
   }
-  for (const region of nativeRegions.filter(region => region.linked || region.invalidLink)) {
+  for (const region of visibleNative.filter(region => region.linked || region.invalidLink)) {
     const row = node("div", undefined, "form-group");
     row.setAttribute("data-atlas-region-id", region.id);
     const description = node("div");

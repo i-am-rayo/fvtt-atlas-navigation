@@ -5,7 +5,7 @@
 import { MODULE_ID, readAtlas } from "./atlas-storage.js";
 import { TRAVEL_PRESET_SETTING, REGION_TRAVEL_PRESET_FLAG, TRAVEL_TYPES,
   defaultTravelPresets, validateTravelPresets, upsertTravelPreset,
-  removeTravelPreset, presetCostSummary } from "./travel-preset-model.js";
+  removeTravelPreset, presetCostSummary, defaultTravelPresetColor } from "./travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions } from "./native-movement-cost.js";
 
 const TYPE_LABELS = { land: "Land", air: "Air", water: "Water" };
@@ -85,7 +85,7 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
     const root = node("div");
     root.style.cssText = "padding:0.8rem 1rem;display:grid;gap:1rem;overflow:auto;height:100%;";
     root.appendChild(node("p",
-      "These world presets are shared across all Scenes. Choose costs per movement action; unselected actions have No override, not a movement ban. Above ×1 costs more movement, below ×1 costs less. Atlas creates a native Region Behavior only after explicit GM confirmation."));
+      "World presets share movement costs and native Region highlight colors across Scenes. Colors are used for new generated corridors; existing Region colors and Behaviors change only through separate GM actions. No override never blocks movement."));
     for (const mode of TRAVEL_TYPES) {
       const fieldset = node("fieldset");
       fieldset.style.cssText = "display:grid;gap:0.45rem;min-width:0;";
@@ -97,7 +97,13 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
       for (const preset of group) {
         const row = node("div");
         row.style.cssText = "display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;";
-        const details = node("span", preset.name);
+        const swatch = node("span");
+        swatch.style.cssText = "display:inline-block;width:1.25rem;height:1.25rem;" +
+          "border:1px solid currentColor;border-radius:0.2rem;flex:0 0 auto;" +
+          "background:" + preset.color + ";";
+        swatch.title = "Native Region color " + preset.color;
+        row.appendChild(swatch);
+        const details = node("span", preset.name + " (" + preset.color + ")");
         details.style.flex = "1 1 12rem";
         row.appendChild(details);
         const cost = node("span", presetCostSummary(preset));
@@ -139,6 +145,14 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
       mode.appendChild(option);
     }
     container.appendChild(mode);
+    container.appendChild(node("label", "Native Region highlight color"));
+    const color = node("input");
+    color.type = "color"; color.name = "presetColor";
+    color.defaultValue = existing?.color ??
+      defaultTravelPresetColor(existing?.id ?? "", existing?.mode ?? initialMode);
+    container.appendChild(color);
+    container.appendChild(node("p",
+      "New generated corridors use this color. Editing a global preset never recolors existing Regions. Existing corridors offer an explicitly confirmed Apply Color action."));
     const originalCost = existing?.movementCostMultiplier ?? 1;
     const quarterStep = originalCost >= 0.25 &&
       Math.abs(originalCost * 4 - Math.round(originalCost * 4)) < 1e-8;
@@ -256,7 +270,8 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
       id: existing?.id ?? "custom-" + foundry.utils.randomID(16),
       mode: String(result.presetMode ?? ""),
       name: String(result.presetName ?? ""),
-      movementCostMultiplier: Number(raw), movementCosts
+      movementCostMultiplier: Number(raw), movementCosts,
+      color: String(result.presetColor ?? "")
     };
     const next = upsertTravelPreset(readWorldTravelPresets(), preset);
     await game.settings.set(MODULE_ID, TRAVEL_PRESET_SETTING, next);

@@ -1,3 +1,17 @@
+## v0.2.18 — native surface color, shared filters and status (owner acceptance pending)
+
+1. Back up the World. Update/reload the module and verify v0.2.18. Open Module Settings → Atlas Presets; edit **Stone Road** color to `#2288AA` without changing its Walk/Fly/Swim/Burrow values. Save/reopen; verify the swatch and numeric native costs. Create a new custom Water preset with a different color and one supported cost. Existing catalog v1/v2 values and preset IDs must remain intact on opening; no write occurs until explicitly saving.
+2. On a Scene with checkpoints, choose a road and create a generated **corridor** with the edited Stone Road preset but leave **Apply native movement cost** unchecked. Confirm the resulting native Region uses `#2288AA`, has no new native Modify Movement Cost Behavior, and retains native shapes. A generated checkpoint without a corridor preset should have no preset-enforced color.
+3. Edit an existing generated corridor's color manually in Foundry. Change its world preset color again; verify its native Region color and Behaviors stay unchanged. The Atlas corridor list should label the difference. Click **🎨 Apply Color**, review the single-Region overwrite warning, cancel (no change), then confirm and verify that ONLY its native `color` changes. Check native geometry signature, Levels and manually configured Behaviors.
+4. Regenerate an unchanged corridor's geometry; confirm its existing color does not change, even if the world preset color changed. A manually moved Region still blocks regeneration as before.
+5. In Scene Atlas choose Selected road, Connected (one-hop), then All Scene. Verify Junction, Checkpoint, Generated Region, and linked native Region lists respond to the SAME scope. Filters in the lower sections should update the upper lists. Manually linked native Regions without a road owner appear under All Scene; filtering must not alter persisted roads/Regions.
+6. On a corridor with native Atlas movement costs, verify **Native costs match world preset**. Change the global preset's Walk cost (without applying) and verify **World preset changed since native cost was applied**, with the old native Behavior left untouched. A manually edited native cost should show a separate warning. A Region with no applied Behavior says preset cost not applied. No sync/overwrite control should appear.
+7. Test as a non-GM: view access never grants permission to update preset colors or native Regions. Switch Scenes, reload and retest. Do not merge until the owner checks these in Foundry v14.
+
+**Automated checks:** `node --test` and `npm run check` from a Node 20+ checkout. Mocked checks cannot replace Foundry v14's native Region color/display behavior.
+
+---
+ 
 ## v0.2.17.1 hotfix — targeted live Foundry v14 retest
 
 1. Keep a backup of the World. Open the existing "Rough Waters" preset (Walk ×10, Fly ×1.50, Swim ×1.50, Burrow ×10); verify all selected values are unchanged.

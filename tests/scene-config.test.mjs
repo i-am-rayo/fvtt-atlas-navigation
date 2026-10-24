@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "../scripts/scene-config.js";
+import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
+  filteredRoadIds } from "../scripts/scene-config.js";
 
 class Element {
   constructor(tag) { this.tag = tag; this.attributes = new Map(); this.children = []; this.listeners = new Map(); this.style = {}; }
@@ -358,4 +359,22 @@ test("junction filters default to one road, include direct neighbors and can sho
    controls=selects();controls[1].value="selected";controls[1].listeners.get("change")();
    assert.deepEqual(rows(),["r2"],"road selection persists across refreshes");
  } finally {Object.assign(globalThis,previous);}
+});
+
+test("v0.2.18 downstream filters share selected, direct-neighbor and scene-wide road scope",()=>{
+ const atlas={
+   roads:[{id:"main"},{id:"spur"},{id:"other"},{id:"remote"}],
+   segments:[
+     {roadId:"main",from:"a",to:"b"},
+     {roadId:"spur",from:"b",to:"c"},
+     {roadId:"other",from:"c",to:"d"},
+     {roadId:"remote",from:"x",to:"y"}
+   ]
+ };
+ assert.deepEqual([...filteredRoadIds(atlas,{roadId:"main",scope:"selected"})],["main"]);
+ assert.deepEqual([...filteredRoadIds(atlas,{roadId:"main",scope:"connected"})],
+   ["main","spur"]);
+ assert.deepEqual([...filteredRoadIds(atlas,{roadId:"main",scope:"scene"})],
+   ["main","spur","other","remote"]);
+ assert.deepEqual([...filteredRoadIds(atlas,{roadId:"deleted",scope:"selected"})],[]);
 });

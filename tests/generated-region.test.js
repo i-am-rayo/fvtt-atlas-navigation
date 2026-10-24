@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
-  setGeneratedRegionTravelPreset } from "../scripts/generated-region.js";
+  setGeneratedRegionTravelPreset, applyGeneratedRegionPresetColor } from "../scripts/generated-region.js";
 import { defaultTravelPresets } from "../scripts/travel-preset-model.js";
 import { MODULE_ID } from "../scripts/atlas-storage.js";
 
@@ -26,7 +26,8 @@ function setup() {
    records.push({kind,items});
    const d=items[0];
    const region={
-    id:"new1",parent:scene,name:d.name,shapes:JSON.parse(JSON.stringify(d.shapes)),
+    id:"new1",parent:scene,name:d.name,color:d.color ?? "#000000",
+    shapes:JSON.parse(JSON.stringify(d.shapes)),
     behaviors:[{type:"custom",active:true}], flags:d.flags,
     getFlag(ns,key){return this.flags[ns]?.[key];},
     canUserModify:()=>true,
@@ -34,8 +35,11 @@ function setup() {
     async unsetFlag(ns,key){ delete this.flags[ns][key]; },
     async update(data) {
       if(data.shapes) this.shapes=data.shapes;
-      this.flags[MODULE_ID].generatedRegion=
-        data["flags."+MODULE_ID+".generatedRegion"];
+      if(Object.hasOwn(data,"color")) this.color=data.color;
+      if(Object.hasOwn(data,"flags."+MODULE_ID+".generatedRegion")) {
+        this.flags[MODULE_ID].generatedRegion=
+          data["flags."+MODULE_ID+".generatedRegion"];
+      }
     }
    };
    existing.set(region.id,region);
@@ -119,4 +123,58 @@ test("corridor travel preset references stay separate from native Behaviors and 
  assert.equal(listGeneratedRegions(scene)[0].presetId,null);
  await assert.rejects(()=>setGeneratedRegionTravelPreset(scene,"new1","missing"),
    /still configured/);
+});
+
+test("new corridors take preset color without native cost; regeneration preserves GM color",async()=>{
+ const {scene,records,existing}=setup();
+ const preset=defaultTravelPresets().presets.find(p=>p.id==="land-stone");
+ const plan=planSceneGeneratedRegion(scene,settings);
+ await saveGeneratedNativeRegion(scene,plan,{presetId:preset.id,
+   expectedColor:preset.color});
+ assert.equal(records[0].items[0].color,preset.color);
+ assert.deepEqual(records[0].items[0].behaviors,[]);
+ const region=existing.get("new1");
+ region.color="#123456";
+ await saveGeneratedNativeRegion(scene,plan,{regenerate:true});
+ assert.equal(region.color,"#123456");
+ assert.equal(listGeneratedRegions(scene)[0].modified,false);
+});
+
+test("recoloring existing corridor requires current GM confirmation and protects native data",async()=>{
+ const {scene,existing}=setup();
+ const plan=planSceneGeneratedRegion(scene,settings);
+ await saveGeneratedNativeRegion(scene,plan,{presetId:"land-stone"});
+ const region=existing.get("new1");
+ region.color="#102030";
+ const originalBehaviors=structuredClone(region.behaviors);
+ const signature=region.getFlag(MODULE_ID,"generatedRegion").shapeSignature;
+ await assert.rejects(()=>applyGeneratedRegionPresetColor(scene,"new1",{
+   expectedPresetId:"land-stone",expectedColor:"#9CA3AF",
+   expectedCurrentColor:"#FFFFFF"
+ }),/manually changed/);
+ assert.equal(await applyGeneratedRegionPresetColor(scene,"new1",{
+   expectedPresetId:"land-stone",expectedColor:"#9CA3AF",
+   expectedCurrentColor:"#102030"
+ }),true);
+ assert.equal(region.color,"#9CA3AF");
+ assert.deepEqual(region.behaviors,originalBehaviors);
+ assert.equal(region.getFlag(MODULE_ID,"generatedRegion").shapeSignature,signature);
+ await assert.rejects(()=>applyGeneratedRegionPresetColor(scene,"new1",{
+   expectedPresetId:"land-stone",expectedColor:"#AA0000",
+   expectedCurrentColor:"#9CA3AF"
+ }),/preset color changed/);
+ globalThis.game.user.isGM=false;
+ await assert.rejects(()=>applyGeneratedRegionPresetColor(scene,"new1",{
+   expectedPresetId:"land-stone",expectedColor:"#9CA3AF",
+   expectedCurrentColor:"#9CA3AF"
+ }),/Only a GM/);
+});
+
+test("color confirmation rejects changed world preset before creating a Region",async()=>{
+ const {scene,records}=setup();
+ const plan=planSceneGeneratedRegion(scene,settings);
+ await assert.rejects(()=>saveGeneratedNativeRegion(scene,plan,{
+   presetId:"land-stone",expectedColor:"#BADA55"
+ }),/color changed since confirmation/);
+ assert.equal(records.length,0);
 });

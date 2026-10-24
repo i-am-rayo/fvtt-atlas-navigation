@@ -168,7 +168,7 @@ export function nativeCostBehaviors(region) {
 
 export function nativeCostSummary(region) {
   const existing = nativeCostBehaviors(region);
-  if (!existing.length) return { existing: false, managed: false, detail: null };
+  if (!existing.length) return { existing: false, managed: false, detail: null, actualCosts: null };
   const behavior = existing[0];
   const flag = behavior.getFlag?.(MODULE_ID, ATLAS_MOVEMENT_COST_FLAG) ??
     behavior.flags?.[MODULE_ID]?.[ATLAS_MOVEMENT_COST_FLAG];
@@ -181,6 +181,46 @@ export function nativeCostSummary(region) {
     Object.keys(flag.movementCosts).length > 0 &&
     Object.entries(flag.movementCosts).every(([id, cost]) =>
       /^[A-Za-z0-9_.-]{1,128}$/.test(id) && Number.isFinite(cost));
+  const source = behavior.system?.difficulties ??
+    behavior.toObject?.()?.system?.difficulties;
+  const actualCosts = source && typeof source === "object"
+    ? Object.fromEntries(Object.entries(source).filter(([id, value]) =>
+      /^[A-Za-z0-9_.-]{1,128}$/.test(id) && Number.isFinite(value)))
+    : null;
   return { existing: true, managed: !!(legacy || multiple),
-    detail: legacy || multiple ? flag : null, count: existing.length };
+    detail: legacy || multiple ? flag : null,
+    count: existing.length, actualCosts };
+}
+
+/**
+ * Read-only advisory. Provenance identifies which snapshot Atlas applied;
+ * actual native values are checked separately for later GM edits.
+ * No change here ever writes, re-applies, or stacks a Behavior.
+ */
+export function nativeCostPresetStatus(nativeCost, preset) {
+  if (!preset) return { state: "unassigned", label: "No current travel preset" };
+  if (!nativeCost?.existing) return { state: "not-applied", label: "Preset cost not applied" };
+  if (!nativeCost.managed || nativeCost.count !== 1) {
+    return { state: "manual", label: "Manual/multiple native costs — review in Foundry" };
+  }
+  const authored = nativeCost.detail;
+  if (authored.presetId !== preset.id) {
+    return { state: "different", label: "Native cost came from a different preset" };
+  }
+  const saved = authored.schemaVersion === 1
+    ? { [authored.action]: authored.multiplier } : authored.movementCosts;
+  // Foundry may include additional native action defaults. Compare only
+  // the exact Atlas-authored actions rather than treating defaults as edits.
+  if (!nativeCost.actualCosts ||
+      Object.entries(saved).some(([id, value]) => nativeCost.actualCosts[id] !== value)) {
+    return { state: "edited", label: "Native cost differs from applied Atlas values" };
+  }
+  const matches = preset.movementCosts === null
+    ? authored.schemaVersion === 1 &&
+      authored.multiplier === preset.movementCostMultiplier
+    : authored.schemaVersion === ATLAS_MOVEMENT_COST_SCHEMA_VERSION &&
+      sameMovementCosts(saved, preset.movementCosts);
+  return matches
+    ? { state: "current", label: "Native costs match world preset" }
+    : { state: "outdated", label: "World preset changed since native cost was applied" };
 }

@@ -92,13 +92,16 @@ test("Add and Edit use plain v14 DialogV2 content and persist serialized form de
   assert.equal(namedField(seen[0], "presetName").getAttribute("value"),
     "Rock & Ridge <North>");
   assert.equal(namedField(seen[0], "presetCost").getAttribute("value"), "1.75");
+  assert.equal(namedField(seen[0], "presetColor").getAttribute("value"), "#869AC8");
   const editMode = namedField(seen[0], "presetMode");
   assert.equal(editMode.children.find(option => option.getAttribute("selected") !== null)
     .getAttribute("value"), "air");
 
   await settings._editPreset({ id: "mode", mode: "land", name: "Stone",
-    movementCostMultiplier: 1, movementCosts:{walk:0.75,burrow:2.25} });
+    movementCostMultiplier: 1, movementCosts:{walk:0.75,burrow:2.25},
+    color:"#2288AA" });
   assert.equal(namedField(seen[1], "atlasPerMode").getAttribute("checked"), "");
+  assert.equal(namedField(seen[1], "presetColor").getAttribute("value"), "#2288AA");
   assert.equal(namedField(seen[1], "atlasAction_walk").getAttribute("checked"), "");
   assert.equal(namedField(seen[1], "atlasAction_burrow").getAttribute("checked"), "");
   assert.equal(namedField(seen[1], "atlasAction_fly").getAttribute("checked"), null);
@@ -112,6 +115,7 @@ test("Add and Edit use plain v14 DialogV2 content and persist serialized form de
   await settings._editPreset(null, "water");
   assert.equal(namedField(seen[3], "presetName").getAttribute("value"), "");
   assert.equal(namedField(seen[3], "presetCost").getAttribute("value"), "1");
+  assert.equal(namedField(seen[3], "presetColor").getAttribute("value"), "#4B9FBF");
   const addMode = namedField(seen[3], "presetMode");
   assert.equal(addMode.children.find(option => option.getAttribute("selected") !== null)
     .getAttribute("value"), "water");
