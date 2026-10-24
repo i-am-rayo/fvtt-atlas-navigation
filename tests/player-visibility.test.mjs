@@ -53,19 +53,23 @@ test("independent visual toggles never reveal a hidden road through checkpoint p
   assert.equal(isolated.segments.length, 0);
   assert.equal(isolated.roads.length, 0);
   assert.equal(isolated.checkpoints.length, 1);
-  assert.equal(isolated.checkpoints[0].name, "");
+  assert.equal(isolated.checkpoints[0].name, "Secret Observatory",
+    "an expressly revealed checkpoint may display its own name");
   assert.equal(isolated.checkpoints[0].roadId, null);
   assert.equal(isolated.checkpoints[0].elevationMeters, null);
   assert.equal(isolated.nodes.length, 1, "other hidden geometry is excluded");
   assert.ok(!JSON.stringify(isolated).includes("Secret Road"));
-  assert.ok(!JSON.stringify(isolated).includes("Secret Observatory"));
   const shownRoad = setRoadPlayerVisibility(shownCheckpoint, { roadId, visible: true });
   const both = playerAtlasOverlay(shownRoad);
   assert.equal(both.segments.length, 1);
   assert.equal(both.checkpoints.length, 1);
+  assert.equal(both.checkpoints[0].roadId, roadId,
+    "road subtitle is eligible only after its own independent reveal");
   const hiddenCheckpoint = setCheckpointPlayerVisibility(shownRoad, { checkpointId, visible: false });
   assert.equal(playerAtlasOverlay(hiddenCheckpoint).checkpoints.length, 0);
   assert.equal(playerAtlasOverlay(hiddenCheckpoint).segments.length, 1);
+  assert.ok(!JSON.stringify(playerAtlasOverlay(hiddenCheckpoint)).includes("Secret Observatory"),
+    "a hidden checkpoint name never enters the displayed projection");
   assert.throws(() => setRoadPlayerVisibility(old, { roadId, visible: "true" }), /on or off/);
 });
 

@@ -272,7 +272,7 @@ test("v0.2.24 GM elevation preview sits below the checkpoint and road labels", a
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });
 
-test("v0.2.24 ordinary player sees only revealed lines and icons, never labels or shortcuts", async () => {
+test("v0.2.24.2 ordinary player sees only revealed geometry, with no hidden metadata or editing", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
   const m = setup();
   const text = [];
@@ -305,7 +305,8 @@ test("v0.2.24 ordinary player sees only revealed lines and icons, never labels o
     m.controller.refresh();
     assert.ok(m.controller.graphics, "visible checkpoint creates overlay");
     assert.equal(m.controller.graphics.strokes, 0, "hidden road stays hidden");
-    assert.equal(m.listeners.has("pointermove"), false, "no player hover metadata");
+    assert.equal(m.listeners.has("pointermove"), true,
+      "an expressly revealed checkpoint can offer its name on hover");
     assert.equal(m.listeners.has("pointerdown"), false, "no GM shortcut capture");
     assert.deepEqual(text, [], "player receives neither hidden road nor checkpoint labels");
     atlas = setRoadPlayerVisibility(atlas, { roadId, visible: true });
@@ -1091,5 +1092,76 @@ test("v0.2.24.1 player road hover reveals only permitted names at crisp resoluti
     assert.ok(!m.controller.labels.some(item => item.text === "Hidden Trade Road"));
     m.listeners.get("pointerleave")();
     assert.ok(!m.controller.labels.some(item => item.text === "Public Way"));
+  } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
+});
+
+test("v0.2.24.2 player checkpoint hover reveals its name but never a hidden road", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  class Text {
+    constructor(value, style) {
+      this.text = String(value); this.style = style; this.resolution = 1;
+      this.anchor = { set() {} }; this.position = { set() {} };
+    }
+    destroy() {}
+  }
+  m.Graphics.prototype.addChild = function(label) { label.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: false } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    m.canvas.stage = { scale: { x: 1 } };
+    let index = 0;
+    const idFactory = () => "checkpoint-hover" + ++index;
+    let atlas = addRoad(createEmptyAtlas(), {
+      name: "Undiscovered Passage",
+      points: [{ x: 20, y: 30 }, { x: 150, y: 30 }], idFactory
+    });
+    atlas = addRoadCheckpoint(atlas, {
+      roadId: atlas.roads[0].id,
+      candidate: { kind: "node", nodeId: atlas.segments[0].from },
+      name: "Public Dock", elevationMeters: 420, idFactory
+    });
+    const roadId = atlas.roads[0].id;
+    const checkpointId = atlas.checkpoints[0].id;
+    atlas = editCheckpointAppearance(atlas, {
+      checkpointId,
+      appearance: { ...DEFAULT_CHECKPOINT_APPEARANCE, type: "fa",
+        icon: "solid:dragon", size: 40, showRoadName: true }
+    });
+    atlas = setCheckpointPlayerVisibility(atlas, { checkpointId, visible: true });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    assert.ok(m.listeners.has("pointermove"), "revealed icon receives player hover");
+    assert.equal(m.listeners.has("pointerdown"), false, "no player editing shortcut");
+    m.listeners.get("pointermove")(pointEvent(15, 16));
+    // The 40px floating icon is at canvas y=32, above its graph point at y=60.
+    assert.ok(m.controller.labels.some(item => item.text === "Public Dock"));
+    assert.ok(!m.controller.labels.some(item => item.text === "Undiscovered Passage"),
+      "visible checkpoint must not expose its hidden road's name");
+    assert.ok(!m.controller.labels.some(item => item.text.includes("420") ||
+      item.text.startsWith("Elevation")), "player receives no GM elevation");
+    const title = m.controller.labels.find(item => item.text === "Public Dock");
+    assert.ok(title.resolution >= 2, "checkpoint name uses sharp text");
+
+    atlas = setRoadPlayerVisibility(atlas, { roadId, visible: true });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    const subtitle = m.controller.labels.find(item => item.text === "Undiscovered Passage");
+    assert.ok(subtitle, "revealing the road independently permits its subtitle");
+    assert.equal(subtitle.style.fontStyle, "italic");
+
+    atlas = setRoadPlayerVisibility(atlas, { roadId, visible: false });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    assert.ok(m.controller.labels.some(item => item.text === "Public Dock"));
+    assert.ok(!m.controller.labels.some(item => item.text === "Undiscovered Passage"),
+      "hiding the road removes its subtitle without hiding the checkpoint name");
+
+    atlas = setCheckpointPlayerVisibility(atlas, { checkpointId, visible: false });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    assert.ok(!m.controller.labels.some(item => item.text === "Public Dock"),
+      "hiding the checkpoint removes its previously hovered name");
+    assert.equal(m.listeners.has("pointerdown"), false);
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });

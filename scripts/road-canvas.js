@@ -265,7 +265,9 @@ export class RoadCanvasController {
     this.hoverGeometry = [];
     this.lastHoverAt = 0;
     this.playerHoveredRoadId = null;
+    this.playerHoveredCheckpointId = null;
     this.playerHoverGeometry = [];
+    this.playerCheckpointHoverGeometry = [];
     this.playerHoverCanvasElement = null;
     this.playerMoveHandler = null;
     this.playerExitHandler = null;
@@ -1074,7 +1076,7 @@ export class RoadCanvasController {
     }
   }
 
-  /** Player projection permits revealed road labels only, never hidden-road or checkpoint info. */
+  /** Player projection includes only explicitly revealed road and checkpoint names. */
   #drawPlayerOverlay(canvas, graphics, atlas, zoom) {
     const visible = playerAtlasOverlay(atlas);
     const nodes = new Map(visible.nodes.map(node => [node.id, node]));
@@ -1120,27 +1122,43 @@ export class RoadCanvasController {
       return [{ id: checkpoint.id, x: marker.x, y: marker.y,
         checkpoint, position, appearance }];
     });
+    const hoverCheckpoints = [];
     for (const group of groupCheckpointMarkers(markers, zoom)) {
       if (group.members.length > 1) this.#drawCheckpointCluster(graphics, group, zoom);
       else {
         const { checkpoint, position, appearance } = group.members[0];
         this.#drawCheckpoint(graphics, position, checkpoint, appearance, zoom);
+        hoverCheckpoints.push({ id: checkpoint.id, x: position.x, y: position.y,
+          radius: 10 / zoom });
+        if (appearance.type !== "dot") hoverCheckpoints.push({
+          id: checkpoint.id, x: group.x, y: group.y,
+          radius: Math.max(10 / zoom,
+            checkpointCanvasSize(appearance.size, zoom) / 2 + 5 / zoom)
+        });
+        if (appearance.labelMode === "always" ||
+            this.playerHoveredCheckpointId === checkpoint.id) {
+          const roadName = roads.get(checkpoint.roadId)?.name;
+          this.#addCheckpointLabels(graphics, checkpoint.name, roadName,
+            appearance, group, zoom);
+        }
       }
     }
-    this.#trackPlayerRoadHover(canvas, hoverPaths);
+    this.#trackPlayerHover(canvas, hoverPaths, hoverCheckpoints);
   }
 
-  /** Player mouse listeners can only identify roads in the sanitized, visible projection. */
-  #trackPlayerRoadHover(canvas, candidates) {
+  /** Player mouse listeners can only identify items in the filtered projection. */
+  #trackPlayerHover(canvas, roads, checkpoints) {
     const element = canvas.app?.canvas ?? canvas.app?.view;
-    if (!element?.addEventListener || !candidates.length) {
-      this.#stopPlayerRoadHover();
+    if (!element?.addEventListener || (!roads.length && !checkpoints.length)) {
+      this.#stopPlayerHover();
       return;
     }
-    this.playerHoverGeometry = candidates;
+    this.playerHoverGeometry = roads;
+    this.playerCheckpointHoverGeometry = checkpoints;
     if (this.playerHoverCanvasElement === element) return;
-    this.#stopPlayerRoadHover();
-    this.playerHoverGeometry = candidates;
+    this.#stopPlayerHover();
+    this.playerHoverGeometry = roads;
+    this.playerCheckpointHoverGeometry = checkpoints;
     this.playerHoverCanvasElement = element;
     this.playerMoveHandler = event => {
       if (this.canvasProvider()?.scene?.id !== canvas.scene?.id) return;
@@ -1148,17 +1166,23 @@ export class RoadCanvasController {
       this.lastHoverAt = Date.now();
       const point = canvas.canvasCoordinatesFromClient?.({ x: event.clientX, y: event.clientY });
       if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return;
-      const hit = this.playerHoverGeometry.find(candidate =>
+      const checkpoint = this.playerCheckpointHoverGeometry.find(candidate =>
+        Math.hypot(point.x - candidate.x, point.y - candidate.y) <= candidate.radius);
+      const hit = checkpoint ? null : this.playerHoverGeometry.find(candidate =>
         nearRoadLine(point, candidate.path, candidate.tolerance));
       const roadId = hit?.roadId ?? null;
-      if (roadId !== this.playerHoveredRoadId) {
+      const checkpointId = checkpoint?.id ?? null;
+      if (roadId !== this.playerHoveredRoadId ||
+          checkpointId !== this.playerHoveredCheckpointId) {
         this.playerHoveredRoadId = roadId;
+        this.playerHoveredCheckpointId = checkpointId;
         this.refresh();
       }
     };
     this.playerExitHandler = () => {
-      if (this.playerHoveredRoadId !== null) {
+      if (this.playerHoveredRoadId !== null || this.playerHoveredCheckpointId !== null) {
         this.playerHoveredRoadId = null;
+        this.playerHoveredCheckpointId = null;
         this.refresh();
       }
     };
@@ -1166,19 +1190,21 @@ export class RoadCanvasController {
     element.addEventListener("pointerleave", this.playerExitHandler);
   }
 
-  #stopPlayerRoadHover() {
+  #stopPlayerHover() {
     this.playerHoverCanvasElement?.removeEventListener?.("pointermove", this.playerMoveHandler);
     this.playerHoverCanvasElement?.removeEventListener?.("pointerleave", this.playerExitHandler);
     this.playerHoverCanvasElement = null;
     this.playerMoveHandler = null;
     this.playerExitHandler = null;
     this.playerHoveredRoadId = null;
+    this.playerHoveredCheckpointId = null;
     this.playerHoverGeometry = [];
+    this.playerCheckpointHoverGeometry = [];
   }
 
   #clearPlayerOverlay() {
     this.#stopHover();
-    this.#stopPlayerRoadHover();
+    this.#stopPlayerHover();
     this.#clearLabels();
     if (!this.graphics) return;
     this.graphics.parent?.removeChild?.(this.graphics);
@@ -1227,7 +1253,7 @@ export class RoadCanvasController {
       this.#drawPlayerOverlay(canvas, g, atlas, zoom);
       return;
     }
-    this.#stopPlayerRoadHover();
+    this.#stopPlayerHover();
     const editing = this.pointEditor.session;
     if (editing && editing.sceneId === canvas.scene.id) {
       atlas = editing.drag?.preview ?? editing.working;
@@ -1387,7 +1413,7 @@ export class RoadCanvasController {
     this.zoomRefreshTimer = null;
     this.lastZoom = null;
     this.#stopHover();
-    this.#stopPlayerRoadHover();
+    this.#stopPlayerHover();
     this.#clearLabels();
     if (this.draft && !this.saving) this.cancel();
     if (this.pointEditor.session && !this.pointEditor.saving) this.pointEditor.cancel();

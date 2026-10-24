@@ -11,15 +11,16 @@ export function playerAtlasOverlay(atlas) {
   const roads = (atlas.roads ?? []).filter(road => isRoadVisibleToPlayers(atlas, road.id));
   const allowed = new Set(roads.map(road => road.id));
   const segments = atlas.segments.filter(segment => allowed.has(segment.roadId));
-  // A player checkpoint is just a marker in this first visual-only slice.
-  // Strip its road identity, name and elevation so a hidden-road tooltip
-  // cannot accidentally reveal anything, even after renderer changes.
+  // A revealed checkpoint may share its own name, but never elevation or
+  // the identity of a road that has not also been explicitly revealed.
+  // Player overlays must not derive tooltip details from raw Scene flags.
   const checkpoints = (atlas.checkpoints ?? []).filter(checkpoint =>
     atlas.schemaVersion >= PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION &&
     checkpoint.playerVisible === true).map(checkpoint => ({
       id: checkpoint.id, nodeId: checkpoint.nodeId,
       appearance: checkpoint.appearance,
-      name: "", elevationMeters: null, roadId: null
+      name: checkpoint.name, elevationMeters: null,
+      roadId: allowed.has(checkpoint.roadId) ? checkpoint.roadId : null
     }));
   const nodeIds = new Set(segments.flatMap(segment => [segment.from, segment.to]));
   for (const checkpoint of checkpoints) nodeIds.add(checkpoint.nodeId);
