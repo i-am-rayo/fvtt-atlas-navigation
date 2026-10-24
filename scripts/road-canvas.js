@@ -4,11 +4,14 @@ import { RoadPointEditor } from "./road-point-editor.js";
 import { roadHandles } from "./road-hit.js";
 import { attachmentRoadNames, findRoadSnap, suggestRoadName } from "./road-model.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
+import { atlasShortcutTarget } from "./atlas-canvas-hit.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
   roadStrokeSpans, roadLabelPoint, roadAppearanceMode } from "./road-appearance.js";
 import { defaultTravelPresets, validateTravelPresets,
   TRAVEL_PRESET_SETTING } from "./travel-preset-model.js";
+import { validateRoadAppearance } from "./road-appearance.js";
 import { checkpointIconPath, checkpointFontIcon, checkpointMarkerPosition,
+  checkpointCanvasSize,
   resolveCheckpointAppearance }
   from "./checkpoint-appearance.js";
 
@@ -239,9 +242,13 @@ export class RoadCanvasController {
     this.checkpointHoverGeometry = [];
     this.textureCache = new Map();
     this.fontStatus = new Map();
+    this.lastZoom = null;
+    this.zoomRefreshTimer = null;
     this.hoverCanvasElement = null;
     this.hoverHandler = null;
     this.hoverExitHandler = null;
+    this.shortcutHandler = null;
+    this.shortcutPointerHandler = null;
     this.hoverGeometry = [];
     this.lastHoverAt = 0;
     this.draft = null;
@@ -263,6 +270,27 @@ export class RoadCanvasController {
       saving: this.saving,
       mode: this.draft.mode
     };
+  }
+
+  getNewRoadOptions(scene) {
+    return this.draft?.sceneId === scene?.id && this.draft.mode === "new"
+      ? { ...this.draft.options } : null;
+  }
+
+  setNewRoadOptions(scene, updates) {
+    const draft = this.draft;
+    if (!draft || draft.sceneId !== scene?.id || draft.mode !== "new" ||
+        this.saving || draft.confirming) throw new Error("No active new road to configure.");
+    const options = { ...draft.options, ...updates };
+    if (typeof options.name !== "string" ||
+        options.name.length > 120) throw new Error("Road name must be 1–120 characters.");
+    if (options.presetId !== null &&
+        (typeof options.presetId !== "string" || options.presetId.length > 120)) {
+      throw new Error("Invalid road travel preset.");
+    }
+    if (options.appearance !== null) options.appearance = validateRoadAppearance(options.appearance);
+    draft.options = options;
+    this.refresh();
   }
 
   #changed() {
@@ -577,6 +605,7 @@ export class RoadCanvasController {
       scene, sceneId: scene.id, expectedRevision: atlas.revision,
       mode: "new", confirming: false,
       points: [], snap: [], element, onChange,
+      options: { name: suggestRoadName(atlas), presetId: null, appearance: null },
       onPointer: null, onKeydown: null
     };
     draft.onPointer = event => {
@@ -659,6 +688,10 @@ export class RoadCanvasController {
       this.notify()?.warn?.("Click at least two map points before finishing the road.");
       return false;
     }
+    if (!draft.options.name.trim()) {
+      this.notify()?.warn?.("Enter a road name before finishing.");
+      return false;
+    }
     try {
       const atlas = readAtlas(draft.scene);
       // Only endpoints ever snap; crossings and bends stay independent.
@@ -674,7 +707,7 @@ export class RoadCanvasController {
         draft.confirming = true;
         this.#changed();
         const accepted = await this.confirmAttach({
-          kind: "new", sourceNames: [suggestRoadName(atlas)],
+          kind: "new", sourceNames: [draft.options.name.trim()],
           targetNames: [...new Set(connections)]
         });
         if (this.draft !== draft) return false;
@@ -689,7 +722,8 @@ export class RoadCanvasController {
       this.saving = true;
       this.#changed();
       await saveNewRoad(draft.scene, {
-        points: draft.points, name: suggestRoadName(atlas),
+        points: draft.points, name: draft.options.name.trim(),
+        presetId: draft.options.presetId, appearance: draft.options.appearance,
         expectedRevision: draft.expectedRevision,
         snapEndpoints: [draft.snap[0], draft.snap.at(-1)],
         idFactory: this.idFactory
@@ -747,12 +781,20 @@ export class RoadCanvasController {
     this.labels = [];
   }
 
+  /** Installed by the Scene Atlas authoring bootstrap, never player-facing. */
+  setShortcutHandler(callback) {
+    this.shortcutHandler = callback;
+    this.refresh();
+  }
+
   #stopHover() {
     this.hoverCanvasElement?.removeEventListener?.("pointermove", this.hoverHandler);
     this.hoverCanvasElement?.removeEventListener?.("pointerleave", this.hoverExitHandler);
+    this.hoverCanvasElement?.removeEventListener?.("pointerdown", this.shortcutPointerHandler, true);
     this.hoverCanvasElement = null;
     this.hoverHandler = null;
     this.hoverExitHandler = null;
+    this.shortcutPointerHandler = null;
     this.hoveredRoadId = null;
     this.hoveredCheckpointId = null;
     this.hoverGeometry = [];
@@ -760,7 +802,8 @@ export class RoadCanvasController {
   }
 
   #trackHover(canvas) {
-    if (!this.hoverGeometry.length && !this.checkpointHoverGeometry.length) {
+    if (!this.hoverGeometry.length && !this.checkpointHoverGeometry.length &&
+        !this.shortcutHandler) {
       if (this.hoverCanvasElement) this.#stopHover();
       return;
     }
@@ -807,8 +850,27 @@ export class RoadCanvasController {
         this.refresh();
       }
     };
+    this.shortcutPointerHandler = event => {
+      if (event.button !== 0 || !event.shiftKey || event.altKey ||
+          event.ctrlKey || event.metaKey || !this.shortcutHandler ||
+          this.draft || this.pointEditor.session || this.saving ||
+          this.canvasProvider()?.scene?.id !== canvas.scene?.id) return;
+      const position = canvas.canvasCoordinatesFromClient?.({
+        x: event.clientX, y: event.clientY
+      });
+      if (!Number.isFinite(position?.x) || !Number.isFinite(position?.y)) return;
+      const atlas = readAtlas(canvas.scene);
+      const target = atlasShortcutTarget(atlas, position,
+        point => toCanvasPoint(canvas, atlas, point), canvas.stage?.scale?.x ?? 1);
+      if (!target) return;
+      event.preventDefault?.();
+      event.stopImmediatePropagation?.();
+      Promise.resolve().then(() => this.shortcutHandler(canvas.scene, target))
+        .catch(error => this.notify()?.error?.(error.message || String(error)));
+    };
     element.addEventListener("pointermove", this.hoverHandler);
     element.addEventListener("pointerleave", this.hoverExitHandler);
+    if (this.shortcutHandler) element.addEventListener("pointerdown", this.shortcutPointerHandler, true);
   }
 
   #addLabel(graphics, name, point, textColor, anchorX = 0.5) {
@@ -831,10 +893,15 @@ export class RoadCanvasController {
     this.labels.push(label);
   }
 
-  #addCheckpointLabels(graphics, checkpointName, roadName, appearance, point) {
+  #addCheckpointLabels(graphics, checkpointName, roadName, appearance, point, zoom) {
     if (!globalThis.PIXI?.Text || !graphics.addChild) return;
     const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
     const fill = Number.parseInt(appearance.textColor.slice(1), 16);
+    const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+    const size = checkpointCanvasSize(appearance.size, scale);
+    const nameScreenSize = Math.max(12, Math.min(22, 16 * Math.sqrt(scale)));
+    const roadScreenSize = Math.max(10, Math.min(18, 12 * Math.sqrt(scale)));
+    const textScale = 1 / scale;
     const add = (content, y, fontSize, fontWeight, fontStyle) => {
       const style = { fontFamily: "Arial", fontSize, fontWeight, fontStyle,
         fill, align: "left",
@@ -842,14 +909,16 @@ export class RoadCanvasController {
           : { stroke: 0x000000, strokeThickness: 3 }) };
       const label = new PIXI.Text(String(content), style);
       label.anchor?.set?.(0, 0.5);
-      label.position?.set?.(point.x + appearance.size / 2 + 12, y);
+      label.position?.set?.(point.x + size / 2 + 12 / scale, y);
       label.eventMode = "none";
       graphics.addChild(label);
       this.labels.push(label);
     };
     const secondLine = Boolean(appearance.showRoadName && roadName);
-    add(checkpointName, point.y - (secondLine ? 9 : 0), 16, "bold", "normal");
-    if (secondLine) add(roadName, point.y + 10, 12, "normal", "italic");
+    add(checkpointName, point.y - (secondLine ? 9 * textScale : 0),
+      nameScreenSize * textScale, "bold", "normal");
+    if (secondLine) add(roadName, point.y + 10 * textScale,
+      roadScreenSize * textScale, "normal", "italic");
   }
 
   #fontReady(font) {
@@ -886,21 +955,23 @@ export class RoadCanvasController {
     return null;
   }
 
-  #drawCheckpoint(graphics, position, checkpoint, appearance) {
+  #drawCheckpoint(graphics, position, checkpoint, appearance, zoom) {
     const selected = checkpoint.id === this.selectedCheckpointId;
     const color = selected ? 0x8ef6c5 : Number.parseInt(appearance.color.slice(1), 16);
-    const marker = checkpointMarkerPosition(position, appearance);
+    const marker = checkpointMarkerPosition(position, appearance, zoom);
+    const size = appearance.type === "dot"
+      ? appearance.size : checkpointCanvasSize(appearance.size, zoom);
     const src = checkpointIconPath(appearance);
     const texture = this.#iconTexture(src);
     const font = appearance.type === "fa" ? checkpointFontIcon(appearance.icon) : null;
     if (appearance.type !== "dot") drawDot(graphics, position, color, 3);
-    if (selected) drawDot(graphics, marker, 0x8ef6c5, appearance.size / 2 + 4);
+    if (selected) drawDot(graphics, marker, 0x8ef6c5, size / 2 + 4 / zoom);
     if (texture && globalThis.PIXI?.Sprite && graphics.addChild) {
       const sprite = new PIXI.Sprite(texture);
       sprite.anchor?.set?.(0.5);
       sprite.position?.set?.(marker.x, marker.y);
-      sprite.width = appearance.size;
-      sprite.height = appearance.size;
+      sprite.width = size;
+      sprite.height = size;
       sprite.eventMode = "none";
       if (appearance.type === "fa") sprite.tint = color;
       graphics.addChild(sprite);
@@ -908,7 +979,7 @@ export class RoadCanvasController {
     } else if (font && globalThis.PIXI?.Text && graphics.addChild && this.#fontReady(font)) {
       const glyph = new PIXI.Text(font.glyph, {
         fontFamily: font.family, fontWeight: font.weight,
-        fontSize: appearance.size, fill: color, align: "center"
+        fontSize: size, fill: color, align: "center"
       });
       glyph.anchor?.set?.(0.5);
       glyph.position?.set?.(marker.x, marker.y);
@@ -931,6 +1002,9 @@ export class RoadCanvasController {
       this.graphicsCanvas = canvas;
     }
     const g = this.graphics;
+    const zoom = Number.isFinite(canvas.stage?.scale?.x) && canvas.stage.scale.x > 0
+      ? canvas.stage.scale.x : 1;
+    this.lastZoom = zoom;
     this.#clearLabels();
     g.clear();
     let atlas;
@@ -999,23 +1073,23 @@ export class RoadCanvasController {
       if (!point) continue;
       const position = toCanvasPoint(canvas, atlas, point);
       const appearance = resolveCheckpointAppearance(checkpoint.appearance);
-      this.#drawCheckpoint(g, position, checkpoint, appearance);
+      this.#drawCheckpoint(g, position, checkpoint, appearance, zoom);
       if (appearance.labelMode === "hover") {
-        const marker = checkpointMarkerPosition(position, appearance);
+        const marker = checkpointMarkerPosition(position, appearance, zoom);
         this.checkpointHoverGeometry.push({
           id: checkpoint.id, x: position.x, y: position.y,
-          radius: 10
+          radius: 10 / zoom
         });
         if (appearance.type !== "dot") this.checkpointHoverGeometry.push({
           id: checkpoint.id, x: marker.x, y: marker.y,
-          radius: Math.max(10, appearance.size / 2 + 5)
+          radius: Math.max(10 / zoom, checkpointCanvasSize(appearance.size, zoom) / 2 + 5 / zoom)
         });
       }
       if (appearance.labelMode === "always" ||
           (appearance.labelMode === "hover" && this.hoveredCheckpointId === checkpoint.id)) {
         const roadName = roads.get(checkpoint.roadId)?.name;
         this.#addCheckpointLabels(g, checkpoint.name, roadName, appearance,
-          checkpointMarkerPosition(position, appearance));
+          checkpointMarkerPosition(position, appearance, zoom), zoom);
       }
     }
     this.#trackHover(canvas);
@@ -1036,7 +1110,16 @@ export class RoadCanvasController {
         if (hit) points = [...points.slice(0, -1), { x: hit.x, y: hit.y }];
       }
       const canvasPoints = points.map(p => toCanvasPoint(canvas, visualAtlas, p));
-      drawLine(g, canvasPoints, 0xffd166, 4, 0.85);
+      const previewMode = travelPresets.find(preset =>
+        preset.id === draft.options?.presetId)?.mode ?? "land";
+      const previewStyle = draft.mode === "new"
+        ? resolveRoadAppearance({ appearance: draft.options.appearance },
+            worldDefaults, previewMode)
+        : null;
+      drawLine(g, canvasPoints,
+        previewStyle ? Number.parseInt(previewStyle.color.slice(1), 16) : 0xffd166,
+        previewStyle?.width ?? 4, previewStyle?.opacity ?? 0.85,
+        previewStyle?.pattern ?? "solid");
       for (const point of canvasPoints) drawDot(g, point, 0xffd166);
     }
     if (editing && editing.sceneId === canvas.scene.id) {
@@ -1046,7 +1129,22 @@ export class RoadCanvasController {
     }
   }
 
+  /** Foundry v14 canvasPan hook: redraw only for zoom changes, not ordinary pans. */
+  onCanvasPan(view) {
+    if (view !== this.canvasProvider() || !view?.ready || !globalThis.game?.user?.isGM) return;
+    const zoom = view.stage?.scale?.x;
+    if (!Number.isFinite(zoom) || Math.abs(zoom - (this.lastZoom ?? zoom)) < 0.01) return;
+    if (this.zoomRefreshTimer !== null) clearTimeout(this.zoomRefreshTimer);
+    this.zoomRefreshTimer = setTimeout(() => {
+      this.zoomRefreshTimer = null;
+      if (view === this.canvasProvider() && view.ready) this.refresh();
+    }, 60);
+  }
+
   tearDown() {
+    if (this.zoomRefreshTimer !== null) clearTimeout(this.zoomRefreshTimer);
+    this.zoomRefreshTimer = null;
+    this.lastZoom = null;
     this.#stopHover();
     this.#clearLabels();
     if (this.draft && !this.saving) this.cancel();

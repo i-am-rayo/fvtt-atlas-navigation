@@ -19,11 +19,11 @@ test("module manifest declares a v14 system-agnostic module shell", async () => 
   assert.equal("relationships" in manifest, false);
   assert.equal(
     manifest.manifest,
-    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2m-checkpoint-appearance/module.json"
+    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2n-authoring-interactions/module.json"
   );
   assert.equal(
     manifest.download,
-    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2m-checkpoint-appearance.zip"
+    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2n-authoring-interactions.zip"
   );
   assert.ok(manifest.manifest.endsWith("/module.json"));
   assert.ok(manifest.download.endsWith(".zip"));

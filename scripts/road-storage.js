@@ -28,7 +28,17 @@ async function saveChange(scene, expectedRevision, update) {
   return next;
 }
 
-export function saveNewRoad(scene, { points, name, expectedRevision, idFactory, snapEndpoints }) {
+export function saveNewRoad(scene, { points, name, expectedRevision, idFactory, snapEndpoints,
+  presetId = null, appearance = null }) {
+  const style = appearance === null ? null : validateRoadAppearance(appearance);
+  if (presetId !== null) {
+    validateTravelPresetId(presetId);
+    const settings = validateTravelPresets(
+      game.settings.get(MODULE_ID, TRAVEL_PRESET_SETTING));
+    if (!settings.presets.some(preset => preset.id === presetId)) {
+      throw new Error("Choose an existing world travel preset for the new road.");
+    }
+  }
   return saveChange(scene, expectedRevision, previous => {
     if (previous.schemaVersion === 1 && (previous.nodes.length || previous.segments.length)) {
       throw new Error("Anchor legacy roads before adding new ones.");
@@ -37,7 +47,17 @@ export function saveNewRoad(scene, { points, name, expectedRevision, idFactory, 
       ? anchorLegacyAtlas(previous, { x: 0, y: 0 }) : previous;
     const modern = local.schemaVersion === 2 && !local.nodes.length && !local.segments.length
       ? upgradeAtlasRoadGroups(local) : local;
-    return addRoad(modern, { points, name, idFactory, snapEndpoints });
+    const created = addRoad(modern, { points, name, idFactory, snapEndpoints });
+    if (presetId === null && style === null) return created;
+    const upgraded = style !== null
+      ? upgradeAtlasRoadTextAppearance(created)
+      : upgradeAtlasTravelPresets(created);
+    const newId = upgraded.roads.at(-1)?.id;
+    return { ...upgraded, roads: upgraded.roads.map(road => road.id === newId
+      ? { ...road,
+        ...(presetId !== null ? { travelPresetId: presetId } : {}),
+        ...(style !== null ? { appearance: style } : {}) }
+      : road) };
   });
 }
 

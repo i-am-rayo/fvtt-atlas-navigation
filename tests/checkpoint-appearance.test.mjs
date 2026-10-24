@@ -8,6 +8,7 @@ import { addRoadCheckpoint, editCheckpointAppearance, editRoadCheckpoint }
 import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT,
   CHECKPOINT_FREE_ICONS, checkpointFontIcon, findCheckpointIcons,
   validateCheckpointAppearance, checkpointIconPath, checkpointMarkerPosition,
+  checkpointCanvasSize,
   DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
 import { saveCheckpointAppearance } from "../scripts/road-storage.js";
 import { ATLAS_FLAG, MODULE_ID } from "../scripts/atlas-storage.js";
@@ -31,6 +32,36 @@ function fixture() {
 const fancy = { ...DEFAULT_CHECKPOINT_APPEARANCE, type: "fa",
   icon: "mountain", color: "#edcc44", textColor: "#171717",
   labelMode: "hover", showRoadName: true, size: 32 };
+
+test("v0.2.22 RPG icon catalog is curated but existing/advanced brand picks stay valid", () => {
+  const recommended = findCheckpointIcons("", "all", "rpg");
+  assert.ok(recommended.length > 100 && recommended.length < 300);
+  assert.ok(recommended.every(icon => !icon.id.startsWith("brands:")));
+  assert.ok(recommended.some(icon => icon.id === "solid:dragon"));
+  assert.ok(findCheckpointIcons("bridge", "all", "travel")
+    .some(icon => icon.id === "solid:bridge"));
+  assert.equal(findCheckpointIcons("github", "all", "rpg").length, 0);
+  assert.ok(findCheckpointIcons("github", "all", "all")
+    .some(icon => icon.id === "brands:github"));
+  assert.doesNotThrow(() => validateCheckpointAppearance({ ...fancy,
+    icon: "brands:github" }));
+});
+
+test("v0.2.22 checkpoint zoom changes screen size and vertical offset only", () => {
+  const point = { x: 300, y: 440 };
+  const normal = checkpointMarkerPosition(point, fancy, 1);
+  assert.equal(checkpointCanvasSize(32, 1), 32);
+  assert.equal(normal.y, 416);
+  for (const zoom of [0.25, 0.5, 1, 2, 4]) {
+    const pixels = checkpointCanvasSize(32, zoom) * zoom;
+    assert.ok(pixels >= 18 && pixels <= 56);
+    const raised = checkpointMarkerPosition(point, fancy, zoom);
+    assert.equal(raised.x, point.x);
+    assert.ok(raised.y < point.y);
+    assert.deepEqual(point, { x: 300, y: 440 });
+  }
+  assert.deepEqual(checkpointMarkerPosition(point, DEFAULT_CHECKPOINT_APPEARANCE, 4), point);
+});
 
 test("v8 checkpoint appearance is an explicit lossless GM-authored migration", () => {
   const old = fixture();
@@ -197,6 +228,13 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const search = all(root).find(node => node.tag === "input" && node.type === "search");
     search.value = "github";
     search.listeners.get("input")();
+    assert.ok(!all(root).some(node => node.tag === "button" &&
+      node.title?.startsWith("brands:github — ")),
+    "RPG-first mode omits unrelated brand icons");
+    const category = all(root).find(node => node.tag === "select" &&
+      node.children.some(child => child.value === "rpg"));
+    category.value = "all";
+    category.listeners.get("change")();
     assert.ok(all(root).some(node => node.tag === "button" &&
       node.title?.startsWith("brands:github — ")), "search draws relevant brand glyphs");
     assert.ok(all(root).filter(node => node.tag === "button").length < 85);
