@@ -5,7 +5,8 @@ import { listSceneRegions } from "./region-atlas.js";
 import { listRoadCheckpoints } from "./checkpoint-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
-import { availableMovementActions, unavailableMovementActions } from "./native-movement-cost.js";
+import { availableMovementActions, unavailableMovementActions,
+  previewNativeMovementCost } from "./native-movement-cost.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -531,6 +532,23 @@ function atlasPanel(scene, atlas, actions, refresh) {
             game.i18n.localize(action.label) || action.label])
         ], selected.movementAction || "", value => { selected.movementAction = value; }));
       }
+      // Validate the actual preset value before offering the create/preview
+      // action; the action-availability probe only uses a sample value.
+      if (selected.applyNativeCost && selected.presetId && selected.movementAction) {
+        try {
+          selected.nativeCostPreview =
+            previewNativeMovementCost(selected.presetId, selected.movementAction);
+        } catch (error) {
+          selected.nativeCostPreview = { ok: false, message: error.message };
+        }
+        if (!selected.nativeCostPreview.ok) {
+          const warning = node("p", selected.nativeCostPreview.message, "hint");
+          warning.style.color = "var(--color-text-danger, #a33131)";
+          generatedSection.appendChild(warning);
+        }
+      } else {
+        selected.nativeCostPreview = null;
+      }
       generatedSection.appendChild(node("p",
         supported.length ? label("FVTTATLAS.Cost.Hint") : label("FVTTATLAS.Cost.Unavailable"), "hint"));
       // A selectable Token action is not necessarily a configurable Region-cost
@@ -566,7 +584,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
         applyNativeCost: selected.kind === "corridor" && !!selected.applyNativeCost,
         movementAction: selected.kind === "corridor" ? selected.movementAction : null
       }, refresh));
-    create.disabled = !!draft || (selected.kind === "corridor" && checkpoints.length < 2);
+    create.disabled = !!draft || (selected.kind === "corridor" && checkpoints.length < 2) ||
+      (selected.kind === "corridor" && selected.applyNativeCost &&
+        (!selected.movementAction || selected.nativeCostPreview?.ok === false));
     generatedSection.appendChild(create);
   }
   const generated = listGeneratedRegions(scene);
