@@ -191,7 +191,7 @@ test("v0.2.25 World curve presets smooth display paths without touching original
   assert.throws(() => smoothRoadPath(vertices, "unbounded"), /curvature preset/);
 });
 
-test("v0.2.25 World curvature reader uses registered choice or safe gentle default", () => {
+test("v0.2.25 World curvature reader uses registered choice or safe strong default", () => {
   const previous = globalThis.game;
   try {
     globalThis.game = { settings: { get(_module, setting) {
@@ -199,9 +199,9 @@ test("v0.2.25 World curvature reader uses registered choice or safe gentle defau
     } } };
     assert.equal(readRoadCurvePreset(), "strong");
     globalThis.game.settings.get = () => "unsupported";
-    assert.equal(readRoadCurvePreset(), "gentle");
+    assert.equal(readRoadCurvePreset(), "strong");
     globalThis.game.settings.get = () => undefined;
-    assert.equal(readRoadCurvePreset(), "gentle");
+    assert.equal(readRoadCurvePreset(), "strong");
   } finally { globalThis.game = previous; }
 });
 
