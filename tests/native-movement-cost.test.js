@@ -394,6 +394,7 @@ test("v0.2.18 advisory distinguishes un-applied, matching, stale and GM-edited c
  assert.equal(nativeCostPresetStatus(edited,preset).state,"edited");
  assert.equal(nativeCostPresetStatus({...managed,managed:false},preset).state,"manual");
  assert.equal(nativeCostPresetStatus({...managed,count:2},preset).state,"manual");
+ assert.equal(nativeCostPresetStatus({...managed,disabled:true},preset).state,"disabled");
  assert.equal(nativeCostPresetStatus({...managed,
    detail:{...managed.detail,presetId:"other"}},preset).state,"different");
  const legacy={...preset,movementCosts:null,movementCostMultiplier:1.5};
