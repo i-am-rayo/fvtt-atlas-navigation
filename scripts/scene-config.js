@@ -5,6 +5,7 @@ import { listSceneRegions } from "./region-atlas.js";
 import { listRoadCheckpoints } from "./checkpoint-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
+import { presetCostSummary } from "./travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions,
   previewNativeMovementCost } from "./native-movement-cost.js";
 
@@ -500,7 +501,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
       const choices = [["", label("FVTTATLAS.Travel.None")],
         ...travelPresets.map(p => [
           p.id, p.mode.toUpperCase() + " — " + p.name +
-            " (cost ×" + p.movementCostMultiplier + ")"
+            " (" + presetCostSummary(p) + ")"
         ])];
       addField("FVTTATLAS.Travel.CorridorPreset", makeSelect(
         choices, selected.presetId ?? "", value => {
@@ -510,6 +511,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
           selected.movementAction = "";
         }));
       const supported = availableMovementActions();
+      const selectedPreset = presetById.get(selected.presetId);
+      const perMode = selectedPreset && selectedPreset.movementCosts !== null;
       const costOption = node("label");
       costOption.style.display = "flex";
       costOption.style.gap = "0.5rem";
@@ -525,7 +528,12 @@ function atlasPanel(scene, atlas, actions, refresh) {
       });
       costOption.append(checkbox, node("span", label("FVTTATLAS.Cost.OptIn")));
       generatedSection.appendChild(costOption);
-      if (selected.applyNativeCost && supported.length && selected.presetId) {
+      if (selected.applyNativeCost && perMode) {
+        generatedSection.appendChild(node("p",
+          "One native Behavior with selected movement modes: " +
+            presetCostSummary(selectedPreset), "hint"));
+      }
+      if (selected.applyNativeCost && !perMode && supported.length && selected.presetId) {
         addField("FVTTATLAS.Cost.Action", makeSelect([
           ["", label("FVTTATLAS.Cost.Choose")],
           ...supported.map(action => [action.id,
@@ -534,10 +542,12 @@ function atlasPanel(scene, atlas, actions, refresh) {
       }
       // Validate the actual preset value before offering the create/preview
       // action; the action-availability probe only uses a sample value.
-      if (selected.applyNativeCost && selected.presetId && selected.movementAction) {
+      if (selected.applyNativeCost && selected.presetId &&
+          (perMode || selected.movementAction)) {
         try {
           selected.nativeCostPreview =
-            previewNativeMovementCost(selected.presetId, selected.movementAction);
+            previewNativeMovementCost(selected.presetId,
+              perMode ? null : selected.movementAction);
         } catch (error) {
           selected.nativeCostPreview = { ok: false, message: error.message };
         }
@@ -586,7 +596,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
       }, refresh));
     create.disabled = !!draft || (selected.kind === "corridor" && checkpoints.length < 2) ||
       (selected.kind === "corridor" && selected.applyNativeCost &&
-        (!selected.movementAction || selected.nativeCostPreview?.ok === false));
+        ((!perMode && !selected.movementAction) ||
+          selected.nativeCostPreview?.ok !== true));
     generatedSection.appendChild(create);
   }
   const generated = listGeneratedRegions(scene);
@@ -606,14 +617,17 @@ function atlasPanel(scene, atlas, actions, refresh) {
         : region.presetId
           ? preset
             ? label("FVTTATLAS.Travel.CorridorPreset") + ": " + preset.name +
-              " (cost ×" + preset.movementCostMultiplier + ")"
+              " (" + presetCostSummary(preset) + ")"
             : label("FVTTATLAS.Travel.MissingPreset")
           : label("FVTTATLAS.Travel.None"), "hint"));
       if (region.nativeCost.existing) {
-        const summary = region.nativeCost.managed && region.nativeCost.detail
-          ? label("FVTTATLAS.Cost.Managed") + " · ×" +
-            region.nativeCost.detail.multiplier + " (" +
-            region.nativeCost.detail.action + ")"
+        const authored = region.nativeCost.detail;
+        const summary = region.nativeCost.managed && authored
+          ? label("FVTTATLAS.Cost.Managed") + " · " +
+            (authored.schemaVersion === 1
+              ? authored.action + " ×" + authored.multiplier
+              : Object.entries(authored.movementCosts).map(([action, cost]) =>
+                action + " ×" + cost).join(", "))
           : label("FVTTATLAS.Cost.Existing");
         detail.appendChild(node("div", summary, "hint"));
       }
@@ -633,7 +647,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
         const apply = button("⬆", label("FVTTATLAS.Cost.ApplyExisting"),
           () => actions.applyGeneratedRegionCost(scene, region, refresh));
         apply.disabled = !!draft || !region.presetId || !presetById.has(region.presetId) ||
-          region.nativeCost.existing || availableMovementActions().length === 0;
+          region.nativeCost.existing || availableMovementActions().length === 0 ||
+          (presetById.get(region.presetId)?.movementCosts !== null &&
+            !Object.keys(presetById.get(region.presetId)?.movementCosts ?? {}).length);
         controls.appendChild(apply);
       }
       const regenerate = button("↻", label("FVTTATLAS.Generated.Regenerate"),

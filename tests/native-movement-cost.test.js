@@ -112,7 +112,7 @@ test("creation applies exactly one native Behavior ONLY when checked, and remain
   const {scene,regions,regionRecords,settings}=setup();
   const plan=planSceneGeneratedRegion(scene,settings);
   await saveGeneratedNativeRegion(scene,plan,{presetId:"land-stone",
-    movementAction:"walk",expectedMultiplier:1.5});
+    movementAction:"walk",expectedMultiplier:1.5,applyNativeCost:true});
   assert.equal(regionRecords[0].behaviors.length,1);
   assert.equal(regionRecords[0].behaviors[0].system.difficulties.walk,1.5);
   assert.equal(nativeCostSummary(regions.get("native1")).managed,true);
@@ -130,10 +130,10 @@ test("reject invalid action or stale cost before creating any native Region",asy
   const {scene,regionRecords,settings}=setup();
   const plan=planSceneGeneratedRegion(scene,settings);
   await assert.rejects(()=>saveGeneratedNativeRegion(scene,plan,{
-    presetId:"land-stone",movementAction:"crawl",expectedMultiplier:1.5
+    presetId:"land-stone",movementAction:"crawl",expectedMultiplier:1.5,applyNativeCost:true
   }),/cannot store an independent native Region cost/);
   await assert.rejects(()=>saveGeneratedNativeRegion(scene,plan,{
-    presetId:"land-stone",movementAction:"walk",expectedMultiplier:2
+    presetId:"land-stone",movementAction:"walk",expectedMultiplier:2,applyNativeCost:true
   }),/changed since confirmation/);
   assert.equal(regionRecords.length,0);
 });
@@ -174,7 +174,7 @@ test("manual cost and GM-only boundaries remain protected",async()=>{
 test("preset edits do not retroactively update already authored costs",async()=>{
   const {scene,regions,settings,changeWorld}=setup();
   await saveGeneratedNativeRegion(scene,planSceneGeneratedRegion(scene,settings),{
-    presetId:"land-stone",movementAction:"walk",expectedMultiplier:1.5
+    presetId:"land-stone",movementAction:"walk",expectedMultiplier:1.5,applyNativeCost:true
   });
   const saved=regions.get("native1").behaviors[0].system.difficulties.walk;
   const revised=defaultTravelPresets();
@@ -209,7 +209,7 @@ test("v14 quarter-step rounding is shown before creation and never silently appl
     /×1.10.*×1.00/);
   await assert.rejects(()=>saveGeneratedNativeRegion(scene,
     planSceneGeneratedRegion(scene,settings),{
-      presetId:"land-stone",movementAction:"swim",expectedMultiplier:1.1
+      presetId:"land-stone",movementAction:"swim",expectedMultiplier:1.1,applyNativeCost:true
     }),/×1.10.*×1.00/);
   assert.equal(regionRecords.length,0);
   stone.movementCostMultiplier=1.2;
@@ -222,4 +222,155 @@ test("v14 quarter-step rounding is shown before creation and never silently appl
   assert.equal(previewNativeMovementCost("land-stone","swim").ok,true);
   assert.equal(buildNativeMovementCostBehavior("land-stone","swim")
     .system.difficulties.swim,1.25);
+});
+
+
+test("multi-action preset creates ONE native Behavior with exact per-mode values",async()=>{
+  const {scene,regionRecords,regions,settings,changeWorld}=setup();
+  const world=defaultTravelPresets();
+  const preset=world.presets.find(p=>p.id==="land-stone");
+  preset.movementCosts={walk:0.75,fly:2.5};
+  changeWorld(world);
+  const preview=previewNativeMovementCost("land-stone");
+  assert.equal(preview.ok,true);
+  assert.deepEqual(preview.nativeData.difficulties,{walk:0.75,fly:2.5});
+  const behavior=buildNativeMovementCostBehavior("land-stone");
+  assert.equal(behavior.flags[MODULE_ID].nativeMovementCost.schemaVersion,2);
+  await saveGeneratedNativeRegion(scene,planSceneGeneratedRegion(scene,settings),{
+    presetId:"land-stone",applyNativeCost:true,expectedCosts:{fly:2.5,walk:0.75}
+  });
+  assert.equal(regionRecords.length,1);
+  assert.equal(regionRecords[0].behaviors.length,1);
+  assert.deepEqual(regionRecords[0].behaviors[0].system.difficulties,
+    {walk:0.75,fly:2.5});
+  assert.equal(nativeCostSummary(regions.get("native1")).managed,true);
+  assert.deepEqual(nativeCostSummary(regions.get("native1")).detail.movementCosts,
+    {walk:0.75,fly:2.5});
+});
+
+test("unselected modes mean No override; 0 blocks nothing and cannot be authored",()=>{
+  const {changeWorld}=setup();
+  const world=defaultTravelPresets();
+  const preset=world.presets.find(p=>p.id==="land-stone");
+  preset.movementCosts={walk:2};
+  changeWorld(world);
+  assert.deepEqual(buildNativeMovementCostBehavior("land-stone").system.difficulties,
+    {walk:2});
+  preset.movementCosts={};
+  assert.match(previewNativeMovementCost("land-stone").message,/no movement-cost overrides/);
+});
+
+test("multi-action native preview refuses unsupported or coerced costs atomically",async()=>{
+  const {scene,regionRecords,settings,changeWorld}=setup();
+  const world=defaultTravelPresets();
+  world.presets.find(p=>p.id==="land-stone").movementCosts={walk:0.75,swim:1.25};
+  changeWorld(world);
+  assert.match(previewNativeMovementCost("land-stone").message,/cannot independently author/);
+  await assert.rejects(()=>saveGeneratedNativeRegion(scene,
+    planSceneGeneratedRegion(scene,settings),{
+      presetId:"land-stone",applyNativeCost:true,
+      expectedCosts:{walk:0.75,swim:1.25}
+    }),/cannot independently author/);
+  assert.equal(regionRecords.length,0);
+  class RoundedCostModel extends NativeModel {
+    constructor(source) {
+      super({difficulties:Object.fromEntries(Object.entries(source.difficulties??{})
+        .map(([id,cost])=>[id,Math.round(cost*4)/4]))});
+    }
+  }
+  globalThis.CONFIG.RegionBehavior.dataModels.modifyMovementCost=RoundedCostModel;
+  world.presets.find(p=>p.id==="land-stone").movementCosts={walk:0.75,fly:1.1};
+  changeWorld(world);
+  assert.match(previewNativeMovementCost("land-stone").message,/×1.10.*×1.00/);
+  assert.equal(regionRecords.length,0);
+});
+
+test("existing corridor applies multi-cost once and rejects stale world edit",async()=>{
+  const {scene,regions,behaviorRecords,settings,changeWorld}=setup();
+  const world=defaultTravelPresets();
+  world.presets.find(p=>p.id==="land-stone").movementCosts={walk:0.75,fly:2};
+  changeWorld(world);
+  await saveGeneratedNativeRegion(scene,planSceneGeneratedRegion(scene,settings),
+    {presetId:"land-stone"});
+  const region=regions.get("native1");
+  await assert.rejects(()=>applyGeneratedRegionMovementCost(scene,"native1",{
+    expectedPresetId:"land-stone",expectedCosts:{walk:1,fly:2}
+  }),/changed since confirmation/);
+  assert.equal(behaviorRecords.length,0);
+  await applyGeneratedRegionMovementCost(scene,"native1",{
+    expectedPresetId:"land-stone",expectedCosts:{fly:2,walk:0.75}
+  });
+  assert.equal(behaviorRecords.length,1);
+  assert.equal(region.behaviors.length,1);
+  assert.equal(region.behaviors[0].system.difficulties.fly,2);
+  await assert.rejects(()=>applyGeneratedRegionMovementCost(scene,"native1",{
+    expectedPresetId:"land-stone",expectedCosts:{fly:2,walk:0.75}
+  }),/already has a native Modify Movement Cost/);
+});
+
+test("Foundry mutating source cannot create a false stale-preset warning", async () => {
+  const {scene,regions,behaviorRecords,settings,changeWorld}=setup();
+  const world=defaultTravelPresets();
+  const preset=world.presets.find(p=>p.id==="water-rough");
+  preset.movementCosts={walk:10,fly:1.5,swim:1.5,burrow:10};
+  changeWorld(world);
+  globalThis.CONFIG.Token.movement.actions.swim={label:"Swim"};
+  globalThis.CONFIG.Token.movement.actions.burrow={label:"Burrow"};
+  class MutatingNativeModel extends NativeModel {
+    constructor(source) {
+      // A native schema may insert a neutral default while cleaning its input.
+      source.difficulties.nativeDefault=1;
+      super(source);
+    }
+  }
+  globalThis.CONFIG.RegionBehavior.dataModels.modifyMovementCost=MutatingNativeModel;
+  await saveGeneratedNativeRegion(scene,planSceneGeneratedRegion(scene,settings),{
+    presetId:"water-rough"
+  });
+  const expected={walk:10,fly:1.5,swim:1.5,burrow:10};
+  assert.equal(previewNativeMovementCost("water-rough").ok,true);
+  await applyGeneratedRegionMovementCost(scene,"native1",{
+    expectedPresetId:"water-rough",expectedCosts:structuredClone(expected)
+  });
+  assert.equal(behaviorRecords.length,1);
+  const saved=behaviorRecords[0];
+  assert.deepEqual(saved.flags[MODULE_ID].nativeMovementCost.movementCosts,expected);
+  assert.deepEqual(world.presets.find(p=>p.id==="water-rough").movementCosts,expected);
+  assert.equal(saved.system.difficulties.nativeDefault,1);
+  assert.equal(nativeCostSummary(regions.get("native1")).managed,true);
+});
+
+test("mutating native normalization still fails exact comparison before any write", async () => {
+  const {scene,regionRecords,settings,changeWorld}=setup();
+  const world=defaultTravelPresets();
+  const preset=world.presets.find(p=>p.id==="water-rough");
+  preset.movementCosts={walk:1.1,fly:1.25};
+  changeWorld(world);
+  class MutatingRoundingModel extends NativeModel {
+    constructor(source) {
+      for (const id of Object.keys(source.difficulties)) {
+        source.difficulties[id]=Math.round(source.difficulties[id]*4)/4;
+      }
+      super(source);
+    }
+  }
+  globalThis.CONFIG.RegionBehavior.dataModels.modifyMovementCost=MutatingRoundingModel;
+  const preview=previewNativeMovementCost("water-rough");
+  assert.equal(preview.ok,false);
+  assert.equal(preview.requested,1.1);
+  assert.equal(preview.effective,1);
+  await assert.rejects(()=>saveGeneratedNativeRegion(scene,
+    planSceneGeneratedRegion(scene,settings),{
+      presetId:"water-rough",applyNativeCost:true,
+      expectedCosts:{walk:1.1,fly:1.25}
+    }),/×1.10.*×1.00/);
+  assert.equal(regionRecords.length,0);
+
+  // The legacy single-action flow must also reject normalization.
+  preset.movementCosts=null;
+  preset.movementCostMultiplier=1.1;
+  changeWorld(world);
+  const legacy=previewNativeMovementCost("water-rough","walk");
+  assert.equal(legacy.ok,false);
+  assert.equal(legacy.effective,1);
 });

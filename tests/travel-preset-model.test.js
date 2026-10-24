@@ -56,6 +56,43 @@ test("editing retains stable ID; deleting preserves untouched snapshot", () => {
   assert.throws(()=>removeTravelPreset(original,"missing"),/no longer exists/);
 });
 
+
+test("v1 world catalog upgrades read-only to v2 without editing old cost data or Region flags", () => {
+  const old = {schemaVersion:1,presets:[
+    {id:"old",mode:"water",name:"Old Sea",movementCostMultiplier:1.1}
+  ]};
+  const snap = structuredClone(old);
+  const upgraded = validateTravelPresets(old);
+  assert.equal(upgraded.schemaVersion,2);
+  assert.deepEqual(upgraded.presets[0].movementCosts,null);
+  assert.equal(upgraded.presets[0].movementCostMultiplier,1.1);
+  assert.deepEqual(old,snap);
+  assert.deepEqual(validateRegionTravelFlag({schemaVersion:1,presetId:"old"}),
+    {schemaVersion:1,presetId:"old"});
+});
+
+test("per-action costs support several multipliers and No override without blocking movement", () => {
+  const origin=defaultTravelPresets();
+  const edited=upsertTravelPreset(origin,{
+    ...origin.presets[0], movementCosts:{walk:0.75,fly:1,burrow:2.5}
+  });
+  const active=edited.presets.find(p=>p.id==="land-stone");
+  assert.deepEqual(active.movementCosts,{walk:0.75,fly:1,burrow:2.5});
+  assert.equal(Object.hasOwn(active.movementCosts,"swim"),false);
+  assert.equal(origin.presets[0].movementCosts,null);
+  assert.throws(()=>upsertTravelPreset(edited,{...active,
+    movementCosts:{walk:0}}),/between/);
+  assert.throws(()=>upsertTravelPreset(edited,{...active,
+    movementCosts:{walk:11}}),/between/);
+  assert.throws(()=>upsertTravelPreset(edited,{...active,
+    movementCosts:{"bad action":1}}),/between/);
+  assert.throws(()=>upsertTravelPreset(edited,{...active,
+    movementCosts:{"__proto__":2, walk:2,extra:NaN}}),/between/);
+  const restored=upsertTravelPreset(edited,{...active,name:"Stone Bridge"});
+  assert.deepEqual(restored.presets.find(p=>p.id==="land-stone").movementCosts,
+    active.movementCosts);
+});
+
 test("Region flag is descriptive and strictly validated", () => {
   assert.equal(validateRegionTravelFlag(null),null);
   assert.deepEqual(validateRegionTravelFlag({schemaVersion:1,presetId:"tailwind"}),

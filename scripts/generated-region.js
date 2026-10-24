@@ -9,7 +9,7 @@ import { buildGeneratedRegionPlan, GENERATED_REGION_FLAG, shapeSignature,
 import { REGION_TRAVEL_PRESET_FLAG, TRAVEL_PRESET_SETTING,
   TRAVEL_PRESET_SCHEMA_VERSION, validateTravelPresets, validateRegionTravelFlag }
   from "./travel-preset-model.js";
-import { buildNativeMovementCostBehavior, nativeCostBehaviors, nativeCostSummary }
+import { buildNativeMovementCostBehavior, nativeCostBehaviors, nativeCostSummary, sameMovementCosts }
   from "./native-movement-cost.js";
 
 function checkScene(scene) {
@@ -61,10 +61,21 @@ function matchingRegion(scene, flag) {
     r.metadata.checkpointIds.join("|") === flag.checkpointIds.join("|"));
 }
 
+/**
+ * Reject a stale multi-mode or legacy cost after confirmation, before any write.
+ * Costs are snapshots; editing world presets never mutates existing Behaviors.
+ */
+function confirmedCostSnapshot(behavior, multiplier, costs) {
+  const flag = behavior.flags[MODULE_ID].nativeMovementCost;
+  return flag.schemaVersion === 1
+    ? costs === null && multiplier === flag.multiplier
+    : multiplier === null && sameMovementCosts(costs, flag.movementCosts);
+}
+
 /** Called only after an explicit preview/confirmation in the GM UI. */
 export async function saveGeneratedNativeRegion(scene, plan,
   { regenerate = false, presetId = null, movementAction = null,
-    expectedMultiplier = null } = {}) {
+    expectedMultiplier = null, applyNativeCost = false, expectedCosts = null } = {}) {
   checkScene(scene);
   // Rebuild against current image origin, grid and graph to reject stale dialogs.
   const checkpointId = plan.startCheckpointId;
@@ -77,8 +88,12 @@ export async function saveGeneratedNativeRegion(scene, plan,
       fresh.generatedRegion.shapeSignature !== plan.generatedRegion.shapeSignature) {
     throw new Error("Road, grid or Scene padding changed since preview. Reopen the generator.");
   }
-  if (movementAction !== null && (regenerate || plan.kind !== "corridor" || !presetId)) {
+  if (applyNativeCost && (regenerate || plan.kind !== "corridor" || !presetId)) {
     throw new Error("Native movement cost can be applied only when creating a corridor with a selected preset.");
+  }
+  if (!applyNativeCost && (movementAction !== null || expectedCosts !== null ||
+      expectedMultiplier !== null)) {
+    throw new Error("Native movement-cost data requires an explicit opt-in.");
   }
   const matches = matchingRegion(scene, plan.generatedRegion);
   if (matches.length > 1) {
@@ -107,10 +122,10 @@ export async function saveGeneratedNativeRegion(scene, plan,
   }
   if (presetId !== null) requireExistingPreset(presetId);
   // Validate the full native schema before writing any Region or Behavior.
-  const behavior = movementAction === null ? null :
+  const behavior = !applyNativeCost ? null :
     buildNativeMovementCostBehavior(presetId, movementAction);
-  if (behavior && behavior.flags[MODULE_ID].nativeMovementCost.multiplier !== expectedMultiplier) {
-    throw new Error("The world preset cost changed since confirmation. Preview again; nothing was created.");
+  if (behavior && !confirmedCostSnapshot(behavior, expectedMultiplier, expectedCosts)) {
+    throw new Error("The world preset costs changed since confirmation. Preview again; nothing was created.");
   }
   const [created] = await scene.createEmbeddedDocuments("Region", [{
     name: fresh.name,
@@ -163,7 +178,8 @@ export async function setGeneratedRegionTravelPreset(scene, regionId, presetId =
  * Native/manual movement-cost Behaviors are never edited, replaced or stacked.
  */
 export async function applyGeneratedRegionMovementCost(scene, regionId,
-  { movementAction, expectedPresetId, expectedMultiplier } = {}) {
+  { movementAction = null, expectedPresetId, expectedMultiplier = null,
+    expectedCosts = null } = {}) {
   checkScene(scene);
   const region = scene.regions?.get(regionId);
   if (!region?.canUserModify?.(game.user, "update")) {
@@ -183,8 +199,8 @@ export async function applyGeneratedRegionMovementCost(scene, regionId,
     throw new Error("This Region already has a native Modify Movement Cost Behavior. Configure it manually in Foundry; Atlas will not overwrite or stack costs.");
   }
   const behavior = buildNativeMovementCostBehavior(savedPreset.presetId, movementAction);
-  if (behavior.flags[MODULE_ID].nativeMovementCost.multiplier !== expectedMultiplier) {
-    throw new Error("The world preset cost changed since confirmation. Open the action again.");
+  if (!confirmedCostSnapshot(behavior, expectedMultiplier, expectedCosts)) {
+    throw new Error("The world preset costs changed since confirmation. Open the action again.");
   }
   if (typeof region.createEmbeddedDocuments !== "function") {
     throw new Error("This Foundry Region does not support embedded Region Behaviors.");
