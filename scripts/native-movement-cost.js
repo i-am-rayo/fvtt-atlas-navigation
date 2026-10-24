@@ -80,19 +80,24 @@ export function readPreset(presetId) {
   return preset;
 }
 
-/** No system-independent approximation: fail closed on an unfamiliar schema. */
-export function buildNativeMovementCostBehavior(presetId, action,
-  config = globalThis.CONFIG) {
+/**
+ * Read-only preview using the *exact requested preset value*, not a sample
+ * value (the action availability probe only checks independent editability).
+ * Foundry v14 can normalize fractional movement costs (for example 1.10 -> 1).
+ * The preview is safe to call while rendering the Scene Atlas form.
+ */
+export function previewNativeMovementCost(presetId, action, config = globalThis.CONFIG) {
   const preset = readPreset(presetId);
   const Type = nativeBehaviorClass(config);
-  if (!Type) throw new Error("The active Foundry system does not expose the native Modify Movement Cost Behavior.");
-  // Foundry v14 supplies a system-dependent difficulties SchemaField.
-  // Check its existence before offering any action or persisting a Behavior.
-  if (!Type.schema?.fields?.difficulties) {
-    throw new Error("The native movement-cost Behavior schema is unavailable or unsupported. Nothing was saved.");
+  if (!Type) {
+    return { ok: false, message: "The active Foundry system does not expose the native Modify Movement Cost Behavior." };
   }
-  if (!availableMovementActions(config).some(entry => entry.id === action)) {
-    throw new Error("That movement action cannot store an independent native Region cost in this game system. Choose a listed action, or create a corridor without a native cost Behavior.");
+  if (!Type.schema?.fields?.difficulties) {
+    return { ok: false, message: "The native movement-cost Behavior schema is unavailable or unsupported. Nothing was saved." };
+  }
+  const selection = availableMovementActions(config).find(entry => entry.id === action);
+  if (!selection) {
+    return { ok: false, message: "That movement action cannot store an independent native Region cost in this game system. Choose a listed action, or create a corridor without a native cost Behavior." };
   }
   let nativeData;
   try {
@@ -102,15 +107,29 @@ export function buildNativeMovementCostBehavior(presetId, action,
     }
     nativeData = model.toObject(true);
   } catch (error) {
-    throw new Error("Foundry rejected the selected native movement cost: " + error.message);
+    return { ok: false, message: "Foundry rejected the selected native movement cost: " + error.message };
   }
   const effective = nativeData?.difficulties?.[action];
-  if (!Number.isFinite(effective) ||
-      Math.abs(effective - preset.movementCostMultiplier) > 1e-8) {
-    throw new Error("Foundry did not retain the selected cost multiplier for this movement action. Nothing was saved.");
+  if (!Number.isFinite(effective)) {
+    return { ok: false, message: "Foundry did not retain a native movement cost for this action. Nothing was saved." };
   }
-  const label = availableMovementActions(config).find(a => a.id === action).label;
-  const translated = globalThis.game?.i18n?.localize?.(label) || label;
+  if (Math.abs(effective - preset.movementCostMultiplier) > 1e-8) {
+    const formatted = n => "×" + n.toFixed(2);
+    return { ok: false, requested: preset.movementCostMultiplier, effective,
+      message: "Foundry changes " + preset.name + "'s requested cost " +
+        formatted(preset.movementCostMultiplier) + " to " + formatted(effective) +
+        " for this movement action. Edit the global preset to a native-compatible value (in this v14 World, try multiples of 0.25). Atlas will not round it silently; nothing was saved." };
+  }
+  return { ok: true, nativeData, preset, actionLabel: selection.label };
+}
+
+/** No system-independent approximation: fail closed on an unfamiliar schema. */
+export function buildNativeMovementCostBehavior(presetId, action,
+  config = globalThis.CONFIG) {
+  const result = previewNativeMovementCost(presetId, action, config);
+  if (!result.ok) throw new Error(result.message);
+  const { preset, nativeData, actionLabel } = result;
+  const translated = globalThis.game?.i18n?.localize?.(actionLabel) || actionLabel;
   return {
     name: "Atlas · " + preset.name + " (×" + preset.movementCostMultiplier +
       "; " + translated + ")",
