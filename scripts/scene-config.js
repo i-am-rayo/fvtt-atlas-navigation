@@ -661,7 +661,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
     if (existingInterval) {
       generatedSection.appendChild(node("p",
         "Already generated: " + existingInterval.name +
-        ". Keep this native Region; use ◈ to change its surface preset, 🎨 to apply its color, and ↺ to refresh unmodified Atlas-native movement costs below. Regenerate updates geometry only.",
+        (existingInterval.metadata.kind === "corridor"
+          ? ". Keep this native Region; use ◈ to change its surface preset, 🎨 to apply its color, and ↺ Cost to refresh unmodified Atlas-native movement costs below. Regenerate updates geometry only."
+          : ". Keep this native checkpoint Region; use Regenerate below only if its geometry is unmodified."),
         "hint"));
     }
     create.disabled ||= !!existingInterval;
