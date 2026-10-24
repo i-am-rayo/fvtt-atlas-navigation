@@ -1225,3 +1225,48 @@ test("v0.2.25 World curvature redraws existing roads for GM and player with matc
     assert.deepEqual(readAtlas(m.scene).segments, atlas.segments);
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });
+
+test("v0.2.25 player road and checkpoint respect explored fog boundaries", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  class Text { constructor(text) { this.text = String(text); } destroy() {} }
+  m.Graphics.prototype.addChild = function(node) { node.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: false } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    m.canvas.stage = { scale: { x: 1 } };
+    m.scene.tokenVision = true;
+    m.scene.fogExploration = true;
+    m.canvas.fog = { isPointExplored: point => point.x <= 90 };
+    let n = 0;
+    const idFactory = () => "fog-" + ++n;
+    let atlas = addRoad(createEmptyAtlas(), {
+      points: [{ x: 10, y: 10 }, { x: 150, y: 10 }],
+      name: "Half-discovered", idFactory
+    });
+    atlas = addRoadCheckpoint(atlas, {
+      candidate: { kind: "node", nodeId: atlas.segments[0].to },
+      roadId: atlas.roads[0].id, name: "Unexplored Keep", elevationMeters: null,
+      idFactory
+    });
+    atlas = setRoadPlayerVisibility(atlas, {
+      roadId: atlas.roads[0].id, visible: true
+    });
+    atlas = setCheckpointPlayerVisibility(atlas, {
+      checkpointId: atlas.checkpoints[0].id, visible: true
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    assert.equal(m.controller.graphics.strokes, 1,
+      "explored portion of a revealed road remains drawn");
+    assert.ok(m.controller.graphics.drawn.every(point => point.x <= 91),
+      "no road geometry is drawn in unexplored terrain");
+    assert.deepEqual(m.controller.playerCheckpointHoverGeometry, [],
+      "revealed but unexplored checkpoint is not hoverable");
+    m.canvas.fog.isPointExplored = () => true;
+    m.controller.refresh();
+    assert.ok(m.controller.graphics.drawn.some(point => point.x > 100),
+      "previously explored road appears even when no token currently sees it");
+    assert.ok(m.controller.playerCheckpointHoverGeometry.length > 0);
+  } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
+});
