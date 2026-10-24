@@ -230,7 +230,9 @@ export function addRoad(atlas, {
   if (from === to) throw new Error("Road endpoints must be different junctions.");
 
   const roadId = uniqueId(roadIds, idFactory);
-  const road = { id: roadId, name: cleanedName(name ?? suggestRoadName(current)) };
+  const road = { id: roadId, name: cleanedName(name ?? suggestRoadName(current)),
+    ...(current.schemaVersion >= 5 ? { travelPresetId: null } : {}),
+    ...(current.schemaVersion >= 6 ? { appearance: null } : {}) };
   const segment = {
     id: uniqueId(segmentIds, idFactory), roadId,
     from, to, via: path.slice(1, -1), bidirectional: true

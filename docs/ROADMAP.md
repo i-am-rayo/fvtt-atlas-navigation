@@ -18,6 +18,8 @@
 
 # Roadmap and acceptance criteria — revised Phase 2 design
 
+> **v0.2.20.1 live owner feedback patch:** Correct `[object Object]` canvas road-name text, add label font color, introduce World Land/Air/Water road-overlay appearance profiles selected by assigned travel surface category, and visibly differentiate road drawing styles from native Region preset colors and Behaviors in module and Scene settings. Preserve World flat-style v1 and Scene v6 data without automatic writes; first confirmed new road style uses v7. Keep stacked PR #12 draft until owner validation. Font Awesome/asset checkpoint icon selection remains scoped to future v0.2.21.
+
 ## Phase 2c v0.2.5 implementation (October 23, 2026)
 
 This next **development test build**, following the owner's v0.2.4 tests, adds image-local schema v2 roads with an explicit one-time GM anchoring action for existing v1 maps; nearest-interior road splitting when a new road endpoint joins an existing path; bend redrawing with fixed junction endpoints; and automatic temporary highlight/draft cleanup on closing Scene Configuration. The underlying graph remains per Scene and Foundry-native Grid distance remains untouched. Unit tests do not replace in-client Foundry v14 testing.
@@ -193,3 +195,4 @@ Every implementation PR should state **what works**, **what was actually tested*
 - [Foundry v14 API](https://foundryvtt.com/api/v14/)
 - [LegendKeeper developers](https://www.legendkeeper.com/developers/)
 - [Indy Route](https://github.com/jwrpalmer99/indy-route)
+> **v0.2.20 appearance priority revision (owner-approved, October 24):** Pull the previously Phase-4 road style and road-name display controls into the late Phase-2 GM authoring sequence, before navigation. Add World-shared colors/strokes/label visibility with optional per-road v6 overrides, separately from corridor travel presets/native Region colors. v0.2.21 will cover checkpoint icon/image selection and label visibility, optionally using a licensed local Free Font Awesome catalog; investigate in that milestone. Phase 3 is still a separate gate; the remainder of Phase 4 polish (smoothing, focus, context menu) remains deferred.

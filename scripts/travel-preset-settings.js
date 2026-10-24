@@ -11,7 +11,8 @@ import { availableMovementActions, unavailableMovementActions } from "./native-m
 const TYPE_LABELS = { land: "Land", air: "Air", water: "Water" };
 
 export function readWorldTravelPresets() {
-  return validateTravelPresets(game.settings.get(MODULE_ID, TRAVEL_PRESET_SETTING));
+  return validateTravelPresets(globalThis.game?.settings?.get?.(MODULE_ID, TRAVEL_PRESET_SETTING)
+    ?? defaultTravelPresets());
 }
 
 export function registerWorldTravelPresets() {
@@ -24,9 +25,9 @@ export function registerWorldTravelPresets() {
     default: defaultTravelPresets()
   });
   game.settings.registerMenu(MODULE_ID, "atlasTravelPresetsMenu", {
-    name: "Atlas Presets",
-    label: "Configure Corridor Travel Presets",
-    hint: "Manage reusable Land, Air and Water travel conditions for all Scenes in this World.",
+    name: "Atlas — Region Surfaces & Costs",
+    label: "Configure Corridor Surface and Movement Presets",
+    hint: "Land, Air and Water travel surfaces for generated native Regions and their optional movement costs; road overlay styles are separate.",
     icon: "fa-solid fa-route",
     type: AtlasTravelPresetSettings,
     restricted: true

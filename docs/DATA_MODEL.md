@@ -18,6 +18,8 @@
 
 # Atlas data model — schema v3 (Phase 2c v0.2.8)
 
+> **v0.2.20.1 additive appearance schema v7:** v0.2.20 World setting `roadAppearanceDefaults` had one five-field object. New reads normalize that **in memory** into `{schemaVersion:2, profiles:{land,air,water}}`, each with six strictly validated fields including `textColor`; only explicit World Save persists the new shape. Selected named-road `travelPresetId` references the world travel preset's existing category and picks the corresponding Land/Air/Water appearance; unassigned roads fall back to Land, per-road overrides win. Scene v6 exact five-field overrides are valid unchanged; first confirmed new style save upgrades to validated Scene v7 (`appearance:null | {color,width,opacity,pattern,labelVisibility,textColor}`), retaining all road/segment/checkpoint IDs, elevations and preset references. No Scene writes on read, no Region shape/color/Behavior changes and no token movement effect.
+
 **Current contract:** Each Foundry Scene stores one validated `flags.fvtt-atlas-navigation.atlas` payload. Schema v3 separates a **named logical road** from one or more **graph segments**, which can be split at junctions without duplicating a name in the road list.
 
 ```json
@@ -311,3 +313,4 @@ Do not append speculative fields to v1 JSON merely to anticipate these features.
 - [Foundry v14 native Region API](https://foundryvtt.com/api/v14/classes/foundry.documents.RegionDocument.html)
 - [Foundry v14 Token movement-path and cost API](https://foundryvtt.com/api/v14/classes/foundry.canvas.placeables.Token.html)
 - [Foundry v14 native Grid path measurement API](https://foundryvtt.com/api/v14/classes/foundry.grid.BaseGrid.html)
+> **v0.2.20 Scene Atlas schema v6 — named-road appearance:** First explicit GM Save Road Appearance on any supported v3/v4/v5 Scene adds `schemaVersion:6`, retains all v5 fields including checkpoint associations and `travelPresetId`, and adds per-road `appearance:null | {color,width,opacity,pattern,labelVisibility}`. `null` inherits the World-scoped setting `roadAppearanceDefaults` (`#RRGGBB`, pixel width 1–16, opacity .1–1, `solid|dashed|dotted`, labels `off|hover|always`). Strict validators reject unknown/malformed fields; older Scenes are read unchanged until a named-road override is saved. Resetting clears that road's override, not a World preset. New roads in a v6 Scene start with `appearance:null`. Display-only colors/patterns/labels never persist in `segments[]` or native Regions, and have no influence over route graph IDs, native movement, or Region color. GM-only overlays are NOT a player secrecy boundary.

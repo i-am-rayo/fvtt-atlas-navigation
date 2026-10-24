@@ -1,3 +1,6 @@
+import { validateRoadAppearance, validateLegacyRoadAppearance,
+  DEFAULT_ROAD_APPEARANCE } from "./road-appearance.js";
+
 /**
  * Pure atlas data validation. No Foundry globals are used in this module.
  *
@@ -7,6 +10,8 @@
 export const ATLAS_SCHEMA_VERSION = 3;
 export const CHECKPOINT_ATLAS_SCHEMA_VERSION = 4;
 export const TRAVEL_ATLAS_SCHEMA_VERSION = 5;
+export const APPEARANCE_ATLAS_SCHEMA_VERSION = 6;
+export const TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION = 7;
 export const IMAGE_ATLAS_SCHEMA_VERSION = 2;
 export const LEGACY_ATLAS_SCHEMA_VERSION = 1;
 const MAX_NODES = 10000;
@@ -78,7 +83,9 @@ export function validateAtlas(value) {
   const data = record(value, "root");
   const legacy = data.schemaVersion === LEGACY_ATLAS_SCHEMA_VERSION;
   const imageV2 = data.schemaVersion === IMAGE_ATLAS_SCHEMA_VERSION;
-  const withTravel = data.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION;
+  const withTextAppearance = data.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION;
+  const withAppearance = data.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION || withTextAppearance;
+  const withTravel = data.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION || withAppearance;
   const withCheckpoints = data.schemaVersion === CHECKPOINT_ATLAS_SCHEMA_VERSION || withTravel;
   const current = data.schemaVersion === ATLAS_SCHEMA_VERSION || withCheckpoints;
   if (!legacy && !imageV2 && !current) {
@@ -119,7 +126,8 @@ export function validateAtlas(value) {
     }
     for (const [index, value] of data.roads.entries()) {
       const r = record(value, "roads[" + index + "]");
-      fields(r, withTravel ? ["id", "name", "travelPresetId"] : ["id", "name"], "road");
+      fields(r, withAppearance ? ["id", "name", "travelPresetId", "appearance"] :
+        withTravel ? ["id", "name", "travelPresetId"] : ["id", "name"], "road");
       const roadId = id(r.id, "road ID");
       if (roadIds.has(roadId)) fail("duplicate road ID " + roadId);
       roadIds.add(roadId);
@@ -132,8 +140,15 @@ export function validateAtlas(value) {
            !/^[A-Za-z0-9_-]{1,128}$/.test(travelPresetId))) {
         fail("road " + roadId + " has invalid travel preset ID");
       }
+      if (withAppearance && !Object.hasOwn(r, "appearance")) {
+        fail("road " + roadId + " is missing appearance data");
+      }
+      const appearance = withAppearance && r.appearance !== null
+        ? (withTextAppearance ? validateRoadAppearance(r.appearance) :
+          validateLegacyRoadAppearance(r.appearance)) : null;
       roads.push({ id: roadId, name: r.name.trim(),
-        ...(withTravel ? { travelPresetId } : {}) });
+        ...(withTravel ? { travelPresetId } : {}),
+        ...(withAppearance ? { appearance } : {}) });
     }
   }
 
@@ -285,7 +300,9 @@ export function upgradeAtlasRoadGroups(atlas) {
 export function upgradeAtlasCheckpoints(atlas) {
   const old = validateAtlas(atlas);
   if (old.schemaVersion === CHECKPOINT_ATLAS_SCHEMA_VERSION ||
-      old.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION) return old;
+      old.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
   if (old.schemaVersion !== ATLAS_SCHEMA_VERSION) {
     throw new Error("Organize named roads before adding checkpoints.");
   }
@@ -299,7 +316,9 @@ export function upgradeAtlasCheckpoints(atlas) {
  */
 export function upgradeAtlasTravelPresets(atlas) {
   const old = validateAtlas(atlas);
-  if (old.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION) return old;
+  if (old.schemaVersion === TRAVEL_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
   const withCheckpoints = old.schemaVersion === ATLAS_SCHEMA_VERSION
     ? upgradeAtlasCheckpoints(old) : old;
   if (withCheckpoints.schemaVersion !== CHECKPOINT_ATLAS_SCHEMA_VERSION) {
@@ -310,4 +329,28 @@ export function upgradeAtlasTravelPresets(atlas) {
     schemaVersion: TRAVEL_ATLAS_SCHEMA_VERSION,
     roads: withCheckpoints.roads.map(road => ({ ...road, travelPresetId: null }))
   });
+}
+
+/** Explicit GM-authored per-road display customization, never on Scene read. */
+export function upgradeAtlasRoadAppearance(atlas) {
+  const old = validateAtlas(atlas);
+  if (old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION) return old;
+  const current = upgradeAtlasTravelPresets(old);
+  return validateAtlas({
+    ...current,
+    schemaVersion: APPEARANCE_ATLAS_SCHEMA_VERSION,
+    roads: current.roads.map(road => ({ ...road, appearance: null }))
+  });
+}
+
+/** First post-v0.2.20 style save adds label color without rewriting old Scenes on load. */
+export function upgradeAtlasRoadTextAppearance(atlas) {
+  const current = upgradeAtlasRoadAppearance(atlas);
+  if (current.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION) return current;
+  return validateAtlas({ ...current, schemaVersion: TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION,
+    roads: current.roads.map(road => ({ ...road,
+      appearance: road.appearance
+        ? { ...road.appearance, textColor: DEFAULT_ROAD_APPEARANCE.textColor }
+        : null })) });
 }

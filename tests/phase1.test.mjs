@@ -19,11 +19,11 @@ test("module manifest declares a v14 system-agnostic module shell", async () => 
   assert.equal("relationships" in manifest, false);
   assert.equal(
     manifest.manifest,
-    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2-atlas-setup/module.json"
+    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2l-road-appearance/module.json"
   );
   assert.equal(
     manifest.download,
-    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2-atlas-setup.zip"
+    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2l-road-appearance.zip"
   );
   assert.ok(manifest.manifest.endsWith("/module.json"));
   assert.ok(manifest.download.endsWith(".zip"));
@@ -36,7 +36,7 @@ test("module manifest declares a v14 system-agnostic module shell", async () => 
   }
 });
 
-test("startup diagnostic registers during init and only notifies a GM", async () => {
+test("module init registers World travel and appearance menus without an obsolete startup popup", async () => {
   const language = await readJson("../lang/en.json");
   const events = new Map();
   const registrations = [];
@@ -48,7 +48,9 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
   const originalFoundry = globalThis.foundry;
 
   try {
-    globalThis.foundry = { applications: { api: { DialogV2: class {} } } };
+    globalThis.foundry = { applications: { api: {
+      DialogV2: class {}, ApplicationV2: class {}
+    } } };
     globalThis.Hooks = {
       once(name, callback) {
         assert.equal(events.has(name), false);
@@ -66,11 +68,7 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
       settings: {
         register: (...args) => registrations.push(args),
         registerMenu: (...args) => menus.push(args),
-        get: (namespace, key) => {
-          assert.equal(namespace, "fvtt-atlas-navigation");
-          assert.equal(key, "showStartupNotice");
-          return true;
-        }
+        get: () => null
       }
     };
     globalThis.ui = {
@@ -83,19 +81,18 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
     assert.equal(typeof events.get("ready"), "function");
     events.get("init")();
 
-    assert.equal(registrations.length, 1);
-    const [namespace, key, options] = registrations[0];
-    assert.equal(namespace, "fvtt-atlas-navigation");
-    assert.equal(key, "showStartupNotice");
-    assert.equal(options.scope, "world");
-    assert.equal(options.config, true);
-    assert.equal(options.type, Boolean);
-    assert.equal(options.default, false);
-    assert.ok(language[options.name]);
-    assert.ok(language[options.hint]);
-
-    // Per-Scene setup no longer belongs in the global module settings.
-    assert.equal(menus.length, 0);
+    assert.deepEqual(registrations.map(([, key]) => key),
+      ["corridorTravelPresets", "roadAppearanceDefaults"]);
+    for (const [namespace, , options] of registrations) {
+      assert.equal(namespace, "fvtt-atlas-navigation");
+      assert.equal(options.scope, "world");
+      assert.equal(options.config, false);
+      assert.equal(options.type, Object);
+    }
+    assert.deepEqual(menus.map(([, key]) => key),
+      ["atlasTravelPresetsMenu", "atlasRoadAppearanceMenu"]);
+    assert.ok(menus.every(([namespace, , options]) =>
+      namespace === "fvtt-atlas-navigation" && options.restricted));
     assert.equal(typeof events.get("renderSceneConfig"), "function");
 
     events.get("ready")();
@@ -103,7 +100,7 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
 
     globalThis.game.user.isGM = true;
     events.get("ready")();
-    assert.deepEqual(notices, [language["FVTTATLAS.Notifications.Ready"]]);
+    assert.deepEqual(notices, [], "no GM startup confirmation is displayed");
   } finally {
     globalThis.Hooks = originalHooks;
     globalThis.game = originalGame;

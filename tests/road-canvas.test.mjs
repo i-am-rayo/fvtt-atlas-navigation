@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { RoadCanvasController } from "../scripts/road-canvas.js";
 import { readAtlas } from "../scripts/atlas-storage.js";
+import { createEmptyAtlas, upgradeAtlasRoadAppearance } from "../scripts/atlas-model.js";
+import { addRoad } from "../scripts/road-model.js";
 
 function setup() {
   const listeners = new Map();
@@ -76,6 +78,57 @@ function pointEvent(x, y) {
     get prevented() { return prevented; }
   };
 }
+
+test("v0.2.20 named road styles draw dashed overlay and show one hover label", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  const strokes = [];
+  const oldStroke = m.Graphics.prototype.stroke;
+  m.Graphics.prototype.stroke = function(options) {
+    strokes.push({ options, points: this.drawn.slice() });
+    return oldStroke.call(this, options);
+  };
+  m.Graphics.prototype.addChild = function(label) { label.parent = this; };
+  class Text {
+    constructor(text, style) { this.text = String(text); this.style = style;
+      this.anchor = { set() {} };
+      this.position = { set() {} }; this.destroyed = false; }
+    destroy() { this.destroyed = true; }
+  }
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    let n = 0;
+    const atlas = addRoad(createEmptyAtlas(), {
+      points: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }],
+      name: "King's Road", idFactory: () => "test" + ++n
+    });
+    const modern = upgradeAtlasRoadAppearance(atlas);
+    modern.roads[0].appearance = { color: "#c28436", width: 5, opacity: 0.8,
+      pattern: "dashed", labelVisibility: "hover" };
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", modern);
+    m.controller.refresh();
+    assert.equal(m.controller.labels.length, 0, "hover label initially hidden");
+    assert.ok(m.listeners.has("pointermove"));
+    assert.ok(strokes.some(s => s.options?.color === 0xc28436 &&
+      s.options?.width === 5 && s.options?.alpha === 0.8));
+    const segments = strokes.flatMap(s => s.points);
+    assert.ok(segments.length > 8, "dashes break one road into multiple drawn spans");
+    m.listeners.get("pointermove")(pointEvent(25, 15));
+    assert.equal(m.controller.labels.length, 1, "one label for one named road");
+    assert.equal(m.controller.labels[0].text, "King's Road");
+    assert.equal(m.controller.labels[0].style.fill, 0xffffff,
+      "legacy v6 labels inherit the white text default");
+    m.listeners.get("pointerleave")();
+    assert.equal(m.controller.labels.length, 0, "label cleared after hover");
+    m.controller.tearDown();
+    assert.ok(!m.listeners.has("pointermove"), "hover listener cleaned up");
+  } finally {
+    m.controller.tearDown();
+    m.Graphics.prototype.stroke = oldStroke;
+    Object.assign(globalThis, previous);
+  }
+});
 
 test("click-to-draw uses canvas coordinates and saves with visible feedback", async () => {
   const prev = { game: globalThis.game, PIXI: globalThis.PIXI };
