@@ -1,8 +1,16 @@
-# Phase 2h — v0.2.16.1 GM acceptance: native cost action hotfix
+# Phase 2h — v0.2.16.2 GM acceptance: native cost normalization hotfix
 
-**Status (October 24, 2026):** v0.2.15.1 preset editing and reference assignment were verified by the owner. The small v0.2.15.2 startup setting cleanup was staged afterward. **This v0.2.16.1 native Behavior integration is a draft and requires live Foundry v14 testing before merge.** Back up the World and keep one GM editing a Scene at once. No Region or world preset is retroactively changed just by installing/updating.
+**Status (October 24, 2026):** v0.2.15.1 preset editing and reference assignment were verified by the owner. The small v0.2.15.2 startup setting cleanup was staged afterward. **This v0.2.16.2 native Behavior integration is a draft and requires live Foundry v14 testing before merge.** Back up the World and keep one GM editing a Scene at once. No Region or world preset is retroactively changed just by installing/updating.
 
-**Development manifest:** `https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2h-native-movement-costs/module.json` — reload and verify **0.2.16**.
+**Development manifest:** `https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2h-native-movement-costs/module.json` — reload and verify **0.2.16.2**.
+
+## v0.2.16.2 targeted retest (perform before the existing checklist)
+
+1. Open Game Settings → Atlas Presets. Add a new Land/Air/Water surface and edit an existing quarter-step preset. Confirm Foundry's **range-picker** appears with both slider and editable number, stepping by 0.25. Save and reopen to verify the exact value persists. The native control must not throw `config.content element must have no attributes`.
+2. Edit an older preset saved at ×1.10, ×1.15 or ×1.20. It should show the **legacy numeric input** and preserve its exact original value if you save without changing it. Convert it deliberately to ×1.25, reopen, and verify the slider appears. Preset names, stable IDs, road/Region associations and existing native Behaviors must remain untouched.
+3. Assign an off-step preset such as Rough Seas ×1.10 or Turbulent Air ×1.20 to an Atlas corridor. Check the native-cost opt-in and choose Swim or Fly. Before pressing Preview/Create, Atlas must explain the **actual native retained cost** (×1.00 or ×1.25 in the owner's tested v14 World) and disable native creation without changing anything. Metadata-only Region creation must still work.
+4. Deliberately set the same preset to ×1.25 or ×1.50, select a compatible movement action, and retry with native cost opt-in. A single native Modify Movement Cost Behavior should be generated with the **exact multiplier and action**. Repeat the existing apply-once, regeneration, GM/non-GM and token measurement checks below.
+5. Reopen existing Stone Road/Rough Seas Regions and inspect their native Behaviors and manual geometry. Installation and world preset edits **must not** silently update or delete anything. Continue using native editing for a Region that already has a movement-cost Behavior.
 
 ## v0.2.16.1 GM verification checklist
 
