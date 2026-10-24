@@ -193,3 +193,4 @@ Every implementation PR should state **what works**, **what was actually tested*
 - [Foundry v14 API](https://foundryvtt.com/api/v14/)
 - [LegendKeeper developers](https://www.legendkeeper.com/developers/)
 - [Indy Route](https://github.com/jwrpalmer99/indy-route)
+> **v0.2.20 appearance priority revision (owner-approved, October 24):** Pull the previously Phase-4 road style and road-name display controls into the late Phase-2 GM authoring sequence, before navigation. Add World-shared colors/strokes/label visibility with optional per-road v6 overrides, separately from corridor travel presets/native Region colors. v0.2.21 will cover checkpoint icon/image selection and label visibility, optionally using a licensed local Free Font Awesome catalog; investigate in that milestone. Phase 3 is still a separate gate; the remainder of Phase 4 polish (smoothing, focus, context menu) remains deferred.

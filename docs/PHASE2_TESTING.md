@@ -1,3 +1,18 @@
+# v0.2.20 — Named Road Appearance (draft test gate)
+
+Back up the World. Install the v0.2.20 branch and verify the module version. Use one Scene with multiple roads, bends, a fork, checkpoints and at least one native Atlas-generated corridor Region.
+
+1. Under **Game Settings → Configure Settings → FVTT Atlas Navigation → Atlas Appearance Defaults**, choose an obvious World default, e.g. blue, dashed, 5 px, 0.8 opacity, road-name labels **On Hover**. Save, reopen and verify the exact values were retained. Inspect a road on the canvas. Hover over it and then move away: exactly one named-road label should appear and disappear. Selecting Off hides it; Always shows it without hover. No player marker or reveal is introduced.
+2. In **Scene Configuration → Atlas → Roads**, click **🎨** beside one named road. Choose an independent orange **dotted** line, 7 px, opacity 0.65, labels Always. Save. Check all of its internal graph sections adopt this look (including branch arms), with a **single** readable label placed on its longest section. Neighbor roads continue inheriting World defaults. Rename/reshape this named road and reload; its style remains associated with the same road ID.
+3. Change the World defaults again: only roads without overrides follow the new values. Select **↺** on the custom road, confirm, and check it starts following World defaults again. Canceling the reset changes nothing.
+4. Load an older v3/v4/v5 Scene. Opening Atlas/World defaults must not write a Scene flag. The first confirmed per-road **🎨 Save** upgrades it explicitly to schema v6. Check unchanged named-road IDs, segment geometry, checkpoint names and elevation, existing road travel preset IDs and generated corridor Region IDs. Back up first: older Atlas versions cannot edit v6.
+5. Verify Native **Region.color**, Shapes, Levels, manual/Atlas-owned Behaviors and native token movement costs stay unchanged after any World/road appearance edit, canvas refresh, hover, or Scene reload. Existing **◈** travel surface assignment, Region **🎨** color, Region **↺** native-cost refresh, Region **↻** geometry regeneration remain independent.
+6. Use a second GM on a separate Scene, a non-GM client, Scene padding/shift, pan/zoom, new road creation after v6 upgrade, and module disable/re-enable. Label hover should not capture pointer events or interfere with road drawing/editing; labels and listeners must be cleaned up when switching Scenes.
+
+Automated tests cover validation, explicit v6 migration, road styling, dash continuity and passive label hover. **Real Foundry v14 testing remains required** for PIXI labels, native Form/Color picker, permissions and readability. Do not merge the draft PR before owner verification. Checkpoint glyphs, Font Awesome/custom image picking and checkpoint labels are planned for v0.2.21; route calculation remains deferred.
+
+---
+
 # v0.2.19 — Existing generated corridor surface changes (draft test gate)
 
 Back up the Foundry World. Install from the v0.2.19 draft branch; verify the module reports **0.2.19**. Use a GM on a Scene with a named road, two checkpoints and a previously generated corridor with a native Atlas movement-cost Behavior from v0.2.17+.

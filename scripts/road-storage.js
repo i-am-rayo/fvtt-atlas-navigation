@@ -1,6 +1,8 @@
 import { addRoadCheckpoint, editRoadCheckpoint, removeRoadCheckpoint } from "./checkpoint-model.js";
 import { addRoad, removeRoad, renameRoad, reshapeRoad, mergeRoadGroups, applyRoadGeometryEdit } from "./road-model.js";
-import { anchorLegacyAtlas, upgradeAtlasRoadGroups, upgradeAtlasTravelPresets, validateAtlas } from "./atlas-model.js";
+import { anchorLegacyAtlas, upgradeAtlasRoadGroups, upgradeAtlasTravelPresets,
+  upgradeAtlasRoadAppearance, validateAtlas } from "./atlas-model.js";
+import { validateRoadAppearance } from "./road-appearance.js";
 import { TRAVEL_PRESET_SETTING, validateTravelPresets, validateTravelPresetId } from "./travel-preset-model.js";
 import { ATLAS_FLAG, MODULE_ID, readAtlas } from "./atlas-storage.js";
 
@@ -121,5 +123,20 @@ export async function saveRoadTravelPreset(scene, { roadId, presetId = null, exp
       roads: current.roads.map(road => road.id === roadId
         ? { ...road, travelPresetId: presetId } : road)
     };
+  });
+}
+
+/** Only this single GM request may migrate the Scene flag to v6. */
+export function saveRoadAppearance(scene, { roadId, appearance, expectedRevision }) {
+  const value = appearance === null ? null : validateRoadAppearance(appearance);
+  return saveChange(scene, expectedRevision, previous => {
+    if (!previous.roads?.some(road => road.id === roadId)) {
+      throw new Error("The named road no longer exists.");
+    }
+    // A reset on an older Scene is already a no-op; preserve its schema.
+    if (value === null && previous.schemaVersion < 6) return previous;
+    const current = upgradeAtlasRoadAppearance(previous);
+    return { ...current, roads: current.roads.map(road =>
+      road.id === roadId ? { ...road, appearance: value } : road) };
   });
 }

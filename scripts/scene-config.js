@@ -6,6 +6,7 @@ import { listRoadCheckpoints } from "./checkpoint-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { presetCostSummary } from "./travel-preset-model.js";
+import { readWorldRoadAppearance, resolveRoadAppearance } from "./road-appearance.js";
 import { availableMovementActions, unavailableMovementActions,
   previewNativeMovementCost, nativeCostPresetStatus,
   editableManagedNativeCost } from "./native-movement-cost.js";
@@ -129,6 +130,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   root.setAttribute("data-fvtt-atlas-setup", "");
   const travelPresets = readWorldTravelPresets().presets;
   const presetById = new Map(travelPresets.map(p => [p.id, p]));
+  const worldRoadAppearance = readWorldRoadAppearance();
   const sharedFilter = atlas.schemaVersion >= 3 && atlas.roads?.length
     ? junctionFilterFor(scene, atlas) : null;
   const shownRoads = sharedFilter ? filteredRoadIds(atlas, sharedFilter) : new Set();
@@ -212,6 +214,19 @@ function atlasPanel(scene, atlas, actions, refresh) {
     description.style.flex = "1 1 auto";
     description.style.minWidth = "0";
     description.appendChild(node("span", roadName));
+    if (atlas.schemaVersion >= 3) {
+      const style = resolveRoadAppearance(road, worldRoadAppearance);
+      const subtitle = node("div", undefined, "hint");
+      subtitle.style.fontSize = "0.8em";
+      const swatch = node("span", "● ");
+      swatch.style.color = style.color;
+      subtitle.appendChild(swatch);
+      subtitle.appendChild(node("span",
+        `${style.pattern} · ${style.width}px · ${style.labelVisibility === "off" ?
+          "labels off" : "labels " + style.labelVisibility}` +
+        (road.appearance ? " (custom)" : " (World default)")));
+      description.appendChild(subtitle);
+    }
     if (count > 1) {
       const metadata = node("div", `${count} ${label("FVTTATLAS.Roads.Segments")}`);
       metadata.style.fontSize = "0.8em";
@@ -241,6 +256,12 @@ function atlasPanel(scene, atlas, actions, refresh) {
         return actions.select(scene, road.id);
       }));
     if (atlas.schemaVersion >= 3) {
+      controls.appendChild(button("🎨", "Edit road color, line style and labels",
+        () => actions.editRoadAppearance(scene, road, refresh)));
+      if (road.appearance) {
+        controls.appendChild(button("↺", "Reset road appearance to World defaults",
+          () => actions.resetRoadAppearance(scene, road, refresh)));
+      }
       controls.appendChild(button("◈", label("FVTTATLAS.Travel.AssignRoad"),
         () => actions.assignRoadTravelPreset(scene, road, refresh)));
       controls.appendChild(button("⌖", label("FVTTATLAS.Roads.EditPoints"),

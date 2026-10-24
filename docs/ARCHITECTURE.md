@@ -16,6 +16,8 @@
 
 # Architecture — revised Phase 2 boundaries
 
+> **v0.2.20 display-only road appearance:** World-wide default settings and optional named-road v6 appearance overrides are resolved only in the GM canvas presentation adapter. Stroke dashes/dots use the saved polyline (not approximated travel geometry), one label per named road uses a longest-section placement, and hover is passive with event cleanup on canvas teardown. Region color continues to belong to the separate Land/Air/Water surface preset/native Region layer. No player-visible markers, native Region changes or Phase 3 navigation.
+
 **Status:** Phase 1 merged; Phase 2b native Grid verified; Phase 2c v0.2.5 map padding and road-junction editing owner-verified; v0.2.6 adds logical `roads[]` grouping and draggable point edits (pending live Foundry v14 test). Phase 2d Region linking and Phase 3 routing remain planned.
 **Target:** Foundry VTT v14; game-system agnostic.  
 **Module identity:** `fvtt-atlas-navigation`.

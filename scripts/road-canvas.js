@@ -4,18 +4,39 @@ import { RoadPointEditor } from "./road-point-editor.js";
 import { roadHandles } from "./road-hit.js";
 import { attachmentRoadNames, findRoadSnap, suggestRoadName } from "./road-model.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
+import { readWorldRoadAppearance, resolveRoadAppearance,
+  roadStrokeSpans, roadLabelPoint } from "./road-appearance.js";
 
-function drawLine(graphics, points, color, width = 4, alpha = 0.9) {
+function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "solid") {
   if (points.length < 2) return;
+  const spans = roadStrokeSpans(points, pattern, width);
   if (typeof graphics.moveTo === "function" && typeof graphics.stroke === "function") {
-    graphics.moveTo(points[0].x, points[0].y);
-    for (const point of points.slice(1)) graphics.lineTo(point.x, point.y);
-    graphics.stroke({ color, width, alpha });
+    for (const span of spans) {
+      graphics.moveTo(span[0].x, span[0].y);
+      for (const point of span.slice(1)) graphics.lineTo(point.x, point.y);
+    }
+    graphics.stroke({ color, width, alpha, cap: "round", join: "round" });
   } else if (typeof graphics.lineStyle === "function") {
     graphics.lineStyle(width, color, alpha);
-    graphics.moveTo(points[0].x, points[0].y);
-    for (const point of points.slice(1)) graphics.lineTo(point.x, point.y);
+    for (const span of spans) {
+      graphics.moveTo(span[0].x, span[0].y);
+      for (const point of span.slice(1)) graphics.lineTo(point.x, point.y);
+    }
   }
+}
+
+function nearRoadLine(position, path, tolerance) {
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const squared = dx * dx + dy * dy;
+    if (!squared) continue;
+    const t = Math.max(0, Math.min(1,
+      ((position.x - a.x) * dx + (position.y - a.y) * dy) / squared));
+    if (Math.hypot(position.x - (a.x + dx * t),
+      position.y - (a.y + dy * t)) <= tolerance) return true;
+  }
+  return false;
 }
 
 function drawDot(graphics, point, color, radius = 5) {
@@ -207,6 +228,13 @@ export class RoadCanvasController {
     this.promptCheckpoint = promptCheckpoint;
     this.graphics = null;
     this.graphicsCanvas = null;
+    this.labels = [];
+    this.hoveredRoadId = null;
+    this.hoverCanvasElement = null;
+    this.hoverHandler = null;
+    this.hoverExitHandler = null;
+    this.hoverGeometry = [];
+    this.lastHoverAt = 0;
     this.draft = null;
     this.selectedRoadId = null;
     this.selectedJunctionId = null;
@@ -702,6 +730,78 @@ export class RoadCanvasController {
     this.refresh();
   }
 
+  #clearLabels() {
+    for (const label of this.labels) {
+      label.parent?.removeChild?.(label);
+      label.destroy?.();
+    }
+    this.labels = [];
+  }
+
+  #stopHover() {
+    this.hoverCanvasElement?.removeEventListener?.("pointermove", this.hoverHandler);
+    this.hoverCanvasElement?.removeEventListener?.("pointerleave", this.hoverExitHandler);
+    this.hoverCanvasElement = null;
+    this.hoverHandler = null;
+    this.hoverExitHandler = null;
+    this.hoveredRoadId = null;
+    this.hoverGeometry = [];
+  }
+
+  #trackHover(canvas) {
+    if (!this.hoverGeometry.length) {
+      if (this.hoverCanvasElement) this.#stopHover();
+      return;
+    }
+    const element = canvas.app?.canvas ?? canvas.app?.view;
+    if (this.hoverCanvasElement === element) return;
+    const geometry = this.hoverGeometry;
+    this.#stopHover();
+    this.hoverGeometry = geometry;
+    if (!element?.addEventListener) return;
+    this.hoverCanvasElement = element;
+    this.hoverHandler = event => {
+      if (this.draft || this.pointEditor.session ||
+          this.canvasProvider()?.scene?.id !== canvas.scene?.id) return;
+      if (Date.now() - this.lastHoverAt < 65) return;
+      this.lastHoverAt = Date.now();
+      const point = canvas.canvasCoordinatesFromClient?.({ x: event.clientX, y: event.clientY });
+      if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return;
+      let next = null;
+      for (const candidate of this.hoverGeometry) {
+        if (nearRoadLine(point, candidate.path, candidate.tolerance)) {
+          next = candidate.roadId;
+          break;
+        }
+      }
+      if (next !== this.hoveredRoadId) {
+        this.hoveredRoadId = next;
+        this.refresh();
+      }
+    };
+    this.hoverExitHandler = () => {
+      if (this.hoveredRoadId !== null) {
+        this.hoveredRoadId = null;
+        this.refresh();
+      }
+    };
+    element.addEventListener("pointermove", this.hoverHandler);
+    element.addEventListener("pointerleave", this.hoverExitHandler);
+  }
+
+  #addLabel(graphics, name, point) {
+    if (!globalThis.PIXI?.Text || !graphics.addChild) return;
+    const label = new PIXI.Text({ text: name, style: {
+      fontFamily: "Arial", fontSize: 16, fill: 0xffffff,
+      stroke: { color: 0x000000, width: 3 }, align: "center"
+    } });
+    label.anchor?.set?.(0.5);
+    label.position?.set?.(point.x, point.y);
+    label.eventMode = "none";
+    graphics.addChild(label);
+    this.labels.push(label);
+  }
+
   refresh() {
     const canvas = this.canvasProvider();
     if (!canvas?.ready || !canvas.scene || !globalThis.game?.user?.isGM) return;
@@ -713,6 +813,7 @@ export class RoadCanvasController {
       this.graphicsCanvas = canvas;
     }
     const g = this.graphics;
+    this.#clearLabels();
     g.clear();
     let atlas;
     try { atlas = readAtlas(canvas.scene); }
@@ -735,17 +836,42 @@ export class RoadCanvasController {
       }
     }
     const nodes = new Map(atlas.nodes.map(n => [n.id, n]));
+    const roads = new Map((atlas.roads ?? []).map(r => [r.id, r]));
+    const worldDefaults = readWorldRoadAppearance();
+    const labelAnchors = new Map();
+    this.hoverGeometry = [];
     for (const segment of atlas.segments) {
       const from = nodes.get(segment.from);
       const to = nodes.get(segment.to);
       if (!from || !to) continue;
       const path = [from, ...segment.via, to].map(p => toCanvasPoint(canvas, atlas, p));
       const highlighted = this.selectedRoadId === (atlas.schemaVersion >= 3 ? segment.roadId : segment.id);
-      const color = highlighted ? 0xffd166 : 0x35c9ef;
-      drawLine(g, path, color, highlighted ? 6 : 4);
+      const road = roads.get(segment.roadId) ?? segment;
+      const style = resolveRoadAppearance(road, worldDefaults);
+      const color = highlighted ? 0xffd166 : Number.parseInt(style.color.slice(1), 16);
+      drawLine(g, path, color, style.width + (highlighted ? 2 : 0),
+        highlighted ? 1 : style.opacity, style.pattern);
       drawDot(g, path[0], color);
       drawDot(g, path.at(-1), color);
+      if (style.labelVisibility === "hover") this.hoverGeometry.push({
+        roadId: road.id, path, tolerance: Math.max(8, style.width + 4)
+      });
+      if (style.labelVisibility !== "off") {
+        const length = path.slice(1).reduce((sum, p, i) =>
+          sum + Math.hypot(p.x - path[i].x, p.y - path[i].y), 0);
+        if (length > (labelAnchors.get(road.id)?.length ?? -1)) {
+          labelAnchors.set(road.id, { road, style, length, point: roadLabelPoint(path) });
+        }
+      }
     }
+    // One readable label per named road, never per internal topological section.
+    for (const [roadId, item] of labelAnchors) {
+      if (item.style.labelVisibility === "always" ||
+          (item.style.labelVisibility === "hover" && this.hoveredRoadId === roadId)) {
+        this.#addLabel(g, item.road.name, item.point);
+      }
+    }
+    this.#trackHover(canvas);
     for (const checkpoint of atlas.checkpoints ?? []) {
       const point = nodes.get(checkpoint.nodeId);
       if (!point) continue;
@@ -781,6 +907,8 @@ export class RoadCanvasController {
   }
 
   tearDown() {
+    this.#stopHover();
+    this.#clearLabels();
     if (this.draft && !this.saving) this.cancel();
     if (this.pointEditor.session && !this.pointEditor.saving) this.pointEditor.cancel();
     if (this.graphics && !this.graphics.destroyed) {

@@ -11,7 +11,8 @@ import { availableMovementActions, unavailableMovementActions } from "./native-m
 const TYPE_LABELS = { land: "Land", air: "Air", water: "Water" };
 
 export function readWorldTravelPresets() {
-  return validateTravelPresets(game.settings.get(MODULE_ID, TRAVEL_PRESET_SETTING));
+  return validateTravelPresets(globalThis.game?.settings?.get?.(MODULE_ID, TRAVEL_PRESET_SETTING)
+    ?? defaultTravelPresets());
 }
 
 export function registerWorldTravelPresets() {

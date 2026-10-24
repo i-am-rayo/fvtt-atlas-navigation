@@ -1,13 +1,14 @@
 /**
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
- * v0.2.18 adds world preset Region colors, shared filters and advisory status.
+ * v0.2.20 adds configurable named-road appearance with world defaults.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
-  saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset } from "./road-storage.js";
+  saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset,
+  saveRoadAppearance } from "./road-storage.js";
 import { getRoadMergeCandidates } from "./road-model.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
@@ -19,6 +20,9 @@ import { availableMovementActions, readPreset, previewNativeMovementCost }
 import { presetCostSummary } from "./travel-preset-model.js";
 import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
+import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance }
+  from "./road-appearance-settings.js";
+import { readWorldRoadAppearance, resolveRoadAppearance } from "./road-appearance.js";
 
 const roadCanvas = new RoadCanvasController();
 
@@ -164,6 +168,49 @@ function actions() {
       roadCanvas.refresh();
       refresh();
       ui.notifications.info("Atlas named-road default travel preset saved.");
+    },
+    async editRoadAppearance(scene, road, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      const actual = atlas.roads?.find(item => item.id === road.id);
+      if (!actual) throw new Error("The named road no longer exists.");
+      const content = document.createElement("div");
+      const hint = document.createElement("p");
+      hint.textContent = "Override World appearance defaults for " + actual.name +
+        ". This changes the Atlas overlay only, not generated Regions or movement rules.";
+      content.append(hint, roadAppearanceForm(resolveRoadAppearance(actual, readWorldRoadAppearance())));
+      const result = await DialogV2.input({
+        window: { title: "Road Appearance — " + actual.name },
+        content, ok: { label: "Save Road Appearance" },
+        rejectClose: false, modal: true
+      });
+      if (!result) return;
+      await saveRoadAppearance(scene, {
+        roadId: road.id, appearance: roadAppearanceFromForm(result),
+        expectedRevision: atlas.revision
+      });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info("Atlas road appearance saved.");
+    },
+    async resetRoadAppearance(scene, road, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      if (!atlas.roads?.some(item => item.id === road.id && item.appearance)) {
+        throw new Error("This road has no custom appearance to reset.");
+      }
+      const approved = await DialogV2.confirm({
+        window: { title: "Reset Road Appearance" },
+        content: "Use the current World appearance defaults for " + road.name + "?",
+        yes: { label: "Reset to Defaults" }, rejectClose: false, modal: true
+      });
+      if (!approved) return;
+      await saveRoadAppearance(scene, {
+        roadId: road.id, appearance: null, expectedRevision: atlas.revision
+      });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info("Atlas road now uses World appearance defaults.");
     },
     async assignGeneratedRegionTravelPreset(scene, entry, refresh) {
       ensureIdle(scene);
@@ -609,6 +656,7 @@ function actions() {
 
 Hooks.once("init", () => {
   registerWorldTravelPresets();
+  registerWorldRoadAppearance(() => roadCanvas.refresh());
   const roadActions = actions();
   Hooks.on("renderSceneConfig", (app, element) => {
     addAtlasRoadsToSceneConfig(app, element, roadActions);
