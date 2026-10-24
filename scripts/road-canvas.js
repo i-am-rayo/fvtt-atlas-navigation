@@ -9,7 +9,8 @@ import { groupCheckpointMarkers, checkpointQuickInfo,
   clusterQuickInfo } from "./checkpoint-clusters.js";
 import { playerAtlasOverlay } from "./player-visibility.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
-  roadStrokeSpans, roadLabelPoint, roadAppearanceMode } from "./road-appearance.js";
+  roadStrokeSpans, roadLabelPoint, roadAppearanceMode, readRoadCurvePreset,
+  smoothRoadPath, roadCurveNeighbors } from "./road-appearance.js";
 import { defaultTravelPresets, validateTravelPresets,
   TRAVEL_PRESET_SETTING } from "./travel-preset-model.js";
 import { validateRoadAppearance } from "./road-appearance.js";
@@ -905,7 +906,8 @@ export class RoadCanvasController {
       }
       const atlas = readAtlas(canvas.scene);
       const target = atlasShortcutTarget(atlas, position,
-        point => toCanvasPoint(canvas, atlas, point), canvas.stage?.scale?.x ?? 1);
+        point => toCanvasPoint(canvas, atlas, point), canvas.stage?.scale?.x ?? 1,
+        readRoadCurvePreset());
       if (!target) return;
       event.preventDefault?.();
       event.stopImmediatePropagation?.();
@@ -1082,6 +1084,8 @@ export class RoadCanvasController {
     const nodes = new Map(visible.nodes.map(node => [node.id, node]));
     const roads = new Map(visible.roads.map(road => [road.id, road]));
     const worldDefaults = readWorldRoadAppearance();
+    const curvature = readRoadCurvePreset();
+    const adjacent = roadCurveNeighbors(visible);
     const labelAnchors = new Map();
     const hoverPaths = [];
     const presets = validateTravelPresets(
@@ -1094,7 +1098,12 @@ export class RoadCanvasController {
       if (!road) continue;
       const style = resolveRoadAppearance(road, worldDefaults,
         roadAppearanceMode(road, presets));
-      const path = [from, ...segment.via, to].map(point => toCanvasPoint(canvas, atlas, point));
+      const neighbors = adjacent.get(segment.id);
+      const path = smoothRoadPath([from, ...segment.via, to]
+        .map(point => toCanvasPoint(canvas, atlas, point)), curvature, {
+          before: neighbors?.before ? toCanvasPoint(canvas, atlas, neighbors.before) : null,
+          after: neighbors?.after ? toCanvasPoint(canvas, atlas, neighbors.after) : null
+        });
       drawLine(graphics, path, Number.parseInt(style.color.slice(1), 16),
         style.width, style.opacity, style.pattern);
       if (style.labelVisibility !== "off") {
@@ -1271,6 +1280,8 @@ export class RoadCanvasController {
     const nodes = new Map(atlas.nodes.map(n => [n.id, n]));
     const roads = new Map((atlas.roads ?? []).map(r => [r.id, r]));
     const worldDefaults = readWorldRoadAppearance();
+    const curvature = readRoadCurvePreset();
+    const adjacent = roadCurveNeighbors(atlas);
     const travelPresets = validateTravelPresets(
       globalThis.game?.settings?.get?.("fvtt-atlas-navigation", TRAVEL_PRESET_SETTING) ??
       defaultTravelPresets()).presets;
@@ -1282,7 +1293,12 @@ export class RoadCanvasController {
       const from = nodes.get(segment.from);
       const to = nodes.get(segment.to);
       if (!from || !to) continue;
-      const path = [from, ...segment.via, to].map(p => toCanvasPoint(canvas, atlas, p));
+      const neighbors = adjacent.get(segment.id);
+      const path = smoothRoadPath([from, ...segment.via, to]
+        .map(p => toCanvasPoint(canvas, atlas, p)), curvature, {
+          before: neighbors?.before ? toCanvasPoint(canvas, atlas, neighbors.before) : null,
+          after: neighbors?.after ? toCanvasPoint(canvas, atlas, neighbors.after) : null
+        });
       const highlighted = this.selectedRoadId === (atlas.schemaVersion >= 3 ? segment.roadId : segment.id);
       const road = roads.get(segment.roadId) ?? segment;
       const style = resolveRoadAppearance(road, worldDefaults,
@@ -1383,7 +1399,7 @@ export class RoadCanvasController {
         ? resolveRoadAppearance({ appearance: draft.options.appearance },
             worldDefaults, previewMode)
         : null;
-      drawLine(g, canvasPoints,
+      drawLine(g, smoothRoadPath(canvasPoints, curvature),
         previewStyle ? Number.parseInt(previewStyle.color.slice(1), 16) : 0xffd166,
         previewStyle?.width ?? 4, previewStyle?.opacity ?? 0.85,
         previewStyle?.pattern ?? "solid");

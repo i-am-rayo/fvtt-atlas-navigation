@@ -19,11 +19,11 @@ test("module manifest declares a v14 system-agnostic module shell", async () => 
   assert.equal("relationships" in manifest, false);
   assert.equal(
     manifest.manifest,
-    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2p-player-visibility/module.json"
+    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-2q-road-curvature/module.json"
   );
   assert.equal(
     manifest.download,
-    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2p-player-visibility.zip"
+    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-2q-road-curvature.zip"
   );
   assert.ok(manifest.manifest.endsWith("/module.json"));
   assert.ok(manifest.download.endsWith(".zip"));
@@ -82,12 +82,12 @@ test("module init registers World travel and appearance menus without an obsolet
     events.get("init")();
 
     assert.deepEqual(registrations.map(([, key]) => key),
-      ["corridorTravelPresets", "roadAppearanceDefaults"]);
-    for (const [namespace, , options] of registrations) {
+      ["corridorTravelPresets", "roadCurvature", "roadAppearanceDefaults"]);
+    for (const [namespace, key, options] of registrations) {
       assert.equal(namespace, "fvtt-atlas-navigation");
       assert.equal(options.scope, "world");
-      assert.equal(options.config, false);
-      assert.equal(options.type, Object);
+      assert.equal(options.config, key === "roadCurvature");
+      assert.equal(options.type, key === "roadCurvature" ? String : Object);
     }
     assert.deepEqual(menus.map(([, key]) => key),
       ["atlasTravelPresetsMenu", "atlasRoadAppearanceMenu"]);

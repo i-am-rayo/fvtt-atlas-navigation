@@ -6,7 +6,8 @@ globalThis.foundry = { applications: { api: { ApplicationV2: class {
 } } } };
 const { AtlasRoadAppearanceSettings, roadAppearanceForm, roadAppearanceFromForm,
   registerWorldRoadAppearance } = await import("../scripts/road-appearance-settings.js");
-const { DEFAULT_ROAD_APPEARANCE } = await import("../scripts/road-appearance.js");
+const { DEFAULT_ROAD_APPEARANCE, ROAD_CURVE_SETTING }
+  = await import("../scripts/road-appearance.js");
 
 class Element {
   constructor(tag) {
@@ -78,4 +79,25 @@ test("road DialogV2 form serializes label color through explicit input defaults"
     const serialized = Object.fromEntries(values.map(field => [field.name, field.defaultValue ?? field.value]));
     assert.equal(roadAppearanceFromForm(serialized).textColor, "#fefefe");
   } finally { globalThis.document = oldDocument; }
+});
+
+test("v0.2.25 global curvature offers restricted World presets and live refresh", () => {
+  const previous = globalThis.game;
+  const registered = new Map();
+  let repaints = 0;
+  try {
+    globalThis.game = { settings: {
+      register(_module, key, options) { registered.set(key, options); },
+      registerMenu() {}
+    } };
+    registerWorldRoadAppearance(() => repaints++);
+    const curve = registered.get(ROAD_CURVE_SETTING);
+    assert.equal(curve.scope, "world");
+    assert.equal(curve.config, true);
+    assert.equal(curve.type, String);
+    assert.equal(curve.default, "gentle");
+    assert.deepEqual(Object.keys(curve.choices), ["off", "gentle", "moderate", "strong"]);
+    curve.onChange("moderate");
+    assert.equal(repaints, 1, "changing only curvature repaints existing roads");
+  } finally { globalThis.game = previous; }
 });

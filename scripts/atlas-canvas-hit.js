@@ -1,5 +1,6 @@
 import { checkpointCanvasSize, checkpointMarkerPosition,
   resolveCheckpointAppearance } from "./checkpoint-appearance.js";
+import { smoothRoadPath, roadCurveNeighbors } from "./road-appearance.js";
 
 function distanceToSection(point, path) {
   let nearest = Infinity;
@@ -21,7 +22,7 @@ function distanceToSection(point, path) {
  * checkpoint marker wins over its parent road. Only handles a Shift+click
  * when no in-progress authoring session is active.
  */
-export function atlasShortcutTarget(atlas, point, toCanvas, zoom = 1) {
+export function atlasShortcutTarget(atlas, point, toCanvas, zoom = 1, curvature = "off") {
   if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return null;
   const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
   const nodes = new Map(atlas.nodes.map(node => [node.id, node]));
@@ -44,10 +45,15 @@ export function atlasShortcutTarget(atlas, point, toCanvas, zoom = 1) {
   if (checkpointHit) return { kind: "checkpoint", id: checkpointHit.id };
 
   let roadHit = null;
+  const adjacent = roadCurveNeighbors(atlas);
   for (const segment of atlas.segments ?? []) {
     const from = nodes.get(segment.from), to = nodes.get(segment.to);
     if (!from || !to) continue;
-    const path = [from, ...segment.via, to].map(toCanvas);
+    const neighbors = adjacent.get(segment.id);
+    const path = smoothRoadPath([from, ...segment.via, to].map(toCanvas), curvature, {
+      before: neighbors?.before ? toCanvas(neighbors.before) : null,
+      after: neighbors?.after ? toCanvas(neighbors.after) : null
+    });
     const distance = distanceToSection(point, path);
     if (distance <= 12 / scale && (!roadHit || distance < roadHit.distance)) {
       roadHit = { kind: "road", id: segment.roadId, distance };

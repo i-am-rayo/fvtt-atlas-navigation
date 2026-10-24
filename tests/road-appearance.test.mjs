@@ -3,11 +3,14 @@ import test from "node:test";
 import { createEmptyAtlas, upgradeAtlasRoadAppearance, upgradeAtlasRoadTextAppearance,
   validateAtlas, TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION } from "../scripts/atlas-model.js";
 import { addRoad } from "../scripts/road-model.js";
+import { addRoadCheckpoint } from "../scripts/checkpoint-model.js";
 import { readAtlas } from "../scripts/atlas-storage.js";
 import { saveRoadAppearance } from "../scripts/road-storage.js";
 import { DEFAULT_ROAD_APPEARANCE, DEFAULT_WORLD_ROAD_APPEARANCE,
   resolveRoadAppearance, roadAppearanceMode, validateWorldRoadAppearance,
-  roadStrokeSpans, roadLabelPoint, validateRoadAppearance }
+  roadStrokeSpans, roadLabelPoint, validateRoadAppearance,
+  ROAD_CURVE_PRESETS, DEFAULT_ROAD_CURVE_PRESET, smoothRoadPath,
+  readRoadCurvePreset, ROAD_CURVE_SETTING, roadCurveNeighbors }
   from "../scripts/road-appearance.js";
 
 const points = [{ x: 10, y: 10 }, { x: 110, y: 10 }];
@@ -160,4 +163,74 @@ test("dashed/dotted strokes keep continuous spacing across road bends", () => {
   assert.ok(dashed.some(span => span.some(p => p.y > 0)), "dash continues after bend");
   assert.deepEqual(roadLabelPoint(path), { x: 20, y: 0 },
     "label uses half of the drawn distance");
+});
+
+test("v0.2.25 World curve presets smooth display paths without touching original road points", () => {
+  const vertices = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }];
+  const original = structuredClone(vertices);
+  assert.equal(DEFAULT_ROAD_CURVE_PRESET, "gentle");
+  assert.deepEqual(Object.keys(ROAD_CURVE_PRESETS), ["off", "gentle", "moderate", "strong"]);
+  assert.equal(smoothRoadPath(vertices, "off"), vertices);
+  assert.equal(smoothRoadPath(vertices.slice(0, 2), "strong").length, 2,
+    "two points do not imply a bend direction");
+  const paths = ["gentle", "moderate", "strong"].map(mode => smoothRoadPath(vertices, mode));
+  const bend = path => Math.max(...path.map(point => Math.max(0, -point.y, point.x - 100)));
+  assert.ok(paths[0].length > vertices.length);
+  assert.ok(bend(paths[0]) > 0);
+  assert.ok(bend(paths[1]) > bend(paths[0]));
+  assert.ok(bend(paths[2]) > bend(paths[1]));
+  for (const path of paths) {
+    assert.deepEqual(path[0], vertices[0]);
+    assert.deepEqual(path.at(-1), vertices.at(-1));
+    assert.ok(path.some(p => p === vertices[1]), "spline passes through the authored bend");
+    assert.ok(path.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)));
+    assert.ok(roadStrokeSpans(path, "dashed", 4).length > 2,
+      "dash pattern can follow the same sampled curve continuously");
+  }
+  assert.deepEqual(vertices, original, "World preference cannot mutate Scene graph coordinates");
+  assert.throws(() => smoothRoadPath(vertices, "unbounded"), /curvature preset/);
+});
+
+test("v0.2.25 World curvature reader uses registered choice or safe gentle default", () => {
+  const previous = globalThis.game;
+  try {
+    globalThis.game = { settings: { get(_module, setting) {
+      return setting === ROAD_CURVE_SETTING ? "strong" : null;
+    } } };
+    assert.equal(readRoadCurvePreset(), "strong");
+    globalThis.game.settings.get = () => "unsupported";
+    assert.equal(readRoadCurvePreset(), "gentle");
+    globalThis.game.settings.get = () => undefined;
+    assert.equal(readRoadCurvePreset(), "gentle");
+  } finally { globalThis.game = previous; }
+});
+
+test("v0.2.25 checkpoint-split sections share a continuous road bend", () => {
+  let index = 0;
+  const idFactory = () => "curve-split-" + ++index;
+  const original = addRoad(createEmptyAtlas(), {
+    name: "Joined river path",
+    points: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }], idFactory
+  });
+  const split = addRoadCheckpoint(original, {
+    roadId: original.roads[0].id,
+    candidate: { kind: "edge", segmentId: original.segments[0].id,
+      edgeIndex: 1, atVertex: true, x: 100, y: 0 },
+    name: "River Port", idFactory
+  });
+  assert.equal(split.segments.length, 2);
+  const map = new Map(split.nodes.map(node => [node.id, node]));
+  const adjacent = roadCurveNeighbors(split);
+  const first = split.segments[0], second = split.segments[1];
+  const lead = smoothRoadPath([map.get(first.from), map.get(first.to)], "strong",
+    adjacent.get(first.id));
+  const tail = smoothRoadPath([map.get(second.from), map.get(second.to)], "strong",
+    adjacent.get(second.id));
+  assert.ok(lead.length > 2 && tail.length > 2,
+    "splitting a road at a checkpoint must not revert each section to a straight line");
+  assert.deepEqual(lead.at(-1), tail[0], "both splines meet exactly on the authored checkpoint");
+  assert.ok(lead.some(point => point.y < -0.1));
+  assert.ok(tail.some(point => point.x > 100.1));
+  assert.equal(split.nodes.length, original.nodes.length + 1,
+    "the only new graph node is the deliberately created checkpoint junction");
 });

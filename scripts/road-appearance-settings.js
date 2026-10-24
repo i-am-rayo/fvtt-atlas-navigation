@@ -1,6 +1,7 @@
 import { MODULE_ID } from "./atlas-storage.js";
 import { DEFAULT_WORLD_ROAD_APPEARANCE, ROAD_APPEARANCE_SETTING, readWorldRoadAppearance,
   ROAD_LINE_PATTERNS, ROAD_LABEL_VISIBILITY, ROAD_APPEARANCE_MODES,
+  ROAD_CURVE_SETTING, ROAD_CURVE_PRESETS, DEFAULT_ROAD_CURVE_PRESET,
   validateRoadAppearance, validateWorldRoadAppearance }
   from "./road-appearance.js";
 
@@ -126,6 +127,16 @@ export class AtlasRoadAppearanceSettings extends foundry.applications.api.Applic
 }
 
 export function registerWorldRoadAppearance(onChange = () => {}) {
+  game.settings.register(MODULE_ID, ROAD_CURVE_SETTING, {
+    name: "Atlas — Global Road Curvature",
+    hint: "Visual-only smoothing for existing and new Land, Air and Water roads in all Scenes. " +
+      "Off keeps straight segments; Gentle is the default. Changes do not alter nodes, " +
+      "distances, native Regions, or movement costs. Two-point roads remain straight.",
+    scope: "world", config: true, type: String,
+    choices: Object.fromEntries(Object.keys(ROAD_CURVE_PRESETS).map(preset =>
+      [preset, preset.charAt(0).toUpperCase() + preset.slice(1)])),
+    default: DEFAULT_ROAD_CURVE_PRESET, onChange
+  });
   game.settings.register(MODULE_ID, ROAD_APPEARANCE_SETTING, {
     name: "Atlas Road Overlay Appearance Profiles",
     hint: "Land / Air / Water World-shared line and road-name styles; separate from native Regions.",

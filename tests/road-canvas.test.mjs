@@ -8,6 +8,8 @@ import { addRoadCheckpoint, editCheckpointAppearance } from "../scripts/checkpoi
 import { DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
 import { setRoadPlayerVisibility, setCheckpointPlayerVisibility }
   from "../scripts/player-visibility.js";
+import { DEFAULT_WORLD_ROAD_APPEARANCE, ROAD_CURVE_SETTING,
+  ROAD_APPEARANCE_SETTING } from "../scripts/road-appearance.js";
 
 function setup() {
   const listeners = new Map();
@@ -1163,5 +1165,63 @@ test("v0.2.24.2 player checkpoint hover reveals its name but never a hidden road
     assert.ok(!m.controller.labels.some(item => item.text === "Public Dock"),
       "hiding the checkpoint removes its previously hovered name");
     assert.equal(m.listeners.has("pointerdown"), false);
+  } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
+});
+
+test("v0.2.25 World curvature redraws existing roads for GM and player with matching hover", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  let curvature = "off";
+  const defaults = structuredClone(DEFAULT_WORLD_ROAD_APPEARANCE);
+  defaults.profiles.land.labelVisibility = "hover";
+  class Text {
+    constructor(value, style) {
+      this.text = String(value); this.style = style;
+      this.anchor = { set() {} }; this.position = { set() {} };
+    }
+    destroy() {}
+  }
+  m.Graphics.prototype.addChild = function(label) { label.parent = this; };
+  try {
+    globalThis.game = { user: { isGM: true }, settings: { get(_module, key) {
+      if (key === ROAD_CURVE_SETTING) return curvature;
+      if (key === ROAD_APPEARANCE_SETTING) return defaults;
+      return undefined;
+    } } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    m.canvas.stage = { scale: { x: 1 } };
+    let index = 0;
+    let atlas = addRoad(createEmptyAtlas(), {
+      name: "Curved Trade Route",
+      points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }, { x: 1000, y: 1000 }],
+      idFactory: () => "curve-render-" + ++index
+    });
+    const original = structuredClone(atlas);
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    const straightCount = m.controller.graphics.drawn.length;
+    curvature = "strong";
+    m.controller.refresh();
+    assert.ok(m.controller.graphics.drawn.length > straightCount,
+      "GM road line changes to a sampled spline without editing nodes");
+    assert.deepEqual(readAtlas(m.scene), original, "render refresh never persists geometry");
+
+    atlas = setRoadPlayerVisibility(atlas, { roadId: atlas.roads[0].id, visible: true });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    globalThis.game.user.isGM = false;
+    m.controller.refresh();
+    const curvedPoint = m.controller.graphics.drawn.find(point =>
+      point.x > 650 && point.x < 850 && point.y < 10);
+    assert.ok(curvedPoint, "player overlay draws a curved segment off the original chord");
+    assert.ok(m.listeners.has("pointermove"));
+    m.listeners.get("pointermove")(pointEvent(curvedPoint.x / 2, curvedPoint.y / 2));
+    assert.ok(m.controller.labels.some(label => label.text === "Curved Trade Route"),
+      "visible road label hit testing matches the displayed curve");
+    curvature = "off";
+    m.controller.refresh();
+    assert.equal(m.controller.graphics.drawn.length, straightCount,
+      "World Off selection immediately restores the existing straight road");
+    assert.deepEqual(readAtlas(m.scene).nodes, atlas.nodes);
+    assert.deepEqual(readAtlas(m.scene).segments, atlas.segments);
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });

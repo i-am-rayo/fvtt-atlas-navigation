@@ -6,6 +6,7 @@ import { addRoadCheckpoint } from "../scripts/checkpoint-model.js";
 import { DEFAULT_CHECKPOINT_APPEARANCE,
   checkpointMarkerPosition } from "../scripts/checkpoint-appearance.js";
 import { atlasShortcutTarget } from "../scripts/atlas-canvas-hit.js";
+import { smoothRoadPath } from "../scripts/road-appearance.js";
 
 test("Shift-click hit test prefers checkpoint icon and node over underlying road", () => {
   let nextId = 0;
@@ -37,4 +38,20 @@ test("Shift-click hit test prefers checkpoint icon and node over underlying road
     { kind: "road", id: built.roads[0].id });
   assert.equal(atlasShortcutTarget(updated, { x: 100, y: 28 }, identity, 4), null,
     "hit tolerance remains small when zoomed in");
+});
+
+test("v0.2.25 GM Shift-click follows the displayed spline rather than its old straight chord", () => {
+  let index = 0;
+  const points = [{ x: 0, y: 0 }, { x: 1000, y: 0 }, { x: 1000, y: 1000 }];
+  const atlas = addRoad(createEmptyAtlas(), {
+    name: "Coastal Turn", points, idFactory: () => "curve-hit-" + ++index
+  });
+  const curved = smoothRoadPath(points, "strong");
+  const raisedPoint = curved.find(point => point.x > 650 && point.x < 850 && point.y < -20);
+  assert.ok(raisedPoint, "strong preset lifts a large bend visibly from the original chord");
+  assert.equal(atlasShortcutTarget(atlas, raisedPoint, point => point, 1, "off"), null);
+  assert.deepEqual(atlasShortcutTarget(atlas, raisedPoint, point => point, 1, "strong"),
+    { kind: "road", id: atlas.roads[0].id });
+  assert.equal(atlasShortcutTarget(atlas, { x: 500, y: -100 }, point => point,
+    1, "strong"), null, "empty areas cannot select the smoothed road");
 });

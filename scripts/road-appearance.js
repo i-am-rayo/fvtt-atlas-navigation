@@ -4,6 +4,11 @@ export const ROAD_LINE_PATTERNS = ["solid", "dashed", "dotted"];
 export const ROAD_LABEL_VISIBILITY = ["off", "hover", "always"];
 export const ROAD_APPEARANCE_MODES = ["land", "air", "water"];
 export const ROAD_APPEARANCE_CATALOG_VERSION = 2;
+export const ROAD_CURVE_SETTING = "roadCurvature";
+export const ROAD_CURVE_PRESETS = Object.freeze({
+  off: 0, gentle: 0.35, moderate: 0.7, strong: 1
+});
+export const DEFAULT_ROAD_CURVE_PRESET = "gentle";
 
 export const DEFAULT_ROAD_APPEARANCE = Object.freeze({
   color: "#35c9ef",
@@ -92,6 +97,96 @@ export function readWorldRoadAppearance() {
 export function roadAppearanceMode(road, presets = []) {
   const selected = presets.find(preset => preset.id === road?.travelPresetId);
   return ROAD_APPEARANCE_MODES.includes(selected?.mode) ? selected.mode : "land";
+}
+
+/** Shared World preference; changing it never writes to a Scene or road. */
+export function readRoadCurvePreset() {
+  const value = globalThis.game?.settings?.get?.("fvtt-atlas-navigation", ROAD_CURVE_SETTING);
+  return typeof value === "string" && Object.hasOwn(ROAD_CURVE_PRESETS, value)
+    ? value : DEFAULT_ROAD_CURVE_PRESET;
+}
+
+/**
+ * A sampled, bounded cardinal spline through the original points. The path is
+ * used for presentation, hit tests and label placement ONLY; graph distances,
+ * Region shapes and editable nodes continue to use the original polyline.
+ * Two-point roads stay straight because their intended bend is undefined.
+ */
+export function smoothRoadPath(points, preset = DEFAULT_ROAD_CURVE_PRESET,
+  { before = null, after = null } = {}) {
+  if (!Object.hasOwn(ROAD_CURVE_PRESETS, preset)) {
+    throw new Error("Choose a supported World road curvature preset.");
+  }
+  const strength = ROAD_CURVE_PRESETS[preset];
+  if (!Array.isArray(points) || points.length < 2 || strength === 0 ||
+      (points.length === 2 && !before && !after)) return points;
+  const result = [points[0]];
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    const previous = points[i - 1] ?? before ?? a;
+    const next = points[i + 2] ?? after ?? b;
+    const distance = Math.hypot(b.x - a.x, b.y - a.y);
+    if (distance < 1e-8) { result.push(b); continue; }
+    const priorLength = Math.hypot(a.x - previous.x, a.y - previous.y);
+    const followingLength = Math.hypot(next.x - b.x, next.y - b.y);
+    const startRatio = i === 0 && !before ? 1 : distance / (priorLength + distance);
+    const endRatio = i === points.length - 2 && !after ? 1 : distance / (distance + followingLength);
+    const c1 = { x: a.x + (b.x - previous.x) * startRatio * strength / 3,
+      y: a.y + (b.y - previous.y) * startRatio * strength / 3 };
+    const c2 = { x: b.x - (next.x - a.x) * endRatio * strength / 3,
+      y: b.y - (next.y - a.y) * endRatio * strength / 3 };
+    // Adapt to map-space segment length while bounding graphics work.
+    const steps = Math.min(48, Math.max(4, Math.ceil(distance / 18)));
+    for (let step = 1; step < steps; step++) {
+      const t = step / steps, u = 1 - t;
+      result.push({
+        x: u * u * u * a.x + 3 * u * u * t * c1.x +
+          3 * u * t * t * c2.x + t * t * t * b.x,
+        y: u * u * u * a.y + 3 * u * u * t * c1.y +
+          3 * u * t * t * c2.y + t * t * t * b.y
+      });
+    }
+    result.push(b);
+  }
+  return result;
+}
+
+/**
+ * Look across named-road section boundaries only at unambiguous degree-two
+ * continuations. Checkpoint-created subdivisions then receive the same smooth
+ * tangent as an unsplit road; branches do not guess a preferred outgoing arm.
+ */
+export function roadCurveNeighbors(atlas) {
+  const nodes = new Map(atlas.nodes.map(node => [node.id, node]));
+  const incident = new Map();
+  for (const segment of atlas.segments) {
+    if (typeof segment.roadId !== "string" || !segment.roadId) continue;
+    for (const side of ["from", "to"]) {
+      const key = JSON.stringify([segment.roadId, segment[side]]);
+      if (!incident.has(key)) incident.set(key, []);
+      incident.get(key).push({ segment, side });
+    }
+  }
+  const neighbors = new Map();
+  for (const segment of atlas.segments) {
+    const pair = {};
+    if (typeof segment.roadId !== "string" || !segment.roadId) {
+      neighbors.set(segment.id, pair);
+      continue;
+    }
+    for (const [side, label] of [["from", "before"], ["to", "after"]]) {
+      const key = JSON.stringify([segment.roadId, segment[side]]);
+      const connections = incident.get(key);
+      if (connections?.length !== 2) continue;
+      const other = connections.find(item => item.segment.id !== segment.id);
+      if (!other) continue;
+      pair[label] = other.side === "from"
+        ? other.segment.via[0] ?? nodes.get(other.segment.to)
+        : other.segment.via.at(-1) ?? nodes.get(other.segment.from);
+    }
+    neighbors.set(segment.id, pair);
+  }
+  return neighbors;
 }
 
 export function resolveRoadAppearance(road,

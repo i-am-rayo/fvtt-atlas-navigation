@@ -1,3 +1,15 @@
+# v0.2.25 — World-wide visual road curvature (draft GM/player gate)
+
+1. In Foundry v14 Module Settings, locate **Atlas — Global Road Curvature**. Compare **Off**, **Gentle** (default), **Moderate** and **Strong** on a road with several bends. The same existing road must redraw progressively more smoothly without any Scene save or reload; Off must restore its original straight segments.
+2. On a long named road with a checkpoint attached to an interior bend, confirm the curvature stays continuous on both sides of that checkpoint. Straight two-point roads with no continuing section should stay straight rather than acquire arbitrary bulges. Check close bends, U-turns and branches for unwanted loops or detours; report any problematic geometry.
+3. Test **solid**, **dashed** and **dotted** roads at several zoom levels. Dashes should follow the smooth line, not an invisible original chord. Road-name labels, GM hover, player hover (on explicitly visible roads only), and idle GM Shift+left-click road settings should follow the visible road.
+4. Change the setting while a GM and ordinary player view the same Scene. Both should redraw the same revealed roads. Switch to another Scene to verify that the World preference applies there too, while hidden roads/checkpoints remain hidden to players.
+5. Check that road and checkpoint IDs/coordinates, saved route lengths, checkpoints, native Region corridor shapes, movement Behaviors/costs, levels and visibility do **not** change when toggling curvature. Native Region geometry remains based on the original authored path, so the smooth line is illustrative and need not match the Region's precise centerline everywhere.
+
+Keep this new stacked PR as draft until the Foundry GM/player acceptance checks pass. No Scene schema upgrade or new routing behavior is part of v0.2.25.
+
+---
+
 # v0.2.24.2 — Player checkpoint name hover hotfix (draft two-client gate)
 
 1. With a GM and a player on the same Scene, reveal a checkpoint but **not** its associated road. As a player, hover the icon (including its elevated position) and underlying point: only the checkpoint's **own name** should appear; not the hidden road's name or any elevation.
@@ -655,7 +667,7 @@ The following failures are **known in 0.2.4**; re-test after future fixes rather
 - **Interior connection:** Start a new road at the **middle** of an existing road, not just a cyan endpoint dot. Explicitly choose to join; the target road must be split into two connected graph edges sharing one new stable node with the new road. A visually crossing road should remain disconnected unless explicitly joined.
 - **Transient highlight:** Highlight a road, then close Scene Configuration or navigate away from the Atlas editing context. The gold emphasis must clear without deleting or hiding the road. Scene-switch teardown must also clear it.
 
-The owner's additional LegendKeeper-inspired requests—road labels (off/on hover/always), per-road colors and solid/dashed/dotted patterns, editable/smoothed shapes, focus-to-fit, hide/show, native-measured name/length hover, and direct right-click editing—are recorded in [Phase 2 design](PHASE2_DESIGN.md) and [roadmap](ROADMAP.md). These have **not** been built.
+The owner's additional LegendKeeper-inspired requests—road labels (off/on hover/always), per-road colors and solid/dashed/dotted patterns, visual-only World-wide smoothing (v0.2.25), focus-to-fit, hide/show, native-measured name/length hover, and direct right-click editing—are recorded in [Phase 2 design](PHASE2_DESIGN.md) and [roadmap](ROADMAP.md). Features not called out as implemented in the release notes remain future work.
 
 ## Known limits
 
