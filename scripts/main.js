@@ -811,6 +811,9 @@ Hooks.once("init", () => {
     roadCanvas.tearDown();
   });
   Hooks.on("canvasPan", view => roadCanvas.onCanvasPan(view));
+  Hooks.on("sightRefresh", () => roadCanvas.onFogRefresh());
+  Hooks.on("updateFogExploration", () => roadCanvas.onFogRefresh());
+  Hooks.on("deleteFogExploration", () => roadCanvas.onFogRefresh());
   Hooks.on("updateScene", scene => {
     if (globalThis.canvas?.ready && canvas.scene?.id === scene.id) roadCanvas.refresh();
   });
