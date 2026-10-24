@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab } from "../scripts/scene-config.js";
+import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
+  filteredRoadIds } from "../scripts/scene-config.js";
 
 class Element {
   constructor(tag) { this.tag = tag; this.attributes = new Map(); this.children = []; this.listeners = new Map(); this.style = {}; }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   appendChild(child) { this.children.push(child); }
+  append(...children) { this.children.push(...children); }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
 }
 
@@ -358,4 +360,97 @@ test("junction filters default to one road, include direct neighbors and can sho
    controls=selects();controls[1].value="selected";controls[1].listeners.get("change")();
    assert.deepEqual(rows(),["r2"],"road selection persists across refreshes");
  } finally {Object.assign(globalThis,previous);}
+});
+
+test("v0.2.18 downstream filters share selected, direct-neighbor and scene-wide road scope",()=>{
+ const atlas={
+   roads:[{id:"main"},{id:"spur"},{id:"other"},{id:"remote"}],
+   segments:[
+     {roadId:"main",from:"a",to:"b"},
+     {roadId:"spur",from:"b",to:"c"},
+     {roadId:"other",from:"c",to:"d"},
+     {roadId:"remote",from:"x",to:"y"}
+   ]
+ };
+ assert.deepEqual([...filteredRoadIds(atlas,{roadId:"main",scope:"selected"})],["main"]);
+ assert.deepEqual([...filteredRoadIds(atlas,{roadId:"main",scope:"connected"})],
+   ["main","spur"]);
+ assert.deepEqual([...filteredRoadIds(atlas,{roadId:"main",scope:"scene"})],
+   ["main","spur","other","remote"]);
+ assert.deepEqual([...filteredRoadIds(atlas,{roadId:"deleted",scope:"selected"})],[]);
+});
+
+test("v0.2.18.1 corridor native-cost checkbox re-renders Atlas without perMode scope error",()=>{
+ const saved={document:globalThis.document,game:globalThis.game,
+   CONFIG:globalThis.CONFIG,ui:globalThis.ui};
+ class NativeModel {
+   static schema={fields:{difficulties:{}}};
+   constructor(data){this.data=data;}
+   validate(){return true;}
+   toObject(){return structuredClone(this.data);}
+ }
+ const preset={
+   id:"land-stone",mode:"land",name:"Stone Road",color:"#9CA3AF",
+   movementCostMultiplier:1,movementCosts:{walk:1.5}
+ };
+ const world={schemaVersion:3,presets:[preset]};
+ const atlas={
+   schemaVersion:5,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
+   roads:[{id:"bridge",name:"Stone Bridge",travelPresetId:"land-stone"}],
+   nodes:[{id:"n1",x:0,y:0},{id:"n2",x:100,y:0}],
+   segments:[{id:"edge",roadId:"bridge",from:"n1",to:"n2",
+     via:[],bidirectional:true}],
+   checkpoints:[
+     {id:"c1",roadId:"bridge",nodeId:"n1",name:"East",elevationMeters:0},
+     {id:"c2",roadId:"bridge",nodeId:"n2",name:"West",elevationMeters:5}
+   ]
+ };
+ const scene={id:"opt-in-scene",grid:{size:100,distance:5,units:"ft"},
+   regions:new Map(),canUserModify:()=>true,getFlag:()=>atlas};
+ let mounted=null;
+ const nativeRoot={querySelector:()=>null,appendChild:element=>{
+   mounted=element;element.remove=()=>{mounted=null;};
+ }};
+ const element={querySelector:selector=>
+   selector==="[data-fvtt-atlas-scene-root]"?nativeRoot:null};
+ const visit=(root,predicate)=>{
+   if(predicate(root))return root;
+   for(const child of root.children??[]){
+     const match=visit(child,predicate);
+     if(match)return match;
+   }
+   return null;
+ };
+ try {
+   globalThis.document={createElement:tag=>new Element(tag)};
+   globalThis.game={user:{isGM:true},
+     settings:{get:()=>world},
+     i18n:{localize:k=>k,lang:"en"}};
+   globalThis.CONFIG={
+     RegionBehavior:{dataModels:{modifyMovementCost:NativeModel}},
+     Token:{movement:{actions:{walk:{label:"Walk"}}}}
+   };
+   globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+   const actions={draft:()=>null,begin(){},select(){},rename(){},remove(){},
+     generateRegion(){}};
+   addAtlasRoadsToSceneConfig({document:scene,rendered:true},element,actions);
+   assert.ok(mounted);
+   const kind=visit(mounted,entry=>entry.tag==="select"&&entry.value==="checkpoint");
+   assert.ok(kind,"generated Regions begin as checkpoints");
+   kind.value="corridor";
+   kind.listeners.get("change")();
+   const checkbox=visit(mounted,entry=>entry.tag==="input"&&entry.type==="checkbox");
+   assert.ok(checkbox&&!checkbox.disabled);
+   checkbox.checked=true;
+   checkbox.listeners.get("change")();
+   assert.ok(mounted,"the Atlas settings panel should survive opt-in");
+   assert.doesNotMatch(textContents(mounted),/perMode is not defined/);
+   assert.match(textContents(mounted),/One native Behavior with selected movement modes/);
+   const preview=visit(mounted,entry=>entry.tag==="button"&&
+     entry.textContent==="FVTTATLAS.Generated.Preview");
+   assert.ok(preview);
+   assert.equal(preview.disabled,false);
+ } finally {
+   for(const [key,value] of Object.entries(saved))globalThis[key]=value;
+ }
 });

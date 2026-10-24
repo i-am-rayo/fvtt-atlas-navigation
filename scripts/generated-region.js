@@ -45,7 +45,8 @@ export function listGeneratedRegions(scene) {
       presetId = validateRegionTravelFlag(
         region.getFlag(MODULE_ID, REGION_TRAVEL_PRESET_FLAG))?.presetId ?? null;
     } catch { invalidPreset = true; }
-    return { id: region.id, name: region.name, metadata, invalid, presetId, invalidPreset,
+    return { id: region.id, name: region.name, color: region.color ?? null,
+      metadata, invalid, presetId, invalidPreset,
       nativeCost: nativeCostSummary(region),
       modified: !!metadata && shapeSignature(region.shapes ?? []) !== metadata.shapeSignature };
   }).filter(region => region.metadata || region.invalid);
@@ -75,7 +76,8 @@ function confirmedCostSnapshot(behavior, multiplier, costs) {
 /** Called only after an explicit preview/confirmation in the GM UI. */
 export async function saveGeneratedNativeRegion(scene, plan,
   { regenerate = false, presetId = null, movementAction = null,
-    expectedMultiplier = null, applyNativeCost = false, expectedCosts = null } = {}) {
+    expectedMultiplier = null, applyNativeCost = false, expectedCosts = null,
+    expectedColor = undefined } = {}) {
   checkScene(scene);
   // Rebuild against current image origin, grid and graph to reject stale dialogs.
   const checkpointId = plan.startCheckpointId;
@@ -120,7 +122,10 @@ export async function saveGeneratedNativeRegion(scene, plan,
   if (matches.length) {
     throw new Error("A generated Region already exists for this checkpoint or corridor. Choose Regenerate to update unchanged geometry.");
   }
-  if (presetId !== null) requireExistingPreset(presetId);
+  const selectedPreset = presetId === null ? null : requireExistingPreset(presetId);
+  if (expectedColor !== undefined && expectedColor !== selectedPreset?.color) {
+    throw new Error("The preset Region color changed since confirmation. Preview again.");
+  }
   // Validate the full native schema before writing any Region or Behavior.
   const behavior = !applyNativeCost ? null :
     buildNativeMovementCostBehavior(presetId, movementAction);
@@ -129,6 +134,7 @@ export async function saveGeneratedNativeRegion(scene, plan,
   }
   const [created] = await scene.createEmbeddedDocuments("Region", [{
     name: fresh.name,
+    ...(plan.kind === "corridor" && selectedPreset ? { color: selectedPreset.color } : {}),
     shapes: fresh.shapes,
     behaviors: behavior ? [behavior] : [],
     flags: {
@@ -150,9 +156,9 @@ export async function saveGeneratedNativeRegion(scene, plan,
 /** A Region's descriptive preset is independent of native geometry/Behaviors. */
 function requireExistingPreset(presetId) {
   const list = validateTravelPresets(game.settings.get(MODULE_ID, TRAVEL_PRESET_SETTING));
-  if (!list.presets.some(p => p.id === presetId)) {
-    throw new Error("Choose a travel preset still configured in Atlas world settings.");
-  }
+  const found = list.presets.find(p => p.id === presetId);
+  if (!found) throw new Error("Choose a travel preset still configured in Atlas world settings.");
+  return found;
 }
 
 export async function setGeneratedRegionTravelPreset(scene, regionId, presetId = null) {
@@ -210,4 +216,38 @@ export async function applyGeneratedRegionMovementCost(scene, regionId,
     throw new Error("Foundry did not create the native Region Behavior.");
   }
   return created[0];
+}
+
+/**
+ * Deliberate one-Region color sync, separately confirmed by the GM.
+ * Never change native shapes, elevation, visibility, Levels, or Behaviors.
+ */
+export async function applyGeneratedRegionPresetColor(scene, regionId, {
+  expectedPresetId, expectedColor, expectedCurrentColor
+} = {}) {
+  checkScene(scene);
+  const region = scene.regions?.get(regionId);
+  if (!region?.canUserModify?.(game.user, "update")) {
+    throw new Error("Choose an editable Atlas-generated native Region.");
+  }
+  const generated = validateGeneratedRegionFlag(
+    region.getFlag(MODULE_ID, GENERATED_REGION_FLAG));
+  if (generated?.kind !== "corridor") {
+    throw new Error("Only generated corridors can receive a surface preset color.");
+  }
+  const association = validateRegionTravelFlag(
+    region.getFlag(MODULE_ID, REGION_TRAVEL_PRESET_FLAG));
+  if (!association || association.presetId !== expectedPresetId) {
+    throw new Error("The corridor preset changed since color confirmation.");
+  }
+  const preset = requireExistingPreset(association.presetId);
+  if (preset.color !== expectedColor) {
+    throw new Error("The world preset color changed since confirmation.");
+  }
+  if ((region.color ?? null) !== expectedCurrentColor) {
+    throw new Error("The Region color was manually changed since confirmation.");
+  }
+  if (region.color === preset.color) return false;
+  await region.update({ color: preset.color });
+  return true;
 }

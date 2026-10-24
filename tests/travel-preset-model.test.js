@@ -4,7 +4,7 @@ import { validateAtlas, upgradeAtlasTravelPresets, TRAVEL_ATLAS_SCHEMA_VERSION }
   from "../scripts/atlas-model.js";
 import { addRoadCheckpoint, listRoadCheckpoints } from "../scripts/checkpoint-model.js";
 import { defaultTravelPresets, validateTravelPresets, upsertTravelPreset,
-  removeTravelPreset, validateRegionTravelFlag } from "../scripts/travel-preset-model.js";
+  removeTravelPreset, validateRegionTravelFlag, defaultTravelPresetColor } from "../scripts/travel-preset-model.js";
 
 function roadAtlas() {
   return {
@@ -24,6 +24,9 @@ test("world presets are neutral, validated and copy-safe", () => {
   assert.equal(data.presets.some(p => p.mode === "air"), true);
   assert.equal(data.presets.some(p => p.mode === "water"), true);
   assert.ok(data.presets.every(p => p.movementCostMultiplier === 1));
+  assert.ok(data.presets.every(p => /^#[0-9A-F]{6}$/.test(p.color)));
+  assert.notEqual(data.presets.find(p => p.id === "land-stone").color,
+    data.presets.find(p => p.id === "water-rough").color);
   data.presets[0].name = "Changed";
   assert.notEqual(defaultTravelPresets().presets[0].name, "Changed");
 });
@@ -57,18 +60,29 @@ test("editing retains stable ID; deleting preserves untouched snapshot", () => {
 });
 
 
-test("v1 world catalog upgrades read-only to v2 without editing old cost data or Region flags", () => {
+test("v1/v2 world catalogs upgrade in memory to v3 without editing costs or Region flags", () => {
   const old = {schemaVersion:1,presets:[
     {id:"old",mode:"water",name:"Old Sea",movementCostMultiplier:1.1}
   ]};
   const snap = structuredClone(old);
   const upgraded = validateTravelPresets(old);
-  assert.equal(upgraded.schemaVersion,2);
+  assert.equal(upgraded.schemaVersion,3);
+  assert.equal(upgraded.presets[0].color, defaultTravelPresetColor("old","water"));
   assert.deepEqual(upgraded.presets[0].movementCosts,null);
   assert.equal(upgraded.presets[0].movementCostMultiplier,1.1);
   assert.deepEqual(old,snap);
   assert.deepEqual(validateRegionTravelFlag({schemaVersion:1,presetId:"old"}),
     {schemaVersion:1,presetId:"old"});
+  const v2 = {schemaVersion:2,presets:[{
+    id:"sea",mode:"water",name:"Old Rough Waters",
+    movementCostMultiplier:1,movementCosts:{walk:10,swim:1.5}
+  }]};
+  const copy = structuredClone(v2);
+  const converted = validateTravelPresets(v2);
+  assert.equal(converted.schemaVersion,3);
+  assert.deepEqual(converted.presets[0].movementCosts,{walk:10,swim:1.5});
+  assert.equal(converted.presets[0].color,defaultTravelPresetColor("sea","water"));
+  assert.deepEqual(v2,copy);
 });
 
 test("per-action costs support several multipliers and No override without blocking movement", () => {
@@ -146,4 +160,19 @@ test("v5 roads continue to support checkpoint edits without losing preset IDs", 
  assert.equal(withCheckpoint.roads[0].travelPresetId,"land-stone");
  assert.equal(listRoadCheckpoints(withCheckpoint).length,2);
  assert.deepEqual(withCheckpoint.segments,assigned.segments);
+});
+
+test("GM-authored surface colors validate without changing movement costs", () => {
+  const origin = defaultTravelPresets();
+  const modified = upsertTravelPreset(origin, {
+    ...origin.presets.find(p => p.id === "land-stone"),
+    color:"#12abEf", movementCosts:{walk:0.75,fly:1,burrow:2.5}
+  });
+  const preset = modified.presets.find(p => p.id === "land-stone");
+  assert.equal(preset.color,"#12ABEF");
+  assert.deepEqual(preset.movementCosts,{walk:0.75,fly:1,burrow:2.5});
+  assert.notEqual(origin.presets.find(p => p.id === "land-stone").color,preset.color);
+  for (const color of ["red","#FFF","#nothex","javascript:alert(1)",null]) {
+    assert.throws(() => upsertTravelPreset(modified,{...preset,color}),/color/);
+  }
 });

@@ -1,15 +1,37 @@
 /**
- * World-shared travel presets. The world catalog v2 adds optional, explicitly
- * selected native movement-action costs; Region association flags stay v1.
- * A v1 catalog is upgraded in memory only, never written merely by reading.
+ * World-shared travel presets. Catalog v3 adds native Region highlight colors
+ * to the v2 movement-action costs. Region association flags remain v1.
+ * Old catalogs are upgraded only in memory until an explicit GM edit.
  */
 export const TRAVEL_PRESET_SETTING = "corridorTravelPresets";
 export const REGION_TRAVEL_PRESET_FLAG = "travelPreset";
 export const TRAVEL_PRESET_SCHEMA_VERSION = 1; // Region association (stable)
-export const TRAVEL_PRESET_CATALOG_VERSION = 2;
+export const TRAVEL_PRESET_CATALOG_VERSION = 3;
 export const TRAVEL_TYPES = Object.freeze(["land", "air", "water"]);
 export const MAX_TRAVEL_PRESETS = 120;
 export const MAX_PRESET_MOVEMENT_ACTIONS = 24;
+
+const DEFAULT_COLORS = Object.freeze({
+  "land-stone": "#9CA3AF", "land-gravel": "#B99A72",
+  "land-dirt": "#AD7955", "land-forest": "#4F9068",
+  "air-clear": "#86BDEB", "air-turbulent": "#8976BF",
+  "water-calm": "#47AFC0", "water-rough": "#3F72AF"
+});
+const MODE_COLORS = Object.freeze({
+  land: "#AD9779", air: "#869AC8", water: "#4B9FBF"
+});
+
+/** Legacy/new preset fallback colors are deterministic and never rewrite Regions. */
+export function defaultTravelPresetColor(id, mode) {
+  return DEFAULT_COLORS[id] ?? MODE_COLORS[mode] ?? "#888888";
+}
+
+export function validateTravelPresetColor(color) {
+  if (typeof color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(color)) {
+    throw new Error("Preset Region color must be a six-digit hex color (#RRGGBB).");
+  }
+  return color.toUpperCase();
+}
 
 const defaults = [
   ["land-stone", "land", "Stone Road"],
@@ -25,7 +47,8 @@ const defaults = [
 export function defaultTravelPresets() {
   return { schemaVersion: TRAVEL_PRESET_CATALOG_VERSION,
     presets: defaults.map(([id, mode, name]) => ({
-      id, mode, name, movementCostMultiplier: 1, movementCosts: null
+      id, mode, name, movementCostMultiplier: 1, movementCosts: null,
+      color: defaultTravelPresetColor(id, mode)
     })) };
 }
 
@@ -58,9 +81,10 @@ export function validateMovementCosts(costs) {
 export function validateTravelPresets(value) {
   if (value == null) return defaultTravelPresets();
   const legacy = value?.schemaVersion === 1;
+  const oldCatalog = value?.schemaVersion === 1 || value?.schemaVersion === 2;
   if (!value || typeof value !== "object" || Array.isArray(value) ||
       Object.keys(value).some(k => !["schemaVersion", "presets"].includes(k)) ||
-      (!legacy && value.schemaVersion !== TRAVEL_PRESET_CATALOG_VERSION) ||
+      (!oldCatalog && value.schemaVersion !== TRAVEL_PRESET_CATALOG_VERSION) ||
       !Array.isArray(value.presets) || value.presets.length > MAX_TRAVEL_PRESETS) {
     throw new Error("Atlas travel presets have unsupported data; no presets were changed.");
   }
@@ -68,7 +92,8 @@ export function validateTravelPresets(value) {
   const presets = value.presets.map((preset, index) => {
     if (!preset || typeof preset !== "object" || Array.isArray(preset) ||
         Object.keys(preset).some(k => !["id", "mode", "name", "movementCostMultiplier",
-          ...(legacy ? [] : ["movementCosts"])].includes(k))) {
+          ...(legacy ? [] : ["movementCosts"]),
+          ...(oldCatalog ? [] : ["color"])].includes(k))) {
       throw new Error("Invalid travel preset at index " + index + ".");
     }
     const id = validateTravelPresetId(preset.id);
@@ -87,7 +112,11 @@ export function validateTravelPresets(value) {
     names.add(nameKey);
     return { id, mode: preset.mode, name,
       movementCostMultiplier: preset.movementCostMultiplier,
-      movementCosts: legacy ? null : validateMovementCosts(preset.movementCosts ?? null) };
+      movementCosts: legacy ? null : validateMovementCosts(preset.movementCosts ?? null),
+      color: validateTravelPresetColor(oldCatalog
+        ? defaultTravelPresetColor(id, preset.mode)
+        : (Object.hasOwn(preset, "color") ? preset.color :
+          defaultTravelPresetColor(id, preset.mode))) };
   });
   return { schemaVersion: TRAVEL_PRESET_CATALOG_VERSION, presets };
 }

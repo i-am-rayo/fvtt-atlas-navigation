@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { MODULE_ID } from "../scripts/atlas-storage.js";
 import { defaultTravelPresets } from "../scripts/travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions,
-  buildNativeMovementCostBehavior, previewNativeMovementCost, nativeCostSummary } from "../scripts/native-movement-cost.js";
+  buildNativeMovementCostBehavior, previewNativeMovementCost, nativeCostSummary,
+  nativeCostPresetStatus } from "../scripts/native-movement-cost.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
   applyGeneratedRegionMovementCost } from "../scripts/generated-region.js";
 
@@ -373,4 +374,32 @@ test("mutating native normalization still fails exact comparison before any writ
   const legacy=previewNativeMovementCost("water-rough","walk");
   assert.equal(legacy.ok,false);
   assert.equal(legacy.effective,1);
+});
+
+test("v0.2.18 advisory distinguishes un-applied, matching, stale and GM-edited costs",()=>{
+ const world=defaultTravelPresets();
+ const preset=world.presets.find(p=>p.id==="land-stone");
+ preset.movementCosts={walk:0.75,fly:1.5};
+ assert.equal(nativeCostPresetStatus({existing:false},preset).state,"not-applied");
+ const managed={
+   existing:true,managed:true,count:1,
+   detail:{schemaVersion:2,presetId:preset.id,
+     movementCosts:{walk:0.75,fly:1.5}},
+   actualCosts:{walk:0.75,fly:1.5,swim:1}
+ };
+ assert.equal(nativeCostPresetStatus(managed,preset).state,"current");
+ const changed={...preset,movementCosts:{walk:1,fly:1.5}};
+ assert.equal(nativeCostPresetStatus(managed,changed).state,"outdated");
+ const edited={...managed,actualCosts:{walk:1,fly:1.5}};
+ assert.equal(nativeCostPresetStatus(edited,preset).state,"edited");
+ assert.equal(nativeCostPresetStatus({...managed,managed:false},preset).state,"manual");
+ assert.equal(nativeCostPresetStatus({...managed,count:2},preset).state,"manual");
+ assert.equal(nativeCostPresetStatus({...managed,disabled:true},preset).state,"disabled");
+ assert.equal(nativeCostPresetStatus({...managed,
+   detail:{...managed.detail,presetId:"other"}},preset).state,"different");
+ const legacy={...preset,movementCosts:null,movementCostMultiplier:1.5};
+ const single={...managed,detail:{schemaVersion:1,presetId:preset.id,
+   action:"walk",multiplier:1.5},actualCosts:{walk:1.5,fly:1}};
+ assert.equal(nativeCostPresetStatus(single,legacy).state,"current");
+ assert.equal(nativeCostPresetStatus(single,{...legacy,movementCostMultiplier:2}).state,"outdated");
 });
