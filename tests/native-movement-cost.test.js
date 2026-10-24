@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { MODULE_ID } from "../scripts/atlas-storage.js";
 import { defaultTravelPresets } from "../scripts/travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions,
-  buildNativeMovementCostBehavior, nativeCostSummary } from "../scripts/native-movement-cost.js";
+  buildNativeMovementCostBehavior, previewNativeMovementCost, nativeCostSummary } from "../scripts/native-movement-cost.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
   applyGeneratedRegionMovementCost } from "../scripts/generated-region.js";
 
@@ -181,4 +181,45 @@ test("preset edits do not retroactively update already authored costs",async()=>
   revised.presets.find(p=>p.id==="land-stone").movementCostMultiplier=3;
   changeWorld(revised);
   assert.equal(regions.get("native1").behaviors[0].system.difficulties.walk,saved);
+});
+
+test("v14 quarter-step rounding is shown before creation and never silently applied",async()=>{
+  const {scene,regionRecords,settings,changeWorld}=setup();
+  class RoundedCostModel extends NativeModel {
+    constructor(source) {
+      super({difficulties:Object.fromEntries(
+        Object.entries(source.difficulties ?? {})
+          .map(([action,cost])=>[action,Math.round(cost*4)/4]))});
+    }
+  }
+  globalThis.CONFIG.RegionBehavior.dataModels.modifyMovementCost=RoundedCostModel;
+  globalThis.CONFIG.Token.movement.actions.swim={label:"Swim"};
+  const world=defaultTravelPresets();
+  const stone=world.presets.find(p=>p.id==="land-stone");
+  stone.movementCostMultiplier=1.1;
+  changeWorld(world);
+  assert.deepEqual(availableMovementActions().map(a=>a.id),
+    ["walk","fly","swim"]);
+  const preview=previewNativeMovementCost("land-stone","swim");
+  assert.equal(preview.ok,false);
+  assert.equal(preview.requested,1.1);
+  assert.equal(preview.effective,1);
+  assert.match(preview.message,/×1.10.*×1.00/);
+  assert.throws(()=>buildNativeMovementCostBehavior("land-stone","swim"),
+    /×1.10.*×1.00/);
+  await assert.rejects(()=>saveGeneratedNativeRegion(scene,
+    planSceneGeneratedRegion(scene,settings),{
+      presetId:"land-stone",movementAction:"swim",expectedMultiplier:1.1
+    }),/×1.10.*×1.00/);
+  assert.equal(regionRecords.length,0);
+  stone.movementCostMultiplier=1.2;
+  changeWorld(world);
+  const roundedUp=previewNativeMovementCost("land-stone","fly");
+  assert.equal(roundedUp.ok,false);
+  assert.equal(roundedUp.effective,1.25);
+  stone.movementCostMultiplier=1.25;
+  changeWorld(world);
+  assert.equal(previewNativeMovementCost("land-stone","swim").ok,true);
+  assert.equal(buildNativeMovementCostBehavior("land-stone","swim")
+    .system.difficulties.swim,1.25);
 });
