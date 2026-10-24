@@ -130,7 +130,7 @@ export function registerWorldRoadAppearance(onChange = () => {}) {
   game.settings.register(MODULE_ID, ROAD_CURVE_SETTING, {
     name: "Atlas — Global Road Curvature",
     hint: "Visual-only smoothing for existing and new Land, Air and Water roads in all Scenes. " +
-      "Off keeps straight segments; Gentle is the default. Changes do not alter nodes, " +
+      "Off keeps straight segments; Strong is the default. Changes do not alter nodes, " +
       "distances, native Regions, or movement costs. Two-point roads remain straight.",
     scope: "world", config: true, type: String,
     choices: Object.fromEntries(Object.keys(ROAD_CURVE_PRESETS).map(preset =>
