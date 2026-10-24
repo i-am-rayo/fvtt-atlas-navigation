@@ -168,7 +168,7 @@ test("dashed/dotted strokes keep continuous spacing across road bends", () => {
 test("v0.2.25 World curve presets smooth display paths without touching original road points", () => {
   const vertices = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }];
   const original = structuredClone(vertices);
-  assert.equal(DEFAULT_ROAD_CURVE_PRESET, "gentle");
+  assert.equal(DEFAULT_ROAD_CURVE_PRESET, "strong");
   assert.deepEqual(Object.keys(ROAD_CURVE_PRESETS), ["off", "gentle", "moderate", "strong"]);
   assert.equal(smoothRoadPath(vertices, "off"), vertices);
   assert.equal(smoothRoadPath(vertices.slice(0, 2), "strong").length, 2,
