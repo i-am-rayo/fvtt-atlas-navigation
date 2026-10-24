@@ -169,5 +169,13 @@
   "FVTTATLAS.Travel.None": "No Atlas travel preset",
   "FVTTATLAS.Travel.NotApplied": "Presets store travel metadata only in v0.2.15. Atlas does not create or modify native movement-cost Behaviors.",
   "FVTTATLAS.Travel.MissingPreset": "Assigned world travel preset is missing; choose a new one.",
-  "FVTTATLAS.Travel.InvalidPreset": "Unsupported Region travel preset metadata; choose a valid preset to repair."
+  "FVTTATLAS.Travel.InvalidPreset": "Unsupported Region travel preset metadata; choose a valid preset to repair.",
+  "FVTTATLAS.Cost.OptIn": "Apply native movement cost when creating this corridor (opt-in)",
+  "FVTTATLAS.Cost.Action": "Native movement action",
+  "FVTTATLAS.Cost.Choose": "Choose supported movement action…",
+  "FVTTATLAS.Cost.Hint": "Atlas saves no native cost unless you opt in and confirm. Only actions whose cost the active system's native Region model can preserve are offered. Travel types do not restrict flying or swimming.",
+  "FVTTATLAS.Cost.Unavailable": "This game system exposes no supported native Modify Movement Cost action. You can still create the corridor with descriptive preset metadata.",
+  "FVTTATLAS.Cost.ApplyExisting": "Apply the selected travel preset as a native Modify Movement Cost Behavior (confirmation required)",
+  "FVTTATLAS.Cost.Managed": "Atlas-created native movement-cost Behavior",
+  "FVTTATLAS.Cost.Existing": "Native movement-cost Behavior already configured; edit in Foundry (Atlas will not overwrite or stack it)"
 }

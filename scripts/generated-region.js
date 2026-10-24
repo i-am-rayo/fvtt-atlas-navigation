@@ -9,6 +9,8 @@ import { buildGeneratedRegionPlan, GENERATED_REGION_FLAG, shapeSignature,
 import { REGION_TRAVEL_PRESET_FLAG, TRAVEL_PRESET_SETTING,
   TRAVEL_PRESET_SCHEMA_VERSION, validateTravelPresets, validateRegionTravelFlag }
   from "./travel-preset-model.js";
+import { buildNativeMovementCostBehavior, nativeCostBehaviors, nativeCostSummary }
+  from "./native-movement-cost.js";
 
 function checkScene(scene) {
   const user = globalThis.game?.user;
@@ -44,6 +46,7 @@ export function listGeneratedRegions(scene) {
         region.getFlag(MODULE_ID, REGION_TRAVEL_PRESET_FLAG))?.presetId ?? null;
     } catch { invalidPreset = true; }
     return { id: region.id, name: region.name, metadata, invalid, presetId, invalidPreset,
+      nativeCost: nativeCostSummary(region),
       modified: !!metadata && shapeSignature(region.shapes ?? []) !== metadata.shapeSignature };
   }).filter(region => region.metadata || region.invalid);
 }
@@ -60,7 +63,8 @@ function matchingRegion(scene, flag) {
 
 /** Called only after an explicit preview/confirmation in the GM UI. */
 export async function saveGeneratedNativeRegion(scene, plan,
-  { regenerate = false, presetId = null } = {}) {
+  { regenerate = false, presetId = null, movementAction = null,
+    expectedMultiplier = null } = {}) {
   checkScene(scene);
   // Rebuild against current image origin, grid and graph to reject stale dialogs.
   const checkpointId = plan.startCheckpointId;
@@ -72,6 +76,9 @@ export async function saveGeneratedNativeRegion(scene, plan,
   if (fresh.expectedRevision !== plan.expectedRevision ||
       fresh.generatedRegion.shapeSignature !== plan.generatedRegion.shapeSignature) {
     throw new Error("Road, grid or Scene padding changed since preview. Reopen the generator.");
+  }
+  if (movementAction !== null && (regenerate || plan.kind !== "corridor" || !presetId)) {
+    throw new Error("Native movement cost can be applied only when creating a corridor with a selected preset.");
   }
   const matches = matchingRegion(scene, plan.generatedRegion);
   if (matches.length > 1) {
@@ -99,10 +106,16 @@ export async function saveGeneratedNativeRegion(scene, plan,
     throw new Error("A generated Region already exists for this checkpoint or corridor. Choose Regenerate to update unchanged geometry.");
   }
   if (presetId !== null) requireExistingPreset(presetId);
+  // Validate the full native schema before writing any Region or Behavior.
+  const behavior = movementAction === null ? null :
+    buildNativeMovementCostBehavior(presetId, movementAction);
+  if (behavior && behavior.flags[MODULE_ID].nativeMovementCost.multiplier !== expectedMultiplier) {
+    throw new Error("The world preset cost changed since confirmation. Preview again; nothing was created.");
+  }
   const [created] = await scene.createEmbeddedDocuments("Region", [{
     name: fresh.name,
     shapes: fresh.shapes,
-    behaviors: [],
+    behaviors: behavior ? [behavior] : [],
     flags: {
       [MODULE_ID]: {
         atlas: { schemaVersion: 1, linked: true },
@@ -142,4 +155,43 @@ export async function setGeneratedRegionTravelPreset(scene, regionId, presetId =
       schemaVersion: TRAVEL_PRESET_SCHEMA_VERSION, presetId
     });
   }
+}
+
+
+/**
+ * Explicit, separately confirmed application to one existing generated corridor.
+ * Native/manual movement-cost Behaviors are never edited, replaced or stacked.
+ */
+export async function applyGeneratedRegionMovementCost(scene, regionId,
+  { movementAction, expectedPresetId, expectedMultiplier } = {}) {
+  checkScene(scene);
+  const region = scene.regions?.get(regionId);
+  if (!region?.canUserModify?.(game.user, "update")) {
+    throw new Error("Choose an editable Atlas-generated native Region.");
+  }
+  const generated = validateGeneratedRegionFlag(
+    region.getFlag(MODULE_ID, GENERATED_REGION_FLAG));
+  if (!generated || generated.kind !== "corridor") {
+    throw new Error("Native movement cost applies only to Atlas-generated corridors.");
+  }
+  const savedPreset = validateRegionTravelFlag(
+    region.getFlag(MODULE_ID, REGION_TRAVEL_PRESET_FLAG));
+  if (!savedPreset || savedPreset.presetId !== expectedPresetId) {
+    throw new Error("This corridor's travel preset changed. Open the action again.");
+  }
+  if (nativeCostBehaviors(region).length) {
+    throw new Error("This Region already has a native Modify Movement Cost Behavior. Configure it manually in Foundry; Atlas will not overwrite or stack costs.");
+  }
+  const behavior = buildNativeMovementCostBehavior(savedPreset.presetId, movementAction);
+  if (behavior.flags[MODULE_ID].nativeMovementCost.multiplier !== expectedMultiplier) {
+    throw new Error("The world preset cost changed since confirmation. Open the action again.");
+  }
+  if (typeof region.createEmbeddedDocuments !== "function") {
+    throw new Error("This Foundry Region does not support embedded Region Behaviors.");
+  }
+  const created = await region.createEmbeddedDocuments("RegionBehavior", [behavior]);
+  if (!created?.length) {
+    throw new Error("Foundry did not create the native Region Behavior.");
+  }
+  return created[0];
 }
