@@ -1,38 +1,26 @@
 /**
- * v0.2.16: conservative opt-in adapter for Foundry v14's native
- * "Modify Movement Cost" Region Behavior.
- *
- * The world preset mode (Land/Air/Water) is descriptive. The GM must choose an
- * actual movement action registered by the active system, and the native
- * behavior model validates the exact cost before any document is written.
+ * Conservative Foundry v14 native Modify Movement Cost bridge.
+ * Preset categories are descriptive; actual movement action IDs come only
+ * from the active system. No native Region is touched while previewing.
  */
 import { MODULE_ID } from "./atlas-storage.js";
-import { TRAVEL_PRESET_SETTING, validateTravelPresets } from "./travel-preset-model.js";
+import { TRAVEL_PRESET_SETTING, validateTravelPresets, presetCostSummary }
+  from "./travel-preset-model.js";
 
 export const NATIVE_MOVEMENT_COST_TYPE = "modifyMovementCost";
 export const ATLAS_MOVEMENT_COST_FLAG = "nativeMovementCost";
-export const ATLAS_MOVEMENT_COST_SCHEMA_VERSION = 1;
+export const ATLAS_MOVEMENT_COST_SCHEMA_VERSION = 2; // behavior provenance only
 
 function nativeBehaviorClass(config = globalThis.CONFIG) {
   return config?.RegionBehavior?.dataModels?.[NATIVE_MOVEMENT_COST_TYPE] ?? null;
 }
 
-/**
- * Native Region cost slots are not the same thing as selectable Token actions.
- * An action can have a fixed terrain cost (terrainAction: null), or derive its
- * terrain cost from another action. Neither can be authored independently.
- *
- * Some systems also expose action descriptors that their Region Behavior schema
- * does not retain. Probe the actual DataModel with a harmless, non-default cost:
- * no RegionDocument or game setting is modified by this read-only check.
- */
 function isDirectMovementAction(id, descriptor) {
   return /^[A-Za-z0-9_.-]{1,128}$/.test(id) &&
     descriptor && typeof descriptor === "object" &&
     descriptor.deriveTerrainDifficulty == null &&
     descriptor.terrainAction === undefined &&
-    descriptor.measure !== false &&
-    !descriptor.teleport;
+    descriptor.measure !== false && !descriptor.teleport;
 }
 
 function nativeModelRetainsCost(Type, action) {
@@ -43,12 +31,9 @@ function nativeModelRetainsCost(Type, action) {
     if (model.validate({ strict: true }) === false) return false;
     const retained = model.toObject(true)?.difficulties?.[action];
     return Number.isFinite(retained) && Math.abs(retained - probe) < 1e-8;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
-/** Only actions that the current system can store as native Region costs. */
 export function availableMovementActions(config = globalThis.CONFIG) {
   const actions = config?.Token?.movement?.actions;
   const Type = nativeBehaviorClass(config);
@@ -56,16 +41,13 @@ export function availableMovementActions(config = globalThis.CONFIG) {
   return Object.entries(actions)
     .filter(([id, descriptor]) =>
       isDirectMovementAction(id, descriptor) && nativeModelRetainsCost(Type, id))
-    .map(([id, descriptor]) => ({
-      id, label: String(descriptor.label || id)
-    }));
+    .map(([id, descriptor]) => ({ id, label: String(descriptor.label || id) }));
 }
 
-/** Modes visible to Tokens but not independently editable as Region costs. */
 export function unavailableMovementActions(config = globalThis.CONFIG) {
   const actions = config?.Token?.movement?.actions;
   if (!actions || typeof actions !== "object") return [];
-  const usable = new Set(availableMovementActions(config).map(action => action.id));
+  const usable = new Set(availableMovementActions(config).map(a => a.id));
   return Object.entries(actions)
     .filter(([id, descriptor]) => /^[A-Za-z0-9_.-]{1,128}$/.test(id) &&
       descriptor && typeof descriptor === "object" && !usable.has(id))
@@ -80,13 +62,17 @@ export function readPreset(presetId) {
   return preset;
 }
 
-/**
- * Read-only preview using the *exact requested preset value*, not a sample
- * value (the action availability probe only checks independent editability).
- * Foundry v14 can normalize fractional movement costs (for example 1.10 -> 1).
- * The preview is safe to call while rendering the Scene Atlas form.
- */
-export function previewNativeMovementCost(presetId, action, config = globalThis.CONFIG) {
+/** Canonical comparison independent of authoring field order. */
+export function sameMovementCosts(left, right) {
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+  const keys = Object.keys(left).sort();
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every(key => Object.hasOwn(right, key) && right[key] === left[key]);
+}
+
+/** A single-action v1 cost remains readable; v2 costs are applied together. */
+export function previewNativeMovementCost(presetId, action = null,
+  config = globalThis.CONFIG) {
   const preset = readPreset(presetId);
   const Type = nativeBehaviorClass(config);
   if (!Type) {
@@ -95,53 +81,78 @@ export function previewNativeMovementCost(presetId, action, config = globalThis.
   if (!Type.schema?.fields?.difficulties) {
     return { ok: false, message: "The native movement-cost Behavior schema is unavailable or unsupported. Nothing was saved." };
   }
-  const selection = availableMovementActions(config).find(entry => entry.id === action);
-  if (!selection) {
-    return { ok: false, message: "That movement action cannot store an independent native Region cost in this game system. Choose a listed action, or create a corridor without a native cost Behavior." };
+  const choices = availableMovementActions(config);
+  let costs;
+  if (preset.movementCosts === null) {
+    if (!action || !choices.some(entry => entry.id === action)) {
+      return { ok: false, message: "That movement action cannot store an independent native Region cost in this game system. Choose a listed action, or create a corridor without a native cost Behavior." };
+    }
+    costs = { [action]: preset.movementCostMultiplier };
+  } else {
+    if (action !== null) {
+      return { ok: false, message: "This preset already chooses its movement actions. Apply the combined preset without choosing another action." };
+    }
+    costs = preset.movementCosts;
+    if (!Object.keys(costs).length) {
+      return { ok: false, message: "This preset has no movement-cost overrides. Select at least one movement action in Atlas Presets or create a metadata-only corridor." };
+    }
+    const unknown = Object.keys(costs).filter(id => !choices.some(entry => entry.id === id));
+    if (unknown.length) {
+      return { ok: false, message: "This system cannot independently author movement costs for: " +
+        unknown.join(", ") + ". Edit the global preset or create a metadata-only corridor; nothing was saved." };
+    }
   }
   let nativeData;
   try {
-    const model = new Type({ difficulties: { [action]: preset.movementCostMultiplier } });
+    const model = new Type({ difficulties: costs });
     if (model.validate({ strict: true }) === false) {
-      throw new Error("The native Behavior rejected this difficulty.");
+      throw new Error("The native Behavior rejected these difficulties.");
     }
     nativeData = model.toObject(true);
   } catch (error) {
-    return { ok: false, message: "Foundry rejected the selected native movement cost: " + error.message };
+    return { ok: false, message: "Foundry rejected the selected native movement costs: " + error.message };
   }
-  const effective = nativeData?.difficulties?.[action];
-  if (!Number.isFinite(effective)) {
-    return { ok: false, message: "Foundry did not retain a native movement cost for this action. Nothing was saved." };
+  for (const [id, requested] of Object.entries(costs)) {
+    const effective = nativeData?.difficulties?.[id];
+    if (!Number.isFinite(effective)) {
+      return { ok: false, message: "Foundry did not retain a native movement cost for " +
+        id + ". Nothing was saved." };
+    }
+    if (Math.abs(effective - requested) > 1e-8) {
+      const formatted = n => "×" + n.toFixed(2);
+      return { ok: false, requested, effective,
+        message: "Foundry changes " + preset.name + "'s requested " + id +
+          " cost " + formatted(requested) + " to " + formatted(effective) +
+          ". Use a native-compatible value (in this v14 World, try multiples of 0.25). Atlas will not round it silently; nothing was saved." };
+    }
   }
-  if (Math.abs(effective - preset.movementCostMultiplier) > 1e-8) {
-    const formatted = n => "×" + n.toFixed(2);
-    return { ok: false, requested: preset.movementCostMultiplier, effective,
-      message: "Foundry changes " + preset.name + "'s requested cost " +
-        formatted(preset.movementCostMultiplier) + " to " + formatted(effective) +
-        " for this movement action. Edit the global preset to a native-compatible value (in this v14 World, try multiples of 0.25). Atlas will not round it silently; nothing was saved." };
-  }
-  return { ok: true, nativeData, preset, actionLabel: selection.label };
+  return { ok: true, nativeData, preset, costs: { ...costs },
+    actionLabel: action ? choices.find(entry => entry.id === action)?.label : null };
 }
 
-/** No system-independent approximation: fail closed on an unfamiliar schema. */
-export function buildNativeMovementCostBehavior(presetId, action,
+/** No approximation or writes on incompatible Foundry systems. */
+export function buildNativeMovementCostBehavior(presetId, action = null,
   config = globalThis.CONFIG) {
   const result = previewNativeMovementCost(presetId, action, config);
   if (!result.ok) throw new Error(result.message);
-  const { preset, nativeData, actionLabel } = result;
-  const translated = globalThis.game?.i18n?.localize?.(actionLabel) || actionLabel;
+  const { preset, nativeData, actionLabel, costs } = result;
+  const legacy = preset.movementCosts === null;
+  const translated = legacy
+    ? (globalThis.game?.i18n?.localize?.(actionLabel) || actionLabel)
+    : presetCostSummary(preset);
+  const provenance = legacy ? {
+    schemaVersion: 1, presetId: preset.id,
+    action, multiplier: preset.movementCostMultiplier
+  } : {
+    schemaVersion: ATLAS_MOVEMENT_COST_SCHEMA_VERSION,
+    presetId: preset.id, movementCosts: { ...costs }
+  };
   return {
-    name: "Atlas · " + preset.name + " (×" + preset.movementCostMultiplier +
-      "; " + translated + ")",
-    type: NATIVE_MOVEMENT_COST_TYPE,
-    system: nativeData,
-    disabled: false,
-    flags: { [MODULE_ID]: {
-      [ATLAS_MOVEMENT_COST_FLAG]: {
-        schemaVersion: ATLAS_MOVEMENT_COST_SCHEMA_VERSION,
-        presetId: preset.id, action, multiplier: preset.movementCostMultiplier
-      }
-    } }
+    name: ("Atlas · " + preset.name + " (" +
+      (legacy ? "×" + preset.movementCostMultiplier + "; " + translated : translated) +
+      ")").slice(0, 180),
+    type: NATIVE_MOVEMENT_COST_TYPE, system: nativeData, disabled: false,
+    flags: { [MODULE_ID]: { [ATLAS_MOVEMENT_COST_FLAG]: provenance } }
   };
 }
 
@@ -156,12 +167,15 @@ export function nativeCostSummary(region) {
   const behavior = existing[0];
   const flag = behavior.getFlag?.(MODULE_ID, ATLAS_MOVEMENT_COST_FLAG) ??
     behavior.flags?.[MODULE_ID]?.[ATLAS_MOVEMENT_COST_FLAG];
-  const managed = flag?.schemaVersion === ATLAS_MOVEMENT_COST_SCHEMA_VERSION &&
+  const legacy = flag?.schemaVersion === 1 &&
     typeof flag?.presetId === "string" && typeof flag?.action === "string" &&
     Number.isFinite(flag?.multiplier);
-  return {
-    existing: true, managed,
-    detail: managed ? flag : null,
-    count: existing.length
-  };
+  const multiple = flag?.schemaVersion === ATLAS_MOVEMENT_COST_SCHEMA_VERSION &&
+    typeof flag?.presetId === "string" && flag?.movementCosts &&
+    typeof flag.movementCosts === "object" && !Array.isArray(flag.movementCosts) &&
+    Object.keys(flag.movementCosts).length > 0 &&
+    Object.entries(flag.movementCosts).every(([id, cost]) =>
+      /^[A-Za-z0-9_.-]{1,128}$/.test(id) && Number.isFinite(cost));
+  return { existing: true, managed: !!(legacy || multiple),
+    detail: legacy || multiple ? flag : null, count: existing.length };
 }
