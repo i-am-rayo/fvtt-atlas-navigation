@@ -6,7 +6,8 @@ import { addRoad } from "../scripts/road-model.js";
 import { addRoadCheckpoint, editCheckpointAppearance, editRoadCheckpoint }
   from "../scripts/checkpoint-model.js";
 import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT,
-  validateCheckpointAppearance, checkpointIconPath,
+  CHECKPOINT_FREE_ICONS, checkpointFontIcon, findCheckpointIcons,
+  validateCheckpointAppearance, checkpointIconPath, checkpointMarkerPosition,
   DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
 import { saveCheckpointAppearance } from "../scripts/road-storage.js";
 import { ATLAS_FLAG, MODULE_ID } from "../scripts/atlas-storage.js";
@@ -67,6 +68,8 @@ test("v8 checkpoint appearance is an explicit lossless GM-authored migration", (
 
 test("checkpoint icon style whitelist, type and local image paths are strict", () => {
   assert.equal(CHECKPOINT_ICONS.length, 12);
+  assert.equal(CHECKPOINT_FREE_ICONS.length, 2163,
+    "Font Awesome Free 7.3.1 Solid, Regular and Brands catalog is complete");
   assert.equal(checkpointIconPath(fancy), CHECKPOINT_ICON_ROOT + "mountain.svg");
   assert.equal(checkpointIconPath(DEFAULT_CHECKPOINT_APPEARANCE), null);
   const image = { ...fancy, type: "image", image: "worlds/my-world/map-icon.webp" };
@@ -90,6 +93,34 @@ test("checkpoint icon style whitelist, type and local image paths are strict", (
   assert.throws(() => validateAtlas({ ...invalidV8,
     checkpoints: [{ ...old.checkpoints[0] }] }),
   "schema v8 must not silently lose or omit appearance");
+});
+
+test("v0.2.21.1 offline icon search, style variants and old IDs coexist", () => {
+  const solid = { ...fancy, icon: "solid:mountain" };
+  const brand = { ...fancy, icon: "brands:github" };
+  const regular = { ...fancy, icon: "regular:address-book" };
+  for (const appearance of [solid, brand, regular]) {
+    assert.deepEqual(validateCheckpointAppearance(appearance), appearance);
+    assert.equal(checkpointIconPath(appearance), null,
+      "font glyph icons are not mistaken for missing SVG images");
+    assert.ok(checkpointFontIcon(appearance.icon)?.glyph);
+  }
+  assert.equal(checkpointFontIcon("brands:github").family, "Atlas FA 7 Brands");
+  assert.equal(checkpointFontIcon("solid:mountain").weight, 900);
+  assert.equal(checkpointFontIcon("regular:address-book").weight, 400);
+  assert.equal(findCheckpointIcons("mountain", "solid")
+    .some(icon => icon.id === "solid:mountain"), true);
+  assert.equal(findCheckpointIcons("github", "brands")
+    .some(icon => icon.id === "brands:github"), true);
+  assert.equal(findCheckpointIcons("github", "regular").length, 0);
+  assert.equal(findCheckpointIcons("not a real icon name").length, 0);
+  assert.throws(() => validateCheckpointAppearance({ ...fancy, icon: "brands:fake" }));
+  assert.throws(() => validateCheckpointAppearance({ ...fancy, icon: "solid:../mountain" }));
+  assert.deepEqual(checkpointMarkerPosition({ x: 53, y: 92 }, solid),
+    { x: 53, y: 68 }, "decorative marker offsets from the true checkpoint node");
+  assert.deepEqual(checkpointMarkerPosition({ x: 53, y: 92 },
+    DEFAULT_CHECKPOINT_APPEARANCE), { x: 53, y: 92 },
+  "untouched checkpoints remain centered on their original node");
 });
 
 test("checkpoint appearance storage requires GM permission and fresh revision", async () => {
@@ -121,5 +152,55 @@ test("checkpoint appearance storage requires GM permission and fresh revision", 
     }), /changed/);
   } finally {
     globalThis.game = original;
+  }
+});
+
+test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider value", async () => {
+  const previous = { foundry: globalThis.foundry, document: globalThis.document,
+    game: globalThis.game };
+  class Element {
+    constructor(tag) {
+      this.tag = tag;
+      this.children = [];
+      this.style = {};
+      this.listeners = new Map();
+      this.value = "";
+      this.textContent = "";
+    }
+    append(...items) { this.children.push(...items); }
+    appendChild(item) { this.children.push(item); return item; }
+    replaceChildren(...items) { this.children = [...items]; }
+    addEventListener(name, listener) { this.listeners.set(name, listener); }
+    setAttribute() {}
+  }
+  const all = root => [root, ...root.children.flatMap(child => all(child))];
+  try {
+    globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
+    globalThis.document = { createElement: tag => new Element(tag) };
+    globalThis.game = { user: { isGM: true } };
+    const { AtlasCheckpointAppearanceEditor } = await import(
+      "../scripts/checkpoint-appearance-editor.js");
+    const data = upgradeAtlasCheckpointAppearance(fixture());
+    const scene = { canUserModify: () => true, getFlag: () => data };
+    const editor = new AtlasCheckpointAppearanceEditor({ scene,
+      checkpointId: data.checkpoints[0].id, expectedRevision: data.revision });
+    const root = await editor._renderHTML();
+    const buttons = all(root).filter(node => node.tag === "button");
+    assert.ok(buttons.length < 85,
+      "initial icon grid must not render over two thousand buttons");
+    const slider = all(root).find(node => node.tag === "input" && node.type === "range");
+    const label = all(root).find(node => node.tag === "output");
+    assert.ok(slider && label);
+    slider.value = "55";
+    slider.listeners.get("input")();
+    assert.equal(label.textContent, "55 px");
+    const search = all(root).find(node => node.tag === "input" && node.type === "search");
+    search.value = "github";
+    search.listeners.get("input")();
+    assert.ok(all(root).some(node => node.tag === "button" &&
+      node.title?.startsWith("brands:github — ")), "search draws relevant brand glyphs");
+    assert.ok(all(root).filter(node => node.tag === "button").length < 85);
+  } finally {
+    Object.assign(globalThis, previous);
   }
 });

@@ -8,7 +8,8 @@ import { readWorldRoadAppearance, resolveRoadAppearance,
   roadStrokeSpans, roadLabelPoint, roadAppearanceMode } from "./road-appearance.js";
 import { defaultTravelPresets, validateTravelPresets,
   TRAVEL_PRESET_SETTING } from "./travel-preset-model.js";
-import { checkpointIconPath, resolveCheckpointAppearance }
+import { checkpointIconPath, checkpointFontIcon, checkpointMarkerPosition,
+  resolveCheckpointAppearance }
   from "./checkpoint-appearance.js";
 
 function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "solid") {
@@ -237,6 +238,7 @@ export class RoadCanvasController {
     this.hoveredCheckpointId = null;
     this.checkpointHoverGeometry = [];
     this.textureCache = new Map();
+    this.fontStatus = new Map();
     this.hoverCanvasElement = null;
     this.hoverHandler = null;
     this.hoverExitHandler = null;
@@ -829,6 +831,46 @@ export class RoadCanvasController {
     this.labels.push(label);
   }
 
+  #addCheckpointLabels(graphics, checkpointName, roadName, appearance, point) {
+    if (!globalThis.PIXI?.Text || !graphics.addChild) return;
+    const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
+    const fill = Number.parseInt(appearance.textColor.slice(1), 16);
+    const add = (content, y, fontSize, fontWeight, fontStyle) => {
+      const style = { fontFamily: "Arial", fontSize, fontWeight, fontStyle,
+        fill, align: "left",
+        ...(major >= 8 ? { stroke: { color: 0x000000, width: 3 } }
+          : { stroke: 0x000000, strokeThickness: 3 }) };
+      const label = new PIXI.Text(String(content), style);
+      label.anchor?.set?.(0, 0.5);
+      label.position?.set?.(point.x + appearance.size / 2 + 12, y);
+      label.eventMode = "none";
+      graphics.addChild(label);
+      this.labels.push(label);
+    };
+    const secondLine = Boolean(appearance.showRoadName && roadName);
+    add(checkpointName, point.y - (secondLine ? 9 : 0), 16, "bold", "normal");
+    if (secondLine) add(roadName, point.y + 10, 12, "normal", "italic");
+  }
+
+  #fontReady(font) {
+    const key = font.family + ":" + font.weight;
+    const state = this.fontStatus.get(key);
+    if (state) return state === "ready";
+    const fontSet = globalThis.document?.fonts;
+    if (!fontSet?.load) return true; // No FontFaceSet in deterministic Node mocks.
+    this.fontStatus.set(key, "loading");
+    const descriptor = font.weight + ' 24px "' + font.family + '"';
+    Promise.resolve().then(() => fontSet.load(descriptor)).then(faces => {
+      if (!faces?.length) throw new Error("Font Awesome face was not registered");
+      this.fontStatus.set(key, "ready");
+      this.refresh();
+    }).catch(error => {
+      this.fontStatus.set(key, "error");
+      console.warn("[fvtt-atlas-navigation] Checkpoint icon font unavailable:", error);
+    });
+    return false;
+  }
+
   #iconTexture(src) {
     if (!src || !globalThis.foundry?.canvas?.loadTexture) return null;
     if (this.textureCache.has(src)) return this.textureCache.get(src);
@@ -847,21 +889,34 @@ export class RoadCanvasController {
   #drawCheckpoint(graphics, position, checkpoint, appearance) {
     const selected = checkpoint.id === this.selectedCheckpointId;
     const color = selected ? 0x8ef6c5 : Number.parseInt(appearance.color.slice(1), 16);
+    const marker = checkpointMarkerPosition(position, appearance);
     const src = checkpointIconPath(appearance);
     const texture = this.#iconTexture(src);
-    if (selected) drawDot(graphics, position, 0x8ef6c5, appearance.size / 2 + 4);
+    const font = appearance.type === "fa" ? checkpointFontIcon(appearance.icon) : null;
+    if (appearance.type !== "dot") drawDot(graphics, position, color, 3);
+    if (selected) drawDot(graphics, marker, 0x8ef6c5, appearance.size / 2 + 4);
     if (texture && globalThis.PIXI?.Sprite && graphics.addChild) {
       const sprite = new PIXI.Sprite(texture);
       sprite.anchor?.set?.(0.5);
-      sprite.position?.set?.(position.x, position.y);
+      sprite.position?.set?.(marker.x, marker.y);
       sprite.width = appearance.size;
       sprite.height = appearance.size;
       sprite.eventMode = "none";
       if (appearance.type === "fa") sprite.tint = color;
       graphics.addChild(sprite);
       this.labels.push(sprite);
+    } else if (font && globalThis.PIXI?.Text && graphics.addChild && this.#fontReady(font)) {
+      const glyph = new PIXI.Text(font.glyph, {
+        fontFamily: font.family, fontWeight: font.weight,
+        fontSize: appearance.size, fill: color, align: "center"
+      });
+      glyph.anchor?.set?.(0.5);
+      glyph.position?.set?.(marker.x, marker.y);
+      glyph.eventMode = "none";
+      graphics.addChild(glyph);
+      this.labels.push(glyph);
     } else {
-      drawDot(graphics, position, color, selected ? 10 : 6);
+      drawDot(graphics, marker, color, selected ? 10 : 6);
     }
   }
 
@@ -946,19 +1001,21 @@ export class RoadCanvasController {
       const appearance = resolveCheckpointAppearance(checkpoint.appearance);
       this.#drawCheckpoint(g, position, checkpoint, appearance);
       if (appearance.labelMode === "hover") {
+        const marker = checkpointMarkerPosition(position, appearance);
         this.checkpointHoverGeometry.push({
           id: checkpoint.id, x: position.x, y: position.y,
-          radius: Math.max(10, appearance.size / 2 + 6)
+          radius: 10
+        });
+        if (appearance.type !== "dot") this.checkpointHoverGeometry.push({
+          id: checkpoint.id, x: marker.x, y: marker.y,
+          radius: Math.max(10, appearance.size / 2 + 5)
         });
       }
       if (appearance.labelMode === "always" ||
           (appearance.labelMode === "hover" && this.hoveredCheckpointId === checkpoint.id)) {
         const roadName = roads.get(checkpoint.roadId)?.name;
-        const caption = checkpoint.name +
-          (appearance.showRoadName && roadName ? "\n" + roadName : "");
-        this.#addLabel(g, caption, {
-          x: position.x + appearance.size / 2 + 10, y: position.y
-        }, appearance.textColor, 0);
+        this.#addCheckpointLabels(g, checkpoint.name, roadName, appearance,
+          checkpointMarkerPosition(position, appearance));
       }
     }
     this.#trackHover(canvas);

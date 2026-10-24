@@ -1,4 +1,5 @@
-import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT,
+import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT, checkpointFontIcon,
+  findCheckpointIcons,
   resolveCheckpointAppearance, validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { readAtlas } from "./atlas-storage.js";
 import { saveCheckpointAppearance } from "./road-storage.js";
@@ -14,7 +15,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-checkpoint-appearance",
     window: { title: "Atlas — Checkpoint Icon & Label", resizable: true },
-    position: { width: 590, height: 680 }
+    position: { width: 650, height: 700 }
   };
 
   constructor({ scene, checkpointId, expectedRevision, onSaved }) {
@@ -66,45 +67,105 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     iconSection.appendChild(legend);
     const search = el("input");
     search.type = "search";
-    search.placeholder = "Filter icons (e.g. ship, house, flag)";
+    search.placeholder = "Search over 2,000 icons: bridge, ship, castle, cave…";
     search.setAttribute("aria-label", "Filter checkpoint icons");
     search.style.width = "100%";
     iconSection.appendChild(search);
+    const styleFilter = select([
+      ["all", "All Free icon styles"], ["solid", "Solid"],
+      ["regular", "Regular"], ["brands", "Brands"]
+    ], "all");
+    styleFilter.setAttribute("aria-label", "Font Awesome icon style");
+    styleFilter.style.cssText = "width:100%;margin-top:0.4rem;";
+    iconSection.appendChild(styleFilter);
+    const chosen = el("div");
+    chosen.style.cssText = "display:flex;align-items:center;gap:0.5rem;margin:0.5rem 0;";
+    iconSection.appendChild(chosen);
+    const quickTitle = el("small", "Original quick picks (existing icons remain compatible)");
+    iconSection.appendChild(quickTitle);
+    const quick = el("div");
+    quick.style.cssText = "display:flex;flex-wrap:wrap;gap:0.25rem;margin:0.3rem 0 0.6rem;";
+    iconSection.appendChild(quick);
+    const results = el("small");
+    results.setAttribute("aria-live", "polite");
+    iconSection.appendChild(results);
     const grid = el("div");
-    grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(95px,1fr));gap:0.4rem;margin-top:0.5rem;";
+    grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(105px,1fr));gap:0.35rem;margin-top:0.5rem;";
     let selected = appearance.icon;
     const choices = new Map();
-    for (const name of CHECKPOINT_ICONS) {
-      const button = el("button");
-      button.type = "button";
-      button.title = name;
-      button.setAttribute("aria-label", "Use " + name + " icon");
-      button.style.cssText = "display:grid;justify-items:center;gap:0.25rem;padding:0.5rem;" +
-        "border:2px solid transparent;min-height:69px;";
-      const icon = el("img");
-      icon.src = CHECKPOINT_ICON_ROOT + name + ".svg";
-      icon.alt = "";
-      icon.style.cssText = "width:25px;height:25px;filter:invert(0.4);";
-      button.append(icon, el("small", name));
-      button.addEventListener("click", () => {
-        selected = name;
-        for (const [id, item] of choices) {
-          item.style.borderColor = id === selected ? "#8a70c6" : "transparent";
-          item.setAttribute("aria-pressed", String(id === selected));
-        }
-      });
-      choices.set(name, button);
-      grid.appendChild(button);
-    }
-    iconSection.appendChild(grid);
-    const filterIcons = () => {
-      const term = search.value.trim().toLowerCase();
-      for (const [name, button] of choices) {
-        button.style.display = name.includes(term) ? "grid" : "none";
+    const fontGlyph = id => {
+      const font = checkpointFontIcon(id);
+      const glyph = el("span", font?.glyph ?? "?");
+      glyph.style.cssText = "font-family:'" + font.family + "';font-weight:" + font.weight +
+        ";font-size:24px;line-height:1.1;";
+      glyph.setAttribute("aria-hidden", "true");
+      return glyph;
+    };
+    const originalIcon = name => {
+      const img = el("img");
+      img.src = CHECKPOINT_ICON_ROOT + name + ".svg";
+      img.alt = "";
+      img.style.cssText = "width:24px;height:24px;";
+      return img;
+    };
+    const syncSelection = () => {
+      chosen.replaceChildren(el("strong", "Selected:"),
+        CHECKPOINT_ICONS.includes(selected) ? originalIcon(selected) : fontGlyph(selected),
+        el("span", selected));
+      for (const [id, button] of choices) {
+        button.style.borderColor = id === selected ? "#8a70c6" : "transparent";
+        button.setAttribute("aria-pressed", String(id === selected));
       }
     };
-    search.addEventListener("input", filterIcons);
-    choices.get(selected)?.click();
+    const iconButton = (id, label, glyph, compact = false) => {
+      const button = el("button");
+      button.type = "button";
+      button.title = id + " — " + label;
+      button.setAttribute("aria-label", "Use " + label + " checkpoint icon");
+      button.style.cssText = "display:grid;justify-items:center;gap:0.2rem;padding:0.35rem;" +
+        "border:2px solid transparent;min-height:" + (compact ? "42" : "69") + "px;";
+      button.append(glyph);
+      if (!compact) {
+        const caption = el("small", label);
+        caption.style.cssText = "max-width:100%;overflow-wrap:anywhere;line-height:1.15;";
+        button.appendChild(caption);
+      }
+      button.addEventListener("click", () => {
+        selected = id;
+        syncSelection();
+      });
+      choices.set(id, button);
+      return button;
+    };
+    for (const name of CHECKPOINT_ICONS) {
+      quick.appendChild(iconButton(name, name, originalIcon(name), true));
+    }
+    iconSection.appendChild(grid);
+    const more = el("button", "Show 60 more icons");
+    more.type = "button";
+    more.style.cssText = "display:block;margin:0.5rem auto;";
+    iconSection.appendChild(more);
+    let visible = 60;
+    let matching = [];
+    const renderIcons = (newSearch = false) => {
+      if (newSearch) {
+        visible = 60;
+        matching = findCheckpointIcons(search.value, styleFilter.value);
+      }
+      for (const [id] of choices) if (!CHECKPOINT_ICONS.includes(id)) choices.delete(id);
+      grid.replaceChildren();
+      for (const item of matching.slice(0, visible)) {
+        grid.appendChild(iconButton(item.id, item.label, fontGlyph(item.id)));
+      }
+      results.textContent = matching.length + " matching Free icons · showing " +
+        Math.min(visible, matching.length) + ". Bundled locally; no API key needed.";
+      more.hidden = visible >= matching.length;
+      syncSelection();
+    };
+    search.addEventListener("input", () => renderIcons(true));
+    styleFilter.addEventListener("change", () => renderIcons(true));
+    more.addEventListener("click", () => { visible += 60; renderIcons(); });
+    renderIcons(true);
     root.appendChild(fields);
     root.appendChild(iconSection);
     const imageSection = el("div");
@@ -127,9 +188,16 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     imageSection.append(image, browse);
     root.appendChild(imageSection);
     const size = el("input");
-    size.type = "number"; size.min = "12"; size.max = "64"; size.step = "1";
+    size.type = "range"; size.min = "12"; size.max = "64"; size.step = "1";
     size.value = String(appearance.size);
-    field("Marker size (12–64 px)", size);
+    const sizeControls = el("div");
+    sizeControls.style.cssText = "display:flex;align-items:center;gap:0.6rem;flex:1;";
+    size.style.width = "11rem";
+    const sizeValue = el("output", appearance.size + " px");
+    size.setAttribute("aria-label", "Checkpoint marker size in pixels");
+    size.addEventListener("input", () => { sizeValue.textContent = size.value + " px"; });
+    sizeControls.append(size, sizeValue);
+    field("Marker size (12–64 px)", sizeControls);
     const color = el("input");
     color.type = "color"; color.value = appearance.color;
     field("Dot / Font Awesome color", color);

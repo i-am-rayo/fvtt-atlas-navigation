@@ -1,4 +1,18 @@
-# v0.2.21 — Checkpoint icon and label appearance (draft test gate)
+# v0.2.21.1 — Expanded checkpoint appearance (draft test gate)
+
+Install the `feature/phase-2m-checkpoint-appearance` draft branch, reload Foundry v14 and verify **0.2.21.1**. Test on a World backup; the first checkpoint appearance save on pre-v8 data still upgrades the Scene to schema v8, exactly as v0.2.21.
+
+1. As GM, open Scene → Atlas → Checkpoints → 🖼. Choose **Font Awesome Free icon**. Search `bridge`, `castle`, `ship`, `cave`, and a related *keyword* (e.g. `boat`). Verify **Solid / Regular / Brands** style filters, case-insensitive search, a correct number of matches and **Show 60 more icons** rather than thousands of buttons at once. Select a brand (e.g. GitHub) and a regular icon as separate checkpoints, then reload; neither should require internet access or a Font Awesome account. Open an old v0.2.21 checkpoint that used `mountain` or `ship` and ensure it retains its original image. Test a custom Foundry image too.
+2. Drag the **Marker size** slider between 12 and 64 px: the displayed px value must update, survive Save/reopen and be used on the canvas. Verify all three font styles render as actual icons, tinted to the chosen color (not square missing-glyph boxes or a fallback dot). A missing custom image still falls back safely.
+3. Choose **Always** with **Include road name**. The upper checkpoint name is larger/bold; the owning road appears underneath in smaller *italic* text. Check both share the configured text color and never show `[object Object]`. Turn off the road name and verify only the main checkpoint label remains. With **On hover**, test hovering both the actual checkpoint node and its raised icon; labels should show and hide correctly.
+4. A decorated icon should appear slightly above the true checkpoint attachment point, with a small dot still identifying the node on the road. Move the node using Edit Points and save: the icon follows, but the checkpoint's persistent node coordinates and existing native Region geometry/cost Behaviors must not be altered by its appearance. Plain, never-customized purple checkpoints remain centered on the node.
+5. Check 2 Scenes, reload, canvas zoom/pan, GM versus player (no Atlas markers visible to players), stale editor cancellation and opening/closing the editor repeatedly. Confirm Font Awesome webfonts resolve locally in the network/console logs, with **no Font Awesome API calls**. Fonts, metadata and license are included in the installed module archive.
+
+This draft must still be validated visually in live Foundry v14 before PR merge. GM-only markers are **not** a secure player-secret design; player road/checkpoint visibility remains separately gated. Floating road editing controls and navigation/routing are not part of v0.2.21.1.
+
+---
+
+# v0.2.21 — Checkpoint icon and label appearance (previous test gate)
 
 Back up the World and install v0.2.21. Open a Foundry v14 Scene with old checkpoints, at least two roads and an existing generated native corridor Region.
 

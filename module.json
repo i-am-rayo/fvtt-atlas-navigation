@@ -3,7 +3,7 @@
   "type": "module",
   "title": "FVTT Atlas Navigation",
   "description": "Foundry v14 Scene Atlas with named roads, checkpoints, native Region generation, world travel presets and opt-in native movement costs.",
-  "version": "0.2.21",
+  "version": "0.2.21.1",
   "authors": [
     {
       "name": "i-am-rayo",
@@ -15,6 +15,9 @@
   },
   "esmodules": [
     "scripts/main.js"
+  ],
+  "styles": [
+    "styles/checkpoint-icons.css"
   ],
   "languages": [
     {
