@@ -442,7 +442,7 @@ test("v0.2.18.1 corridor native-cost checkbox re-renders Atlas without perMode s
    assert.ok(kind,"generated Regions begin as checkpoints");
    kind.value="corridor";
    kind.listeners.get("change")();
-   const checkbox=visit(mounted,entry=>entry.tag==="input"&&entry.type==="checkbox");
+   const checkbox=visit(mounted,entry=>entry.tag==="input"&&entry.type==="checkbox"&&entry.listeners.has("change"));
    assert.ok(checkbox&&!checkbox.disabled);
    checkbox.checked=true;
    checkbox.listeners.get("change")();
