@@ -6,6 +6,8 @@ import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
   getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
+import { readPartyExploration, savePartyExplorationConfig,
+  saveCheckpointKnowledge } from "./party-exploration-storage.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
   saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset,
@@ -481,6 +483,23 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.StartNotice"));
     },
     selectCheckpoint: (scene, checkpointId) => roadCanvas.selectCheckpoint(scene, checkpointId),
+    async savePartyExploration(scene, settings, refresh) {
+      ensureIdle(scene);
+      await savePartyExplorationConfig(scene, settings);
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info("Atlas party exploration saved for this Scene.");
+    },
+    async setCheckpointKnowledge(scene, settings, refresh) {
+      ensureIdle(scene);
+      await saveCheckpointKnowledge(scene, settings);
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(settings.knowledge === "lore"
+        ? "Checkpoint marked known through lore." :
+        settings.knowledge === "visited" ? "Checkpoint marked visited." :
+          "Checkpoint knowledge revoked.");
+    },
     async toggleCheckpointPlayerVisibility(scene, checkpoint, refresh) {
       ensureIdle(scene);
       const atlas = readAtlas(scene);
