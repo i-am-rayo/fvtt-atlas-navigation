@@ -6,8 +6,9 @@ import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
   getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
-import { readPartyExploration, savePartyExplorationConfig,
+import { savePartyExplorationConfig,
   saveCheckpointKnowledge } from "./party-exploration-storage.js";
+import { recordPartyDiscoveryForToken } from "./party-exploration-discovery.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
   saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset,
@@ -822,6 +823,11 @@ Hooks.once("init", () => {
     forgetAtlasSceneConfig(app);
   });
   Hooks.on("canvasReady", () => roadCanvas.refresh());
+  Hooks.on("updateToken", (token, changes) => {
+    if (!game.user?.isGM || !("x" in changes) && !("y" in changes)) return;
+    void recordPartyDiscoveryForToken(token).catch(error =>
+      console.warn("[" + MODULE_ID + "] Party discovery not recorded", error));
+  });
   Hooks.on("canvasTearDown", () => {
     if (roadDock) {
       roadDock.finished = true;
