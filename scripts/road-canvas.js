@@ -8,6 +8,7 @@ import { atlasShortcutTarget } from "./atlas-canvas-hit.js";
 import { groupCheckpointMarkers, checkpointQuickInfo,
   clusterQuickInfo } from "./checkpoint-clusters.js";
 import { playerAtlasOverlay } from "./player-visibility.js";
+import { readPartyExploration } from "./party-exploration-storage.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
   roadStrokeSpans, roadLabelPoint, roadAppearanceMode, readRoadCurvePreset,
@@ -1121,7 +1122,7 @@ export class RoadCanvasController {
 
   /** Player projection includes only explicitly revealed road and checkpoint names. */
   #drawPlayerOverlay(canvas, graphics, atlas, zoom) {
-    const visible = playerAtlasOverlay(atlas);
+    const visible = playerAtlasOverlay(atlas, readPartyExploration(canvas.scene));
     const nodes = new Map(visible.nodes.map(node => [node.id, node]));
     const roads = new Map(visible.roads.map(road => [road.id, road]));
     const worldDefaults = readWorldRoadAppearance();
@@ -1172,7 +1173,7 @@ export class RoadCanvasController {
       const node = nodes.get(checkpoint.nodeId);
       if (!node) return [];
       const position = toCanvasPoint(canvas, atlas, node);
-      if (!explored(position)) return [];
+      if (!explored(position) && checkpoint.discoveryMode !== "lore") return [];
       const appearance = resolveCheckpointAppearance(checkpoint.appearance);
       const marker = checkpointMarkerPosition(position, appearance, zoom);
       return [{ id: checkpoint.id, x: marker.x, y: marker.y,
@@ -1283,7 +1284,8 @@ export class RoadCanvasController {
     if (!canvas?.ready || !canvas.scene || !globalThis.game?.user) return;
     if (!game.user.isGM) {
       let revealed;
-      try { revealed = playerAtlasOverlay(readAtlas(canvas.scene)); }
+      try { revealed = playerAtlasOverlay(readAtlas(canvas.scene),
+        readPartyExploration(canvas.scene)); }
       catch (error) {
         console.warn("[fvtt-atlas-navigation] Player overlay unavailable", error);
         this.#clearPlayerOverlay();
