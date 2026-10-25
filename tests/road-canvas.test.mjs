@@ -1270,3 +1270,44 @@ test("v0.2.25 player road and checkpoint respect explored fog boundaries", async
     assert.ok(m.controller.playerCheckpointHoverGeometry.length > 0);
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });
+
+test("v0.2.25 Always road labels use the visible section of a checkpoint-split named road", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  m.canvas.app.canvas.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, right: 20, bottom: 50 });
+  m.canvas.stage = { scale: { x: 1 } };
+  m.Graphics.prototype.addChild = function(node) { node.parent = this; };
+  class Text {
+    constructor(text) {
+      this.text = String(text);
+      this.anchor = { set() {} };
+      this.position = { set: (x, y) => { this.x = x; this.y = y; } };
+    }
+    destroy() {}
+  }
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.PIXI = { Graphics: m.Graphics, Text };
+    let id = 0;
+    const idFactory = () => "viewport-" + ++id;
+    let atlas = addRoad(createEmptyAtlas(), {
+      points: [{ x: 10, y: 10 }, { x: 200, y: 10 }],
+      name: "Long Road", idFactory
+    });
+    atlas = addRoadCheckpoint(atlas, {
+      candidate: { kind: "edge", segmentId: atlas.segments[0].id,
+        edgeIndex: 0, x: 50, y: 10 },
+      roadId: atlas.roads[0].id, name: "First Stop",
+      elevationMeters: null, idFactory
+    });
+    atlas = upgradeAtlasRoadAppearance(atlas);
+    atlas.roads[0].appearance = { color: "#ff00ff", width: 4, opacity: 1,
+      pattern: "solid", labelVisibility: "always" };
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    m.controller.refresh();
+    const label = m.controller.labels.find(item => item.text === "Long Road");
+    assert.ok(label, "one named-road label is visible");
+    assert.ok(label.x <= 40, "label anchors on the first visible section, not the longer remote section");
+  } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
+});
