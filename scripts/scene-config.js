@@ -1,4 +1,6 @@
 import { readAtlas } from "./atlas-storage.js";
+import { readPartyExploration } from "./party-exploration-storage.js";
+import { checkpointKnowledge } from "./party-exploration-model.js";
 import { readSceneGridScale } from "./scene-grid.js";
 import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
 import { listSceneRegions } from "./region-atlas.js";
@@ -400,6 +402,56 @@ function atlasPanel(scene, atlas, actions, refresh) {
   }
   root.appendChild(junctionSection);
 
+  // Opt-in Scene-local party assignment and geographical discovery rules.
+  // No token is auto-assigned, and rendering never writes flags.
+  const party = readPartyExploration(scene);
+  const partySection = node("fieldset");
+  partySection.appendChild(node("legend", "Atlas — Party Exploration (Scene)"));
+  partySection.appendChild(node("p",
+    "Select a Scene token manually. Distance uses this Scene's native Grid units. " +
+    "Vision 5e manages sight: this setting does not yet override token vision.", "hint"));
+  const partyEnabled = node("input");
+  partyEnabled.type = "checkbox";
+  partyEnabled.checked = party.enabled;
+  const partyEnabledLabel = node("label", " Enable Party Exploration");
+  partyEnabledLabel.prepend(partyEnabled);
+  partySection.appendChild(partyEnabledLabel);
+
+  const partyToken = node("select");
+  partyToken.setAttribute("aria-label", "Atlas exploration token");
+  const unset = node("option", "Choose a placed token");
+  unset.value = "";
+  partyToken.appendChild(unset);
+  for (const token of scene.tokens ?? []) {
+    const option = node("option", token.name || token.actor?.name || token.id);
+    option.value = token.id;
+    partyToken.appendChild(option);
+  }
+  partyToken.value = party.tokenId ?? "";
+  partySection.appendChild(node("label", "Exploration Token (manual assignment)"));
+  partySection.appendChild(partyToken);
+
+  const partyRange = node("input");
+  partyRange.type = "number";
+  partyRange.min = "0.01";
+  partyRange.max = "100000";
+  partyRange.step = "any";
+  partyRange.value = String(party.radius);
+  partyRange.setAttribute("aria-label", "Atlas exploration radius");
+  partySection.appendChild(node("label",
+    "Survey Radius (" + (scene.grid?.units || "Scene Grid units") + ")"));
+  partySection.appendChild(partyRange);
+  partySection.appendChild(button("Save Party Exploration",
+    "Save the selected token and scene-local radius (GM only)", () =>
+      actions.savePartyExploration(scene, {
+        enabled: partyEnabled.checked, tokenId: partyToken.value || null,
+        radius: Number(partyRange.value), expected: party
+      }, refresh)));
+  partySection.appendChild(node("p",
+    "Visited checkpoints require actual discovery; lore-known checkpoints can appear " +
+    "outside explored terrain. Player Visible must also be enabled.", "hint"));
+  root.appendChild(partySection);
+
   // v0.2.13: semantic checkpoints are optional records attached to stable
   // road graph points. They are not bend handles or routing junction listings.
   const checkpointSection = node("fieldset");
@@ -506,6 +558,34 @@ function atlasPanel(scene, atlas, actions, refresh) {
         () => actions.editCheckpointAppearance(scene, checkpoint, refresh)));
       controls.appendChild(button("×", label("FVTTATLAS.Checkpoints.Delete"),
         () => actions.removeCheckpoint(scene, checkpoint, refresh)));
+      if (party.enabled) {
+        const knowledge = checkpointKnowledge(party, checkpoint.id);
+        const knowledgeSelect = node("select");
+        knowledgeSelect.title = "GM checkpoint discovery / lore knowledge";
+        knowledgeSelect.setAttribute("aria-label", "Knowledge of " + checkpoint.name);
+        for (const [value, text] of [
+          ["unknown", "Undiscovered"],
+          ["visited", "Seen / Visited"],
+          ["lore", "Known through Lore"]
+        ]) {
+          const option = node("option", text);
+          option.value = value;
+          knowledgeSelect.appendChild(option);
+        }
+        knowledgeSelect.value = knowledge === "legacy" ? "unknown" : knowledge;
+        knowledgeSelect.addEventListener("change", async () => {
+          try {
+            await actions.setCheckpointKnowledge(scene, {
+              checkpointId: checkpoint.id, knowledge: knowledgeSelect.value,
+              expected: party
+            }, refresh);
+          } catch (error) {
+            ui.notifications.error(error.message);
+            refresh();
+          }
+        });
+        controls.appendChild(knowledgeSelect);
+      }
       row.appendChild(controls);
       checkpointSection.appendChild(row);
     }
