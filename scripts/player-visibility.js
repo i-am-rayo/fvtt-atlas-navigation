@@ -1,3 +1,4 @@
+import { checkpointKnowledge } from "./party-exploration-model.js";
 import { validateAtlas, upgradeAtlasPlayerVisibility,
   PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION } from "./atlas-model.js";
 
@@ -7,7 +8,7 @@ export function isRoadVisibleToPlayers(atlas, roadId) {
     atlas.roads?.some(road => road.id === roadId && road.playerVisible === true) === true;
 }
 
-export function playerAtlasOverlay(atlas) {
+export function playerAtlasOverlay(atlas, exploration = null) {
   const roads = (atlas.roads ?? []).filter(road => isRoadVisibleToPlayers(atlas, road.id));
   const allowed = new Set(roads.map(road => road.id));
   const segments = atlas.segments.filter(segment => allowed.has(segment.roadId));
@@ -16,10 +17,12 @@ export function playerAtlasOverlay(atlas) {
   // Player overlays must not derive tooltip details from raw Scene flags.
   const checkpoints = (atlas.checkpoints ?? []).filter(checkpoint =>
     atlas.schemaVersion >= PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION &&
-    checkpoint.playerVisible === true).map(checkpoint => ({
+    checkpoint.playerVisible === true &&
+    checkpointKnowledge(exploration, checkpoint.id) !== "unknown").map(checkpoint => ({
       id: checkpoint.id, nodeId: checkpoint.nodeId,
       appearance: checkpoint.appearance,
       name: checkpoint.name, elevationMeters: null,
+      discoveryMode: checkpointKnowledge(exploration, checkpoint.id),
       roadId: allowed.has(checkpoint.roadId) ? checkpoint.roadId : null
     }));
   const nodeIds = new Set(segments.flatMap(segment => [segment.from, segment.to]));
