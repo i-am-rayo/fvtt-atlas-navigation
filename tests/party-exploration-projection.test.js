@@ -20,7 +20,8 @@ test("player projection excludes newly added checkpoint on previously explored t
     roadId, candidate, name: "Port", idFactory
   });
   atlas = addRoadCheckpoint(atlas, {
-    roadId, candidate, name: "New Guild", idFactory
+    roadId, candidate: { kind: "node", nodeId: atlas.segments[0].to },
+    name: "New Guild", idFactory
   });
   const [port, guild] = atlas.checkpoints;
   atlas = setCheckpointPlayerVisibility(atlas, { checkpointId: port.id, visible: true });
