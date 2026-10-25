@@ -100,7 +100,7 @@ test("a Scene with roads shows select, rename, delete without activation toggles
   const scene = {
     id: "filled", grid: { size: 100, distance: 5, units: "mi" },
     canUserModify: () => true,
-    getFlag: () => ({
+    getFlag: (_scope, key) => key === 'partyExploration' ? null : ({
       schemaVersion: 1, revision: 2, enabled: false, calibration: null,
       nodes: [{ id: "a", x: 0, y: 0 }, { id: "b", x: 100, y: 0 }],
       segments: [{ id: "r1", from: "a", to: "b", via: [], name: "North Road", bidirectional: true }]
@@ -152,7 +152,7 @@ test("anchored v2 road list explicitly offers organization before new editing", 
   const scene = {
     id: "v2", grid: { size: 100, distance: 5, units: "km" },
     canUserModify: () => true,
-    getFlag: () => ({
+    getFlag: (_scope, key) => key === 'partyExploration' ? null : ({
       schemaVersion: 2, coordinateSpace: "image", revision: 3,
       enabled: true, calibration: null,
       nodes: [{ id: "a", x: 0, y: 0 }, { id: "b", x: 100, y: 0 }],
@@ -182,7 +182,7 @@ test("v3 connected road sections render once with edit and merge actions",async(
  const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
  const element={querySelector:selector=>selector==='[data-fvtt-atlas-scene-root]'?nativeRoot:null};
  const scene={id:"v3",grid:{size:100,distance:5,units:"km"},canUserModify:()=>true,
- getFlag:()=>({
+ getFlag:(_scope,key)=>key==='partyExploration'?null:({
   schemaVersion:3,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
   nodes:[{id:"a",x:0,y:0},{id:"b",x:50,y:0},{id:"c",x:100,y:0},{id:"d",x:50,y:70}],
   roads:[{id:"old",name:"Main Road"},{id:"new",name:"Spur"}],
@@ -249,7 +249,7 @@ test("waypoint picking and point-edit controls stay inside the Junctions section
  const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
  const element={querySelector:sel=>sel==='[data-fvtt-atlas-scene-root]'?nativeRoot:null};
  const scene={id:"waypoint-controls",grid:{size:100,distance:5,units:"km"},
-   canUserModify:()=>true,getFlag:()=>({
+   canUserModify:()=>true,getFlag:(_scope,key)=>key==='partyExploration'?null:({
      schemaVersion:3,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
      nodes:[{id:"a",x:0,y:0},{id:"b",x:100,y:0}],
      roads:[{id:"main",name:"Main"}],
@@ -298,7 +298,7 @@ test("Junctions list excludes plain subdivisions, supports one-hop filters and c
    via:[],bidirectional:true
  })));
  const scene={id:"big-junctions",grid:{size:100,distance:5,units:"mi"},
-   canUserModify:()=>true,getFlag:()=>({
+   canUserModify:()=>true,getFlag:(_scope,key)=>key==='partyExploration'?null:({
      schemaVersion:3,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
      roads:[{id:"road",name:"Long Road"}],
      nodes:[...nodes,...branches,{id:"unused",x:1000,y:1000}],segments
@@ -342,7 +342,7 @@ test("junction filters default to one road, include direct neighbors and can sho
   ].map(([id,roadId,from,to])=>({id,roadId,from,to,via:[],bidirectional:true}))
  };
  const scene={id:"filter-scene",grid:{size:100,distance:5,units:"mi"},
-   canUserModify:()=>true,getFlag:()=>graph};
+   canUserModify:()=>true,getFlag:(_scope,key)=>key==='partyExploration'?null:graph};
  const rows=()=>{const result=[];const scan=n=>{if(n.attributes?.has("data-atlas-junction-id"))
    result.push(n.attributes.get("data-atlas-junction-id"));n.children?.forEach(scan);};
    scan(mounted);return result;};
@@ -409,7 +409,7 @@ test("v0.2.18.1 corridor native-cost checkbox re-renders Atlas without perMode s
    ]
  };
  const scene={id:"opt-in-scene",grid:{size:100,distance:5,units:"ft"},
-   regions:new Map(),canUserModify:()=>true,getFlag:()=>atlas};
+   regions:new Map(),canUserModify:()=>true,getFlag:(_scope,key)=>key==='partyExploration'?null:atlas};
  let mounted=null;
  const nativeRoot={querySelector:()=>null,appendChild:element=>{
    mounted=element;element.remove=()=>{mounted=null;};
@@ -492,7 +492,7 @@ test("v0.2.19 duplicate corridor points to existing surface controls and enables
         shapeSignature:"00000000"}}},
     getFlag(scope,key){return this.flags[scope]?.[key];}};
   const scene={id:"update-surface-scene",grid:{size:100,distance:5,units:"ft"},
-    regions:new Map([[region.id,region]]),canUserModify:()=>true,getFlag:()=>atlas};
+    regions:new Map([[region.id,region]]),canUserModify:()=>true,getFlag:(_scope,key)=>key==='partyExploration'?null:atlas};
   let mounted=null, updatedId=null;
   const nativeRoot={querySelector:()=>null,appendChild:element=>{
     mounted=element;element.remove=()=>{mounted=null;};
