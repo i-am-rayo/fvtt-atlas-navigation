@@ -28,7 +28,7 @@ function setup() {
   const scene = {
     id: "canvas-scene",
     canUserModify: () => true,
-    getFlag: () => saved,
+    getFlag: (_scope, key) => key === 'partyExploration' ? null : saved,
     async setFlag(_module, _flag, value) { saved = value; }
   };
   class Graphics {
