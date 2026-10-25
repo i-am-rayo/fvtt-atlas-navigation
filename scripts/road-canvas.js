@@ -1370,11 +1370,17 @@ export class RoadCanvasController {
       if (style.labelVisibility !== "off") {
         const length = path.slice(1).reduce((sum, p, i) =>
           sum + Math.hypot(p.x - path[i].x, p.y - path[i].y), 0);
-        if (length > (labelAnchors.get(road.id)?.length ?? -1)) {
-          labelAnchors.set(road.id, { road, style, length, point: roadLabelPoint(path), paths: [] });
+        // Keep every section of a named road for viewport anchoring, even when
+        // a later checkpoint-split section is longer than the earlier one.
+        const item = labelAnchors.get(road.id) ??
+          { road, style, length: -1, point: null, paths: [] };
+        if (length > item.length) {
+          item.length = length;
+          item.point = roadLabelPoint(path);
         }
+        item.paths.push(path);
+        labelAnchors.set(road.id, item);
       }
-      if (style.labelVisibility !== "off") labelAnchors.get(road.id)?.paths.push(path);
     }
     // One readable label per named road, never per internal topological section.
     for (const [roadId, item] of labelAnchors) {
