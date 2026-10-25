@@ -414,7 +414,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   partyEnabled.type = "checkbox";
   partyEnabled.checked = party.enabled;
   const partyEnabledLabel = node("label", " Enable Party Exploration");
-  partyEnabledLabel.prepend(partyEnabled);
+  partyEnabledLabel.appendChild(partyEnabled);
   partySection.appendChild(partyEnabledLabel);
 
   const partyToken = node("select");
