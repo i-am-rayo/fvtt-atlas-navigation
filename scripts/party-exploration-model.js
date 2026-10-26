@@ -6,7 +6,8 @@
  * Knowledge is not a secrecy boundary: Foundry Scene flags may be readable by
  * a connected player. The player renderer must project only revealed records.
  */
-export const PARTY_EXPLORATION_SCHEMA_VERSION = 1;
+export const PARTY_EXPLORATION_SCHEMA_VERSION = 2;
+export const DEFAULT_CHECKPOINT_REVEAL_RADIUS_CELLS = 3;
 export const PARTY_EXPLORATION_FLAG = "partyExploration";
 
 export function defaultPartyExploration() {
@@ -15,6 +16,8 @@ export function defaultPartyExploration() {
     enabled: false,
     tokenId: null,
     radius: 10,
+    defaultRevealRadiusCells: DEFAULT_CHECKPOINT_REVEAL_RADIUS_CELLS,
+    checkpointRevealRadiusCells: {},
     discoveredCheckpointIds: [],
     loreKnownCheckpointIds: []
   };
@@ -34,24 +37,43 @@ export function validatePartyExploration(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Invalid Atlas party exploration configuration.");
   }
+  const legacy = value.schemaVersion === 1;
   const fields = ["schemaVersion", "enabled", "tokenId", "radius",
+    "defaultRevealRadiusCells", "checkpointRevealRadiusCells",
     "discoveredCheckpointIds", "loreKnownCheckpointIds"];
   if (Object.keys(value).some(key => !fields.includes(key)) ||
-      fields.some(key => !Object.hasOwn(value, key)) ||
-      value.schemaVersion !== PARTY_EXPLORATION_SCHEMA_VERSION ||
+      fields.filter(key => !legacy ||
+        !["defaultRevealRadiusCells", "checkpointRevealRadiusCells"].includes(key))
+        .some(key => !Object.hasOwn(value, key)) ||
+      ![1, PARTY_EXPLORATION_SCHEMA_VERSION].includes(value.schemaVersion) ||
       typeof value.enabled !== "boolean" ||
       (value.tokenId !== null && (typeof value.tokenId !== "string" ||
         !value.tokenId || value.tokenId.length > 160)) ||
       !Number.isFinite(value.radius) || value.radius <= 0 || value.radius > 100000) {
     throw new Error("Invalid Atlas party exploration configuration.");
   }
+  const defaultRevealRadiusCells = legacy ? DEFAULT_CHECKPOINT_REVEAL_RADIUS_CELLS :
+    value.defaultRevealRadiusCells;
+  const radii = legacy ? {} : value.checkpointRevealRadiusCells;
+  if (!Number.isFinite(defaultRevealRadiusCells) ||
+      defaultRevealRadiusCells < 0 || defaultRevealRadiusCells > 100 ||
+      !radii || typeof radii !== "object" || Array.isArray(radii) ||
+      Object.keys(radii).length > 20000 ||
+      Object.entries(radii).some(([id, radius]) =>
+        !id || id.length > 160 || !Number.isFinite(radius) || radius < 0 || radius > 100)) {
+    throw new Error("Invalid Atlas checkpoint terrain reveal radii.");
+  }
+  const checkpointRevealRadiusCells = Object.fromEntries(
+    Object.entries(radii).map(([id, radius]) => [id, radius]));
   const discoveredCheckpointIds = ids(value.discoveredCheckpointIds, "discovery IDs");
   const loreKnownCheckpointIds = ids(value.loreKnownCheckpointIds, "lore IDs");
   if (discoveredCheckpointIds.some(id => loreKnownCheckpointIds.includes(id))) {
     throw new Error("A checkpoint cannot have two Atlas knowledge sources.");
   }
-  return { schemaVersion: 1, enabled: value.enabled, tokenId: value.tokenId,
-    radius: value.radius, discoveredCheckpointIds, loreKnownCheckpointIds };
+  return { schemaVersion: PARTY_EXPLORATION_SCHEMA_VERSION,
+    enabled: value.enabled, tokenId: value.tokenId, radius: value.radius,
+    defaultRevealRadiusCells, checkpointRevealRadiusCells,
+    discoveredCheckpointIds, loreKnownCheckpointIds };
 }
 
 export function checkpointKnowledge(exploration, checkpointId) {
@@ -93,4 +115,23 @@ export function pruneCheckpointKnowledge(exploration, checkpointIds) {
     discoveredCheckpointIds: state.discoveredCheckpointIds.filter(id => available.has(id)),
     loreKnownCheckpointIds: state.loreKnownCheckpointIds.filter(id => available.has(id))
   });
+}
+
+/** A per-checkpoint radius of zero disables only Atlas's map-background reveal. */
+export function checkpointRevealRadiusCells(exploration, checkpointId) {
+  const state = validatePartyExploration(exploration);
+  return Object.hasOwn(state.checkpointRevealRadiusCells, checkpointId)
+    ? state.checkpointRevealRadiusCells[checkpointId] : state.defaultRevealRadiusCells;
+}
+
+export function setCheckpointRevealRadius(exploration, checkpointId, radius) {
+  const state = validatePartyExploration(exploration);
+  if (typeof checkpointId !== "string" || !checkpointId || checkpointId.length > 160 ||
+      !Number.isFinite(radius) || radius < 0 || radius > 100) {
+    throw new Error("Invalid checkpoint reveal radius (0–100 grid cells).");
+  }
+  return validatePartyExploration({ ...state,
+    checkpointRevealRadiusCells: {
+      ...state.checkpointRevealRadiusCells, [checkpointId]: radius
+    } });
 }
