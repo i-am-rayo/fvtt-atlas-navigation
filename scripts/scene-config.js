@@ -495,6 +495,37 @@ function atlasPanel(scene, atlas, actions, refresh) {
       actions.saveAtlasMapFog(scene, {
         enabled: mapFogEnabled.checked, expected: mapFog
       }, refresh)));
+  const surveyGridDistance = Number(scene.grid?.distance);
+  if (surveyGridDistance > 0 && party.enabled) {
+    mapFogSection.appendChild(node("p",
+      "Current survey: " + format(party.radius / surveyGridDistance) +
+      " grid cells (" + format(party.radius) + " " + (scene.grid?.units || "units") +
+      "). Saved trail circles keep their original radii until explicitly removed.", "hint"));
+  }
+  mapFogSection.appendChild(node("p",
+    "Saved Atlas travel reveals: " + mapFog.trail.length +
+    ". Removing an Atlas reveal affects only its saved travel circle; known checkpoints and " +
+    "Foundry's native FogExploration history remain unchanged.", "hint"));
+  const newest = Math.max(0, mapFog.trail.length - 10);
+  for (let index = mapFog.trail.length - 1; index >= newest; index--) {
+    const point = mapFog.trail[index];
+    const row = node("div", undefined, "form-group");
+    row.appendChild(node("span",
+      "Travel reveal #" + (index + 1) + " — radius " + format(point.radiusCells) +
+      " grid cells; x " + format(point.x) + ", y " + format(point.y)));
+    row.appendChild(button("Remove", "Remove this saved Atlas travel reveal", () =>
+      actions.removeAtlasFogTrailPoint(scene, { index, expected: mapFog }, refresh)));
+    mapFogSection.appendChild(row);
+  }
+  if (mapFog.trail.length > 10) {
+    mapFogSection.appendChild(node("p",
+      "Showing the most recent 10 records. Older records can be removed after newer records are removed.", "hint"));
+  }
+  if (mapFog.trail.length) {
+    mapFogSection.appendChild(button("Clear Saved Atlas Travel Reveals",
+      "Clear only Atlas's travel history after confirmation", () =>
+        actions.clearAtlasFogTrail(scene, { expected: mapFog }, refresh)));
+  }
   root.appendChild(mapFogSection);
 
   // v0.2.13: semantic checkpoints are optional records attached to stable
