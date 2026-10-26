@@ -1419,6 +1419,11 @@ export class RoadCanvasController {
           "player roads and checkpoints remain enabled", error);
         this.#clearTerrainReveals();
       }
+      // Pixi child order may differ across Foundry runtimes. Keep the original
+      // road/marker graphics above the optional background-copy layer.
+      if (this.terrainRevealLayer && g.parent === canvas.interface) {
+        canvas.interface.addChild(g);
+      }
       this.#drawPlayerOverlay(canvas, g, atlas, zoom);
       return;
     }
