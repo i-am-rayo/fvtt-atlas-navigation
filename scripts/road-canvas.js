@@ -265,6 +265,15 @@ async function promptRoadCheckpoint({ roads, defaultName }) {
 }
 
 /** GM-only disposable Scene overlay; does not intercept ordinary player play. */
+/** Fade road titles close to checkpoint markers so the checkpoint name remains readable. */
+export function roadLabelOpacityNearCheckpoints(point, checkpointPositions, zoom = 1, mode = "hover") {
+  const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const exclusionRadius = 85 / scale;
+  if (!point || !checkpointPositions.some(checkpoint =>
+    Math.hypot(point.x - checkpoint.x, point.y - checkpoint.y) < exclusionRadius)) return 1;
+  return mode === "always" ? 0.2 : 0;
+}
+
 export class RoadCanvasController {
   constructor({
     canvasProvider = () => globalThis.canvas,
@@ -961,7 +970,7 @@ export class RoadCanvasController {
     if (this.shortcutHandler) element.addEventListener("pointerdown", this.shortcutPointerHandler, true);
   }
 
-  #addLabel(graphics, name, point, textColor, anchorX = 0.5, zoom = 1) {
+  #addLabel(graphics, name, point, textColor, anchorX = 0.5, zoom = 1, opacity = 1) {
     if (!globalThis.PIXI?.Text || !graphics.addChild) return;
     const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
     const color = Number.parseInt(textColor.slice(1), 16);
@@ -980,6 +989,7 @@ export class RoadCanvasController {
     label.anchor?.set?.(anchorX, 0.5);
     label.position?.set?.(point.x, point.y);
     label.eventMode = "none";
+    label.alpha = opacity;
     graphics.addChild(label);
     this.labels.push(label);
   }
@@ -1160,13 +1170,18 @@ export class RoadCanvasController {
         }
       }
     }
+    const checkpointPositions = visible.checkpoints
+      .map(checkpoint => nodes.get(checkpoint.nodeId))
+      .filter(Boolean).map(node => toCanvasPoint(canvas, atlas, node));
     for (const [roadId, item] of labelAnchors) {
       if (item.style.labelVisibility === "always" ||
           (item.style.labelVisibility === "hover" && this.playerHoveredRoadId === roadId)) {
         const point = item.style.labelVisibility === "hover" && this.playerHoveredRoadPoint
             ? this.playerHoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths);
-          if (point) this.#addLabel(graphics, item.road.name,
-            { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom);
+          const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
+            zoom, item.style.labelVisibility);
+          if (point && opacity > 0) this.#addLabel(graphics, item.road.name,
+            { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity);
       }
     }
     const markers = visible.checkpoints.flatMap(checkpoint => {
@@ -1385,13 +1400,18 @@ export class RoadCanvasController {
       }
     }
     // One readable label per named road, never per internal topological section.
+    const checkpointPositions = (atlas.checkpoints ?? [])
+      .map(checkpoint => nodes.get(checkpoint.nodeId))
+      .filter(Boolean).map(node => toCanvasPoint(canvas, atlas, node));
     for (const [roadId, item] of labelAnchors) {
       if (item.style.labelVisibility === "always" ||
           (item.style.labelVisibility === "hover" && this.hoveredRoadId === roadId)) {
         const point = item.style.labelVisibility === "hover" && this.hoveredRoadPoint
           ? this.hoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths) ?? item.point;
-        this.#addLabel(g, item.road.name,
-          { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom);
+        const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
+          zoom, item.style.labelVisibility);
+        if (opacity > 0) this.#addLabel(g, item.road.name,
+          { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity);
       }
     }
     const checkpointMarkers = [];
