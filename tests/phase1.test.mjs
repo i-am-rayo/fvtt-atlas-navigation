@@ -19,11 +19,11 @@ test("module manifest declares a v14 system-agnostic module shell", async () => 
   assert.equal("relationships" in manifest, false);
   assert.equal(
     manifest.manifest,
-    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/hotfix/v0.2.25.4.3-atlas-map-fog/module.json"
+    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/hotfix/v0.2.25.4.3-fog-cut-geometry/module.json"
   );
   assert.equal(
     manifest.download,
-    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/hotfix/v0.2.25.4.3-atlas-map-fog.zip"
+    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/hotfix/v0.2.25.4.3-fog-cut-geometry.zip"
   );
   assert.ok(manifest.manifest.endsWith("/module.json"));
   assert.ok(manifest.download.endsWith(".zip"));
