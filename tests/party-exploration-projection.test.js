@@ -24,11 +24,13 @@ test("player projection excludes newly added checkpoint on previously explored t
     name: "New Guild", idFactory
   });
   const [port, guild] = atlas.checkpoints;
-  atlas = setCheckpointPlayerVisibility(atlas, { checkpointId: port.id, visible: true });
-  atlas = setCheckpointPlayerVisibility(atlas, { checkpointId: guild.id, visible: true });
+  atlas = setCheckpointPlayerVisibility(atlas, { checkpointId: port.id, visible: false });
+  atlas = setCheckpointPlayerVisibility(atlas, { checkpointId: guild.id, visible: false });
   let exploration = { ...defaultPartyExploration(), enabled: true, tokenId: "party" };
   exploration = setCheckpointKnowledge(exploration, port.id, "visited");
   const projection = playerAtlasOverlay(atlas, exploration);
+  assert.equal(atlas.checkpoints[0].playerVisible, false,
+    "discovery must override legacy visibility for enabled scenes");
   assert.deepEqual(projection.checkpoints.map(cp => cp.name), ["Port"]);
   assert.ok(!JSON.stringify(projection).includes("New Guild"));
   exploration = setCheckpointKnowledge(exploration, guild.id, "lore");
