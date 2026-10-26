@@ -1173,7 +1173,7 @@ export class RoadCanvasController {
       const node = nodes.get(checkpoint.nodeId);
       if (!node) return [];
       const position = toCanvasPoint(canvas, atlas, node);
-      if (!explored(position) && checkpoint.discoveryMode !== "lore") return [];
+      if (!explored(position) && checkpoint.discoveryMode === "legacy") return [];
       const appearance = resolveCheckpointAppearance(checkpoint.appearance);
       const marker = checkpointMarkerPosition(position, appearance, zoom);
       return [{ id: checkpoint.id, x: marker.x, y: marker.y,
