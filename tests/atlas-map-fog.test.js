@@ -4,7 +4,8 @@ import { defaultPartyExploration, setCheckpointKnowledge } from "../scripts/part
 import {
   defaultAtlasMapFog, validateAtlasMapFog, atlasMapFogSelected,
   appendAtlasFogTrail, atlasFogSurveyRadiusCells, atlasMapFogDiscs,
-  atlasMapPointRevealed, MAX_ATLAS_FOG_TRAIL_POINTS
+  atlasMapPointRevealed, removeAtlasFogTrailPoint, clearAtlasFogTrail,
+  MAX_ATLAS_FOG_TRAIL_POINTS
 } from "../scripts/atlas-map-fog-model.js";
 
 const atlas = {
@@ -79,4 +80,20 @@ test("current party token adds a temporary reveal without native Token writes", 
   const discs = atlasMapFogDiscs(atlas, party, fog, 50, convert,
     { x: 250, y: 350, gridDistance: 5 });
   assert.deepEqual(discs, [{ x: 250, y: 350, radius: 100 }]);
+});
+
+test("GM corrections remove only requested travel geometry without changing fog mode", () => {
+  const fog = {
+    ...defaultAtlasMapFog(), enabled: true,
+    trail: [{ x: 10, y: 20, radiusCells: 2.6666666666666665 },
+      { x: 30, y: 40, radiusCells: 0.5 }]
+  };
+  const corrected = removeAtlasFogTrailPoint(fog, 0);
+  assert.deepEqual(corrected.trail, [fog.trail[1]]);
+  assert.equal(corrected.enabled, true);
+  assert.equal(fog.trail.length, 2, "inputs remain unchanged");
+  assert.deepEqual(clearAtlasFogTrail(fog), { ...fog, trail: [] });
+  assert.throws(() => removeAtlasFogTrailPoint(fog, -1));
+  assert.throws(() => removeAtlasFogTrailPoint(fog, 5));
+  assert.throws(() => removeAtlasFogTrailPoint(fog, 0.5));
 });
