@@ -5,7 +5,8 @@ import { readAtlas } from "./atlas-storage.js";
 import { saveCheckpointPresentation } from "./road-storage.js";
 import { readPartyExploration, saveCheckpointKnowledge }
   from "./party-exploration-storage.js";
-import { checkpointKnowledge } from "./party-exploration-model.js";
+import { checkpointKnowledge, checkpointRevealRadiusCells }
+  from "./party-exploration-model.js";
 
 const el = (tag, label) => {
   const item = document.createElement(tag);
@@ -78,6 +79,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     playerVisibility.checked = current.playerVisible === true;
     playerVisibility.setAttribute("aria-label", "Checkpoint visible to players");
     let discovery = null;
+    let revealRadius = null;
     if (exploration.enabled) {
       const state = checkpointKnowledge(exploration, this.checkpointId);
       discovery = field("Discovery status", select([
@@ -86,6 +88,12 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         ["lore", "Known through Lore"]
       ], state));
       discovery.setAttribute("aria-label", "Checkpoint discovery status");
+      revealRadius = el("input");
+      revealRadius.type = "number";
+      revealRadius.min = "0"; revealRadius.max = "100"; revealRadius.step = "0.25";
+      revealRadius.value = String(checkpointRevealRadiusCells(exploration, this.checkpointId));
+      revealRadius.setAttribute("aria-label", "Checkpoint terrain reveal radius in grid cells");
+      field("Terrain reveal radius (grid cells; 0 = none)", revealRadius);
       fields.appendChild(el("small",
         "Seen / Visited and Known through Lore reveal the checkpoint to players. " +
         "Road visibility remains independent."));
@@ -364,10 +372,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           playerVisible: playerVisibility.checked, appearance: next,
           expectedRevision: this.expectedRevision
         });
-        if (discovery && discovery.value !==
-            checkpointKnowledge(exploration, this.checkpointId)) {
+        if (discovery && (discovery.value !==
+            checkpointKnowledge(exploration, this.checkpointId) ||
+            Number(revealRadius.value) !==
+              checkpointRevealRadiusCells(exploration, this.checkpointId))) {
           await saveCheckpointKnowledge(this.scene, {
             checkpointId: this.checkpointId, knowledge: discovery.value,
+            revealRadiusCells: Number(revealRadius.value),
             expected: exploration
           });
         }
