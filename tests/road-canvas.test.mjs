@@ -1314,7 +1314,7 @@ test("v0.2.25 Always road labels use the visible section of a checkpoint-split n
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });
 
-test("v0.2.25.4.2 map-fog renderer failure preserves an opaque cover and roads", async () => {
+test("v0.2.25.4.3 failed shape-cut preserves an opaque cover and roads", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI,
     warn: console.warn };
   const m = setup();
@@ -1347,7 +1347,8 @@ test("v0.2.25.4.2 map-fog renderer failure preserves an opaque cover and roads",
     m.Graphics.prototype.addChild = function(label) { label.parent = this; };
     m.Graphics.prototype.clear = function() { this.strokes = 0; this.drawn = []; return this; };
     m.Graphics.prototype.rect = function() { return this; };
-    m.Graphics.prototype.setMask = function() { throw new Error("Inverse mask incompatible"); };
+    m.Graphics.prototype.circle = function() { return this; };
+    m.Graphics.prototype.cut = function() { throw new Error("Shape cutting incompatible"); };
     class Container {
       addChild(...nodes) { for (const node of nodes) node.parent = this; }
       destroy() {}
@@ -1360,15 +1361,88 @@ test("v0.2.25.4.2 map-fog renderer failure preserves an opaque cover and roads",
     console.warn = (...args) => warnings.push(args);
     m.controller.refresh();
     assert.ok(m.controller.graphics?.strokes > 0,
-      "road must remain drawn even if Pixi inverse masking throws");
+      "road must remain drawn even if Pixi shape cutting throws");
     assert.ok(m.controller.playerCheckpointHoverGeometry.length > 0,
       "known checkpoint hover remains available to the player");
     assert.ok(m.controller.atlasMapFogLayer?.visible,
       "on failure, Atlas keeps the opaque map-fog layer on top of the real Scene");
-    assert.equal(m.controller.atlasMapFogCover.mask, null,
-      "failed inverse mask must leave the dark cover uncut");
+    assert.ok(m.controller.atlasMapFogCover,
+      "failed shape cut must leave an opaque Graphics cover");
     assert.ok(warnings.some(items =>
       String(items[0]).includes("Atlas map-fog mask could not refresh")));
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, { game: previous.game, PIXI: previous.PIXI });
+    console.warn = previous.warn;
+  }
+});
+
+test("v0.2.25.4.3 map fog cuts discovered circles directly from the opaque cover", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI,
+    warn: console.warn };
+  const m = setup();
+  const originalGetFlag = m.scene.getFlag.bind(m.scene);
+  const geometry = [];
+  try {
+    let i = 0;
+    const idFactory = () => "cutgeom" + ++i;
+    let atlas = addRoad(createEmptyAtlas(), {
+      points: [{ x: 20, y: 30 }, { x: 150, y: 30 }],
+      name: "Orc Road", idFactory
+    });
+    atlas = addRoadCheckpoint(atlas, {
+      candidate: { kind: "node", nodeId: atlas.segments[0].from },
+      roadId: atlas.roads[0].id, name: "Orc Bridge", idFactory
+    });
+    atlas = setRoadPlayerVisibility(atlas, {
+      roadId: atlas.roads[0].id, visible: true
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    let party = { ...defaultPartyExploration(), enabled: true, tokenId: "placed-party" };
+    party = setCheckpointKnowledge(party, atlas.checkpoints[0].id, "lore");
+    m.scene.getFlag = (scope, key) => key === "partyExploration" ? party
+      : key === "mapFog" ? { schemaVersion: 1, enabled: true, trail: [] }
+      : originalGetFlag(scope, key);
+    m.scene.grid = { size: 50, distance: 5 };
+    m.canvas.dimensions.sceneRect.width = 300;
+    m.canvas.dimensions.sceneRect.height = 200;
+    m.canvas.stage = { scale: { x: 1 } };
+    m.Graphics.prototype.addChild = function(label) { label.parent = this; };
+    m.Graphics.prototype.clear = function() { this.strokes = 0; this.drawn = []; return this; };
+    m.Graphics.prototype.rect = function(...args) {
+      geometry.push(["rect", ...args]); return this;
+    };
+    m.Graphics.prototype.circle = function(...args) {
+      geometry.push(["circle", ...args]); return this;
+    };
+    m.Graphics.prototype.cut = function() {
+      geometry.push(["cut"]); return this;
+    };
+    m.Graphics.prototype.setMask = function() {
+      throw new Error("Inverse masking should never be used");
+    };
+    class Container {
+      addChild(...nodes) { for (const node of nodes) node.parent = this; }
+      destroy() {}
+    }
+    globalThis.game = { user: { isGM: false } };
+    globalThis.PIXI = { Graphics: m.Graphics, Container };
+    console.warn = (...args) => { throw new Error(String(args[0])); };
+    m.controller.refresh();
+    assert.ok(m.controller.atlasMapFogLayer?.visible);
+    assert.equal(geometry.filter(entry => entry[0] === "cut").length, 1,
+      "all discovered circles are cut in a single Graphics operation");
+    assert.ok(geometry.some(entry => entry[0] === "circle"),
+      "lore checkpoint produces a real geometry cut");
+    const coverRect = geometry.filter(entry => entry[0] === "rect").at(-1);
+    const circles = geometry.filter(entry => entry[0] === "circle");
+    assert.ok(circles.every(([, cx, cy, radius]) =>
+      cx - radius > coverRect[1] && cy - radius > coverRect[2] &&
+      cx + radius < coverRect[1] + coverRect[3] &&
+      cy + radius < coverRect[2] + coverRect[4]),
+      "every circle is wholly enclosed by the cut geometry");
+    assert.ok(m.controller.graphics?.strokes > 0,
+      "player road overlay still renders alongside Atlas fog");
   } finally {
     m.controller.tearDown();
     Object.assign(globalThis, { game: previous.game, PIXI: previous.PIXI });
