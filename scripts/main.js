@@ -9,6 +9,8 @@ import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { savePartyExplorationConfig,
   saveCheckpointKnowledge } from "./party-exploration-storage.js";
 import { recordPartyDiscoveryForToken } from "./party-exploration-discovery.js";
+import { saveAtlasMapFogMode, recordAtlasMapFogMovement }
+  from "./atlas-map-fog-storage.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
   saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset,
@@ -491,6 +493,15 @@ function actions() {
       refresh();
       ui.notifications.info("Atlas party exploration saved for this Scene.");
     },
+    async saveAtlasMapFog(scene, settings, refresh) {
+      ensureIdle(scene);
+      const state = await saveAtlasMapFogMode(scene, settings);
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info(state.enabled
+        ? "Atlas Map Fog enabled. For native scene weather to appear inside reveals, disable native Scene Token Vision after confirming the mask in a player client."
+        : "Atlas Map Fog disabled. The saved Atlas travel trail was retained.");
+    },
     async setCheckpointKnowledge(scene, settings, refresh) {
       ensureIdle(scene);
       await saveCheckpointKnowledge(scene, settings);
@@ -825,8 +836,10 @@ Hooks.once("init", () => {
   Hooks.on("canvasReady", () => roadCanvas.refresh());
   Hooks.on("updateToken", (token, changes) => {
     if (!game.user?.isGM || !("x" in changes) && !("y" in changes)) return;
-    void recordPartyDiscoveryForToken(token).catch(error =>
-      console.warn("[" + MODULE_ID + "] Party discovery not recorded", error));
+    void recordAtlasMapFogMovement(token)
+      .then(() => recordPartyDiscoveryForToken(token))
+      .catch(error => console.warn("[" + MODULE_ID +
+        "] Party map exploration not recorded", error));
   });
   Hooks.on("canvasTearDown", () => {
     if (roadDock) {
