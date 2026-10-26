@@ -531,8 +531,12 @@ function atlasPanel(scene, atlas, actions, refresh) {
         ? label("FVTTATLAS.Checkpoints.Unknown")
         : format(checkpoint.elevationMeters) + " m";
       description.appendChild(node("div", checkpoint.roadName + " · " + meters, "hint"));
-      const visibility = node("div", checkpoint.playerVisible === true
-        ? "Checkpoint visible to players" : "Checkpoint hidden from players", "hint");
+      const visibility = node("div", party.enabled
+        ? "Discovery: " + ({ lore: "Known through Lore",
+          visited: "Seen / Visited", unknown: "Undiscovered" }[
+          checkpointKnowledge(party, checkpoint.id)] ?? "Undiscovered")
+        : checkpoint.playerVisible === true
+          ? "Checkpoint visible to players" : "Checkpoint hidden from players", "hint");
       visibility.style.fontSize = "0.8em";
       description.appendChild(visibility);
       if (checkpoint.appearance) {
@@ -550,7 +554,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
         () => actions.selectCheckpoint(scene, checkpoint.id)));
       controls.appendChild(button("✎", label("FVTTATLAS.Checkpoints.Edit"),
         () => actions.editCheckpoint(scene, checkpoint, refresh)));
-      controls.appendChild(button(checkpoint.playerVisible === true ? "👁" : "◌",
+      if (!party.enabled) controls.appendChild(button(
+        checkpoint.playerVisible === true ? "👁" : "◌",
         checkpoint.playerVisible === true ? "Hide checkpoint from players" :
           "Show checkpoint to players (visual only)",
         () => actions.toggleCheckpointPlayerVisibility(scene, checkpoint, refresh)));
