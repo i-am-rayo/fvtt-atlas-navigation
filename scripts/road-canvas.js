@@ -1297,7 +1297,6 @@ export class RoadCanvasController {
     }
     this.atlasMapFogLayer = null;
     this.atlasMapFogCover = null;
-    this.atlasMapFogMask = null;
     this.atlasMapFogCanvas = null;
     this.atlasMapFogDiscs = [];
   }
@@ -1332,27 +1331,20 @@ export class RoadCanvasController {
       layer.visible = false;
       layer.eventMode = "none";
       const cover = new PIXI.Graphics();
-      const mask = new PIXI.Graphics();
       cover.eventMode = "none";
-      mask.eventMode = "none";
-      layer.addChild(cover, mask);
+      layer.addChild(cover);
       if (canvas.interface.addChildAt && canvas.interface.getChildIndex && this.graphics) {
         canvas.interface.addChildAt(layer,
           Math.max(0, canvas.interface.getChildIndex(this.graphics)));
       } else canvas.interface.addChild(layer);
       this.atlasMapFogLayer = layer;
       this.atlasMapFogCover = cover;
-      this.atlasMapFogMask = mask;
       this.atlasMapFogCanvas = canvas;
     }
     const cover = this.atlasMapFogCover;
-    const mask = this.atlasMapFogMask;
-    // Make the cover opaque BEFORE preparing any potentially failing cuts.
+    // Draw the opaque cover first. A failed cut never reveals the whole map.
     cover.clear().rect(x, y, width, height).fill({ color: 0x080b12, alpha: 1 });
     this.atlasMapFogLayer.visible = true;
-    // Start covered. A failure leaves fog ON rather than exposing the map.
-    cover.mask = null;
-    mask.clear();
     this.atlasMapFogDiscs = [];
     const party = exploration;
     const token = canvas.scene?.tokens?.get?.(party.tokenId);
@@ -1365,16 +1357,34 @@ export class RoadCanvasController {
     const origin = { x, y };
     const discs = atlasMapFogDiscs(atlas, party, mapFog, cellSize,
       point => ({ x: point.x + origin.x, y: point.y + origin.y }), center);
-    // Do not reveal outside the image: clipped circles can break Pixi holes.
     this.atlasMapFogDiscs = discs.filter(d =>
       [d.x, d.y, d.radius].every(Number.isFinite) && d.radius > 0);
     if (!this.atlasMapFogDiscs.length) return;
-    if (typeof mask.circle !== "function" || typeof mask.fill !== "function" ||
-        typeof cover.setMask !== "function") return;
-    for (const disc of this.atlasMapFogDiscs) {
-      mask.circle(disc.x, disc.y, disc.radius).fill({ color: 0xffffff });
+    if (typeof cover.circle !== "function" || typeof cover.cut !== "function") {
+      throw new Error("Pixi Graphics shape cutting is unavailable.");
     }
-    cover.setMask({ mask, inverse: true });
+    // Pixi v8 cuts all circles from the last filled rectangle in ONE cut().
+    // Extend the rectangle to contain every circle; partial intersections with
+    // the outer boundary otherwise produce unreliable triangulation.
+    let left = x, top = y, right = x + width, bottom = y + height;
+    for (const disc of this.atlasMapFogDiscs) {
+      left = Math.min(left, disc.x - disc.radius - 2);
+      top = Math.min(top, disc.y - disc.radius - 2);
+      right = Math.max(right, disc.x + disc.radius + 2);
+      bottom = Math.max(bottom, disc.y + disc.radius + 2);
+    }
+    try {
+      cover.clear().rect(left, top, right - left, bottom - top)
+        .fill({ color: 0x080b12, alpha: 1 });
+      for (const disc of this.atlasMapFogDiscs) {
+        cover.circle(disc.x, disc.y, disc.radius);
+      }
+      cover.cut();
+    } catch (error) {
+      cover.clear().rect(x, y, width, height)
+        .fill({ color: 0x080b12, alpha: 1 });
+      throw error;
+    }
   }
 
   #clearPlayerOverlay() {
@@ -1440,7 +1450,6 @@ export class RoadCanvasController {
         // Keep valid, already projected discs so known roads remain clipped,
         // even when the image cover fails to cut holes.
         if (this.atlasMapFogCover && this.atlasMapFogLayer) {
-          this.atlasMapFogCover.mask = null;
           this.atlasMapFogLayer.visible = true;
         }
       }
