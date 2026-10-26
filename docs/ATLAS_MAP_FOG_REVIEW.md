@@ -1,3 +1,10 @@
+# v0.2.25.4.4 — Native-layer fog diagnostic and Atlas history controls
+
+- Following the owner-provided Hexplorer architecture reference (not bundled or depended upon), Atlas fog now draws in Foundry v14's **primary Scene group**, above tiles and below weather/lighting effects. The roads/checkpoint UI remains in the interface group. Foundry FogExploration, Token Vision and Scene Grid records remain unchanged.
+- The Scene Atlas map-fog panel reports current survey grid-cell radius and every stored travel reveal's radius. It allows confirmed removal of the ten most recent individual travel circles or confirmed clearing of **only Atlas travel records**. History saves require current GM authority, Scene permission and exact prior-version match; native fog and checkpoint knowledge remain intact.
+- An enabled Atlas map fog Scene may still expose terrain through knowledge-checkpoint discs (their radius is independent of party survey radius). A currently assigned token adds a *temporary* current-radius disc even when saved history is cleared.
+- Test v14 on separate GM/player clients with weather enabled. Compare before/after deleting one large saved travel record, moving the token, and switching scenes. Do not merge until visually validated.
+
 # v0.2.25.4.3 — Reversible Atlas Map Fog: Live Foundry v14 Review
 
 This is an **experimental, separately opt-in Scene mode**. Its purpose is to stop
