@@ -3,6 +3,9 @@ import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT, CHECKPOINT_FREE_ICONS, checkpoi
   resolveCheckpointAppearance, validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { readAtlas } from "./atlas-storage.js";
 import { saveCheckpointPresentation } from "./road-storage.js";
+import { readPartyExploration, saveCheckpointKnowledge }
+  from "./party-exploration-storage.js";
+import { checkpointKnowledge } from "./party-exploration-model.js";
 
 const el = (tag, label) => {
   const item = document.createElement(tag);
@@ -34,10 +37,12 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const current = readAtlas(this.scene).checkpoints?.find(c => c.id === this.checkpointId);
     if (!current) throw new Error("Checkpoint no longer exists.");
     const appearance = resolveCheckpointAppearance(current.appearance);
+    const exploration = readPartyExploration(this.scene);
     const root = el("div");
     root.style.cssText = "padding:0.85rem;display:grid;gap:0.6rem;overflow:auto;height:100%;";
     root.appendChild(el("p", "CHECKPOINT — " + current.name +
-      ". Edit the name, elevation, appearance or player visibility. " +
+      ". Edit the name, elevation, appearance and " +
+      (exploration.enabled ? "discovery status. " : "player visibility. ") +
       "The underlying graph point and native Regions never move."));
     const fields = el("div");
     fields.style.cssText = "display:grid;gap:0.55rem;";
@@ -72,10 +77,24 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     playerVisibility.type = "checkbox";
     playerVisibility.checked = current.playerVisible === true;
     playerVisibility.setAttribute("aria-label", "Checkpoint visible to players");
-    field("Visible to players (visual only)", playerVisibility);
-    const hint = el("small", "Player visibility does not hide Scene flag data from technical inspection. " +
-      "This checkpoint can be shown even if its road remains hidden.");
-    fields.appendChild(hint);
+    let discovery = null;
+    if (exploration.enabled) {
+      const state = checkpointKnowledge(exploration, this.checkpointId);
+      discovery = field("Discovery status", select([
+        ["unknown", "Undiscovered"],
+        ["visited", "Seen / Visited"],
+        ["lore", "Known through Lore"]
+      ], state));
+      discovery.setAttribute("aria-label", "Checkpoint discovery status");
+      fields.appendChild(el("small",
+        "Seen / Visited and Known through Lore reveal the checkpoint to players. " +
+        "Road visibility remains independent."));
+    } else {
+      field("Visible to players (visual only)", playerVisibility);
+      fields.appendChild(el("small",
+        "Player visibility does not hide Scene flag data from technical inspection. " +
+        "This checkpoint can be shown even if its road remains hidden."));
+    }
     const type = field("Checkpoint marker", select([
       ["dot", "Default dot"], ["fa", "Font Awesome Free icon"],
       ["image", "Custom Foundry image"]
@@ -335,12 +354,23 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           textColor: textColor.value
         });
         const raw = elevation.value.trim();
+        if (discovery && JSON.stringify(readPartyExploration(this.scene)) !==
+            JSON.stringify(exploration)) {
+          throw new Error("Party discovery changed. Reopen checkpoint settings.");
+        }
         await saveCheckpointPresentation(this.scene, {
           checkpointId: this.checkpointId, name: name.value,
           elevationMeters: raw === "" ? null : Number(raw),
           playerVisible: playerVisibility.checked, appearance: next,
           expectedRevision: this.expectedRevision
         });
+        if (discovery && discovery.value !==
+            checkpointKnowledge(exploration, this.checkpointId)) {
+          await saveCheckpointKnowledge(this.scene, {
+            checkpointId: this.checkpointId, knowledge: discovery.value,
+            expected: exploration
+          });
+        }
         this.onSaved?.();
         await this.close();
         ui.notifications.info("Atlas checkpoint settings saved.");
