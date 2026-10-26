@@ -545,3 +545,51 @@ test("v0.2.19 duplicate corridor points to existing surface controls and enables
     for(const [key,value] of Object.entries(saved))globalThis[key]=value;
   }
 });
+
+test("Atlas fog panel explains retained radius and exposes targeted GM history actions", async () => {
+  const previous = { document: globalThis.document, game: globalThis.game,
+    ui: globalThis.ui };
+  let mounted = null;
+  const nativeRoot = { querySelector: () => null, appendChild: n => { mounted = n; } };
+  const element = { querySelector: selector =>
+    selector === "[data-fvtt-atlas-scene-root]" ? nativeRoot : null };
+  const party = {
+    schemaVersion: 2, enabled: true, tokenId: "party", radius: 1,
+    defaultRevealRadiusCells: 3, checkpointRevealRadiusCells: {},
+    discoveredCheckpointIds: [], loreKnownCheckpointIds: []
+  };
+  const mapFog = { schemaVersion: 1, enabled: true,
+    trail: [{ x: 4307.5, y: 4918.29, radiusCells: 2.6666666666666665 }] };
+  const scene = {
+    id: "fog-history", grid: { size: 100, distance: 7.5, units: "km" },
+    tokenVision: false, tokens: [{ id: "party", name: "The Party" }],
+    canUserModify: () => true,
+    getFlag: (_scope, key) => key === "partyExploration" ? party
+      : key === "mapFog" ? mapFog : null
+  };
+  let removed = null, cleared = null;
+  try {
+    globalThis.document = { createElement: tag => new Element(tag) };
+    globalThis.game = { user: { isGM: true },
+      i18n: { localize: k => k, lang: "en" } };
+    globalThis.ui = { notifications: { error: message => { throw Error(message); } } };
+    addAtlasRoadsToSceneConfig({ document: scene }, element, {
+      draft: () => null, begin() {}, select() {}, rename() {}, remove() {},
+      removeAtlasFogTrailPoint(_scene, opts) { removed = opts; },
+      clearAtlasFogTrail(_scene, opts) { cleared = opts; }
+    });
+    assert.match(textContents(mounted), /Saved trail circles keep their original radii/);
+    assert.match(textContents(mounted), /Saved Atlas travel reveals: 1/);
+    const remove = buttons(mounted).find(b =>
+      b.title === "Remove this saved Atlas travel reveal");
+    const clear = buttons(mounted).find(b =>
+      b.textContent === "Clear Saved Atlas Travel Reveals");
+    assert.ok(remove);
+    assert.ok(clear);
+    await remove.listeners.get("click")({ preventDefault() {} });
+    await clear.listeners.get("click")({ preventDefault() {} });
+    assert.equal(removed.index, 0);
+    assert.equal(removed.expected, mapFog);
+    assert.equal(cleared.expected, mapFog);
+  } finally { Object.assign(globalThis, previous); }
+});
