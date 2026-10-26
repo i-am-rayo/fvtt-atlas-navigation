@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { defaultPartyExploration } from "../scripts/party-exploration-model.js";
 import { defaultAtlasMapFog } from "../scripts/atlas-map-fog-model.js";
 import { readAtlasMapFog, saveAtlasMapFogMode,
-  recordAtlasMapFogMovement } from "../scripts/atlas-map-fog-storage.js";
+  recordAtlasMapFogMovement, editAtlasFogTrail } from "../scripts/atlas-map-fog-storage.js";
 
 test("GM opts in with a placed token; native fog history is never accessed", async () => {
   const originalGame = globalThis.game;
@@ -71,4 +71,46 @@ test("non-GM and stale saves cannot activate a Scene mask", async () => {
       enabled: true, expected: { ...defaultAtlasMapFog(), enabled: true }
     }), /changed/);
   } finally { globalThis.game = originalGame; }
+});
+
+test("GM-only revisions prevent stale or unauthorized trail removals", async () => {
+  const originalGame = globalThis.game;
+  const flags = new Map();
+  const scene = {
+    canUserModify: () => true,
+    getFlag: (_scope, key) => flags.get(key),
+    async setFlag(_scope, key, value) { flags.set(key, structuredClone(value)); }
+  };
+  const first = {
+    ...defaultAtlasMapFog(), enabled: true,
+    trail: [{ x: 100, y: 200, radiusCells: 2.6666666666666665 },
+      { x: 300, y: 400, radiusCells: 0.5 }]
+  };
+  flags.set("mapFog", structuredClone(first));
+  try {
+    globalThis.game = { user: { isGM: false } };
+    await assert.rejects(() => editAtlasFogTrail(scene, {
+      expected: first, removeIndex: 0
+    }), /Only a GM/);
+    globalThis.game.user.isGM = true;
+    await assert.rejects(() => editAtlasFogTrail(scene, {
+      expected: { ...first, trail: [] }, removeIndex: 0
+    }), /changed/);
+    assert.deepEqual(flags.get("mapFog"), first, "no unauthorized edits");
+    const after = await editAtlasFogTrail(scene, {
+      expected: first, removeIndex: 0
+    });
+    assert.equal(after.trail.length, 1);
+    assert.deepEqual(after.trail[0], first.trail[1]);
+    await assert.rejects(() => editAtlasFogTrail(scene, {
+      expected: first, clear: true
+    }), /changed/);
+    const cleared = await editAtlasFogTrail(scene, { expected: after, clear: true });
+    assert.equal(cleared.trail.length, 0);
+    assert.equal(cleared.enabled, true);
+    assert.equal(flags.has("fogExploration"), false,
+      "native Foundry fog remains completely untouched");
+  } finally {
+    globalThis.game = originalGame;
+  }
 });
