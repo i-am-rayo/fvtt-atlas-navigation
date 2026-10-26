@@ -30,7 +30,7 @@ function setup() {
   const scene = {
     id: "canvas-scene",
     canUserModify: () => true,
-    getFlag: (_scope, key) => key === 'partyExploration' ? null : saved,
+    getFlag: (_scope, key) => ['partyExploration', 'mapFog'].includes(key) ? null : saved,
     async setFlag(_module, _flag, value) { saved = value; }
   };
   class Graphics {
@@ -1314,7 +1314,7 @@ test("v0.2.25 Always road labels use the visible section of a checkpoint-split n
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });
 
-test("v0.2.25.4.1 player roads survive a throwing terrain-mask renderer", async () => {
+test("v0.2.25.4.2 map-fog renderer failure preserves an opaque cover and roads", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI,
     warn: console.warn };
   const m = setup();
@@ -1337,30 +1337,38 @@ test("v0.2.25.4.1 player roads survive a throwing terrain-mask renderer", async 
     await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
     let party = { ...defaultPartyExploration(), enabled: true, tokenId: "placed-party" };
     party = setCheckpointKnowledge(party, atlas.checkpoints[0].id, "lore");
-    m.scene.getFlag = (scope, key) =>
-      key === "partyExploration" ? party : originalGetFlag(scope, key);
-    m.scene.grid = { size: 50 };
+    m.scene.getFlag = (scope, key) => key === "partyExploration" ? party
+      : key === "mapFog" ? { schemaVersion: 1, enabled: true, trail: [] }
+      : originalGetFlag(scope, key);
+    m.scene.grid = { size: 50, distance: 5 };
     m.canvas.dimensions.sceneRect.width = 300;
     m.canvas.dimensions.sceneRect.height = 200;
-    m.canvas.primary = { background: { texture: { valid: true } } };
     m.canvas.stage = { scale: { x: 1 } };
     m.Graphics.prototype.addChild = function(label) { label.parent = this; };
+    m.Graphics.prototype.clear = function() { this.strokes = 0; this.drawn = []; return this; };
+    m.Graphics.prototype.rect = function() { return this; };
+    m.Graphics.prototype.setMask = function() { throw new Error("Inverse mask incompatible"); };
+    class Container {
+      addChild(...nodes) { for (const node of nodes) node.parent = this; }
+      destroy() {}
+    }
     globalThis.game = { user: { isGM: false } };
     globalThis.PIXI = {
-      Graphics: m.Graphics,
-      Container: class {},
-      Sprite: class { constructor() { throw new Error("Mask sprite incompatible"); } }
+      Graphics: m.Graphics, Container,
+      Sprite: class { constructor() { throw new Error("Background copy forbidden"); } }
     };
     console.warn = (...args) => warnings.push(args);
     m.controller.refresh();
     assert.ok(m.controller.graphics?.strokes > 0,
-      "road must remain drawn after terrain mask failure");
+      "road must remain drawn even if Pixi inverse masking throws");
     assert.ok(m.controller.playerCheckpointHoverGeometry.length > 0,
       "known checkpoint hover remains available to the player");
+    assert.ok(m.controller.atlasMapFogLayer?.visible,
+      "on failure, Atlas keeps the opaque map-fog layer on top of the real Scene");
+    assert.equal(m.controller.atlasMapFogCover.mask, null,
+      "failed inverse mask must leave the dark cover uncut");
     assert.ok(warnings.some(items =>
-      String(items[0]).includes("Optional terrain reveal unavailable")));
-    assert.equal(m.controller.terrainRevealLayer, null,
-      "invalid map copy must never persist");
+      String(items[0]).includes("Atlas map-fog mask could not refresh")));
   } finally {
     m.controller.tearDown();
     Object.assign(globalThis, { game: previous.game, PIXI: previous.PIXI });
