@@ -1318,9 +1318,9 @@ test("v0.2.25 Always road labels use the visible section of a checkpoint-split n
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });
 
-test("v0.2.25.4.3 failed shape-cut preserves an opaque cover and roads", async () => {
+test("v0.2.25.4.5 failed direct-primary cut preserves an opaque cover and roads", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI,
-    warn: console.warn };
+    foundry: globalThis.foundry, warn: console.warn };
   const m = setup();
   const warnings = [];
   const originalGetFlag = m.scene.getFlag.bind(m.scene);
@@ -1358,6 +1358,9 @@ test("v0.2.25.4.3 failed shape-cut preserves an opaque cover and roads", async (
       destroy() {}
     }
     globalThis.game = { user: { isGM: false } };
+    globalThis.foundry = { canvas: { groups: {
+      PrimaryCanvasGroup: { SORT_LAYERS: { TILES: 500 } }
+    } } };
     globalThis.PIXI = {
       Graphics: m.Graphics, Container,
       Sprite: class { constructor() { throw new Error("Background copy forbidden"); } }
@@ -1376,14 +1379,15 @@ test("v0.2.25.4.3 failed shape-cut preserves an opaque cover and roads", async (
       String(items[0]).includes("Atlas map-fog mask could not refresh")));
   } finally {
     m.controller.tearDown();
-    Object.assign(globalThis, { game: previous.game, PIXI: previous.PIXI });
+    Object.assign(globalThis, { game: previous.game, PIXI: previous.PIXI,
+      foundry: previous.foundry });
     console.warn = previous.warn;
   }
 });
 
-test("v0.2.25.4.3 map fog cuts discovered circles directly from the opaque cover", async () => {
+test("v0.2.25.4.5 map fog mounts cut Graphics directly in Foundry primary group", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI,
-    warn: console.warn };
+    foundry: globalThis.foundry, warn: console.warn };
   const m = setup();
   const originalGetFlag = m.scene.getFlag.bind(m.scene);
   const geometry = [];
@@ -1430,10 +1434,17 @@ test("v0.2.25.4.3 map fog cuts discovered circles directly from the opaque cover
       destroy() {}
     }
     globalThis.game = { user: { isGM: false } };
+    globalThis.foundry = { canvas: { groups: {
+      PrimaryCanvasGroup: { SORT_LAYERS: { TILES: 500 } }
+    } } };
     globalThis.PIXI = { Graphics: m.Graphics, Container };
     console.warn = (...args) => { throw new Error(String(args[0])); };
     m.controller.refresh();
     assert.ok(m.controller.atlasMapFogLayer?.visible);
+    assert.equal(m.controller.atlasMapFogLayer, m.controller.atlasMapFogCover,
+      "Foundry must sort the PIXI Graphics itself, not a plain parent container");
+    assert.equal(m.controller.atlasMapFogCover.sortLayer, 501);
+    assert.equal(m.controller.atlasMapFogCover.label, "Atlas Exploration Fog");
     assert.equal(m.controller.atlasMapFogLayer.parent, m.canvas.primary,
       "fog lives with Scene content below Foundry's effects, not in the interface");
     assert.equal(geometry.filter(entry => entry[0] === "cut").length, 1,
@@ -1451,7 +1462,8 @@ test("v0.2.25.4.3 map fog cuts discovered circles directly from the opaque cover
       "player road overlay still renders alongside Atlas fog");
   } finally {
     m.controller.tearDown();
-    Object.assign(globalThis, { game: previous.game, PIXI: previous.PIXI });
+    Object.assign(globalThis, { game: previous.game, PIXI: previous.PIXI,
+      foundry: previous.foundry });
     console.warn = previous.warn;
   }
 });
