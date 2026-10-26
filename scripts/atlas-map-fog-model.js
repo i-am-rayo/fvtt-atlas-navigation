@@ -50,6 +50,21 @@ export function appendAtlasFogTrail(state, point) {
   return { ...current, trail: [...current.trail, candidate] };
 }
 
+/** Explicit GM history correction; indices refer to the saved, chronological trail. */
+export function removeAtlasFogTrailPoint(state, index) {
+  const fog = validateAtlasMapFog(state);
+  if (!Number.isSafeInteger(index) || index < 0 || index >= fog.trail.length) {
+    throw new Error("Select an existing Atlas travel reveal.");
+  }
+  return { ...fog, trail: fog.trail.filter((_, i) => i !== index) };
+}
+
+/** Empty ONLY Atlas's saved travel circles; known checkpoints remain known. */
+export function clearAtlasFogTrail(state) {
+  const fog = validateAtlasMapFog(state);
+  return { ...fog, trail: [] };
+}
+
 /** Convert Scene Grid-distance survey range to a bounded number of grid cells. */
 export function atlasFogSurveyRadiusCells(exploration, gridDistance) {
   const party = validatePartyExploration(exploration);
