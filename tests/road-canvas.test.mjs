@@ -8,6 +8,8 @@ import { addRoadCheckpoint, editCheckpointAppearance } from "../scripts/checkpoi
 import { DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
 import { setRoadPlayerVisibility, setCheckpointPlayerVisibility }
   from "../scripts/player-visibility.js";
+import { defaultPartyExploration, setCheckpointKnowledge }
+  from "../scripts/party-exploration-model.js";
 import { DEFAULT_WORLD_ROAD_APPEARANCE, ROAD_CURVE_SETTING,
   ROAD_APPEARANCE_SETTING } from "../scripts/road-appearance.js";
 
@@ -1310,4 +1312,58 @@ test("v0.2.25 Always road labels use the visible section of a checkpoint-split n
     assert.ok(label, "one named-road label is visible");
     assert.ok(label.x <= 40, "label anchors on the first visible section, not the longer remote section");
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
+});
+
+test("v0.2.25.4.1 player roads survive a throwing terrain-mask renderer", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI,
+    warn: console.warn };
+  const m = setup();
+  const warnings = [];
+  const originalGetFlag = m.scene.getFlag.bind(m.scene);
+  try {
+    let i = 0;
+    const idFactory = () => "maskguard" + ++i;
+    let atlas = addRoad(createEmptyAtlas(), {
+      points: [{ x: 20, y: 30 }, { x: 150, y: 30 }],
+      name: "Visible Bridge Road", idFactory
+    });
+    atlas = addRoadCheckpoint(atlas, {
+      candidate: { kind: "node", nodeId: atlas.segments[0].from },
+      roadId: atlas.roads[0].id, name: "Orc Bridge", idFactory
+    });
+    atlas = setRoadPlayerVisibility(atlas, {
+      roadId: atlas.roads[0].id, visible: true
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    let party = { ...defaultPartyExploration(), enabled: true, tokenId: "placed-party" };
+    party = setCheckpointKnowledge(party, atlas.checkpoints[0].id, "lore");
+    m.scene.getFlag = (scope, key) =>
+      key === "partyExploration" ? party : originalGetFlag(scope, key);
+    m.scene.grid = { size: 50 };
+    m.canvas.dimensions.sceneRect.width = 300;
+    m.canvas.dimensions.sceneRect.height = 200;
+    m.canvas.primary = { background: { texture: { valid: true } } };
+    m.canvas.stage = { scale: { x: 1 } };
+    m.Graphics.prototype.addChild = function(label) { label.parent = this; };
+    globalThis.game = { user: { isGM: false } };
+    globalThis.PIXI = {
+      Graphics: m.Graphics,
+      Container: class {},
+      Sprite: class { constructor() { throw new Error("Mask sprite incompatible"); } }
+    };
+    console.warn = (...args) => warnings.push(args);
+    m.controller.refresh();
+    assert.ok(m.controller.graphics?.strokes > 0,
+      "road must remain drawn after terrain mask failure");
+    assert.ok(m.controller.playerCheckpointHoverGeometry.length > 0,
+      "known checkpoint hover remains available to the player");
+    assert.ok(warnings.some(items =>
+      String(items[0]).includes("Optional terrain reveal unavailable")));
+    assert.equal(m.controller.terrainRevealLayer, null,
+      "invalid map copy must never persist");
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, { game: previous.game, PIXI: previous.PIXI });
+    console.warn = previous.warn;
+  }
 });
