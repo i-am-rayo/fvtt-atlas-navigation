@@ -54,6 +54,10 @@ function setup() {
     interface: {
       addChild(g) { g.parent = this; },
       removeChild(g) { g.parent = null; }
+    },
+    primary: {
+      addChild(g) { g.parent = this; },
+      removeChild(g) { g.parent = null; }
     }
   };
   const notifications = { info: [], error: [], warn: [] };
@@ -1430,6 +1434,8 @@ test("v0.2.25.4.3 map fog cuts discovered circles directly from the opaque cover
     console.warn = (...args) => { throw new Error(String(args[0])); };
     m.controller.refresh();
     assert.ok(m.controller.atlasMapFogLayer?.visible);
+    assert.equal(m.controller.atlasMapFogLayer.parent, m.canvas.primary,
+      "fog lives with Scene content below Foundry's effects, not in the interface");
     assert.equal(geometry.filter(entry => entry[0] === "cut").length, 1,
       "all discovered circles are cut in a single Graphics operation");
     assert.ok(geometry.some(entry => entry[0] === "circle"),
