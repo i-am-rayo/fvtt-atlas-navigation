@@ -441,15 +441,27 @@ function atlasPanel(scene, atlas, actions, refresh) {
   partySection.appendChild(node("label",
     "Survey Radius (" + (scene.grid?.units || "Scene Grid units") + ")"));
   partySection.appendChild(partyRange);
+  const terrainRadius = node("input");
+  terrainRadius.type = "number";
+  terrainRadius.min = "0"; terrainRadius.max = "100"; terrainRadius.step = "0.25";
+  terrainRadius.value = String(party.defaultRevealRadiusCells);
+  terrainRadius.setAttribute("aria-label", "Default checkpoint terrain reveal radius in grid cells");
+  partySection.appendChild(node("label", "Default Checkpoint Terrain Reveal (grid cells)"));
+  partySection.appendChild(terrainRadius);
+  partySection.appendChild(node("p",
+    "Atlas shows only the background map inside known checkpoint circles. " +
+    "This never edits Foundry's saved fog; set a checkpoint radius to zero in " +
+    "Shift-click settings to show its marker without revealing terrain.", "hint"));
   partySection.appendChild(button("Save Party Exploration",
     "Save the selected token and scene-local radius (GM only)", () =>
       actions.savePartyExploration(scene, {
         enabled: partyEnabled.checked, tokenId: partyToken.value || null,
-        radius: Number(partyRange.value), expected: party
+        radius: Number(partyRange.value),
+        defaultRevealRadiusCells: Number(terrainRadius.value), expected: party
       }, refresh)));
   partySection.appendChild(node("p",
-    "Visited checkpoints require actual discovery; lore-known checkpoints can appear " +
-    "outside explored terrain. Player Visible must also be enabled.", "hint"));
+    "Seen / Visited and Known through Lore both show checkpoint markers. " +
+    "Neither requires the old player visibility checkbox.", "hint"));
   root.appendChild(partySection);
 
   // v0.2.13: semantic checkpoints are optional records attached to stable
