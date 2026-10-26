@@ -2,7 +2,8 @@ import { MODULE_ID } from "./atlas-storage.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
 import { ATLAS_MAP_FOG_FLAG, validateAtlasMapFog, atlasFogSurveyRadiusCells,
-  appendAtlasFogTrail } from "./atlas-map-fog-model.js";
+  appendAtlasFogTrail, removeAtlasFogTrailPoint, clearAtlasFogTrail
+} from "./atlas-map-fog-model.js";
 
 export function readAtlasMapFog(scene) {
   if (!scene?.getFlag) throw new Error("Select an Atlas Scene.");
@@ -73,4 +74,22 @@ export async function recordAtlasMapFogMovement(tokenDoc) {
   if (JSON.stringify(readAtlasMapFog(scene)) !== JSON.stringify(before)) return false;
   await scene.setFlag(MODULE_ID, ATLAS_MAP_FOG_FLAG, next);
   return true;
+}
+
+/**
+ * Explicit, revision-checked GM corrections to Atlas-only history.
+ * No Foundry FogExploration, native token or checkpoint knowledge changes.
+ */
+export async function editAtlasFogTrail(scene, { expected, removeIndex = null, clear = false }) {
+  authorize(scene);
+  const before = readAtlasMapFog(scene);
+  if (JSON.stringify(before) !== JSON.stringify(validateAtlasMapFog(expected))) {
+    throw new Error("Atlas travel exploration changed. Reopen the Scene Atlas tab.");
+  }
+  if (clear === (removeIndex !== null)) {
+    throw new Error("Choose exactly one Atlas history correction.");
+  }
+  const after = clear ? clearAtlasFogTrail(before) : removeAtlasFogTrailPoint(before, removeIndex);
+  await scene.setFlag(MODULE_ID, ATLAS_MAP_FOG_FLAG, after);
+  return after;
 }
