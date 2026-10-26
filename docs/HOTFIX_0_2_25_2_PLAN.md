@@ -1,6 +1,6 @@
 # v0.2.25.2 — Party exploration & checkpoint discovery (implementation gate)
 
-Status: **draft, not installable as a completed hotfix**. Base: v0.2.25.1. Do not merge or point Foundry at this branch until a complete GM/player v14 pass.
+Status: **installable v0.2.25.2 test build; draft PR, not a validated release**. Base: v0.2.25.1. The owner explicitly requested an installable manifest to test the new features. Do not merge pending GM/player v14 acceptance. The full-color Vision 5e override is still unimplemented; the radius currently governs Atlas discovery only.
 
 ## Owner-approved behavior
 
@@ -47,4 +47,4 @@ IDs are stable Atlas checkpoint IDs. The collections are mutually exclusive. All
 
 ## Known integration blocker
 
-The upstream Vision 5e `scripts/token-document.mjs` subclass recalculates `sight.range` and `visionMode` from detection modes at prepareDerivedData time. It may force the mode to Darkvision. An Atlas config-only override is therefore misleading. Use Foundry v14 public APIs and a two-client compatibility test; avoid invasive prototype patches to third-party modules. Until that integration is proven, keep v0.2.25.2 draft and do not bump module manifest to imply an installable release.
+The upstream Vision 5e `scripts/token-document.mjs` subclass recalculates `sight.range` and `visionMode` from detection modes at prepareDerivedData time. It may force the mode to Darkvision. An Atlas config-only override is therefore misleading. Use Foundry v14 public APIs and a two-client compatibility test; avoid invasive prototype patches to third-party modules. The owner authorized a distinct **v0.2.25.2 test manifest** before that integration is proven. Keep the PR draft, warn testers that Atlas's radius does not change Vision 5e's actual sight, and do not merge or claim full feature completion.
