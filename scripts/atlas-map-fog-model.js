@@ -63,8 +63,8 @@ export function atlasFogSurveyRadiusCells(exploration, gridDistance) {
 /** Scene-owned mode is active only with a manually selected party token. */
 export function atlasMapFogSelected(mapFog, exploration) {
   const fog = validateAtlasMapFog(mapFog);
-  const party = validatePartyExploration(exploration);
-  return fog.enabled && party.enabled && !!party.tokenId;
+  validatePartyExploration(exploration);
+  return fog.enabled;
 }
 
 /** Reuse the existing known/visited checkpoint radii and add token travel. */
