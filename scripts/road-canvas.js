@@ -1323,6 +1323,9 @@ export class RoadCanvasController {
         this.terrainRevealLayer.destroyed) {
       this.#clearTerrainReveals();
       const layer = new PIXI.Container();
+      // Fail closed while preparing the Pixi mask: never show the full map
+      // background if the mask API throws on a particular Foundry runtime.
+      layer.visible = false;
       const sprite = new PIXI.Sprite(texture);
       const mask = new PIXI.Graphics();
       layer.eventMode = "none";
@@ -1354,6 +1357,7 @@ export class RoadCanvasController {
       for (const disc of discs) mask.drawCircle?.(disc.x, disc.y, disc.radius);
       mask.endFill?.();
     }
+    this.terrainRevealLayer.visible = true;
   }
 
   #clearPlayerOverlay() {
@@ -1406,7 +1410,15 @@ export class RoadCanvasController {
     }
     if (!game.user.isGM) {
       this.#stopHover();
-      this.#drawTerrainReveals(canvas, atlas);
+      // Terrain reveals are optional. An unavailable/mismatched Pixi mask
+      // must NEVER prevent roads and checkpoint markers from being drawn.
+      try {
+        this.#drawTerrainReveals(canvas, atlas);
+      } catch (error) {
+        console.warn("[fvtt-atlas-navigation] Optional terrain reveal unavailable; " +
+          "player roads and checkpoints remain enabled", error);
+        this.#clearTerrainReveals();
+      }
       this.#drawPlayerOverlay(canvas, g, atlas, zoom);
       return;
     }
