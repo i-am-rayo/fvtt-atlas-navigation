@@ -1320,7 +1320,7 @@ export class RoadCanvasController {
     const width = Number(sceneRect?.width ?? canvas.dimensions?.sceneWidth);
     const height = Number(sceneRect?.height ?? canvas.dimensions?.sceneHeight);
     if (!globalThis.PIXI?.Graphics || !globalThis.PIXI?.Container ||
-        !canvas.interface?.addChild || ![x, y, width, height].every(Number.isFinite) ||
+        !canvas.primary?.addChild || ![x, y, width, height].every(Number.isFinite) ||
         width <= 0 || height <= 0) {
       throw new Error("Atlas map fog needs a compatible Foundry/Pixi canvas.");
     }
@@ -1333,16 +1333,21 @@ export class RoadCanvasController {
       const cover = new PIXI.Graphics();
       cover.eventMode = "none";
       layer.addChild(cover);
-      if (canvas.interface.addChildAt && canvas.interface.getChildIndex && this.graphics) {
-        canvas.interface.addChildAt(layer,
-          Math.max(0, canvas.interface.getChildIndex(this.graphics)));
-      } else canvas.interface.addChild(layer);
+      // Atlas fog belongs with Scene content, below Foundry's weather/lighting
+      // effects. Keep road markers in canvas.interface above the fog.
+      const layers = globalThis.foundry?.canvas?.groups?.PrimaryCanvasGroup?.SORT_LAYERS;
+      if (Number.isFinite(layers?.TILES)) {
+        layer.sortLayer = layers.TILES + 1;
+        layer.elevation = 0;
+        layer.sort = 1e100;
+      }
+      canvas.primary.addChild(layer);
       this.atlasMapFogLayer = layer;
       this.atlasMapFogCover = cover;
       this.atlasMapFogCanvas = canvas;
     }
     const cover = this.atlasMapFogCover;
-    // Draw the opaque cover first. A failed cut never reveals the whole map.
+    // Draw the opaque cover first, above Scene map content but below effects.
     cover.clear().rect(x, y, width, height).fill({ color: 0x080b12, alpha: 1 });
     this.atlasMapFogLayer.visible = true;
     this.atlasMapFogDiscs = [];
@@ -1452,9 +1457,6 @@ export class RoadCanvasController {
         if (this.atlasMapFogCover && this.atlasMapFogLayer) {
           this.atlasMapFogLayer.visible = true;
         }
-      }
-      if (this.atlasMapFogLayer && g.parent === canvas.interface) {
-        canvas.interface.addChild(g);
       }
       this.#drawPlayerOverlay(canvas, g, atlas, zoom);
       return;
