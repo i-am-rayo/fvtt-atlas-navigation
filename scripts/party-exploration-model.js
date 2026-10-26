@@ -64,10 +64,9 @@ export function checkpointKnowledge(exploration, checkpointId) {
 
 /** A GM-authored lore reveal bypasses geographic fog, not playerVisible. */
 export function checkpointMayRender(checkpoint, exploration, explored) {
-  if (checkpoint?.playerVisible !== true) return false;
-  const knowledge = checkpointKnowledge(exploration, checkpoint.id);
-  return knowledge === "lore" || (knowledge === "visited" && explored) ||
-    (knowledge === "legacy" && explored);
+  const knowledge = checkpointKnowledge(exploration, checkpoint?.id);
+  if (knowledge === "legacy") return checkpoint?.playerVisible === true && explored;
+  return knowledge === "lore" || knowledge === "visited";
 }
 
 export function setCheckpointKnowledge(exploration, checkpointId, knowledge) {
