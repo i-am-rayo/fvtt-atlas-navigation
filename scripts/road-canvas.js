@@ -1347,8 +1347,27 @@ export class RoadCanvasController {
       this.atlasMapFogCanvas = canvas;
     }
     const cover = this.atlasMapFogCover;
-    // Draw the opaque cover first, above Scene map content but below effects.
-    cover.clear().rect(x, y, width, height).fill({ color: 0x080b12, alpha: 1 });
+    // Foundry v14 exposes Pixi Graphics' beginFill/drawRect/beginHole API.
+    // The newer rect/fill/cut chaining API is not available on every v14 build.
+    const legacyGraphics = ["beginFill", "drawRect", "beginHole", "drawCircle",
+      "endHole", "endFill"].every(method => typeof cover[method] === "function");
+    const modernGraphics = ["rect", "fill", "circle", "cut"].every(
+      method => typeof cover[method] === "function");
+    if (!legacyGraphics && !modernGraphics) {
+      throw new Error("Foundry Pixi Graphics does not support Atlas fog geometry.");
+    }
+    // Keep an opaque fallback whenever a hole operation fails.
+    const drawOpaque = (left, top, w, h) => {
+      cover.clear();
+      if (legacyGraphics) {
+        cover.beginFill(0x080b12, 1);
+        cover.drawRect(left, top, w, h);
+        cover.endFill();
+      } else {
+        cover.rect(left, top, w, h).fill({ color: 0x080b12, alpha: 1 });
+      }
+    };
+    drawOpaque(x, y, width, height);
     this.atlasMapFogLayer.visible = true;
     this.atlasMapFogDiscs = [];
     const party = exploration;
@@ -1365,12 +1384,7 @@ export class RoadCanvasController {
     this.atlasMapFogDiscs = discs.filter(d =>
       [d.x, d.y, d.radius].every(Number.isFinite) && d.radius > 0);
     if (!this.atlasMapFogDiscs.length) return;
-    if (typeof cover.circle !== "function" || typeof cover.cut !== "function") {
-      throw new Error("Pixi Graphics shape cutting is unavailable.");
-    }
-    // Pixi v8 cuts all circles from the last filled rectangle in ONE cut().
-    // Extend the rectangle to contain every circle; partial intersections with
-    // the outer boundary otherwise produce unreliable triangulation.
+    // Extend the mask beyond the Scene where a reveal circle touches an edge.
     let left = x, top = y, right = x + width, bottom = y + height;
     for (const disc of this.atlasMapFogDiscs) {
       left = Math.min(left, disc.x - disc.radius - 2);
@@ -1379,15 +1393,26 @@ export class RoadCanvasController {
       bottom = Math.max(bottom, disc.y + disc.radius + 2);
     }
     try {
-      cover.clear().rect(left, top, right - left, bottom - top)
-        .fill({ color: 0x080b12, alpha: 1 });
-      for (const disc of this.atlasMapFogDiscs) {
-        cover.circle(disc.x, disc.y, disc.radius);
+      cover.clear();
+      if (legacyGraphics) {
+        cover.beginFill(0x080b12, 1);
+        cover.drawRect(left, top, right - left, bottom - top);
+        cover.beginHole();
+        for (const disc of this.atlasMapFogDiscs) {
+          cover.drawCircle(disc.x, disc.y, disc.radius);
+        }
+        cover.endHole();
+        cover.endFill();
+      } else {
+        cover.rect(left, top, right - left, bottom - top)
+          .fill({ color: 0x080b12, alpha: 1 });
+        for (const disc of this.atlasMapFogDiscs) {
+          cover.circle(disc.x, disc.y, disc.radius);
+        }
+        cover.cut();
       }
-      cover.cut();
     } catch (error) {
-      cover.clear().rect(x, y, width, height)
-        .fill({ color: 0x080b12, alpha: 1 });
+      drawOpaque(x, y, width, height);
       throw error;
     }
   }
