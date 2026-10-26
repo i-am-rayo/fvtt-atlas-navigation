@@ -28,15 +28,15 @@ test("new guild in previously explored port is hidden until visited", () => {
   assert.equal(checkpointMayRender(guild, state, true), false);
   state = setCheckpointKnowledge(state, "guild", "visited");
   assert.equal(checkpointMayRender(guild, state, true), true);
-  assert.equal(checkpointMayRender(guild, state, false), false);
+  assert.equal(checkpointMayRender(guild, state, false), true);
 });
 
-test("GM lore reveal bypasses unexplored terrain but never playerVisible", () => {
+test("visited and lore visibility do not require the legacy playerVisible toggle", () => {
   let state = { ...defaultPartyExploration(), enabled: true, tokenId: "party" };
   state = setCheckpointKnowledge(state, "guild", "lore");
   assert.equal(checkpointKnowledge(state, "guild"), "lore");
   assert.equal(checkpointMayRender(guild, state, false), true);
-  assert.equal(checkpointMayRender({ ...guild, playerVisible: false }, state, false), false);
+  assert.equal(checkpointMayRender({ ...guild, playerVisible: false }, state, false), true);
 });
 
 test("a GM can revoke both kinds of knowledge", () => {
