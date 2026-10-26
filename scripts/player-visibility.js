@@ -17,8 +17,9 @@ export function playerAtlasOverlay(atlas, exploration = null) {
   // Player overlays must not derive tooltip details from raw Scene flags.
   const checkpoints = (atlas.checkpoints ?? []).filter(checkpoint =>
     atlas.schemaVersion >= PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION &&
-    checkpoint.playerVisible === true &&
-    checkpointKnowledge(exploration, checkpoint.id) !== "unknown").map(checkpoint => ({
+    (exploration?.enabled === true
+      ? checkpointKnowledge(exploration, checkpoint.id) !== "unknown"
+      : checkpoint.playerVisible === true)).map(checkpoint => ({
       id: checkpoint.id, nodeId: checkpoint.nodeId,
       appearance: checkpoint.appearance,
       name: checkpoint.name, elevationMeters: null,
