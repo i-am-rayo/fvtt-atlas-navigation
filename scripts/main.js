@@ -9,7 +9,7 @@ import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { savePartyExplorationConfig,
   saveCheckpointKnowledge } from "./party-exploration-storage.js";
 import { recordPartyDiscoveryForToken } from "./party-exploration-discovery.js";
-import { saveAtlasMapFogMode, recordAtlasMapFogMovement }
+import { saveAtlasMapFogMode, recordAtlasMapFogMovement, editAtlasFogTrail }
   from "./atlas-map-fog-storage.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
@@ -501,6 +501,37 @@ function actions() {
       ui.notifications.info(state.enabled
         ? "Atlas Map Fog enabled. For native scene weather to appear inside reveals, disable native Scene Token Vision after confirming the mask in a player client."
         : "Atlas Map Fog disabled. The saved Atlas travel trail was retained.");
+    },
+    async removeAtlasFogTrailPoint(scene, { index, expected }, refresh) {
+      ensureIdle(scene);
+      const point = expected?.trail?.[index];
+      if (!point) throw new Error("This Atlas travel reveal is no longer available.");
+      const confirmed = await foundry.applications.api.DialogV2.confirm({
+        window: { title: "Remove Atlas Travel Reveal" },
+        content: "<p>Remove saved travel reveal #" + (index + 1) +
+          "? Only this Atlas travel circle will be removed. Native Foundry fog " +
+          "and checkpoint discoveries are unchanged.</p>"
+      });
+      if (!confirmed) return;
+      await editAtlasFogTrail(scene, { expected, removeIndex: index });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info("Atlas travel reveal removed.");
+    },
+    async clearAtlasFogTrail(scene, { expected }, refresh) {
+      ensureIdle(scene);
+      const confirmed = await foundry.applications.api.DialogV2.confirm({
+        window: { title: "Clear Atlas Travel History" },
+        content: "<p>Clear all " + expected.trail.length +
+          " saved Atlas travel reveals for this Scene? This cannot be undone " +
+          "unless you restore a Scene backup. Checkpoint lore/discovery and " +
+          "Foundry's native fog data are untouched.</p>"
+      });
+      if (!confirmed) return;
+      await editAtlasFogTrail(scene, { expected, clear: true });
+      roadCanvas.refresh();
+      refresh();
+      ui.notifications.info("Saved Atlas travel reveals cleared.");
     },
     async setCheckpointKnowledge(scene, settings, refresh) {
       ensureIdle(scene);
