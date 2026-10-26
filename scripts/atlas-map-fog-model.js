@@ -74,6 +74,7 @@ export function atlasMapFogDiscs(atlas, exploration, mapFog, gridSize,
       !Number.isFinite(gridSize) || gridSize <= 0 ||
       typeof toCanvas !== "function") return [];
   const party = validatePartyExploration(exploration);
+  if (!party.enabled || !party.tokenId) return [];
   const fog = validateAtlasMapFog(mapFog);
   const discs = checkpointTerrainRevealDiscs(atlas, party, gridSize, toCanvas);
   for (const point of fog.trail) {
