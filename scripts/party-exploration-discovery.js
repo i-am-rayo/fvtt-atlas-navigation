@@ -2,6 +2,7 @@ import { readAtlas } from "./atlas-storage.js";
 import { toCanvasPoint } from "./road-coordinates.js";
 import { atlasPointExplored } from "./road-fog.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
+import { readAtlasMapFog } from "./atlas-map-fog-storage.js";
 import { PARTY_EXPLORATION_FLAG, validatePartyExploration,
   setCheckpointKnowledge } from "./party-exploration-model.js";
 import { MODULE_ID } from "./atlas-storage.js";
@@ -41,7 +42,9 @@ export async function recordPartyDiscoveryForToken(tokenDoc) {
     y: tokenDoc.y + (tokenDoc.height || 1) * (scene.grid?.size || 100) / 2
   };
   const atlas = readAtlas(scene);
+  const manualMapFog = readAtlasMapFog(scene).enabled;
   const ids = discoverableCheckpointIds(atlas, state, node => {
+    if (manualMapFog) return true; // Atlas survey range below is authoritative in this mode.
     const position = toCanvasPoint(canvas, atlas, node);
     return atlasPointExplored(canvas, position);
   }, node => {
