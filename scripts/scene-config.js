@@ -1,5 +1,6 @@
 import { readAtlas } from "./atlas-storage.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
+import { readAtlasMapFog } from "./atlas-map-fog-storage.js";
 import { checkpointKnowledge } from "./party-exploration-model.js";
 import { readSceneGridScale } from "./scene-grid.js";
 import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
@@ -409,7 +410,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   partySection.appendChild(node("legend", "Atlas — Party Exploration (Scene)"));
   partySection.appendChild(node("p",
     "Select a Scene token manually. Distance uses this Scene's native Grid units. " +
-    "Vision 5e manages sight: this setting does not yet override token vision.", "hint"));
+    "Native vision remains under Foundry/Vision 5e unless Atlas Map Fog is explicitly enabled below.", "hint"));
   const partyEnabled = node("input");
   partyEnabled.type = "checkbox";
   partyEnabled.checked = party.enabled;
@@ -463,6 +464,38 @@ function atlasPanel(scene, atlas, actions, refresh) {
     "Seen / Visited and Known through Lore both show checkpoint markers. " +
     "Neither requires the old player visibility checkbox.", "hint"));
   root.appendChild(partySection);
+
+  // Explicit Scene opt-in, kept in a separate versioned Atlas flag.
+  const mapFog = readAtlasMapFog(scene);
+  const mapFogSection = node("fieldset");
+  mapFogSection.appendChild(node("legend", "Atlas — Reversible Map Fog (experimental)"));
+  mapFogSection.appendChild(node("p",
+    "An Atlas-controlled dark mask hides the actual rendered Scene, with circular " +
+    "reveals around known checkpoints and the manually selected party token's travel. " +
+    "This does not duplicate the background or modify Foundry FogExploration records.", "hint"));
+  const mapFogEnabled = node("input");
+  mapFogEnabled.type = "checkbox";
+  mapFogEnabled.checked = mapFog.enabled;
+  const mapFogLabel = node("label", " Use Atlas Map Fog for this Scene");
+  mapFogLabel.appendChild(mapFogEnabled);
+  mapFogSection.appendChild(mapFogLabel);
+  mapFogSection.appendChild(node("p",
+    "SETUP: Enable and save this option first, then disable Token Vision in the " +
+    "native Scene settings. Atlas does NOT change Token Vision automatically. " +
+    "Foundry's native exploration history stays saved but is not used to reveal " +
+    "terrain while this mode is active. Re-enable native Token Vision to return " +
+    "to native vision. Test with a non-GM player before using in a live session.", "hint"));
+  mapFogSection.appendChild(node("p",
+    scene.tokenVision === false
+      ? "Scene Token Vision is OFF: Atlas Map Fog can reveal the native scene."
+      : "Scene Token Vision is ON: native sight may still hide Atlas reveal circles.",
+    "hint"));
+  mapFogSection.appendChild(button("Save Map Fog Mode",
+    "Save or disable the independent Atlas map-fog mask (GM only)", () =>
+      actions.saveAtlasMapFog(scene, {
+        enabled: mapFogEnabled.checked, expected: mapFog
+      }, refresh)));
+  root.appendChild(mapFogSection);
 
   // v0.2.13: semantic checkpoints are optional records attached to stable
   // road graph points. They are not bend handles or routing junction listings.
