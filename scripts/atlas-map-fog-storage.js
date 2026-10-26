@@ -37,6 +37,9 @@ export async function saveAtlasMapFogMode(scene, { enabled, expected }) {
   if (JSON.stringify(before) !== JSON.stringify(validateAtlasMapFog(expected))) {
     throw new Error("Atlas map fog changed. Reopen the Scene Atlas tab.");
   }
+  if (!enabled && before.enabled && scene.tokenVision === false) {
+    throw new Error("Re-enable native Scene Token Vision before disabling Atlas Map Fog, or players will see the entire map.");
+  }
   let after = { ...before, enabled };
   if (enabled && !before.enabled) {
     const party = readPartyExploration(scene);
