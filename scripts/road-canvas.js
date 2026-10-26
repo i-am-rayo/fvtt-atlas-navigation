@@ -8,6 +8,7 @@ import { atlasShortcutTarget } from "./atlas-canvas-hit.js";
 import { groupCheckpointMarkers, checkpointQuickInfo,
   clusterQuickInfo } from "./checkpoint-clusters.js";
 import { playerAtlasOverlay } from "./player-visibility.js";
+import { checkpointTerrainRevealDiscs } from "./checkpoint-terrain-reveal.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
@@ -1283,7 +1284,80 @@ export class RoadCanvasController {
     this.playerCheckpointHoverGeometry = [];
   }
 
+  #clearTerrainReveals() {
+    if (this.terrainRevealLayer) {
+      this.terrainRevealLayer.parent?.removeChild?.(this.terrainRevealLayer);
+      this.terrainRevealLayer.destroy?.({ children: true });
+    }
+    this.terrainRevealLayer = null;
+    this.terrainRevealMask = null;
+    this.terrainRevealSprite = null;
+    this.terrainRevealCanvas = null;
+  }
+
+  /**
+   * Reversible reveal of only the Scene background image above native fog.
+   * Uses a transient display mask; never edits native FogExploration records.
+   * Does not copy primary renderTexture (which could reveal secret tokens/tiles).
+   */
+  #drawTerrainReveals(canvas, atlas) {
+    const exploration = readPartyExploration(canvas.scene);
+    const gridSize = Number(canvas.scene?.grid?.size ?? canvas.dimensions?.size);
+    const discs = checkpointTerrainRevealDiscs(atlas, exploration, gridSize,
+      node => toCanvasPoint(canvas, atlas, node));
+    const texture = canvas.primary?.background?.texture;
+    const rect = canvas.dimensions?.sceneRect;
+    const x = canvas.dimensions?.sceneX;
+    const y = canvas.dimensions?.sceneY;
+    const width = rect?.width ?? canvas.dimensions?.sceneWidth;
+    const height = rect?.height ?? canvas.dimensions?.sceneHeight;
+    if (!discs.length || !texture || !globalThis.PIXI?.Sprite ||
+        !globalThis.PIXI?.Container || !globalThis.PIXI?.Graphics ||
+        !Number.isFinite(x) || !Number.isFinite(y) ||
+        !Number.isFinite(width) || !Number.isFinite(height) ||
+        width <= 0 || height <= 0 || !canvas.interface?.addChild) {
+      this.#clearTerrainReveals();
+      return;
+    }
+    if (!this.terrainRevealLayer || this.terrainRevealCanvas !== canvas ||
+        this.terrainRevealLayer.destroyed) {
+      this.#clearTerrainReveals();
+      const layer = new PIXI.Container();
+      const sprite = new PIXI.Sprite(texture);
+      const mask = new PIXI.Graphics();
+      layer.eventMode = "none";
+      sprite.eventMode = "none";
+      mask.eventMode = "none";
+      layer.addChild(sprite, mask);
+      sprite.mask = mask;
+      if (canvas.interface.addChildAt && canvas.interface.getChildIndex && this.graphics) {
+        canvas.interface.addChildAt(layer,
+          Math.max(0, canvas.interface.getChildIndex(this.graphics)));
+      } else canvas.interface.addChild(layer);
+      this.terrainRevealLayer = layer;
+      this.terrainRevealMask = mask;
+      this.terrainRevealSprite = sprite;
+      this.terrainRevealCanvas = canvas;
+    }
+    const sprite = this.terrainRevealSprite;
+    sprite.texture = texture;
+    sprite.position.set(x, y);
+    sprite.width = width;
+    sprite.height = height;
+    const mask = this.terrainRevealMask;
+    mask.clear();
+    if (typeof mask.circle === "function" && typeof mask.fill === "function") {
+      for (const disc of discs) mask.circle(disc.x, disc.y, disc.radius)
+        .fill({ color: 0xffffff });
+    } else {
+      mask.beginFill?.(0xffffff);
+      for (const disc of discs) mask.drawCircle?.(disc.x, disc.y, disc.radius);
+      mask.endFill?.();
+    }
+  }
+
   #clearPlayerOverlay() {
+    this.#clearTerrainReveals();
     this.#stopHover();
     this.#stopPlayerHover();
     this.#clearLabels();
@@ -1332,9 +1406,11 @@ export class RoadCanvasController {
     }
     if (!game.user.isGM) {
       this.#stopHover();
+      this.#drawTerrainReveals(canvas, atlas);
       this.#drawPlayerOverlay(canvas, g, atlas, zoom);
       return;
     }
+    this.#clearTerrainReveals();
     this.#stopPlayerHover();
     const editing = this.pointEditor.session;
     if (editing && editing.sceneId === canvas.scene.id) {
@@ -1522,6 +1598,7 @@ export class RoadCanvasController {
   }
 
   tearDown() {
+    this.#clearTerrainReveals();
     if (this.fogRefreshTimer !== null) clearTimeout(this.fogRefreshTimer);
     this.fogRefreshTimer = null;
     if (this.zoomRefreshTimer !== null) clearTimeout(this.zoomRefreshTimer);
