@@ -1,3 +1,11 @@
+/**
+ * A lore-known location is remembered geography, not a live light/vision
+ * source. A partially translucent background copy visually approaches
+ * Foundry's dim explored state while keeping native fog untouched.
+ * This is an approximate visual treatment; Foundry lighting is dynamic.
+ */
+export const CHECKPOINT_TERRAIN_REVEAL_OPACITY = 0.42;
+
 import { checkpointKnowledge, checkpointRevealRadiusCells,
   validatePartyExploration } from "./party-exploration-model.js";
 
