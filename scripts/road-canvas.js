@@ -1319,7 +1319,7 @@ export class RoadCanvasController {
     const y = Number(canvas.dimensions?.sceneY);
     const width = Number(sceneRect?.width ?? canvas.dimensions?.sceneWidth);
     const height = Number(sceneRect?.height ?? canvas.dimensions?.sceneHeight);
-    if (!globalThis.PIXI?.Graphics || !globalThis.PIXI?.Container ||
+    if (!globalThis.PIXI?.Graphics ||
         !canvas.primary?.addChild || ![x, y, width, height].every(Number.isFinite) ||
         width <= 0 || height <= 0) {
       throw new Error("Atlas map fog needs a compatible Foundry/Pixi canvas.");
@@ -1327,22 +1327,22 @@ export class RoadCanvasController {
     if (!this.atlasMapFogLayer || this.atlasMapFogCanvas !== canvas ||
         this.atlasMapFogLayer.destroyed) {
       this.#clearAtlasMapFog();
-      const layer = new PIXI.Container();
-      layer.visible = false;
-      layer.eventMode = "none";
-      const cover = new PIXI.Graphics();
-      cover.eventMode = "none";
-      layer.addChild(cover);
-      // Atlas fog belongs with Scene content, below Foundry's weather/lighting
-      // effects. Keep road markers in canvas.interface above the fog.
+      // PrimaryCanvasGroup sorts its DIRECT children. Mount the Graphics
+      // itself (rather than wrapping it in a plain PIXI.Container) so Foundry
+      // can composite the fog above the map but before weather and lighting.
       const layers = globalThis.foundry?.canvas?.groups?.PrimaryCanvasGroup?.SORT_LAYERS;
-      if (Number.isFinite(layers?.TILES)) {
-        layer.sortLayer = layers.TILES + 1;
-        layer.elevation = 0;
-        layer.sort = 1e100;
+      if (!Number.isFinite(layers?.TILES)) {
+        throw new Error("Foundry v14 primary canvas sorting is unavailable.");
       }
-      canvas.primary.addChild(layer);
-      this.atlasMapFogLayer = layer;
+      const cover = new PIXI.Graphics();
+      cover.label = "Atlas Exploration Fog";
+      cover.visible = false;
+      cover.eventMode = "none";
+      cover.sortLayer = layers.TILES + 1;
+      cover.elevation = 0;
+      cover.sort = 1e100;
+      canvas.primary.addChild(cover);
+      this.atlasMapFogLayer = cover;
       this.atlasMapFogCover = cover;
       this.atlasMapFogCanvas = canvas;
     }
