@@ -589,7 +589,7 @@ test("Atlas fog panel explains retained radius and exposes targeted GM history a
     await remove.listeners.get("click")({ preventDefault() {} });
     await clear.listeners.get("click")({ preventDefault() {} });
     assert.equal(removed.index, 0);
-    assert.equal(removed.expected, mapFog);
-    assert.equal(cleared.expected, mapFog);
+    assert.deepEqual(removed.expected, mapFog);
+    assert.deepEqual(cleared.expected, mapFog);
   } finally { Object.assign(globalThis, previous); }
 });
