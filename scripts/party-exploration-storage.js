@@ -1,6 +1,6 @@
 import { MODULE_ID, readAtlas } from "./atlas-storage.js";
 import { PARTY_EXPLORATION_FLAG, validatePartyExploration,
-  setCheckpointKnowledge } from "./party-exploration-model.js";
+  setCheckpointKnowledge, setCheckpointRevealRadius } from "./party-exploration-model.js";
 
 export function readPartyExploration(scene) {
   if (!scene || typeof scene.getFlag !== "function") {
@@ -32,7 +32,7 @@ async function savePartyState(scene, expected, update) {
 }
 
 export async function savePartyExplorationConfig(scene, {
-  enabled, tokenId, radius, expected
+  enabled, tokenId, radius, defaultRevealRadiusCells, expected
 }) {
   if (typeof enabled !== "boolean") throw new Error("Enable exploration explicitly.");
   if (tokenId !== null && !scene?.tokens?.get?.(tokenId)) {
@@ -40,18 +40,21 @@ export async function savePartyExplorationConfig(scene, {
   }
   if (enabled && !tokenId) throw new Error("Choose the party token first.");
   return savePartyState(scene, expected, before => ({
-    ...before, enabled, tokenId, radius
+    ...before, enabled, tokenId, radius,
+    defaultRevealRadiusCells: defaultRevealRadiusCells ?? before.defaultRevealRadiusCells
   }));
 }
 
 export async function saveCheckpointKnowledge(scene, {
-  checkpointId, knowledge, expected
+  checkpointId, knowledge, revealRadiusCells, expected
 }) {
   return savePartyState(scene, expected, before => {
     const atlas = readAtlas(scene);
     if (!atlas.checkpoints?.some(checkpoint => checkpoint.id === checkpointId)) {
       throw new Error("Checkpoint no longer exists.");
     }
-    return setCheckpointKnowledge(before, checkpointId, knowledge);
+    const knowledgeState = setCheckpointKnowledge(before, checkpointId, knowledge);
+    return revealRadiusCells === undefined ? knowledgeState :
+      setCheckpointRevealRadius(knowledgeState, checkpointId, revealRadiusCells);
   });
 }
