@@ -216,7 +216,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "../scripts/checkpoint-appearance-editor.js");
     const data = upgradeAtlasCheckpointAppearance(fixture());
     let stored = data;
-    const scene = { canUserModify: () => true, getFlag: () => stored,
+    const scene = { canUserModify: () => true,
+      getFlag: (_scope, key) => key === ATLAS_FLAG ? stored : undefined,
       setFlag: async (_scope, _key, value) => { stored = value; } };
     const editor = new AtlasCheckpointAppearanceEditor({ scene,
       checkpointId: data.checkpoints[0].id, expectedRevision: data.revision });
