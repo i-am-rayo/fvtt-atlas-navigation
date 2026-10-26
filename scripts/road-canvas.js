@@ -1431,10 +1431,14 @@ export class RoadCanvasController {
       // A failed optional Atlas mask must not block normal road rendering.
       // Any existing mask stays opaque on error (fail closed).
       try {
+        if (this.atlasMapFogCanvas && this.atlasMapFogCanvas !== canvas) {
+          this.atlasMapFogDiscs = [];
+        }
         this.#drawAtlasMapFog(canvas, atlas);
       } catch (error) {
         console.warn("[fvtt-atlas-navigation] Atlas map-fog mask could not refresh", error);
-        this.atlasMapFogDiscs = [];
+        // Keep valid, already projected discs so known roads remain clipped,
+        // even when the image cover fails to cut holes.
         if (this.atlasMapFogCover && this.atlasMapFogLayer) {
           this.atlasMapFogCover.mask = null;
           this.atlasMapFogLayer.visible = true;
