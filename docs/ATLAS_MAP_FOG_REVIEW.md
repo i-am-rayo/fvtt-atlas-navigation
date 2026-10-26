@@ -1,4 +1,4 @@
-# v0.2.25.4.2 — Reversible Atlas Map Fog: Live Foundry v14 Review
+# v0.2.25.4.3 — Reversible Atlas Map Fog: Live Foundry v14 Review
 
 This is an **experimental, separately opt-in Scene mode**. Its purpose is to stop
 duplicating the Scene background above rain and lighting. The initial GM and
