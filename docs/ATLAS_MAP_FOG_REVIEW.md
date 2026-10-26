@@ -1,3 +1,11 @@
+# v0.2.25.4.5 — Direct Foundry Primary Graphics fog hotfix
+
+Owner verified in v0.2.25.4.4 that a non-GM client with native Token Vision OFF, Atlas Map Fog ON and Party Exploration ON sees the entire map; the last Scene test confirmed no configuration issue. Unlike Hexplorer's direct Graphics attachment, v0.2.25.4.4 nested Atlas's fog Graphics inside a plain PIXI.Container. That parent does not expose the expected primary-scene sort geometry.
+
+This focused hotfix mounts **the fog PIXI.Graphics itself** as a direct child of `canvas.primary` with Foundry v14's documented `PrimaryCanvasGroup.SORT_LAYERS.TILES + 1` (501), elevation 0 and final sort. A missing sort-layer API is an explicit error, never a silent fallback. Atlas road/checkpoint markers remain in `canvas.interface`, ahead of fog. The existing direct geometry cut, reversible saved travel reveals, checkpoint knowledge and other Scene flags are unchanged.
+
+Manual acceptance: with Vision 5e disabled, Scene Token Vision OFF, Atlas Map Fog ON, Party Exploration ON, verify unrevealed terrain is opaque with revealed discs and weather in reveals. Compare GM/player client. No claim of live v14 proof until owner confirms.
+
 # v0.2.25.4.4 — Native-layer fog diagnostic and Atlas history controls
 
 - Following the owner-provided Hexplorer architecture reference (not bundled or depended upon), Atlas fog now draws in Foundry v14's **primary Scene group**, above tiles and below weather/lighting effects. The roads/checkpoint UI remains in the interface group. Foundry FogExploration, Token Vision and Scene Grid records remain unchanged.
