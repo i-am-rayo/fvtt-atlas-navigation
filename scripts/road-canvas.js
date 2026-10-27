@@ -1391,7 +1391,8 @@ export class RoadCanvasController {
       const bounds = { x, y, width, height };
       cover.clear();
       cover.beginFill(0x080b12, 1);
-      if (!grid || grid.isGridless) {
+      if (!grid || grid.isGridless ||
+          canvas.scene.grid?.type === (globalThis.CONST?.GRID_TYPES?.GRIDLESS ?? 0)) {
         // Unsupported Scenes are kept fully covered; never expose the map.
         cover.clear();
         cover.beginFill(0x080b12, 1);
