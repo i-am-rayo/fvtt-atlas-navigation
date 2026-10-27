@@ -809,6 +809,44 @@ function actions() {
   };
 }
 
+/** Confirm grid remapping before an edit can strand existing image-relative cell centers. */
+function atlasGridChangeNotice(scene, change, options) {
+  if (!game.user?.isGM || options?.atlasGridChangeConfirmed === true) return;
+  const nextType = change?.grid?.type ?? change?.["grid.type"];
+  const nextSize = change?.grid?.size ?? change?.["grid.size"];
+  const typeChanged = nextType !== undefined && Number(nextType) !== Number(scene.grid?.type);
+  const sizeChanged = nextSize !== undefined && Number(nextSize) !== Number(scene.grid?.size);
+  if (!typeChanged && !sizeChanged) return;
+  const state = readManualFog(scene);
+  if (!state.revealed.length && !state.hidden.length) return;
+  const expectedType = scene.grid?.type, expectedSize = scene.grid?.size;
+  const updated = foundry.utils.deepClone(change);
+  // Hooks are synchronous: cancel this attempt and initiate a confirmed update later.
+  void Promise.resolve().then(async () => {
+    const content = document.createElement("div");
+    const warning = document.createElement("p");
+    warning.textContent =
+      "Atlas has " + state.revealed.length + " revealed and " +
+      state.hidden.length + " manually hidden cells saved on the current grid. " +
+      "Changing its type or cell size changes the cell centers: existing Atlas " +
+      "exploration will remain saved, but it may no longer appear revealed. " +
+      "There is no automatic hex/square conversion in this version. " +
+      "Cancel to preserve the current visible exploration; proceed only after making a backup.";
+    content.appendChild(warning);
+    const approved = await foundry.applications.api.DialogV2.confirm({
+      window:{title:"Atlas exploration — grid change warning"},
+      content, yes:{label:"Change Grid Anyway"}, rejectClose:false, modal:true
+    });
+    if (!approved) return;
+    if (scene.grid?.type !== expectedType || scene.grid?.size !== expectedSize) {
+      ui.notifications.warn("The Scene grid changed while the warning was open. Review it again.");
+      return;
+    }
+    await scene.update(updated, {...options, atlasGridChangeConfirmed:true});
+  }).catch(error => ui.notifications.error("Atlas grid warning: " + (error.message || String(error))));
+  return false;
+}
+
 Hooks.once("init", () => {
   registerManualBrushSettings();
   registerWorldTravelPresets();
@@ -850,6 +888,7 @@ Hooks.once("init", () => {
       }
     };
   });
+  Hooks.on("preUpdateScene", atlasGridChangeNotice);
   Hooks.on("renderTokenConfig", addAtlasExplorerToTokenConfig);
   Hooks.on("renderSceneConfig", (app, element) => {
     addAtlasRoadsToSceneConfig(app, element, roadActions);
