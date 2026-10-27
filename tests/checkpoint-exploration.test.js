@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { checkpointRevealKeys } from "../scripts/checkpoint-exploration.js";
+import { checkpointRevealKeys, clearHiddenForCheckpoint } from "../scripts/checkpoint-exploration.js";
 import { defaultPartyExploration, setCheckpointKnowledge, setCheckpointRevealRadius }
   from "../scripts/party-exploration-model.js";
 
@@ -39,4 +39,15 @@ test("legacy absolute nodes are anchored to image origin",()=>{
   state=setCheckpointRevealRadius(state,"cp1",1);
   const result=checkpointRevealKeys(cells,legacy,state,50,{x:500,y:600});
   assert.ok(result.has("100,100"));
+});
+
+test("explicit checkpoint reveal clears only covered hidden overrides",()=>{
+  let state={...defaultPartyExploration(),enabled:true};
+  state=setCheckpointKnowledge(state,"cp1","visited");
+  state=setCheckpointRevealRadius(state,"cp1",1);
+  const cleared=clearHiddenForCheckpoint([{x:100,y:100},{x:200,y:200}],asKeys(state));
+  assert.deepEqual(cleared,[{x:200,y:200}]);
+  state=setCheckpointRevealRadius(state,"cp1",0);
+  assert.deepEqual(clearHiddenForCheckpoint([{x:100,y:100}],asKeys(state)),
+    [{x:100,y:100}]);
 });
