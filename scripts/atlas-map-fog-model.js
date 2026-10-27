@@ -4,6 +4,7 @@ import { validatePartyExploration } from "./party-exploration-model.js";
 export const ATLAS_MAP_FOG_FLAG = "mapFog";
 export const ATLAS_MAP_FOG_SCHEMA_VERSION = 1;
 export const MAX_ATLAS_FOG_TRAIL_POINTS = 2048;
+export const MAX_ATLAS_EXPLORED_CELLS = 40000;
 
 export function defaultAtlasMapFog() {
   return { schemaVersion: ATLAS_MAP_FOG_SCHEMA_VERSION, enabled: false, trail: [] };
@@ -13,8 +14,10 @@ export function defaultAtlasMapFog() {
 export function validateAtlasMapFog(value) {
   if (value == null) return defaultAtlasMapFog();
   if (!value || typeof value !== "object" || Array.isArray(value) ||
-      Object.keys(value).some(key => !["schemaVersion", "enabled", "trail"].includes(key)) ||
-      value.schemaVersion !== ATLAS_MAP_FOG_SCHEMA_VERSION ||
+      Object.keys(value).some(key => !["schemaVersion", "enabled", "trail", "cells"].includes(key)) ||
+      ![1, 2].includes(value.schemaVersion) ||
+      (value.schemaVersion === 1 && Object.hasOwn(value, "cells")) ||
+      (value.schemaVersion === 2 && !Array.isArray(value.cells)) ||
       typeof value.enabled !== "boolean" ||
       !Array.isArray(value.trail) || value.trail.length > MAX_ATLAS_FOG_TRAIL_POINTS) {
     throw new Error("Invalid Atlas map-fog configuration.");
@@ -36,7 +39,34 @@ export function validateAtlasMapFog(value) {
     return { x: point.x, y: point.y, radiusCells: point.radiusCells,
       ...(Object.hasOwn(point, "fromX") ? { fromX: point.fromX, fromY: point.fromY } : {}) };
   });
-  return { schemaVersion: ATLAS_MAP_FOG_SCHEMA_VERSION, enabled: value.enabled, trail };
+  let cells;
+  if (value.schemaVersion === 2) {
+    if (value.cells.length > MAX_ATLAS_EXPLORED_CELLS) {
+      throw new Error("Atlas persistent discovery exceeds its bounded cell budget.");
+    }
+    const seen = new Set();
+    cells = value.cells.map(cell => {
+      if (!cell || typeof cell !== "object" || Array.isArray(cell) ||
+          Object.keys(cell).some(key => !["x", "y"].includes(key)) ||
+          !Number.isFinite(cell.x) || !Number.isFinite(cell.y) ||
+          Math.abs(cell.x) > 1e7 || Math.abs(cell.y) > 1e7) {
+        throw new Error("Invalid Atlas discovered cell position.");
+      }
+      const key = cell.x + "," + cell.y;
+      if (seen.has(key)) throw new Error("Duplicate Atlas discovered cell.");
+      seen.add(key);
+      return { x: cell.x, y: cell.y };
+    });
+  }
+  return { schemaVersion: value.schemaVersion, enabled: value.enabled, trail,
+    ...(cells ? { cells } : {}) };
+}
+
+/** Snapshot derived from travel history; persists grid coverage without changing travel records. */
+export function withAtlasExploredCells(state, cells) {
+  const fog = validateAtlasMapFog(state);
+  if (!Array.isArray(cells)) throw new Error("Expected Atlas discovered cells.");
+  return validateAtlasMapFog({ ...fog, schemaVersion: 2, cells });
 }
 
 /** Reversible movement history: append only, never edit native fog textures. */
