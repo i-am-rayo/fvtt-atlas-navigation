@@ -2,6 +2,9 @@ import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT, CHECKPOINT_FREE_ICONS, checkpoi
   findCheckpointIcons,
   resolveCheckpointAppearance, validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { readAtlas } from "./atlas-storage.js";
+import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
+  validJournalUuid } from "./atlas-journal-links.js";
+import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.js";
 import { readCheckpointDiscoveryMethods, checkpointDiscoveryMethod }
   from "./checkpoint-discovery-method.js";
 import { saveCheckpointPresentation } from "./road-storage.js";
@@ -41,6 +44,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     if (!current) throw new Error("Checkpoint no longer exists.");
     const appearance = resolveCheckpointAppearance(current.appearance);
     const exploration = readPartyExploration(this.scene);
+    const journalLinks = readAtlasJournalLinks(this.scene);
     const discoveryMethods = readCheckpointDiscoveryMethods(this.scene);
     const root = el("div");
     root.style.cssText = "padding:0.85rem;display:grid;gap:0.6rem;overflow:auto;height:100%;";
@@ -355,6 +359,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     };
     type.addEventListener("change", updateType);
     updateType();
+    const journalControls = journalLinkFields(journalLinks,"checkpoint",this.checkpointId);
+    root.appendChild(journalControls);
+    const journalInput = journalControls.querySelector('input[name="atlasJournalUuid"]');
     const controls = el("div");
     controls.style.cssText = "display:flex;gap:0.5rem;justify-content:flex-end;";
     const reset = el("button", "Reset to default dot");
@@ -378,6 +385,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           labelMode: mode.value, showRoadName: showRoad.checked,
           textColor: textColor.value
         });
+        const nextJournal=journalUuidFromForm(journalInput.value);
+        if(nextJournal&&!validJournalUuid(nextJournal))
+          throw Error("Select a Journal Entry UUID, not another document.");
         const raw = elevation.value.trim();
         if (discovery && JSON.stringify(readPartyExploration(this.scene)) !==
             JSON.stringify(exploration)) {
@@ -400,6 +410,11 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
             revealRadiusCells: Number(revealRadius.value),
             expected: exploration,
             method: discoveryMethod.value, expectedMethods: discoveryMethods
+          });
+        }
+        if (nextJournal !== journalUuidFor(journalLinks,"checkpoint",this.checkpointId)) {
+          await saveAtlasJournalLink(this.scene,{
+            kind:"checkpoint",id:this.checkpointId,uuid:nextJournal,expected:journalLinks
           });
         }
         this.onSaved?.();
