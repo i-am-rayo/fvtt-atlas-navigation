@@ -424,7 +424,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
   mapFogSection.appendChild(mapFogLabel);
   const unsupportedGrid = scene.grid?.type === (globalThis.CONST?.GRID_TYPES?.GRIDLESS ?? 0);
   if (unsupportedGrid) {
-    mapFogEnabled.disabled = true;
+    // Existing gridless fog may still be disabled after Token Vision is restored.
+    mapFogEnabled.disabled = !mapFog.enabled;
     mapFogSection.appendChild(node("p",
       "Atlas Map Fog supports square and hex grids only. Existing gridless travel history " +
       "is preserved but cannot be rendered or extended in this mode. " +
