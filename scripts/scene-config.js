@@ -1,6 +1,6 @@
 import { readAtlas } from "./atlas-storage.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
-import { readAtlasMapFog } from "./atlas-map-fog-storage.js";
+import { readManualFog } from "./atlas-manual-fog-storage.js";
 import { checkpointKnowledge } from "./party-exploration-model.js";
 import { readSceneGridScale } from "./scene-grid.js";
 import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
@@ -403,88 +403,52 @@ function atlasPanel(scene, atlas, actions, refresh) {
   }
   root.appendChild(junctionSection);
 
-  // Explorer assignment/radius is controlled on the placed Token's sheet.
-  // Checkpoint terrain reveal radii are edited through Shift-click on each
-  // checkpoint. Keep the Scene settings focused on fog mode and corrections.
-  const party = readPartyExploration(scene);
-
-  // Explicit Scene opt-in, kept in a separate versioned Atlas flag.
-  const mapFog = readAtlasMapFog(scene);
-  const mapFogSection = node("fieldset");
-  mapFogSection.appendChild(node("legend", "Atlas — Reversible Map Fog (experimental)"));
-  mapFogSection.appendChild(node("p",
-    "An Atlas-controlled dark mask hides the actual rendered Scene, with grid-aligned " +
-    "reveals around known checkpoints and the manually selected party token's travel. " +
-    "This does not duplicate the background or modify Foundry FogExploration records.", "hint"));
-  const mapFogEnabled = node("input");
-  mapFogEnabled.type = "checkbox";
-  mapFogEnabled.checked = mapFog.enabled;
-  const mapFogLabel = node("label", " Use Atlas Map Fog for this Scene");
-  mapFogLabel.appendChild(mapFogEnabled);
-  mapFogSection.appendChild(mapFogLabel);
-  const unsupportedGrid = scene.grid?.type === (globalThis.CONST?.GRID_TYPES?.GRIDLESS ?? 0);
-  if (unsupportedGrid) {
-    // Existing gridless fog may still be disabled after Token Vision is restored.
-    mapFogEnabled.disabled = !mapFog.enabled;
-    mapFogSection.appendChild(node("p",
-      "Atlas Map Fog supports square and hex grids only. Existing gridless travel history " +
-      "is preserved but cannot be rendered or extended in this mode. " +
-      "Re-enable native Token Vision before disabling Atlas Map Fog.", "hint"));
+  // Manual fog v0.2.26: Scene-owned state; token automation is intentionally disabled.
+  const state = readManualFog(scene);
+  const fogPanel = node("fieldset");
+  fogPanel.appendChild(node("legend", "Atlas — Manual Exploration"));
+  fogPanel.appendChild(node("p",
+    "Square/hex only. Reveal, Hide and Clear modify permanent Atlas cell overrides. " +
+    "Token movement does not change fog in this release. Clear removes a manual " +
+    "override; it does not erase legacy travel records.", "hint"));
+  const checkbox = node("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = state.enabled;
+  const enabledLabel = node("label", " Enable Atlas Manual Fog");
+  enabledLabel.prepend(checkbox);
+  fogPanel.appendChild(enabledLabel);
+  const unsupported = scene.grid?.type === (globalThis.CONST?.GRID_TYPES?.GRIDLESS ?? 0);
+  if (unsupported) {
+    checkbox.disabled = !state.enabled;
+    fogPanel.appendChild(node("p","Gridless Scenes are unsupported.", "hint"));
   }
-  mapFogSection.appendChild(node("p",
-    "SETUP: Enable and save this option first, then disable Token Vision in the " +
-    "native Scene settings. Atlas does NOT change Token Vision automatically. " +
-    "Foundry's native exploration history stays saved but is not used to reveal " +
-    "terrain while this mode is active. Re-enable native Token Vision to return " +
-    "to native vision. Test with a non-GM player before using in a live session.", "hint"));
-  mapFogSection.appendChild(node("p",
-    scene.tokenVision === false
-      ? "Scene Token Vision is OFF: Atlas Map Fog can reveal the native scene."
-      : "Scene Token Vision is ON: native sight may still hide Atlas reveal circles.",
+  fogPanel.appendChild(node("p",
+    "Enable here, then turn OFF native Scene Token Vision to let Atlas show the rendered map. " +
+    "Atlas preserves native FogExploration and existing legacy travel records.", "hint"));
+  fogPanel.appendChild(button("Save Manual Fog Mode","Enable or disable Atlas fog",
+    () => actions.saveManualFog(scene,checkbox.checked,refresh)));
+  fogPanel.appendChild(node("p",
+    "Revealed: " + state.revealed.length + " cells. Forced hidden: " +
+    state.hidden.length + " cells. Existing v0.2.25 travel records are retained separately.", "hint"));
+  const radiusLabel = node("label","Brush radius in cells (0 = one cell)");
+  const radius = node("input");
+  radius.type="number";radius.min="0";radius.max="20";radius.step="1";radius.value="0";
+  radiusLabel.appendChild(radius);fogPanel.appendChild(radiusLabel);
+  for(const [mode,title] of [["reveal","Reveal Brush"],["hide","Hide Brush"],["clear","Clear Brush"]]){
+    fogPanel.appendChild(button(title,"Click grid cells on the Scene canvas",
+      () => actions.beginManualBrush(scene,mode,Number(radius.value),refresh)));
+  }
+  fogPanel.appendChild(button("Stop Brush","Return to normal map controls",
+    () => actions.stopManualBrush(refresh)));
+  fogPanel.appendChild(node("p","Active brush: " + (actions.manualBrushMode()??"None"),
     "hint"));
-  mapFogSection.appendChild(button("Save Map Fog Mode",
-    "Save or disable the independent Atlas map-fog mask (GM only)", () =>
-      actions.saveAtlasMapFog(scene, {
-        enabled: mapFogEnabled.checked, expected: mapFog
-      }, refresh)));
-  const surveyGridDistance = Number(scene.grid?.distance);
-  if (surveyGridDistance > 0 && party.enabled) {
-    mapFogSection.appendChild(node("p",
-      "Current survey: " + format(party.radius / surveyGridDistance) +
-      " grid cells (" + format(party.radius) + " " + (scene.grid?.units || "units") +
-      "). Saved travel records retain their original survey radii until explicitly removed.", "hint"));
-  }
-  mapFogSection.appendChild(node("p",
-    mapFog.schemaVersion === 2
-      ? "Persistently explored grid cells: " + mapFog.cells.length +
-        " (derived from travel history; known checkpoint reveals remain separate)."
-      : "Legacy travel history: persistent cell coverage will be generated on the next GM-confirmed exploration update.",
-    "hint"));
-  mapFogSection.appendChild(node("p",
-    "Saved Atlas travel reveals: " + mapFog.trail.length +
-    ". Removing a saved travel record also removes its incoming surveyed path; known checkpoints and " +
-    "Foundry's native FogExploration history remain unchanged.", "hint"));
-  const newest = Math.max(0, mapFog.trail.length - 10);
-  for (let index = mapFog.trail.length - 1; index >= newest; index--) {
-    const point = mapFog.trail[index];
-    const row = node("div", undefined, "form-group");
-    row.appendChild(node("span",
-      "Travel record #" + (index + 1) + (Number.isFinite(point.fromX) ? " (route)" : "") + " — radius " + format(point.radiusCells) +
-      " grid cells; x " + format(point.x) + ", y " + format(point.y)));
-    row.appendChild(button("Remove", "Remove this saved Atlas travel reveal", () =>
-      actions.removeAtlasFogTrailPoint(scene, { index, expected: mapFog }, refresh)));
-    mapFogSection.appendChild(row);
-  }
-  if (mapFog.trail.length > 10) {
-    mapFogSection.appendChild(node("p",
-      "Showing the most recent 10 records. Older records can be removed after newer records are removed.", "hint"));
-  }
-  if (mapFog.trail.length) {
-    mapFogSection.appendChild(button("Clear Saved Atlas Travel Reveals",
-      "Clear only Atlas's travel history after confirmation", () =>
-        actions.clearAtlasFogTrail(scene, { expected: mapFog }, refresh)));
-  }
-  root.appendChild(mapFogSection);
+  fogPanel.appendChild(button(actions.manualFogPreview() ? "Hide GM Fog Preview" : "Show GM Fog Preview",
+    "Toggle the player's explored/hidden terrain view for the GM",
+    () => actions.toggleManualFogPreview(refresh)));
+  fogPanel.appendChild(button("Import Saved Legacy Cells",
+    "Copy old saved discovered cells into the new manual state; old data remains unchanged",
+    () => actions.importManualFog(scene,refresh)));
+  root.appendChild(fogPanel);
 
   // v0.2.13: semantic checkpoints are optional records attached to stable
   // road graph points. They are not bend handles or routing junction listings.
