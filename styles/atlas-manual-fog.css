@@ -30,5 +30,5 @@
   background:#e6a03433!important;box-shadow:inset 3px 0 #e6a034;}
 .atlas-brush-fieldset p{margin:0;font-size:12px;line-height:1.4;}
 .atlas-brush-fieldset .atlas-brush-warning{color:#ffa857;}
-.atlas-brush-footer{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
+.atlas-brush-footer{display:grid;grid-template-columns:1fr;gap:7px;}
 .atlas-brush-footer button{min-height:40px;}
