@@ -6,6 +6,7 @@ import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
   getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { addAtlasExplorerToTokenConfig } from "./atlas-token-config.js";
+import { observeAtlasTokenMovement } from "./atlas-token-exploration.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { savePartyExplorationConfig,
   saveCheckpointKnowledge } from "./party-exploration-storage.js";
@@ -903,7 +904,8 @@ Hooks.once("init", () => {
     forgetAtlasSceneConfig(app);
   });
   Hooks.on("canvasReady", () => { roadCanvas.refresh(); manualFog.refresh(); });
-  // Manual foundation: token movement intentionally does NOT change fog.
+  // Foundry v14 movement includes origin, passed waypoints and destination.
+  Hooks.on("moveToken", observeAtlasTokenMovement);
   Hooks.on("canvasTearDown", () => {
     if (roadDock) {
       roadDock.finished = true;
