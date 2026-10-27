@@ -125,7 +125,7 @@ export function checkpointMarkerPosition(point, appearance, zoom = 1) {
   const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
   return { x: point.x,
     y: point.y - (appearance.type === "dot" ? 0 :
-      checkpointCanvasSize(appearance.size, scale) / 2 + 8 / scale) };
+      checkpointCanvasSize(appearance.size, scale) / 2 + 14 / scale) };
 }
 
 export function resolveCheckpointAppearance(value) {
