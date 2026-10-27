@@ -8,10 +8,8 @@ import { atlasShortcutTarget } from "./atlas-canvas-hit.js";
 import { groupCheckpointMarkers, checkpointQuickInfo,
   clusterQuickInfo } from "./checkpoint-clusters.js";
 import { playerAtlasOverlay } from "./player-visibility.js";
-import { atlasMapFogSelected, atlasMapFogDiscs, atlasMapPointRevealed }
-  from "./atlas-map-fog-model.js";
-import { readAtlasMapFog } from "./atlas-map-fog-storage.js";
-import { fogCoverForGrid } from "./atlas-fog-geometry.js";
+import { readManualFog } from "./atlas-manual-fog-storage.js";
+import { cellKey } from "./atlas-manual-fog-model.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
@@ -1137,7 +1135,8 @@ export class RoadCanvasController {
   /** Player projection includes only explicitly revealed road and checkpoint names. */
   #drawPlayerOverlay(canvas, graphics, atlas, zoom) {
     const exploration = readPartyExploration(canvas.scene);
-    const manualFog = atlasMapFogSelected(readAtlasMapFog(canvas.scene), exploration);
+    const fog = readManualFog(canvas.scene);
+    const manualFog = fog.enabled;
     const visible = playerAtlasOverlay(atlas, exploration);
     const nodes = new Map(visible.nodes.map(node => [node.id, node]));
     const roads = new Map(visible.roads.map(road => [road.id, road]));
@@ -1146,12 +1145,16 @@ export class RoadCanvasController {
     const adjacent = roadCurveNeighbors(visible);
     const labelAnchors = new Map();
     const hoverPaths = [];
+    const shownCells = new Set(fog.revealed.map(cellKey));
+    const hiddenCells = new Set(fog.hidden.map(cellKey));
     const explored = manualFog
       ? point => {
-        const grid = canvas.grid;
-        const offset = grid && !grid.isGridless ? grid.getOffset(point) : null;
-        const center = offset ? grid.getCenterPoint(offset) : point;
-        return atlasMapPointRevealed(center, this.atlasMapFogDiscs ?? []);
+        const offset = canvas.grid?.getOffset?.(point);
+        if (!offset) return false;
+        const center = canvas.grid.getCenterPoint(offset);
+        const key = cellKey({x:center.x-canvas.dimensions.sceneX,
+          y:center.y-canvas.dimensions.sceneY});
+        return shownCells.has(key) && !hiddenCells.has(key);
       }
       : point => atlasPointExplored(canvas, point);
     const presets = validateTravelPresets(
@@ -1296,139 +1299,7 @@ export class RoadCanvasController {
     this.playerCheckpointHoverGeometry = [];
   }
 
-  #clearAtlasMapFog() {
-    if (this.atlasMapFogLayer) {
-      this.atlasMapFogLayer.parent?.removeChild?.(this.atlasMapFogLayer);
-      this.atlasMapFogLayer.destroy?.({ children: true });
-    }
-    this.atlasMapFogLayer = null;
-    this.atlasMapFogCover = null;
-    this.atlasMapFogCanvas = null;
-    this.atlasMapFogDiscs = [];
-  }
-
-  /**
-   * Opt-in, independent manual exploration mask. The native Scene—including
-   * weather and lights—is rendered once underneath this opaque cover.
-   * Atlas NEVER writes to canvas.fog or to a FogExploration document.
-   * When Token Vision is enabled its separate core visibility still applies.
-   */
-  #drawAtlasMapFog(canvas, atlas) {
-    const exploration = readPartyExploration(canvas.scene);
-    const mapFog = readAtlasMapFog(canvas.scene);
-    if (!atlasMapFogSelected(mapFog, exploration)) {
-      this.#clearAtlasMapFog();
-      return;
-    }
-    const sceneRect = canvas.dimensions?.sceneRect;
-    const x = Number(canvas.dimensions?.sceneX);
-    const y = Number(canvas.dimensions?.sceneY);
-    const width = Number(sceneRect?.width ?? canvas.dimensions?.sceneWidth);
-    const height = Number(sceneRect?.height ?? canvas.dimensions?.sceneHeight);
-    if (!globalThis.PIXI?.Graphics ||
-        !canvas.primary?.addChild || ![x, y, width, height].every(Number.isFinite) ||
-        width <= 0 || height <= 0) {
-      throw new Error("Atlas map fog needs a compatible Foundry/Pixi canvas.");
-    }
-    if (!this.atlasMapFogLayer || this.atlasMapFogCanvas !== canvas ||
-        this.atlasMapFogLayer.destroyed) {
-      this.#clearAtlasMapFog();
-      // PrimaryCanvasGroup sorts its DIRECT children. Mount the Graphics
-      // itself (rather than wrapping it in a plain PIXI.Container) so Foundry
-      // can composite the fog above the map but before weather and lighting.
-      const layers = globalThis.foundry?.canvas?.groups?.PrimaryCanvasGroup?.SORT_LAYERS;
-      if (!Number.isFinite(layers?.TILES)) {
-        throw new Error("Foundry v14 primary canvas sorting is unavailable.");
-      }
-      const cover = new PIXI.Graphics();
-      cover.label = "Atlas Exploration Fog";
-      cover.visible = false;
-      cover.eventMode = "none";
-      cover.sortLayer = layers.TILES + 1;
-      cover.elevation = 0;
-      cover.sort = 1e100;
-      canvas.primary.addChild(cover);
-      this.atlasMapFogLayer = cover;
-      this.atlasMapFogCover = cover;
-      this.atlasMapFogCanvas = canvas;
-    }
-    const cover = this.atlasMapFogCover;
-    // Draw opaque shapes OUTSIDE the union of explored areas; never cut
-    // overlapping holes (the v14 Pixi triangulator produced black wedges).
-    if (!["beginFill", "drawRect", "drawPolygon", "endFill"].every(
-      method => typeof cover[method] === "function")) {
-      throw new Error("Foundry Pixi Graphics cannot draw Atlas exploration polygons.");
-    }
-    const drawOpaque = () => {
-      cover.clear();
-      cover.beginFill(0x080b12, 1);
-      cover.drawRect(x, y, width, height);
-      cover.endFill();
-    };
-    drawOpaque();
-    this.atlasMapFogLayer.visible = true;
-    const party = exploration;
-    const token = canvas.scene?.tokens?.get?.(party.tokenId);
-    const cellSize = Number(canvas.scene?.grid?.size);
-    const center = token ? {
-      x: token.x + (token.width || 1) * cellSize / 2,
-      y: token.y + (token.height || 1) * cellSize / 2,
-      gridDistance: Number(canvas.scene?.grid?.distance)
-    } : null;
-    // v2 has an explicit durable cell projection of travelled terrain.
-    // Its temporary discs contain only lore/checkpoint + current token vision;
-    // historic route records no longer need to be replayed at every redraw.
-    const displayFog = mapFog.schemaVersion === 2
-      ? { ...mapFog, trail: [] } : mapFog;
-    const discs = atlasMapFogDiscs(atlas, party, displayFog, cellSize,
-      point => ({ x: point.x + x, y: point.y + y }), center);
-    this.atlasMapFogDiscs = discs.filter(d =>
-      [d.x, d.y, d.radius].every(Number.isFinite) && d.radius > 0);
-    if (!this.atlasMapFogDiscs.length &&
-        !(mapFog.schemaVersion === 2 && mapFog.cells.length)) return;
-    try {
-      const grid = canvas.grid;
-      const bounds = { x, y, width, height };
-      cover.clear();
-      cover.beginFill(0x080b12, 1);
-      if (!grid || grid.isGridless ||
-          canvas.scene.grid?.type === (globalThis.CONST?.GRID_TYPES?.GRIDLESS ?? 0)) {
-        // Unsupported Scenes are kept fully covered; never expose the map.
-        cover.clear();
-        cover.beginFill(0x080b12, 1);
-        cover.drawRect(x, y, width, height);
-      } else {
-        const discovered = new Set();
-        if (mapFog.schemaVersion === 2) {
-          if (typeof grid.getOffset !== "function") {
-            throw new Error("Atlas discovery requires native grid offsets.");
-          }
-          for (const cell of mapFog.cells) {
-            const offset = grid.getOffset({ x: cell.x + x, y: cell.y + y });
-            if (Number.isSafeInteger(offset?.i) && Number.isSafeInteger(offset?.j)) {
-              discovered.add(offset.i + "," + offset.j);
-            }
-          }
-        }
-        const hidden = fogCoverForGrid(grid, bounds,
-          point => {
-            const offset = grid.getOffset(point);
-            return discovered.has(offset.i + "," + offset.j) ||
-              atlasMapPointRevealed(point, this.atlasMapFogDiscs);
-          }, canvas.scene.dimensions, 40000, this.atlasMapFogDiscs);
-        for (const polygon of hidden) {
-          cover.drawPolygon(polygon.flatMap(point => [point.x, point.y]));
-        }
-      }
-      cover.endFill();
-    } catch (error) {
-      drawOpaque();
-      throw error;
-    }
-  }
-
   #clearPlayerOverlay() {
-    this.#clearAtlasMapFog();
     this.#stopHover();
     this.#stopPlayerHover();
     this.#clearLabels();
@@ -1451,7 +1322,7 @@ export class RoadCanvasController {
         this.#clearPlayerOverlay();
         return;
       }
-      const atlasMapMode = readAtlasMapFog(canvas.scene).enabled;
+      const atlasMapMode = readManualFog(canvas.scene).enabled;
       if (!revealed.segments.length && !revealed.checkpoints.length && !atlasMapMode) {
         this.#clearPlayerOverlay();
         return;
@@ -1478,25 +1349,9 @@ export class RoadCanvasController {
     }
     if (!game.user.isGM) {
       this.#stopHover();
-      // A failed optional Atlas mask must not block normal road rendering.
-      // Any existing mask stays opaque on error (fail closed).
-      try {
-        if (this.atlasMapFogCanvas && this.atlasMapFogCanvas !== canvas) {
-          this.atlasMapFogDiscs = [];
-        }
-        this.#drawAtlasMapFog(canvas, atlas);
-      } catch (error) {
-        console.warn("[fvtt-atlas-navigation] Atlas map-fog mask could not refresh", error);
-        // Keep valid, already projected discs so known roads remain clipped,
-        // even when the image cover fails to cut holes.
-        if (this.atlasMapFogCover && this.atlasMapFogLayer) {
-          this.atlasMapFogLayer.visible = true;
-        }
-      }
       this.#drawPlayerOverlay(canvas, g, atlas, zoom);
       return;
     }
-    this.#clearAtlasMapFog();
     this.#stopPlayerHover();
     const editing = this.pointEditor.session;
     if (editing && editing.sceneId === canvas.scene.id) {
@@ -1684,7 +1539,6 @@ export class RoadCanvasController {
   }
 
   tearDown() {
-    this.#clearAtlasMapFog();
     if (this.fogRefreshTimer !== null) clearTimeout(this.fogRefreshTimer);
     this.fogRefreshTimer = null;
     if (this.zoomRefreshTimer !== null) clearTimeout(this.zoomRefreshTimer);
