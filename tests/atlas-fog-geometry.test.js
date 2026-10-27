@@ -62,7 +62,7 @@ test("durable exploration materializes native cell centers in image coordinates"
       { x: 5, y: 5 }, { x: -5, y: 5 }]
   };
   const cells = discoveredCellsForGrid(grid, { rows: 1, columns: 2 },
-    [{ x: 115, y: 205, radius: 1 }], { x: 100, y: 200 });
+    [{ x: 110, y: 205, radius: 1 }], { x: 100, y: 200 });
   assert.deepEqual(cells, [{ x: 5, y: 5 }, { x: 15, y: 5 }]);
 });
 
