@@ -1388,7 +1388,7 @@ export class RoadCanvasController {
       if (grid && !grid.isGridless) {
         const hidden = fogCoverForGrid(grid, bounds,
           point => atlasMapPointRevealed(point, this.atlasMapFogDiscs),
-          canvas.scene.dimensions);
+          canvas.scene.dimensions, 40000, this.atlasMapFogDiscs);
         for (const polygon of hidden) {
           cover.drawPolygon(polygon.flatMap(point => [point.x, point.y]));
         }
