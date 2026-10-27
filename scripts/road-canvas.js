@@ -129,17 +129,60 @@ function drawHiddenCheckpoint(graphics, marker, radius, zoom, sourceColor = 0x9c
   drawHiddenHatching(graphics,marks,2.5/zoom,contrastingHatch(sourceColor));
 }
 
-/** A child Graphics is composited after icon Sprites/Text, so hatching stays on top. */
-function overlayHiddenCheckpoint(parent, marker, radius, zoom, sourceColor, labels) {
-  if (globalThis.PIXI?.Graphics && typeof parent.addChild === "function") {
-    const layer = new PIXI.Graphics();
-    layer.eventMode = "none";
-    drawHiddenCheckpoint(layer,marker,radius,zoom,sourceColor);
-    parent.addChild(layer);
-    labels.push(layer);
-  } else {
+/** Clip hidden hatching to the actual checkpoint texture/text alpha, not a disk. */
+function overlayHiddenCheckpoint(parent, marker, radius, zoom, sourceColor, labels, shape=null) {
+  if (!globalThis.PIXI?.Graphics || typeof parent.addChild !== "function") {
     drawHiddenCheckpoint(parent,marker,radius,zoom,sourceColor);
+    return;
   }
+  const layer = new PIXI.Graphics();
+  layer.eventMode = "none";
+  let mask = null;
+  if (shape?.texture && globalThis.PIXI?.Sprite) {
+    mask = new PIXI.Sprite(shape.texture);
+    mask.anchor?.set?.(0.5);
+    mask.position?.set?.(marker.x,marker.y);
+    mask.width = shape.size;
+    mask.height = shape.size;
+  } else if (shape?.font && globalThis.PIXI?.Text) {
+    const font = shape.font;
+    mask = new PIXI.Text(font.glyph, {
+      fontFamily: font.family, fontWeight: font.weight,
+      fontSize: shape.size, fill: 0xffffff, align: "center"
+    });
+    mask.anchor?.set?.(0.5);
+    mask.position?.set?.(marker.x,marker.y);
+  }
+  if (mask) {
+    // Pixi v8 Sprite/Text masks use their alpha as the exact icon silhouette.
+    mask.eventMode = "none";
+    parent.addChild(mask);
+    labels.push(mask);
+    const bounds=shape.size/2+3/zoom;
+    const color=contrastingHatch(sourceColor);
+    if (typeof layer.rect === "function" && typeof layer.fill === "function") {
+      layer.rect(marker.x-bounds,marker.y-bounds,bounds*2,bounds*2)
+        .fill({color:0x862337,alpha:0.26});
+    } else if (typeof layer.beginFill === "function") {
+      layer.beginFill(0x862337,0.26);
+      layer.drawRect(marker.x-bounds,marker.y-bounds,bounds*2,bounds*2);
+      layer.endFill();
+    }
+    const marks=[];
+    for (let x=-bounds*2;x<bounds*2;x+=6/zoom) {
+      marks.push([
+        {x:marker.x+x,y:marker.y-bounds},
+        {x:marker.x+x+2*bounds,y:marker.y+bounds}
+      ]);
+    }
+    drawHiddenHatching(layer,marks,2.5/zoom,color);
+    layer.mask=mask;
+  } else {
+    // The basic dot and a grouped-marker badge genuinely are circular.
+    drawHiddenCheckpoint(layer,marker,radius,zoom,sourceColor);
+  }
+  parent.addChild(layer);
+  labels.push(layer);
 }
 
 function nearestRoadPoint(position, path, tolerance) {
@@ -1210,7 +1253,7 @@ export class RoadCanvasController {
       if (appearance.type === "fa") sprite.tint = color;
       // Silhouette outline follows the actual asset shape instead of a circle.
       const outline = Number.parseInt(appearance.borderColor.slice(1),16);
-      const shift = 1.8 / zoom;
+      const shift = 3 / zoom;
       for (const [dx,dy] of [[-shift,0],[shift,0],[0,-shift],[0,shift],
         [-shift,-shift],[shift,-shift],[-shift,shift],[shift,shift]]) {
         const shadow = new PIXI.Sprite(texture);
@@ -1227,9 +1270,9 @@ export class RoadCanvasController {
         fontFamily: font.family, fontWeight: font.weight,
         fontSize: size, fill: color, align: "center",
         ...(Number(PIXI.VERSION?.split(".")[0]) >= 8
-          ? { stroke: { color: Number.parseInt(appearance.borderColor.slice(1),16), width: 2 / zoom } }
+          ? { stroke: { fill: Number.parseInt(appearance.borderColor.slice(1),16), width: 3 / zoom } }
           : { stroke: Number.parseInt(appearance.borderColor.slice(1),16),
-            strokeThickness: 2 / zoom })
+            strokeThickness: 3 / zoom })
       });
       glyph.anchor?.set?.(0.5);
       glyph.position?.set?.(marker.x, marker.y);
@@ -1593,8 +1636,13 @@ export class RoadCanvasController {
         const marker = checkpointMarkerPosition(position, appearance, zoom);
         const radius = Math.max((appearance.type === "dot" ? appearance.size :
           checkpointCanvasSize(appearance.size, zoom)) / 2 + 2 / zoom, 8 / zoom);
+        const texture = this.#iconTexture(checkpointIconPath(appearance));
+        const font = appearance.type === "fa" ? checkpointFontIcon(appearance.icon) : null;
+        const shape = appearance.type === "dot" ? null :
+          texture ? {texture,size:checkpointCanvasSize(appearance.size,zoom)} :
+          font && this.#fontReady(font) ? {font,size:checkpointCanvasSize(appearance.size,zoom)} : null;
         overlayHiddenCheckpoint(g, marker, radius, zoom,
-          appearance.color, this.labels);
+          appearance.color, this.labels, shape);
       }
       this.checkpointHoverGeometry.push({ id: checkpoint.id, x: position.x,
         y: position.y, radius: 10 / zoom });
