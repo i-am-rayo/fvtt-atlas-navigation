@@ -324,6 +324,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const color = el("input");
     color.type = "color"; color.value = appearance.color;
     field("Dot / Font Awesome color", color);
+    const borderColor = el("input");
+    borderColor.type = "color"; borderColor.value = appearance.borderColor;
+    field("Checkpoint border color", borderColor);
     const mode = field("Checkpoint label", select([
       ["off", "Off"], ["hover", "On hover"], ["always", "Always"]
     ], appearance.labelMode));
@@ -358,6 +361,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         const next = value === null ? null : validateCheckpointAppearance({
           type: type.value, icon: selected, image: image.value.trim(),
           size: Number(size.value), color: color.value,
+          borderColor: borderColor.value,
           labelMode: mode.value, showRoadName: showRoad.checked,
           textColor: textColor.value
         });
