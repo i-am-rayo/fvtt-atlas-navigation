@@ -13,6 +13,7 @@ import { cellKey } from "./atlas-manual-fog-model.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
 import { checkpointRevealKeys } from "./checkpoint-exploration.js";
+import { checkpointKnowledge } from "./party-exploration-model.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
   roadStrokeSpans, roadLabelPoint, roadAppearanceMode, readRoadCurvePreset,
@@ -49,6 +50,74 @@ function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "so
       for (const point of span.slice(1)) graphics.lineTo(point.x, point.y);
     }
   }
+}
+
+/** GM-only visual hatching; it never mutates the road's geometry or visibility. */
+function drawHiddenHatching(graphics, marks, width = 2) {
+  if (!marks.length) return;
+  if (typeof graphics.stroke === "function") {
+    for (const [a, b] of marks) {
+      graphics.moveTo(a.x, a.y);
+      graphics.lineTo(b.x, b.y);
+    }
+    graphics.stroke({ color: 0xd44855, width, alpha: 0.9, cap: "round" });
+  } else if (typeof graphics.lineStyle === "function") {
+    graphics.lineStyle(width, 0xd44855, 0.9);
+    for (const [a, b] of marks) {
+      graphics.moveTo(a.x, a.y);
+      graphics.lineTo(b.x, b.y);
+    }
+  }
+}
+function roadHiddenMarks(path, lineWidth, zoom) {
+  const marks = [], interval = 18 / zoom, extent = Math.max(lineWidth + 3 / zoom, 9 / zoom);
+  let offset = interval / 2;
+  for (let i = 1; i < path.length && marks.length < 800; i++) {
+    const a = path[i - 1], b = path[i];
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!length) continue;
+    const direction = { x: (b.x - a.x) / length, y: (b.y - a.y) / length };
+    while (offset <= length && marks.length < 800) {
+      const center = { x: a.x + direction.x * offset, y: a.y + direction.y * offset };
+      const d = extent / (2 * Math.SQRT2);
+      marks.push([{ x: center.x - d, y: center.y - d },
+        { x: center.x + d, y: center.y + d }]);
+      offset += interval;
+    }
+    offset -= length;
+  }
+  return marks;
+}
+function drawCheckpointBorder(graphics, marker, radius, color, zoom) {
+  const width = 2 / zoom;
+  if (typeof graphics.circle === "function" && typeof graphics.stroke === "function") {
+    graphics.circle(marker.x, marker.y, radius)
+      .stroke({ color, width, alpha: 1 });
+  } else if (typeof graphics.lineStyle === "function") {
+    graphics.lineStyle(width, color, 1);
+    graphics.drawCircle(marker.x, marker.y, radius);
+  }
+}
+function drawHiddenCheckpoint(graphics, marker, radius, zoom) {
+  // A translucent round tint and diagonal chords form the same red hatch language
+  // used along hidden road sections, without obscuring the checkpoint glyph.
+  if (typeof graphics.circle === "function" && typeof graphics.fill === "function") {
+    graphics.circle(marker.x, marker.y, radius)
+      .fill({ color: 0x8c2637, alpha: 0.24 });
+  } else if (typeof graphics.beginFill === "function") {
+    graphics.beginFill(0x8c2637, 0.24);
+    graphics.drawCircle(marker.x, marker.y, radius);
+    graphics.endFill();
+  }
+  const marks=[], step=7/zoom;
+  for(let offset=-radius+step/2;offset<radius;offset+=step) {
+    const half=Math.sqrt(Math.max(0,radius*radius-offset*offset));
+    const dx=half/Math.SQRT2,dy=half/Math.SQRT2;
+    const ox=-offset/Math.SQRT2,oy=offset/Math.SQRT2;
+    marks.push([{x:marker.x+ox-dx,y:marker.y+oy-dy},
+      {x:marker.x+ox+dx,y:marker.y+oy+dy}]);
+  }
+  drawHiddenHatching(graphics,marks,1.7/zoom);
 }
 
 function nearestRoadPoint(position, path, tolerance) {
@@ -1132,6 +1201,10 @@ export class RoadCanvasController {
     } else {
       drawDot(graphics, marker, color, selected ? 10 : 6);
     }
+    // Border defaults to black for old styles; appearance normalization is read-only.
+    drawCheckpointBorder(graphics, marker,
+      Math.max(size / 2 + 1 / zoom, 7 / zoom),
+      Number.parseInt(appearance.borderColor.slice(1),16), zoom);
   }
 
   /** Player projection includes only explicitly revealed road and checkpoint names. */
@@ -1383,6 +1456,8 @@ export class RoadCanvasController {
       globalThis.game?.settings?.get?.("fvtt-atlas-navigation", TRAVEL_PRESET_SETTING) ??
       defaultTravelPresets()).presets;
     const labelAnchors = new Map();
+    const hatchHidden = game.settings?.get?.("fvtt-atlas-navigation", "hiddenOverlayHatching") !== false;
+    const exploration = readPartyExploration(canvas.scene);
     this.hoverGeometry = [];
     this.checkpointHoverGeometry = [];
     this.clusterHoverGeometry = [];
@@ -1403,6 +1478,10 @@ export class RoadCanvasController {
       const color = highlighted ? 0xffd166 : Number.parseInt(style.color.slice(1), 16);
       drawLine(g, path, color, style.width + (highlighted ? 2 : 0),
         highlighted ? 1 : style.opacity, style.pattern);
+      if (hatchHidden && road.playerVisible !== true) {
+        drawLine(g, path, 0x922e43, style.width + 5 / zoom, 0.30, "solid");
+        drawHiddenHatching(g, roadHiddenMarks(path, style.width, zoom), 2 / zoom);
+      }
       drawDot(g, path[0], color);
       drawDot(g, path.at(-1), color);
       if (style.labelVisibility === "hover") this.hoverGeometry.push({
@@ -1463,6 +1542,15 @@ export class RoadCanvasController {
       const item = group.members[0];
       const { checkpoint, position, appearance } = item;
       this.#drawCheckpoint(g, position, checkpoint, appearance, zoom);
+      const hidden = exploration.enabled
+        ? checkpointKnowledge(exploration, checkpoint.id) === "unknown"
+        : checkpoint.playerVisible !== true;
+      if (hatchHidden && hidden) {
+        const marker = checkpointMarkerPosition(position, appearance, zoom);
+        const radius = Math.max((appearance.type === "dot" ? appearance.size :
+          checkpointCanvasSize(appearance.size, zoom)) / 2 + 2 / zoom, 8 / zoom);
+        drawHiddenCheckpoint(g, marker, radius, zoom);
+      }
       this.checkpointHoverGeometry.push({ id: checkpoint.id, x: position.x,
         y: position.y, radius: 10 / zoom });
       if (appearance.type !== "dot") this.checkpointHoverGeometry.push({
