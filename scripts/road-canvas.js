@@ -1532,6 +1532,11 @@ export class RoadCanvasController {
     for (const group of groups) {
       if (group.members.length > 1) {
         this.#drawCheckpointCluster(g, group, zoom);
+        if (hatchHidden && group.members.some(item => exploration.enabled
+          ? checkpointKnowledge(exploration, item.checkpoint.id) === "unknown"
+          : item.checkpoint.playerVisible !== true)) {
+          drawHiddenCheckpoint(g, { x: group.x, y: group.y }, 17 / zoom, zoom);
+        }
         this.clusterHoverGeometry.push({ id: group.id, x: group.x, y: group.y,
           radius: 20 / zoom });
         if (this.hoveredClusterId === group.id) {
