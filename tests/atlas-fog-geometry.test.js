@@ -6,9 +6,8 @@ test("grid-aligned cover uses cells with centers outside discovery", () => {
   const grid = {
     getOffsetRange: () => [{ i: 0, j: 0 }, { i: 1, j: 0 }, { i: 1, j: 0 }],
     getCenterPoint: ({ i }) => ({ x: i * 10 + 5, y: 5 }),
-    getTopLeftPoint: ({ i }) => ({ x: i * 10, y: 0 }),
-    getShape: () => [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 },
-      { x: 0, y: 10 }]
+    getShape: () => [{ x: -5, y: -5 }, { x: 5, y: -5 }, { x: 5, y: 5 },
+      { x: -5, y: 5 }]
   };
   const polygons = fogCoverForGrid(grid, { x: 0, y: 0, width: 20, height: 10 },
     point => point.x < 10);
