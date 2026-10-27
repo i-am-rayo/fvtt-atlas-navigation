@@ -1,7 +1,9 @@
 import { readManualFog, applyManualFogBrush } from "./atlas-manual-fog-storage.js";
 import { nativeFogCells, brushCells } from "./atlas-manual-fog-geometry.js";
 import { cellKey } from "./atlas-manual-fog-model.js";
-import { MODULE_ID } from "./atlas-storage.js";
+import { MODULE_ID, readAtlas } from "./atlas-storage.js";
+import { readPartyExploration } from "./party-exploration-storage.js";
+import { checkpointRevealKeys } from "./checkpoint-exploration.js";
 import { resolveManualBrushMode } from "./atlas-manual-fog-shortcuts.js";
 import { BRUSH_REVEAL_SHORTCUT, BRUSH_HIDE_SHORTCUT }
   from "./atlas-manual-fog-panel.js";
@@ -85,10 +87,13 @@ export class AtlasManualFogController {
     const all=nativeFogCells(view);
     const revealed=new Set(state.revealed.map(cellKey));
     const hidden=new Set(state.hidden.map(cellKey));
+    const checkpointCells=checkpointRevealKeys(all,readAtlas(view.scene),
+      readPartyExploration(view.scene),Number(view.scene.grid?.size),
+      {x:sceneX,y:sceneY});
     g.clear();
     for(const cell of all) {
       const key=cellKey(cell);
-      if(revealed.has(key)&&!hidden.has(key))continue;
+      if((revealed.has(key)||checkpointCells.has(key))&&!hidden.has(key))continue;
       g.beginFill(0x080b12,game.user.isGM?0.62:1);
       g.drawPolygon(cell.polygon.flat());
       g.endFill();
