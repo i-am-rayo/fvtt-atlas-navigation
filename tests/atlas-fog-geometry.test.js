@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fogCoverForGrid, fogCoverRuns } from "../scripts/atlas-fog-geometry.js";
+import { discoveredCellIntersectsDisc, fogCoverForGrid, fogCoverRuns } from "../scripts/atlas-fog-geometry.js";
 
 test("grid-aligned cover uses cells with centers outside discovery", () => {
   const grid = {
@@ -35,4 +35,32 @@ test("native grid failures cannot silently produce an exposed map", () => {
     getShape: () => [{ x: 0, y: 0 }, { x: 0, y: 5 }, { x: 5, y: 0 }]
   }, { x: 0, y: 0, width: 10, height: 10 }, () => false,
   { rows: 2, columns: 1 }, 1), /bounded/);
+});
+
+
+test("saved discovery touching the edge of a native cell remains fully revealed", () => {
+  const grid = {
+    getCenterPoint: ({ i, j }) => ({ x: j * 10 + 5, y: i * 10 + 5 }),
+    getShape: () => [{ x: -5, y: -5 }, { x: 5, y: -5 },
+      { x: 5, y: 5 }, { x: -5, y: 5 }]
+  };
+  const cells = { rows: 1, columns: 2 };
+  const bounds = { x: 0, y: 0, width: 20, height: 10 };
+  const saved = [{ x: 9.8, y: 5, radius: 1 }];
+  // The second cell center (15,5) is not within radius. Its shared edge at
+  // x=10 IS, so it must remain visible when the party moves elsewhere.
+  assert.equal(fogCoverForGrid(grid, bounds, () => false, cells).length, 2);
+  const hidden = fogCoverForGrid(grid, bounds, () => false, cells, 40000, saved);
+  assert.equal(hidden.length, 0);
+  // An empty saved history cannot accidentally expose terrain.
+  assert.equal(fogCoverForGrid(grid, bounds, () => false, cells, 40000, []).length, 2);
+});
+
+test("a discovery entirely within a cell still counts as discovered", () => {
+  const polygon = [{ x: 0, y: 0 }, { x: 10, y: 0 },
+    { x: 10, y: 10 }, { x: 0, y: 10 }];
+  assert.equal(discoveredCellIntersectsDisc(polygon,
+    { x: 5, y: 5, radius: 0.25 }), true);
+  assert.equal(discoveredCellIntersectsDisc(polygon,
+    { x: 15, y: 15, radius: 1 }), false);
 });
