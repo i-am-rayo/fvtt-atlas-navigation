@@ -1148,7 +1148,7 @@ export class RoadCanvasController {
     const hoverPaths = [];
     const explored = manualFog
       ? point => {
-        const grid = canvas.grid?.grid;
+        const grid = canvas.grid;
         const offset = grid && !grid.isGridless ? grid.getOffset(point) : null;
         const center = offset ? grid.getCenterPoint(offset) : point;
         return atlasMapPointRevealed(center, this.atlasMapFogDiscs ?? []);
@@ -1381,7 +1381,7 @@ export class RoadCanvasController {
       [d.x, d.y, d.radius].every(Number.isFinite) && d.radius > 0);
     if (!this.atlasMapFogDiscs.length) return;
     try {
-      const grid = canvas.grid?.grid;
+      const grid = canvas.grid;
       const bounds = { x, y, width, height };
       cover.clear();
       cover.beginFill(0x080b12, 1);
