@@ -51,7 +51,7 @@ test("v0.2.22 checkpoint zoom changes screen size and vertical offset only", () 
   const point = { x: 300, y: 440 };
   const normal = checkpointMarkerPosition(point, fancy, 1);
   assert.equal(checkpointCanvasSize(32, 1), 32);
-  assert.equal(normal.y, 416);
+  assert.equal(normal.y, 410);
   for (const zoom of [0.25, 0.5, 1, 2, 4]) {
     const pixels = checkpointCanvasSize(32, zoom) * zoom;
     assert.ok(pixels >= 18 && pixels <= 56);
@@ -293,4 +293,12 @@ test("v0.2.29 border colors default black, legacy styles remain readable", () =>
   assert.equal(legacy.borderColor, undefined, "read-only compatibility must not rewrite old flags");
   assert.equal(validateCheckpointAppearance({ ...fancy, borderColor: "#d34e55" }).borderColor, "#d34e55");
   assert.throws(() => validateCheckpointAppearance({ ...fancy, borderColor: "maroon" }));
+});
+
+
+test("v0.2.29.1 icon markers float above the road graph anchor",()=>{
+  const point={x:100,y:200};
+  const appearance={...DEFAULT_CHECKPOINT_APPEARANCE,type:"fa",size:24};
+  assert.equal(checkpointMarkerPosition(point,appearance,1).y,174);
+  assert.deepEqual(point,{x:100,y:200});
 });
