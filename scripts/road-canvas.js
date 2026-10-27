@@ -1147,7 +1147,12 @@ export class RoadCanvasController {
     const labelAnchors = new Map();
     const hoverPaths = [];
     const explored = manualFog
-      ? point => atlasMapPointRevealed(point, this.atlasMapFogDiscs ?? [])
+      ? point => {
+        const grid = canvas.grid?.grid;
+        const offset = grid && !grid.isGridless ? grid.getOffset(point) : null;
+        const center = offset ? grid.getCenterPoint(offset) : point;
+        return atlasMapPointRevealed(center, this.atlasMapFogDiscs ?? []);
+      }
       : point => atlasPointExplored(canvas, point);
     const presets = validateTravelPresets(
       globalThis.game?.settings?.get?.("fvtt-atlas-navigation", TRAVEL_PRESET_SETTING) ??
