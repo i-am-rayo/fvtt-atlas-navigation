@@ -89,7 +89,7 @@ export class AtlasManualFogPalette {
     slider.addEventListener("input",()=>setRadius(slider.value));
     number.addEventListener("change",()=>setRadius(number.value));
     radiusRow.append(label,slider,number);section.append(radiusRow);
-    for(const [mode,title,icon] of [["reveal","Reveal","✦"],["hide","Hide","◼"],["clear","Clear override","⌫"]]){
+    for(const [mode,title,icon] of [["reveal","Reveal","✦"],["hide","Hide","◼"]]){
       const button=el("button",icon+"  "+title,"atlas-brush-mode");
       button.type="button";button.disabled=!enabled;
       if(this.controller.brush?.mode===mode)button.classList.add("active");
@@ -111,17 +111,13 @@ export class AtlasManualFogPalette {
     shortcutGroup.append(el("p","Change shortcuts in Configure Settings → Module Settings → Atlas."));
     root.append(shortcutGroup);
     const footer=el("div",undefined,"atlas-brush-footer");
-    const preview=el("button",this.controller.preview?"Hide GM Fog Preview":"Show GM Fog Preview");
-    preview.type="button";preview.addEventListener("click",()=>{
-      this.controller.setPreview(!this.controller.preview);this.draw();
-    });
     const stop=el("button","Stop brush");
     stop.type="button";stop.addEventListener("click",()=>{
       this.controller.setBrush(null,this.radius);this.draw();
     });
-    footer.append(preview,stop);root.append(footer);
+    footer.append(stop);root.append(footer);
     const counter=scene?readManualFog(scene):null;
     if(counter)root.append(el("p",counter.revealed.length+" revealed · "+
-      counter.hidden.length+" hidden cells","atlas-brush-help"));
+      counter.hidden.length+" manually hidden overrides (not total fog)","atlas-brush-help"));
   }
 }
