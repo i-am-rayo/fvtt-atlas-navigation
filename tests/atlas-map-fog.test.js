@@ -116,5 +116,5 @@ test("new travel records preserve their image-local path and fill gaps between e
   const corrected = removeAtlasFogTrailPoint(second, 1);
   assert.equal(atlasMapPointRevealed({ x: 50, y: 0 }, atlasMapFogDiscs(
     { nodes: [], checkpoints: [] }, party, corrected, 10,
-    p => ({ x: p.x, y: p.y })), false);
+    p => ({ x: p.x, y: p.y }))), false);
 });
