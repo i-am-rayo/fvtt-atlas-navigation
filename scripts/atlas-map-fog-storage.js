@@ -1,8 +1,10 @@
 import { MODULE_ID } from "./atlas-storage.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
+import { discoveredCellsForGrid } from "./atlas-fog-geometry.js";
 import { ATLAS_MAP_FOG_FLAG, validateAtlasMapFog, atlasFogSurveyRadiusCells,
-  appendAtlasFogTrail, removeAtlasFogTrailPoint, clearAtlasFogTrail
+  appendAtlasFogTrail, removeAtlasFogTrailPoint, clearAtlasFogTrail,
+  atlasMapFogDiscs, withAtlasExploredCells
 } from "./atlas-map-fog-model.js";
 
 export function readAtlasMapFog(scene) {
@@ -40,6 +42,26 @@ function tokenTrailPoint(canvas, scene, tokenDoc, party) {
   };
 }
 
+/** Snapshot materialized grid discovery from saved history, never from the live
+ * token position. Every save uses the full trail so history removals remain
+ * reversible without accumulating orphaned cells.
+ */
+function persistDiscoveredCells(view, scene, party, fog) {
+  if (!view?.ready || view.scene?.id !== scene.id || view.grid?.isGridless) {
+    throw new Error("Atlas Map Fog now requires an active square or hex Scene.");
+  }
+  const cellSize = Number(scene.grid?.size);
+  if (!Number.isFinite(cellSize) || cellSize <= 0) {
+    throw new Error("Invalid Atlas Scene grid size.");
+  }
+  const origin = sceneImageOrigin(view);
+  const discs = atlasMapFogDiscs({ checkpoints: [] }, party, fog, cellSize,
+    point => ({ x: point.x + origin.x, y: point.y + origin.y }));
+  const cells = discoveredCellsForGrid(view.grid, scene.dimensions,
+    discs, origin);
+  return withAtlasExploredCells(fog, cells);
+}
+
 /** GM-only opt-in. Does not change Scene vision settings or native fog history. */
 export async function saveAtlasMapFogMode(scene, { enabled, expected }) {
   authorize(scene);
@@ -66,7 +88,9 @@ export async function saveAtlasMapFogMode(scene, { enabled, expected }) {
     // Store the original token location so first movement never hides it again.
     after = appendAtlasFogTrail(after, tokenTrailPoint(view, scene, token, party));
   }
-  // Disabling retains the Atlas trail for possible re-enabling.
+  // Disabling retains all Atlas exploration data for possible re-enabling.
+  if (enabled) after = persistDiscoveredCells(globalThis.canvas, scene,
+    readPartyExploration(scene), after);
   await scene.setFlag(MODULE_ID, ATLAS_MAP_FOG_FLAG, after);
   return after;
 }
@@ -94,9 +118,10 @@ export function recordAtlasMapFogMovement(tokenDoc) {
     const current = readPartyExploration(scene);
     if (!current.enabled || current.tokenId !== tokenDoc.id) return false;
     const next = appendAtlasFogTrail(before, point);
-    if (next.trail.length === before.trail.length) return false;
+    if (next.trail.length === before.trail.length && before.schemaVersion === 2) return false;
     if (JSON.stringify(readAtlasMapFog(scene)) !== JSON.stringify(before)) return false;
-    await scene.setFlag(MODULE_ID, ATLAS_MAP_FOG_FLAG, next);
+    const committed = persistDiscoveredCells(globalThis.canvas, scene, current, next);
+    await scene.setFlag(MODULE_ID, ATLAS_MAP_FOG_FLAG, committed);
     return true;
   });
   movementSaves.set(key, task);
@@ -120,6 +145,9 @@ export async function editAtlasFogTrail(scene, { expected, removeIndex = null, c
     throw new Error("Choose exactly one Atlas history correction.");
   }
   const after = clear ? clearAtlasFogTrail(before) : removeAtlasFogTrailPoint(before, removeIndex);
-  await scene.setFlag(MODULE_ID, ATLAS_MAP_FOG_FLAG, after);
-  return after;
+  const committed = before.schemaVersion === 2
+    ? persistDiscoveredCells(globalThis.canvas, scene, readPartyExploration(scene), after)
+    : after;
+  await scene.setFlag(MODULE_ID, ATLAS_MAP_FOG_FLAG, committed);
+  return committed;
 }
