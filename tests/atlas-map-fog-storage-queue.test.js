@@ -4,6 +4,13 @@ import { defaultPartyExploration } from "../scripts/party-exploration-model.js";
 import { defaultAtlasMapFog } from "../scripts/atlas-map-fog-model.js";
 import { recordAtlasMapFogMovement } from "../scripts/atlas-map-fog-storage.js";
 
+const squareGrid = {
+  isGridless: false,
+  getCenterPoint: ({ i, j }) => ({ x: j * 100 + 50, y: i * 100 + 50 }),
+  getShape: () => [{ x: -50, y: -50 }, { x: 50, y: -50 },
+    { x: 50, y: 50 }, { x: -50, y: 50 }]
+};
+
 test("rapid movements serialize Scene writes and retain image-local route positions", async () => {
   const priorGame = globalThis.game;
   const priorCanvas = globalThis.canvas;
@@ -15,6 +22,7 @@ test("rapid movements serialize Scene writes and retain image-local route positi
   const scene = {
     id: "atlas-rapid-moves",
     grid: { size: 100, distance: 5 },
+    dimensions: { rows: 10, columns: 10 },
     canUserModify: () => true,
     getFlag: (_id, key) => flags[key],
     async setFlag(_id, key, value) {
@@ -27,7 +35,7 @@ test("rapid movements serialize Scene writes and retain image-local route positi
   try {
     globalThis.game = { user: { isGM: true } };
     globalThis.canvas = {
-      ready: true, scene,
+      ready: true, scene, grid: squareGrid,
       dimensions: { sceneX: 100, sceneY: 200 }
     };
     const first = recordAtlasMapFogMovement(token);
@@ -36,6 +44,8 @@ test("rapid movements serialize Scene writes and retain image-local route positi
     token.x = 200;
     const second = recordAtlasMapFogMovement(token);
     assert.deepEqual(await Promise.all([first, second]), [true, true]);
+    assert.equal(flags.mapFog.schemaVersion, 2);
+    assert.ok(flags.mapFog.cells.length > 0);
     assert.deepEqual(flags.mapFog.trail, [
       { x: 50, y: 50, radiusCells: 2 },
       { x: 150, y: 50, radiusCells: 2, fromX: 50, fromY: 50 }
@@ -57,6 +67,7 @@ test("animated sprite coordinates never replace the committed explorer position"
   };
   const scene = {
     id: "atlas-animated-token", grid: { size: 100, distance: 5 },
+    dimensions: { rows: 10, columns: 10 },
     canUserModify: () => true,
     getFlag: (_id, key) => flags[key],
     async setFlag(_id, key, value) { flags[key] = structuredClone(value); }
@@ -66,7 +77,7 @@ test("animated sprite coordinates never replace the committed explorer position"
     object: { center: { x: 150, y: 150 } } };
   try {
     globalThis.game = { user: { isGM: true } };
-    globalThis.canvas = { ready: true, scene,
+    globalThis.canvas = { ready: true, scene, grid: squareGrid,
       dimensions: { sceneX: 100, sceneY: 200 } };
     assert.equal(await recordAtlasMapFogMovement(token), true);
     assert.deepEqual(flags.mapFog.trail, [
@@ -75,5 +86,41 @@ test("animated sprite coordinates never replace the committed explorer position"
   } finally {
     globalThis.game = priorGame;
     globalThis.canvas = priorCanvas;
+  }
+});
+
+
+test("square-grid discovered cells are persisted without canvas offset coordinates", async () => {
+  const previousGame = globalThis.game;
+  const previousCanvas = globalThis.canvas;
+  const flags = {
+    partyExploration: { ...defaultPartyExploration(), enabled: true,
+      tokenId: "padding-party", radius: 10 },
+    mapFog: { ...defaultAtlasMapFog(), enabled: true }
+  };
+  const scene = {
+    id: "atlas-padding-safe",
+    grid: { size: 100, distance: 5 },
+    dimensions: { rows: 10, columns: 10 },
+    canUserModify: () => true,
+    getFlag: (_id, key) => flags[key],
+    async setFlag(_id, key, value) { flags[key] = structuredClone(value); }
+  };
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.canvas = { ready: true, scene, grid: squareGrid,
+      dimensions: { sceneX: 100, sceneY: 200 } };
+    const token = { parent: scene, id: "padding-party",
+      x: 200, y: 300, width: 1, height: 1 };
+    assert.equal(await recordAtlasMapFogMovement(token), true);
+    assert.equal(flags.mapFog.schemaVersion, 2);
+    const saved = structuredClone(flags.mapFog.cells);
+    assert.ok(saved.some(c => c.x === 150 && c.y === 50));
+    // Saved image-relative coordinates do not move with the canvas origin.
+    globalThis.canvas.dimensions = { sceneX: 350, sceneY: 450 };
+    assert.deepEqual(flags.mapFog.cells, saved);
+  } finally {
+    globalThis.game = previousGame;
+    globalThis.canvas = previousCanvas;
   }
 });
