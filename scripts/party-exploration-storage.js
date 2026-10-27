@@ -3,6 +3,9 @@ import { readManualFog } from "./atlas-manual-fog-storage.js";
 import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
 import { checkpointRevealKeys, clearHiddenForCheckpoint } from "./checkpoint-exploration.js";
 import { validateManualFog } from "./atlas-manual-fog-model.js";
+import { CHECKPOINT_METHOD_FLAG, readCheckpointDiscoveryMethods,
+  validateCheckpointDiscoveryMethods, checkpointDiscoveryMethod,
+  withCheckpointDiscoveryMethod } from "./checkpoint-discovery-method.js";
 import { PARTY_EXPLORATION_FLAG, validatePartyExploration,
   setCheckpointKnowledge, setCheckpointRevealRadius } from "./party-exploration-model.js";
 
@@ -50,12 +53,18 @@ export async function savePartyExplorationConfig(scene, {
 }
 
 export async function saveCheckpointKnowledge(scene, {
-  checkpointId, knowledge, revealRadiusCells, expected
+  checkpointId, knowledge, revealRadiusCells, expected,
+  method, expectedMethods
 }) {
   authorize(scene);
   const before = readPartyExploration(scene);
   if (JSON.stringify(before) !== JSON.stringify(validatePartyExploration(expected))) {
     throw new Error("Checkpoint knowledge changed. Reopen its settings.");
+  }
+  const methods = readCheckpointDiscoveryMethods(scene);
+  if (expectedMethods !== undefined && JSON.stringify(methods) !==
+      JSON.stringify(validateCheckpointDiscoveryMethods(expectedMethods))) {
+    throw new Error("Checkpoint discovery method changed. Reopen its settings.");
   }
   const atlas = readAtlas(scene);
   if (!atlas.checkpoints?.some(checkpoint => checkpoint.id === checkpointId)) {
@@ -69,6 +78,12 @@ export async function saveCheckpointKnowledge(scene, {
   const updates = {
     ["flags." + MODULE_ID + "." + PARTY_EXPLORATION_FLAG]: after
   };
+  if (method !== undefined) {
+    const nextMethods = withCheckpointDiscoveryMethod(methods,checkpointId,method);
+    if (JSON.stringify(nextMethods) !== JSON.stringify(methods)) {
+      updates["flags." + MODULE_ID + "." + CHECKPOINT_METHOD_FLAG] = nextMethods;
+    }
+  }
   // A fresh explicit checkpoint reveal supersedes prior Hide brush strokes only
   // within its terrain circle. Later GM Hide strokes still take precedence.
   if (manual.enabled && (knowledge === "visited" || knowledge === "lore") &&
@@ -101,9 +116,11 @@ export async function saveAutomaticCheckpointVisits(scene, checkpointIds) {
   if(!before.enabled||!before.tokenId||!checkpointIds?.length)return [];
   const atlas=readAtlas(scene);
   const valid=new Set(atlas.checkpoints?.map(c=>c.id)??[]);
+  const methods=readCheckpointDiscoveryMethods(scene);
   const lore=new Set(before.loreKnownCheckpointIds);
   const seen=new Set(before.discoveredCheckpointIds);
-  const added=checkpointIds.filter(id=>valid.has(id)&&!lore.has(id)&&!seen.has(id));
+  const added=checkpointIds.filter(id=>valid.has(id)&&!lore.has(id)&&!seen.has(id)&&
+    checkpointDiscoveryMethod(methods,id)==="automatic");
   if(!added.length)return [];
   const after=validatePartyExploration({...before,
     discoveredCheckpointIds:[...before.discoveredCheckpointIds,...added]});
