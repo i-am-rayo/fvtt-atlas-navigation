@@ -1,11 +1,16 @@
 import { readManualFog, applyManualFogBrush } from "./atlas-manual-fog-storage.js";
 import { nativeFogCells, brushCells } from "./atlas-manual-fog-geometry.js";
 import { cellKey } from "./atlas-manual-fog-model.js";
+import { MODULE_ID } from "./atlas-storage.js";
+import { resolveManualBrushMode } from "./atlas-manual-fog-shortcuts.js";
+import { BRUSH_REVEAL_SHORTCUT, BRUSH_HIDE_SHORTCUT }
+  from "./atlas-manual-fog-panel.js";
 /** Dedicated independent renderer: only persisted manual overrides determine visibility. */
 export class AtlasManualFogController {
   constructor() {
     this.layer=null;this.view=null;this.preview=false;this.brush=null;
     this.pointerTarget=null;this.pointerDown=this.onPointerDown.bind(this);
+    this.paletteOpen=false;this.radius=1;
   }
   setPreview(enabled) { this.preview=!!enabled;this.refresh(); }
   setBrush(mode,radius=0) {
@@ -13,6 +18,7 @@ export class AtlasManualFogController {
       throw new Error("Choose a valid Atlas brush.");
     if(!Number.isSafeInteger(radius)||radius<0||radius>20)
       throw new Error("Brush radius must be 0–20 cells.");
+    this.radius=radius;
     this.brush=mode?{mode,radius}:null;
     this.installPointer();this.refresh();
   }
@@ -24,24 +30,28 @@ export class AtlasManualFogController {
     target?.addEventListener?.("pointerdown",this.pointerDown,true);
   }
   async onPointerDown(event) {
-    if(!this.brush||!globalThis.game?.user?.isGM||event.button!==0||
-        !globalThis.canvas?.ready) return;
+    if(!globalThis.game?.user?.isGM||event.button!==0||!globalThis.canvas?.ready)return;
+    const mode=resolveManualBrushMode(this.brush?.mode,event,{
+      reveal:game.settings.get(MODULE_ID,BRUSH_REVEAL_SHORTCUT),
+      hide:game.settings.get(MODULE_ID,BRUSH_HIDE_SHORTCUT)
+    },this.paletteOpen);
+    if(!mode)return;
     const scene=canvas.scene;
     if(!readManualFog(scene).enabled)return;
     const p=canvas.canvasCoordinatesFromClient?.({x:event.clientX,y:event.clientY});
     if(!p)return;
     let cells;
-    try{cells=brushCells(nativeFogCells(canvas),p,this.brush.radius,
+    try{cells=brushCells(nativeFogCells(canvas),p,this.brush?.radius??this.radius,
       Number(scene.grid?.size));}
     catch(error){ui.notifications.error(error.message);return;}
     if(!cells.length)return;
     event.preventDefault();event.stopImmediatePropagation();
-    try{await applyManualFogBrush(scene,cells,this.brush.mode);this.refresh();}
+    try{await applyManualFogBrush(scene,cells,mode);this.refresh();}
     catch(error){ui.notifications.error(error.message);}
   }
   tearDown() {
     this.pointerTarget?.removeEventListener?.("pointerdown",this.pointerDown,true);
-    this.pointerTarget=null;this.brush=null;
+    this.pointerTarget=null;this.brush=null;this.paletteOpen=false;
     this.layer?.parent?.removeChild?.(this.layer);
     this.layer?.destroy?.();
     this.layer=null;this.view=null;
