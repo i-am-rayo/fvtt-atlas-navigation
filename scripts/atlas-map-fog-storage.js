@@ -23,11 +23,21 @@ function tokenTrailPoint(canvas, scene, tokenDoc, party) {
   }
   const radiusCells = atlasFogSurveyRadiusCells(party, Number(scene.grid?.distance));
   const origin = sceneImageOrigin(canvas);
-  const center = tokenDoc?.object?.center ?? {
-    x: tokenDoc.x + (tokenDoc.width || 1) * cellSize / 2,
-    y: tokenDoc.y + (tokenDoc.height || 1) * cellSize / 2
+  // The PIXI Token center may still be animating at the previous position
+  // when Foundry emits updateToken. Persist the authoritative TokenDocument
+  // position, never a transient rendering/animation coordinate.
+  const x = Number(tokenDoc?.x);
+  const y = Number(tokenDoc?.y);
+  const width = Number(tokenDoc?.width ?? 1);
+  const height = Number(tokenDoc?.height ?? 1);
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+    throw new Error("The Atlas explorer token has invalid document coordinates.");
+  }
+  return {
+    x: x + width * cellSize / 2 - origin.x,
+    y: y + height * cellSize / 2 - origin.y,
+    radiusCells
   };
-  return { x: center.x - origin.x, y: center.y - origin.y, radiusCells };
 }
 
 /** GM-only opt-in. Does not change Scene vision settings or native fog history. */
