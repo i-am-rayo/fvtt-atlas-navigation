@@ -1,5 +1,8 @@
 import { MODULE_ID, readAtlas } from "./atlas-storage.js";
 import { readManualFog } from "./atlas-manual-fog-storage.js";
+import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
+import { checkpointRevealKeys, clearHiddenForCheckpoint } from "./checkpoint-exploration.js";
+import { validateManualFog } from "./atlas-manual-fog-model.js";
 import { PARTY_EXPLORATION_FLAG, validatePartyExploration,
   setCheckpointKnowledge, setCheckpointRevealRadius } from "./party-exploration-model.js";
 
@@ -49,14 +52,43 @@ export async function savePartyExplorationConfig(scene, {
 export async function saveCheckpointKnowledge(scene, {
   checkpointId, knowledge, revealRadiusCells, expected
 }) {
-  return savePartyState(scene, expected, before => {
-    const atlas = readAtlas(scene);
-    if (!atlas.checkpoints?.some(checkpoint => checkpoint.id === checkpointId)) {
-      throw new Error("Checkpoint no longer exists.");
+  authorize(scene);
+  const before = readPartyExploration(scene);
+  if (JSON.stringify(before) !== JSON.stringify(validatePartyExploration(expected))) {
+    throw new Error("Checkpoint knowledge changed. Reopen its settings.");
+  }
+  const atlas = readAtlas(scene);
+  if (!atlas.checkpoints?.some(checkpoint => checkpoint.id === checkpointId)) {
+    throw new Error("Checkpoint no longer exists.");
+  }
+  const manual = readManualFog(scene);
+  const source = manual.enabled ? {...before,enabled:true} : before;
+  const nextKnowledge = setCheckpointKnowledge(source, checkpointId, knowledge);
+  const after = revealRadiusCells === undefined ? nextKnowledge :
+    setCheckpointRevealRadius(nextKnowledge, checkpointId, revealRadiusCells);
+  const updates = {
+    ["flags." + MODULE_ID + "." + PARTY_EXPLORATION_FLAG]: after
+  };
+  // A fresh explicit checkpoint reveal supersedes prior Hide brush strokes only
+  // within its terrain circle. Later GM Hide strokes still take precedence.
+  if (manual.enabled && (knowledge === "visited" || knowledge === "lore") &&
+      manual.hidden.length > 0) {
+    const view = globalThis.canvas;
+    if (!view?.ready || view.scene?.id !== scene.id) {
+      throw new Error("Open this Scene canvas before revealing checkpoint terrain.");
     }
-    const source = readManualFog(scene).enabled ? {...before,enabled:true} : before;
-    const knowledgeState = setCheckpointKnowledge(source, checkpointId, knowledge);
-    return revealRadiusCells === undefined ? knowledgeState :
-      setCheckpointRevealRadius(knowledgeState, checkpointId, revealRadiusCells);
-  });
+    const cells = nativeFogCells(view);
+    const newlyVisible = checkpointRevealKeys(cells,atlas,after,
+      Number(scene.grid?.size),
+      {x:Number(view.dimensions.sceneX),y:Number(view.dimensions.sceneY)});
+    const hidden = clearHiddenForCheckpoint(manual.hidden,newlyVisible);
+    if (hidden.length !== manual.hidden.length) {
+      updates["flags." + MODULE_ID + ".manualFog"] =
+        validateManualFog({...manual,hidden});
+    }
+  }
+  // One native Scene update publishes knowledge and cleared overrides together.
+  // Neither token vision nor Foundry FogExploration is changed.
+  await scene.update(updates);
+  return after;
 }
