@@ -11,6 +11,7 @@ import { playerAtlasOverlay } from "./player-visibility.js";
 import { atlasMapFogSelected, atlasMapFogDiscs, atlasMapPointRevealed }
   from "./atlas-map-fog-model.js";
 import { readAtlasMapFog } from "./atlas-map-fog-storage.js";
+import { fogCoverForGrid, fogCoverRuns } from "./atlas-fog-geometry.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
@@ -1347,29 +1348,20 @@ export class RoadCanvasController {
       this.atlasMapFogCanvas = canvas;
     }
     const cover = this.atlasMapFogCover;
-    // Foundry v14 exposes Pixi Graphics' beginFill/drawRect/beginHole API.
-    // The newer rect/fill/cut chaining API is not available on every v14 build.
-    const legacyGraphics = ["beginFill", "drawRect", "beginHole", "drawCircle",
-      "endHole", "endFill"].every(method => typeof cover[method] === "function");
-    const modernGraphics = ["rect", "fill", "circle", "cut"].every(
-      method => typeof cover[method] === "function");
-    if (!legacyGraphics && !modernGraphics) {
-      throw new Error("Foundry Pixi Graphics does not support Atlas fog geometry.");
+    // Draw opaque shapes OUTSIDE the union of explored areas; never cut
+    // overlapping holes (the v14 Pixi triangulator produced black wedges).
+    if (!["beginFill", "drawRect", "drawPolygon", "endFill"].every(
+      method => typeof cover[method] === "function")) {
+      throw new Error("Foundry Pixi Graphics cannot draw Atlas exploration polygons.");
     }
-    // Keep an opaque fallback whenever a hole operation fails.
-    const drawOpaque = (left, top, w, h) => {
+    const drawOpaque = () => {
       cover.clear();
-      if (legacyGraphics) {
-        cover.beginFill(0x080b12, 1);
-        cover.drawRect(left, top, w, h);
-        cover.endFill();
-      } else {
-        cover.rect(left, top, w, h).fill({ color: 0x080b12, alpha: 1 });
-      }
+      cover.beginFill(0x080b12, 1);
+      cover.drawRect(x, y, width, height);
+      cover.endFill();
     };
-    drawOpaque(x, y, width, height);
+    drawOpaque();
     this.atlasMapFogLayer.visible = true;
-    this.atlasMapFogDiscs = [];
     const party = exploration;
     const token = canvas.scene?.tokens?.get?.(party.tokenId);
     const cellSize = Number(canvas.scene?.grid?.size);
@@ -1378,41 +1370,32 @@ export class RoadCanvasController {
       y: token.y + (token.height || 1) * cellSize / 2,
       gridDistance: Number(canvas.scene?.grid?.distance)
     } : null;
-    const origin = { x, y };
     const discs = atlasMapFogDiscs(atlas, party, mapFog, cellSize,
-      point => ({ x: point.x + origin.x, y: point.y + origin.y }), center);
+      point => ({ x: point.x + x, y: point.y + y }), center);
     this.atlasMapFogDiscs = discs.filter(d =>
       [d.x, d.y, d.radius].every(Number.isFinite) && d.radius > 0);
     if (!this.atlasMapFogDiscs.length) return;
-    // Extend the mask beyond the Scene where a reveal circle touches an edge.
-    let left = x, top = y, right = x + width, bottom = y + height;
-    for (const disc of this.atlasMapFogDiscs) {
-      left = Math.min(left, disc.x - disc.radius - 2);
-      top = Math.min(top, disc.y - disc.radius - 2);
-      right = Math.max(right, disc.x + disc.radius + 2);
-      bottom = Math.max(bottom, disc.y + disc.radius + 2);
-    }
     try {
+      const grid = canvas.grid?.grid;
+      const bounds = { x, y, width, height };
       cover.clear();
-      if (legacyGraphics) {
-        cover.beginFill(0x080b12, 1);
-        cover.drawRect(left, top, right - left, bottom - top);
-        cover.beginHole();
-        for (const disc of this.atlasMapFogDiscs) {
-          cover.drawCircle(disc.x, disc.y, disc.radius);
+      cover.beginFill(0x080b12, 1);
+      if (grid && !grid.isGridless) {
+        const hidden = fogCoverForGrid(grid, bounds,
+          point => atlasMapPointRevealed(point, this.atlasMapFogDiscs));
+        for (const polygon of hidden) {
+          cover.drawPolygon(polygon.flatMap(point => [point.x, point.y]));
         }
-        cover.endHole();
-        cover.endFill();
       } else {
-        cover.rect(left, top, right - left, bottom - top)
-          .fill({ color: 0x080b12, alpha: 1 });
-        for (const disc of this.atlasMapFogDiscs) {
-          cover.circle(disc.x, disc.y, disc.radius);
+        // Gridless maps remain supported. A small scanline step approximates
+        // smooth edges without creating unstable overlapping Pixi holes.
+        for (const rect of fogCoverRuns(bounds, this.atlasMapFogDiscs)) {
+          cover.drawRect(rect.x, rect.y, rect.width, rect.height);
         }
-        cover.cut();
       }
+      cover.endFill();
     } catch (error) {
-      drawOpaque(x, y, width, height);
+      drawOpaque();
       throw error;
     }
   }
