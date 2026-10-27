@@ -97,3 +97,24 @@ test("GM corrections remove only requested travel geometry without changing fog 
   assert.throws(() => removeAtlasFogTrailPoint(fog, 5));
   assert.throws(() => removeAtlasFogTrailPoint(fog, 0.5));
 });
+
+test("new travel records preserve their image-local path and fill gaps between endpoints", () => {
+  const party = { ...defaultPartyExploration(), enabled: true,
+    tokenId: "placed-party", radius: 10 };
+  const first = appendAtlasFogTrail(
+    { ...defaultAtlasMapFog(), enabled: true },
+    { x: 0, y: 0, radiusCells: 1 });
+  const second = appendAtlasFogTrail(first, { x: 100, y: 0, radiusCells: 1 });
+  assert.deepEqual(second.trail[1],
+    { x: 100, y: 0, radiusCells: 1, fromX: 0, fromY: 0 });
+  const discs = atlasMapFogDiscs({ nodes: [], checkpoints: [] }, party, second, 10,
+    p => ({ x: p.x, y: p.y }));
+  assert.equal(atlasMapPointRevealed({ x: 50, y: 0 }, discs), true);
+  assert.equal(atlasMapPointRevealed({ x: 50, y: 50 }, discs), false);
+  assert.deepEqual(validateAtlasMapFog(first).trail[0],
+    { x: 0, y: 0, radiusCells: 1 }, "older exploration points stay unchanged");
+  const corrected = removeAtlasFogTrailPoint(second, 1);
+  assert.equal(atlasMapPointRevealed({ x: 50, y: 0 }, atlasMapFogDiscs(
+    { nodes: [], checkpoints: [] }, party, corrected, 10,
+    p => ({ x: p.x, y: p.y })), false);
+});
