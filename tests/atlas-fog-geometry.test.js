@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { discoveredCellIntersectsDisc, fogCoverForGrid, fogCoverRuns } from "../scripts/atlas-fog-geometry.js";
+import { discoveredCellIntersectsDisc, discoveredCellsForGrid, fogCoverForGrid } from "../scripts/atlas-fog-geometry.js";
 
 test("grid-aligned cover uses cells with centers outside discovery", () => {
   const grid = {
@@ -13,17 +13,6 @@ test("grid-aligned cover uses cells with centers outside discovery", () => {
   assert.equal(polygons.length, 1);
   assert.deepEqual(polygons[0][0], { x: 10, y: 0 });
   assert.deepEqual(polygons[0][2], { x: 20, y: 10 });
-});
-
-test("gridless raster merges overlapping circles without triangulation holes", () => {
-  const rects = fogCoverRuns({ x: 0, y: 0, width: 30, height: 10 }, [
-    { x: 10, y: 5, radius: 9 }, { x: 20, y: 5, radius: 9 }
-  ], 1);
-  assert.ok(rects.length > 0);
-  assert.ok(rects.every(r => r.width > 0 && r.height > 0));
-  // The center between overlapping reveals must never receive black coverage.
-  assert.ok(rects.every(r =>
-    !(r.x <= 15 && r.x + r.width > 15 && r.y <= 5 && r.y + r.height > 5)));
 });
 
 test("native grid failures cannot silently produce an exposed map", () => {
@@ -63,4 +52,21 @@ test("a discovery entirely within a cell still counts as discovered", () => {
     { x: 5, y: 5, radius: 0.25 }), true);
   assert.equal(discoveredCellIntersectsDisc(polygon,
     { x: 15, y: 15, radius: 1 }), false);
+});
+
+
+test("durable exploration materializes native cell centers in image coordinates", () => {
+  const grid = {
+    getCenterPoint: ({ i, j }) => ({ x: 100 + j * 10 + 5, y: 200 + i * 10 + 5 }),
+    getShape: () => [{ x: -5, y: -5 }, { x: 5, y: -5 },
+      { x: 5, y: 5 }, { x: -5, y: 5 }]
+  };
+  const cells = discoveredCellsForGrid(grid, { rows: 1, columns: 2 },
+    [{ x: 115, y: 205, radius: 1 }], { x: 100, y: 200 });
+  assert.deepEqual(cells, [{ x: 5, y: 5 }, { x: 15, y: 5 }]);
+});
+
+test("gridless persistent cell discovery is explicitly unsupported", () => {
+  assert.throws(() => discoveredCellsForGrid({ isGridless: true },
+    { rows: 1, columns: 1 }, [], { x: 0, y: 0 }), /square or hex/);
 });
