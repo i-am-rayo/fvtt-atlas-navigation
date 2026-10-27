@@ -7,7 +7,7 @@
  * a connected player. The player renderer must project only revealed records.
  */
 export const PARTY_EXPLORATION_SCHEMA_VERSION = 2;
-export const DEFAULT_CHECKPOINT_REVEAL_RADIUS_CELLS = 3;
+export const DEFAULT_CHECKPOINT_REVEAL_RADIUS_CELLS = 2;
 export const PARTY_EXPLORATION_FLAG = "partyExploration";
 
 export function defaultPartyExploration() {
@@ -52,7 +52,7 @@ export function validatePartyExploration(value) {
       !Number.isFinite(value.radius) || value.radius <= 0 || value.radius > 100000) {
     throw new Error("Invalid Atlas party exploration configuration.");
   }
-  const defaultRevealRadiusCells = legacy ? DEFAULT_CHECKPOINT_REVEAL_RADIUS_CELLS :
+  const defaultRevealRadiusCells = legacy ? 3 :
     value.defaultRevealRadiusCells;
   const radii = legacy ? {} : value.checkpointRevealRadiusCells;
   if (!Number.isFinite(defaultRevealRadiusCells) ||
