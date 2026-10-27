@@ -9,7 +9,7 @@ import { addAtlasExplorerToTokenConfig } from "./atlas-token-config.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { savePartyExplorationConfig,
   saveCheckpointKnowledge } from "./party-exploration-storage.js";
-import { readManualFog, setManualFogEnabled, importLegacyExploredCells }
+import { readManualFog, setManualFogEnabled }
   from "./atlas-manual-fog-storage.js";
 import { AtlasManualFogController } from "./atlas-manual-fog-renderer.js";
 import { AtlasManualFogPalette, registerManualBrushSettings }
@@ -505,17 +505,6 @@ function actions() {
       ui.notifications.info(enabled ? "Atlas manual fog enabled." : "Atlas manual fog disabled.");
     },
     openManualBrushPalette() { fogPalette.show(); },
-    async importManualFog(scene,refresh) {
-      ensureIdle(scene);
-      const confirmed=await foundry.applications.api.DialogV2.confirm({
-        window:{title:"Import Atlas Legacy Exploration"},
-        content:"<p>Copy discovered cells from the previous experimental fog into the new manual system? This adds revealed cells only. Existing travel history and native fog remain untouched.</p>"
-      });
-      if(!confirmed)return;
-      const result=await importLegacyExploredCells(scene);
-      manualFog.refresh();roadCanvas.refresh();refresh();
-      ui.notifications.info("Imported "+result.imported+" saved exploration cells.");
-    },
     async setCheckpointKnowledge(scene, settings, refresh) {
       ensureIdle(scene);
       await saveCheckpointKnowledge(scene, settings);
@@ -840,16 +829,23 @@ Hooks.once("init", () => {
   Hooks.on("getSceneControlButtons", controls => {
     if(!game.user?.isGM)return;
     controls.atlasManualFog={
-      name:"atlasManualFog",
-      title:"Atlas Exploration",
-      icon:"fa-solid fa-paintbrush",
-      order:Object.keys(controls).length,
+      name:"atlasManualFog",title:"Atlas Exploration",
+      icon:"fa-solid fa-map",order:Object.keys(controls).length,
       visible:true,
+      onChange:(_event,active)=>{if(active)fogPalette.show();},
       tools:{
         atlasBrushPalette:{
-          name:"atlasBrushPalette",title:"Atlas Reveal / Hide Brushes",
+          name:"atlasBrushPalette",title:"Open Atlas Exploration Brushes",
           icon:"fa-solid fa-paintbrush",order:0,button:true,visible:true,
           onChange:()=>fogPalette.toggle()
+        },
+        atlasGMFogPreview:{
+          name:"atlasGMFogPreview",title:"Toggle GM Fog Preview",
+          icon:"fa-solid fa-eye",order:1,button:true,visible:true,
+          onChange:()=>{
+            manualFog.setPreview(!manualFog.preview);
+            if(fogPalette.open)fogPalette.draw();
+          }
         }
       }
     };
