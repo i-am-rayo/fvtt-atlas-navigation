@@ -56,7 +56,7 @@ export function findCheckpointIcons(query = "", style = "all", category = "all")
 }
 export const DEFAULT_CHECKPOINT_APPEARANCE = Object.freeze({
   type: "dot", icon: "location-dot", image: "",
-  size: 24, color: "#9c7bf0", labelMode: "off",
+  size: 24, color: "#9c7bf0", borderColor: "#000000", labelMode: "off",
   showRoadName: false, textColor: "#ffffff"
 });
 
@@ -68,8 +68,11 @@ export function validateCheckpointAppearance(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Checkpoint appearance must be an object.");
   }
-  if (Object.keys(value).length !== KEYS.length ||
-      Object.keys(value).some(key => !KEYS.includes(key))) {
+  // Existing v0.2.21–v0.2.28 checkpoint styles have no borderColor. Read
+  // them unchanged; add the black default only when a GM explicitly saves.
+  const normalized = { borderColor: "#000000", ...value };
+  if (Object.keys(normalized).length !== KEYS.length ||
+      Object.keys(normalized).some(key => !KEYS.includes(key))) {
     throw new Error("Checkpoint appearance has missing or unsupported fields.");
   }
   if (!TYPES.includes(value.type)) throw new Error("Unknown checkpoint icon type.");
@@ -87,8 +90,8 @@ export function validateCheckpointAppearance(value) {
   if (!Number.isInteger(value.size) || value.size < 12 || value.size > 64) {
     throw new Error("Checkpoint icon size must be 12–64 pixels.");
   }
-  for (const [key, text] of [["color", "icon"], ["textColor", "label"]]) {
-    if (typeof value[key] !== "string" || !/^#[0-9a-fA-F]{6}$/.test(value[key])) {
+  for (const [key, text] of [["color", "icon"], ["borderColor", "border"], ["textColor", "label"]]) {
+    if (typeof normalized[key] !== "string" || !/^#[0-9a-fA-F]{6}$/.test(normalized[key])) {
       throw new Error("Invalid checkpoint " + text + " color.");
     }
   }
@@ -98,7 +101,7 @@ export function validateCheckpointAppearance(value) {
   if (typeof value.showRoadName !== "boolean") {
     throw new Error("Show Road Name must be true or false.");
   }
-  return { ...value };
+  return normalized;
 }
 
 export function checkpointIconPath(value) {
