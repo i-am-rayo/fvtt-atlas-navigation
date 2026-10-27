@@ -431,21 +431,12 @@ function atlasPanel(scene, atlas, actions, refresh) {
   fogPanel.appendChild(node("p",
     "Revealed: " + state.revealed.length + " cells. Forced hidden: " +
     state.hidden.length + " cells. Existing v0.2.25 travel records are retained separately.", "hint"));
-  const radiusLabel = node("label","Brush radius in cells (0 = one cell)");
-  const radius = node("input");
-  radius.type="number";radius.min="0";radius.max="20";radius.step="1";radius.value="0";
-  radiusLabel.appendChild(radius);fogPanel.appendChild(radiusLabel);
-  for(const [mode,title] of [["reveal","Reveal Brush"],["hide","Hide Brush"],["clear","Clear Brush"]]){
-    fogPanel.appendChild(button(title,"Click grid cells on the Scene canvas",
-      () => actions.beginManualBrush(scene,mode,Number(radius.value),refresh)));
-  }
-  fogPanel.appendChild(button("Stop Brush","Return to normal map controls",
-    () => actions.stopManualBrush(refresh)));
-  fogPanel.appendChild(node("p","Active brush: " + (actions.manualBrushMode()??"None"),
-    "hint"));
-  fogPanel.appendChild(button(actions.manualFogPreview() ? "Hide GM Fog Preview" : "Show GM Fog Preview",
-    "Toggle the player's explored/hidden terrain view for the GM",
-    () => actions.toggleManualFogPreview(refresh)));
+  fogPanel.appendChild(button("Open Atlas Brush Palette",
+    "Open the floating GM-only exploration brushes from the Scene Controls toolbar",
+    () => actions.openManualBrushPalette()));
+  fogPanel.appendChild(node("p",
+    "The brush radius, active tool, shortcuts and GM preview are in the " +
+    "floating palette, accessible through the paintbrush icon in Scene Controls.", "hint"));
   fogPanel.appendChild(button("Import Saved Legacy Cells",
     "Copy old saved discovered cells into the new manual state; old data remains unchanged",
     () => actions.importManualFog(scene,refresh)));
