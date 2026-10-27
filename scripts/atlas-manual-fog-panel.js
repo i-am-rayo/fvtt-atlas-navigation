@@ -44,6 +44,7 @@ export class AtlasManualFogPalette {
     document.body.appendChild(this.element);
     document.addEventListener("keydown",this.onKeyDown);
     this.controller.paletteOpen=true;
+    this.controller.setBrush(this.controller.brush?.mode??null,this.radius);
     this.draw();
   }
   close(){
@@ -81,7 +82,7 @@ export class AtlasManualFogPalette {
       if(!Number.isSafeInteger(parsed)||parsed<0||parsed>20)return;
       this.radius=parsed;
       slider.value=number.value=String(parsed);
-      if(this.controller.brush?.mode)this.controller.setBrush(this.controller.brush.mode,parsed);
+      this.controller.setBrush(this.controller.brush?.mode??null,parsed);
       void game.settings.set(MODULE_ID,BRUSH_RADIUS_SETTING,parsed).catch(error=>
         console.warn("[fvtt-atlas-navigation] Failed saving brush radius",error));
     };
