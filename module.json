@@ -3,7 +3,7 @@
   "type": "module",
   "title": "FVTT Atlas Navigation",
   "description": "Foundry v14 Scene Atlas with named roads, checkpoints, native Region generation, world travel presets and opt-in native movement costs.",
-  "version": "0.2.28",
+  "version": "0.2.29",
   "authors": [
     {
       "name": "i-am-rayo",
@@ -30,6 +30,6 @@
   "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
   "readme": "README.md",
   "media": [],
-  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/v0.2.28-automatic-token-exploration/module.json",
-  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/v0.2.28-automatic-token-exploration.zip"
+  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/v0.2.29-discovery-visual-refinements/module.json",
+  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/v0.2.29-discovery-visual-refinements.zip"
 }
