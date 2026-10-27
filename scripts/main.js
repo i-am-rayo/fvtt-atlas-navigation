@@ -9,9 +9,9 @@ import { addAtlasExplorerToTokenConfig } from "./atlas-token-config.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { savePartyExplorationConfig,
   saveCheckpointKnowledge } from "./party-exploration-storage.js";
-import { recordPartyDiscoveryForToken } from "./party-exploration-discovery.js";
-import { saveAtlasMapFogMode, recordAtlasMapFogMovement, editAtlasFogTrail }
-  from "./atlas-map-fog-storage.js";
+import { readManualFog, setManualFogEnabled, importLegacyExploredCells }
+  from "./atlas-manual-fog-storage.js";
+import { AtlasManualFogController } from "./atlas-manual-fog-renderer.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
   saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset,
@@ -36,6 +36,7 @@ import { AtlasCheckpointAppearanceEditor } from "./checkpoint-appearance-editor.
 import { AtlasRoadEditorDock } from "./road-editor-dock.js";
 
 const roadCanvas = new RoadCanvasController();
+const manualFog = new AtlasManualFogController();
 let roadDock = null;
 
 function syncRoadDock(scene, refresh) {
@@ -494,45 +495,37 @@ function actions() {
       refresh();
       ui.notifications.info("Atlas party exploration saved for this Scene.");
     },
-    async saveAtlasMapFog(scene, settings, refresh) {
+    async saveManualFog(scene,enabled,refresh) {
       ensureIdle(scene);
-      const state = await saveAtlasMapFogMode(scene, settings);
-      roadCanvas.refresh();
-      refresh();
-      ui.notifications.info(state.enabled
-        ? "Atlas Map Fog enabled. For native scene weather to appear inside reveals, disable native Scene Token Vision after confirming the mask in a player client."
-        : "Atlas Map Fog disabled. The saved Atlas travel trail was retained.");
+      await setManualFogEnabled(scene,enabled);
+      manualFog.refresh();roadCanvas.refresh();refresh();
+      ui.notifications.info(enabled ? "Atlas manual fog enabled." : "Atlas manual fog disabled.");
     },
-    async removeAtlasFogTrailPoint(scene, { index, expected }, refresh) {
+    beginManualBrush(scene,mode,radius,refresh) {
       ensureIdle(scene);
-      const point = expected?.trail?.[index];
-      if (!point) throw new Error("This Atlas travel reveal is no longer available.");
-      const confirmed = await foundry.applications.api.DialogV2.confirm({
-        window: { title: "Remove Atlas Travel Reveal" },
-        content: "<p>Remove saved travel reveal #" + (index + 1) +
-          "? Only this Atlas travel circle will be removed. Native Foundry fog " +
-          "and checkpoint discoveries are unchanged.</p>"
-      });
-      if (!confirmed) return;
-      await editAtlasFogTrail(scene, { expected, removeIndex: index });
-      roadCanvas.refresh();
+      if(!readManualFog(scene).enabled)throw new Error("Enable Atlas manual fog first.");
+      manualFog.setBrush(mode,radius);
       refresh();
-      ui.notifications.info("Atlas travel reveal removed.");
+      ui.notifications.info("Atlas "+mode+" brush active: click the Scene map.");
     },
-    async clearAtlasFogTrail(scene, { expected }, refresh) {
+    stopManualBrush(refresh) {
+      manualFog.setBrush(null);refresh();
+    },
+    manualBrushMode:()=>manualFog.brush?.mode??null,
+    manualFogPreview:()=>manualFog.preview,
+    toggleManualFogPreview(refresh) {
+      manualFog.setPreview(!manualFog.preview);refresh();
+    },
+    async importManualFog(scene,refresh) {
       ensureIdle(scene);
-      const confirmed = await foundry.applications.api.DialogV2.confirm({
-        window: { title: "Clear Atlas Travel History" },
-        content: "<p>Clear all " + expected.trail.length +
-          " saved Atlas travel reveals for this Scene? This cannot be undone " +
-          "unless you restore a Scene backup. Checkpoint lore/discovery and " +
-          "Foundry's native fog data are untouched.</p>"
+      const confirmed=await foundry.applications.api.DialogV2.confirm({
+        window:{title:"Import Atlas Legacy Exploration"},
+        content:"<p>Copy discovered cells from the previous experimental fog into the new manual system? This adds revealed cells only. Existing travel history and native fog remain untouched.</p>"
       });
-      if (!confirmed) return;
-      await editAtlasFogTrail(scene, { expected, clear: true });
-      roadCanvas.refresh();
-      refresh();
-      ui.notifications.info("Saved Atlas travel reveals cleared.");
+      if(!confirmed)return;
+      const result=await importLegacyExploredCells(scene);
+      manualFog.refresh();roadCanvas.refresh();refresh();
+      ui.notifications.info("Imported "+result.imported+" saved exploration cells.");
     },
     async setCheckpointKnowledge(scene, settings, refresh) {
       ensureIdle(scene);
@@ -866,33 +859,24 @@ Hooks.once("init", () => {
     roadCanvas.endEditor(app?.document);
     forgetAtlasSceneConfig(app);
   });
-  Hooks.on("canvasReady", () => roadCanvas.refresh());
-  Hooks.on("updateToken", (token, changes) => {
-    if (!("x" in changes) && !("y" in changes)) return;
-    if (!game.user?.isGM) {
-      // The player must redraw the transient current-position reveal on the
-      // token update, independent of the delayed GM Scene-history write.
-      roadCanvas.onFogRefresh();
-      return;
-    }
-    void recordAtlasMapFogMovement(token)
-      .then(() => recordPartyDiscoveryForToken(token))
-      .catch(error => console.warn("[" + MODULE_ID +
-        "] Party map exploration not recorded", error));
-  });
+  Hooks.on("canvasReady", () => { roadCanvas.refresh(); manualFog.refresh(); });
+  // Manual foundation: token movement intentionally does NOT change fog.
   Hooks.on("canvasTearDown", () => {
     if (roadDock) {
       roadDock.finished = true;
       void roadDock.close();
     }
     roadCanvas.tearDown();
+    manualFog.tearDown();
   });
   Hooks.on("canvasPan", view => roadCanvas.onCanvasPan(view));
   Hooks.on("sightRefresh", () => roadCanvas.onFogRefresh());
   Hooks.on("updateFogExploration", () => roadCanvas.onFogRefresh());
   Hooks.on("deleteFogExploration", () => roadCanvas.onFogRefresh());
   Hooks.on("updateScene", scene => {
-    if (globalThis.canvas?.ready && canvas.scene?.id === scene.id) roadCanvas.refresh();
+    if (globalThis.canvas?.ready && canvas.scene?.id === scene.id) {
+      roadCanvas.refresh();manualFog.refresh();
+    }
   });
 });
 
