@@ -508,6 +508,7 @@ function actions() {
     async setCheckpointKnowledge(scene, settings, refresh) {
       ensureIdle(scene);
       await saveCheckpointKnowledge(scene, settings);
+      manualFog.refresh();
       roadCanvas.refresh();
       refresh();
       ui.notifications.info(settings.knowledge === "lore"
