@@ -1,5 +1,6 @@
 import { readPartyExploration, savePartyExplorationConfig }
   from "./party-exploration-storage.js";
+import { revealAssignedExplorer } from "./atlas-token-exploration.js";
 
 /**
  * GM entry point on the native placed Token configuration. Atlas's per-Scene
@@ -14,7 +15,7 @@ export function addAtlasExplorerToTokenConfig(app, element) {
   const root = element instanceof HTMLElement ? element :
     element?.[0] instanceof HTMLElement ? element[0] : app?.element;
   if (!(root instanceof HTMLElement) || root.querySelector("[data-atlas-explorer-config]")) return;
-  const expected = readPartyExploration(scene);
+  let expected = readPartyExploration(scene);
   const selected = expected.enabled && expected.tokenId === token.id;
   const fieldset = document.createElement("fieldset");
   fieldset.dataset.atlasExplorerConfig = "";
@@ -25,7 +26,8 @@ export function addAtlasExplorerToTokenConfig(app, element) {
   const description = document.createElement("p");
   description.textContent =
     "Manual Scene explorer assignment; uses Atlas exploration, not token vision. " +
-    "Stored positions are relative to the Scene image, so padding changes do not shift discoveries.";
+    "Moves reveal and permanently save traveled terrain while a GM views this Scene. " +
+    "Native token vision remains independent; checkpoint discovery is shared.";
   fieldset.append(description);
   const checkboxLabel = document.createElement("label");
   checkboxLabel.style.cssText = "display:flex;align-items:center;gap:.6em;";
@@ -62,7 +64,7 @@ export function addAtlasExplorerToTokenConfig(app, element) {
       if (!assigning && expected.tokenId !== token.id) {
         throw new Error("This token is not the currently assigned Atlas explorer.");
       }
-      await savePartyExplorationConfig(scene, {
+      expected = await savePartyExplorationConfig(scene, {
         enabled: assigning,
         tokenId: assigning ? token.id : null,
         radius: Number(radius.value),
@@ -72,6 +74,8 @@ export function addAtlasExplorerToTokenConfig(app, element) {
       status.textContent = assigning ?
         "Saved. This token is Atlas's Scene explorer." :
         "Removed this token's Atlas explorer assignment.";
+      if(assigning)revealAssignedExplorer(scene,token);
+      button.disabled = false;
       ui.notifications.info(status.textContent);
     } catch (error) {
       ui.notifications.error(error.message);
