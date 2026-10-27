@@ -35,3 +35,12 @@ test("checkpoint crossing is discovered even when endpoints are far away",()=>{
   assert.deepEqual(discoveredOnPath(atlas,path,30,{x:0,y:0}),["cp"]);
   assert.deepEqual(discoveredOnPath(atlas,[{x:25,y:200},{x:625,y:200}],30),[]);
 });
+
+
+test("v0.2.29 exploration proximity visits only checkpoints crossed within survey range",()=>{
+  const atlas={schemaVersion:9,nodes:[
+    {id:"a",x:200,y:25},{id:"b",x:200,y:125}],checkpoints:[
+    {id:"near",nodeId:"a"},{id:"far",nodeId:"b"}]};
+  const movement=[{x:25,y:25},{x:425,y:25}];
+  assert.deepEqual(discoveredOnPath(atlas,movement,40),["near"]);
+});
