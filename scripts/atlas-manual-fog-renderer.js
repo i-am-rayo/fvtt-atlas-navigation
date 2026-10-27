@@ -8,7 +8,7 @@ import { BRUSH_REVEAL_SHORTCUT, BRUSH_HIDE_SHORTCUT }
 /** Dedicated independent renderer: only persisted manual overrides determine visibility. */
 export class AtlasManualFogController {
   constructor() {
-    this.layer=null;this.view=null;this.preview=false;this.brush=null;
+    this.layer=null;this.view=null;this.preview=true;this.brush=null;
     this.pointerTarget=null;this.pointerDown=this.onPointerDown.bind(this);
     this.paletteOpen=false;this.radius=1;
   }
