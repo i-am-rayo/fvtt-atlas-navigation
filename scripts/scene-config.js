@@ -1,6 +1,8 @@
 import { readAtlas } from "./atlas-storage.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { readManualFog } from "./atlas-manual-fog-storage.js";
+import { readAtlasJournalLinks, journalUuidFor, openAtlasJournal }
+  from "./atlas-journal-links.js";
 import { checkpointKnowledge } from "./party-exploration-model.js";
 import { readSceneGridScale } from "./scene-grid.js";
 import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
@@ -135,6 +137,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   const travelPresets = readWorldTravelPresets().presets;
   const presetById = new Map(travelPresets.map(p => [p.id, p]));
   const worldRoadAppearance = readWorldRoadAppearance();
+  const journalLinks = readAtlasJournalLinks(scene);
   const sharedFilter = atlas.schemaVersion >= 3 && atlas.roads?.length
     ? junctionFilterFor(scene, atlas) : null;
   const shownRoads = sharedFilter ? filteredRoadIds(atlas, sharedFilter) : new Set();
@@ -271,6 +274,10 @@ function atlasPanel(scene, atlas, actions, refresh) {
       controls.appendChild(button(road.playerVisible === true ? "👁" : "◌",
         road.playerVisible === true ? "Hide this road from players" : "Show this road to players (visual only)",
         () => actions.toggleRoadPlayerVisibility(scene, road, refresh)));
+      const roadJournal = journalUuidFor(journalLinks,"road",road.id);
+      if(roadJournal)controls.appendChild(button("📖", "Open linked Road Journal",
+        () => void openAtlasJournal(roadJournal).catch(error =>
+          ui.notifications.error(error.message||String(error)))));
       controls.appendChild(button("🖌", "ROAD OVERLAY — Edit line, pattern and label text color (does not change native Regions)",
         () => actions.editRoadAppearance(scene, road, refresh)));
       if (road.appearance) {
@@ -556,6 +563,10 @@ function atlasPanel(scene, atlas, actions, refresh) {
         checkpoint.playerVisible === true ? "Hide checkpoint from players" :
           "Show checkpoint to players (visual only)",
         () => actions.toggleCheckpointPlayerVisibility(scene, checkpoint, refresh)));
+      const checkpointJournal = journalUuidFor(journalLinks,"checkpoint",checkpoint.id);
+      if(checkpointJournal)controls.appendChild(button("📖", "Open linked Checkpoint Journal",
+        () => void openAtlasJournal(checkpointJournal).catch(error =>
+          ui.notifications.error(error.message||String(error)))));
       controls.appendChild(button("🖼", "CHECKPOINT OVERLAY — Set Font Awesome icon / image, size, colors and name labels",
         () => actions.editCheckpointAppearance(scene, checkpoint, refresh)));
       controls.appendChild(button("×", label("FVTTATLAS.Checkpoints.Delete"),
