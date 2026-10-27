@@ -61,19 +61,39 @@ export async function saveAtlasMapFogMode(scene, { enabled, expected }) {
   return after;
 }
 
-/** Persist only after movement of the GM-chosen placed token. */
-export async function recordAtlasMapFogMovement(tokenDoc) {
+// Per-Scene write queue prevents rapid token movements from racing each
+// other through Foundry's asynchronous Scene flag updates.
+const movementSaves = new Map();
+
+/** Persist the exact token position observed at each movement update. */
+export function recordAtlasMapFogMovement(tokenDoc) {
   const scene = tokenDoc?.parent;
   if (!globalThis.game?.user?.isGM || !scene?.canUserModify?.(game.user, "update") ||
-      !globalThis.canvas?.ready || canvas.scene?.id !== scene.id) return false;
+      !globalThis.canvas?.ready || canvas.scene?.id !== scene.id) return Promise.resolve(false);
   const party = readPartyExploration(scene);
-  const before = readAtlasMapFog(scene);
-  if (!before.enabled || !party.enabled || party.tokenId !== tokenDoc.id) return false;
-  const next = appendAtlasFogTrail(before, tokenTrailPoint(canvas, scene, tokenDoc, party));
-  if (next.trail.length === before.trail.length) return false;
-  if (JSON.stringify(readAtlasMapFog(scene)) !== JSON.stringify(before)) return false;
-  await scene.setFlag(MODULE_ID, ATLAS_MAP_FOG_FLAG, next);
-  return true;
+  if (!party.enabled || party.tokenId !== tokenDoc.id) return Promise.resolve(false);
+  // Capture NOW: by the time the queued write executes the token may have
+  // moved again. Both the token position and image-local origin are immutable
+  // snapshots for this movement.
+  const point = tokenTrailPoint(canvas, scene, tokenDoc, party);
+  const key = scene.id;
+  const previous = movementSaves.get(key) ?? Promise.resolve();
+  const task = previous.catch(() => {}).then(async () => {
+    const before = readAtlasMapFog(scene);
+    if (!before.enabled) return false;
+    const current = readPartyExploration(scene);
+    if (!current.enabled || current.tokenId !== tokenDoc.id) return false;
+    const next = appendAtlasFogTrail(before, point);
+    if (next.trail.length === before.trail.length) return false;
+    if (JSON.stringify(readAtlasMapFog(scene)) !== JSON.stringify(before)) return false;
+    await scene.setFlag(MODULE_ID, ATLAS_MAP_FOG_FLAG, next);
+    return true;
+  });
+  movementSaves.set(key, task);
+  void task.finally(() => {
+    if (movementSaves.get(key) === task) movementSaves.delete(key);
+  }).catch(() => {});
+  return task;
 }
 
 /**
