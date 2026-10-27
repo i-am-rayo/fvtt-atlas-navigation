@@ -80,7 +80,8 @@ export async function saveCheckpointKnowledge(scene, {
     const cells = nativeFogCells(view);
     const newlyVisible = checkpointRevealKeys(cells,atlas,after,
       Number(scene.grid?.size),
-      {x:Number(view.dimensions.sceneX),y:Number(view.dimensions.sceneY)});
+      {x:Number(view.dimensions.sceneX),y:Number(view.dimensions.sceneY)},
+      new Set([checkpointId]));
     const hidden = clearHiddenForCheckpoint(manual.hidden,newlyVisible);
     if (hidden.length !== manual.hidden.length) {
       updates["flags." + MODULE_ID + ".manualFog"] =
