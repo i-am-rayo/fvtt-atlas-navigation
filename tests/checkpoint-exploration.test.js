@@ -72,3 +72,19 @@ test("GM re-reveal targets only checkpoint whose status changed",()=>{
 test("new Scene default checkpoint radius is 2 cells",()=>{
   assert.equal(defaultPartyExploration().defaultRevealRadiusCells,2);
 });
+
+
+test("v0.2.29 automatic visit reveals only its own checkpoint radius",()=>{
+  const two={...atlas,nodes:[...atlas.nodes,{id:"n2",x:200,y:200}],
+    checkpoints:[...atlas.checkpoints,{id:"cp2",nodeId:"n2"}]};
+  let party={...defaultPartyExploration(),enabled:true};
+  party=setCheckpointRevealRadius(party,"cp1",1);
+  party=setCheckpointRevealRadius(party,"cp2",2);
+  party=setCheckpointKnowledge(party,"cp1","visited");
+  const only=checkpointRevealKeys(cells,two,party,50,{x:0,y:0},new Set(["cp1"]));
+  assert.ok(only.has("100,100"));
+  assert.ok(!only.has("200,200"),"other checkpoint must not auto-discover");
+  assert.ok(!only.has("0,0"),"checkpoint reveal must not use explorer survey radius");
+  assert.deepEqual(clearHiddenForCheckpoint([{x:100,y:100},{x:200,y:200}],only),
+    [{x:200,y:200}]);
+});
