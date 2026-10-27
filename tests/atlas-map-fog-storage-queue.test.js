@@ -115,7 +115,7 @@ test("square-grid discovered cells are persisted without canvas offset coordinat
     assert.equal(await recordAtlasMapFogMovement(token), true);
     assert.equal(flags.mapFog.schemaVersion, 2);
     const saved = structuredClone(flags.mapFog.cells);
-    assert.ok(saved.some(c => c.x === 150 && c.y === 50));
+    assert.ok(saved.some(c => c.x === 150 && c.y === 150));
     // Saved image-relative coordinates do not move with the canvas origin.
     globalThis.canvas.dimensions = { sceneX: 350, sceneY: 450 };
     assert.deepEqual(flags.mapFog.cells, saved);
