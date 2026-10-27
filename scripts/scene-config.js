@@ -500,18 +500,18 @@ function atlasPanel(scene, atlas, actions, refresh) {
     mapFogSection.appendChild(node("p",
       "Current survey: " + format(party.radius / surveyGridDistance) +
       " grid cells (" + format(party.radius) + " " + (scene.grid?.units || "units") +
-      "). Saved trail circles keep their original radii until explicitly removed.", "hint"));
+      "). Saved travel records retain their original survey radii until explicitly removed.", "hint"));
   }
   mapFogSection.appendChild(node("p",
     "Saved Atlas travel reveals: " + mapFog.trail.length +
-    ". Removing an Atlas reveal affects only its saved travel circle; known checkpoints and " +
+    ". Removing a saved travel record also removes its incoming surveyed path; known checkpoints and " +
     "Foundry's native FogExploration history remain unchanged.", "hint"));
   const newest = Math.max(0, mapFog.trail.length - 10);
   for (let index = mapFog.trail.length - 1; index >= newest; index--) {
     const point = mapFog.trail[index];
     const row = node("div", undefined, "form-group");
     row.appendChild(node("span",
-      "Travel reveal #" + (index + 1) + " — radius " + format(point.radiusCells) +
+      "Travel record #" + (index + 1) + (Number.isFinite(point.fromX) ? " (route)" : "") + " — radius " + format(point.radiusCells) +
       " grid cells; x " + format(point.x) + ", y " + format(point.y)));
     row.appendChild(button("Remove", "Remove this saved Atlas travel reveal", () =>
       actions.removeAtlasFogTrailPoint(scene, { index, expected: mapFog }, refresh)));
