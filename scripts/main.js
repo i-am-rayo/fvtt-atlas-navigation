@@ -868,7 +868,13 @@ Hooks.once("init", () => {
   });
   Hooks.on("canvasReady", () => roadCanvas.refresh());
   Hooks.on("updateToken", (token, changes) => {
-    if (!game.user?.isGM || !("x" in changes) && !("y" in changes)) return;
+    if (!("x" in changes) && !("y" in changes)) return;
+    if (!game.user?.isGM) {
+      // The player must redraw the transient current-position reveal on the
+      // token update, independent of the delayed GM Scene-history write.
+      roadCanvas.onFogRefresh();
+      return;
+    }
     void recordAtlasMapFogMovement(token)
       .then(() => recordPartyDiscoveryForToken(token))
       .catch(error => console.warn("[" + MODULE_ID +
