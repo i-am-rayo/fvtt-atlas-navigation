@@ -38,3 +38,8 @@ export function checkpointRevealKeys(cells, atlas, exploration, gridSize, origin
   }
   return keys;
 }
+
+/** Clear only old manually-hidden overrides covered by an explicit GM reveal. */
+export function clearHiddenForCheckpoint(hidden, projectedKeys) {
+  return hidden.filter(point => !projectedKeys.has(cellKey(point)));
+}
