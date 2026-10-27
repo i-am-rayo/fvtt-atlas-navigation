@@ -2,6 +2,8 @@ import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT, CHECKPOINT_FREE_ICONS, checkpoi
   findCheckpointIcons,
   resolveCheckpointAppearance, validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { readAtlas } from "./atlas-storage.js";
+import { readCheckpointDiscoveryMethods, checkpointDiscoveryMethod }
+  from "./checkpoint-discovery-method.js";
 import { saveCheckpointPresentation } from "./road-storage.js";
 import { readPartyExploration, saveCheckpointKnowledge }
   from "./party-exploration-storage.js";
@@ -39,6 +41,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     if (!current) throw new Error("Checkpoint no longer exists.");
     const appearance = resolveCheckpointAppearance(current.appearance);
     const exploration = readPartyExploration(this.scene);
+    const discoveryMethods = readCheckpointDiscoveryMethods(this.scene);
     const root = el("div");
     root.style.cssText = "padding:0.85rem;display:grid;gap:0.6rem;overflow:auto;height:100%;";
     root.appendChild(el("p", "CHECKPOINT — " + current.name +
@@ -80,6 +83,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     playerVisibility.setAttribute("aria-label", "Checkpoint visible to players");
     let discovery = null;
     let revealRadius = null;
+    let discoveryMethod = null;
     if (exploration.enabled) {
       const state = checkpointKnowledge(exploration, this.checkpointId);
       discovery = field("Discovery status", select([
@@ -88,6 +92,15 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         ["lore", "Known through Lore"]
       ], state));
       discovery.setAttribute("aria-label", "Checkpoint discovery status");
+      discoveryMethod = field("Discovery method", select([
+        ["automatic", "Automatic — explorer proximity"],
+        ["gm", "GM Only — manual reveal"],
+        ["lore", "Lore Only — story discovery"]
+      ], checkpointDiscoveryMethod(discoveryMethods,this.checkpointId)));
+      fields.appendChild(el("small",
+        "Automatic marks the checkpoint Seen/Visited when an explorer approaches. " +
+        "GM Only and Lore Only never reveal through proximity; the GM sets its status " +
+        "when appropriate. Journal-based lore triggers will be handled separately."));
       revealRadius = el("input");
       revealRadius.type = "number";
       revealRadius.min = "0"; revealRadius.max = "100"; revealRadius.step = "0.25";
@@ -379,11 +392,14 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         if (discovery && (discovery.value !==
             checkpointKnowledge(exploration, this.checkpointId) ||
             Number(revealRadius.value) !==
-              checkpointRevealRadiusCells(exploration, this.checkpointId))) {
+              checkpointRevealRadiusCells(exploration, this.checkpointId) ||
+            discoveryMethod.value !==
+              checkpointDiscoveryMethod(discoveryMethods,this.checkpointId))) {
           await saveCheckpointKnowledge(this.scene, {
             checkpointId: this.checkpointId, knowledge: discovery.value,
             revealRadiusCells: Number(revealRadius.value),
-            expected: exploration
+            expected: exploration,
+            method: discoveryMethod.value, expectedMethods: discoveryMethods
           });
         }
         this.onSaved?.();
