@@ -560,7 +560,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
         () => actions.editCheckpointAppearance(scene, checkpoint, refresh)));
       controls.appendChild(button("×", label("FVTTATLAS.Checkpoints.Delete"),
         () => actions.removeCheckpoint(scene, checkpoint, refresh)));
-      if (party.enabled) {
+      if (party.enabled || state.enabled) {
         const knowledge = checkpointKnowledge(party, checkpoint.id);
         const knowledgeSelect = node("select");
         knowledgeSelect.title = "GM checkpoint discovery / lore knowledge";
@@ -587,6 +587,31 @@ function atlasPanel(scene, atlas, actions, refresh) {
           }
         });
         controls.appendChild(knowledgeSelect);
+        if (state.enabled) {
+          const radiusLabel = node("label", "Terrain radius (cells)");
+          radiusLabel.title = "Checkpoint reveal radius, 0 = show marker without revealing terrain.";
+          const radiusInput = document.createElement("input");
+          radiusInput.type = "number";
+          radiusInput.min = "0";
+          radiusInput.max = "100";
+          radiusInput.step = "1";
+          radiusInput.style.width = "5em";
+          radiusInput.value = String(Object.hasOwn(party.checkpointRevealRadiusCells,checkpoint.id)
+            ? party.checkpointRevealRadiusCells[checkpoint.id]
+            : party.defaultRevealRadiusCells);
+          radiusInput.addEventListener("change", async () => {
+            try {
+              await actions.setCheckpointKnowledge(scene, {
+                checkpointId: checkpoint.id,
+                knowledge: knowledge === "legacy" ? "unknown" : knowledge,
+                revealRadiusCells: Number(radiusInput.value),
+                expected: party
+              }, refresh);
+            } catch(error) { ui.notifications.error(error.message); refresh(); }
+          });
+          radiusLabel.appendChild(radiusInput);
+          controls.appendChild(radiusLabel);
+        }
       }
       row.appendChild(controls);
       checkpointSection.appendChild(row);
