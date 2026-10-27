@@ -47,7 +47,8 @@ function tokenTrailPoint(canvas, scene, tokenDoc, party) {
  * reversible without accumulating orphaned cells.
  */
 function persistDiscoveredCells(view, scene, party, fog) {
-  if (!view?.ready || view.scene?.id !== scene.id || view.grid?.isGridless) {
+  if (!view?.ready || view.scene?.id !== scene.id || view.grid?.isGridless ||
+      scene.grid?.type === (globalThis.CONST?.GRID_TYPES?.GRIDLESS ?? 0)) {
     throw new Error("Atlas Map Fog now requires an active square or hex Scene.");
   }
   const cellSize = Number(scene.grid?.size);
