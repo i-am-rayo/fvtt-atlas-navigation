@@ -21,15 +21,20 @@ export function validateAtlasMapFog(value) {
   }
   const trail = value.trail.map(point => {
     if (!point || typeof point !== "object" || Array.isArray(point) ||
-        Object.keys(point).some(key => !["x", "y", "radiusCells"].includes(key)) ||
+        Object.keys(point).some(key => !["x", "y", "radiusCells", "fromX", "fromY"].includes(key)) ||
         !["x", "y", "radiusCells"].every(key => Object.hasOwn(point, key)) ||
         !Number.isFinite(point.x) || !Number.isFinite(point.y) ||
         Math.abs(point.x) > 1e7 || Math.abs(point.y) > 1e7 ||
         !Number.isFinite(point.radiusCells) ||
-        point.radiusCells <= 0 || point.radiusCells > 100) {
+        point.radiusCells <= 0 || point.radiusCells > 100 ||
+        (Object.hasOwn(point, "fromX") !== Object.hasOwn(point, "fromY")) ||
+        (Object.hasOwn(point, "fromX") &&
+          (![point.fromX, point.fromY].every(Number.isFinite) ||
+           Math.abs(point.fromX) > 1e7 || Math.abs(point.fromY) > 1e7))) {
       throw new Error("Invalid Atlas map-fog travel point.");
     }
-    return { x: point.x, y: point.y, radiusCells: point.radiusCells };
+    return { x: point.x, y: point.y, radiusCells: point.radiusCells,
+      ...(Object.hasOwn(point, "fromX") ? { fromX: point.fromX, fromY: point.fromY } : {}) };
   });
   return { schemaVersion: ATLAS_MAP_FOG_SCHEMA_VERSION, enabled: value.enabled, trail };
 }
@@ -47,7 +52,10 @@ export function appendAtlasFogTrail(state, point) {
   if (current.trail.length >= MAX_ATLAS_FOG_TRAIL_POINTS) {
     throw new Error("Atlas map-fog trail is full; stop and review before extending exploration.");
   }
-  return { ...current, trail: [...current.trail, candidate] };
+  // Older saved points remain unchanged. Only newly recorded movements
+  // have a segment start, so deleting a record never rewrites history.
+  const destination = last ? { ...candidate, fromX: last.x, fromY: last.y } : candidate;
+  return { ...current, trail: [...current.trail, destination] };
 }
 
 /** Explicit GM history correction; indices refer to the saved, chronological trail. */
@@ -96,6 +104,23 @@ export function atlasMapFogDiscs(atlas, exploration, mapFog, gridSize,
     const center = toCanvas(point);
     if (Number.isFinite(center?.x) && Number.isFinite(center?.y)) {
       discs.push({ x: center.x, y: center.y, radius: point.radiusCells * gridSize });
+      if (Number.isFinite(point.fromX) && Number.isFinite(point.fromY)) {
+        const from = toCanvas({ x: point.fromX, y: point.fromY });
+        const radius = point.radiusCells * gridSize;
+        const distance = Math.hypot(center.x - from.x, center.y - from.y);
+        // Explicit, bounded sampling for a continuous surveyed corridor.
+        // Never guess coordinates from other trail records at render time.
+        const steps = Math.max(1, Math.ceil(distance / Math.max(1, radius * 0.65)));
+        if (steps > 512) throw new Error("Atlas travel step is too long to survey safely.");
+        for (let step = 1; step < steps; step++) {
+          const t = step / steps;
+          discs.push({
+            x: from.x + (center.x - from.x) * t,
+            y: from.y + (center.y - from.y) * t,
+            radius
+          });
+        }
+      }
     }
   }
   if (tokenCenter && Number.isFinite(tokenCenter.x) && Number.isFinite(tokenCenter.y)) {
