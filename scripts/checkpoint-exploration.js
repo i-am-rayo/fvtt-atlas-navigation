@@ -6,7 +6,7 @@ import { cellKey } from "./atlas-manual-fog-model.js";
  * This is read-only: the resulting cells are NEVER written into manual brush state.
  * Positions are Scene-image-relative for Atlas v2+ road graph schemas.
  */
-export function checkpointRevealKeys(cells, atlas, exploration, gridSize, origin={x:0,y:0}) {
+export function checkpointRevealKeys(cells, atlas, exploration, gridSize, origin={x:0,y:0}, onlyCheckpointIds=null) {
   const keys=new Set();
   if (!exploration?.enabled || !Array.isArray(cells) ||
       !Number.isFinite(gridSize) || gridSize<=0) return keys;
@@ -19,6 +19,7 @@ export function checkpointRevealKeys(cells, atlas, exploration, gridSize, origin
     list.push(cell);buckets.set(key,list);
   }
   for (const checkpoint of atlas?.checkpoints??[]) {
+    if (onlyCheckpointIds && !onlyCheckpointIds.has(checkpoint.id)) continue;
     const knowledge=checkpointKnowledge(exploration,checkpoint.id);
     if (knowledge!=="visited"&&knowledge!=="lore") continue;
     const radius=checkpointRevealRadiusCells(exploration,checkpoint.id);
