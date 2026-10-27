@@ -4,13 +4,12 @@ import { fogCoverForGrid, fogCoverRuns } from "../scripts/atlas-fog-geometry.js"
 
 test("grid-aligned cover uses cells with centers outside discovery", () => {
   const grid = {
-    getOffsetRange: () => [{ i: 0, j: 0 }, { i: 1, j: 0 }, { i: 1, j: 0 }],
     getCenterPoint: ({ i }) => ({ x: i * 10 + 5, y: 5 }),
     getShape: () => [{ x: -5, y: -5 }, { x: 5, y: -5 }, { x: 5, y: 5 },
       { x: -5, y: 5 }]
   };
   const polygons = fogCoverForGrid(grid, { x: 0, y: 0, width: 20, height: 10 },
-    point => point.x < 10);
+    point => point.x < 10, { rows: 2, columns: 1 });
   assert.equal(polygons.length, 1);
   assert.deepEqual(polygons[0][0], { x: 10, y: 0 });
   assert.deepEqual(polygons[0][2], { x: 20, y: 10 });
@@ -31,9 +30,9 @@ test("native grid failures cannot silently produce an exposed map", () => {
   assert.throws(() => fogCoverForGrid({}, { x: 0, y: 0, width: 10, height: 10 },
     () => false), /requires/);
   assert.throws(() => fogCoverForGrid({
-    getOffsetRange: () => [{ i: 0, j: 0 }, { i: 1, j: 0 }],
     getTopLeftPoint: () => ({ x: 0, y: 0 }),
     getCenterPoint: () => ({ x: 0, y: 0 }),
     getShape: () => [{ x: 0, y: 0 }, { x: 0, y: 5 }, { x: 5, y: 0 }]
-  }, { x: 0, y: 0, width: 10, height: 10 }, () => false, 1), /too large/);
+  }, { x: 0, y: 0, width: 10, height: 10 }, () => false,
+  { rows: 2, columns: 1 }, 1), /bounded/);
 });
