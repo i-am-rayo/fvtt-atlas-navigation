@@ -422,6 +422,14 @@ function atlasPanel(scene, atlas, actions, refresh) {
   const mapFogLabel = node("label", " Use Atlas Map Fog for this Scene");
   mapFogLabel.appendChild(mapFogEnabled);
   mapFogSection.appendChild(mapFogLabel);
+  const unsupportedGrid = scene.grid?.type === (globalThis.CONST?.GRID_TYPES?.GRIDLESS ?? 0);
+  if (unsupportedGrid) {
+    mapFogEnabled.disabled = true;
+    mapFogSection.appendChild(node("p",
+      "Atlas Map Fog supports square and hex grids only. Existing gridless travel history " +
+      "is preserved but cannot be rendered or extended in this mode. " +
+      "Re-enable native Token Vision before disabling Atlas Map Fog.", "hint"));
+  }
   mapFogSection.appendChild(node("p",
     "SETUP: Enable and save this option first, then disable Token Vision in the " +
     "native Scene settings. Atlas does NOT change Token Vision automatically. " +
@@ -445,6 +453,12 @@ function atlasPanel(scene, atlas, actions, refresh) {
       " grid cells (" + format(party.radius) + " " + (scene.grid?.units || "units") +
       "). Saved travel records retain their original survey radii until explicitly removed.", "hint"));
   }
+  mapFogSection.appendChild(node("p",
+    mapFog.schemaVersion === 2
+      ? "Persistently explored grid cells: " + mapFog.cells.length +
+        " (derived from travel history; known checkpoint reveals remain separate)."
+      : "Legacy travel history: persistent cell coverage will be generated on the next GM-confirmed exploration update.",
+    "hint"));
   mapFogSection.appendChild(node("p",
     "Saved Atlas travel reveals: " + mapFog.trail.length +
     ". Removing a saved travel record also removes its incoming surveyed path; known checkpoints and " +
