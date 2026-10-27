@@ -4,7 +4,13 @@ import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
 import { readAtlasMapFog } from "./atlas-map-fog-storage.js";
 export function readManualFog(scene) {
   if(!scene?.getFlag)throw new Error("Select an Atlas Scene.");
-  return validateManualFog(scene.getFlag(MODULE_ID,MANUAL_FOG_FLAG));
+  const saved = scene.getFlag(MODULE_ID,MANUAL_FOG_FLAG);
+  if (saved == null && scene.getFlag(MODULE_ID,"mapFog")?.enabled === true) {
+    // Upgrading from the old experimental mask must never expose the entire
+    // Scene before the GM has explicitly enabled/imported manual exploration.
+    return {...validateManualFog(null),enabled:true};
+  }
+  return validateManualFog(saved);
 }
 function permit(scene) {
   if(!globalThis.game?.user?.isGM || !scene?.canUserModify?.(game.user,"update"))
