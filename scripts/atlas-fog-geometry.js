@@ -5,7 +5,6 @@
  */
 export function fogCoverForGrid(grid, bounds, revealed, maxCells = 40000) {
   if (!grid || typeof grid.getOffsetRange !== "function" ||
-      typeof grid.getTopLeftPoint !== "function" ||
       typeof grid.getShape !== "function" ||
       typeof grid.getCenterPoint !== "function") {
     throw new Error("Atlas grid-aligned fog requires Foundry v14 grid geometry.");
@@ -33,11 +32,9 @@ export function fogCoverForGrid(grid, bounds, revealed, maxCells = 40000) {
       throw new Error("Invalid native Scene grid cell center.");
     }
     if (revealed(center)) continue;
-    const origin = grid.getTopLeftPoint(offset);
-    if (!Number.isFinite(origin?.x) || !Number.isFinite(origin?.y)) {
-      throw new Error("Invalid native Scene grid cell origin.");
-    }
-    polygons.push(vertices.map(p => ({ x: p.x + origin.x, y: p.y + origin.y })));
+    // Foundry's grid shape vertices are offsets FROM getCenterPoint,
+    // including for staggered/rotated hex grids.
+    polygons.push(vertices.map(p => ({ x: p.x + center.x, y: p.y + center.y })));
   }
   return polygons;
 }
