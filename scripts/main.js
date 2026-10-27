@@ -36,6 +36,9 @@ import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
 import { AtlasCheckpointAppearanceEditor } from "./checkpoint-appearance-editor.js";
+import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
+  validJournalUuid } from "./atlas-journal-links.js";
+import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.js";
 import { AtlasRoadEditorDock } from "./road-editor-dock.js";
 
 const roadCanvas = new RoadCanvasController();
@@ -257,13 +260,18 @@ function actions() {
       visibility.defaultChecked = visibility.checked;
       visibilityRow.append(visibilityLabel, visibility);
       const baseline = resolveRoadAppearance(actual, readWorldRoadAppearance(), mode);
-      content.append(hint, nameRow, visibilityRow, roadAppearanceForm(baseline));
+      const journalLinks = readAtlasJournalLinks(scene);
+      const journalControls = journalLinkFields(journalLinks,"road",road.id);
+      content.append(hint, nameRow, visibilityRow, roadAppearanceForm(baseline),journalControls);
       const result = await DialogV2.input({
         window: { title: "Road Settings — " + actual.name },
         content, ok: { label: "Save Road Settings" },
         rejectClose: false, modal: true
       });
       if (!result) return;
+      const nextJournal=journalUuidFromForm(result.atlasJournalUuid);
+      if(nextJournal&&!validJournalUuid(nextJournal))
+        throw Error("Choose a valid Journal Entry UUID.");
       const selected = roadAppearanceFromForm(result);
       const inherits = actual.appearance == null &&
         Object.keys(selected).every(key => selected[key] === baseline[key]);
@@ -273,6 +281,11 @@ function actions() {
           result.atlasRoadVisible === "true" || result.atlasRoadVisible === "on",
         appearance: inherits ? null : selected, expectedRevision: atlas.revision
       });
+      if(nextJournal!==journalUuidFor(journalLinks,"road",road.id)) {
+        await saveAtlasJournalLink(scene,{
+          kind:"road",id:road.id,uuid:nextJournal,expected:journalLinks
+        });
+      }
       roadCanvas.refresh();
       refresh();
       ui.notifications.info("Atlas road settings saved.");
