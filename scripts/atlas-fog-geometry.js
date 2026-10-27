@@ -78,37 +78,45 @@ export function fogCoverForGrid(grid, bounds, revealed, dimensions, maxCells = 4
   return polygons;
 }
 
-/** Gridless fallback: opaque horizontal runs outside the union of reveals.
- * Unlike multiple Pixi holes, unions cannot self-intersect or create wedges.
+
+/** Materialize durable, image-relative discovered cells from the complete
+ * saved travel history. A grid presentation is never a movement database.
+ * Existing history remains authoritative for explicit GM history corrections.
  */
-export function fogCoverRuns(bounds, discs, step = 5, maxRows = 12000) {
-  const { x, y, width, height } = bounds;
-  if (![x, y, width, height, step].every(Number.isFinite) ||
-      width <= 0 || height <= 0 || step <= 0 ||
-      Math.ceil(height / step) > maxRows) {
-    throw new Error("Invalid or oversized Atlas fog raster geometry.");
+export function discoveredCellsForGrid(grid, dimensions, discs, imageOrigin,
+    maxCells = 40000) {
+  if (!grid || grid.isGridless || typeof grid.getShape !== "function" ||
+      typeof grid.getCenterPoint !== "function") {
+    throw new Error("Atlas persistent discovery requires a square or hex grid.");
   }
-  const rects = [];
-  const right = x + width;
-  for (let rowY = y; rowY < y + height; rowY += step) {
-    const h = Math.min(step, y + height - rowY);
-    const line = rowY + h / 2;
-    const holes = [];
-    for (const disc of discs) {
-      const dy = line - disc.y;
-      if (Math.abs(dy) >= disc.radius) continue;
-      const half = Math.sqrt(disc.radius * disc.radius - dy * dy);
-      const from = Math.max(x, disc.x - half);
-      const to = Math.min(right, disc.x + half);
-      if (from < to) holes.push([from, to]);
-    }
-    holes.sort((a, b) => a[0] - b[0]);
-    let cursor = x;
-    for (const [start, end] of holes) {
-      if (start > cursor) rects.push({ x: cursor, y: rowY, width: start - cursor, height: h });
-      cursor = Math.max(cursor, end);
-    }
-    if (cursor < right) rects.push({ x: cursor, y: rowY, width: right - cursor, height: h });
+  const rows = Number(dimensions?.rows);
+  const cols = Number(dimensions?.columns);
+  if (!Number.isSafeInteger(rows) || !Number.isSafeInteger(cols) ||
+      rows <= 0 || cols <= 0 || rows * cols > maxCells ||
+      ![imageOrigin?.x, imageOrigin?.y].every(Number.isFinite)) {
+    throw new Error("Invalid Atlas grid geometry or image origin.");
   }
-  return rects;
+  const vertices = grid.getShape();
+  if (!Array.isArray(vertices) || vertices.length < 3 ||
+      vertices.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) {
+    throw new Error("Invalid native Scene grid cell shape.");
+  }
+  const cells = [];
+  for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) {
+    const center = grid.getCenterPoint({ i, j });
+    if (![center?.x, center?.y].every(Number.isFinite)) {
+      throw new Error("Invalid native Scene grid cell center.");
+    }
+    const polygon = vertices.map(p => ({ x: p.x + center.x, y: p.y + center.y }));
+    const covered = discs.some(d => {
+      if (!Number.isFinite(d?.radius) || d.radius <= 0) return false;
+      const pad = Math.max(...vertices.map(p => Math.hypot(p.x, p.y)));
+      if (Math.hypot(center.x - d.x, center.y - d.y) > d.radius + pad) return false;
+      return discoveredCellIntersectsDisc(polygon, d);
+    });
+    if (covered) {
+      cells.push({ x: center.x - imageOrigin.x, y: center.y - imageOrigin.y });
+    }
+  }
+  return cells;
 }
