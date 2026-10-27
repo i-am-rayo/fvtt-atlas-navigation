@@ -11,7 +11,7 @@ import { playerAtlasOverlay } from "./player-visibility.js";
 import { atlasMapFogSelected, atlasMapFogDiscs, atlasMapPointRevealed }
   from "./atlas-map-fog-model.js";
 import { readAtlasMapFog } from "./atlas-map-fog-storage.js";
-import { fogCoverForGrid, fogCoverRuns } from "./atlas-fog-geometry.js";
+import { fogCoverForGrid } from "./atlas-fog-geometry.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
@@ -1375,28 +1375,48 @@ export class RoadCanvasController {
       y: token.y + (token.height || 1) * cellSize / 2,
       gridDistance: Number(canvas.scene?.grid?.distance)
     } : null;
-    const discs = atlasMapFogDiscs(atlas, party, mapFog, cellSize,
+    // v2 has an explicit durable cell projection of travelled terrain.
+    // Its temporary discs contain only lore/checkpoint + current token vision;
+    // historic route records no longer need to be replayed at every redraw.
+    const displayFog = mapFog.schemaVersion === 2
+      ? { ...mapFog, trail: [] } : mapFog;
+    const discs = atlasMapFogDiscs(atlas, party, displayFog, cellSize,
       point => ({ x: point.x + x, y: point.y + y }), center);
     this.atlasMapFogDiscs = discs.filter(d =>
       [d.x, d.y, d.radius].every(Number.isFinite) && d.radius > 0);
-    if (!this.atlasMapFogDiscs.length) return;
+    if (!this.atlasMapFogDiscs.length &&
+        !(mapFog.schemaVersion === 2 && mapFog.cells.length)) return;
     try {
       const grid = canvas.grid;
       const bounds = { x, y, width, height };
       cover.clear();
       cover.beginFill(0x080b12, 1);
-      if (grid && !grid.isGridless) {
+      if (!grid || grid.isGridless) {
+        // Unsupported Scenes are kept fully covered; never expose the map.
+        cover.clear();
+        cover.beginFill(0x080b12, 1);
+        cover.drawRect(x, y, width, height);
+      } else {
+        const discovered = new Set();
+        if (mapFog.schemaVersion === 2) {
+          if (typeof grid.getOffset !== "function") {
+            throw new Error("Atlas discovery requires native grid offsets.");
+          }
+          for (const cell of mapFog.cells) {
+            const offset = grid.getOffset({ x: cell.x + x, y: cell.y + y });
+            if (Number.isSafeInteger(offset?.i) && Number.isSafeInteger(offset?.j)) {
+              discovered.add(offset.i + "," + offset.j);
+            }
+          }
+        }
         const hidden = fogCoverForGrid(grid, bounds,
-          point => atlasMapPointRevealed(point, this.atlasMapFogDiscs),
-          canvas.scene.dimensions, 40000, this.atlasMapFogDiscs);
+          point => {
+            const offset = grid.getOffset(point);
+            return discovered.has(offset.i + "," + offset.j) ||
+              atlasMapPointRevealed(point, this.atlasMapFogDiscs);
+          }, canvas.scene.dimensions, 40000, this.atlasMapFogDiscs);
         for (const polygon of hidden) {
           cover.drawPolygon(polygon.flatMap(point => [point.x, point.y]));
-        }
-      } else {
-        // Gridless maps remain supported. A small scanline step approximates
-        // smooth edges without creating unstable overlapping Pixi holes.
-        for (const rect of fogCoverRuns(bounds, this.atlasMapFogDiscs)) {
-          cover.drawRect(rect.x, rect.y, rect.width, rect.height);
         }
       }
       cover.endFill();
