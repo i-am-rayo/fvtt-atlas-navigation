@@ -11,6 +11,8 @@ import { playerAtlasOverlay } from "./player-visibility.js";
 import { readManualFog } from "./atlas-manual-fog-storage.js";
 import { cellKey } from "./atlas-manual-fog-model.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
+import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
+import { checkpointRevealKeys } from "./checkpoint-exploration.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
   roadStrokeSpans, roadLabelPoint, roadAppearanceMode, readRoadCurvePreset,
@@ -1147,6 +1149,11 @@ export class RoadCanvasController {
     const hoverPaths = [];
     const shownCells = new Set(fog.revealed.map(cellKey));
     const hiddenCells = new Set(fog.hidden.map(cellKey));
+    const checkpointCells = manualFog
+      ? checkpointRevealKeys(nativeFogCells(canvas),atlas,exploration,
+        Number(canvas.scene.grid?.size),
+        {x:canvas.dimensions.sceneX,y:canvas.dimensions.sceneY})
+      : new Set();
     const explored = manualFog
       ? point => {
         const offset = canvas.grid?.getOffset?.(point);
@@ -1154,7 +1161,7 @@ export class RoadCanvasController {
         const center = canvas.grid.getCenterPoint(offset);
         const key = cellKey({x:center.x-canvas.dimensions.sceneX,
           y:center.y-canvas.dimensions.sceneY});
-        return shownCells.has(key) && !hiddenCells.has(key);
+        return (shownCells.has(key)||checkpointCells.has(key)) && !hiddenCells.has(key);
       }
       : point => atlasPointExplored(canvas, point);
     const presets = validateTravelPresets(
