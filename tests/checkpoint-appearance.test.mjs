@@ -283,3 +283,14 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     Object.assign(globalThis, previous);
   }
 });
+
+
+test("v0.2.29 border colors default black, legacy styles remain readable", () => {
+  assert.equal(DEFAULT_CHECKPOINT_APPEARANCE.borderColor, "#000000");
+  const legacy = { ...fancy };
+  delete legacy.borderColor;
+  assert.equal(validateCheckpointAppearance(legacy).borderColor, "#000000");
+  assert.equal(legacy.borderColor, undefined, "read-only compatibility must not rewrite old flags");
+  assert.equal(validateCheckpointAppearance({ ...fancy, borderColor: "#d34e55" }).borderColor, "#d34e55");
+  assert.throws(() => validateCheckpointAppearance({ ...fancy, borderColor: "maroon" }));
+});
