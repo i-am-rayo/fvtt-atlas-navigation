@@ -1,0 +1,34 @@
+/* GM-only Atlas exploration palette, independent of the native Scene sheet. */
+.atlas-brush-palette {
+  position:fixed;left:92px;top:112px;width:min(350px,calc(100vw - 110px));
+  max-height:calc(100vh - 140px);overflow:auto;
+  z-index:1000;color:var(--color-text-primary,#eee);
+  background:var(--color-cool-5,#111018);
+  border:1px solid var(--color-border-light-tertiary,#988);border-radius:9px;
+  box-shadow:0 10px 32px #000a;padding:14px;font-size:14px;
+}
+.atlas-brush-palette button,.atlas-brush-palette input{font:inherit;}
+.atlas-brush-header{display:flex;justify-content:space-between;align-items:center;
+  gap:12px;border-bottom:1px solid #7776;padding-bottom:10px;margin-bottom:8px;}
+.atlas-brush-header strong{font-size:16px;}
+.atlas-brush-close{border:0!important;background:transparent!important;
+  font-size:25px!important;line-height:1;flex:0 0 auto;padding:0 5px!important;}
+.atlas-brush-help{font-size:12px;opacity:.8;line-height:1.4;margin:9px 0;}
+.atlas-brush-fieldset{border:1px solid var(--color-border-light-tertiary,#988);
+  padding:12px;border-radius:8px;margin:12px 0;display:grid;gap:8px;min-width:0;}
+.atlas-brush-fieldset legend{padding:0 7px;font-weight:700;}
+.atlas-brush-radius{display:grid;grid-template-columns:82px minmax(80px,1fr) 51px;align-items:center;gap:9px;}
+.atlas-brush-radius label{font-size:12px;}
+.atlas-brush-radius input[type=range]{width:100%;accent-color:#e6a034;cursor:pointer;}
+.atlas-brush-radius input[type=number]{width:100%;text-align:center;padding:5px 3px;
+  border-radius:5px;}
+.atlas-brush-mode{width:100%;text-align:left!important;min-height:39px;
+  padding:7px 10px!important;border:1px solid transparent!important;
+  border-radius:6px!important;background:#ffffff08!important;}
+.atlas-brush-mode:hover{border-color:#dca65988!important;background:#ffffff16!important;}
+.atlas-brush-mode.active{border-color:#e6a034!important;
+  background:#e6a03433!important;box-shadow:inset 3px 0 #e6a034;}
+.atlas-brush-fieldset p{margin:0;font-size:12px;line-height:1.4;}
+.atlas-brush-fieldset .atlas-brush-warning{color:#ffa857;}
+.atlas-brush-footer{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
+.atlas-brush-footer button{min-height:40px;}
