@@ -850,6 +850,12 @@ function atlasGridChangeNotice(scene, change, options) {
 }
 
 Hooks.once("init", () => {
+  game.settings.register(MODULE_ID, "hiddenOverlayHatching", {
+    name: "GM Hidden-Item Hatching",
+    hint: "Draw subtle burgundy diagonal hatching over GM-visible roads and checkpoints that players have not discovered. Never shown to players.",
+    scope: "world", config: true, type: Boolean, default: true,
+    onChange: () => roadCanvas.refresh()
+  });
   registerManualBrushSettings();
   registerWorldTravelPresets();
   registerWorldRoadAppearance(() => roadCanvas.refresh());
