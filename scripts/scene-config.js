@@ -409,9 +409,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
   const fogPanel = node("fieldset");
   fogPanel.appendChild(node("legend", "Atlas — Manual Exploration"));
   fogPanel.appendChild(node("p",
-    "Square/hex only. Reveal, Hide and Clear modify permanent Atlas cell overrides. " +
-    "Token movement does not change fog in this release. Clear removes a manual " +
-    "override; it does not erase legacy travel records.", "hint"));
+    "Square/hex only. The GM paints persistent discovered terrain with Reveal and " +
+    "can cover selected cells again with Hide. Token movement does not alter exploration " +
+    "in this release.", "hint"));
   const checkbox = node("input");
   checkbox.type = "checkbox";
   checkbox.checked = state.enabled;
@@ -426,20 +426,27 @@ function atlasPanel(scene, atlas, actions, refresh) {
   fogPanel.appendChild(node("p",
     "Enable here, then turn OFF native Scene Token Vision to let Atlas show the rendered map. " +
     "Atlas preserves native FogExploration and existing legacy travel records.", "hint"));
-  fogPanel.appendChild(button("Save Manual Fog Mode","Enable or disable Atlas fog",
-    () => actions.saveManualFog(scene,checkbox.checked,refresh)));
+  checkbox.addEventListener("change",async()=>{
+    const desired=checkbox.checked;
+    checkbox.disabled=true;
+    try {await actions.saveManualFog(scene,desired,refresh);}
+    catch(error){
+      checkbox.checked=!desired;
+      checkbox.disabled=false;
+      ui.notifications.error(error.message??String(error));
+    }
+  });
   fogPanel.appendChild(node("p",
-    "Revealed: " + state.revealed.length + " cells. Forced hidden: " +
-    state.hidden.length + " cells. Existing v0.2.25 travel records are retained separately.", "hint"));
+    "Revealed: " + state.revealed.length + " cells. Manually hidden overrides: " +
+    state.hidden.length + " cells (not the total unexplored map). " +
+    "Other undiscovered cells are automatically hidden.", "hint"));
   fogPanel.appendChild(button("Open Atlas Brush Palette",
     "Open the floating GM-only exploration brushes from the Scene Controls toolbar",
     () => actions.openManualBrushPalette()));
   fogPanel.appendChild(node("p",
-    "The brush radius, active tool, shortcuts and GM preview are in the " +
-    "floating palette, accessible through the paintbrush icon in Scene Controls.", "hint"));
-  fogPanel.appendChild(button("Import Saved Legacy Cells",
-    "Copy old saved discovered cells into the new manual state; old data remains unchanged",
-    () => actions.importManualFog(scene,refresh)));
+    "Open the brush palette from the Atlas map icon in Scene Controls. " +
+    "The neighboring eye tool toggles the GM fog preview; both are available without " +
+    "reopening Scene Configuration.", "hint"));
   root.appendChild(fogPanel);
 
   // v0.2.13: semantic checkpoints are optional records attached to stable
