@@ -102,16 +102,18 @@ export function discoveredCellsForGrid(grid, dimensions, discs, imageOrigin,
     throw new Error("Invalid native Scene grid cell shape.");
   }
   const cells = [];
+  const cellRadius = Math.max(...vertices.map(p => Math.hypot(p.x, p.y)));
+  const boundedDiscs = discs.filter(d => Number.isFinite(d?.x) &&
+    Number.isFinite(d?.y) && Number.isFinite(d?.radius) && d.radius > 0);
   for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) {
     const center = grid.getCenterPoint({ i, j });
     if (![center?.x, center?.y].every(Number.isFinite)) {
       throw new Error("Invalid native Scene grid cell center.");
     }
     const polygon = vertices.map(p => ({ x: p.x + center.x, y: p.y + center.y }));
-    const covered = discs.some(d => {
-      if (!Number.isFinite(d?.radius) || d.radius <= 0) return false;
-      const pad = Math.max(...vertices.map(p => Math.hypot(p.x, p.y)));
-      if (Math.hypot(center.x - d.x, center.y - d.y) > d.radius + pad) return false;
+    const covered = boundedDiscs.some(d => {
+      const dx = center.x - d.x, dy = center.y - d.y;
+      if (dx * dx + dy * dy > (d.radius + cellRadius) ** 2) return false;
       return discoveredCellIntersectsDisc(polygon, d);
     });
     if (covered) {
