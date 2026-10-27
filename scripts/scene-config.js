@@ -403,6 +403,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   }
   root.appendChild(junctionSection);
 
+  const party = readPartyExploration(scene);
   // Manual fog v0.2.26: Scene-owned state; token automation is intentionally disabled.
   const state = readManualFog(scene);
   const fogPanel = node("fieldset");
