@@ -403,74 +403,17 @@ function atlasPanel(scene, atlas, actions, refresh) {
   }
   root.appendChild(junctionSection);
 
-  // Opt-in Scene-local party assignment and geographical discovery rules.
-  // No token is auto-assigned, and rendering never writes flags.
+  // Explorer assignment/radius is controlled on the placed Token's sheet.
+  // Checkpoint terrain reveal radii are edited through Shift-click on each
+  // checkpoint. Keep the Scene settings focused on fog mode and corrections.
   const party = readPartyExploration(scene);
-  const partySection = node("fieldset");
-  partySection.appendChild(node("legend", "Atlas — Party Exploration (Scene)"));
-  partySection.appendChild(node("p",
-    "Select a Scene token manually. Distance uses this Scene's native Grid units. " +
-    "Native vision remains under Foundry/Vision 5e unless Atlas Map Fog is explicitly enabled below.", "hint"));
-  const partyEnabled = node("input");
-  partyEnabled.type = "checkbox";
-  partyEnabled.checked = party.enabled;
-  const partyEnabledLabel = node("label", " Enable Party Exploration");
-  partyEnabledLabel.appendChild(partyEnabled);
-  partySection.appendChild(partyEnabledLabel);
-
-  const partyToken = node("select");
-  partyToken.setAttribute("aria-label", "Atlas exploration token");
-  const unset = node("option", "Choose a placed token");
-  unset.value = "";
-  partyToken.appendChild(unset);
-  for (const token of scene.tokens ?? []) {
-    const option = node("option", token.name || token.actor?.name || token.id);
-    option.value = token.id;
-    partyToken.appendChild(option);
-  }
-  partyToken.value = party.tokenId ?? "";
-  partySection.appendChild(node("label", "Exploration Token (manual assignment)"));
-  partySection.appendChild(partyToken);
-
-  const partyRange = node("input");
-  partyRange.type = "number";
-  partyRange.min = "0.01";
-  partyRange.max = "100000";
-  partyRange.step = "any";
-  partyRange.value = String(party.radius);
-  partyRange.setAttribute("aria-label", "Atlas exploration radius");
-  partySection.appendChild(node("label",
-    "Survey Radius (" + (scene.grid?.units || "Scene Grid units") + ")"));
-  partySection.appendChild(partyRange);
-  const terrainRadius = node("input");
-  terrainRadius.type = "number";
-  terrainRadius.min = "0"; terrainRadius.max = "100"; terrainRadius.step = "0.25";
-  terrainRadius.value = String(party.defaultRevealRadiusCells);
-  terrainRadius.setAttribute("aria-label", "Default checkpoint terrain reveal radius in grid cells");
-  partySection.appendChild(node("label", "Default Checkpoint Terrain Reveal (grid cells)"));
-  partySection.appendChild(terrainRadius);
-  partySection.appendChild(node("p",
-    "Atlas shows only the background map inside known checkpoint circles. " +
-    "This never edits Foundry's saved fog; set a checkpoint radius to zero in " +
-    "Shift-click settings to show its marker without revealing terrain.", "hint"));
-  partySection.appendChild(button("Save Party Exploration",
-    "Save the selected token and scene-local radius (GM only)", () =>
-      actions.savePartyExploration(scene, {
-        enabled: partyEnabled.checked, tokenId: partyToken.value || null,
-        radius: Number(partyRange.value),
-        defaultRevealRadiusCells: Number(terrainRadius.value), expected: party
-      }, refresh)));
-  partySection.appendChild(node("p",
-    "Seen / Visited and Known through Lore both show checkpoint markers. " +
-    "Neither requires the old player visibility checkbox.", "hint"));
-  root.appendChild(partySection);
 
   // Explicit Scene opt-in, kept in a separate versioned Atlas flag.
   const mapFog = readAtlasMapFog(scene);
   const mapFogSection = node("fieldset");
   mapFogSection.appendChild(node("legend", "Atlas — Reversible Map Fog (experimental)"));
   mapFogSection.appendChild(node("p",
-    "An Atlas-controlled dark mask hides the actual rendered Scene, with circular " +
+    "An Atlas-controlled dark mask hides the actual rendered Scene, with grid-aligned " +
     "reveals around known checkpoints and the manually selected party token's travel. " +
     "This does not duplicate the background or modify Foundry FogExploration records.", "hint"));
   const mapFogEnabled = node("input");
