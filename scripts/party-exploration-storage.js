@@ -1,4 +1,5 @@
 import { MODULE_ID, readAtlas } from "./atlas-storage.js";
+import { readManualFog } from "./atlas-manual-fog-storage.js";
 import { PARTY_EXPLORATION_FLAG, validatePartyExploration,
   setCheckpointKnowledge, setCheckpointRevealRadius } from "./party-exploration-model.js";
 
@@ -53,7 +54,8 @@ export async function saveCheckpointKnowledge(scene, {
     if (!atlas.checkpoints?.some(checkpoint => checkpoint.id === checkpointId)) {
       throw new Error("Checkpoint no longer exists.");
     }
-    const knowledgeState = setCheckpointKnowledge(before, checkpointId, knowledge);
+    const source = readManualFog(scene).enabled ? {...before,enabled:true} : before;
+    const knowledgeState = setCheckpointKnowledge(source, checkpointId, knowledge);
     return revealRadiusCells === undefined ? knowledgeState :
       setCheckpointRevealRadius(knowledgeState, checkpointId, revealRadiusCells);
   });
