@@ -12,6 +12,8 @@ import { savePartyExplorationConfig,
 import { readManualFog, setManualFogEnabled, importLegacyExploredCells }
   from "./atlas-manual-fog-storage.js";
 import { AtlasManualFogController } from "./atlas-manual-fog-renderer.js";
+import { AtlasManualFogPalette, registerManualBrushSettings }
+  from "./atlas-manual-fog-panel.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
   saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset,
@@ -37,6 +39,7 @@ import { AtlasRoadEditorDock } from "./road-editor-dock.js";
 
 const roadCanvas = new RoadCanvasController();
 const manualFog = new AtlasManualFogController();
+const fogPalette = new AtlasManualFogPalette(manualFog);
 let roadDock = null;
 
 function syncRoadDock(scene, refresh) {
@@ -501,21 +504,7 @@ function actions() {
       manualFog.refresh();roadCanvas.refresh();refresh();
       ui.notifications.info(enabled ? "Atlas manual fog enabled." : "Atlas manual fog disabled.");
     },
-    beginManualBrush(scene,mode,radius,refresh) {
-      ensureIdle(scene);
-      if(!readManualFog(scene).enabled)throw new Error("Enable Atlas manual fog first.");
-      manualFog.setBrush(mode,radius);
-      refresh();
-      ui.notifications.info("Atlas "+mode+" brush active: click the Scene map.");
-    },
-    stopManualBrush(refresh) {
-      manualFog.setBrush(null);refresh();
-    },
-    manualBrushMode:()=>manualFog.brush?.mode??null,
-    manualFogPreview:()=>manualFog.preview,
-    toggleManualFogPreview(refresh) {
-      manualFog.setPreview(!manualFog.preview);refresh();
-    },
+    openManualBrushPalette() { fogPalette.show(); },
     async importManualFog(scene,refresh) {
       ensureIdle(scene);
       const confirmed=await foundry.applications.api.DialogV2.confirm({
@@ -832,6 +821,7 @@ function actions() {
 }
 
 Hooks.once("init", () => {
+  registerManualBrushSettings();
   registerWorldTravelPresets();
   registerWorldRoadAppearance(() => roadCanvas.refresh());
   const roadActions = actions();
@@ -846,6 +836,23 @@ Hooks.once("init", () => {
       const road = atlas.roads?.find(r => r.id === target.id);
       if (road) return roadActions.editRoadAppearance(scene, road, refresh);
     }
+  });
+  Hooks.on("getSceneControlButtons", controls => {
+    if(!game.user?.isGM)return;
+    controls.atlasManualFog={
+      name:"atlasManualFog",
+      title:"Atlas Exploration",
+      icon:"fa-solid fa-paintbrush",
+      order:Object.keys(controls).length,
+      visible:true,
+      tools:{
+        atlasBrushPalette:{
+          name:"atlasBrushPalette",title:"Atlas Reveal / Hide Brushes",
+          icon:"fa-solid fa-paintbrush",order:0,button:true,visible:true,
+          onChange:()=>fogPalette.toggle()
+        }
+      }
+    };
   });
   Hooks.on("renderTokenConfig", addAtlasExplorerToTokenConfig);
   Hooks.on("renderSceneConfig", (app, element) => {
@@ -866,6 +873,7 @@ Hooks.once("init", () => {
       roadDock.finished = true;
       void roadDock.close();
     }
+    fogPalette.close();
     roadCanvas.tearDown();
     manualFog.tearDown();
   });
@@ -876,6 +884,7 @@ Hooks.once("init", () => {
   Hooks.on("updateScene", scene => {
     if (globalThis.canvas?.ready && canvas.scene?.id === scene.id) {
       roadCanvas.refresh();manualFog.refresh();
+      if(fogPalette.open)fogPalette.draw();
     }
   });
 });
