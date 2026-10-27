@@ -3,15 +3,19 @@
  * coordinates; grid offsets are generated transiently for display only.
  * This file is independent of Foundry's FogExploration document/texture.
  */
-export function fogCoverForGrid(grid, bounds, revealed, maxCells = 40000) {
-  if (!grid || typeof grid.getOffsetRange !== "function" ||
-      typeof grid.getShape !== "function" ||
+export function fogCoverForGrid(grid, bounds, revealed, dimensions, maxCells = 40000) {
+  if (!grid || typeof grid.getShape !== "function" ||
       typeof grid.getCenterPoint !== "function") {
     throw new Error("Atlas grid-aligned fog requires Foundry v14 grid geometry.");
   }
-  const offsets = grid.getOffsetRange(bounds);
-  if (!Array.isArray(offsets) || offsets.length > maxCells) {
-    throw new Error("Atlas fog grid is too large; use a smaller Scene grid.");
+  // Foundry v14 Scene dimensions expose the actual grid row/column count.
+  // Do not rely on getOffsetRange here: depending on grid orientation the
+  // returned values are not guaranteed to be integer {i,j} cell addresses.
+  const rows = Number(dimensions?.rows);
+  const columns = Number(dimensions?.columns);
+  if (!Number.isSafeInteger(rows) || !Number.isSafeInteger(columns) ||
+      rows <= 0 || columns <= 0 || rows * columns > maxCells) {
+    throw new Error("Atlas fog requires a bounded native Scene grid.");
   }
   const vertices = grid.getShape();
   if (!Array.isArray(vertices) || vertices.length < 3 ||
@@ -19,22 +23,15 @@ export function fogCoverForGrid(grid, bounds, revealed, maxCells = 40000) {
     throw new Error("Invalid native Scene grid cell shape.");
   }
   const polygons = [];
-  const seen = new Set();
-  for (const offset of offsets) {
-    if (!Number.isSafeInteger(offset?.i) || !Number.isSafeInteger(offset?.j)) {
-      throw new Error("Invalid native Scene grid offset.");
+  for (let i = 0; i < rows; i++) {
+    for (let j = 0; j < columns; j++) {
+      const center = grid.getCenterPoint({ i, j });
+      if (!Number.isFinite(center?.x) || !Number.isFinite(center?.y)) {
+        throw new Error("Invalid native Scene grid cell center.");
+      }
+      if (revealed(center)) continue;
+      polygons.push(vertices.map(p => ({ x: p.x + center.x, y: p.y + center.y })));
     }
-    const key = offset.i + ":" + offset.j;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const center = grid.getCenterPoint(offset);
-    if (!Number.isFinite(center?.x) || !Number.isFinite(center?.y)) {
-      throw new Error("Invalid native Scene grid cell center.");
-    }
-    if (revealed(center)) continue;
-    // Foundry's grid shape vertices are offsets FROM getCenterPoint,
-    // including for staggered/rotated hex grids.
-    polygons.push(vertices.map(p => ({ x: p.x + center.x, y: p.y + center.y })));
   }
   return polygons;
 }
