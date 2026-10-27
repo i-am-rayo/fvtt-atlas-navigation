@@ -5,6 +5,7 @@
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
   getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
+import { addAtlasExplorerToTokenConfig } from "./atlas-token-config.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { savePartyExplorationConfig,
   saveCheckpointKnowledge } from "./party-exploration-storage.js";
@@ -853,6 +854,7 @@ Hooks.once("init", () => {
       if (road) return roadActions.editRoadAppearance(scene, road, refresh);
     }
   });
+  Hooks.on("renderTokenConfig", addAtlasExplorerToTokenConfig);
   Hooks.on("renderSceneConfig", (app, element) => {
     addAtlasRoadsToSceneConfig(app, element, roadActions);
   });
