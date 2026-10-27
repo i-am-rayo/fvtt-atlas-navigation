@@ -44,7 +44,7 @@ export async function savePartyExplorationConfig(scene, {
   }
   if (enabled && !tokenId) throw new Error("Choose the party token first.");
   return savePartyState(scene, expected, before => ({
-    ...before, enabled, tokenId, radius,
+    ...before, enabled: enabled || (readManualFog(scene).enabled && before.enabled), tokenId, radius,
     defaultRevealRadiusCells: defaultRevealRadiusCells ?? before.defaultRevealRadiusCells
   }));
 }
@@ -92,4 +92,32 @@ export async function saveCheckpointKnowledge(scene, {
   // Neither token vision nor Foundry FogExploration is changed.
   await scene.update(updates);
   return after;
+}
+
+/** GM-only automatic checkpoint visits from a recorded explorer movement. */
+export async function saveAutomaticCheckpointVisits(scene, checkpointIds) {
+  authorize(scene);
+  const before=readPartyExploration(scene);
+  if(!before.enabled||!before.tokenId||!checkpointIds?.length)return [];
+  const atlas=readAtlas(scene);
+  const valid=new Set(atlas.checkpoints?.map(c=>c.id)??[]);
+  const lore=new Set(before.loreKnownCheckpointIds);
+  const seen=new Set(before.discoveredCheckpointIds);
+  const added=checkpointIds.filter(id=>valid.has(id)&&!lore.has(id)&&!seen.has(id));
+  if(!added.length)return [];
+  const after=validatePartyExploration({...before,
+    discoveredCheckpointIds:[...before.discoveredCheckpointIds,...added]});
+  const updates={["flags."+MODULE_ID+"."+PARTY_EXPLORATION_FLAG]:after};
+  const manual=readManualFog(scene),view=globalThis.canvas;
+  if(manual.enabled&&manual.hidden.length&&view?.ready&&view.scene?.id===scene.id){
+    const projected=checkpointRevealKeys(nativeFogCells(view),atlas,after,
+      Number(scene.grid?.size),
+      {x:Number(view.dimensions.sceneX),y:Number(view.dimensions.sceneY)},
+      new Set(added));
+    const hidden=clearHiddenForCheckpoint(manual.hidden,projected);
+    if(hidden.length!==manual.hidden.length)
+      updates["flags."+MODULE_ID+".manualFog"]=validateManualFog({...manual,hidden});
+  }
+  await scene.update(updates);
+  return added;
 }
