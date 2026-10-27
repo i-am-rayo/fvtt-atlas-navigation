@@ -53,16 +53,25 @@ function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "so
 }
 
 /** GM-only visual hatching; it never mutates the road's geometry or visibility. */
-function drawHiddenHatching(graphics, marks, width = 2) {
+function contrastingHatch(sourceColor) {
+  const color = typeof sourceColor === "string"
+    ? Number.parseInt(sourceColor.replace("#", ""),16) : sourceColor;
+  const source = Number.isFinite(color) ? color : 0x9c7bf0;
+  const red = 0xd44855;
+  const distance = Math.hypot(((source >> 16) & 255) - 212,
+    ((source >> 8) & 255) - 72,(source & 255) - 85);
+  return distance < 250 ? 0xffd98b : red;
+}
+function drawHiddenHatching(graphics, marks, width = 2, color = 0xd44855) {
   if (!marks.length) return;
   if (typeof graphics.stroke === "function") {
     for (const [a, b] of marks) {
       graphics.moveTo(a.x, a.y);
       graphics.lineTo(b.x, b.y);
     }
-    graphics.stroke({ color: 0xd44855, width, alpha: 0.9, cap: "round" });
+    graphics.stroke({ color, width, alpha: 0.95, cap: "round" });
   } else if (typeof graphics.lineStyle === "function") {
-    graphics.lineStyle(width, 0xd44855, 0.9);
+    graphics.lineStyle(width, color, 0.95);
     for (const [a, b] of marks) {
       graphics.moveTo(a.x, a.y);
       graphics.lineTo(b.x, b.y);
@@ -98,7 +107,7 @@ function drawCheckpointBorder(graphics, marker, radius, color, zoom) {
     graphics.drawCircle(marker.x, marker.y, radius);
   }
 }
-function drawHiddenCheckpoint(graphics, marker, radius, zoom) {
+function drawHiddenCheckpoint(graphics, marker, radius, zoom, sourceColor = 0x9c7bf0) {
   // A translucent round tint and diagonal chords form the same red hatch language
   // used along hidden road sections, without obscuring the checkpoint glyph.
   if (typeof graphics.circle === "function" && typeof graphics.fill === "function") {
@@ -117,7 +126,20 @@ function drawHiddenCheckpoint(graphics, marker, radius, zoom) {
     marks.push([{x:marker.x+ox-dx,y:marker.y+oy-dy},
       {x:marker.x+ox+dx,y:marker.y+oy+dy}]);
   }
-  drawHiddenHatching(graphics,marks,1.7/zoom);
+  drawHiddenHatching(graphics,marks,2.5/zoom,contrastingHatch(sourceColor));
+}
+
+/** A child Graphics is composited after icon Sprites/Text, so hatching stays on top. */
+function overlayHiddenCheckpoint(parent, marker, radius, zoom, sourceColor, labels) {
+  if (globalThis.PIXI?.Graphics && typeof parent.addChild === "function") {
+    const layer = new PIXI.Graphics();
+    layer.eventMode = "none";
+    drawHiddenCheckpoint(layer,marker,radius,zoom,sourceColor);
+    parent.addChild(layer);
+    labels.push(layer);
+  } else {
+    drawHiddenCheckpoint(parent,marker,radius,zoom,sourceColor);
+  }
 }
 
 function nearestRoadPoint(position, path, tolerance) {
@@ -1186,12 +1208,28 @@ export class RoadCanvasController {
       sprite.height = size;
       sprite.eventMode = "none";
       if (appearance.type === "fa") sprite.tint = color;
+      // Silhouette outline follows the actual asset shape instead of a circle.
+      const outline = Number.parseInt(appearance.borderColor.slice(1),16);
+      const shift = 1.8 / zoom;
+      for (const [dx,dy] of [[-shift,0],[shift,0],[0,-shift],[0,shift],
+        [-shift,-shift],[shift,-shift],[-shift,shift],[shift,shift]]) {
+        const shadow = new PIXI.Sprite(texture);
+        shadow.anchor?.set?.(0.5);
+        shadow.position?.set?.(marker.x+dx,marker.y+dy);
+        shadow.width = size; shadow.height = size;
+        shadow.tint = outline; shadow.eventMode = "none";
+        graphics.addChild(shadow); this.labels.push(shadow);
+      }
       graphics.addChild(sprite);
       this.labels.push(sprite);
     } else if (font && globalThis.PIXI?.Text && graphics.addChild && this.#fontReady(font)) {
       const glyph = new PIXI.Text(font.glyph, {
         fontFamily: font.family, fontWeight: font.weight,
-        fontSize: size, fill: color, align: "center"
+        fontSize: size, fill: color, align: "center",
+        ...(Number(PIXI.VERSION?.split(".")[0]) >= 8
+          ? { stroke: { color: Number.parseInt(appearance.borderColor.slice(1),16), width: 2 / zoom } }
+          : { stroke: Number.parseInt(appearance.borderColor.slice(1),16),
+            strokeThickness: 2 / zoom })
       });
       glyph.anchor?.set?.(0.5);
       glyph.position?.set?.(marker.x, marker.y);
@@ -1199,12 +1237,11 @@ export class RoadCanvasController {
       graphics.addChild(glyph);
       this.labels.push(glyph);
     } else {
-      drawDot(graphics, marker, color, selected ? 10 : 6);
+      const radius = selected ? 10 : 6;
+      drawDot(graphics, marker, color, radius);
+      drawCheckpointBorder(graphics, marker, radius,
+        Number.parseInt(appearance.borderColor.slice(1),16), zoom);
     }
-    // Border defaults to black for old styles; appearance normalization is read-only.
-    drawCheckpointBorder(graphics, marker,
-      Math.max(size / 2 + 1 / zoom, 7 / zoom),
-      Number.parseInt(appearance.borderColor.slice(1),16), zoom);
   }
 
   /** Player projection includes only explicitly revealed road and checkpoint names. */
@@ -1480,7 +1517,8 @@ export class RoadCanvasController {
         highlighted ? 1 : style.opacity, style.pattern);
       if (hatchHidden && road.playerVisible !== true) {
         drawLine(g, path, 0x922e43, style.width + 5 / zoom, 0.30, "solid");
-        drawHiddenHatching(g, roadHiddenMarks(path, style.width, zoom), 2 / zoom);
+        drawHiddenHatching(g, roadHiddenMarks(path, style.width, zoom),
+          2 / zoom,contrastingHatch(style.color));
       }
       drawDot(g, path[0], color);
       drawDot(g, path.at(-1), color);
@@ -1535,7 +1573,8 @@ export class RoadCanvasController {
         if (hatchHidden && group.members.some(item => exploration.enabled
           ? checkpointKnowledge(exploration, item.checkpoint.id) === "unknown"
           : item.checkpoint.playerVisible !== true)) {
-          drawHiddenCheckpoint(g, { x: group.x, y: group.y }, 17 / zoom, zoom);
+          overlayHiddenCheckpoint(g, { x: group.x, y: group.y },
+            17 / zoom, zoom, 0x4d70b5, this.labels);
         }
         this.clusterHoverGeometry.push({ id: group.id, x: group.x, y: group.y,
           radius: 20 / zoom });
@@ -1554,7 +1593,8 @@ export class RoadCanvasController {
         const marker = checkpointMarkerPosition(position, appearance, zoom);
         const radius = Math.max((appearance.type === "dot" ? appearance.size :
           checkpointCanvasSize(appearance.size, zoom)) / 2 + 2 / zoom, 8 / zoom);
-        drawHiddenCheckpoint(g, marker, radius, zoom);
+        overlayHiddenCheckpoint(g, marker, radius, zoom,
+          appearance.color, this.labels);
       }
       this.checkpointHoverGeometry.push({ id: checkpoint.id, x: position.x,
         y: position.y, radius: 10 / zoom });
