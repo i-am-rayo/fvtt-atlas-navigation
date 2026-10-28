@@ -69,9 +69,8 @@ export async function canOpenAtlasJournal(uuid,user=globalThis.game?.user) {
   try {
     const doc=await resolveJournal(normalizeJournalUuid(uuid));
     if(user.isGM)return true;
-    const parent=doc.documentName==="JournalEntryPage" ? doc.parent : doc;
-    return Boolean(parent?.testUserPermission?.(user,"OBSERVER") &&
-      doc.testUserPermission?.(user,"OBSERVER"));
+    // A Journal Page can have Observer permission independent of its parent.
+    return Boolean(doc.testUserPermission?.(user,"OBSERVER"));
   } catch { return false; }
 }
 export async function openAtlasJournal(uuid) {
