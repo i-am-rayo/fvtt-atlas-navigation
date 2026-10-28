@@ -30,7 +30,7 @@ function setup() {
   const scene = {
     id: "canvas-scene",
     canUserModify: () => true,
-    getFlag: (_scope, key) => ['partyExploration', 'mapFog'].includes(key) ? null : saved,
+    getFlag: (_scope, key) => key === "atlas" ? saved : null,
     async setFlag(_module, _flag, value) { saved = value; }
   };
   class Graphics {
