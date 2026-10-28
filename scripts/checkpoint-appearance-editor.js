@@ -28,7 +28,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     position: { width: 630, height: 540 }
   };
 
-  constructor({ scene, checkpointId, expectedRevision, onSaved }) {
+  constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null }) {
     super({ position: {
       width: Math.min(630, Math.max(360, window.innerWidth - 60)),
       height: Math.min(710, Math.max(440, window.innerHeight - 70))
@@ -37,13 +37,27 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     this.checkpointId = checkpointId;
     this.expectedRevision = expectedRevision;
     this.onSaved = onSaved;
+    this.createDraft = createDraft;
+    this.onCreate = onCreate;
+    this.createResolved = false;
+  }
+
+  async close(options) {
+    if (this.createDraft && !this.createResolved) {
+      this.createResolved = true;
+      this.onCreate?.(null);
+    }
+    return super.close(options);
   }
 
   async _renderHTML() {
     if (!game.user?.isGM || !this.scene?.canUserModify?.(game.user, "update")) {
       throw new Error("Only a GM with Scene update permission may style checkpoints.");
     }
-    const current = readAtlas(this.scene).checkpoints?.find(c => c.id === this.checkpointId);
+    const current = this.createDraft ? {
+      name: this.createDraft.defaultName, elevationMeters: null,
+      appearance: null, playerVisible: false
+    } : readAtlas(this.scene).checkpoints?.find(c => c.id === this.checkpointId);
     if (!current) throw new Error("Checkpoint no longer exists.");
     const appearance = resolveCheckpointAppearance(current.appearance);
     const exploration = readPartyExploration(this.scene);
@@ -76,6 +90,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     name.type = "text"; name.maxLength = 120; name.required = true; name.value = current.name;
     name.setAttribute("aria-label", "Checkpoint name");
     field("Checkpoint name", name);
+    const draftRoad = this.createDraft
+      ? field("Named road", select(this.createDraft.roads.map(road => [road.id, road.name]),
+          this.createDraft.roads[0]?.id ?? "")) : null;
     const imperial = game.settings.get("fvtt-atlas-navigation","elevationUnits") === "imperial";
     const elevationFactor = imperial ? 3.280839895 : 1;
     const elevation = el("input");
@@ -434,6 +451,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     cancel.type = "button"; cancel.addEventListener("click", () => this.close());
     const save = el("button", "Save Checkpoint Settings");
     save.type = "button";
+    if (this.createDraft) { save.textContent = "Create Checkpoint"; reset.hidden = true; }
     const saveValue = async value => {
       if (save.disabled) return;
       save.disabled = true; reset.disabled = true;
@@ -452,6 +470,28 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         if(nextJournal&&!validJournalUuid(nextJournal))
           throw Error("Select a Journal Entry or Journal Page UUID.");
         const raw = elevation.value.trim();
+        if (this.createDraft) {
+          const roadId = draftRoad?.value ?? "";
+          if (!this.createDraft.roads.some(road => road.id === roadId))
+            throw Error("Choose a named road for this checkpoint.");
+          if (!name.value.trim() || name.value.length > 120)
+            throw Error("Enter a checkpoint name (1–120 characters).");
+          if (raw !== "" && !Number.isFinite(Number(raw)))
+            throw Error("Enter a valid elevation.");
+          const config = {
+            roadId, name: name.value.trim(),
+            elevationMeters: raw === "" ? null : Number(raw) / elevationFactor,
+            appearance: next, playerVisible: playerVisibility.checked,
+            journalUuid: nextJournal,
+            knowledge: discovery?.value ?? null,
+            discoveryMethod: discoveryMethod?.value ?? null,
+            revealRadiusCells: revealRadius ? Number(revealRadius.value) : null
+          };
+          this.createResolved = true;
+          this.onCreate?.(config);
+          await this.close();
+          return;
+        }
         if (discovery && JSON.stringify(readPartyExploration(this.scene)) !==
             JSON.stringify(exploration)) {
           throw new Error("Party discovery changed. Reopen checkpoint settings.");
