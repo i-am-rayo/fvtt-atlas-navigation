@@ -21,7 +21,7 @@ import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset,
   saveRoadAppearance, saveRoadPresentation, saveRoadPlayerVisibility,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
-import { getRoadMergeCandidates } from "./road-model.js";
+import { getRoadMergeCandidates, suggestRoadName } from "./road-model.js";
 import { sceneImageOrigin, toCanvasPoint } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
@@ -43,6 +43,19 @@ import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.j
 import { AtlasRoadEditorDock } from "./road-editor-dock.js";
 
 const roadCanvas = new RoadCanvasController();
+roadCanvas.promptCheckpoint = ({ roads, defaultName }) => new Promise(resolve => {
+  const scene = globalThis.canvas?.scene;
+  if (!scene) { resolve(null); return; }
+  const editor = new AtlasCheckpointAppearanceEditor({
+    scene, checkpointId: "__new_checkpoint__",
+    expectedRevision: readAtlas(scene).revision,
+    createDraft: { roads, defaultName }, onCreate: resolve
+  });
+  Promise.resolve(editor.render(true)).catch(error => {
+    ui.notifications.error(error.message ?? String(error));
+    resolve(null);
+  });
+});
 const manualFog = new AtlasManualFogController();
 const fogPalette = new AtlasManualFogPalette(manualFog);
 let roadDock = null;
@@ -246,11 +259,118 @@ async function promptTravelPreset(title, currentId = null) {
   return presetId || null;
 }
 
+/** Stage all new-road settings before installing any canvas draw listeners. */
+async function promptNewRoadSettings(scene) {
+  const atlas = readAtlas(scene);
+  const presets = readWorldTravelPresets().presets;
+  const initial = resolveRoadAppearance(null, readWorldRoadAppearance(), "land");
+  const content = document.createElement("div"); // DialogV2.input content must have no attributes
+  const root = document.createElement("div");
+  root.dataset.atlasNewRoadDialog = "";
+  root.style.cssText = "max-height:"+Math.max(240,Math.min(590,window.innerHeight-225))+
+    "px;overflow-y:auto;padding:.4rem;min-width:0;";
+  const tabs = document.createElement("nav");
+  tabs.style.cssText = "display:flex;gap:.4rem;border-bottom:1px solid #655;padding-bottom:.65rem;margin-bottom:.7rem;";
+  const pages = {};
+  for (const [key, label] of [["general","General"],["style","Style"],
+      ["checkpoints","Checkpoints"],["regions","Terrain Regions"]]) {
+    const button = document.createElement("button");
+    button.type = "button"; button.textContent = label;
+    button.dataset.atlasNewRoadTab = key;
+    button.style.cssText = "flex:1;border:1px solid #655;background:"+
+      (key === "general" ? "rgba(156,123,240,.22)" : "transparent")+";";
+    tabs.appendChild(button);
+    const panel = document.createElement("section");
+    panel.dataset.atlasNewRoadPage = key;
+    panel.hidden = key !== "general";
+    pages[key] = panel;
+  }
+  const field = (parent,label,control) => {
+    const row = document.createElement("label");
+    row.className = "form-group";
+    const caption = document.createElement("span");
+    caption.textContent = label;
+    row.append(caption,control);
+    parent.appendChild(row);
+    return control;
+  };
+  const name = document.createElement("input");
+  name.type = "text";name.name = "draftRoadName";name.maxLength=120;
+  name.required = true;name.value=suggestRoadName(atlas);name.defaultValue=name.value;
+  field(pages.general,"Road name",name);
+  const visible = document.createElement("input");
+  visible.type="checkbox";visible.name="draftRoadVisible";visible.value="true";
+  field(pages.general,"Show to players",visible);
+  const travel = document.createElement("select");
+  travel.name = "draftRoadPreset";
+  for (const [id,label] of [["","None (Land fallback)"],...presets.map(p=>[p.id,p.name])]) {
+    const option=document.createElement("option");option.value=id;option.textContent=label;
+    option.defaultSelected=id==="";
+    travel.appendChild(option);
+  }
+  field(pages.general,"Travel preset",travel);
+  const journal = document.createElement("input");
+  journal.type="text";journal.name="draftRoadJournal";journal.placeholder="JournalEntry… or JournalEntryPage… UUID";
+  field(pages.general,"Linked Journal / Page UUID",journal);
+  const override = document.createElement("input");
+  override.type="checkbox";override.name="draftRoadOverride";override.value="true";
+  field(pages.style,"Override world road appearance",override);
+  pages.style.appendChild(roadAppearanceForm(initial));
+  const note = key => {
+    const p=document.createElement("p");
+    p.textContent = key === "checkpoints"
+      ? "After drawing the road, add checkpoints using the Checkpoints tab in Road Settings."
+      : "After drawing the road, generate terrain regions using the Terrain Regions tab.";
+    pages[key].appendChild(p);
+  };
+  note("checkpoints");note("regions");
+  root.append(tabs,...Object.values(pages));content.appendChild(root);
+  const onTab = event => {
+    const button=event.target?.closest?.("[data-atlas-new-road-tab]");
+    if (!button?.closest?.(".application")?.querySelector?.("[data-atlas-new-road-dialog]")) return;
+    event.preventDefault();event.stopImmediatePropagation();
+    const form=button.closest(".application");
+    for(const panel of form.querySelectorAll("[data-atlas-new-road-page]"))
+      panel.hidden=panel.dataset.atlasNewRoadPage!==button.dataset.atlasNewRoadTab;
+    for(const tab of form.querySelectorAll("[data-atlas-new-road-tab]"))
+      tab.style.background=tab===button?"rgba(156,123,240,.22)":"transparent";
+  };
+  document.addEventListener("click",onTab,true);
+  let result;
+  try {
+    result=await foundry.applications.api.DialogV2.input({
+      window:{title:"Road Settings — New Road",resizable:true},
+      position:{width:Math.min(620,window.innerWidth-50),
+        height:Math.min(720,Math.max(440,window.innerHeight-70))},
+      content,ok:{label:"Draw Road"},rejectClose:false,modal:false
+    });
+  } finally {
+    document.removeEventListener("click",onTab,true);
+  }
+  if (!result) return null;
+  const roadName=String(result.draftRoadName??"").trim();
+  if (!roadName||roadName.length>120)throw Error("Enter a road name (1–120 characters).");
+  const presetId=String(result.draftRoadPreset??"")||null;
+  if(presetId&&!presets.some(p=>p.id===presetId))throw Error("Choose an existing travel preset.");
+  const journalUuid=journalUuidFromForm(result.draftRoadJournal);
+  if(journalUuid&&!validJournalUuid(journalUuid))throw Error("Use a valid Journal Entry or Page UUID.");
+  return {
+    name:roadName,presetId,
+    appearance:result.draftRoadOverride===true||result.draftRoadOverride==="true"
+      ? roadAppearanceFromForm(result) : null,
+    playerVisible:result.draftRoadVisible===true||result.draftRoadVisible==="true",
+    journalUuid
+  };
+}
+
 function actions() {
   const DialogV2 = foundry.applications.api.DialogV2;
   return {
-    begin(scene, refresh) {
-      beginRoadDock(scene, refresh, onChange => roadCanvas.start(scene, onChange));
+    async begin(scene, refresh) {
+      ensureIdle(scene);
+      const settings=await promptNewRoadSettings(scene);
+      if (!settings) return;
+      beginRoadDock(scene, refresh, onChange => roadCanvas.start(scene, onChange, settings));
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.StartNotice"));
     },
     draft: scene => roadCanvas.getDraft(scene),
@@ -736,10 +856,7 @@ function actions() {
         syncRoadDock(scene,refresh);
         const id=roadCanvas.selectedCheckpointId;
         const checkpoint=readAtlas(scene).checkpoints?.find(item=>item.id===id);
-        if (checkpoint) new AtlasCheckpointAppearanceEditor({
-          scene,checkpointId:id,expectedRevision:readAtlas(scene).revision,
-          onSaved:()=>{roadCanvas.refresh();refresh();}
-        }).render(true);
+        if (checkpoint) { roadCanvas.refresh(); refresh(); }
       });
       openRoadDock(scene,refresh);
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.StartNotice"));
