@@ -21,7 +21,7 @@ import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveRoadAppearance, saveRoadPresentation, saveRoadPlayerVisibility,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
 import { getRoadMergeCandidates } from "./road-model.js";
-import { sceneImageOrigin } from "./road-coordinates.js";
+import { sceneImageOrigin, toCanvasPoint } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
@@ -86,6 +86,30 @@ function openRoadDock(scene, refresh) {
 function beginRoadDock(scene, refresh, start) {
   start(() => syncRoadDock(scene, refresh));
   openRoadDock(scene, refresh);
+}
+
+async function centerAtlasOn(scene, roadId, checkpointId=null) {
+  const view=globalThis.canvas;
+  if (!view?.ready || view.scene?.id !== scene.id)
+    throw Error("Open this Scene on the map first.");
+  const atlas=readAtlas(scene);
+  const nodes=new Map(atlas.nodes.map(item=>[item.id,item]));
+  let points=[];
+  if (checkpointId) {
+    const checkpoint=atlas.checkpoints?.find(c=>c.id===checkpointId);
+    const node=nodes.get(checkpoint?.nodeId);
+    if (node) points=[node];
+  } else {
+    for (const segment of atlas.segments.filter(item=>item.roadId===roadId)) {
+      for (const point of [nodes.get(segment.from),...segment.via,nodes.get(segment.to)])
+        if (point) points.push(point);
+    }
+  }
+  if (!points.length) throw Error("This map location no longer exists.");
+  const converted=points.map(point=>toCanvasPoint(view,atlas,point));
+  const x=converted.reduce((sum,p)=>sum+p.x,0)/converted.length;
+  const y=converted.reduce((sum,p)=>sum+p.y,0)/converted.length;
+  await view.animatePan({x,y,scale:view.stage?.scale?.x??1,duration:450});
 }
 
 function ensureIdle(scene) {
@@ -531,14 +555,27 @@ function actions() {
           } else if (roadDock.rendered) void roadDock.render(true);
         }
       });
+      openRoadDock(scene,refresh);
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Junctions.StartNotice"));
     },
     selectJunction: (scene, nodeId) => roadCanvas.selectJunction(scene, nodeId),
     beginCheckpoint(scene, refresh) {
-      roadCanvas.startCheckpoint(scene, refresh);
+      roadCanvas.startCheckpoint(scene, () => {
+        syncRoadDock(scene,refresh);
+        const id=roadCanvas.selectedCheckpointId;
+        const checkpoint=readAtlas(scene).checkpoints?.find(item=>item.id===id);
+        if (checkpoint) new AtlasCheckpointAppearanceEditor({
+          scene,checkpointId:id,expectedRevision:readAtlas(scene).revision,
+          onSaved:()=>{roadCanvas.refresh();refresh();}
+        }).render(true);
+      });
+      openRoadDock(scene,refresh);
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.StartNotice"));
     },
-    selectCheckpoint: (scene, checkpointId) => roadCanvas.selectCheckpoint(scene, checkpointId),
+    selectCheckpoint: async (scene, checkpointId) => {
+      roadCanvas.selectCheckpoint(scene, checkpointId);
+      await centerAtlasOn(scene,null,checkpointId);
+    },
     async savePartyExploration(scene, settings, refresh) {
       ensureIdle(scene);
       await savePartyExplorationConfig(scene, settings);
@@ -735,10 +772,9 @@ function actions() {
       const other = options.find(candidate => candidate.id === otherId);
       if (!other) throw new Error("Choose a connected road to merge.");
       const approved = await DialogV2.confirm({
-        window: { title: game.i18n.localize("FVTTATLAS.Roads.Merge") },
-        content: game.i18n.format("FVTTATLAS.Roads.MergeWarning", {
-          from: other.name, to: road.name
-        }),
+        window: { title: "Merge roads?" },
+        content: "Merge “" + other.name + "” INTO “" + road.name +
+          "”? The road “" + road.name + "” keeps its name. This cannot be undone.",
         rejectClose: false, modal: true
       });
       if (!approved) return;
@@ -812,7 +848,10 @@ function actions() {
     },
     finish: () => roadCanvas.finish(),
     cancel: () => roadCanvas.cancel(),
-    select: (scene, id) => roadCanvas.selectRoad(scene, id),
+    select: async (scene, id) => {
+      roadCanvas.selectRoad(scene, id);
+      await centerAtlasOn(scene,id);
+    },
     async rename(scene, road, refresh) {
       ensureIdle(scene);
       const revision = readAtlas(scene).revision;
