@@ -148,7 +148,7 @@ test("v0.2.21.1 offline icon search, style variants and old IDs coexist", () => 
   assert.throws(() => validateCheckpointAppearance({ ...fancy, icon: "brands:fake" }));
   assert.throws(() => validateCheckpointAppearance({ ...fancy, icon: "solid:../mountain" }));
   assert.deepEqual(checkpointMarkerPosition({ x: 53, y: 92 }, solid),
-    { x: 53, y: 68 }, "decorative marker offsets from the true checkpoint node");
+    { x: 53, y: 62 }, "decorative marker floats above the true checkpoint node");
   assert.deepEqual(checkpointMarkerPosition({ x: 53, y: 92 },
     DEFAULT_CHECKPOINT_APPEARANCE), { x: 53, y: 92 },
   "untouched checkpoints remain centered on their original node");
@@ -188,7 +188,7 @@ test("checkpoint appearance storage requires GM permission and fresh revision", 
 
 test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider value", async () => {
   const previous = { foundry: globalThis.foundry, document: globalThis.document,
-    game: globalThis.game, ui: globalThis.ui };
+    game: globalThis.game, ui: globalThis.ui, window: globalThis.window };
   class Element {
     constructor(tag) {
       this.tag = tag;
@@ -209,6 +209,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
     globalThis.document = { createElement: tag => new Element(tag) };
     globalThis.game = { user: { isGM: true } };
+    globalThis.window = { innerWidth: 1280, innerHeight: 800 };
     globalThis.ui = { notifications: {
       info() {}, error(message) { throw new Error(String(message)); }
     } };
