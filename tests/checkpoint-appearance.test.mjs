@@ -199,6 +199,10 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       this.textContent = "";
     }
     append(...items) { for (const item of items) this.appendChild(item); }
+    prepend(...items) {
+      for (const item of items) item.parentNode = this;
+      this.children.unshift(...items);
+    }
     appendChild(item) { item.parentNode = this; this.children.push(item); return item; }
     closest(tag) {
       for (let cursor = this; cursor; cursor = cursor.parentNode) {
