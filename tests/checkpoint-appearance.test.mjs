@@ -210,7 +210,23 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       }
       return null;
     }
-    replaceChildren(...items) { this.children = [...items]; }
+    replaceChildren(...items) {
+      this.children = [];
+      this.append(...items);
+    }
+    querySelector(selector) {
+      const match = selector.match(/^([a-z]+)\[name="([^"]+)"\]$/);
+      if (!match) return null;
+      const search = node => {
+        if (node.tag === match[1] && node.name === match[2]) return node;
+        for (const child of node.children) {
+          const found = search(child);
+          if (found) return found;
+        }
+        return null;
+      };
+      return search(this);
+    }
     addEventListener(name, listener) { this.listeners.set(name, listener); }
     setAttribute() {}
   }
