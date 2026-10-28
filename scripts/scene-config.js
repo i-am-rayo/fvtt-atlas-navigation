@@ -296,6 +296,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
          controls.appendChild(button("📖", "Open linked Road Journal",
         () => void openAtlasJournal(roadJournal).catch(error =>
           ui.notifications.error(error.message||String(error)))));
+      }
       controls.appendChild(button("🖌", "ROAD OVERLAY — Edit line, pattern and label text color (does not change native Regions)",
         () => actions.editRoadAppearance(scene, road, refresh)));
       if (road.appearance) {
@@ -587,6 +588,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
          controls.appendChild(button("📖", "Open linked Checkpoint Journal",
         () => void openAtlasJournal(checkpointJournal).catch(error =>
           ui.notifications.error(error.message||String(error)))));
+      }
       controls.appendChild(button("🖼", "CHECKPOINT OVERLAY — Set Font Awesome icon / image, size, colors and name labels",
         () => actions.editCheckpointAppearance(scene, checkpoint, refresh)));
       controls.appendChild(button("×", label("FVTTATLAS.Checkpoints.Delete"),
