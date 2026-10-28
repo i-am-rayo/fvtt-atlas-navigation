@@ -263,11 +263,46 @@ function actions() {
       const journalLinks = readAtlasJournalLinks(scene);
       const journalControls = journalLinkFields(journalLinks,"road",road.id);
       content.append(hint, nameRow, visibilityRow, roadAppearanceForm(baseline),journalControls);
-      const result = await DialogV2.input({
-        window: { title: "Road Settings — " + actual.name },
-        content, ok: { label: "Save Road Settings" },
-        rejectClose: false, modal: false
-      });
+      // DialogV2.input may clone its HTMLElement content when rendered. Its
+      // cloned input loses the listener registered by journalLinkFields, unlike
+      // the modeless checkpoint editor. Delegate on the live document instead.
+      const roadJournalTarget = event => {
+        const field = event.target?.closest?.('input[name="atlasJournalUuid"]');
+        return field?.closest?.(".application")
+          ?.querySelector?.('input[name="atlasRoadName"]') ? field : null;
+      };
+      const onJournalDragOver = event => {
+        if (roadJournalTarget(event)) event.preventDefault();
+      };
+      const onJournalDrop = event => {
+        const field = roadJournalTarget(event);
+        if (!field) return;
+        event.preventDefault();
+        try {
+          const data = JSON.parse(event.dataTransfer?.getData("text/plain") ?? "");
+          if (!["JournalEntry","JournalEntryPage"].includes(data.type) ||
+              typeof data.uuid !== "string" || !validJournalUuid(data.uuid))
+            throw Error("Drop a Foundry Journal Entry or Journal Page.");
+          field.value = data.uuid;
+          field.dispatchEvent(new Event("input", { bubbles: true }));
+          field.dispatchEvent(new Event("change", { bubbles: true }));
+        } catch(error) {
+          ui.notifications.warn(error.message || "Journal drop could not be read.");
+        }
+      };
+      document.addEventListener("dragover", onJournalDragOver, true);
+      document.addEventListener("drop", onJournalDrop, true);
+      let result;
+      try {
+        result = await DialogV2.input({
+          window: { title: "Road Settings — " + actual.name },
+          content, ok: { label: "Save Road Settings" },
+          rejectClose: false, modal: false
+        });
+      } finally {
+        document.removeEventListener("dragover", onJournalDragOver, true);
+        document.removeEventListener("drop", onJournalDrop, true);
+      }
       if (!result) return;
       if (!Object.hasOwn(result,"atlasJournalUuid"))
         throw Error("Foundry did not return the Journal UUID field. No Road Settings were saved.");
