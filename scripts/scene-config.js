@@ -925,8 +925,8 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
   const activeRoadId=expandedRoads.get(scene.id);
   const activeRoad=atlas.roads?.find(road=>road.id===activeRoadId);
   const visibleNative = nativeRegions.filter(region =>
-    activeRoad && (roadByGeneratedRegionId.get(region.id) === activeRoadId ||
-      region.name?.startsWith?.(activeRoad.name + " —")));
+    activeRoad && !roadByGeneratedRegionId.has(region.id) &&
+    region.name?.startsWith?.(activeRoad.name + " —"));
   const linkedRegions = visibleNative.filter(region => region.linked);
   if (!nativeRegions.length) {
     regionSection.appendChild(node("p", label("FVTTATLAS.Regions.NoNative"), "hint"));
@@ -981,7 +981,8 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
   if (generatorOnly) return generatedSection;
   generatedSection.remove();
   const regionTarget = root.querySelector(`[data-atlas-region-folder="${expandedRoads.get(scene.id)??""}"]`);
-  if (regionTarget) regionTarget.appendChild(regionSection);
+  if (regionTarget && visibleNative.some(region=>region.linked||region.invalidLink))
+    regionTarget.appendChild(regionSection);
   fogPanel.appendChild(measurement);
   return root;
 }
