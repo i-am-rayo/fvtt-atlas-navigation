@@ -8,7 +8,7 @@ This page explains the Scene **Atlas** tab and its editing tools. All changes ar
 2. Use **Exploration → Manual exploration** to turn Atlas map discovery on or off. **Paint map** opens the GM brush tools. On square or hex maps, Atlas can keep revealed terrain between sessions; it does not overwrite Foundry's native FogExploration.
 3. Select **Road → All roads** to see everything, or pick a specific road to focus its list, checkpoints, Region links and terrain-generation tools.
 4. Press **+** next to Roads to draw a road. Choose the map points and finish/save.
-5. Press **›** next to a road name to open the road's settings window.
+5. Press **›** next to a road name to expand its settings directly underneath. Only one road stays expanded at a time.
 
 ## Road settings
 
