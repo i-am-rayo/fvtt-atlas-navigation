@@ -1587,6 +1587,7 @@ export class RoadCanvasController {
     const labelAnchors = new Map();
     const hatchHidden = game.settings?.get?.("fvtt-atlas-navigation", "hiddenOverlayHatching") !== false;
     const exploration = readPartyExploration(canvas.scene);
+    const gmJournals = readAtlasJournalLinks(canvas.scene);
     this.hoverGeometry = [];
     this.checkpointHoverGeometry = [];
     this.clusterHoverGeometry = [];
@@ -1643,7 +1644,8 @@ export class RoadCanvasController {
           ? this.hoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths) ?? item.point;
         const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
           zoom, item.style.labelVisibility);
-        if (opacity > 0) this.#addLabel(g, item.road.name,
+        if (opacity > 0) this.#addLabel(g, item.road.name +
+          (journalUuidFor(gmJournals,"road",roadId) ? " 📖" : ""),
           { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity);
       }
     }
@@ -1702,11 +1704,13 @@ export class RoadCanvasController {
       const roadName = roads.get(checkpoint.roadId)?.name;
       const hovered = this.hoveredCheckpointId === checkpoint.id;
       if (appearance.labelMode === "always" || (appearance.labelMode === "hover" && hovered)) {
-        this.#addCheckpointLabels(g, checkpoint.name, roadName, appearance,
-          group, zoom);
+        this.#addCheckpointLabels(g, checkpoint.name +
+          (journalUuidFor(gmJournals,"checkpoint",checkpoint.id) ? " 📖" : ""),
+          roadName, appearance, group, zoom);
       }
       if (hovered) {
-        const full = checkpointQuickInfo(checkpoint, roads.get(checkpoint.roadId));
+        const full = checkpointQuickInfo(checkpoint, roads.get(checkpoint.roadId)) +
+          (journalUuidFor(gmJournals,"checkpoint",checkpoint.id) ? "\n📖 Journal linked" : "");
         const preview = appearance.labelMode === "off" ? full : full.split("\n")
           .filter(line => line.startsWith("Elevation:") ||
             (!appearance.showRoadName && line.startsWith("Road:"))).join("\n");
