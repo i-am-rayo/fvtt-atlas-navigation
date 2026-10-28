@@ -266,9 +266,11 @@ function actions() {
       const result = await DialogV2.input({
         window: { title: "Road Settings — " + actual.name },
         content, ok: { label: "Save Road Settings" },
-        rejectClose: false, modal: true
+        rejectClose: false, modal: false
       });
       if (!result) return;
+      if (!Object.hasOwn(result,"atlasJournalUuid"))
+        throw Error("Foundry did not return the Journal UUID field. No Road Settings were saved.");
       const nextJournal=journalUuidFromForm(result.atlasJournalUuid);
       if(nextJournal&&!validJournalUuid(nextJournal))
         throw Error("Choose a valid Journal Entry or Journal Page UUID.");
