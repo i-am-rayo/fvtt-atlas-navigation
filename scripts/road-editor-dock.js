@@ -16,13 +16,14 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-road-editor-dock",
     window: { title: "Atlas — Road Editor", resizable: true },
-    position: { width: 320, height: 205, left: 80, top: 115 }
+    position: { width: 340, height: 270, left: 80, top: 115 }
   };
 
   constructor({ scene, controller, sceneSheet, onFinish, onCancel, onClosed }) {
+    const isNewRoad=controller.getDraft(scene)?.mode==="new";
     super({ position: {
-      width: Math.min(320, Math.max(260, window.innerWidth - 60)),
-      height: Math.min(205, Math.max(175, window.innerHeight - 100)),
+      width: Math.min(340, Math.max(260, window.innerWidth - 60)),
+      height: Math.min(isNewRoad?500:270, Math.max(230, window.innerHeight - 100)),
       left: 80, top: 115
     } });
     this.scene = scene;
@@ -42,7 +43,8 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     const draft = this.controller.getDraft(this.scene);
     if (!draft) throw new Error("The road-editing session ended.");
     const root = element("div");
-    root.style.cssText = "padding:0.6rem;display:flex;flex-direction:column;gap:0.4rem;overflow:auto;max-height:calc(100vh - 100px);";
+    root.style.cssText = "padding:0.6rem;display:flex;flex-direction:column;gap:0.35rem;overflow-y:"+
+      (draft.mode==="new"?"auto":"visible")+";";
     const status = draft.mode === "points" ? "Edit points" :
       draft.mode === "new" ? "Draw road" :
       draft.mode === "checkpoint" ? "Place checkpoint" : "Add connection";
