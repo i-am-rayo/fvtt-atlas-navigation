@@ -387,7 +387,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         });
         const nextJournal=journalUuidFromForm(journalInput.value);
         if(nextJournal&&!validJournalUuid(nextJournal))
-          throw Error("Select a Journal Entry UUID, not another document.");
+          throw Error("Select a Journal Entry or Journal Page UUID.");
         const raw = elevation.value.trim();
         if (discovery && JSON.stringify(readPartyExploration(this.scene)) !==
             JSON.stringify(exploration)) {
