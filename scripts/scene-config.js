@@ -1,7 +1,7 @@
 import { readAtlas } from "./atlas-storage.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { readManualFog } from "./atlas-manual-fog-storage.js";
-import { readAtlasJournalLinks, journalUuidFor, openAtlasJournal }
+import { readAtlasJournalLinks, journalUuidFor, openAtlasJournal, canOpenAtlasJournal }
   from "./atlas-journal-links.js";
 import { checkpointKnowledge } from "./party-exploration-model.js";
 import { readSceneGridScale } from "./scene-grid.js";
@@ -138,6 +138,22 @@ function atlasPanel(scene, atlas, actions, refresh) {
   const presetById = new Map(travelPresets.map(p => [p.id, p]));
   const worldRoadAppearance = readWorldRoadAppearance();
   const journalLinks = readAtlasJournalLinks(scene);
+  function linkedJournalIndicator(uuid) {
+    const badge=node("span","📖","hint");
+    badge.style.cssText="float:right;margin-left:.5rem;white-space:nowrap;font-size:.85em;";
+    badge.title="Journal linked — checking player access";
+    const players=[...(game.users??[])].filter(user=>!user.isGM);
+    if(!players.length) { badge.textContent="📖 —"; badge.title="Journal linked; no player users configured"; return badge; }
+    void Promise.all(players.map(user=>canOpenAtlasJournal(uuid,user))).then(access=>{
+      if(!badge.isConnected)return;
+      const count=access.filter(Boolean).length;
+      badge.textContent=count===players.length?"📖 ✓":count?"📖 ◐":"📖 🔒";
+      badge.title=count===players.length ? "All players have Observer access" :
+        count ? count+" of "+players.length+" players have Observer access" :
+        "Journal linked; players cannot view it";
+    }).catch(()=>{badge.textContent="📖 ?";badge.title="Player access could not be checked";});
+    return badge;
+  }
   const sharedFilter = atlas.schemaVersion >= 3 && atlas.roads?.length
     ? junctionFilterFor(scene, atlas) : null;
   const shownRoads = sharedFilter ? filteredRoadIds(atlas, sharedFilter) : new Set();
@@ -275,7 +291,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
         road.playerVisible === true ? "Hide this road from players" : "Show this road to players (visual only)",
         () => actions.toggleRoadPlayerVisibility(scene, road, refresh)));
       const roadJournal = journalUuidFor(journalLinks,"road",road.id);
-      if(roadJournal)controls.appendChild(button("📖", "Open linked Road Journal",
+      if(roadJournal) {
+         description.appendChild(linkedJournalIndicator(roadJournal));
+         controls.appendChild(button("📖", "Open linked Road Journal",
         () => void openAtlasJournal(roadJournal).catch(error =>
           ui.notifications.error(error.message||String(error)))));
       controls.appendChild(button("🖌", "ROAD OVERLAY — Edit line, pattern and label text color (does not change native Regions)",
@@ -564,7 +582,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
           "Show checkpoint to players (visual only)",
         () => actions.toggleCheckpointPlayerVisibility(scene, checkpoint, refresh)));
       const checkpointJournal = journalUuidFor(journalLinks,"checkpoint",checkpoint.id);
-      if(checkpointJournal)controls.appendChild(button("📖", "Open linked Checkpoint Journal",
+      if(checkpointJournal) {
+         description.appendChild(linkedJournalIndicator(checkpointJournal));
+         controls.appendChild(button("📖", "Open linked Checkpoint Journal",
         () => void openAtlasJournal(checkpointJournal).catch(error =>
           ui.notifications.error(error.message||String(error)))));
       controls.appendChild(button("🖼", "CHECKPOINT OVERLAY — Set Font Awesome icon / image, size, colors and name labels",
