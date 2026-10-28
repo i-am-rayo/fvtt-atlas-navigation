@@ -237,11 +237,7 @@ function actions() {
       const actual = atlas.roads?.find(item => item.id === road.id);
       if (!actual) throw new Error("The named road no longer exists.");
       const content = document.createElement("div");
-      const hint = document.createElement("p");
       const mode = roadAppearanceMode(actual, readWorldTravelPresets().presets);
-      hint.textContent = "Edit this road's name, player visibility and line appearance. " +
-        "Unchanged World-default appearance continues to inherit Land / Air / Water settings. " +
-        "Native Region colors, geometry and movement rules are not affected.";
       const nameRow = document.createElement("label");
       nameRow.className = "form-group";
       const nameLabel = document.createElement("span");
@@ -253,7 +249,8 @@ function actions() {
       const visibilityRow = document.createElement("label");
       visibilityRow.className = "form-group";
       const visibilityLabel = document.createElement("span");
-      visibilityLabel.textContent = "Visible to players (visual only)";
+      visibilityLabel.textContent = "Show to players";
+       visibilityLabel.title = "Only this road. Checkpoint discovery is separate.";
       const visibility = document.createElement("input");
       visibility.type = "checkbox"; visibility.name = "atlasRoadVisible";
       visibility.value = "true"; visibility.checked = actual.playerVisible === true;
@@ -262,7 +259,7 @@ function actions() {
       const baseline = resolveRoadAppearance(actual, readWorldRoadAppearance(), mode);
       const journalLinks = readAtlasJournalLinks(scene);
       const journalControls = journalLinkFields(journalLinks,"road",road.id);
-      content.append(hint, nameRow, visibilityRow, roadAppearanceForm(baseline),journalControls);
+      content.append(nameRow, visibilityRow, roadAppearanceForm(baseline),journalControls);
       // DialogV2.input may clone its HTMLElement content when rendered. Its
       // cloned input loses the listener registered by journalLinkFields, unlike
       // the modeless checkpoint editor. Delegate on the live document instead.
