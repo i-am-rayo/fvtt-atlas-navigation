@@ -31,7 +31,7 @@ async function saveChange(scene, expectedRevision, update) {
 }
 
 export function saveNewRoad(scene, { points, name, expectedRevision, idFactory, snapEndpoints,
-  presetId = null, appearance = null }) {
+  presetId = null, appearance = null, playerVisible = false }) {
   const style = appearance === null ? null : validateRoadAppearance(appearance);
   if (presetId !== null) {
     validateTravelPresetId(presetId);
@@ -50,7 +50,7 @@ export function saveNewRoad(scene, { points, name, expectedRevision, idFactory, 
     const modern = local.schemaVersion === 2 && !local.nodes.length && !local.segments.length
       ? upgradeAtlasRoadGroups(local) : local;
     const created = addRoad(modern, { points, name, idFactory, snapEndpoints });
-    if (presetId === null && style === null) return created;
+    if (presetId === null && style === null && !playerVisible) return created;
     const upgraded = style !== null
       ? upgradeAtlasRoadTextAppearance(created)
       : upgradeAtlasTravelPresets(created);
@@ -58,7 +58,8 @@ export function saveNewRoad(scene, { points, name, expectedRevision, idFactory, 
     return { ...upgraded, roads: upgraded.roads.map(road => road.id === newId
       ? { ...road,
         ...(presetId !== null ? { travelPresetId: presetId } : {}),
-        ...(style !== null ? { appearance: style } : {}) }
+        ...(style !== null ? { appearance: style } : {}),
+        ...(playerVisible ? { playerVisible: true } : {}) }
       : road) };
   });
 }
@@ -108,9 +109,18 @@ export function savePointEdits(scene, { roadId, operations, expectedRevision }) 
 }
 
 /** One atomic versioned Scene flag write can add a checkpoint AND split an edge. */
-export function saveNewCheckpoint(scene, { roadId, candidate, name, elevationMeters, expectedRevision, idFactory }) {
-  return saveChange(scene, expectedRevision, previous =>
-    addRoadCheckpoint(previous, { roadId, candidate, name, elevationMeters, idFactory }));
+export function saveNewCheckpoint(scene, {
+  roadId, candidate, name, elevationMeters, expectedRevision, idFactory,
+  appearance = null, playerVisible = false
+}) {
+  return saveChange(scene, expectedRevision, previous => {
+    const created = addRoadCheckpoint(previous, { roadId, candidate, name, elevationMeters, idFactory });
+    const id = created.checkpoints.at(-1)?.id;
+    if (!id) throw Error("New checkpoint could not be identified.");
+    const styled = appearance === null ? created
+      : editCheckpointAppearance(created, { checkpointId: id, appearance });
+    return playerVisible ? setCheckpointPlayerVisibility(styled, { checkpointId: id, visible: true }) : styled;
+  });
 }
 
 export function saveEditedCheckpoint(scene, { checkpointId, name, elevationMeters, expectedRevision }) {
