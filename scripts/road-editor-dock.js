@@ -53,6 +53,16 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       : draft.mode === "junction" ? "Click a road to connect."
       : `${draft.points} points · Click the map to draw.`));
 
+    const guidance = element("p");
+    guidance.style.cssText="font-size:.9em;line-height:1.35;opacity:.8;margin:.1rem 0 .5rem;";
+    guidance.textContent = draft.mode === "junction"
+      ? "Click the first road, then click a second road to connect them. Follow the highlighted points on the map. Cancel closes without saving."
+      : draft.mode === "checkpoint"
+      ? "Click the road where you want the checkpoint. Then give it a name and set its appearance."
+      : draft.mode === "points"
+      ? "Drag road points on the map. Save Points keeps the changes; Cancel discards them."
+      : "Click the map to draw the road. Finish saves the road; Cancel discards it.";
+    root.appendChild(guidance);
     const row = (title, input) => {
       const wrapper = element("label");
       wrapper.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:0.5rem;";
