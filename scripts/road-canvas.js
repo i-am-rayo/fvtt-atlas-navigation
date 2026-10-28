@@ -1109,8 +1109,8 @@ export class RoadCanvasController {
       Promise.resolve().then(() => this.shortcutHandler(canvas.scene, target))
         .catch(error => this.notify()?.error?.(error.message || String(error)));
     };
-    this.journalDoubleClickHandler=event=>this.#openCheckpointOnDoubleClick(canvas,event,
-      this.checkpointHoverGeometry);
+    this.journalDoubleClickHandler=event=>this.#openAtlasJournalOnDoubleClick(canvas,event,
+      this.checkpointHoverGeometry,this.hoverGeometry);
     element.addEventListener("pointermove", this.hoverHandler);
     element.addEventListener("pointerleave", this.hoverExitHandler);
     element.addEventListener("dblclick", this.journalDoubleClickHandler, true);
@@ -1309,6 +1309,7 @@ export class RoadCanvasController {
     const adjacent = roadCurveNeighbors(visible);
     const labelAnchors = new Map();
     const hoverPaths = [];
+    const journals = readAtlasJournalLinks(canvas.scene);
     const shownCells = new Set(fog.revealed.map(cellKey));
     const hiddenCells = new Set(fog.hidden.map(cellKey));
     const checkpointCells = manualFog
@@ -1346,9 +1347,9 @@ export class RoadCanvasController {
         canvas.scene?.fogExploration !== false) ? exploredRoadSpans(path, explored) : [path])) {
         drawLine(graphics, span, Number.parseInt(style.color.slice(1), 16),
           style.width, style.opacity, style.pattern);
+        hoverPaths.push({ roadId: road.id, path: span,
+          tolerance: Math.max(style.width + 2, 8 / zoom) });
         if (style.labelVisibility !== "off") {
-          hoverPaths.push({ roadId: road.id, path: span,
-            tolerance: Math.max(style.width + 2, 8 / zoom) });
           const item = labelAnchors.get(road.id) ?? { road, style, paths: [] };
           item.paths.push(span);
           labelAnchors.set(road.id, item);
@@ -1363,14 +1364,14 @@ export class RoadCanvasController {
           (item.style.labelVisibility === "hover" && this.playerHoveredRoadId === roadId)) {
         const point = item.style.labelVisibility === "hover" && this.playerHoveredRoadPoint
             ? this.playerHoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths);
-          const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
-            zoom, item.style.labelVisibility);
+          const opacity = item.style.labelVisibility === "hover" ? 1 :
+            roadLabelOpacityNearCheckpoints(point, checkpointPositions,
+              zoom, item.style.labelVisibility);
           if (point && opacity > 0) this.#addLabel(graphics, item.road.name +
             (this.#journalCanView(journalUuidFor(journals,"road",roadId)) ? " 📖" : ""),
             { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity);
       }
     }
-    const journals = readAtlasJournalLinks(canvas.scene);
     const markers = visible.checkpoints.flatMap(checkpoint => {
       const node = nodes.get(checkpoint.nodeId);
       if (!node) return [];
@@ -1429,7 +1430,7 @@ export class RoadCanvasController {
       const checkpoint = this.playerCheckpointHoverGeometry.find(candidate =>
         Math.hypot(point.x - candidate.x, point.y - candidate.y) <= candidate.radius);
       let roadId = null, roadPoint = null;
-      if (!checkpoint && atlasPointExplored(canvas, point)) {
+      if (!checkpoint) {
         for (const candidate of this.playerHoverGeometry) {
           const hit = nearestRoadPoint(point, candidate.path, candidate.tolerance);
           if (hit) { roadId = candidate.roadId; roadPoint = hit; break; }
@@ -1455,8 +1456,8 @@ export class RoadCanvasController {
         this.refresh();
       }
     };
-    this.playerJournalDoubleClickHandler=event=>this.#openCheckpointOnDoubleClick(canvas,event,
-      this.playerCheckpointHoverGeometry);
+    this.playerJournalDoubleClickHandler=event=>this.#openAtlasJournalOnDoubleClick(canvas,event,
+      this.playerCheckpointHoverGeometry,this.playerHoverGeometry);
     element.addEventListener("pointermove", this.playerMoveHandler);
     element.addEventListener("pointerleave", this.playerExitHandler);
     element.addEventListener("dblclick", this.playerJournalDoubleClickHandler, true);
@@ -1491,21 +1492,30 @@ export class RoadCanvasController {
     return this.journalAccessCache.get(key)===true;
   }
 
-  #openCheckpointOnDoubleClick(canvas,event,geometry) {
+  #openAtlasJournalOnDoubleClick(canvas,event,checkpoints,roads) {
     if(event.button!==0||event.shiftKey||event.altKey||event.ctrlKey||event.metaKey||
       this.draft||this.pointEditor.session||this.saving||
       this.canvasProvider()?.scene?.id!==canvas.scene?.id)return;
     const point=canvas.canvasCoordinatesFromClient?.({x:event.clientX,y:event.clientY});
     if(!Number.isFinite(point?.x)||!Number.isFinite(point?.y))return;
-    const candidate=geometry.find(item=>Math.hypot(point.x-item.x,point.y-item.y)<=item.radius);
-    if(!candidate)return;
+    const checkpoint=checkpoints.find(item=>
+      Math.hypot(point.x-item.x,point.y-item.y)<=item.radius);
+    // A checkpoint takes precedence when its marker overlaps a road.
+    const road=checkpoint?null:roads.find(item=>
+      nearRoadLine(point,item.path,item.tolerance));
+    if(!checkpoint&&!road)return;
     let uuid;
-    try { uuid=journalUuidFor(readAtlasJournalLinks(canvas.scene),"checkpoint",candidate.id); }
-    catch { return; }
-    if(!uuid||!this.#journalCanView(uuid))return;
+    try {
+      const links=readAtlasJournalLinks(canvas.scene);
+      uuid=checkpoint?journalUuidFor(links,"checkpoint",checkpoint.id):
+        journalUuidFor(links,"road",road.roadId);
+    } catch { return; }
+    if(!uuid)return;
     event.preventDefault?.();
     event.stopImmediatePropagation?.();
-    void openAtlasJournal(uuid).catch(error=>this.notify()?.warn?.(error.message||String(error)));
+    // Foundry checks document permission on open, including first-time clicks.
+    void openAtlasJournal(uuid).catch(error=>
+      this.notify()?.warn?.(error.message||String(error)));
   }
 
   #clearPlayerOverlay() {
@@ -1615,7 +1625,7 @@ export class RoadCanvasController {
       }
       drawDot(g, path[0], color);
       drawDot(g, path.at(-1), color);
-      if (style.labelVisibility === "hover") this.hoverGeometry.push({
+      this.hoverGeometry.push({
         roadId: road.id, path, tolerance: Math.max(8, style.width + 4)
       });
       if (style.labelVisibility !== "off") {
@@ -1642,8 +1652,9 @@ export class RoadCanvasController {
           (item.style.labelVisibility === "hover" && this.hoveredRoadId === roadId)) {
         const point = item.style.labelVisibility === "hover" && this.hoveredRoadPoint
           ? this.hoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths) ?? item.point;
-        const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
-          zoom, item.style.labelVisibility);
+        const opacity = item.style.labelVisibility === "hover" ? 1 :
+          roadLabelOpacityNearCheckpoints(point, checkpointPositions,
+            zoom, item.style.labelVisibility);
         if (opacity > 0) this.#addLabel(g, item.road.name +
           (journalUuidFor(gmJournals,"road",roadId) ? " 📖" : ""),
           { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity);
