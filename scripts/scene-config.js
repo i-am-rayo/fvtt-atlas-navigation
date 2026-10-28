@@ -292,7 +292,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
         () => actions.toggleRoadPlayerVisibility(scene, road, refresh)));
       const roadJournal = journalUuidFor(journalLinks,"road",road.id);
       if(roadJournal) {
-         description.appendChild(linkedJournalIndicator(roadJournal));
+         description.insertBefore(linkedJournalIndicator(roadJournal),description.firstChild);
          controls.appendChild(button("📖", "Open linked Road Journal",
         () => void openAtlasJournal(roadJournal).catch(error =>
           ui.notifications.error(error.message||String(error)))));
@@ -584,7 +584,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
         () => actions.toggleCheckpointPlayerVisibility(scene, checkpoint, refresh)));
       const checkpointJournal = journalUuidFor(journalLinks,"checkpoint",checkpoint.id);
       if(checkpointJournal) {
-         description.appendChild(linkedJournalIndicator(checkpointJournal));
+         description.insertBefore(linkedJournalIndicator(checkpointJournal),description.firstChild);
          controls.appendChild(button("📖", "Open linked Checkpoint Journal",
         () => void openAtlasJournal(checkpointJournal).catch(error =>
           ui.notifications.error(error.message||String(error)))));
