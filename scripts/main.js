@@ -24,7 +24,7 @@ import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
 import { getRoadMergeCandidates, suggestRoadName } from "./road-model.js";
 import { sceneImageOrigin, toCanvasPoint } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
-import { planSceneGeneratedRegion, saveGeneratedNativeRegion,
+import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
   applyGeneratedRegionPresetColor, updateGeneratedRegionMovementCost } from "./generated-region.js";
 import { availableMovementActions, readPreset, previewNativeMovementCost }
@@ -496,32 +496,65 @@ function actions() {
       const addCheckpoint=document.createElement("button");addCheckpoint.type="button";
       addCheckpoint.textContent="+ Add checkpoint";addCheckpoint.dataset.atlasRoadTool="newCheckpoint";
       panels.checkpoints.appendChild(addCheckpoint);
-      for (const checkpoint of atlas.checkpoints?.filter(item=>item.roadId===road.id)??[]) {
-        const row=document.createElement("div");
-        row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;";
-        const text=document.createElement("span");text.textContent=checkpoint.name;
-        text.style.cssText="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;";
-        const btn=document.createElement("button");btn.type="button";
-        btn.textContent="Settings";btn.dataset.atlasCheckpointEdit=checkpoint.id;
-        row.append(text,btn);panels.checkpoints.appendChild(row);
-      }
+      const checkpointList=document.createElement("div");
+      checkpointList.dataset.atlasRoadCheckpointList="";
+      checkpointList.setAttribute("aria-live","polite");
+      panels.checkpoints.appendChild(checkpointList);
       const addRegion=document.createElement("button");addRegion.type="button";
       addRegion.textContent="+ Generate Region";addRegion.dataset.atlasRoadTool="generateRegion";
       panels.regions.appendChild(addRegion);
-      for (const region of scene.regions?.contents??[]) {
-        if (region.getFlag?.(MODULE_ID,"roadId")!==road.id &&
-            !region.name?.startsWith?.(road.name + " —")) continue;
-        const row=document.createElement("div");
-        row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;";
-        const text=document.createElement("span");text.textContent=region.name;
-        const btn=document.createElement("button");btn.type="button";
-        btn.textContent="Region settings";btn.dataset.atlasRegionEdit=region.id;
-        btn.style.cssText="flex:0 0 auto;width:auto;min-width:8rem;white-space:nowrap;";
-        row.append(text,btn);panels.regions.appendChild(row);
-      }
+      const regionList=document.createElement("div");
+      regionList.dataset.atlasRoadRegionList="";
+      regionList.setAttribute("aria-live","polite");
+      panels.regions.appendChild(regionList);
+      const roadDialogToken=foundry.utils.randomID();
+      // Rebuild only the two lists. Tabs, unsaved form fields and scroll
+      // positions remain untouched during live Scene/Region updates.
+      const populateRelatedLists = (checkpointTarget, regionTarget) => {
+        const currentAtlas=readAtlas(scene);
+        const checkpoints=currentAtlas.checkpoints?.filter(item=>item.roadId===road.id)??[];
+        const checkpointHeader=document.createElement("p");
+        checkpointHeader.textContent="Checkpoints ("+checkpoints.length+")";
+        checkpointHeader.style.cssText="opacity:.8;margin:.6rem 0;";
+        checkpointTarget.replaceChildren(checkpointHeader);
+        for (const checkpoint of checkpoints) {
+          const row=document.createElement("div");
+          row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;";
+          const name=document.createElement("span");name.textContent=checkpoint.name;
+          name.style.cssText="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;";
+          const btn=document.createElement("button");btn.type="button";
+          btn.textContent="Settings";btn.dataset.atlasCheckpointEdit=checkpoint.id;
+          row.append(name,btn);checkpointTarget.appendChild(row);
+        }
+        const regions=new Map();
+        for (const entry of listGeneratedRegions(scene)) {
+          if (entry.metadata?.roadId===road.id) regions.set(entry.id,entry.name);
+        }
+        for (const entry of scene.regions?.contents??[]) {
+          if (entry.getFlag?.(MODULE_ID,"roadId")===road.id ||
+              entry.name?.startsWith?.(road.name+" —"))
+            if (!regions.has(entry.id)) regions.set(entry.id,entry.name);
+        }
+        const regionHeader=document.createElement("p");
+        regionHeader.textContent="Terrain Regions ("+regions.size+")";
+        regionHeader.style.cssText="opacity:.8;margin:.6rem 0;";
+        regionTarget.replaceChildren(regionHeader);
+        for (const [id,regionName] of regions) {
+          const row=document.createElement("div");
+          row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;";
+          const label=document.createElement("span");label.textContent=regionName;
+          label.style.cssText="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;";
+          const btn=document.createElement("button");btn.type="button";
+          btn.textContent="Region settings";btn.dataset.atlasRegionEdit=id;
+          btn.style.cssText="flex:0 0 auto;width:auto;min-width:8rem;white-space:nowrap;";
+          row.append(label,btn);regionTarget.appendChild(row);
+        }
+      };
+      populateRelatedLists(checkpointList,regionList);
       const scrollBody=document.createElement("div");
       scrollBody.style.cssText="max-height:"+Math.max(220,Math.min(610,window.innerHeight-235))+"px;overflow-y:auto;min-width:0;min-height:0;padding-right:.5rem;overscroll-behavior:contain;";
       scrollBody.append(tabs,panels.general,panels.style,panels.checkpoints,panels.regions);
+      scrollBody.dataset.atlasRoadLive=roadDialogToken;
       content.appendChild(scrollBody);
       // DialogV2.input may clone its HTMLElement content when rendered. Its
       // cloned input loses the listener registered by journalLinkFields, unlike
@@ -563,7 +596,7 @@ function actions() {
             :tool==="delete" ? ()=>api.remove(scene,road,refresh)
             :tool==="generateRegion" ? ()=>openAtlasRegionGenerator(scene,road.id,api,refresh)
             :action.dataset.atlasCheckpointEdit ? ()=>api.editCheckpointAppearance(
-              scene,atlas.checkpoints.find(c=>c.id===action.dataset.atlasCheckpointEdit),refresh)
+              scene,readAtlas(scene).checkpoints.find(c=>c.id===action.dataset.atlasCheckpointEdit),refresh)
             :()=>api.configureRegion(scene,action.dataset.atlasRegionEdit);
           void Promise.resolve().then(call).catch(error=>ui.notifications.error(error.message));
           return;
@@ -584,6 +617,21 @@ function actions() {
           item.style.fontWeight=selected?"700":"400";
         }
       };
+      // RegionDocuments and checkpoint flags can change while this DialogV2
+      // is open (the native create UI is a separate window).
+      const syncRelatedLists=changedScene=>{
+        if (changedScene?.id!==scene.id) return;
+        const live=document.querySelector('[data-atlas-road-live="'+roadDialogToken+'"]');
+        if (!live) return;
+        const checkpoints=live.querySelector("[data-atlas-road-checkpoint-list]");
+        const regions=live.querySelector("[data-atlas-road-region-list]");
+        if (checkpoints && regions) populateRelatedLists(checkpoints,regions);
+      };
+      const onRegionChanged=region=>syncRelatedLists(region?.parent);
+      const updateHook=Hooks.on("updateScene",syncRelatedLists);
+      const createHook=Hooks.on("createRegion",onRegionChanged);
+      const regionUpdateHook=Hooks.on("updateRegion",onRegionChanged);
+      const deleteHook=Hooks.on("deleteRegion",onRegionChanged);
       document.addEventListener("click",onTabClick,true);
       const onRangeInput = event => {
         if (event.target?.name === "atlasRoadBorderEnabled") {
@@ -611,6 +659,10 @@ function actions() {
           rejectClose: false, modal: false
         });
       } finally {
+        Hooks.off("updateScene",updateHook);
+        Hooks.off("createRegion",createHook);
+        Hooks.off("updateRegion",regionUpdateHook);
+        Hooks.off("deleteRegion",deleteHook);
         document.removeEventListener("click",onTabClick,true);
         document.removeEventListener("input",onRangeInput,true);
         document.removeEventListener("dragover", onJournalDragOver, true);
@@ -625,15 +677,28 @@ function actions() {
       const selected = roadAppearanceFromForm(result);
       const inherits = actual.appearance == null &&
         Object.keys(selected).every(key => selected[key] === baseline[key]);
+      const currentAtlas=readAtlas(scene);
+      const currentRoad=currentAtlas.roads?.find(item=>item.id===road.id);
+      if (!currentRoad) throw Error("This road was removed while its settings were open.");
+      // Check the road's own presentation for conflicting edits, but allow
+      // unrelated checkpoint additions to advance the Scene revision.
+      if (currentRoad.name!==actual.name ||
+          currentRoad.playerVisible!==actual.playerVisible ||
+          JSON.stringify(currentRoad.appearance??null)!==JSON.stringify(actual.appearance??null))
+        throw Error("This road's settings changed elsewhere. Reopen the editor before saving.");
       await saveRoadPresentation(scene, {
         roadId: road.id, name: String(result.atlasRoadName ?? ""),
         playerVisible: result.atlasRoadVisible === true ||
           result.atlasRoadVisible === "true" || result.atlasRoadVisible === "on",
-        appearance: inherits ? null : selected, expectedRevision: atlas.revision
+        appearance: inherits ? null : selected, expectedRevision: currentAtlas.revision
       });
-      if(nextJournal!==journalUuidFor(journalLinks,"road",road.id)) {
+      const currentLinks=readAtlasJournalLinks(scene);
+      if(nextJournal!==journalUuidFor(currentLinks,"road",road.id)) {
+        if (journalUuidFor(currentLinks,"road",road.id)!==
+            journalUuidFor(journalLinks,"road",road.id))
+          throw Error("This road's Journal link changed elsewhere. Reopen Road Settings.");
         await saveAtlasJournalLink(scene,{
-          kind:"road",id:road.id,uuid:nextJournal,expected:journalLinks
+          kind:"road",id:road.id,uuid:nextJournal,expected:currentLinks
         });
       }
       roadCanvas.refresh();
