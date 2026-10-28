@@ -28,6 +28,7 @@ class Element {
     this.parentNode = null;
   }
   get lastElementChild() { return this.children.at(-1); }
+  querySelector() { return null; }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
 }
 
