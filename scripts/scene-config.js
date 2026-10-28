@@ -22,6 +22,7 @@ const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
 const junctionFilters = new Map();
 const generatorState = new Map();
 const expandedRoads = new Map();
+const expandedDetails = new Set();
 const generatorRoads = new Map();
 const regionLinkRoads = new Map();
 
@@ -109,7 +110,7 @@ function format(value) {
   return Number(value.toPrecision(7)).toLocaleString(game.i18n.lang || "en");
 }
 
-function atlasPanel(scene, atlas, actions, refresh) {
+function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = {}) {
   const root = node("section");
   root.setAttribute("data-fvtt-atlas-setup", "");
   const travelPresets = readWorldTravelPresets().presets;
@@ -282,13 +283,24 @@ function atlasPanel(scene, atlas, actions, refresh) {
       const summary = node("summary",title);
       summary.style.cssText = "cursor:pointer;font-weight:600;padding:.3rem 0;";
       details.appendChild(summary);
+      const key=scene.id+":"+road.id+":"+title;
+      details.open=expandedDetails.has(key);
+      details.addEventListener("toggle",()=>{
+        if (!details.isConnected) return;
+        if (details.open) expandedDetails.add(key);
+        else expandedDetails.delete(key);
+      });
       body.appendChild(details);
       return details;
     };
     const miniActions = (parent,items) => {
       const row = node("div");
       row.style.cssText = "display:flex;flex-wrap:wrap;gap:.3rem;padding:.25rem .4rem;";
-      for (const [caption,title,action] of items) row.appendChild(button(caption,title,action));
+      for (const [caption,title,action] of items) {
+        const control=button(caption,title,action);
+        control.style.cssText="flex:0 0 auto;width:auto;min-width:max-content;white-space:nowrap;";
+        row.appendChild(control);
+      }
       parent.appendChild(row);
     };
     const checkpoints = (atlas.checkpoints ?? []).filter(item => item.roadId === road.id);
@@ -309,16 +321,18 @@ function atlasPanel(scene, atlas, actions, refresh) {
     const regionFolder=folder("Terrain Regions (" + generated.length + ")");
     regionFolder.dataset.atlasRegionFolder = road.id;
     miniActions(regionFolder,[["＋ Generate Region","Create native Region along this road",
-      () => {
-        generatorRoads.set(scene.id,road.id);
-        const selected=generatorState.get(scene.id);
-        if (selected) { selected.roadId=road.id; selected.presetEdited=false; }
-        refresh();
-      }]]);
+      () => openAtlasRegionGenerator(scene,road.id,actions,refresh)]]);
     for (const region of generated) {
       const child=node("details");
       child.style.cssText="margin:.2rem .4rem;padding:.2rem .4rem;";
       child.appendChild(node("summary",region.name || "Region"));
+      const key=scene.id+":"+road.id+":region:"+region.id;
+      child.open=expandedDetails.has(key);
+      child.addEventListener("toggle",()=>{
+        if (!child.isConnected) return;
+        if (child.open) expandedDetails.add(key);
+        else expandedDetails.delete(key);
+      });
       miniActions(child,[
         ["Region settings","Open native Region configuration",()=>actions.configureRegion(scene,region.id)],
         ["Travel preset" + (presetById.get(region.presetId)?.name ? ": " + presetById.get(region.presetId).name : ": None"),
@@ -593,7 +607,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
     "REGION SETTINGS — Preset colors and movement costs below affect native Foundry Regions " +
     "only after the separate GM-confirmed action. They do not change Atlas road lines or labels.", "hint"));
   const available = atlas.schemaVersion >= 4 ? atlas.roads.filter(r =>
-    (!sharedFilter || shownRoads.has(r.id)) &&
+    (generatorOnly ? r.id===generatorRoads.get(scene.id) : (!sharedFilter || shownRoads.has(r.id))) &&
     atlas.checkpoints.some(c => c.roadId === r.id)) : [];
   if (!available.length) {
     generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.NoCheckpoints"), "hint"));
@@ -963,13 +977,49 @@ function atlasPanel(scene, atlas, actions, refresh) {
   else measurement.appendChild(node("p", label("FVTTATLAS.Atlas.GridUnavailable"), "hint"));
   measurement.appendChild(node("p", label("FVTTATLAS.Atlas.SceneGridSaveHint"), "hint"));
   advanced.appendChild(measurement);
-  // Keep advanced native Region tools attached to the active road only.
-  const generatorTarget = root.querySelector(`[data-atlas-region-folder="${generatorRoads.get(scene.id)??""}"]`);
-  if (generatorTarget) generatorTarget.appendChild(generatedSection);
+  // Generated Region creation uses its own window; existing Regions stay here.
+  if (generatorOnly) return generatedSection;
+  generatedSection.remove();
   const regionTarget = root.querySelector(`[data-atlas-region-folder="${expandedRoads.get(scene.id)??""}"]`);
   if (regionTarget) regionTarget.appendChild(regionSection);
   fogPanel.appendChild(measurement);
   return root;
+}
+
+/** Standalone native Region generator; never changes graph or Region Behaviors implicitly. */
+class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 {
+  static DEFAULT_OPTIONS = {
+    id:"fvtt-atlas-region-generator",
+    window:{ title:"Atlas — Generate Terrain Region", resizable:true },
+    position:{width:680,height:620}
+  };
+  constructor({scene,roadId,actions,refresh}) {
+    super({ position:{
+      width:Math.min(680,window.innerWidth-60),
+      height:Math.min(620,window.innerHeight-100)
+    } });
+    this.scene=scene;this.roadId=roadId;this.actions=actions;this.externalRefresh=refresh;
+  }
+  async _renderHTML() {
+    generatorRoads.set(this.scene.id,this.roadId);
+    const selected=generatorState.get(this.scene.id);
+    if (selected && selected.roadId!==this.roadId) {
+      selected.roadId=this.roadId;selected.presetEdited=false;
+    }
+    const body=atlasPanel(this.scene,readAtlas(this.scene),this.actions,
+      ()=>{this.externalRefresh?.();void this.render(true);},{generatorOnly:true});
+    const root=node("div");
+    root.style.cssText="padding:.65rem;overflow-y:auto;max-height:calc(100vh - 130px);";
+    root.appendChild(body);
+    root.appendChild(button("Close","Close Region generator",()=>this.close()));
+    return root;
+  }
+  _replaceHTML(result,content){content.replaceChildren(result);}
+}
+
+export function openAtlasRegionGenerator(scene,roadId,actions,refresh) {
+  if (!game.user?.isGM) throw Error("Only the GM can generate terrain Regions.");
+  new AtlasRegionGeneratorWindow({scene,roadId,actions,refresh}).render(true);
 }
 
 /**
