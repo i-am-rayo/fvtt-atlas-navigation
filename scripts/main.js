@@ -126,7 +126,7 @@ async function centerAtlasOn(scene, roadId, checkpointId=null) {
   const y=(Math.min(...converted.map(p=>p.y))+Math.max(...converted.map(p=>p.y)))/2;
   fadeSceneSheet(scene);
   roadCanvas.focusOn(scene,checkpointId?"checkpoint":"road",checkpointId??roadId);
-  await view.animatePan({x,y,scale:view.stage?.scale?.x??1,duration:450});
+  await view.animatePan({x,y,scale:checkpointId ? Math.max(2.2, view.stage?.scale?.x??1) : (view.stage?.scale?.x??1),duration:450});
 }
 
 function ensureIdle(scene) {
@@ -341,18 +341,17 @@ function actions() {
       const tabs=document.createElement("nav");
       tabs.style.cssText="display:flex;gap:.4rem;margin-bottom:.7rem;";
       const panels={general:document.createElement("div"),
-        style:document.createElement("div"),journal:document.createElement("div")};
-      for (const [key,text] of [["general","General"],["style","Style"],["journal","Journal"]]) {
+        style:document.createElement("div")};
+      for (const [key,text] of [["general","General"],["style","Style"]]) {
         const tab=document.createElement("button");
         tab.type="button";tab.textContent=text;tab.dataset.atlasRoadTab=key;
         tab.style.flex="1";tabs.appendChild(tab);
         panels[key].dataset.atlasRoadPanel=key;
         panels[key].hidden=key!=="general";
       }
-      panels.general.append(nameRow,visibilityRow);
+      panels.general.append(nameRow,visibilityRow,journalControls);
       panels.style.appendChild(roadAppearanceForm(baseline));
-      panels.journal.appendChild(journalControls);
-      content.append(tabs,panels.general,panels.style,panels.journal);
+      content.append(tabs,panels.general,panels.style);
       // DialogV2.input may clone its HTMLElement content when rendered. Its
       // cloned input loses the listener registered by journalLinkFields, unlike
       // the modeless checkpoint editor. Delegate on the live document instead.
@@ -408,8 +407,8 @@ function actions() {
       let result;
       try {
         result = await DialogV2.input({
-          window: { title: "Road Settings — " + actual.name },
-          position: { width: 760, height: 660 },
+          window: { title: "Road Settings — " + actual.name, resizable: true },
+          position: { width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(430, Math.max(300, window.innerHeight - 140)) },
           content, ok: { label: "Save Road Settings" },
           rejectClose: false, modal: false
         });
@@ -1036,6 +1035,12 @@ Hooks.once("init", () => {
     hint: "Draw subtle burgundy diagonal hatching over GM-visible roads and checkpoints that players have not discovered. Never shown to players.",
     scope: "world", config: true, type: Boolean, default: true,
     onChange: () => roadCanvas.refresh()
+  });
+  game.settings.register(MODULE_ID, "elevationUnits", {
+    name: "Atlas Elevation Units",
+    hint: "Choose how checkpoint elevations appear while editing. Stored elevations remain in meters.",
+    scope: "world", config: true, type: String, choices: { metric: "Meters (metric)", imperial: "Feet (imperial)" },
+    default: "metric"
   });
   registerManualBrushSettings();
   registerWorldTravelPresets();
