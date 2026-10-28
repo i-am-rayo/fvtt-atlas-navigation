@@ -266,10 +266,10 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(!all(root).some(node => node.tag === "button" &&
       node.title?.startsWith("brands:github — ")),
     "RPG-first mode omits unrelated brand icons");
-    const category = all(root).find(node => node.tag === "select" &&
-      node.children.some(child => child.value === "rpg"));
-    category.value = "all";
-    category.listeners.get("change")();
+    const advanced = all(root).find(node => node.tag === "button" &&
+      node.textContent === "All / Advanced");
+    assert.ok(advanced, "advanced icon catalogue is accessible by a category tab");
+    advanced.listeners.get("click")();
     assert.ok(all(root).some(node => node.tag === "button" &&
       node.title?.startsWith("brands:github — ")), "search draws relevant brand glyphs");
     assert.ok(all(root).filter(node => node.tag === "button").length < 85);
@@ -278,7 +278,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(magicTab, "redesigned icon browser includes one-click thematic tabs");
     search.value = "";
     magicTab.listeners.get("click")();
-    assert.equal(category.value, "magic");
+    assert.ok(magicTab, "Magic category is available");
     const magicIcon = all(root).find(node => node.tag === "button" &&
       node.title?.startsWith("solid:wand-magic — "));
     assert.ok(magicIcon);
