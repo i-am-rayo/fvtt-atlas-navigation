@@ -17,14 +17,20 @@ test("module manifest declares a v14 system-agnostic module shell", async () => 
   assert.deepEqual(manifest.esmodules, ["scripts/main.js"]);
   assert.equal("system" in manifest, false);
   assert.equal("relationships" in manifest, false);
-  assert.equal(
-    manifest.manifest,
-    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/hotfix/v0.2.25.4.5-direct-primary-fog/module.json"
+  const manifestUrl = new URL(manifest.manifest);
+  const downloadUrl = new URL(manifest.download);
+  assert.equal(manifestUrl.hostname, "raw.githubusercontent.com");
+  assert.equal(downloadUrl.hostname, "github.com");
+  const manifestMatch = manifestUrl.pathname.match(
+    /^\/i-am-rayo\/fvtt-atlas-navigation\/refs\/heads\/(.+)\/module\.json$/
   );
-  assert.equal(
-    manifest.download,
-    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/hotfix/v0.2.25.4.5-direct-primary-fog.zip"
+  const downloadMatch = downloadUrl.pathname.match(
+    /^\/i-am-rayo\/fvtt-atlas-navigation\/archive\/refs\/heads\/(.+)\.zip$/
   );
+  assert.ok(manifestMatch, "manifest must point to a repository branch");
+  assert.ok(downloadMatch, "download must point to a repository branch");
+  assert.equal(downloadMatch[1], manifestMatch[1],
+    "manifest and download must reference the same branch");
   assert.ok(manifest.manifest.endsWith("/module.json"));
   assert.ok(manifest.download.endsWith(".zip"));
 
