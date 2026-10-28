@@ -1397,7 +1397,8 @@ export class RoadCanvasController {
         if (appearance.labelMode === "always" ||
             this.playerHoveredCheckpointId === checkpoint.id) {
           const roadName = roads.get(checkpoint.roadId)?.name;
-          this.#addCheckpointLabels(graphics, checkpoint.name, roadName,
+          this.#addCheckpointLabels(graphics, checkpoint.name +
+            (this.#journalCanView(journalUuidFor(journals,"checkpoint",checkpoint.id)) ? " 📖" : ""), roadName,
             appearance, group, zoom);
         }
       }
