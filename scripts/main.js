@@ -3,7 +3,8 @@
  * v0.2.22 adds GM-only authoring shortcuts and a floating road editor.
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
-  getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig } from "./scene-config.js";
+  getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig,
+  openAtlasRegionGenerator } from "./scene-config.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { addAtlasExplorerToTokenConfig } from "./atlas-token-config.js";
 import { observeAtlasTokenMovement } from "./atlas-token-exploration.js";
@@ -316,6 +317,7 @@ function actions() {
       const actual = atlas.roads?.find(item => item.id === road.id);
       if (!actual) throw new Error("The named road no longer exists.");
       const content = document.createElement("div");
+      content.style.cssText="max-height:calc(100vh - 230px);overflow-y:auto;min-width:0;padding-right:.25rem;";
       const mode = roadAppearanceMode(actual, readWorldTravelPresets().presets);
       const nameRow = document.createElement("label");
       nameRow.className = "form-group";
@@ -346,7 +348,12 @@ function actions() {
       for (const [key,text] of [["general","General"],["style","Style"],["checkpoints","Checkpoints"],["regions","Terrain Regions"]]) {
         const tab=document.createElement("button");
         tab.type="button";tab.textContent=text;tab.dataset.atlasRoadTab=key;
-        tab.style.flex="1";tabs.appendChild(tab);
+        tab.style.flex="1";
+        tab.style.cssText="flex:1;border:1px solid var(--color-border-light-tertiary,#655);background:"+
+          (key==="general"?"rgba(156,123,240,.22)":"transparent")+";font-weight:"+
+          (key==="general"?"700":"400")+";";
+        tab.setAttribute("aria-selected",String(key==="general"));
+        tabs.appendChild(tab);
         panels[key].dataset.atlasRoadPanel=key;
         panels[key].hidden=key!=="general";
       }
@@ -354,23 +361,31 @@ function actions() {
       const roadTools=document.createElement("fieldset");
       const toolsLegend=document.createElement("legend");toolsLegend.textContent="Road tools";
       roadTools.appendChild(toolsLegend);
-      roadTools.style.cssText="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.6rem;";
+      roadTools.style.cssText="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.6rem;min-width:0;";
       for (const [title,kind] of [["Edit path","edit"],["Add connection","connection"],
-        ["Add checkpoint","newCheckpoint"],["Travel preset","travel"],["Delete road","delete"]]) {
+        ["Travel preset","travel"],["Delete road","delete"]]) {
         const btn=document.createElement("button");btn.type="button";
         btn.textContent=title;btn.dataset.atlasRoadTool=kind;
+        btn.style.cssText="flex:0 0 auto;width:auto;min-width:0;";
         roadTools.appendChild(btn);
       }
       panels.general.appendChild(roadTools);
       panels.style.appendChild(roadAppearanceForm(baseline));
+      const addCheckpoint=document.createElement("button");addCheckpoint.type="button";
+      addCheckpoint.textContent="+ Add checkpoint";addCheckpoint.dataset.atlasRoadTool="newCheckpoint";
+      panels.checkpoints.appendChild(addCheckpoint);
       for (const checkpoint of atlas.checkpoints?.filter(item=>item.roadId===road.id)??[]) {
         const row=document.createElement("div");
         row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;";
         const text=document.createElement("span");text.textContent=checkpoint.name;
+        text.style.cssText="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;";
         const btn=document.createElement("button");btn.type="button";
         btn.textContent="Settings";btn.dataset.atlasCheckpointEdit=checkpoint.id;
         row.append(text,btn);panels.checkpoints.appendChild(row);
       }
+      const addRegion=document.createElement("button");addRegion.type="button";
+      addRegion.textContent="+ Generate Region";addRegion.dataset.atlasRoadTool="generateRegion";
+      panels.regions.appendChild(addRegion);
       for (const region of scene.regions?.contents??[]) {
         if (region.getFlag?.(MODULE_ID,"roadId")!==road.id &&
             !region.name?.startsWith?.(road.name + " —")) continue;
@@ -379,6 +394,7 @@ function actions() {
         const text=document.createElement("span");text.textContent=region.name;
         const btn=document.createElement("button");btn.type="button";
         btn.textContent="Region settings";btn.dataset.atlasRegionEdit=region.id;
+        btn.style.cssText="flex:0 0 auto;width:auto;min-width:8rem;white-space:nowrap;";
         row.append(text,btn);panels.regions.appendChild(row);
       }
       content.append(tabs,panels.general,panels.style,panels.checkpoints,panels.regions);
@@ -420,6 +436,7 @@ function actions() {
             :tool==="newCheckpoint" ? ()=>api.beginCheckpoint(scene,refresh)
             :tool==="travel" ? ()=>api.assignRoadTravelPreset(scene,road,refresh)
             :tool==="delete" ? ()=>api.remove(scene,road,refresh)
+            :tool==="generateRegion" ? ()=>openAtlasRegionGenerator(scene,road.id,api,refresh)
             :action.dataset.atlasCheckpointEdit ? ()=>api.editCheckpointAppearance(
               scene,atlas.checkpoints.find(c=>c.id===action.dataset.atlasCheckpointEdit),refresh)
             :()=>api.configureRegion(scene,action.dataset.atlasRegionEdit);
@@ -434,8 +451,13 @@ function actions() {
         event.stopImmediatePropagation();
         for (const panel of form.querySelectorAll("[data-atlas-road-panel]"))
           panel.hidden=panel.dataset.atlasRoadPanel!==tab.dataset.atlasRoadTab;
-        for (const item of form.querySelectorAll("[data-atlas-road-tab]"))
-          item.disabled=item===tab;
+        for (const item of form.querySelectorAll("[data-atlas-road-tab]")) {
+          const selected=item===tab;
+          item.disabled=false;
+          item.setAttribute("aria-selected",String(selected));
+          item.style.background=selected?"rgba(156,123,240,.22)":"transparent";
+          item.style.fontWeight=selected?"700":"400";
+        }
       };
       document.addEventListener("click",onTabClick,true);
       const onRangeInput = event => {
@@ -459,7 +481,7 @@ function actions() {
       try {
         result = await DialogV2.input({
           window: { title: "Road Settings — " + actual.name, resizable: true },
-          position: { width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(640, Math.max(410, window.innerHeight - 100)) },
+          position: { width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(560, Math.max(410, window.innerHeight - 100)) },
           content, ok: { label: "Save Road Settings" },
           rejectClose: false, modal: false
         });
