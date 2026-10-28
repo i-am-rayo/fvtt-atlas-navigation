@@ -29,7 +29,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   };
 
   constructor({ scene, checkpointId, expectedRevision, onSaved }) {
-    super();
+    super({ position: {
+      width: Math.min(630, Math.max(360, window.innerWidth - 60)),
+      height: Math.min(540, Math.max(340, window.innerHeight - 100))
+    } });
     this.scene = scene;
     this.checkpointId = checkpointId;
     this.expectedRevision = expectedRevision;
