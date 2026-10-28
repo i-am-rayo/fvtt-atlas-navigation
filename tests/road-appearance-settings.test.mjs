@@ -16,6 +16,7 @@ class Element {
   }
   appendChild(child) { this.children.push(child); }
   append(...children) { this.children.push(...children); }
+  get lastElementChild() { return this.children.at(-1); }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
   querySelectorAll(selector) {
     if (selector !== "[name]") return [];
@@ -34,7 +35,7 @@ test("World Road Appearance settings show Land/Air/Water separately and only sav
     ui: globalThis.ui };
   let writes = 0, stored, menu;
   const legacy = Object.fromEntries(Object.entries(DEFAULT_ROAD_APPEARANCE)
-    .filter(([key]) => key !== "textColor"));
+    .filter(([key]) => ["color", "width", "opacity", "pattern", "labelVisibility"].includes(key)));
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
     globalThis.game = {
