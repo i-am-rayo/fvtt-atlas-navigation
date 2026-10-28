@@ -16,13 +16,14 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-road-editor-dock",
     window: { title: "Atlas — Road Editor", resizable: true },
-    position: { width: 320, height: 205 }
+    position: { width: 320, height: 205, left: 80, top: 115 }
   };
 
   constructor({ scene, controller, sceneSheet, onFinish, onCancel, onClosed }) {
     super({ position: {
       width: Math.min(320, Math.max(260, window.innerWidth - 60)),
-      height: Math.min(205, Math.max(175, window.innerHeight - 100))
+      height: Math.min(205, Math.max(175, window.innerHeight - 100)),
+      left: 80, top: 115
     } });
     this.scene = scene;
     this.controller = controller;
