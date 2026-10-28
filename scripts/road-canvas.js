@@ -1364,8 +1364,7 @@ export class RoadCanvasController {
           (item.style.labelVisibility === "hover" && this.playerHoveredRoadId === roadId)) {
         const point = item.style.labelVisibility === "hover" && this.playerHoveredRoadPoint
             ? this.playerHoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths);
-          const opacity = item.style.labelVisibility === "hover" ? 1 :
-            roadLabelOpacityNearCheckpoints(point, checkpointPositions,
+          const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
               zoom, item.style.labelVisibility);
           if (point && opacity > 0) this.#addLabel(graphics, item.road.name +
             (this.#journalCanView(journalUuidFor(journals,"road",roadId)) ? " 📖" : ""),
@@ -1652,8 +1651,7 @@ export class RoadCanvasController {
           (item.style.labelVisibility === "hover" && this.hoveredRoadId === roadId)) {
         const point = item.style.labelVisibility === "hover" && this.hoveredRoadPoint
           ? this.hoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths) ?? item.point;
-        const opacity = item.style.labelVisibility === "hover" ? 1 :
-          roadLabelOpacityNearCheckpoints(point, checkpointPositions,
+        const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
             zoom, item.style.labelVisibility);
         if (opacity > 0) this.#addLabel(g, item.road.name +
           (journalUuidFor(gmJournals,"road",roadId) ? " 📖" : ""),
