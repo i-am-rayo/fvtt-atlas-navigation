@@ -442,7 +442,7 @@ function actions() {
         if (event.target?.name === "atlasRoadBorderEnabled") {
           const form=event.target.closest?.(".application");
           const row=form?.querySelector?.("[data-atlas-road-border-color]");
-          if (row) row.hidden=!event.target.checked;
+          if (row) row.style.display=event.target.checked?"flex":"none";
         }
         const name=event.target?.name;
         if (!["atlasRoadWidth","atlasRoadOpacity"].includes(name)) return;
