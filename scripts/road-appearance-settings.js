@@ -58,7 +58,19 @@ export function roadAppearanceForm(appearance) {
     root.appendChild(row);
   };
   input("Road color", "atlasRoadColor", "color", current.color);
+  const borderToggle=element("label");
+  borderToggle.className="form-group";
+  borderToggle.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:1rem;";
+  borderToggle.appendChild(element("span","Road border"));
+  const borderOn=element("input");borderOn.type="checkbox";borderOn.name="atlasRoadBorderEnabled";
+  borderOn.value="true";borderOn.checked=current.borderEnabled;
+  borderOn.defaultChecked=borderOn.checked;
+  borderToggle.appendChild(borderOn);
+  root.appendChild(borderToggle);
   input("Road border color", "atlasRoadBorderColor", "color", current.borderColor);
+  const borderColorRow=root.lastElementChild;
+  borderColorRow.dataset.atlasRoadBorderColor="";borderColorRow.hidden=!current.borderEnabled;
+  borderOn.addEventListener("change",()=>{borderColorRow.hidden=!borderOn.checked;});
   input("Road name text color", "atlasRoadTextColor", "color", current.textColor);
   input("Line width (px)", "atlasRoadWidth", "number", current.width,
     { min: 1, max: 16, step: 0.5 });
@@ -75,6 +87,7 @@ export function roadAppearanceFromForm(values) {
   return validateRoadAppearance({
     color: String(values.atlasRoadColor ?? ""),
     borderColor: String(values.atlasRoadBorderColor ?? ""),
+    borderEnabled: values.atlasRoadBorderEnabled === true || values.atlasRoadBorderEnabled === "true",
     textColor: String(values.atlasRoadTextColor ?? ""),
     width: Number(values.atlasRoadWidth),
     opacity: Number(values.atlasRoadOpacity),
