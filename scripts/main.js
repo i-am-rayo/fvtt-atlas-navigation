@@ -88,6 +88,21 @@ function beginRoadDock(scene, refresh, start) {
   openRoadDock(scene, refresh);
 }
 
+const atlasFocusFades = new WeakMap();
+function fadeSceneSheet(scene) {
+  const app=getAtlasSceneConfig(scene);
+  const element=app?.element?.[0]??app?.element;
+  if (!(element instanceof HTMLElement)) return;
+  const prior=atlasFocusFades.get(element);
+  if (prior) clearTimeout(prior.timer);
+  const original=prior?.opacity??element.style.opacity;
+  element.style.opacity="0.25";
+  const timer=setTimeout(()=>{
+    element.style.opacity=original;
+    atlasFocusFades.delete(element);
+  },3650);
+  atlasFocusFades.set(element,{opacity:original,timer});
+}
 async function centerAtlasOn(scene, roadId, checkpointId=null) {
   const view=globalThis.canvas;
   if (!view?.ready || view.scene?.id !== scene.id)
@@ -109,6 +124,8 @@ async function centerAtlasOn(scene, roadId, checkpointId=null) {
   const converted=points.map(point=>toCanvasPoint(view,atlas,point));
   const x=(Math.min(...converted.map(p=>p.x))+Math.max(...converted.map(p=>p.x)))/2;
   const y=(Math.min(...converted.map(p=>p.y))+Math.max(...converted.map(p=>p.y)))/2;
+  fadeSceneSheet(scene);
+  roadCanvas.focusOn(scene,checkpointId?"checkpoint":"road",checkpointId??roadId);
   await view.animatePan({x,y,scale:view.stage?.scale?.x??1,duration:450});
 }
 
@@ -321,7 +338,21 @@ function actions() {
       const baseline = resolveRoadAppearance(actual, readWorldRoadAppearance(), mode);
       const journalLinks = readAtlasJournalLinks(scene);
       const journalControls = journalLinkFields(journalLinks,"road",road.id);
-      content.append(nameRow, visibilityRow, roadAppearanceForm(baseline),journalControls);
+      const tabs=document.createElement("nav");
+      tabs.style.cssText="display:flex;gap:.4rem;margin-bottom:.7rem;";
+      const panels={general:document.createElement("div"),
+        style:document.createElement("div"),journal:document.createElement("div")};
+      for (const [key,text] of [["general","General"],["style","Style"],["journal","Journal"]]) {
+        const tab=document.createElement("button");
+        tab.type="button";tab.textContent=text;tab.dataset.atlasRoadTab=key;
+        tab.style.flex="1";tabs.appendChild(tab);
+        panels[key].dataset.atlasRoadPanel=key;
+        panels[key].hidden=key!=="general";
+      }
+      panels.general.append(nameRow,visibilityRow);
+      panels.style.appendChild(roadAppearanceForm(baseline));
+      panels.journal.appendChild(journalControls);
+      content.append(tabs,panels.general,panels.style,panels.journal);
       // DialogV2.input may clone its HTMLElement content when rendered. Its
       // cloned input loses the listener registered by journalLinkFields, unlike
       // the modeless checkpoint editor. Delegate on the live document instead.
@@ -349,6 +380,19 @@ function actions() {
           ui.notifications.warn(error.message || "Journal drop could not be read.");
         }
       };
+      const onTabClick = event => {
+        const tab=event.target?.closest?.("[data-atlas-road-tab]");
+        if (!tab) return;
+        const form=tab.closest?.(".application");
+        if (!form?.querySelector?.('input[name="atlasRoadName"]')) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        for (const panel of form.querySelectorAll("[data-atlas-road-panel]"))
+          panel.hidden=panel.dataset.atlasRoadPanel!==tab.dataset.atlasRoadTab;
+        for (const item of form.querySelectorAll("[data-atlas-road-tab]"))
+          item.disabled=item===tab;
+      };
+      document.addEventListener("click",onTabClick,true);
       const onRangeInput = event => {
         const name=event.target?.name;
         if (!["atlasRoadWidth","atlasRoadOpacity"].includes(name)) return;
@@ -365,10 +409,12 @@ function actions() {
       try {
         result = await DialogV2.input({
           window: { title: "Road Settings — " + actual.name },
+          position: { width: 760, height: 660 },
           content, ok: { label: "Save Road Settings" },
           rejectClose: false, modal: false
         });
       } finally {
+        document.removeEventListener("click",onTabClick,true);
         document.removeEventListener("input",onRangeInput,true);
         document.removeEventListener("dragover", onJournalDragOver, true);
         document.removeEventListener("drop", onJournalDrop, true);
@@ -622,7 +668,6 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.StartNotice"));
     },
     selectCheckpoint: async (scene, checkpointId) => {
-      roadCanvas.selectCheckpoint(scene, checkpointId);
       await centerAtlasOn(scene,null,checkpointId);
     },
     async savePartyExploration(scene, settings, refresh) {
@@ -900,7 +945,6 @@ function actions() {
     finish: () => roadCanvas.finish(),
     cancel: () => roadCanvas.cancel(),
     select: async (scene, id) => {
-      roadCanvas.selectRoad(scene, id);
       await centerAtlasOn(scene,id);
     },
     async rename(scene, road, refresh) {
