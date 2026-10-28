@@ -11,33 +11,15 @@ export function journalLinkFields(links,kind,id,{fieldName="atlasJournalUuid"}={
   const description=document.createElement("p");
   description.textContent="Attach a Journal Entry or an individual Page. Player access follows native Foundry Journal and Page permissions; Atlas never grants access.";
   wrap.append(description);
-  const label=document.createElement("label");
-  label.textContent="Choose a World Journal";
-  label.style.cssText="display:block;margin-bottom:.4rem;";
-  const select=document.createElement("select");
-  select.style.width="100%";
-  const none=document.createElement("option");
-  none.value="";none.textContent="None / Unlink";
-  select.append(none);
-  const journals=[...(game.journal??[])].sort((a,b)=>a.name.localeCompare(b.name));
-  for(const journal of journals) {
-    const option=document.createElement("option");
-    option.value=journal.uuid;option.textContent=journal.name;
-    select.append(option);
-  }
-  select.value=journals.some(j=>j.uuid===current)?current:"";
-  label.append(select);wrap.append(label);
   const uuidLabel=document.createElement("label");
-  uuidLabel.textContent="Journal or Page UUID (or drag one here)";
+  uuidLabel.textContent="Linked Journal / Page UUID — paste or drag here";
   uuidLabel.style.cssText="display:block;margin-bottom:.4rem;";
   const input=document.createElement("input");
   input.type="text";input.name=fieldName;
-  input.placeholder="JournalEntry.…[.JournalEntryPage.…] or @UUID[…]";
+  input.placeholder="Paste @UUID[…] or JournalEntry.… (drag from Journal directory)";
   input.value=current??"";input.defaultValue=current??"";
   input.style.width="100%";
   input.maxLength=300;
-  select.addEventListener("change",()=>{input.value=select.value;});
-  input.addEventListener("change",()=>{select.value=input.value;});
   input.addEventListener("dragover",event=>event.preventDefault());
   input.addEventListener("drop",event=>{
     event.preventDefault();
@@ -45,7 +27,9 @@ export function journalLinkFields(links,kind,id,{fieldName="atlasJournalUuid"}={
       const data=JSON.parse(event.dataTransfer?.getData("text/plain")??"");
       if(!["JournalEntry","JournalEntryPage"].includes(data.type)||typeof data.uuid!=="string")
         throw Error("Drop a Journal Entry or Journal Entry Page.");
-      input.value=data.uuid;select.value=data.uuid;
+      input.value=data.uuid;
+      input.dispatchEvent(new Event("input",{bubbles:true}));
+      input.dispatchEvent(new Event("change",{bubbles:true}));
     } catch(error) {
       ui.notifications?.warn?.(error.message||"Drop a Foundry Journal Entry.");
     }
