@@ -43,7 +43,17 @@ export function roadAppearanceForm(appearance) {
     }
     field.name = name;
     field.style.maxWidth = "13rem";
-    row.appendChild(field);
+    if (name === "atlasRoadWidth" || name === "atlasRoadOpacity") {
+      field.type = "range";
+      field.style.width = "10rem";
+      const wrap = element("div");
+      wrap.style.cssText = "display:flex;align-items:center;gap:.35rem;";
+      const output = element("output", name === "atlasRoadWidth" ? value + " px" : Math.round(value * 100) + "%");
+      output.style.minWidth = "3rem";
+      output.dataset.atlasRangeValue = name;
+      wrap.append(field,output);
+      row.appendChild(wrap);
+    } else row.appendChild(field);
     root.appendChild(row);
   };
   input("Road color", "atlasRoadColor", "color", current.color);
