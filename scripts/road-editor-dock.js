@@ -20,7 +20,10 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
   };
 
   constructor({ scene, controller, sceneSheet, onFinish, onCancel, onClosed }) {
-    super();
+    super({ position: {
+      width: Math.min(320, Math.max(260, window.innerWidth - 60)),
+      height: Math.min(205, Math.max(175, window.innerHeight - 100))
+    } });
     this.scene = scene;
     this.controller = controller;
     this.sceneSheet = sceneSheet;
