@@ -9,6 +9,13 @@ class Element {
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   appendChild(child) { this.children.push(child); }
   append(...children) { this.children.push(...children); }
+  insertBefore(child, reference) {
+    const index = this.children.indexOf(reference);
+    if (index < 0) this.children.push(child);
+    else this.children.splice(index, 0, child);
+    return child;
+  }
+  get lastElementChild() { return this.children.at(-1); }
   prepend(...children) { this.children.unshift(...children); }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
 }
@@ -64,7 +71,7 @@ test("Roads plus opens drawing against the configured Scene; no Configure dialog
   };
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
-    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k, lang: "en" } };
+    globalThis.game = { user: { isGM: true }, settings: { get: () => null }, i18n: { localize: k => k, lang: "en" } };
     globalThis.ui = { notifications: { error: m => { throw Error(m); } } };
     addAtlasRoadsToSceneConfig({ document: scene }, element, actions);
     assert.ok(mounted);
@@ -110,7 +117,7 @@ test("a Scene with roads shows select, rename, delete without activation toggles
   let selected;
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
-    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k, lang: "en" } };
+    globalThis.game = { user: { isGM: true }, settings: { get: () => null }, i18n: { localize: k => k, lang: "en" } };
     addAtlasRoadsToSceneConfig({ document: scene }, element, {
       begin() {}, draft: () => null, finish() {}, cancel() {},
       select: (scene, id) => { selected = id; }, rename() {}, remove() {}
@@ -136,7 +143,7 @@ test("custom Scene sheet gets an in-sheet Misc fallback", () => {
     getFlag: () => null, canUserModify: () => true };
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
-    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k, lang: "en" } };
+    globalThis.game = { user: { isGM: true }, settings: { get: () => null }, i18n: { localize: k => k, lang: "en" } };
     addAtlasRoadsToSceneConfig({ document: scene }, element, {
       begin() {}, draft: () => null, finish() {}, cancel() {}, select() {}, rename() {}, remove() {}
     });
@@ -163,7 +170,7 @@ test("anchored v2 road list explicitly offers organization before new editing", 
   let organizeScene;
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
-    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k, lang: "en" } };
+    globalThis.game = { user: { isGM: true }, settings: { get: () => null }, i18n: { localize: k => k, lang: "en" } };
     addAtlasRoadsToSceneConfig({ document: scene }, element, {
       begin() {}, draft: () => null, finish() {}, cancel() {}, select() {}, rename() {}, remove() {},
       organize: chosen => { organizeScene = chosen; }
@@ -572,7 +579,7 @@ test("Atlas fog panel explains retained radius and exposes targeted GM history a
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
     globalThis.game = { user: { isGM: true },
-      i18n: { localize: k => k, lang: "en" } };
+      settings: { get: () => null }, i18n: { localize: k => k, lang: "en" } };
     globalThis.ui = { notifications: { error: message => { throw Error(message); } } };
     addAtlasRoadsToSceneConfig({ document: scene }, element, {
       draft: () => null, begin() {}, select() {}, rename() {}, remove() {},
