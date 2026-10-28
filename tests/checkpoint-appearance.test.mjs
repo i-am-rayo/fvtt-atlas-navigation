@@ -253,7 +253,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const buttons = all(root).filter(node => node.tag === "button");
     assert.ok(buttons.length < 85,
       "initial icon grid must not render over two thousand buttons");
-    const slider = all(root).find(node => node.tag === "input" && node.type === "range");
+    const slider = all(root).find(node => node.tag === "input" &&
+      node.type === "range" && node.min === "12" && node.max === "64");
     const label = all(root).find(node => node.tag === "output");
     assert.ok(slider && label);
     slider.value = "55";
