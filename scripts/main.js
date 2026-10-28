@@ -339,10 +339,11 @@ function actions() {
       const journalLinks = readAtlasJournalLinks(scene);
       const journalControls = journalLinkFields(journalLinks,"road",road.id);
       const tabs=document.createElement("nav");
-      tabs.style.cssText="display:flex;gap:.4rem;margin-bottom:.7rem;";
+      tabs.style.cssText="display:flex;gap:.4rem;padding-bottom:.65rem;border-bottom:1px solid var(--color-border-light-tertiary,#655);margin-bottom:.8rem;";
       const panels={general:document.createElement("div"),
-        style:document.createElement("div")};
-      for (const [key,text] of [["general","General"],["style","Style"]]) {
+        style:document.createElement("div"),
+        checkpoints:document.createElement("div"),regions:document.createElement("div")};
+      for (const [key,text] of [["general","General"],["style","Style"],["checkpoints","Checkpoints"],["regions","Terrain Regions"]]) {
         const tab=document.createElement("button");
         tab.type="button";tab.textContent=text;tab.dataset.atlasRoadTab=key;
         tab.style.flex="1";tabs.appendChild(tab);
@@ -350,8 +351,37 @@ function actions() {
         panels[key].hidden=key!=="general";
       }
       panels.general.append(nameRow,visibilityRow,journalControls);
+      const roadTools=document.createElement("fieldset");
+      const toolsLegend=document.createElement("legend");toolsLegend.textContent="Road tools";
+      roadTools.appendChild(toolsLegend);
+      roadTools.style.cssText="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.6rem;";
+      for (const [title,kind] of [["Edit path","edit"],["Add connection","connection"],
+        ["Add checkpoint","newCheckpoint"],["Travel preset","travel"],["Delete road","delete"]]) {
+        const btn=document.createElement("button");btn.type="button";
+        btn.textContent=title;btn.dataset.atlasRoadTool=kind;
+        roadTools.appendChild(btn);
+      }
+      panels.general.appendChild(roadTools);
       panels.style.appendChild(roadAppearanceForm(baseline));
-      content.append(tabs,panels.general,panels.style);
+      for (const checkpoint of atlas.checkpoints?.filter(item=>item.roadId===road.id)??[]) {
+        const row=document.createElement("div");
+        row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;";
+        const text=document.createElement("span");text.textContent=checkpoint.name;
+        const btn=document.createElement("button");btn.type="button";
+        btn.textContent="Settings";btn.dataset.atlasCheckpointEdit=checkpoint.id;
+        row.append(text,btn);panels.checkpoints.appendChild(row);
+      }
+      for (const region of scene.regions?.contents??[]) {
+        if (region.getFlag?.(MODULE_ID,"roadId")!==road.id &&
+            !region.name?.startsWith?.(road.name + " —")) continue;
+        const row=document.createElement("div");
+        row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;";
+        const text=document.createElement("span");text.textContent=region.name;
+        const btn=document.createElement("button");btn.type="button";
+        btn.textContent="Region settings";btn.dataset.atlasRegionEdit=region.id;
+        row.append(text,btn);panels.regions.appendChild(row);
+      }
+      content.append(tabs,panels.general,panels.style,panels.checkpoints,panels.regions);
       // DialogV2.input may clone its HTMLElement content when rendered. Its
       // cloned input loses the listener registered by journalLinkFields, unlike
       // the modeless checkpoint editor. Delegate on the live document instead.
@@ -380,6 +410,22 @@ function actions() {
         }
       };
       const onTabClick = event => {
+        const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-region-edit]");
+        if (action?.closest?.(".application")?.querySelector?.('input[name="atlasRoadName"]')) {
+          event.preventDefault();event.stopImmediatePropagation();
+          const tool=action.dataset.atlasRoadTool;
+          const api=actions();
+          const call=tool==="edit" ? ()=>api.beginPointEdit(scene,road.id,refresh)
+            :tool==="connection" ? ()=>api.beginJunction(scene,refresh)
+            :tool==="newCheckpoint" ? ()=>api.beginCheckpoint(scene,refresh)
+            :tool==="travel" ? ()=>api.assignRoadTravelPreset(scene,road,refresh)
+            :tool==="delete" ? ()=>api.remove(scene,road,refresh)
+            :action.dataset.atlasCheckpointEdit ? ()=>api.editCheckpointAppearance(
+              scene,atlas.checkpoints.find(c=>c.id===action.dataset.atlasCheckpointEdit),refresh)
+            :()=>api.configureRegion(scene,action.dataset.atlasRegionEdit);
+          void Promise.resolve().then(call).catch(error=>ui.notifications.error(error.message));
+          return;
+        }
         const tab=event.target?.closest?.("[data-atlas-road-tab]");
         if (!tab) return;
         const form=tab.closest?.(".application");
@@ -393,6 +439,11 @@ function actions() {
       };
       document.addEventListener("click",onTabClick,true);
       const onRangeInput = event => {
+        if (event.target?.name === "atlasRoadBorderEnabled") {
+          const form=event.target.closest?.(".application");
+          const row=form?.querySelector?.("[data-atlas-road-border-color]");
+          if (row) row.hidden=!event.target.checked;
+        }
         const name=event.target?.name;
         if (!["atlasRoadWidth","atlasRoadOpacity"].includes(name)) return;
         const form=event.target.closest?.(".application");
@@ -408,7 +459,7 @@ function actions() {
       try {
         result = await DialogV2.input({
           window: { title: "Road Settings — " + actual.name, resizable: true },
-          position: { width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(430, Math.max(300, window.innerHeight - 140)) },
+          position: { width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(640, Math.max(410, window.innerHeight - 100)) },
           content, ok: { label: "Save Road Settings" },
           rejectClose: false, modal: false
         });
@@ -978,7 +1029,7 @@ function actions() {
       const revision = readAtlas(scene).revision;
       const confirmed = await DialogV2.confirm({
         window: { title: game.i18n.localize("FVTTATLAS.Roads.Delete") },
-        content: game.i18n.localize("FVTTATLAS.Roads.DeleteWarning"),
+        content: "Delete this road and its road-specific settings? This cannot be undone.",
         rejectClose: false,
         modal: true
       });
@@ -1066,14 +1117,24 @@ Hooks.once("init", () => {
       visible:true,
       onChange:(_event,active)=>{if(active)fogPalette.show();},
       tools:{
+        atlasAddRoad:{
+          name:"atlasAddRoad",title:"Draw Atlas Road",
+          icon:"fa-solid fa-route",order:0,button:true,visible:true,
+          onChange:()=>{
+            const scene=canvas?.scene;
+            if (!scene) return ui.notifications.warn("Open a Scene first.");
+            try { roadActions.begin(scene,()=>refreshAtlasSceneConfig(scene)); }
+            catch(error) { ui.notifications.error(error.message); }
+          }
+        },
         atlasBrushPalette:{
           name:"atlasBrushPalette",title:"Open Atlas Exploration Brushes",
-          icon:"fa-solid fa-paintbrush",order:0,button:true,visible:true,
+          icon:"fa-solid fa-paintbrush",order:1,button:true,visible:true,
           onChange:()=>fogPalette.toggle()
         },
         atlasGMFogPreview:{
           name:"atlasGMFogPreview",title:"Toggle GM Fog Preview",
-          icon:"fa-solid fa-eye",order:1,button:true,visible:true,
+          icon:"fa-solid fa-eye",order:2,button:true,visible:true,
           onChange:()=>{
             manualFog.setPreview(!manualFog.preview);
             if(fogPalette.open)fogPalette.draw();
