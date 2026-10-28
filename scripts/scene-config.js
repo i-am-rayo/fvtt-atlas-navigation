@@ -260,7 +260,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
       return panel;
     }
     group("Road", [
-      ["Appearance & name", "Road name, line and visibility", () => actions.editRoadAppearance(scene,road,refresh)],
+      ["Settings", "Road name, style and journal", () => actions.editRoadAppearance(scene,road,refresh)],
       [road.playerVisible === true ? "Hide" : "Show", "Toggle player visibility",
         () => actions.toggleRoadPlayerVisibility(scene,road,refresh)],
       ["Find on map", "Highlight road", () => actions.select(scene,road.id)]
@@ -272,13 +272,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
     ];
     if (getRoadMergeCandidates(atlas,road.id).length)
       editing.push(["Merge", "Merge connected roads", () => actions.merge(scene,road,refresh)]);
-    group("Map tools", editing);
-    const linked = journalUuidFor(journalLinks,"road",road.id);
-    const journalActions = [["Link / change", "Link a Journal Entry or Page",
-      () => actions.editJournal(scene,"road",road.id,refresh)]];
-    if (linked) journalActions.push(["Open journal", "Open linked journal",
-      () => openAtlasJournal(linked)]);
-    group("Journal", journalActions);
+    group("Edit road", editing);
     const folder = (title) => {
       const details = node("details");
       details.style.cssText = "padding:.35rem .5rem;border:1px solid var(--color-border-light-tertiary,#665);border-radius:5px;min-width:0;";
@@ -308,9 +302,6 @@ function atlasPanel(scene, atlas, actions, refresh) {
       ]);
       checkpointFolder.appendChild(child);
     }
-    const connected = listRoadJunctions(atlas).filter(item => item.roadIds.includes(road.id));
-    const connectionFolder = folder("Connections (" + connected.length + ")");
-    miniActions(connectionFolder,[["＋ Add connection","Choose points on the map",()=>actions.beginJunction(scene,refresh)]]);
     const preset = presetById.get(road.travelPresetId);
     const terrain = group("Travel", [
       ["Travel type" + (preset ? ": " + preset.name : ""), "Road travel preset",
