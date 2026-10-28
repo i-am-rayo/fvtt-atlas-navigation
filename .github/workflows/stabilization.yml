@@ -3,10 +3,12 @@ name: Stabilization checks
 on:
   pull_request:
   push:
-    branches:
-      - main
-      - "hotfix/**"
-      - "chore/**"
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: stabilization-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   node-checks:
