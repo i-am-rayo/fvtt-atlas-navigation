@@ -25,7 +25,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-checkpoint-appearance",
     window: { title: "Atlas — Checkpoint Settings", resizable: true },
-    position: { width: 650, height: 700 }
+    position: { width: 630, height: 540 }
   };
 
   constructor({ scene, checkpointId, expectedRevision, onSaved }) {
@@ -48,10 +48,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const discoveryMethods = readCheckpointDiscoveryMethods(this.scene);
     const root = el("div");
     root.style.cssText = "padding:0.85rem;display:grid;gap:0.6rem;overflow:auto;height:100%;";
-    root.appendChild(el("p", "CHECKPOINT — " + current.name +
-      ". Edit the name, elevation, appearance and " +
-      (exploration.enabled ? "discovery status. " : "player visibility. ") +
-      "The underlying graph point and native Regions never move."));
+
     const fields = el("div");
     fields.style.cssText = "display:grid;gap:0.55rem;";
     const field = (title, control) => {
@@ -80,7 +77,19 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     elevation.type = "number"; elevation.step = "any";
     elevation.value = current.elevationMeters === null ? "" : String(current.elevationMeters);
     elevation.setAttribute("aria-label", "Checkpoint elevation in meters");
-    field("Elevation (meters; optional)", elevation);
+    const elevationRange = el("input");
+    elevationRange.type = "range"; elevationRange.min = "-1000";
+    elevationRange.max = "10000"; elevationRange.step = "10";
+    elevationRange.value = String(Math.max(-1000,Math.min(10000,Number(elevation.value)||0)));
+    elevation.style.width = "5.5rem";
+    const elevationControl = el("div");
+    elevationControl.style.cssText = "display:flex;align-items:center;gap:.35rem;";
+    elevationRange.addEventListener("input",()=>{elevation.value=elevationRange.value;});
+    elevation.addEventListener("input",()=>{
+      if (elevation.value !== "") elevationRange.value=elevation.value;
+    });
+    elevationControl.append(elevationRange,elevation);
+    field("Elevation (m)", elevationControl);
     const playerVisibility = el("input");
     playerVisibility.type = "checkbox";
     playerVisibility.checked = current.playerVisible === true;
@@ -101,32 +110,33 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         ["gm", "GM Only — manual reveal"],
         ["lore", "Lore Only — story discovery"]
       ], checkpointDiscoveryMethod(discoveryMethods,this.checkpointId)));
-      fields.appendChild(el("small",
-        "Automatic marks the checkpoint Seen/Visited when an explorer approaches. " +
-        "GM Only and Lore Only never reveal through proximity; the GM sets its status " +
-        "when appropriate. Journal-based lore triggers will be handled separately."));
+
       revealRadius = el("input");
       revealRadius.type = "number";
       revealRadius.min = "0"; revealRadius.max = "100"; revealRadius.step = "0.25";
       revealRadius.value = String(checkpointRevealRadiusCells(exploration, this.checkpointId));
       revealRadius.setAttribute("aria-label", "Checkpoint terrain reveal radius in grid cells");
-      field("Terrain reveal radius (grid cells; 0 = none)", revealRadius);
-      fields.appendChild(el("small",
-        "Seen / Visited and Known through Lore reveal the checkpoint to players. " +
-        "Road visibility remains independent."));
+      revealRadius.style.width = "5rem";
+      const radiusSlider = el("input");
+      radiusSlider.type = "range"; radiusSlider.min = "0"; radiusSlider.max = "100";
+      radiusSlider.step = "0.25"; radiusSlider.value = revealRadius.value;
+      radiusSlider.addEventListener("input",()=>{revealRadius.value=radiusSlider.value;});
+      revealRadius.addEventListener("input",()=>{radiusSlider.value=revealRadius.value;});
+      const radiusControl = el("div");
+      radiusControl.style.cssText = "display:flex;align-items:center;gap:.35rem;";
+      radiusControl.append(radiusSlider,revealRadius);
+      field("Reveal radius (cells)", radiusControl);
     } else {
-      field("Visible to players (visual only)", playerVisibility);
-      fields.appendChild(el("small",
-        "Player visibility does not hide Scene flag data from technical inspection. " +
-        "This checkpoint can be shown even if its road remains hidden."));
+      field("Show to players", playerVisibility);
     }
     const type = field("Checkpoint marker", select([
       ["dot", "Default dot"], ["fa", "Font Awesome Free icon"],
       ["image", "Custom Foundry image"]
     ], appearance.type));
-    const iconSection = el("fieldset");
+    const iconSection = el("details");
     iconSection.style.cssText = "min-width:0;padding:0.6rem;border:1px solid var(--color-border-light-tertiary,#666);";
-    const legend = el("legend", "ICON LIBRARY — browse, filter & preview");
+    const legend = el("summary", "Choose icon");
+    legend.style.cursor = "pointer";
     iconSection.appendChild(legend);
     const browser = el("div");
     browser.style.cssText = "display:grid;grid-template-columns: minmax(180px,1fr) minmax(280px,2fr);gap:0.8rem;min-width:0;align-items:start;";
