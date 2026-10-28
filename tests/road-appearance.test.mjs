@@ -14,15 +14,16 @@ import { DEFAULT_ROAD_APPEARANCE, DEFAULT_WORLD_ROAD_APPEARANCE,
   from "../scripts/road-appearance.js";
 
 const points = [{ x: 10, y: 10 }, { x: 110, y: 10 }];
-const custom = { color: "#aa2255", width: 6, opacity: 0.65,
-  pattern: "dashed", labelVisibility: "always", textColor: "#aabbcc" };
+const custom = { color: "#aa2255", borderColor: "#141414", borderEnabled: true,
+  width: 6, opacity: 0.65, pattern: "dashed",
+  labelVisibility: "always", textColor: "#aabbcc" };
 const ids = () => { let n = 0; return () => "id" + ++n; };
 
 function mockScene(initial) {
   let data = initial, writes = 0;
   return {
     canUserModify: () => true,
-    getFlag: () => data,
+    getFlag: (_scope, key) => key === "atlas" ? data : null,
     async setFlag(_module, _key, value) { data = value; writes++; },
     get writes() { return writes; }
   };
@@ -125,7 +126,7 @@ test("World Land/Air/Water profiles use assigned preset category; old flat defau
   assert.equal(resolveRoadAppearance({ appearance: custom }, profiles, "water").color,
     custom.color);
   const oldWorld = Object.fromEntries(Object.entries(DEFAULT_ROAD_APPEARANCE)
-    .filter(([key]) => key !== "textColor"));
+    .filter(([key]) => ["color", "width", "opacity", "pattern", "labelVisibility"].includes(key)));
   const migrated = validateWorldRoadAppearance(oldWorld);
   for (const mode of ["land", "air", "water"]) {
     assert.deepEqual(migrated.profiles[mode], DEFAULT_ROAD_APPEARANCE);
