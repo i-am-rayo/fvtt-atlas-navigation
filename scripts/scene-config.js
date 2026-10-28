@@ -22,6 +22,8 @@ const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
 const junctionFilters = new Map();
 const generatorState = new Map();
 const expandedRoads = new Map();
+const generatorRoads = new Map();
+const regionLinkRoads = new Map();
 
 /** Shared display scope; filtering never edits Scene graph or native Regions. */
 export function filteredRoadIds(atlas, state) {
@@ -258,10 +260,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
       return panel;
     }
     group("Road", [
-      ["Appearance", "Color, line, name and linked journal", () => actions.editRoadAppearance(scene,road,refresh)],
+      ["Appearance & name", "Road name, line and visibility", () => actions.editRoadAppearance(scene,road,refresh)],
       [road.playerVisible === true ? "Hide" : "Show", "Toggle player visibility",
         () => actions.toggleRoadPlayerVisibility(scene,road,refresh)],
-      ["Rename", "Rename road", () => actions.rename(scene,road,refresh)],
       ["Find on map", "Highlight road", () => actions.select(scene,road.id)]
     ]);
     const editing = [
@@ -273,28 +274,72 @@ function atlasPanel(scene, atlas, actions, refresh) {
       editing.push(["Merge", "Merge connected roads", () => actions.merge(scene,road,refresh)]);
     group("Map tools", editing);
     const linked = journalUuidFor(journalLinks,"road",road.id);
-    const journalActions = [["Link / change", "Set a journal in Road Appearance",
-      () => actions.editRoadAppearance(scene,road,refresh)]];
+    const journalActions = [["Link / change", "Link a Journal Entry or Page",
+      () => actions.editJournal(scene,"road",road.id,refresh)]];
     if (linked) journalActions.push(["Open journal", "Open linked journal",
       () => openAtlasJournal(linked)]);
     group("Journal", journalActions);
+    const folder = (title) => {
+      const details = node("details");
+      details.style.cssText = "padding:.35rem .5rem;border:1px solid var(--color-border-light-tertiary,#665);border-radius:5px;min-width:0;";
+      const summary = node("summary",title);
+      summary.style.cssText = "cursor:pointer;font-weight:600;padding:.3rem 0;";
+      details.appendChild(summary);
+      body.appendChild(details);
+      return details;
+    };
+    const miniActions = (parent,items) => {
+      const row = node("div");
+      row.style.cssText = "display:flex;flex-wrap:wrap;gap:.3rem;padding:.25rem .4rem;";
+      for (const [caption,title,action] of items) row.appendChild(button(caption,title,action));
+      parent.appendChild(row);
+    };
     const checkpoints = (atlas.checkpoints ?? []).filter(item => item.roadId === road.id);
-    const checkpointGroup = group("Checkpoints (" + checkpoints.length + ")",
-      checkpoints.map(item => [item.name || "Checkpoint", "Edit checkpoint",
-        () => actions.editCheckpoint(scene,item,refresh)]));
-    if (!checkpoints.length) checkpointGroup.appendChild(node("p", "None yet.", "hint"));
+    const checkpointFolder = folder("Checkpoints (" + checkpoints.length + ")");
+    miniActions(checkpointFolder,[["＋ Add checkpoint","Place checkpoint",()=>actions.beginCheckpoint(scene,refresh)]]);
+    for (const checkpoint of checkpoints) {
+      const child=node("details");
+      child.style.cssText="margin:.2rem .4rem;padding:.2rem .4rem;";
+      child.appendChild(node("summary",checkpoint.name || "Checkpoint"));
+      miniActions(child,[
+        ["Settings","All checkpoint settings",()=>actions.editCheckpointAppearance(scene,checkpoint,refresh)],
+        ["Find on map","Center checkpoint",()=>actions.selectCheckpoint(scene,checkpoint.id)],
+        ["Delete","Delete checkpoint",()=>actions.removeCheckpoint(scene,checkpoint,refresh)]
+      ]);
+      checkpointFolder.appendChild(child);
+    }
     const connected = listRoadJunctions(atlas).filter(item => item.roadIds.includes(road.id));
-    const connections = group("Connections (" + connected.length + ")", [
-      ["Add connection", "Choose connection points on the map",
-        () => actions.beginJunction(scene,refresh)]
-    ]);
-    if (connected.length) connections.appendChild(node("p", "Edit connections directly on the map.", "hint"));
+    const connectionFolder = folder("Connections (" + connected.length + ")");
+    miniActions(connectionFolder,[["＋ Add connection","Choose points on the map",()=>actions.beginJunction(scene,refresh)]]);
     const preset = presetById.get(road.travelPresetId);
-    const terrain = group("Terrain", [
-      ["Travel type" + (preset ? ": " + preset.name : ""), "Choose this road's default terrain",
+    const terrain = group("Travel", [
+      ["Travel type" + (preset ? ": " + preset.name : ""), "Road travel preset",
         () => actions.assignRoadTravelPreset(scene,road,refresh)]
     ]);
-    terrain.appendChild(node("p", "Region tools are under More tools in the Atlas tab.", "hint"));
+    const generated = listGeneratedRegions(scene).filter(item=>item.metadata?.roadId===road.id);
+    const regionFolder=folder("Terrain Regions (" + generated.length + ")");
+    regionFolder.dataset.atlasRegionFolder = road.id;
+    miniActions(regionFolder,[["＋ Generate Region","Create native Region along this road",
+      () => {
+        generatorRoads.set(scene.id,road.id);
+        const selected=generatorState.get(scene.id);
+        if (selected) { selected.roadId=road.id; selected.presetEdited=false; }
+        refresh();
+      }]]);
+    miniActions(regionFolder,[["Manage Region links","See native Region links",()=>{
+      regionLinkRoads.set(scene.id,road.id);refresh();
+    }]]);
+    for (const region of generated) {
+      const child=node("details");
+      child.style.cssText="margin:.2rem .4rem;padding:.2rem .4rem;";
+      child.appendChild(node("summary",region.name || "Region"));
+      miniActions(child,[
+        ["Region settings","Open native Region configuration",()=>actions.configureRegion(scene,region.id)],
+        ["Travel preset","Change Region travel preset",()=>actions.assignGeneratedRegionTravelPreset(scene,region,refresh)],
+        ["Regenerate","Rebuild region after changes",()=>actions.regenerateRegion(scene,region,refresh)]
+      ]);
+      regionFolder.appendChild(child);
+    }
     const danger = group("Remove", [["Delete road", "Delete this road (confirmation required)",
       () => actions.remove(scene,road,refresh)]]);
     danger.style.borderColor = "var(--color-border-light-tertiary, #765)";
@@ -934,7 +979,12 @@ function atlasPanel(scene, atlas, actions, refresh) {
   else measurement.appendChild(node("p", label("FVTTATLAS.Atlas.GridUnavailable"), "hint"));
   measurement.appendChild(node("p", label("FVTTATLAS.Atlas.SceneGridSaveHint"), "hint"));
   advanced.appendChild(measurement);
-  root.appendChild(advanced);
+  // Keep advanced native Region tools attached to the active road only.
+  const generatorTarget = root.querySelector(`[data-atlas-region-folder="${generatorRoads.get(scene.id)??""}"]`);
+  if (generatorTarget) generatorTarget.appendChild(generatedSection);
+  const regionTarget = root.querySelector(`[data-atlas-region-folder="${regionLinkRoads.get(scene.id)??""}"]`);
+  if (regionTarget) regionTarget.appendChild(regionSection);
+  fogPanel.appendChild(measurement);
   return root;
 }
 
