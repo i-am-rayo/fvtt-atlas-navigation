@@ -77,7 +77,7 @@ test("Roads plus opens drawing against the configured Scene; no Configure dialog
     assert.ok(mounted);
     assert.equal(mounted.attributes.has("data-fvtt-atlas-setup"), true);
     assert.ok(buttons(mounted).length >= 2,
-      "empty atlas exposes Roads [+] and Junctions [+] alongside newer controls");
+      "empty Atlas controls were not rendered: " + textContents(mounted));
     const plus = buttons(mounted)[0];
     assert.equal(plus.textContent, "+");
     assert.equal(plus.type, "button");
