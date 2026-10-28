@@ -35,9 +35,9 @@ function sharpenText(label, zoom = 1) {
   label.resolution = Math.min(4, Math.max(2, ratio, Math.ceil(scale * 2)));
 }
 
-function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "solid") {
+function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "solid", patternWidth = width) {
   if (points.length < 2) return;
-  const spans = roadStrokeSpans(points, pattern, width);
+  const spans = roadStrokeSpans(points, pattern, patternWidth);
   if (typeof graphics.moveTo === "function" && typeof graphics.stroke === "function") {
     for (const span of spans) {
       graphics.moveTo(span[0].x, span[0].y);
@@ -1380,7 +1380,7 @@ export class RoadCanvasController {
         canvas.scene?.fogExploration !== false) ? exploredRoadSpans(path, explored) : [path])) {
         if (style.borderEnabled) drawLine(graphics, span,
           Number.parseInt(style.borderColor.slice(1),16),
-          style.width + 2 / zoom, style.opacity, style.pattern);
+          style.width + 2 / zoom, style.opacity, style.pattern, style.width);
         drawLine(graphics, span, Number.parseInt(style.color.slice(1), 16),
           style.width, style.opacity, style.pattern);
         hoverPaths.push({ roadId: road.id, path: span,
@@ -1654,7 +1654,7 @@ export class RoadCanvasController {
       if (style.borderEnabled) drawLine(g, path,
         Number.parseInt(style.borderColor.slice(1),16),
         style.width + 2 / zoom + (highlighted ? 2 : 0),
-        highlighted ? 1 : style.opacity, style.pattern);
+        highlighted ? 1 : style.opacity, style.pattern, style.width);
       drawLine(g, path, color, style.width + (highlighted ? 2 : 0),
         highlighted ? 1 : style.opacity, style.pattern);
       if (hatchHidden && road.playerVisible !== true) {
