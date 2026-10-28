@@ -400,7 +400,7 @@ function actions() {
         row.append(text,btn);panels.regions.appendChild(row);
       }
       const scrollBody=document.createElement("div");
-      scrollBody.style.cssText="max-height:calc(100vh - 245px);overflow-y:auto;min-width:0;padding-right:.35rem;";
+      scrollBody.style.cssText="max-height:"+Math.max(220,Math.min(610,window.innerHeight-235))+"px;overflow-y:auto;min-width:0;min-height:0;padding-right:.5rem;overscroll-behavior:contain;";
       scrollBody.append(tabs,panels.general,panels.style,panels.checkpoints,panels.regions);
       content.appendChild(scrollBody);
       // DialogV2.input may clone its HTMLElement content when rendered. Its
@@ -486,7 +486,7 @@ function actions() {
       try {
         result = await DialogV2.input({
           window: { title: "Road Settings — " + actual.name, resizable: true },
-          position: { width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(560, Math.max(410, window.innerHeight - 100)) },
+          position: { width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(740, Math.max(440, window.innerHeight - 70)) },
           content, ok: { label: "Save Road Settings" },
           rejectClose: false, modal: false
         });
