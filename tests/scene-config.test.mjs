@@ -28,7 +28,6 @@ class Element {
     this.parentNode = null;
   }
   get lastElementChild() { return this.children.at(-1); }
-  prepend(...children) { this.children.unshift(...children); }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
 }
 
