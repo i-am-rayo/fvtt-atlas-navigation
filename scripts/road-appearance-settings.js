@@ -58,6 +58,7 @@ export function roadAppearanceForm(appearance) {
     root.appendChild(row);
   };
   input("Road color", "atlasRoadColor", "color", current.color);
+  input("Road border color", "atlasRoadBorderColor", "color", current.borderColor);
   input("Road name text color", "atlasRoadTextColor", "color", current.textColor);
   input("Line width (px)", "atlasRoadWidth", "number", current.width,
     { min: 1, max: 16, step: 0.5 });
@@ -73,6 +74,7 @@ export function roadAppearanceForm(appearance) {
 export function roadAppearanceFromForm(values) {
   return validateRoadAppearance({
     color: String(values.atlasRoadColor ?? ""),
+    borderColor: String(values.atlasRoadBorderColor ?? ""),
     textColor: String(values.atlasRoadTextColor ?? ""),
     width: Number(values.atlasRoadWidth),
     opacity: Number(values.atlasRoadOpacity),
