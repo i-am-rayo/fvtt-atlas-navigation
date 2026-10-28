@@ -1655,7 +1655,7 @@ export class RoadCanvasController {
         drawHiddenHatching(g, roadHiddenMarks(path, style.width, zoom),
           2 / zoom,contrastingHatch(style.color));
       }
-      if (this.focusTarget?.sceneId === scene.id &&
+      if (this.focusTarget?.sceneId === canvas.scene.id &&
           this.focusTarget.kind === "road" && this.focusTarget.id === road.id) {
         const alpha=focusPulse(this.focusTarget);
         if (alpha > 0) drawLine(g,path,focusContrast(style.color),
@@ -1743,7 +1743,7 @@ export class RoadCanvasController {
         overlayHiddenCheckpoint(g, marker, radius, zoom,
           appearance.color, this.labels, shape);
       }
-      if (this.focusTarget?.sceneId === scene.id &&
+      if (this.focusTarget?.sceneId === canvas.scene.id &&
           this.focusTarget.kind === "checkpoint" && this.focusTarget.id === checkpoint.id) {
         const marker=checkpointMarkerPosition(position,appearance,zoom);
         const radius=Math.max(appearance.type === "dot" ? appearance.size/2 :
