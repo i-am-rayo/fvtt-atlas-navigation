@@ -21,6 +21,7 @@ const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
 const junctionFilters = new Map();
 const generatorState = new Map();
+const expandedRoads = new Map();
 
 /** Shared display scope; filtering never edits Scene graph or native Regions. */
 export function filteredRoadIds(atlas, state) {
@@ -241,39 +242,17 @@ function atlasPanel(scene, atlas, actions, refresh) {
   }
   section.appendChild(roadList);
 
-  async function openRoadDetails(road) {
-    // DialogV2 serializes and clones HTMLElement content; use delegated actions
-    // because listeners registered on pre-render controls would be lost.
-    const content = node("div");
+  function roadDetails(road) {
     const body = node("div");
-    content.appendChild(body);
-    const commands = new Map();
-    let sequence = 0;
-    function actionButton(caption, title, action) {
-      const control = node("button", caption);
-      control.type = "button";
-      control.title = title;
-      control.setAttribute("aria-label", title);
-      const key = road.id + ":" + (++sequence);
-      control.dataset.atlasRoadDetailAction = key;
-      commands.set(key,action);
-      return control;
-    }
-    body.style.cssText = "display:grid;gap:.75rem;min-width:0;max-width:100%;";
-    const heading = node("h3", road.name || "Road");
-    heading.style.margin = "0";
-    body.appendChild(heading);
-    const status = node("p", road.playerVisible === true ? "● Visible to players" : "◌ Hidden from players", "hint");
-    status.style.margin = "0";
-    body.appendChild(status);
+    body.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:.6rem;padding:.7rem .5rem;min-width:0;";
     function group(name, items) {
       const panel = node("fieldset");
-      panel.style.cssText = "min-width:0;margin:0;padding:.65rem .8rem;";
+      panel.style.cssText = "min-width:0;margin:0;padding:.6rem .7rem;";
       panel.appendChild(node("legend", name));
       const controls = node("div");
-      controls.style.cssText = "display:flex;flex-wrap:wrap;gap:.4rem;";
+      controls.style.cssText = "display:flex;flex-wrap:wrap;gap:.35rem;";
       for (const [caption, title, action] of items)
-        controls.appendChild(actionButton(caption,title,action));
+        controls.appendChild(button(caption,title,action));
       panel.appendChild(controls);
       body.appendChild(panel);
       return panel;
@@ -319,31 +298,16 @@ function atlasPanel(scene, atlas, actions, refresh) {
     const danger = group("Remove", [["Delete road", "Delete this road (confirmation required)",
       () => actions.remove(scene,road,refresh)]]);
     danger.style.borderColor = "var(--color-border-light-tertiary, #765)";
-    const onAction = event => {
-      const control = event.target?.closest?.("[data-atlas-road-detail-action]");
-      const key = control?.dataset.atlasRoadDetailAction;
-      if (!key || !commands.has(key)) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      Promise.resolve().then(() => commands.get(key)())
-        .catch(error => ui.notifications.error(error.message || String(error)));
-    };
-    document.addEventListener("click",onAction,true);
-    try {
-      await foundry.applications.api.DialogV2.input({
-        window: { title: "Road — " + (road.name || "Unnamed"), resizable: true },
-        content, modal: false,
-        ok: { label: "Close" }, rejectClose: false
-      });
-    } finally {
-      document.removeEventListener("click",onAction,true);
-    }
+    return body;
   }
 
   for (const [index, road] of roads.entries()) {
-    const row = node("div");
-    row.setAttribute("data-atlas-road-id",road.id);
-    row.style.cssText = "display:flex;align-items:center;gap:.65rem;min-height:2.5rem;padding:.3rem .45rem;border:1px solid var(--color-border-light-tertiary, #665);border-radius:5px;";
+    const entry = node("details");
+    entry.setAttribute("data-atlas-road-id",road.id);
+    entry.style.cssText = "min-width:0;border:1px solid var(--color-border-light-tertiary, #665);border-radius:5px;";
+    const row = node("summary");
+    row.style.cssText = "display:flex;align-items:center;gap:.65rem;min-height:2.6rem;padding:.3rem .6rem;cursor:pointer;list-style:none;";
+    row.title = "Expand road settings";
     const appearance = atlas.schemaVersion >= 3 ?
       resolveRoadAppearance(road,worldRoadAppearance,roadAppearanceMode(road,travelPresets)) : null;
     const dot = node("span","●");
@@ -359,11 +323,29 @@ function atlasPanel(scene, atlas, actions, refresh) {
     visible.title = road.playerVisible === true ? "Visible to players" : "Hidden from players";
     visible.setAttribute("aria-label",visible.title);
     row.appendChild(visible);
-    const open = button("›","Open " + (road.name || "road") + " settings",
-      () => openRoadDetails(road));
-    open.style.cssText = "flex:0 0 2.25rem;min-width:2.25rem;padding:0;font-size:1.3em;";
-    row.appendChild(open);
-    if (!sharedFilter || shownRoads.has(road.id)) roadList.appendChild(row);
+    const arrow = node("span","›");
+    arrow.style.cssText = "font-size:1.4em;transition:transform .15s;";
+    row.appendChild(arrow);
+    entry.appendChild(row);
+    let mounted = false;
+    function sync() {
+      if (entry.open) {
+        expandedRoads.set(scene.id,road.id);
+        if (!mounted) { entry.appendChild(roadDetails(road)); mounted = true; }
+        arrow.style.transform = "rotate(90deg)";
+        for (const other of roadList.querySelectorAll("details[open]"))
+          if (other !== entry) other.open = false;
+      } else {
+        arrow.style.transform = "";
+        if (expandedRoads.get(scene.id) === road.id) expandedRoads.delete(scene.id);
+      }
+    }
+    entry.addEventListener("toggle",sync);
+    if (expandedRoads.get(scene.id) === road.id) {
+      entry.open = true;
+      sync();
+    }
+    if (!sharedFilter || shownRoads.has(road.id)) roadList.appendChild(entry);
   }
   root.appendChild(section);
 
