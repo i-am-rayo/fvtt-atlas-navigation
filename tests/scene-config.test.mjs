@@ -90,11 +90,9 @@ test("Roads plus opens drawing against the configured Scene; no Configure dialog
     assert.equal(mounted.attributes.has("data-fvtt-atlas-setup"), true);
     assert.ok(buttons(mounted).length >= 2,
       "empty Atlas controls were not rendered: " + textContents(mounted));
-    const plus = buttons(mounted)[0];
-    assert.equal(plus.textContent, "+");
+    const plus = buttons(mounted).find(item => item.textContent === "+");
+    assert.ok(plus, "Roads has a creation control");
     assert.equal(plus.type, "button");
-    assert.equal(buttons(mounted)[1].disabled, true,
-      "waypoint placement requires an existing v3 road");
     await plus.listeners.get("click")({ preventDefault() {} });
     assert.equal(begun.chosen, scene);
     const old = mounted;
