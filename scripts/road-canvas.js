@@ -1,5 +1,5 @@
 import { readAtlas } from "./atlas-storage.js";
-import { readAtlasJournalLinks, journalUuidFor, canOpenAtlasJournal, openAtlasJournal } from "./atlas-journal-links.js";
+import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink, canOpenAtlasJournal, openAtlasJournal } from "./atlas-journal-links.js";
 import { saveNewRoad, saveNewCheckpoint } from "./road-storage.js";
 import { RoadPointEditor } from "./road-point-editor.js";
 import { roadHandles } from "./road-hit.js";
@@ -11,9 +11,10 @@ import { groupCheckpointMarkers, checkpointQuickInfo,
 import { playerAtlasOverlay } from "./player-visibility.js";
 import { readManualFog } from "./atlas-manual-fog-storage.js";
 import { cellKey } from "./atlas-manual-fog-model.js";
-import { readPartyExploration } from "./party-exploration-storage.js";
+import { readPartyExploration, saveCheckpointKnowledge } from "./party-exploration-storage.js";
 import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
 import { checkpointRevealKeys } from "./checkpoint-exploration.js";
+import { readCheckpointDiscoveryMethods } from "./checkpoint-discovery-method.js";
 import { checkpointKnowledge } from "./party-exploration-model.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
@@ -580,8 +581,8 @@ export class RoadCanvasController {
     this.refresh();
   }
 
-  start(scene, onChange) {
-    this.#startDrawing(scene, onChange);
+  start(scene, onChange, options = null) {
+    this.#startDrawing(scene, onChange, options);
   }
 
   startPointEdit(scene, roadId, onChange) {
@@ -758,6 +759,29 @@ export class RoadCanvasController {
           ...config, candidate, expectedRevision: draft.expectedRevision,
           idFactory: this.idFactory
         });
+        const newId = saved.checkpoints.at(-1).id;
+        // Metadata and appearance are committed together above. The separate
+        // discovery and Journal stores are written only after creation succeeds.
+        try {
+          if (config.knowledge !== null && config.knowledge !== undefined) {
+            await saveCheckpointKnowledge(scene, {
+              checkpointId: newId, knowledge: config.knowledge,
+              revealRadiusCells: config.revealRadiusCells ?? 3,
+              expected: readPartyExploration(scene),
+              method: config.discoveryMethod ?? "automatic",
+              expectedMethods: readCheckpointDiscoveryMethods(scene)
+            });
+          }
+          if (config.journalUuid) {
+            await saveAtlasJournalLink(scene, {
+              kind: "checkpoint", id: newId, uuid: config.journalUuid,
+              expected: readAtlasJournalLinks(scene)
+            });
+          }
+        } catch (metadataError) {
+          this.notify()?.warn?.("Checkpoint created, but some discovery or Journal settings could not be saved: " +
+            (metadataError.message ?? String(metadataError)));
+        }
         if (this.draft !== draft) return;
         const callback = draft.onChange;
         this.#detach();
@@ -803,7 +827,7 @@ export class RoadCanvasController {
     this.refresh();
   }
 
-  #startDrawing(scene, onChange) {
+  #startDrawing(scene, onChange, initialOptions = null) {
     if (!globalThis.game?.user?.isGM ||
         !scene?.canUserModify?.(game.user, "update")) {
       throw new Error("Only a GM may draw Atlas roads.");
@@ -830,7 +854,7 @@ export class RoadCanvasController {
       scene, sceneId: scene.id, expectedRevision: atlas.revision,
       mode: "new", confirming: false,
       points: [], snap: [], element, onChange,
-      options: { name: suggestRoadName(atlas), presetId: null, appearance: null },
+      options: { name: suggestRoadName(atlas), presetId: null, appearance: null, playerVisible: false, journalUuid: null, ...initialOptions },
       onPointer: null, onKeydown: null
     };
     draft.onPointer = event => {
@@ -946,13 +970,26 @@ export class RoadCanvasController {
       if (this.draft !== draft) return false;
       this.saving = true;
       this.#changed();
-      await saveNewRoad(draft.scene, {
+      const savedRoad = await saveNewRoad(draft.scene, {
         points: draft.points, name: draft.options.name.trim(),
         presetId: draft.options.presetId, appearance: draft.options.appearance,
+        playerVisible: draft.options.playerVisible === true,
         expectedRevision: draft.expectedRevision,
         snapEndpoints: [draft.snap[0], draft.snap.at(-1)],
         idFactory: this.idFactory
       });
+      if (draft.options.journalUuid) {
+        try {
+          const newId = savedRoad.roads.at(-1)?.id;
+          if (newId) await saveAtlasJournalLink(draft.scene, {
+            kind: "road", id: newId, uuid: draft.options.journalUuid,
+            expected: readAtlasJournalLinks(draft.scene)
+          });
+        } catch (linkError) {
+          this.notify()?.warn?.("Road created, but its Journal link was not saved: " +
+            (linkError.message ?? String(linkError)));
+        }
+      }
       const changed = draft.onChange;
       this.#detach();
       this.draft = null;
