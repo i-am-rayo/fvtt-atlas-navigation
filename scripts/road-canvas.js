@@ -1,4 +1,5 @@
 import { readAtlas } from "./atlas-storage.js";
+import { readAtlasJournalLinks, journalUuidFor, canOpenAtlasJournal, openAtlasJournal } from "./atlas-journal-links.js";
 import { saveNewRoad, saveNewCheckpoint } from "./road-storage.js";
 import { RoadPointEditor } from "./road-point-editor.js";
 import { roadHandles } from "./road-hit.js";
@@ -458,6 +459,9 @@ export class RoadCanvasController {
     this.playerHoverCanvasElement = null;
     this.playerMoveHandler = null;
     this.playerExitHandler = null;
+    this.journalDoubleClickHandler = null;
+    this.playerJournalDoubleClickHandler = null;
+    this.journalAccessCache = new Map();
     this.draft = null;
     this.selectedRoadId = null;
     this.selectedJunctionId = null;
@@ -999,10 +1003,12 @@ export class RoadCanvasController {
     this.hoverCanvasElement?.removeEventListener?.("pointermove", this.hoverHandler);
     this.hoverCanvasElement?.removeEventListener?.("pointerleave", this.hoverExitHandler);
     this.hoverCanvasElement?.removeEventListener?.("pointerdown", this.shortcutPointerHandler, true);
+    this.hoverCanvasElement?.removeEventListener?.("dblclick", this.journalDoubleClickHandler, true);
     this.hoverCanvasElement = null;
     this.hoverHandler = null;
     this.hoverExitHandler = null;
     this.shortcutPointerHandler = null;
+    this.journalDoubleClickHandler = null;
     this.hoveredRoadId = null;
     this.hoveredCheckpointId = null;
     this.hoveredClusterId = null;
@@ -1103,8 +1109,11 @@ export class RoadCanvasController {
       Promise.resolve().then(() => this.shortcutHandler(canvas.scene, target))
         .catch(error => this.notify()?.error?.(error.message || String(error)));
     };
+    this.journalDoubleClickHandler=event=>this.#openCheckpointOnDoubleClick(canvas,event,
+      this.checkpointHoverGeometry);
     element.addEventListener("pointermove", this.hoverHandler);
     element.addEventListener("pointerleave", this.hoverExitHandler);
+    element.addEventListener("dblclick", this.journalDoubleClickHandler, true);
     if (this.shortcutHandler) element.addEventListener("pointerdown", this.shortcutPointerHandler, true);
   }
 
@@ -1360,6 +1369,7 @@ export class RoadCanvasController {
             { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity);
       }
     }
+    const journals = readAtlasJournalLinks(canvas.scene);
     const markers = visible.checkpoints.flatMap(checkpoint => {
       const node = nodes.get(checkpoint.nodeId);
       if (!node) return [];
@@ -1443,20 +1453,57 @@ export class RoadCanvasController {
         this.refresh();
       }
     };
+    this.playerJournalDoubleClickHandler=event=>this.#openCheckpointOnDoubleClick(canvas,event,
+      this.playerCheckpointHoverGeometry);
     element.addEventListener("pointermove", this.playerMoveHandler);
     element.addEventListener("pointerleave", this.playerExitHandler);
+    element.addEventListener("dblclick", this.playerJournalDoubleClickHandler, true);
   }
 
   #stopPlayerHover() {
     this.playerHoverCanvasElement?.removeEventListener?.("pointermove", this.playerMoveHandler);
     this.playerHoverCanvasElement?.removeEventListener?.("pointerleave", this.playerExitHandler);
+    this.playerHoverCanvasElement?.removeEventListener?.("dblclick", this.playerJournalDoubleClickHandler, true);
     this.playerHoverCanvasElement = null;
     this.playerMoveHandler = null;
     this.playerExitHandler = null;
+    this.playerJournalDoubleClickHandler = null;
     this.playerHoveredRoadId = null;
     this.playerHoveredCheckpointId = null;
     this.playerHoverGeometry = [];
     this.playerCheckpointHoverGeometry = [];
+  }
+
+  /** Render only links a player can actually open; never treat Scene metadata as permission. */
+  #journalCanView(uuid) {
+    if(!uuid)return false;
+    if(game.user?.isGM)return true;
+    const key=game.user?.id+":"+uuid;
+    if(!this.journalAccessCache.has(key)) {
+      this.journalAccessCache.set(key,null);
+      void canOpenAtlasJournal(uuid).then(allowed=>{
+        this.journalAccessCache.set(key,allowed);
+        this.refresh();
+      }).catch(()=>this.journalAccessCache.set(key,false));
+    }
+    return this.journalAccessCache.get(key)===true;
+  }
+
+  #openCheckpointOnDoubleClick(canvas,event,geometry) {
+    if(event.button!==0||event.shiftKey||event.altKey||event.ctrlKey||event.metaKey||
+      this.draft||this.pointEditor.session||this.saving||
+      this.canvasProvider()?.scene?.id!==canvas.scene?.id)return;
+    const point=canvas.canvasCoordinatesFromClient?.({x:event.clientX,y:event.clientY});
+    if(!Number.isFinite(point?.x)||!Number.isFinite(point?.y))return;
+    const candidate=geometry.find(item=>Math.hypot(point.x-item.x,point.y-item.y)<=item.radius);
+    if(!candidate)return;
+    let uuid;
+    try { uuid=journalUuidFor(readAtlasJournalLinks(canvas.scene),"checkpoint",candidate.id); }
+    catch { return; }
+    if(!uuid||!this.#journalCanView(uuid))return;
+    event.preventDefault?.();
+    event.stopImmediatePropagation?.();
+    void openAtlasJournal(uuid).catch(error=>this.notify()?.warn?.(error.message||String(error)));
   }
 
   #clearPlayerOverlay() {
