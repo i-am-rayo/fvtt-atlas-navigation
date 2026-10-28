@@ -21,6 +21,7 @@ const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
 const junctionFilters = new Map();
 const generatorState = new Map();
+const roadSearch = new Map();
 
 /** Shared display scope; filtering never edits Scene graph or native Regions. */
 export function filteredRoadIds(atlas, state) {
@@ -162,8 +163,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   // enabled flag remains persisted for v1 compatibility, but has no UI toggle.
   const active = atlas.segments.length > 0;
   root.appendChild(node("h3", label("FVTTATLAS.Atlas.Tab")));
-  root.appendChild(node("p", active ?
-    label("FVTTATLAS.Roads.Active") : label("FVTTATLAS.Roads.EmptyStatus")));
+  if (!active) root.appendChild(node("p", "Add a road to begin.", "hint"));
 
   const legacy = atlas.schemaVersion === 1 && (atlas.nodes.length || atlas.segments.length);
   if (legacy) {
@@ -192,9 +192,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   titleGroup.style.alignItems = "center";
   titleGroup.style.gap = "0.35rem";
   titleGroup.appendChild(node("span", label("FVTTATLAS.Roads.Title")));
-  const roadBadge = node("span", "· Atlas road overlay");
-  roadBadge.style.cssText = "font-size:0.75em;opacity:0.75;";
-  titleGroup.appendChild(roadBadge);
+
   if (!legacy && !needsOrganize) {
     const add = button("+", label("FVTTATLAS.Roads.Add"), () => actions.begin(scene, refresh));
     add.style.flex = "0 0 auto";
@@ -230,95 +228,149 @@ function atlasPanel(scene, atlas, actions, refresh) {
   }
 
   const roads = atlas.schemaVersion >= 3 ? atlas.roads : atlas.segments;
-  for (const [index, road] of roads.entries()) {
-    const row = node("div", undefined, "form-group");
-    row.setAttribute("data-atlas-road-id", road.id);
-    const roadName = road.name || label("FVTTATLAS.Roads.Title") + " " + (index + 1);
-    const count = atlas.schemaVersion >= 3 ?
-      atlas.segments.filter(segment => segment.roadId === road.id).length : 1;
-    const description = node("div");
-    description.style.flex = "1 1 auto";
-    description.style.minWidth = "0";
-    description.appendChild(node("span", roadName));
-    if (atlas.schemaVersion >= 3) {
-      const mode = roadAppearanceMode(road, travelPresets);
-      const style = resolveRoadAppearance(road, worldRoadAppearance, mode);
-      const subtitle = node("div", undefined, "hint");
-      subtitle.style.fontSize = "0.8em";
-      const swatch = node("span", "● ");
-      swatch.style.color = style.color;
-      subtitle.appendChild(swatch);
-      subtitle.appendChild(node("span",
-        `${mode} overlay · ${style.pattern} · ${style.width}px · ${style.labelVisibility === "off" ?
-          "labels off" : "labels " + style.labelVisibility}` +
-        (road.appearance ? " (road override)" : " (World " + mode + " default)")));
-      description.appendChild(subtitle);
-      const playerStatus = node("div", road.playerVisible === true
-        ? "Visible to players" : "Hidden from players", "hint");
-      playerStatus.style.fontSize = "0.8em";
-      description.appendChild(playerStatus);
-    }
-    if (count > 1) {
-      const metadata = node("div", `${count} ${label("FVTTATLAS.Roads.Segments")}`);
-      metadata.style.fontSize = "0.8em";
-      metadata.style.fontStyle = "italic";
-      metadata.style.opacity = "0.7";
-      metadata.title = label("FVTTATLAS.Roads.SegmentCountHint");
-      description.appendChild(metadata);
-    }
-    if (atlas.schemaVersion >= 5 && road.travelPresetId) {
-      const assigned = presetById.get(road.travelPresetId);
-      const subtitle = node("div", assigned
-        ? label("FVTTATLAS.Travel.RoadDefault") + ": " + assigned.name
-        : label("FVTTATLAS.Travel.MissingPreset"), "hint");
-      subtitle.style.fontSize = "0.8em";
-      description.appendChild(subtitle);
-    }
-    row.appendChild(description);
-    const controls = node("div", undefined, "form-fields");
-    controls.appendChild(button("◎", label("FVTTATLAS.Roads.Highlight"),
-      () => {
-        if (atlas.schemaVersion >= 3) {
-          const state = junctionFilterFor(scene, atlas);
-          state.roadId = road.id;
-          state.scope = "selected";
-          refresh();
-        }
-        return actions.select(scene, road.id);
-      }));
-    if (atlas.schemaVersion >= 3) {
-      controls.appendChild(button(road.playerVisible === true ? "👁" : "◌",
-        road.playerVisible === true ? "Hide this road from players" : "Show this road to players (visual only)",
-        () => actions.toggleRoadPlayerVisibility(scene, road, refresh)));
-      const roadJournal = journalUuidFor(journalLinks,"road",road.id);
-      if(roadJournal) {
-         description.insertBefore(linkedJournalIndicator(roadJournal),description.firstChild);
-         controls.appendChild(button("📖", "Open linked Road Journal",
-        () => void openAtlasJournal(roadJournal).catch(error =>
-          ui.notifications.error(error.message||String(error)))));
-      }
-      controls.appendChild(button("🖌", "ROAD OVERLAY — Edit line, pattern and label text color (does not change native Regions)",
-        () => actions.editRoadAppearance(scene, road, refresh)));
-      if (road.appearance) {
-        controls.appendChild(button("↺", "ROAD OVERLAY — Reset style to its Land/Air/Water World default",
-          () => actions.resetRoadAppearance(scene, road, refresh)));
-      }
-      controls.appendChild(button("◈", label("FVTTATLAS.Travel.AssignRoad"),
-        () => actions.assignRoadTravelPreset(scene, road, refresh)));
-      controls.appendChild(button("⌖", label("FVTTATLAS.Roads.EditPoints"),
-        () => actions.beginPointEdit(scene, road.id, refresh)));
-      if (getRoadMergeCandidates(atlas, road.id).length) {
-        controls.appendChild(button("⇄", label("FVTTATLAS.Roads.Merge"),
-          () => actions.merge(scene, road, refresh)));
-      }
-    }
-    controls.appendChild(button("✎", label("FVTTATLAS.Roads.Rename"),
-      async () => { await actions.rename(scene, road, refresh); }));
-    controls.appendChild(button("×", label("FVTTATLAS.Roads.Delete"),
-      async () => { await actions.remove(scene, road, refresh); }));
-    row.appendChild(controls);
-    section.appendChild(row);
+  const search = node("input");
+  search.type = "search";
+  search.placeholder = "Find a road…";
+  search.setAttribute("aria-label", "Find a road");
+  search.style.cssText = "width:100%;min-height:2rem;margin:.4rem 0 .6rem;";
+  search.value = roadSearch.get(scene.id) ?? "";
+  const roadList = node("div");
+  roadList.style.cssText = "display:grid;gap:.35rem;";
+  function updateRoadSearch() {
+    roadSearch.set(scene.id, search.value);
+    for (const row of roadList.children)
+      row.hidden = !row.dataset.atlasSearch?.includes(search.value.trim().toLocaleLowerCase());
   }
+  search.addEventListener("input", updateRoadSearch);
+  section.appendChild(search);
+  section.appendChild(roadList);
+
+  async function openRoadDetails(road) {
+    // DialogV2 serializes and clones HTMLElement content; use delegated actions
+    // because listeners registered on pre-render controls would be lost.
+    const content = node("div");
+    const body = node("div");
+    content.appendChild(body);
+    const commands = new Map();
+    let sequence = 0;
+    function actionButton(caption, title, action) {
+      const control = node("button", caption);
+      control.type = "button";
+      control.title = title;
+      control.setAttribute("aria-label", title);
+      const key = road.id + ":" + (++sequence);
+      control.dataset.atlasRoadDetailAction = key;
+      commands.set(key,action);
+      return control;
+    }
+    body.style.cssText = "display:grid;gap:.75rem;min-width:0;max-width:100%;";
+    const heading = node("h3", road.name || "Road");
+    heading.style.margin = "0";
+    body.appendChild(heading);
+    const status = node("p", road.playerVisible === true ? "● Visible to players" : "◌ Hidden from players", "hint");
+    status.style.margin = "0";
+    body.appendChild(status);
+    function group(name, items) {
+      const panel = node("fieldset");
+      panel.style.cssText = "min-width:0;margin:0;padding:.65rem .8rem;";
+      panel.appendChild(node("legend", name));
+      const controls = node("div");
+      controls.style.cssText = "display:flex;flex-wrap:wrap;gap:.4rem;";
+      for (const [caption, title, action] of items)
+        controls.appendChild(actionButton(caption,title,action));
+      panel.appendChild(controls);
+      body.appendChild(panel);
+      return panel;
+    }
+    group("Road", [
+      ["Appearance", "Color, line, name and linked journal", () => actions.editRoadAppearance(scene,road,refresh)],
+      [road.playerVisible === true ? "Hide" : "Show", "Toggle player visibility",
+        () => actions.toggleRoadPlayerVisibility(scene,road,refresh)],
+      ["Rename", "Rename road", () => actions.rename(scene,road,refresh)],
+      ["Find on map", "Highlight road", () => actions.select(scene,road.id)]
+    ]);
+    const editing = [
+      ["Edit path", "Move road points", () => actions.beginPointEdit(scene,road.id,refresh)],
+      ["Add connection", "Connect roads on the map", () => actions.beginJunction(scene,refresh)],
+      ["Add checkpoint", "Place a checkpoint on this road", () => actions.beginCheckpoint(scene,refresh)]
+    ];
+    if (getRoadMergeCandidates(atlas,road.id).length)
+      editing.push(["Merge", "Merge connected roads", () => actions.merge(scene,road,refresh)]);
+    group("Map tools", editing);
+    const linked = journalUuidFor(journalLinks,"road",road.id);
+    const journalActions = [["Link / change", "Set a journal in Road Appearance",
+      () => actions.editRoadAppearance(scene,road,refresh)]];
+    if (linked) journalActions.push(["Open journal", "Open linked journal",
+      () => openAtlasJournal(linked)]);
+    group("Journal", journalActions);
+    const checkpoints = (atlas.checkpoints ?? []).filter(item => item.roadId === road.id);
+    const checkpointGroup = group("Checkpoints (" + checkpoints.length + ")",
+      checkpoints.map(item => [item.name || "Checkpoint", "Edit checkpoint",
+        () => actions.editCheckpoint(scene,item,refresh)]));
+    if (!checkpoints.length) checkpointGroup.appendChild(node("p", "None yet.", "hint"));
+    const connected = listRoadJunctions(atlas).filter(item => item.roadIds.includes(road.id));
+    const connections = group("Connections (" + connected.length + ")", [
+      ["Add connection", "Choose connection points on the map",
+        () => actions.beginJunction(scene,refresh)]
+    ]);
+    if (connected.length) connections.appendChild(node("p", "Edit connections directly on the map.", "hint"));
+    const preset = presetById.get(road.travelPresetId);
+    const terrain = group("Terrain", [
+      ["Travel type" + (preset ? ": " + preset.name : ""), "Choose this road's default terrain",
+        () => actions.assignRoadTravelPreset(scene,road,refresh)]
+    ]);
+    terrain.appendChild(node("p", "Region tools are under More tools in the Atlas tab.", "hint"));
+    const danger = group("Remove", [["Delete road", "Delete this road (confirmation required)",
+      () => actions.remove(scene,road,refresh)]]);
+    danger.style.borderColor = "var(--color-border-light-tertiary, #765)";
+    const onAction = event => {
+      const control = event.target?.closest?.("[data-atlas-road-detail-action]");
+      const key = control?.dataset.atlasRoadDetailAction;
+      if (!key || !commands.has(key)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      Promise.resolve().then(() => commands.get(key)())
+        .catch(error => ui.notifications.error(error.message || String(error)));
+    };
+    document.addEventListener("click",onAction,true);
+    try {
+      await foundry.applications.api.DialogV2.input({
+        window: { title: "Road — " + (road.name || "Unnamed"), resizable: true },
+        content, modal: false,
+        ok: { label: "Close" }, rejectClose: false
+      });
+    } finally {
+      document.removeEventListener("click",onAction,true);
+    }
+  }
+
+  for (const [index, road] of roads.entries()) {
+    const row = node("div");
+    row.setAttribute("data-atlas-road-id",road.id);
+    row.dataset.atlasSearch = (road.name || "").toLocaleLowerCase();
+    row.style.cssText = "display:flex;align-items:center;gap:.65rem;min-height:2.5rem;padding:.3rem .45rem;border:1px solid var(--color-border-light-tertiary, #665);border-radius:5px;";
+    const appearance = atlas.schemaVersion >= 3 ?
+      resolveRoadAppearance(road,worldRoadAppearance,roadAppearanceMode(road,travelPresets)) : null;
+    const dot = node("span","●");
+    dot.style.color = appearance?.color || "#aaa";
+    dot.setAttribute("aria-hidden","true");
+    row.appendChild(dot);
+    const name = node("span",road.name || "Road " + (index+1));
+    name.style.cssText = "flex:1;min-width:0;overflow-wrap:anywhere;";
+    row.appendChild(name);
+    if (journalUuidFor(journalLinks,"road",road.id))
+      row.appendChild(linkedJournalIndicator(journalUuidFor(journalLinks,"road",road.id)));
+    const visible = node("span",road.playerVisible === true ? "👁" : "◌");
+    visible.title = road.playerVisible === true ? "Visible to players" : "Hidden from players";
+    visible.setAttribute("aria-label",visible.title);
+    row.appendChild(visible);
+    const open = button("›","Open " + (road.name || "road") + " settings",
+      () => openRoadDetails(road));
+    open.style.cssText = "flex:0 0 2.25rem;min-width:2.25rem;padding:0;font-size:1.3em;";
+    row.appendChild(open);
+    roadList.appendChild(row);
+  }
+  updateRoadSearch();
   root.appendChild(section);
 
   // A graph endpoint or degree-2 subdivision is not a routing junction.
@@ -427,21 +479,18 @@ function atlasPanel(scene, atlas, actions, refresh) {
         " / " + filtered.length, "hint"));
     }
   }
-  root.appendChild(junctionSection);
+  // Connections remain editable on the map and from each Road detail window.
+  // Raw internal junction IDs are intentionally omitted from the everyday UI.
 
   const party = readPartyExploration(scene);
   // Manual fog v0.2.26: Scene-owned state; token automation is intentionally disabled.
   const state = readManualFog(scene);
   const fogPanel = node("fieldset");
-  fogPanel.appendChild(node("legend", "Atlas — Manual Exploration"));
-  fogPanel.appendChild(node("p",
-    "Square/hex only. The GM paints persistent discovered terrain with Reveal and " +
-    "can cover selected cells again with Hide. Token movement does not alter exploration " +
-    "in this release.", "hint"));
+  fogPanel.appendChild(node("legend", "Exploration"));
   const checkbox = node("input");
   checkbox.type = "checkbox";
   checkbox.checked = state.enabled;
-  const enabledLabel = node("label", " Enable Atlas Manual Fog");
+  const enabledLabel = node("label", " Manual exploration");
   enabledLabel.prepend(checkbox);
   fogPanel.appendChild(enabledLabel);
   const unsupported = scene.grid?.type === (globalThis.CONST?.GRID_TYPES?.GRIDLESS ?? 0);
@@ -449,9 +498,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
     checkbox.disabled = !state.enabled;
     fogPanel.appendChild(node("p","Gridless Scenes are unsupported.", "hint"));
   }
-  fogPanel.appendChild(node("p",
-    "Enable here, then turn OFF native Scene Token Vision to let Atlas show the rendered map. " +
-    "Atlas preserves native FogExploration and existing legacy travel records.", "hint"));
+  checkbox.title = "Use Atlas exploration on this Scene";
   checkbox.addEventListener("change",async()=>{
     const desired=checkbox.checked;
     checkbox.disabled=true;
@@ -462,18 +509,20 @@ function atlasPanel(scene, atlas, actions, refresh) {
       ui.notifications.error(error.message??String(error));
     }
   });
-  fogPanel.appendChild(node("p",
-    "Revealed: " + state.revealed.length + " cells. Manually hidden overrides: " +
-    state.hidden.length + " cells (not the total unexplored map). " +
-    "Other undiscovered cells are automatically hidden.", "hint"));
-  fogPanel.appendChild(button("Open Atlas Brush Palette",
-    "Open the floating GM-only exploration brushes from the Scene Controls toolbar",
-    () => actions.openManualBrushPalette()));
-  fogPanel.appendChild(node("p",
-    "Open the brush palette from the Atlas map icon in Scene Controls. " +
-    "The neighboring eye tool toggles the GM fog preview; both are available without " +
-    "reopening Scene Configuration.", "hint"));
-  root.appendChild(fogPanel);
+  const brush = button("Paint map", "Open Atlas brushes",
+    () => actions.openManualBrushPalette());
+  brush.style.marginLeft = ".6rem";
+  fogPanel.appendChild(brush);
+  const count = node("small", `${state.revealed.length} revealed · ${state.hidden.length} hidden`, "hint");
+  count.style.cssText = "display:block;margin-top:.3rem;";
+  fogPanel.appendChild(count);
+  root.insertBefore(fogPanel, section);
+
+  const advanced = node("details");
+  advanced.style.marginTop = ".7rem";
+  const advancedSummary = node("summary", "More tools · Checkpoints & Terrain");
+  advancedSummary.style.cssText = "cursor:pointer;font-weight:600;padding:.6rem;";
+  advanced.appendChild(advancedSummary);
 
   // v0.2.13: semantic checkpoints are optional records attached to stable
   // road graph points. They are not bend handles or routing junction listings.
@@ -657,7 +706,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
         " / " + matching.length, "hint"));
     }
   }
-  root.appendChild(checkpointSection);
+  advanced.appendChild(checkpointSection);
 
 
   // v0.2.14: generate separate opt-in native Regions around one checkpoint
@@ -959,7 +1008,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   }
   if (visibleGenerated.length > 50) generatedSection.appendChild(node("p",
     label("FVTTATLAS.Generated.Limit"), "hint"));
-  root.appendChild(generatedSection);
+  advanced.appendChild(generatedSection);
 
   // Phase 2d associates existing native RegionDocuments. No Atlas geometry or
   // terrain modifiers are stored here; Foundry's Region editor stays canonical.
@@ -1039,7 +1088,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
   if (nativeRegions.some(region => region.invalidLink)) {
     regionSection.appendChild(node("p", label("FVTTATLAS.Regions.InvalidHint"), "hint"));
   }
-  root.appendChild(regionSection);
+  advanced.appendChild(regionSection);
 
   const measurement = node("fieldset");
   measurement.appendChild(node("legend", label("FVTTATLAS.Atlas.Measurement")));
@@ -1048,7 +1097,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
     `${label("FVTTATLAS.Atlas.NativeGrid")}: ${format(grid.unitsPerSpace)} ${grid.unit} / ${format(grid.pixelsPerSpace)} px`));
   else measurement.appendChild(node("p", label("FVTTATLAS.Atlas.GridUnavailable"), "hint"));
   measurement.appendChild(node("p", label("FVTTATLAS.Atlas.SceneGridSaveHint"), "hint"));
-  root.appendChild(measurement);
+  advanced.appendChild(measurement);
+  root.appendChild(advanced);
   return root;
 }
 
