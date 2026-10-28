@@ -16,17 +16,19 @@ This page explains the Scene **Atlas** tab and its editing tools. All changes ar
 - **Road → Show / Hide** controls whether the road is drawn for players. This never changes checkpoint discovery.
 - **Map tools → Edit path** moves stored road points. **Add connection** attaches road graph points; the existing confirmation and edit rules remain in place. **Add checkpoint** places a named location.
 - **Journal → Link / change** opens appearance settings for assigning a whole Journal or a page. GMs can open linked journals; players need Foundry Observer permission.
-- **Checkpoints** lists this road's checkpoints; choose one to edit its name, discovery, icon and journal. A checkpoint can be automatically encountered, GM-only, or lore-only depending on its discovery method.
-- **Connections** counts graph connections without exposing backend node IDs in the everyday Atlas view.
-- **Terrain → Travel type** sets the road's world travel/surface preset. It does not immediately rewrite native Regions.
+- **Checkpoints** expands into this road's checkpoints. Expand one checkpoint and choose **Settings** to edit its name, elevation, discovery, icon and journal in a single window. **Find on map** pans the camera to it. A checkpoint can be automatically encountered, GM-only, or lore-only depending on its discovery method.
+- **Connections** counts graph connections without exposing backend node IDs. Click Add connection, click a road on the map, and close the small editor to cancel.
+- **Travel → Travel type** sets the road's world travel/surface preset. It does not immediately rewrite native Regions.
+- **Terrain Regions** expands to the Regions associated with the road. Each Region has its own settings and regeneration actions, plus native generator and link controls.
 - **Remove → Delete road** uses the existing deletion workflow. Make sure you intend to remove the road.
 
-## More tools
+## Map and exploration
 
-- **Checkpoints:** detailed list and discovery/radius controls for the road selected by the top filter.
-- **Generate Regions:** creates optional native Foundry Regions from checkpoints and road sections. For **All roads**, choose a target road in the generator. Generated Regions and native movement Behaviors are modified only by explicit GM actions.
-- **Regions:** inspect and manage linked native Regions.
-- **Grid:** the Scene's native Grid is the source of units and measurements.
+The **Exploration** area also displays native Scene Grid measurement. Use **Find on map** under a road or checkpoint to pan to its location.
+
+The road editor uses a small window while drawing or placing connections/checkpoints. Closing it cancels the unfinished operation. The full checkpoint editor opens after a checkpoint is placed, so icon, discovery and journal information can be set immediately.
+
+The road and checkpoint appearance windows use compact sliders for suitable numbers, with exact numeric input where needed. Detailed usage notes stay in this guide.
 
 ## Journal and player visibility
 
