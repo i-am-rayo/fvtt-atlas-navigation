@@ -69,8 +69,8 @@ export function roadAppearanceForm(appearance) {
   root.appendChild(borderToggle);
   input("Road border color", "atlasRoadBorderColor", "color", current.borderColor);
   const borderColorRow=root.lastElementChild;
-  borderColorRow.dataset.atlasRoadBorderColor="";borderColorRow.hidden=!current.borderEnabled;
-  borderOn.addEventListener("change",()=>{borderColorRow.hidden=!borderOn.checked;});
+  borderColorRow.dataset.atlasRoadBorderColor="";borderColorRow.style.display=current.borderEnabled?"flex":"none";
+  borderOn.addEventListener("change",()=>{borderColorRow.style.display=borderOn.checked?"flex":"none";});
   input("Road name text color", "atlasRoadTextColor", "color", current.textColor);
   input("Line width (px)", "atlasRoadWidth", "number", current.width,
     { min: 1, max: 16, step: 0.5 });
