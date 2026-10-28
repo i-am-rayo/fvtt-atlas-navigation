@@ -13,6 +13,7 @@ export const DEFAULT_ROAD_CURVE_PRESET = "strong";
 export const DEFAULT_ROAD_APPEARANCE = Object.freeze({
   color: "#35c9ef",
   borderColor: "#1c1c1c",
+  borderEnabled: false,
   width: 4,
   opacity: 0.9,
   pattern: "solid",
@@ -30,12 +31,14 @@ export const DEFAULT_WORLD_ROAD_APPEARANCE = Object.freeze({
 });
 
 const LEGACY_FIELDS = ["color", "width", "opacity", "pattern", "labelVisibility"];
-const APPEARANCE_FIELDS = [...LEGACY_FIELDS, "textColor", "borderColor"];
+const APPEARANCE_FIELDS = [...LEGACY_FIELDS, "textColor", "borderColor", "borderEnabled"];
 
 function validateAppearanceFields(value, fields) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Road appearance must be an object.");
   }
+  if (fields.includes("borderEnabled") && !Object.hasOwn(value,"borderEnabled"))
+    value = { ...value, borderEnabled: false };
   if (fields.includes("borderColor") && !Object.hasOwn(value,"borderColor"))
     value = { ...value, borderColor: DEFAULT_ROAD_APPEARANCE.borderColor };
   if (Object.keys(value).length !== fields.length ||
@@ -49,6 +52,8 @@ function validateAppearanceFields(value, fields) {
         " color must be a six-digit hex color.");
     }
   }
+  if (fields.includes("borderEnabled") && typeof value.borderEnabled !== "boolean")
+    throw new Error("Road border setting must be on or off.");
   if (!Number.isFinite(value.width) || value.width < 1 || value.width > 16) {
     throw new Error("Road line width must be between 1 and 16 pixels.");
   }
@@ -78,7 +83,8 @@ export function validateWorldRoadAppearance(value) {
   if (!Object.hasOwn(value ?? {}, "schemaVersion")) {
     const legacy = validateLegacyRoadAppearance(value);
     const migrated = { ...legacy, textColor: DEFAULT_ROAD_APPEARANCE.textColor,
-      borderColor: DEFAULT_ROAD_APPEARANCE.borderColor };
+      borderColor: DEFAULT_ROAD_APPEARANCE.borderColor,
+      borderEnabled: false };
     return { schemaVersion: ROAD_APPEARANCE_CATALOG_VERSION,
       profiles: Object.fromEntries(ROAD_APPEARANCE_MODES.map(mode =>
         [mode, { ...migrated }])) };
