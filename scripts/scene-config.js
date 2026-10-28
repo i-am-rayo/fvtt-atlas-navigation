@@ -284,6 +284,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       summary.style.cssText = "cursor:pointer;font-weight:600;padding:.3rem 0;";
       details.appendChild(summary);
       const key=scene.id+":"+road.id+":"+title;
+      details.dataset.atlasExpansionKey=key;
       details.open=expandedDetails.has(key);
       details.addEventListener("toggle",()=>{
         if (!details.isConnected) return;
@@ -327,6 +328,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       child.style.cssText="margin:.2rem .4rem;padding:.2rem .4rem;";
       child.appendChild(node("summary",region.name || "Region"));
       const key=scene.id+":"+road.id+":region:"+region.id;
+      child.dataset.atlasExpansionKey=key;
       child.open=expandedDetails.has(key);
       child.addEventListener("toggle",()=>{
         if (!child.isConnected) return;
@@ -1059,6 +1061,15 @@ export function addAtlasRoadsToSceneConfig(app, element, actions) {
   );
   const target = nativeRoot || fallback;
   if (!target) return;
+  // Capture live disclosure state before rebuilding after native Region updates.
+  // This also covers toggle events which have not yet been dispatched.
+  for (const item of target.querySelectorAll?.("[data-atlas-expansion-key]") ?? []) {
+    const key = item.dataset.atlasExpansionKey;
+    if (item.open) expandedDetails.add(key);
+    else expandedDetails.delete(key);
+  }
+  const openRoad = target.querySelector?.("[data-atlas-road-id][open]");
+  if (openRoad) expandedRoads.set(scene.id, openRoad.dataset.atlasRoadId);
   target.querySelector?.("[data-fvtt-atlas-setup]")?.remove();
   const refresh = () => {
     if (app.rendered === false) return;
