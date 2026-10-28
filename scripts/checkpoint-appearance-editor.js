@@ -31,7 +31,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   constructor({ scene, checkpointId, expectedRevision, onSaved }) {
     super({ position: {
       width: Math.min(630, Math.max(360, window.innerWidth - 60)),
-      height: Math.min(540, Math.max(400, window.innerHeight - 90))
+      height: Math.min(710, Math.max(440, window.innerHeight - 70))
     } });
     this.scene = scene;
     this.checkpointId = checkpointId;
@@ -50,7 +50,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const journalLinks = readAtlasJournalLinks(this.scene);
     const discoveryMethods = readCheckpointDiscoveryMethods(this.scene);
     const root = el("div");
-    root.style.cssText = "padding:0.85rem;display:flex;flex-direction:column;gap:0.6rem;overflow:auto;max-height:calc(100vh - 100px);";
+    root.style.cssText = "padding:0.85rem;display:flex;flex-direction:column;gap:0.6rem;overflow-y:auto;overflow-x:hidden;min-height:0;height:100%;box-sizing:border-box;";
 
     let fields = el("div");
     fields.style.cssText = "display:grid;gap:0.55rem;";
@@ -409,7 +409,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           width:Math.min(860,window.innerWidth-50),height:Math.min(850,window.innerHeight-80)
         });
         else this.setPosition({
-          width:Math.min(630,window.innerWidth-50),height:Math.min(540,window.innerHeight-90)
+          width:Math.min(630,window.innerWidth-50),height:Math.min(710,window.innerHeight-70)
         });
         for (const b of editorTabs.children) {
           const active=b===item;
