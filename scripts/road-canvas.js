@@ -1378,8 +1378,9 @@ export class RoadCanvasController {
         });
       for (const span of (manualFog || (canvas.scene?.tokenVision === true &&
         canvas.scene?.fogExploration !== false) ? exploredRoadSpans(path, explored) : [path])) {
-        drawLine(graphics, span, Number.parseInt(style.borderColor.slice(1),16),
-          style.width + 4 / zoom, style.opacity, style.pattern);
+        if (style.borderEnabled) drawLine(graphics, span,
+          Number.parseInt(style.borderColor.slice(1),16),
+          style.width + 2 / zoom, style.opacity, style.pattern);
         drawLine(graphics, span, Number.parseInt(style.color.slice(1), 16),
           style.width, style.opacity, style.pattern);
         hoverPaths.push({ roadId: road.id, path: span,
@@ -1650,8 +1651,9 @@ export class RoadCanvasController {
       const style = resolveRoadAppearance(road, worldDefaults,
         roadAppearanceMode(road, travelPresets));
       const color = highlighted ? 0xffd166 : Number.parseInt(style.color.slice(1), 16);
-      drawLine(g, path, Number.parseInt(style.borderColor.slice(1),16),
-        style.width + 4 / zoom + (highlighted ? 2 : 0),
+      if (style.borderEnabled) drawLine(g, path,
+        Number.parseInt(style.borderColor.slice(1),16),
+        style.width + 2 / zoom + (highlighted ? 2 : 0),
         highlighted ? 1 : style.opacity, style.pattern);
       drawLine(g, path, color, style.width + (highlighted ? 2 : 0),
         highlighted ? 1 : style.opacity, style.pattern);
