@@ -25,13 +25,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-checkpoint-appearance",
     window: { title: "Atlas — Checkpoint Settings", resizable: true },
-    position: { width: 630, height: 540 }
+    position: { width: 630, height: 660 }
   };
 
   constructor({ scene, checkpointId, expectedRevision, onSaved }) {
     super({ position: {
       width: Math.min(630, Math.max(360, window.innerWidth - 60)),
-      height: Math.min(540, Math.max(340, window.innerHeight - 100))
+      height: Math.min(660, Math.max(440, window.innerHeight - 90))
     } });
     this.scene = scene;
     this.checkpointId = checkpointId;
@@ -342,7 +342,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       new Picker({ type: "image", callback: path => { image.value = path; } }).render(true);
     });
     imageSection.append(image, browse);
-    pageMarker.appendChild(imageSection);
+
     fields = el("div"); fields.style.cssText = "display:grid;gap:.55rem;";
     pageMarker.appendChild(fields);
     const size = el("input");
@@ -375,6 +375,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     field("Checkpoint / road label text color", textColor);
     // Choose a marker type after the label controls, then its icon last.
     pageMarker.appendChild(type.closest("label"));
+    pageMarker.appendChild(imageSection);
     pageMarker.appendChild(iconSection);
     const updateType = () => {
       iconSection.hidden = type.value !== "fa";
@@ -382,10 +383,18 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     };
     type.addEventListener("change", updateType);
     updateType();
+    if (type.value === "fa" && (!selected || !ICON_DETAILS.has(selected))) iconSection.open=true;
+    iconSection.addEventListener("toggle",()=>{
+      if (!this.rendered) return;
+      this.setPosition({
+        width: iconSection.open ? Math.min(860, window.innerWidth - 50) : Math.min(630, window.innerWidth - 50),
+        height: iconSection.open ? Math.min(850, window.innerHeight - 80) : Math.min(660, window.innerHeight - 90)
+      });
+    });
     const journalControls = journalLinkFields(journalLinks,"checkpoint",this.checkpointId);
     pageGeneral.appendChild(journalControls);
     const editorTabs = el("nav");
-    editorTabs.style.cssText = "display:flex;gap:.4rem;flex-wrap:wrap;";
+    editorTabs.style.cssText = "display:flex;gap:.4rem;flex-wrap:wrap;padding-bottom:.65rem;border-bottom:1px solid var(--color-border-light-tertiary,#655);";
     const pages = [["General",pageGeneral],["Marker & labels",pageMarker]];
     for (const [name,page] of pages) {
       const item=el("button",name);
