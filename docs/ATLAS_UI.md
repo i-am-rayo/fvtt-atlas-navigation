@@ -1,4 +1,4 @@
-# Atlas Scene UI — Quick Guide (v0.2.31)
+# Atlas Scene UI — Quick Guide (v0.2.31.2)
 
 This page explains the Scene **Atlas** tab and its editing tools. All changes are made by a GM. Player-visible roads and discovered checkpoints remain separate from native Foundry vision and Regions.
 
@@ -40,3 +40,11 @@ A 📖 badge means a road or checkpoint has a linked Journal. The GM view also i
 - If a road/checkpoint Journal will not open for a player, grant Observer permission to the linked Journal Entry or Page, then refresh that player's canvas.
 - A road title is suppressed near checkpoint labels so names do not overlap; move the cursor to another part of the road to see its title.
 - The Atlas connection graph, native Region geometries, movement Behaviors and existing Scene flags are not reset by the UI overhaul.
+
+## Finding and editing
+
+**Find on map** pans to the road or checkpoint and displays a temporary contrasting pulse. While it plays, the Scene Settings window fades so you can see the map; neither the saved road/checkpoint colors nor exploration data change.
+
+Select a road's **Settings** to edit General, Style, and Journal tabs. Checkpoints use General, Marker & labels, and Journal tabs. The journal tab accepts a Journal Entry or Journal Page UUID, paste, or drag-and-drop, subject to native Foundry ownership permissions.
+
+Connection work stays under **Edit road**. Related checkpoints and generated native Regions remain in their respective expandable groups below the road.
