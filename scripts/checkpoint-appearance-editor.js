@@ -25,7 +25,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-checkpoint-appearance",
     window: { title: "Atlas — Checkpoint Settings", resizable: true },
-    position: { width: 780, height: 680 }
+    position: { width: 630, height: 540 }
   };
 
   constructor({ scene, checkpointId, expectedRevision, onSaved }) {
@@ -47,7 +47,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const journalLinks = readAtlasJournalLinks(this.scene);
     const discoveryMethods = readCheckpointDiscoveryMethods(this.scene);
     const root = el("div");
-    root.style.cssText = "padding:0.85rem;display:grid;gap:0.6rem;overflow:auto;height:100%;";
+    root.style.cssText = "padding:0.85rem;display:flex;flex-direction:column;gap:0.6rem;overflow:auto;max-height:calc(100vh - 100px);";
 
     let fields = el("div");
     fields.style.cssText = "display:grid;gap:0.55rem;";
@@ -73,10 +73,12 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     name.type = "text"; name.maxLength = 120; name.required = true; name.value = current.name;
     name.setAttribute("aria-label", "Checkpoint name");
     field("Checkpoint name", name);
+    const imperial = game.settings.get("fvtt-atlas-navigation","elevationUnits") === "imperial";
+    const elevationFactor = imperial ? 3.280839895 : 1;
     const elevation = el("input");
     elevation.type = "number"; elevation.step = "any";
-    elevation.value = current.elevationMeters === null ? "" : String(current.elevationMeters);
-    elevation.setAttribute("aria-label", "Checkpoint elevation in meters");
+    elevation.value = current.elevationMeters === null ? "" : String(Math.round(current.elevationMeters * elevationFactor * 100) / 100);
+    elevation.setAttribute("aria-label", imperial ? "Checkpoint elevation in feet" : "Checkpoint elevation in meters");
     const elevationRange = el("input");
     elevationRange.type = "range"; elevationRange.min = "-1000";
     elevationRange.max = "10000"; elevationRange.step = "10";
@@ -89,7 +91,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       if (elevation.value !== "") elevationRange.value=elevation.value;
     });
     elevationControl.append(elevationRange,elevation);
-    field("Elevation (m)", elevationControl);
+    field(imperial ? "Elevation (ft)" : "Elevation (m)", elevationControl);
     const playerVisibility = el("input");
     playerVisibility.type = "checkbox";
     playerVisibility.checked = current.playerVisible === true;
@@ -165,8 +167,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     ], "rpg");
     categoryFilter.setAttribute("aria-label", "RPG icon category");
     categoryFilter.style.cssText = "width:100%;margin-top:0.4rem;";
-    sidebar.appendChild(el("small", "Theme / category"));
-    sidebar.appendChild(categoryFilter);
+    // Category tabs below are the single source of icon filtering. Keep the
+    // select detached for the existing tab and search logic.
     const styleFilter = select([
       ["all", "All Free icon styles"], ["solid", "Solid"],
       ["regular", "Regular"], ["brands", "Brands"]
@@ -318,7 +320,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     renderIcons(true);
     const pageGeneral = el("section"), pageMarker = el("section"), pageJournal = el("section");
     pageGeneral.appendChild(fields);
-    pageMarker.appendChild(iconSection);
+
     const imageSection = el("div");
     imageSection.style.cssText = "display:flex;gap:0.4rem;align-items:center;";
     const image = el("input");
@@ -368,6 +370,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const textColor = el("input");
     textColor.type = "color"; textColor.value = appearance.textColor; textColor.style.cssText = "width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
     field("Checkpoint / road label text color", textColor);
+    // Choose a marker type after the label controls, then its icon last.
+    pageMarker.appendChild(type.closest("label"));
+    pageMarker.appendChild(iconSection);
     const updateType = () => {
       iconSection.hidden = type.value !== "fa";
       imageSection.hidden = type.value !== "image";
@@ -375,10 +380,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     type.addEventListener("change", updateType);
     updateType();
     const journalControls = journalLinkFields(journalLinks,"checkpoint",this.checkpointId);
-    pageJournal.appendChild(journalControls);
+    pageGeneral.appendChild(journalControls);
     const editorTabs = el("nav");
     editorTabs.style.cssText = "display:flex;gap:.4rem;flex-wrap:wrap;";
-    const pages = [["General",pageGeneral],["Marker & labels",pageMarker],["Journal",pageJournal]];
+    const pages = [["General",pageGeneral],["Marker & labels",pageMarker]];
     for (const [name,page] of pages) {
       const item=el("button",name);
       item.type="button"; item.style.cssText="flex:1;min-width:8rem;";
@@ -391,7 +396,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     pages.forEach(([,page],index)=>{page.hidden=index!==0;});
     editorTabs.children[0].disabled=true;
     root.prepend(editorTabs);
-    root.append(pageGeneral,pageMarker,pageJournal);
+    root.append(pageGeneral,pageMarker);
     const journalInput = journalControls.querySelector('input[name="atlasJournalUuid"]');
     const controls = el("div");
     controls.style.cssText = "position:sticky;bottom:0;z-index:2;display:flex;gap:0.5rem;justify-content:flex-end;background:#100f17;padding:.4rem 0;";
@@ -426,7 +431,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         }
         await saveCheckpointPresentation(this.scene, {
           checkpointId: this.checkpointId, name: name.value,
-          elevationMeters: raw === "" ? null : Number(raw),
+          elevationMeters: raw === "" ? null : Number(raw) / elevationFactor,
           playerVisible: playerVisibility.checked, appearance: next,
           expectedRevision: this.expectedRevision
         });
