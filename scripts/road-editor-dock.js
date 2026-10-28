@@ -87,68 +87,11 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
 
     if (draft.mode === "new") {
       const options = this.controller.getNewRoadOptions(this.scene);
-      const presets = readWorldTravelPresets().presets;
-      const current = presets.find(p => p.id === options.presetId);
-      const mode = current?.mode ?? "land";
-      const update = patch => this.controller.setNewRoadOptions(this.scene, patch);
-      const name = element("input");
-      name.type = "text";
-      name.maxLength = 120;
-      name.value = options.name;
-      name.setAttribute("aria-label", "New road name");
-      name.addEventListener("input", () => update({ name: name.value }));
-      row("Road name", name);
-      row("Road type", dropdown(ROAD_APPEARANCE_MODES.map(value => [value,
-        value[0].toUpperCase() + value.slice(1)]), mode, selected => {
-        const preset = presets.find(p => p.mode === selected);
-        // Each named-road type derives from a real World travel preset.
-        update({ presetId: preset?.id ?? null, appearance: null });
-        void this.render(true);
-      }));
-      row("Surface preset", dropdown([
-        ["", "None (Land fallback)"],
-        ...presets.filter(p => p.mode === mode).map(p => [p.id, p.name])
-      ], options.presetId ?? "", value => update({ presetId: value || null })));
-      const custom = element("input");
-      custom.type = "checkbox";
-      custom.checked = options.appearance !== null;
-      custom.addEventListener("change", () => {
-        update({ appearance: custom.checked ? resolveRoadAppearance(null,
-          readWorldRoadAppearance(), mode) : null });
-        void this.render(true);
-      });
-      row("Override line appearance", custom);
-      if (options.appearance) {
-        const updateAppearance = changes => update({ appearance: {
-          ...this.controller.getNewRoadOptions(this.scene).appearance, ...changes
-        } });
-        const color = element("input");
-        color.type = "color";
-        color.value = options.appearance.color;
-        color.addEventListener("input", () => updateAppearance({ color: color.value }));
-        row("Line color", color);
-        row("Line type", dropdown([
-          ["solid", "Solid"], ["dashed", "Dashed"], ["dotted", "Dotted"]
-        ], options.appearance.pattern, pattern => updateAppearance({ pattern })));
-        const width = element("input");
-        width.type = "range"; width.min = "1"; width.max = "16";
-        width.step = "1"; width.value = String(options.appearance.width);
-        const widthValue = element("output", options.appearance.width + " px");
-        width.addEventListener("input", () => {
-          widthValue.textContent = width.value + " px";
-          updateAppearance({ width: Number(width.value) });
-        });
-        const control = element("div");
-        control.style.cssText = "display:flex;align-items:center;gap:0.4rem;";
-        control.append(width, widthValue);
-        row("Line width", control);
-        row("Road name label", dropdown([
-          ["off", "Off"], ["hover", "On hover"], ["always", "Always"]
-        ], options.appearance.labelVisibility,
-        labelVisibility => updateAppearance({ labelVisibility })));
-      }
-      root.appendChild(element("small", "World appearance is inherited unless overridden. " +
-        "Changing this draft does not alter existing roads or native Regions."));
+      const summary = element("div");
+      summary.style.cssText = "padding:.5rem;border:1px solid var(--color-border-light-tertiary,#655);border-radius:5px;";
+      summary.appendChild(element("strong", options.name));
+      summary.appendChild(element("p", "Road settings were configured before drawing. Add two or more points, then finish to save."));
+      root.appendChild(summary);
     }
 
     const buttons = element("div");
