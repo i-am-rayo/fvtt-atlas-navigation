@@ -25,7 +25,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-checkpoint-appearance",
     window: { title: "Atlas — Checkpoint Settings", resizable: true },
-    position: { width: 630, height: 540 }
+    position: { width: 780, height: 680 }
   };
 
   constructor({ scene, checkpointId, expectedRevision, onSaved }) {
@@ -49,7 +49,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const root = el("div");
     root.style.cssText = "padding:0.85rem;display:grid;gap:0.6rem;overflow:auto;height:100%;";
 
-    const fields = el("div");
+    let fields = el("div");
     fields.style.cssText = "display:grid;gap:0.55rem;";
     const field = (title, control) => {
       const row = el("label");
@@ -316,8 +316,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     styleFilter.addEventListener("change", () => renderIcons(true));
     more.addEventListener("click", () => { visible += pageSize; renderIcons(); });
     renderIcons(true);
-    root.appendChild(fields);
-    root.appendChild(iconSection);
+    const pageGeneral = el("section"), pageMarker = el("section"), pageJournal = el("section");
+    pageGeneral.appendChild(fields);
+    pageMarker.appendChild(iconSection);
     const imageSection = el("div");
     imageSection.style.cssText = "display:flex;gap:0.4rem;align-items:center;";
     const image = el("input");
@@ -336,7 +337,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       new Picker({ type: "image", callback: path => { image.value = path; } }).render(true);
     });
     imageSection.append(image, browse);
-    root.appendChild(imageSection);
+    pageMarker.appendChild(imageSection);
+    fields = el("div"); fields.style.cssText = "display:grid;gap:.55rem;";
+    pageMarker.appendChild(fields);
     const size = el("input");
     size.type = "range"; size.min = "12"; size.max = "64"; size.step = "1";
     size.value = String(appearance.size);
@@ -349,11 +352,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     sizeControls.append(size, sizeValue);
     field("Marker size (12–64 px)", sizeControls);
     const color = el("input");
-    color.type = "color"; color.value = appearance.color;
+    color.type = "color"; color.value = appearance.color; color.style.cssText = "width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
     field("Dot / Font Awesome color", color);
     const borderColor = el("input");
-    borderColor.type = "color"; borderColor.value = appearance.borderColor;
+    borderColor.type = "color"; borderColor.value = appearance.borderColor; borderColor.style.cssText = "width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
     field("Checkpoint border color", borderColor);
+    fields = el("div"); fields.style.cssText = "display:grid;gap:.55rem;";
+    pageMarker.appendChild(fields);
     const mode = field("Checkpoint label", select([
       ["off", "Off"], ["hover", "On hover"], ["always", "Always"]
     ], appearance.labelMode));
@@ -361,7 +366,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     showRoad.type = "checkbox"; showRoad.checked = appearance.showRoadName;
     field("Include road name with label", showRoad);
     const textColor = el("input");
-    textColor.type = "color"; textColor.value = appearance.textColor;
+    textColor.type = "color"; textColor.value = appearance.textColor; textColor.style.cssText = "width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
     field("Checkpoint / road label text color", textColor);
     const updateType = () => {
       iconSection.hidden = type.value !== "fa";
@@ -370,10 +375,26 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     type.addEventListener("change", updateType);
     updateType();
     const journalControls = journalLinkFields(journalLinks,"checkpoint",this.checkpointId);
-    root.appendChild(journalControls);
+    pageJournal.appendChild(journalControls);
+    const editorTabs = el("nav");
+    editorTabs.style.cssText = "display:flex;gap:.4rem;flex-wrap:wrap;";
+    const pages = [["General",pageGeneral],["Marker & labels",pageMarker],["Journal",pageJournal]];
+    for (const [name,page] of pages) {
+      const item=el("button",name);
+      item.type="button"; item.style.cssText="flex:1;min-width:8rem;";
+      item.addEventListener("click",()=>{
+        for (const [,p] of pages) p.hidden=p!==page;
+        for (const b of editorTabs.children) b.disabled=b===item;
+      });
+      editorTabs.appendChild(item);
+    }
+    pages.forEach(([,page],index)=>{page.hidden=index!==0;});
+    editorTabs.children[0].disabled=true;
+    root.prepend(editorTabs);
+    root.append(pageGeneral,pageMarker,pageJournal);
     const journalInput = journalControls.querySelector('input[name="atlasJournalUuid"]');
     const controls = el("div");
-    controls.style.cssText = "display:flex;gap:0.5rem;justify-content:flex-end;";
+    controls.style.cssText = "position:sticky;bottom:0;z-index:2;display:flex;gap:0.5rem;justify-content:flex-end;background:#100f17;padding:.4rem 0;";
     const reset = el("button", "Reset to default dot");
     reset.type = "button";
     reset.addEventListener("click", () => void saveValue(null));
