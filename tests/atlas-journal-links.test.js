@@ -43,7 +43,7 @@ test("Journal Entry and Page UUIDs and rich UUID links are allowed",()=>{
   assert.throws(()=>validateAtlasJournalLinks({schemaVersion:1,roads:{},checkpoints:{},legacy:{}}));
 });
 
-test("page access requires native Observer on both parent Journal and linked Page",async()=>{
+test("page access follows the linked Page Observer permission, independently of parent",async()=>{
   const old=globalThis.foundry;
   const user={id:"player",isGM:false};
   const parent={documentName:"JournalEntry",testUserPermission:()=>true};
@@ -56,6 +56,6 @@ test("page access requires native Observer on both parent Journal and linked Pag
     page.testUserPermission=()=>true;
     assert.equal(await canOpenAtlasJournal(uuid,user),true);
     parent.testUserPermission=()=>false;
-    assert.equal(await canOpenAtlasJournal(uuid,user),false);
+    assert.equal(await canOpenAtlasJournal(uuid,user),true);
   } finally { globalThis.foundry=old; }
 });
