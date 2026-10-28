@@ -669,6 +669,26 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
         other.map(c => [c.id, c.name]), selected.last,
         value => { selected.last = value; }));
     }
+    const width = node("input");
+    width.type = "range";
+    width.min = "0.25";
+    width.max = "3";
+    width.step = "0.25";
+    width.value = String(selected.widthCells ?? 0.5);
+    width.setAttribute("aria-label", selected.kind === "corridor"
+      ? "Distance on either side of the road in grid cells" : "Radius around checkpoint in grid cells");
+    width.style.cssText = "flex:1;min-width:8rem;";
+    const widthValue = node("output", width.value + " cells");
+    widthValue.style.cssText = "min-width:4.3rem;text-align:right;";
+    const widthControl = node("div");
+    widthControl.style.cssText = "display:flex;align-items:center;gap:.75rem;width:100%;";
+    widthControl.append(width,widthValue);
+    width.addEventListener("input", () => {
+      selected.widthCells = Number(width.value);
+      widthValue.textContent = width.value + " cells";
+    });
+    addField(selected.kind === "corridor"
+      ? "Distance on either side of road (cells)" : "Radius around checkpoint (cells)", widthControl);
     // Shared with the Preview button state below; keep it outside the
     // corridor-only block so opting in cannot crash the Atlas render.
     const presetForCost = presetById.get(selected.presetId);
@@ -677,10 +697,9 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     if (selected.kind === "corridor") {
       const choices = [["", label("FVTTATLAS.Travel.None")],
         ...travelPresets.map(p => [
-          p.id, p.mode.toUpperCase() + " — " + p.name +
-            " (" + presetCostSummary(p) + ")"
+          p.id, p.mode.toUpperCase() + " — " + p.name
         ])];
-      addField("FVTTATLAS.Travel.CorridorPreset", makeSelect(
+      addField("Travel preset", makeSelect(
         choices, selected.presetId ?? "", value => {
           selected.presetId = value || null;
           selected.presetEdited = true;
@@ -702,7 +721,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
         if (!checkbox.checked) selected.movementAction = "";
         refresh();
       });
-      costOption.append(checkbox, node("span", label("FVTTATLAS.Cost.OptIn")));
+      costOption.append(checkbox, node("span", "Apply movement costs in Foundry (optional)"));
       generatedSection.appendChild(costOption);
       if (selected.applyNativeCost && perMode) {
         generatedSection.appendChild(node("p",
@@ -735,18 +754,19 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       } else {
         selected.nativeCostPreview = null;
       }
-      generatedSection.appendChild(node("p",
-        supported.length ? label("FVTTATLAS.Cost.Hint") : label("FVTTATLAS.Cost.Unavailable"), "hint"));
+      if (selected.applyNativeCost) generatedSection.appendChild(node("p",
+        supported.length
+          ? "Foundry's native Region rules will use the supported movement costs from this preset."
+          : "Native movement-cost rules are unavailable for this game system.", "hint"));
       // A selectable Token action is not necessarily a configurable Region-cost
       // action (for example, Fly/Swim may be fixed or system-derived).
       const unavailable = unavailableMovementActions();
-      if (unavailable.length) {
+      if (selected.applyNativeCost && unavailable.length) {
         const names = unavailable.slice(0, 5).map(action =>
           game.i18n.localize(action.label) || action.label).join(", ");
         generatedSection.appendChild(node("p",
-          "Not independently configurable by this system's native Region costs: " +
-          names + (unavailable.length > 5 ? "…" : "") +
-          ". You can still save any Land, Air or Water preset without a native Behavior.",
+          "Some movement modes cannot be customized in Foundry: " +
+          names + (unavailable.length > 5 ? "…" : "") + ".",
           "hint"));
       }
     }
@@ -757,26 +777,6 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       region.metadata.roadId === selected.roadId &&
       region.metadata.kind === selected.kind &&
       region.metadata.checkpointIds.join("|") === selectedCheckpointIds.join("|"));
-    const width = node("input");
-    width.type = "range";
-    width.min = "0.25";
-    width.max = "3";
-    width.step = "0.25";
-    width.value = String(selected.widthCells ?? 0.5);
-    width.setAttribute("aria-label", selected.kind === "corridor"
-      ? "Corridor half-width in grid cells" : "Region radius in grid cells");
-    width.style.cssText = "flex:1;min-width:8rem;";
-    const widthValue = node("output", width.value + " cells");
-    widthValue.style.cssText = "min-width:4.3rem;text-align:right;";
-    const widthControl = node("div");
-    widthControl.style.cssText = "display:flex;align-items:center;gap:.75rem;width:100%;";
-    widthControl.append(width,widthValue);
-    width.addEventListener("input", () => {
-      selected.widthCells = Number(width.value);
-      widthValue.textContent = width.value + " cells";
-    });
-    addField(selected.kind === "corridor"
-      ? "Corridor half-width (grid cells)" : "Region radius (grid cells)", widthControl);
     const create = button("Preview & Confirm",
       "Preview and confirm this native Region",
       () => actions.generateRegion(scene, {
@@ -792,16 +792,15 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       (selected.kind === "corridor" && selected.applyNativeCost &&
         ((!perMode && !selected.movementAction) ||
           selected.nativeCostPreview?.ok !== true));
-    if (existingInterval) {
-      generatedSection.appendChild(node("p",
-        "Already generated: " + existingInterval.name +
-        (existingInterval.metadata.kind === "corridor"
-          ? ". Keep this native Region; use ◈ to change its surface preset, 🎨 to apply its color, and ↺ Cost to refresh unmodified Atlas-native movement costs below. Regenerate updates geometry only."
-          : ". Keep this native checkpoint Region; use Regenerate below only if its geometry is unmodified."),
-        "hint"));
-    }
+    if (existingInterval) generatedSection.appendChild(node("p",
+      "A Region already exists for this location. Use Terrain Regions under this road to edit or regenerate it.",
+      "hint"));
     create.disabled ||= !!existingInterval;
-    generatedSection.appendChild(create);
+    const previewActions = node("div");
+    previewActions.style.cssText = "position:sticky;bottom:0;z-index:2;padding:.65rem 0 .2rem;" +
+      "background:var(--color-bg-primary, #100f17);";
+    previewActions.appendChild(create);
+    generatedSection.appendChild(previewActions);
   }
   if (generatorOnly) return generatedSection;
   const visibleGenerated = generated.filter(region => !region.metadata ||
@@ -998,16 +997,17 @@ class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 
   static DEFAULT_OPTIONS = {
     id:"fvtt-atlas-region-generator",
     window:{ title:"Atlas — Generate Terrain Region", resizable:true },
-    position:{width:600,height:560}
+    position:{width:600,height:620}
   };
   constructor({scene,roadId,actions,refresh}) {
     super({ position:{
       width:Math.min(600,window.innerWidth-60),
-      height:Math.min(560,window.innerHeight-100)
+      height:Math.min(620,window.innerHeight-85)
     } });
     this.scene=scene;this.roadId=roadId;this.actions=actions;this.externalRefresh=refresh;
   }
   async _renderHTML() {
+    this._scrollY = this.element?.querySelector?.("[data-atlas-generator-scroll]")?.scrollTop ?? 0;
     generatorRoads.set(this.scene.id,this.roadId);
     const selected=generatorState.get(this.scene.id);
     if (selected && selected.roadId!==this.roadId) {
@@ -1016,12 +1016,18 @@ class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 
     const body=atlasPanel(this.scene,readAtlas(this.scene),this.actions,
       ()=>{this.externalRefresh?.();void this.render(true);},{generatorOnly:true});
     const root=node("div");
-    root.style.cssText="padding:.65rem;overflow-y:auto;max-height:calc(100vh - 130px);";
+    root.dataset.atlasGeneratorScroll = "";
+    root.style.cssText="padding:.65rem;box-sizing:border-box;min-height:0;overflow-y:auto;" +
+      "max-height:"+Math.max(250,Math.min(610,(this.position?.height??620)-100,window.innerHeight-165))+"px;";
     root.appendChild(body);
     root.appendChild(button("Close","Close Region generator",()=>this.close()));
     return root;
   }
-  _replaceHTML(result,content){content.replaceChildren(result);}
+  _replaceHTML(result,content){
+    content.replaceChildren(result);
+    const scroll=content.querySelector?.("[data-atlas-generator-scroll]");
+    if (scroll) scroll.scrollTop=this._scrollY??0;
+  }
 }
 
 export function openAtlasRegionGenerator(scene,roadId,actions,refresh) {
