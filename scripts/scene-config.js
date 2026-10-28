@@ -226,6 +226,18 @@ function atlasPanel(scene, atlas, actions, refresh) {
   if (!atlas.segments.length) {
     section.appendChild(node("p", label("FVTTATLAS.Roads.NoRoads"), "hint"));
   }
+  if (draft?.mode === "junction" || (draft?.mode === "points" && draft.source === "junction")) {
+    const editing = node("div");
+    editing.style.cssText = "display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;";
+    editing.appendChild(node("span", draft.mode === "junction" ?
+      "Choose a connection on the map." : "Editing connection points.", "hint"));
+    if (draft.mode === "points") {
+      editing.appendChild(button("Save", "Save connection points", () => actions.finish()));
+      if (draft.canUndo) editing.appendChild(button("Undo", "Undo last change", () => actions.undo()));
+    }
+    editing.appendChild(button("Cancel", "Stop editing connection", () => actions.cancel()));
+    section.appendChild(editing);
+  }
 
   const roads = atlas.schemaVersion >= 3 ? atlas.roads : atlas.segments;
   const search = node("input");
@@ -373,114 +385,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
   updateRoadSearch();
   root.appendChild(section);
 
-  // A graph endpoint or degree-2 subdivision is not a routing junction.
-  // Retain every stored node, including old migrations; filter only the UI.
-  const junctionSection = node("fieldset");
-  const junctionLegend = node("legend");
-  const junctionHeader = node("span");
-  junctionHeader.style.display = "inline-flex";
-  junctionHeader.style.alignItems = "center";
-  junctionHeader.style.gap = "0.35rem";
-  junctionHeader.appendChild(node("span", label("FVTTATLAS.Junctions.Title")));
-  const addJunction = button("+", label("FVTTATLAS.Junctions.Add"),
-    () => actions.beginJunction(scene, refresh));
-  addJunction.style.flex = "0 0 auto";
-  addJunction.style.width = "1.65rem";
-  addJunction.style.minWidth = "1.65rem";
-  addJunction.style.padding = "0";
-  addJunction.disabled = atlas.schemaVersion < 3 || !atlas.segments.length || !!draft;
-  junctionHeader.appendChild(addJunction);
-  junctionLegend.appendChild(junctionHeader);
-  junctionSection.appendChild(junctionLegend);
-  junctionSection.appendChild(node("p", label("FVTTATLAS.Junctions.Hint"), "hint"));
-
-  if (draft?.mode === "junction") {
-    junctionSection.appendChild(node("p", label("FVTTATLAS.Junctions.Picking"), "hint"));
-    junctionSection.appendChild(button(label("FVTTATLAS.Roads.Cancel"),
-      label("FVTTATLAS.Roads.Cancel"), () => actions.cancel()));
-  } else if (draft?.mode === "points" && draft.source === "junction") {
-    junctionSection.appendChild(node("p", label("FVTTATLAS.Junctions.Editing"), "hint"));
-    const controls = node("div", undefined, "form-fields");
-    controls.appendChild(button(label("FVTTATLAS.Roads.SavePoints"),
-      label("FVTTATLAS.Roads.SavePoints"), () => actions.finish()));
-    if (draft.canUndo) {
-      controls.appendChild(button(label("FVTTATLAS.Roads.Undo"),
-        label("FVTTATLAS.Roads.Undo"), () => actions.undo()));
-    }
-    controls.appendChild(button(label("FVTTATLAS.Roads.CancelEdits"),
-      label("FVTTATLAS.Roads.CancelEdits"), () => actions.cancel()));
-    junctionSection.appendChild(controls);
-  }
-
-  if (atlas.schemaVersion >= 3 && atlas.roads.length) {
-    const state = junctionFilterFor(scene, atlas);
-    const filters = node("div", undefined, "form-fields");
-    const select = (options, value, title, onChange) => {
-      const element = node("select");
-      element.setAttribute("aria-label", label(title));
-      element.title = label(title);
-      for (const [id, name] of options) {
-        const option = node("option", name);
-        option.value = id;
-        element.appendChild(option);
-      }
-      element.value = value;
-      element.addEventListener("change", () => onChange(element.value));
-      return element;
-    };
-    const byRoad = select(atlas.roads.map(r => [r.id, r.name]), state.roadId,
-      "FVTTATLAS.Junctions.RoadFilter", value => {
-        state.roadId = value;
-        refresh();
-      });
-    byRoad.style.maxWidth = "15rem";
-    filters.appendChild(byRoad);
-    const byScope = select([
-      ["selected", label("FVTTATLAS.Junctions.Selected")],
-      ["connected", label("FVTTATLAS.Junctions.Connected")],
-      ["scene", label("FVTTATLAS.Junctions.All")]
-    ], state.scope, "FVTTATLAS.Junctions.ScopeFilter", value => {
-      state.scope = value;
-      refresh();
-    });
-    filters.appendChild(byScope);
-    junctionSection.appendChild(filters);
-    const all = listRoadJunctions(atlas);
-    const filtered = listRoadJunctions(atlas, state);
-    junctionSection.appendChild(node("p",
-      filtered.length + " / " + all.length + " " +
-      label("FVTTATLAS.Junctions.Count"), "hint"));
-    const visible = filtered.slice(-25).reverse();
-    const roadNames = new Map(atlas.roads.map(r => [r.id, r.name]));
-    for (const item of visible) {
-      const row = node("div", undefined, "form-group");
-      row.setAttribute("data-atlas-junction-id", item.id);
-      const description = node("div");
-      description.style.flex = "1 1 auto";
-      description.style.minWidth = "0";
-      description.appendChild(node("span",
-        label("FVTTATLAS.Junctions.Junction") + " · " + item.id.slice(-6)));
-      const owners = node("div",
-        item.roadIds.map(id => roadNames.get(id) || id).join(", "), "hint");
-      owners.style.fontSize = "0.8em";
-      description.appendChild(owners);
-      row.appendChild(description);
-      const controls = node("div", undefined, "form-fields");
-      controls.appendChild(button("◎", label("FVTTATLAS.Junctions.Highlight"),
-        () => actions.selectJunction(scene, item.id)));
-      row.appendChild(controls);
-      junctionSection.appendChild(row);
-    }
-    if (!filtered.length) {
-      junctionSection.appendChild(node("p", label("FVTTATLAS.Junctions.None"), "hint"));
-    } else if (filtered.length > visible.length) {
-      junctionSection.appendChild(node("p",
-        label("FVTTATLAS.Junctions.Recent") + " " + visible.length +
-        " / " + filtered.length, "hint"));
-    }
-  }
-  // Connections remain editable on the map and from each Road detail window.
-  // Raw internal junction IDs are intentionally omitted from the everyday UI.
+  // Graph connections are edited via each road's Map tools, not listed
+  // as internal IDs in the main Scene configuration.
 
   const party = readPartyExploration(scene);
   // Manual fog v0.2.26: Scene-owned state; token automation is intentionally disabled.
