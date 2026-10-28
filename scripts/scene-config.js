@@ -271,7 +271,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
     if (getRoadMergeCandidates(atlas,road.id).length)
       roadActions.push(["Merge", "Merge connected roads", () => actions.merge(scene,road,refresh)]);
     const preset = presetById.get(road.travelPresetId);
-    roadActions.push(["Travel type" + (preset ? ": " + preset.name : ""),
+    roadActions.push(["Travel preset" + (preset ? ": " + preset.name : ""),
       "Road travel preset", () => actions.assignRoadTravelPreset(scene,road,refresh)]);
     roadActions.push(["Delete road", "Delete this road (confirmation required)",
       () => actions.remove(scene,road,refresh)]);
@@ -321,7 +321,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
       child.appendChild(node("summary",region.name || "Region"));
       miniActions(child,[
         ["Region settings","Open native Region configuration",()=>actions.configureRegion(scene,region.id)],
-        ["Travel preset","Change Region travel preset",()=>actions.assignGeneratedRegionTravelPreset(scene,region,refresh)],
+        ["Travel preset" + (presetById.get(region.presetId)?.name ? ": " + presetById.get(region.presetId).name : ": None"),
+          "Change Region travel preset",()=>actions.assignGeneratedRegionTravelPreset(scene,region,refresh)],
         ["Regenerate","Rebuild region after changes",()=>actions.regenerateRegion(scene,region,refresh)]
       ]);
       regionFolder.appendChild(child);
@@ -365,7 +366,7 @@ function atlasPanel(scene, atlas, actions, refresh) {
           if (other !== entry) other.open = false;
       } else {
         arrow.style.transform = "";
-        if (expandedRoads.get(scene.id) === road.id) expandedRoads.delete(scene.id);
+        if (entry.isConnected && expandedRoads.get(scene.id) === road.id) expandedRoads.delete(scene.id);
       }
     }
     entry.addEventListener("toggle",sync);
@@ -907,11 +908,11 @@ function atlasPanel(scene, atlas, actions, refresh) {
   regionLegend.appendChild(regionHeader);
   regionSection.appendChild(regionLegend);
   // Native Region links are shown directly under the expanded road.
+  const activeRoadId=expandedRoads.get(scene.id);
+  const activeRoad=atlas.roads?.find(road=>road.id===activeRoadId);
   const visibleNative = nativeRegions.filter(region =>
-    !sharedFilter || atlas.schemaVersion < 4 ||
-    (region.invalidLink && !roadByGeneratedRegionId.has(region.id)) ||
-    sharedFilter.scope === "scene" ||
-    shownRoads.has(roadByGeneratedRegionId.get(region.id)));
+    activeRoad && (roadByGeneratedRegionId.get(region.id) === activeRoadId ||
+      region.name?.startsWith?.(activeRoad.name + " —")));
   const linkedRegions = visibleNative.filter(region => region.linked);
   if (!nativeRegions.length) {
     regionSection.appendChild(node("p", label("FVTTATLAS.Regions.NoNative"), "hint"));
