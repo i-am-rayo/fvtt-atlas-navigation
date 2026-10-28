@@ -16,7 +16,7 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-road-editor-dock",
     window: { title: "Atlas — Road Editor", resizable: true },
-    position: { width: 385, height: 460 }
+    position: { width: 360, height: 300 }
   };
 
   constructor({ scene, controller, sceneSheet, onFinish, onCancel, onClosed }) {
@@ -39,14 +39,15 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     if (!draft) throw new Error("The road-editing session ended.");
     const root = element("div");
     root.style.cssText = "padding:0.8rem;display:grid;gap:0.55rem;overflow:auto;height:100%;";
-    const status = draft.mode === "points" ? "Editing road points" :
-      draft.mode === "new" ? "Creating a named road" :
-      "Editing junction points";
+    const status = draft.mode === "points" ? "Edit points" :
+      draft.mode === "new" ? "Draw road" :
+      draft.mode === "checkpoint" ? "Place checkpoint" : "Add connection";
     root.appendChild(element("strong", status));
-    root.appendChild(element("p", draft.mode === "points"
-      ? `${draft.points} handles · ${draft.dirty ? "Unsaved changes" : "No changes yet"}. Shift-click node/bend editing keeps its existing behavior.`
-      : `${draft.points} road points · Map clicks add points. Alt-click a road endpoint to skip snapping.`,
-    ));
+    root.appendChild(element("small", draft.mode === "points"
+      ? `${draft.points} points · ${draft.dirty ? "Unsaved" : "No changes"}`
+      : draft.mode === "checkpoint" ? "Click a road on the map."
+      : draft.mode === "junction" ? "Click a road to connect."
+      : `${draft.points} points · Click the map to draw.`));
 
     const row = (title, input) => {
       const wrapper = element("label");
@@ -143,7 +144,8 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       buttons.appendChild(button);
       return button;
     };
-    const save = makeButton(draft.mode === "new" ? "Finish Road" : "Save Points", async () => {
+    const needsSave = draft.mode === "new" || draft.mode === "points";
+    const save = needsSave ? makeButton(draft.mode === "new" ? "Finish Road" : "Save Points", async () => {
       if (this.busy) return;
       this.busy = true;
       save.disabled = true;
@@ -155,11 +157,11 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
         }
       } catch (error) { ui.notifications.error(error.message || String(error)); }
       finally { this.busy = false; save.disabled = false; }
-    });
+    }) : null;
     if (draft.mode === "points" && draft.canUndo) {
       makeButton("Undo", () => { this.controller.undo(); void this.render(true); });
     }
-    makeButton("Cancel Edits", async () => {
+    makeButton("Cancel", async () => {
       if (this.busy) return;
       this.onCancel();
       this.finished = true;
