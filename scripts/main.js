@@ -226,6 +226,7 @@ async function promptTravelPreset(title, currentId = null) {
     const option = document.createElement("option");
     option.value = id;
     option.textContent = name;
+    option.defaultSelected = id === (currentId ?? "");
     chooser.appendChild(option);
   }
   chooser.value = currentId ?? "";
@@ -317,7 +318,8 @@ function actions() {
       const actual = atlas.roads?.find(item => item.id === road.id);
       if (!actual) throw new Error("The named road no longer exists.");
       const content = document.createElement("div");
-      content.style.cssText="max-height:calc(100vh - 230px);overflow-y:auto;min-width:0;padding-right:.25rem;";
+      // Foundry v14 DialogV2.input requires the content element itself
+      // to have NO attributes. Style a child wrapper only.
       const mode = roadAppearanceMode(actual, readWorldTravelPresets().presets);
       const nameRow = document.createElement("label");
       nameRow.className = "form-group";
@@ -397,7 +399,10 @@ function actions() {
         btn.style.cssText="flex:0 0 auto;width:auto;min-width:8rem;white-space:nowrap;";
         row.append(text,btn);panels.regions.appendChild(row);
       }
-      content.append(tabs,panels.general,panels.style,panels.checkpoints,panels.regions);
+      const scrollBody=document.createElement("div");
+      scrollBody.style.cssText="max-height:calc(100vh - 245px);overflow-y:auto;min-width:0;padding-right:.35rem;";
+      scrollBody.append(tabs,panels.general,panels.style,panels.checkpoints,panels.regions);
+      content.appendChild(scrollBody);
       // DialogV2.input may clone its HTMLElement content when rendered. Its
       // cloned input loses the listener registered by journalLinkFields, unlike
       // the modeless checkpoint editor. Delegate on the live document instead.
