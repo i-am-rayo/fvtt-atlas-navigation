@@ -25,13 +25,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-checkpoint-appearance",
     window: { title: "Atlas — Checkpoint Settings", resizable: true },
-    position: { width: 630, height: 660 }
+    position: { width: 630, height: 540 }
   };
 
   constructor({ scene, checkpointId, expectedRevision, onSaved }) {
     super({ position: {
       width: Math.min(630, Math.max(360, window.innerWidth - 60)),
-      height: Math.min(660, Math.max(440, window.innerHeight - 90))
+      height: Math.min(540, Math.max(400, window.innerHeight - 90))
     } });
     this.scene = scene;
     this.checkpointId = checkpointId;
@@ -385,7 +385,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     updateType();
     if (type.value === "fa" && (!selected || !ICON_DETAILS.has(selected))) iconSection.open=true;
     iconSection.addEventListener("toggle",()=>{
-      if (!this.rendered) return;
+      if (!this.rendered || pageMarker.hidden) return;
       this.setPosition({
         width: iconSection.open ? Math.min(860, window.innerWidth - 50) : Math.min(630, window.innerWidth - 50),
         height: iconSection.open ? Math.min(850, window.innerHeight - 80) : Math.min(660, window.innerHeight - 90)
@@ -398,15 +398,30 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const pages = [["General",pageGeneral],["Marker & labels",pageMarker]];
     for (const [name,page] of pages) {
       const item=el("button",name);
-      item.type="button"; item.style.cssText="flex:1;min-width:8rem;";
+      item.type="button"; item.style.cssText="flex:1;min-width:8rem;border:1px solid var(--color-border-light-tertiary,#655);";
+      const selected=page===pageGeneral;
+      item.style.background=selected?"rgba(156,123,240,.22)":"transparent";
+      item.style.fontWeight=selected?"700":"400";
+      item.setAttribute("aria-selected",String(selected));
       item.addEventListener("click",()=>{
         for (const [,p] of pages) p.hidden=p!==page;
-        for (const b of editorTabs.children) b.disabled=b===item;
+        if (page===pageMarker && iconSection.open) this.setPosition({
+          width:Math.min(860,window.innerWidth-50),height:Math.min(850,window.innerHeight-80)
+        });
+        else this.setPosition({
+          width:Math.min(630,window.innerWidth-50),height:Math.min(540,window.innerHeight-90)
+        });
+        for (const b of editorTabs.children) {
+          const active=b===item;
+          b.disabled=false;b.setAttribute("aria-selected",String(active));
+          b.style.background=active?"rgba(156,123,240,.22)":"transparent";
+          b.style.fontWeight=active?"700":"400";
+        }
       });
       editorTabs.appendChild(item);
     }
     pages.forEach(([,page],index)=>{page.hidden=index!==0;});
-    editorTabs.children[0].disabled=true;
+
     root.prepend(editorTabs);
     root.append(pageGeneral,pageMarker);
     const journalInput = journalControls.querySelector('input[name="atlasJournalUuid"]');
