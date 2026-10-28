@@ -271,7 +271,7 @@ function actions() {
       if (!result) return;
       const nextJournal=journalUuidFromForm(result.atlasJournalUuid);
       if(nextJournal&&!validJournalUuid(nextJournal))
-        throw Error("Choose a valid Journal Entry UUID.");
+        throw Error("Choose a valid Journal Entry or Journal Page UUID.");
       const selected = roadAppearanceFromForm(result);
       const inherits = actual.appearance == null &&
         Object.keys(selected).every(key => selected[key] === baseline[key]);
