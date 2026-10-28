@@ -107,8 +107,8 @@ async function centerAtlasOn(scene, roadId, checkpointId=null) {
   }
   if (!points.length) throw Error("This map location no longer exists.");
   const converted=points.map(point=>toCanvasPoint(view,atlas,point));
-  const x=converted.reduce((sum,p)=>sum+p.x,0)/converted.length;
-  const y=converted.reduce((sum,p)=>sum+p.y,0)/converted.length;
+  const x=(Math.min(...converted.map(p=>p.x))+Math.max(...converted.map(p=>p.x)))/2;
+  const y=(Math.min(...converted.map(p=>p.y))+Math.max(...converted.map(p=>p.y)))/2;
   await view.animatePan({x,y,scale:view.stage?.scale?.x??1,duration:450});
 }
 
@@ -255,6 +255,44 @@ function actions() {
       refresh();
       ui.notifications.info("Atlas named-road default travel preset saved.");
     },
+    async editJournal(scene,kind,id,refresh) {
+      ensureIdle(scene);
+      const links=readAtlasJournalLinks(scene);
+      const content=document.createElement("div");
+      content.appendChild(journalLinkFields(links,kind,id));
+      const dropField=event=>event.target?.closest?.('input[name="atlasJournalUuid"]');
+      const onDrag=event=>{if(dropField(event))event.preventDefault();};
+      const onDrop=event=>{
+        const field=dropField(event);
+        if(!field)return;
+        event.preventDefault();
+        try {
+          const data=JSON.parse(event.dataTransfer?.getData("text/plain")??"");
+          if (!["JournalEntry","JournalEntryPage"].includes(data.type) ||
+              !validJournalUuid(data.uuid))throw Error("Drop a Journal or Page.");
+          field.value=data.uuid;
+          field.dispatchEvent(new Event("input",{bubbles:true}));
+        } catch(error){ui.notifications.warn(error.message||String(error));}
+      };
+      document.addEventListener("dragover",onDrag,true);
+      document.addEventListener("drop",onDrop,true);
+      let result;
+      try {
+        result=await DialogV2.input({
+          window:{title:"Link journal"},content,
+          ok:{label:"Save link"},rejectClose:false,modal:false
+        });
+      } finally {
+        document.removeEventListener("dragover",onDrag,true);
+        document.removeEventListener("drop",onDrop,true);
+      }
+      if(!result)return;
+      const uuid=journalUuidFromForm(result.atlasJournalUuid);
+      if(uuid&&!validJournalUuid(uuid))throw Error("Use a Journal or Page UUID.");
+      await saveAtlasJournalLink(scene,{kind,id,uuid:uuid||null,expected:links});
+      roadCanvas.refresh();
+      refresh();
+    },
     async editRoadAppearance(scene, road, refresh) {
       ensureIdle(scene);
       const atlas = readAtlas(scene);
@@ -311,6 +349,16 @@ function actions() {
           ui.notifications.warn(error.message || "Journal drop could not be read.");
         }
       };
+      const onRangeInput = event => {
+        const name=event.target?.name;
+        if (!["atlasRoadWidth","atlasRoadOpacity"].includes(name)) return;
+        const form=event.target.closest?.(".application");
+        if (!form?.querySelector?.('input[name="atlasRoadName"]')) return;
+        const output=form.querySelector?.('[data-atlas-range-value="' + name + '"]');
+        if (output) output.textContent=name==="atlasRoadWidth" ?
+          event.target.value+" px" : Math.round(Number(event.target.value)*100)+"%";
+      };
+      document.addEventListener("input",onRangeInput,true);
       document.addEventListener("dragover", onJournalDragOver, true);
       document.addEventListener("drop", onJournalDrop, true);
       let result;
@@ -321,6 +369,7 @@ function actions() {
           rejectClose: false, modal: false
         });
       } finally {
+        document.removeEventListener("input",onRangeInput,true);
         document.removeEventListener("dragover", onJournalDragOver, true);
         document.removeEventListener("drop", onJournalDrop, true);
       }
@@ -759,9 +808,11 @@ function actions() {
         }
         // Foundry v14 requires an outermost plain div for DOM dialog content.
         const content = document.createElement("div");
-        content.appendChild(select);
+        const instruction = document.createElement("p");
+        instruction.textContent = "Choose a road to merge INTO “" + road.name + "”. The selected road name will be removed.";
+        content.append(instruction,select);
         const input = await DialogV2.input({
-          window: { title: game.i18n.localize("FVTTATLAS.Roads.Merge") },
+          window: { title: "Merge into " + road.name },
           content,
           ok: { label: game.i18n.localize("FVTTATLAS.Roads.Merge") },
           rejectClose: false
