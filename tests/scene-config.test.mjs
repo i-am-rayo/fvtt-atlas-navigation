@@ -7,13 +7,25 @@ const { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
 class Element {
   constructor(tag) { this.tag = tag; this.attributes = new Map(); this.children = []; this.listeners = new Map(); this.style = {}; }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
-  appendChild(child) { this.children.push(child); }
-  append(...children) { this.children.push(...children); }
+  appendChild(child) { child.parentNode = this; this.children.push(child); return child; }
+  append(...children) { for (const child of children) this.appendChild(child); }
+  prepend(...children) {
+    for (const child of children) child.parentNode = this;
+    this.children.unshift(...children);
+  }
   insertBefore(child, reference) {
     const index = this.children.indexOf(reference);
+    child.parentNode = this;
     if (index < 0) this.children.push(child);
     else this.children.splice(index, 0, child);
     return child;
+  }
+  remove() {
+    if (!this.parentNode) return;
+    const siblings = this.parentNode.children;
+    const index = siblings.indexOf(this);
+    if (index >= 0) siblings.splice(index, 1);
+    this.parentNode = null;
   }
   get lastElementChild() { return this.children.at(-1); }
   prepend(...children) { this.children.unshift(...children); }
