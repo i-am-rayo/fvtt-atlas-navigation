@@ -54,6 +54,18 @@ function drawLine(graphics, points, color, width = 4, alpha = 0.9, pattern = "so
 }
 
 /** GM-only visual hatching; it never mutates the road's geometry or visibility. */
+/** High-contrast complementary pulse; never changes the authored road/marker color. */
+function focusContrast(sourceColor) {
+  const color = typeof sourceColor === "string"
+    ? Number.parseInt(sourceColor.replace("#",""),16) : Number(sourceColor);
+  return 0xffffff ^ (Number.isFinite(color) ? color : 0x9c7bf0);
+}
+function focusPulse(focus) {
+  if (!focus || Date.now() >= focus.until) return 0;
+  const elapsed=3500-(focus.until-Date.now());
+  const fade=Math.min(1,(focus.until-Date.now())/650);
+  return (0.42+0.42*Math.abs(Math.sin(elapsed/240)))*fade;
+}
 function contrastingHatch(sourceColor) {
   const color = typeof sourceColor === "string"
     ? Number.parseInt(sourceColor.replace("#", ""),16) : sourceColor;
@@ -468,6 +480,8 @@ export class RoadCanvasController {
     this.selectedCheckpointId = null;
     this.saving = false;
     this.regionPreview = null;
+    this.focusTarget = null;
+    this.focusTimer = null;
     this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
       confirmAttach, confirmDetach, chooseBranch, idFactory, refresh: () => this.refresh() });
   }
@@ -955,6 +969,25 @@ export class RoadCanvasController {
       this.#changed();
       return false;
     }
+  }
+
+  focusOn(scene, kind, id) {
+    const view=this.canvasProvider();
+    if (!view?.ready || view.scene?.id !== scene?.id)
+      throw Error("Open this Scene on the map to find it.");
+    if (!["road","checkpoint"].includes(kind)) return;
+    this.focusTarget = {sceneId:scene.id,kind,id,until:Date.now()+3500};
+    if (this.focusTimer) clearInterval(this.focusTimer);
+    this.focusTimer = setInterval(()=>{
+      if (!this.focusTarget || Date.now() >= this.focusTarget.until ||
+          this.canvasProvider()?.scene?.id !== scene.id) {
+        clearInterval(this.focusTimer);
+        this.focusTimer=null;
+        this.focusTarget=null;
+      }
+      this.refresh();
+    },65);
+    this.refresh();
   }
 
   selectRoad(scene, roadId) {
@@ -1622,6 +1655,12 @@ export class RoadCanvasController {
         drawHiddenHatching(g, roadHiddenMarks(path, style.width, zoom),
           2 / zoom,contrastingHatch(style.color));
       }
+      if (this.focusTarget?.sceneId === scene.id &&
+          this.focusTarget.kind === "road" && this.focusTarget.id === road.id) {
+        const alpha=focusPulse(this.focusTarget);
+        if (alpha > 0) drawLine(g,path,focusContrast(style.color),
+          style.width+7/zoom,alpha,"solid");
+      }
       drawDot(g, path[0], color);
       drawDot(g, path.at(-1), color);
       this.hoverGeometry.push({
@@ -1703,6 +1742,26 @@ export class RoadCanvasController {
           font && this.#fontReady(font) ? {font,size:checkpointCanvasSize(appearance.size,zoom)} : null;
         overlayHiddenCheckpoint(g, marker, radius, zoom,
           appearance.color, this.labels, shape);
+      }
+      if (this.focusTarget?.sceneId === scene.id &&
+          this.focusTarget.kind === "checkpoint" && this.focusTarget.id === checkpoint.id) {
+        const marker=checkpointMarkerPosition(position,appearance,zoom);
+        const radius=Math.max(appearance.type === "dot" ? appearance.size/2 :
+          checkpointCanvasSize(appearance.size,zoom)/2,9/zoom)+8/zoom;
+        const alpha=focusPulse(this.focusTarget);
+        if (alpha>0) {
+          const pulse=new PIXI.Graphics();
+          pulse.eventMode="none";
+          const tint=focusContrast(appearance.color);
+          if (pulse.circle && pulse.stroke) pulse.circle(marker.x,marker.y,radius)
+            .stroke({color:tint,width:5/zoom,alpha});
+          else if (pulse.lineStyle) {
+            pulse.lineStyle(5/zoom,tint,alpha);
+            pulse.drawCircle(marker.x,marker.y,radius);
+          }
+          g.addChild(pulse);
+          this.labels.push(pulse);
+        }
       }
       this.checkpointHoverGeometry.push({ id: checkpoint.id, x: position.x,
         y: position.y, radius: 10 / zoom });
