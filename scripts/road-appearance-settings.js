@@ -43,6 +43,7 @@ export function roadAppearanceForm(appearance) {
     }
     field.name = name;
     field.style.maxWidth = "13rem";
+    if (type === "color") field.style.cssText = "width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
     if (name === "atlasRoadWidth" || name === "atlasRoadOpacity") {
       field.type = "range";
       field.style.width = "10rem";
