@@ -602,12 +602,14 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
   // No bulk or automatic generation occurs merely by opening this sheet.
   const generated = listGeneratedRegions(scene);
   const generatedSection = node("fieldset");
-  generatedSection.appendChild(node("legend", label("FVTTATLAS.Generated.Title") +
-    " · Native Regions"));
-  generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.Hint"), "hint"));
-  generatedSection.appendChild(node("p",
-    "REGION SETTINGS — Preset colors and movement costs below affect native Foundry Regions " +
-    "only after the separate GM-confirmed action. They do not change Atlas road lines or labels.", "hint"));
+  generatedSection.appendChild(node("legend", generatorOnly
+    ? "Generation settings" : label("FVTTATLAS.Generated.Title") + " · Native Regions"));
+  if (generatorOnly) generatedSection.appendChild(node("p",
+    "Create one native Foundry Region centered on a checkpoint or following the path between two checkpoints.", "hint"));
+  else generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.Hint"), "hint"));
+  if (!generatorOnly) generatedSection.appendChild(node("p",
+    "REGION SETTINGS — Preset colors and movement costs affect native Foundry Regions only " +
+    "after a separate GM-confirmed action. They do not change Atlas road lines or labels.", "hint"));
   const available = atlas.schemaVersion >= 4 ? atlas.roads.filter(r =>
     (generatorOnly ? r.id===generatorRoads.get(scene.id) : (!sharedFilter || shownRoads.has(r.id))) &&
     atlas.checkpoints.some(c => c.roadId === r.id)) : [];
@@ -645,20 +647,10 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       row.appendChild(control);
       generatedSection.appendChild(row);
     };
-    addField("FVTTATLAS.Generated.Road", makeSelect(
-      available.map(r => [r.id, r.name]), selected.roadId,
-      value => {
-        selected.roadId = value; selected.first = null; selected.last = null;
-        if (sharedFilter && sharedFilter.scope !== "scene") sharedFilter.roadId = value;
-        selected.presetId = available.find(r => r.id === value)?.travelPresetId ?? null;
-        selected.presetEdited = false;
-        selected.applyNativeCost = false;
-        selected.movementAction = "";
-      }));
     const checkpoints = atlas.checkpoints.filter(c => c.roadId === selected.roadId);
-    addField("FVTTATLAS.Generated.Kind", makeSelect([
-      ["checkpoint", label("FVTTATLAS.Generated.Checkpoint")],
-      ["corridor", label("FVTTATLAS.Generated.Corridor")]
+    addField("Region shape", makeSelect([
+      ["checkpoint", "Area around one checkpoint"],
+      ["corridor", "Path between two checkpoints"]
     ], selected.kind, value => {
       selected.kind = value;
       selected.applyNativeCost = false;
@@ -667,13 +659,13 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     const first = checkpoints.some(c => c.id === selected.first)
       ? selected.first : checkpoints[0].id;
     selected.first = first;
-    addField("FVTTATLAS.Generated.From", makeSelect(
+    addField(selected.kind === "corridor" ? "From checkpoint" : "Center checkpoint", makeSelect(
       checkpoints.map(c => [c.id, c.name]), first,
       value => { selected.first = value; }));
     if (selected.kind === "corridor") {
       const other = checkpoints.filter(c => c.id !== first);
       if (!other.some(c => c.id === selected.last)) selected.last = other[0]?.id ?? null;
-      if (other.length) addField("FVTTATLAS.Generated.To", makeSelect(
+      if (other.length) addField("To checkpoint", makeSelect(
         other.map(c => [c.id, c.name]), selected.last,
         value => { selected.last = value; }));
     }
@@ -766,16 +758,27 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       region.metadata.kind === selected.kind &&
       region.metadata.checkpointIds.join("|") === selectedCheckpointIds.join("|"));
     const width = node("input");
-    width.type = "number";
+    width.type = "range";
     width.min = "0.25";
     width.max = "3";
     width.step = "0.25";
     width.value = String(selected.widthCells ?? 0.5);
-    width.setAttribute("aria-label", label("FVTTATLAS.Generated.Width"));
-    width.addEventListener("change", () => { selected.widthCells = Number(width.value); });
-    addField("FVTTATLAS.Generated.Width", width);
-    const create = button(label("FVTTATLAS.Generated.Preview"),
-      label("FVTTATLAS.Generated.Preview"),
+    width.setAttribute("aria-label", selected.kind === "corridor"
+      ? "Corridor half-width in grid cells" : "Region radius in grid cells");
+    width.style.cssText = "flex:1;min-width:8rem;";
+    const widthValue = node("output", width.value + " cells");
+    widthValue.style.cssText = "min-width:4.3rem;text-align:right;";
+    const widthControl = node("div");
+    widthControl.style.cssText = "display:flex;align-items:center;gap:.75rem;width:100%;";
+    widthControl.append(width,widthValue);
+    width.addEventListener("input", () => {
+      selected.widthCells = Number(width.value);
+      widthValue.textContent = width.value + " cells";
+    });
+    addField(selected.kind === "corridor"
+      ? "Corridor half-width (grid cells)" : "Region radius (grid cells)", widthControl);
+    const create = button("Preview & Confirm",
+      "Preview and confirm this native Region",
       () => actions.generateRegion(scene, {
         kind: selected.kind, roadId: selected.roadId,
         checkpointId: selected.first,
@@ -800,6 +803,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     create.disabled ||= !!existingInterval;
     generatedSection.appendChild(create);
   }
+  if (generatorOnly) return generatedSection;
   const visibleGenerated = generated.filter(region => !region.metadata ||
     shownRoads.has(region.metadata.roadId));
   if (generated.length) {
@@ -994,12 +998,12 @@ class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 
   static DEFAULT_OPTIONS = {
     id:"fvtt-atlas-region-generator",
     window:{ title:"Atlas — Generate Terrain Region", resizable:true },
-    position:{width:680,height:620}
+    position:{width:600,height:560}
   };
   constructor({scene,roadId,actions,refresh}) {
     super({ position:{
-      width:Math.min(680,window.innerWidth-60),
-      height:Math.min(620,window.innerHeight-100)
+      width:Math.min(600,window.innerWidth-60),
+      height:Math.min(560,window.innerHeight-100)
     } });
     this.scene=scene;this.roadId=roadId;this.actions=actions;this.externalRefresh=refresh;
   }
