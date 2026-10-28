@@ -1365,7 +1365,8 @@ export class RoadCanvasController {
             ? this.playerHoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths);
           const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
             zoom, item.style.labelVisibility);
-          if (point && opacity > 0) this.#addLabel(graphics, item.road.name,
+          if (point && opacity > 0) this.#addLabel(graphics, item.road.name +
+            (this.#journalCanView(journalUuidFor(journals,"road",roadId)) ? " 📖" : ""),
             { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity);
       }
     }
