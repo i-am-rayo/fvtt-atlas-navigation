@@ -1,0 +1,24 @@
+name: Stabilization checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "hotfix/**"
+      - "chore/**"
+
+jobs:
+  node-checks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the module
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Check syntax and run tests
+        run: npm run check
