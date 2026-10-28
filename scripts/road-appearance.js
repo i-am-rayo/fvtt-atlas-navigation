@@ -12,6 +12,7 @@ export const DEFAULT_ROAD_CURVE_PRESET = "strong";
 
 export const DEFAULT_ROAD_APPEARANCE = Object.freeze({
   color: "#35c9ef",
+  borderColor: "#1c1c1c",
   width: 4,
   opacity: 0.9,
   pattern: "solid",
@@ -29,17 +30,20 @@ export const DEFAULT_WORLD_ROAD_APPEARANCE = Object.freeze({
 });
 
 const LEGACY_FIELDS = ["color", "width", "opacity", "pattern", "labelVisibility"];
-const APPEARANCE_FIELDS = [...LEGACY_FIELDS, "textColor"];
+const APPEARANCE_FIELDS = [...LEGACY_FIELDS, "textColor", "borderColor"];
 
 function validateAppearanceFields(value, fields) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Road appearance must be an object.");
   }
+  if (fields.includes("borderColor") && !Object.hasOwn(value,"borderColor"))
+    value = { ...value, borderColor: DEFAULT_ROAD_APPEARANCE.borderColor };
   if (Object.keys(value).length !== fields.length ||
       Object.keys(value).some(key => !fields.includes(key))) {
     throw new Error("Road appearance needs exactly " + fields.join(", ") + ".");
   }
-  for (const key of ["color", ...(fields.includes("textColor") ? ["textColor"] : [])]) {
+  for (const key of ["color", ...(fields.includes("textColor") ? ["textColor"] : []),
+    ...(fields.includes("borderColor") ? ["borderColor"] : [])]) {
     if (typeof value[key] !== "string" || !/^#[\da-fA-F]{6}$/.test(value[key])) {
       throw new Error("Road " + (key === "color" ? "line" : "text") +
         " color must be a six-digit hex color.");
@@ -56,7 +60,8 @@ function validateAppearanceFields(value, fields) {
     throw new Error("Choose a supported road line pattern and label visibility.");
   }
   return { ...value, color: value.color.toLowerCase(),
-    ...(fields.includes("textColor") ? { textColor: value.textColor.toLowerCase() } : {}) };
+    ...(fields.includes("textColor") ? { textColor: value.textColor.toLowerCase() } : {}),
+    ...(fields.includes("borderColor") ? { borderColor: value.borderColor.toLowerCase() } : {}) };
 }
 
 /** No silently cleaned values: a wrong setting must be fixed before being written. */
@@ -72,7 +77,8 @@ export function validateLegacyRoadAppearance(value) {
 export function validateWorldRoadAppearance(value) {
   if (!Object.hasOwn(value ?? {}, "schemaVersion")) {
     const legacy = validateLegacyRoadAppearance(value);
-    const migrated = { ...legacy, textColor: DEFAULT_ROAD_APPEARANCE.textColor };
+    const migrated = { ...legacy, textColor: DEFAULT_ROAD_APPEARANCE.textColor,
+      borderColor: DEFAULT_ROAD_APPEARANCE.borderColor };
     return { schemaVersion: ROAD_APPEARANCE_CATALOG_VERSION,
       profiles: Object.fromEntries(ROAD_APPEARANCE_MODES.map(mode =>
         [mode, { ...migrated }])) };
