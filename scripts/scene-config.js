@@ -21,7 +21,6 @@ const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
 const junctionFilters = new Map();
 const generatorState = new Map();
-const roadSearch = new Map();
 
 /** Shared display scope; filtering never edits Scene graph or native Regions. */
 export function filteredRoadIds(atlas, state) {
@@ -38,35 +37,10 @@ export function filteredRoadIds(atlas, state) {
   return allowed;
 }
 
-function sharedRoadFilters(atlas, state, refresh) {
-  const filters = node("div", undefined, "form-fields");
-  const select = (choices, current, title, onChange) => {
-    const field = node("select");
-    field.setAttribute("aria-label", title);
-    field.title = title;
-    for (const [value, caption] of choices) {
-      const option = node("option", caption);
-      option.value = value;
-      field.appendChild(option);
-    }
-    field.value = current;
-    field.addEventListener("change", () => { onChange(field.value); refresh(); });
-    return field;
-  };
-  filters.appendChild(select(atlas.roads.map(r => [r.id, r.name]),
-    state.roadId, "Atlas displayed road", value => { state.roadId = value; }));
-  filters.appendChild(select([
-    ["selected", label("FVTTATLAS.Junctions.Selected")],
-    ["connected", label("FVTTATLAS.Junctions.Connected")],
-    ["scene", label("FVTTATLAS.Junctions.All")]
-  ], state.scope, "Atlas display scope", value => { state.scope = value; }));
-  return filters;
-}
-
 function junctionFilterFor(scene, atlas) {
   let state = junctionFilters.get(scene.id);
   if (!state || !atlas.roads?.some(road => road.id === state.roadId)) {
-    state = { roadId: atlas.roads?.[0]?.id ?? null, scope: "selected" };
+    state = { roadId: atlas.roads?.[0]?.id ?? null, scope: "scene" };
     junctionFilters.set(scene.id, state);
   }
   return state;
@@ -240,21 +214,31 @@ function atlasPanel(scene, atlas, actions, refresh) {
   }
 
   const roads = atlas.schemaVersion >= 3 ? atlas.roads : atlas.segments;
-  const search = node("input");
-  search.type = "search";
-  search.placeholder = "Find a road…";
-  search.setAttribute("aria-label", "Find a road");
-  search.style.cssText = "width:100%;min-height:2rem;margin:.4rem 0 .6rem;";
-  search.value = roadSearch.get(scene.id) ?? "";
   const roadList = node("div");
   roadList.style.cssText = "display:grid;gap:.35rem;";
-  function updateRoadSearch() {
-    roadSearch.set(scene.id, search.value);
-    for (const row of roadList.children)
-      row.hidden = !row.dataset.atlasSearch?.includes(search.value.trim().toLocaleLowerCase());
+  if (sharedFilter) {
+    const filter = node("div");
+    filter.style.cssText = "display:flex;align-items:center;gap:.6rem;margin:.35rem 0 .65rem;";
+    filter.appendChild(node("label","Road"));
+    const picker = node("select");
+    picker.style.cssText = "flex:1;min-width:0;max-width:100%;";
+    picker.setAttribute("aria-label","Show road");
+    for (const [id, name] of [
+      ["", "All roads"], ...atlas.roads.map(road => [road.id,road.name])
+    ]) {
+      const option=node("option",name);
+      option.value=id;
+      picker.appendChild(option);
+    }
+    picker.value=sharedFilter.scope === "scene" ? "" : sharedFilter.roadId;
+    picker.addEventListener("change",()=>{
+      sharedFilter.scope=picker.value ? "selected" : "scene";
+      if (picker.value) sharedFilter.roadId=picker.value;
+      refresh();
+    });
+    filter.appendChild(picker);
+    section.appendChild(filter);
   }
-  search.addEventListener("input", updateRoadSearch);
-  section.appendChild(search);
   section.appendChild(roadList);
 
   async function openRoadDetails(road) {
@@ -359,7 +343,6 @@ function atlasPanel(scene, atlas, actions, refresh) {
   for (const [index, road] of roads.entries()) {
     const row = node("div");
     row.setAttribute("data-atlas-road-id",road.id);
-    row.dataset.atlasSearch = (road.name || "").toLocaleLowerCase();
     row.style.cssText = "display:flex;align-items:center;gap:.65rem;min-height:2.5rem;padding:.3rem .45rem;border:1px solid var(--color-border-light-tertiary, #665);border-radius:5px;";
     const appearance = atlas.schemaVersion >= 3 ?
       resolveRoadAppearance(road,worldRoadAppearance,roadAppearanceMode(road,travelPresets)) : null;
@@ -380,9 +363,8 @@ function atlasPanel(scene, atlas, actions, refresh) {
       () => openRoadDetails(road));
     open.style.cssText = "flex:0 0 2.25rem;min-width:2.25rem;padding:0;font-size:1.3em;";
     row.appendChild(open);
-    roadList.appendChild(row);
+    if (!sharedFilter || shownRoads.has(road.id)) roadList.appendChild(row);
   }
-  updateRoadSearch();
   root.appendChild(section);
 
   // Graph connections are edited via each road's Map tools, not listed
@@ -465,33 +447,6 @@ function atlasPanel(scene, atlas, actions, refresh) {
 
   if (atlas.schemaVersion >= 3 && atlas.roads.length) {
     const state = junctionFilterFor(scene, atlas);
-    const select = (options, value, title, changed) => {
-      const element = node("select");
-      element.setAttribute("aria-label", label(title));
-      for (const [id, name] of options) {
-        const option = node("option", name);
-        option.value = id;
-        element.appendChild(option);
-      }
-      element.value = value;
-      element.addEventListener("change", () => changed(element.value));
-      return element;
-    };
-    const filters = node("div", undefined, "form-fields");
-    filters.appendChild(select(atlas.roads.map(r => [r.id, r.name]), state.roadId,
-      "FVTTATLAS.Checkpoints.RoadFilter", value => {
-        state.roadId = value;
-        refresh();
-      }));
-    filters.appendChild(select([
-      ["selected", label("FVTTATLAS.Junctions.Selected")],
-      ["connected", label("FVTTATLAS.Junctions.Connected")],
-      ["scene", label("FVTTATLAS.Junctions.All")]
-    ], state.scope, "FVTTATLAS.Checkpoints.ScopeFilter", value => {
-      state.scope = value;
-      refresh();
-    }));
-    checkpointSection.appendChild(filters);
     const total = listRoadCheckpoints(atlas);
     const matching = listRoadCheckpoints(atlas, state);
     checkpointSection.appendChild(node("p",
@@ -626,11 +581,9 @@ function atlasPanel(scene, atlas, actions, refresh) {
   generatedSection.appendChild(node("p",
     "REGION SETTINGS — Preset colors and movement costs below affect native Foundry Regions " +
     "only after the separate GM-confirmed action. They do not change Atlas road lines or labels.", "hint"));
-  if (sharedFilter && atlas.schemaVersion >= 4) {
-    generatedSection.appendChild(sharedRoadFilters(atlas, sharedFilter, refresh));
-  }
   const available = atlas.schemaVersion >= 4 ? atlas.roads.filter(r =>
-    atlas.checkpoints.filter(c => c.roadId === r.id).length > 0) : [];
+    (!sharedFilter || shownRoads.has(r.id)) &&
+    atlas.checkpoints.some(c => c.roadId === r.id)) : [];
   if (!available.length) {
     generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.NoCheckpoints"), "hint"));
   } else {
@@ -944,11 +897,6 @@ function atlasPanel(scene, atlas, actions, refresh) {
   regionLegend.appendChild(regionHeader);
   regionSection.appendChild(regionLegend);
   regionSection.appendChild(node("p", label("FVTTATLAS.Regions.Hint"), "hint"));
-  if (sharedFilter && atlas.schemaVersion >= 4) {
-    regionSection.appendChild(sharedRoadFilters(atlas, sharedFilter, refresh));
-    if (sharedFilter.scope !== "scene") regionSection.appendChild(node("p",
-      "Regions without a generated road association appear under All Scene.", "hint"));
-  }
   const visibleNative = nativeRegions.filter(region =>
     !sharedFilter || atlas.schemaVersion < 4 ||
     (region.invalidLink && !roadByGeneratedRegionId.has(region.id)) ||
