@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { defaultAtlasJournalLinks, validateAtlasJournalLinks,
-  journalUuidFor, setJournalUuid, validJournalUuid, normalizeJournalUuid }
+  journalUuidFor, setJournalUuid, validJournalUuid, normalizeJournalUuid,
+  canOpenAtlasJournal }
   from "../scripts/atlas-journal-links.js";
 
 const roadUuid="JournalEntry.abcdefghijklmnop";
@@ -40,4 +41,21 @@ test("Journal Entry and Page UUIDs and rich UUID links are allowed",()=>{
     assert.throws(()=>setJournalUuid(null,"road","r1",bad));
   }
   assert.throws(()=>validateAtlasJournalLinks({schemaVersion:1,roads:{},checkpoints:{},legacy:{}}));
+});
+
+test("page access requires native Observer on both parent Journal and linked Page",async()=>{
+  const old=globalThis.foundry;
+  const user={id:"player",isGM:false};
+  const parent={documentName:"JournalEntry",testUserPermission:()=>true};
+  const page={documentName:"JournalEntryPage",parent,
+    testUserPermission:()=>false};
+  globalThis.foundry={utils:{fromUuid:async()=>page}};
+  try {
+    const uuid="JournalEntry.abcdefghijklmnop.JournalEntryPage.ABCDEFGHIJKLMNOP";
+    assert.equal(await canOpenAtlasJournal(uuid,user),false);
+    page.testUserPermission=()=>true;
+    assert.equal(await canOpenAtlasJournal(uuid,user),true);
+    parent.testUserPermission=()=>false;
+    assert.equal(await canOpenAtlasJournal(uuid,user),false);
+  } finally { globalThis.foundry=old; }
 });
