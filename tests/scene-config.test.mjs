@@ -315,10 +315,9 @@ test("Junctions list excludes plain subdivisions, supports one-hop filters and c
   const scan=v=>{if(v.attributes?.has("data-atlas-junction-id"))rows.push(v);
     v.children?.forEach(scan);};
   scan(mounted);
-  assert.equal(rows.length,25);
-  assert.ok(!rows.some(row=>row.attributes.get("data-atlas-junction-id")==="unused"));
-  assert.match(textContents(mounted),/30 \/ 30 FVTTATLAS.Junctions.Count/);
-  assert.match(textContents(mounted),/FVTTATLAS.Junctions.Recent 25 \/ 30/);
+  assert.equal(rows.length,0,"old internal junction ID list is no longer exposed");
+  assert.match(textContents(mounted),/Long Road/);
+  assert.doesNotMatch(textContents(mounted),/FVTTATLAS.Junctions.Recent/);
  } finally {Object.assign(globalThis,previous);}
 });
 
