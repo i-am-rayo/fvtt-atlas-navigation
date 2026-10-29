@@ -173,8 +173,8 @@ test("v0.2.23 GM canvas clusters nearby checkpoints, previews names, and expands
     assert.equal(m.controller.checkpointHoverGeometry.length, 0);
     const group = m.controller.clusterHoverGeometry[0];
     m.listeners.get("pointermove")({ clientX: group.x / 2, clientY: group.y / 2 });
-    assert.ok(m.controller.labels.some(label => label.text.includes("2 checkpoints")));
-    assert.ok(m.controller.labels.some(label => label.text.includes("Bridge")));
+    assert.ok(m.controller.labels.some(label => String(label.text ?? "").includes("2 checkpoints")));
+    assert.ok(m.controller.labels.some(label => String(label.text ?? "").includes("Bridge")));
     let shortcuts = 0;
     m.controller.setShortcutHandler(() => { shortcuts++; });
     const event = { ...pointEvent(group.x / 2, group.y / 2), shiftKey: true };
@@ -498,7 +498,7 @@ test("v0.2.21.1 font glyph renders above checkpoint and hover works on icon", as
     const glyph = m.controller.labels.find(l => l instanceof Text &&
       l.style.fontFamily === "Atlas FA 7 Brands");
     assert.ok(glyph, "a locally loaded webfont glyph is shown without any image requests");
-    assert.equal(glyph.position.y, 32, "40 px glyph floats 28 px above node at y=60");
+    assert.equal(glyph.position.y, 26, "40 px glyph floats 34 px above node at y=60");
     assert.equal(glyph.style.fontSize, 40);
     // Clicking/hovering the floating graphic is visually separate from the node.
     m.listeners.get("pointermove")(pointEvent(15, 16));
@@ -558,7 +558,8 @@ test("Escape cancels a draft with no Scene flag mutation", () => {
     });
     assert.equal(m.controller.getDraft(m.scene), null);
     assert.equal(readAtlas(m.scene).segments.length, 0);
-    assert.equal(m.listeners.size, 0);
+    assert.deepEqual([...m.listeners.keys()], ["pointerdown"],
+      "the idle GM shortcut remains, but editing listeners are removed");
   } finally {
     m.controller.tearDown();
     Object.assign(globalThis, prev);
@@ -611,7 +612,8 @@ test("closing the Scene Config cancels drafts and releases selected highlights",
     m.listeners.get("pointerdown")(pointEvent(2, 3));
     m.controller.endEditor(m.scene);
     assert.equal(m.controller.getDraft(m.scene), null);
-    assert.equal(m.listeners.size, 0);
+    assert.deepEqual([...m.listeners.keys()], ["pointerdown"],
+      "the idle GM shortcut remains, but editing listeners are removed");
     assert.equal(readAtlas(m.scene).segments.length, 0);
     m.controller.start(m.scene, () => {});
     m.listeners.get("pointerdown")(pointEvent(20, 30));
@@ -657,7 +659,8 @@ test("drag handles preview without writes; undo, cancel, and save are reversible
   m.listeners.get("pointerup")(pointEvent(40,50));
   m.controller.cancel();
   assert.deepEqual(readAtlas(m.scene).segments[0].via[0],startBend,"Cancel discards pending edits");
-  assert.equal(m.listeners.size,0);
+  assert.deepEqual([...m.listeners.keys()], ["pointerdown"],
+    "the idle GM shortcut remains, but editing listeners are removed");
   m.controller.startPointEdit(m.scene,roadId,()=>{});
   m.listeners.get("pointerdown")(pointEvent(35,40));
   m.listeners.get("pointermove")(pointEvent(40,50));
@@ -666,7 +669,8 @@ test("drag handles preview without writes; undo, cancel, and save are reversible
   assert.deepEqual(readAtlas(m.scene).segments[0].via[0],{x:70,y:70});
   assert.equal(readAtlas(m.scene).segments[0].id,prior.segments[0].id);
   assert.equal(readAtlas(m.scene).segments[0].from,prior.segments[0].from);
-  assert.equal(m.listeners.size,0);
+  assert.deepEqual([...m.listeners.keys()], ["pointerdown"],
+    "the idle GM shortcut remains, but editing listeners are removed");
   assert.ok(m.notifications.info.some(message=>message.includes("points saved")));
  } finally {m.controller.tearDown();Object.assign(globalThis,prev);}
 });
@@ -688,7 +692,8 @@ test("point editing ends on Scene configuration close without mutating flags",as
   m.listeners.get("pointerup")(pointEvent(25,35));
   m.controller.endEditor(m.scene);
   assert.equal(m.controller.getDraft(m.scene),null);
-  assert.equal(m.listeners.size,0);
+  assert.deepEqual([...m.listeners.keys()], ["pointerdown"],
+    "the idle GM shortcut remains, but editing listeners are removed");
   assert.deepEqual(readAtlas(m.scene),before);
  } finally {m.controller.tearDown();Object.assign(globalThis,prev);}
 });
@@ -712,7 +717,8 @@ test("double-click a road inserts a bend through the dedicated dblclick handler"
       "new bends must remain unsaved until Save Points");
     assert.equal(await m.controller.finish(), true);
     assert.deepEqual(readAtlas(m.scene).segments[0].via, [{ x: 70, y: 30 }]);
-    assert.equal(m.listeners.size, 0);
+    assert.deepEqual([...m.listeners.keys()], ["pointerdown"],
+      "the idle GM shortcut remains, but editing listeners are removed");
   } finally {
     m.controller.tearDown();
     Object.assign(globalThis, prev);
@@ -791,7 +797,8 @@ test("dragged junction asks approval and can join another road without merging n
     const after = readAtlas(m.scene);
     assert.deepEqual(after.roads.map(r=>r.name),["Road 1","Road 2"]);
     assert.equal(after.segments.length,3);
-    assert.equal(m.listeners.size,0);
+    assert.deepEqual([...m.listeners.keys()], ["pointerdown"],
+    "the idle GM shortcut remains, but editing listeners are removed");
   } finally {
     m.controller.tearDown();
     Object.assign(globalThis, prev);
@@ -870,7 +877,8 @@ test("Alt-click gold junction safely detaches one named road; undo and save pres
       {id:branch.from,x:80,y:60},"only branch endpoint moves");
     assert.equal(saved.segments.length,before.segments.length,
       "detachment does not split, duplicate or rename road segments");
-    assert.equal(m.listeners.size,0);
+    assert.deepEqual([...m.listeners.keys()], ["pointerdown"],
+    "the idle GM shortcut remains, but editing listeners are removed");
   } finally {
     m.controller.tearDown();
     Object.assign(globalThis, prev);
