@@ -1,3 +1,4 @@
+import { nativeFogCells } from "../scripts/atlas-manual-fog-geometry.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { RoadCanvasController } from "../scripts/road-canvas.js";
@@ -1332,152 +1333,39 @@ test("v0.2.25 Always road labels use the visible section of a checkpoint-split n
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });
 
-test("v0.2.25.4.5 failed direct-primary cut preserves an opaque cover and roads", async () => {
-  const previous = { game: globalThis.game, PIXI: globalThis.PIXI,
-    foundry: globalThis.foundry, warn: console.warn };
-  const m = setup();
-  const warnings = [];
-  const originalGetFlag = m.scene.getFlag.bind(m.scene);
-  try {
-    let i = 0;
-    const idFactory = () => "maskguard" + ++i;
-    let atlas = addRoad(createEmptyAtlas(), {
-      points: [{ x: 20, y: 30 }, { x: 150, y: 30 }],
-      name: "Visible Bridge Road", idFactory
-    });
-    atlas = addRoadCheckpoint(atlas, {
-      candidate: { kind: "node", nodeId: atlas.segments[0].from },
-      roadId: atlas.roads[0].id, name: "Orc Bridge", idFactory
-    });
-    atlas = setRoadPlayerVisibility(atlas, {
-      roadId: atlas.roads[0].id, visible: true
-    });
-    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
-    let party = { ...defaultPartyExploration(), enabled: true, tokenId: "placed-party" };
-    party = setCheckpointKnowledge(party, atlas.checkpoints[0].id, "lore");
-    m.scene.getFlag = (scope, key) => key === "partyExploration" ? party
-      : key === "mapFog" ? { schemaVersion: 1, enabled: true, trail: [] }
-      : originalGetFlag(scope, key);
-    m.scene.grid = { size: 50, distance: 5 };
-    m.canvas.dimensions.sceneRect.width = 300;
-    m.canvas.dimensions.sceneRect.height = 200;
-    m.canvas.stage = { scale: { x: 1 } };
-    m.Graphics.prototype.addChild = function(label) { label.parent = this; };
-    m.Graphics.prototype.clear = function() { this.strokes = 0; this.drawn = []; return this; };
-    m.Graphics.prototype.rect = function() { return this; };
-    m.Graphics.prototype.circle = function() { return this; };
-    m.Graphics.prototype.cut = function() { throw new Error("Shape cutting incompatible"); };
-    class Container {
-      addChild(...nodes) { for (const node of nodes) node.parent = this; }
-      destroy() {}
+test("v14 manual exploration uses native grid polygons and image-local cell centers", () => {
+  const view = {
+    scene: { grid: { size: 50, type: 1 }, dimensions: { rows: 2, columns: 2 } },
+    dimensions: { sceneX: 10, sceneY: 30 },
+    grid: {
+      getShape: () => [{ x: -25, y: -25 }, { x: 25, y: -25 },
+        { x: 25, y: 25 }, { x: -25, y: 25 }],
+      getCenterPoint: ({ i, j }) => ({ x: 35 + 50 * j, y: 55 + 50 * i })
     }
-    globalThis.game = { user: { isGM: false } };
-    globalThis.foundry = { canvas: { groups: {
-      PrimaryCanvasGroup: { SORT_LAYERS: { TILES: 500 } }
-    } } };
-    globalThis.PIXI = {
-      Graphics: m.Graphics, Container,
-      Sprite: class { constructor() { throw new Error("Background copy forbidden"); } }
-    };
-    console.warn = (...args) => warnings.push(args);
-    m.controller.refresh();
-    assert.ok(m.controller.graphics?.strokes > 0,
-      "road must remain drawn even if Pixi shape cutting throws");
-    assert.ok(m.controller.playerCheckpointHoverGeometry.length > 0,
-      "known checkpoint hover remains available to the player");
-    assert.ok(m.controller.atlasMapFogLayer?.visible,
-      "on failure, Atlas keeps the opaque map-fog layer on top of the real Scene");
-    assert.ok(m.controller.atlasMapFogCover,
-      "failed shape cut must leave an opaque Graphics cover");
-    assert.ok(warnings.some(items =>
-      String(items[0]).includes("Atlas map-fog mask could not refresh")));
-  } finally {
-    m.controller.tearDown();
-    Object.assign(globalThis, { game: previous.game, PIXI: previous.PIXI,
-      foundry: previous.foundry });
-    console.warn = previous.warn;
-  }
+  };
+  const cells = nativeFogCells(view);
+  assert.equal(cells.length, 4);
+  assert.deepEqual(cells.map(({ x, y }) => ({ x, y })), [
+    { x: 25, y: 25 }, { x: 75, y: 25 },
+    { x: 25, y: 75 }, { x: 75, y: 75 }
+  ], "only persisted image-local cell centers are stored as exploration coordinates");
+  assert.deepEqual(cells[0].polygon,
+    [[10, 30], [60, 30], [60, 80], [10, 80]],
+    "render-time geometry follows Foundry's native cell shape");
 });
 
-test("v0.2.25.4.5 map fog mounts cut Graphics directly in Foundry primary group", async () => {
-  const previous = { game: globalThis.game, PIXI: globalThis.PIXI,
-    foundry: globalThis.foundry, warn: console.warn };
-  const m = setup();
-  const originalGetFlag = m.scene.getFlag.bind(m.scene);
-  const geometry = [];
-  try {
-    let i = 0;
-    const idFactory = () => "cutgeom" + ++i;
-    let atlas = addRoad(createEmptyAtlas(), {
-      points: [{ x: 20, y: 30 }, { x: 150, y: 30 }],
-      name: "Orc Road", idFactory
-    });
-    atlas = addRoadCheckpoint(atlas, {
-      candidate: { kind: "node", nodeId: atlas.segments[0].from },
-      roadId: atlas.roads[0].id, name: "Orc Bridge", idFactory
-    });
-    atlas = setRoadPlayerVisibility(atlas, {
-      roadId: atlas.roads[0].id, visible: true
-    });
-    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
-    let party = { ...defaultPartyExploration(), enabled: true, tokenId: "placed-party" };
-    party = setCheckpointKnowledge(party, atlas.checkpoints[0].id, "lore");
-    m.scene.getFlag = (scope, key) => key === "partyExploration" ? party
-      : key === "mapFog" ? { schemaVersion: 1, enabled: true, trail: [] }
-      : originalGetFlag(scope, key);
-    m.scene.grid = { size: 50, distance: 5 };
-    m.canvas.dimensions.sceneRect.width = 300;
-    m.canvas.dimensions.sceneRect.height = 200;
-    m.canvas.stage = { scale: { x: 1 } };
-    m.Graphics.prototype.addChild = function(label) { label.parent = this; };
-    m.Graphics.prototype.clear = function() { this.strokes = 0; this.drawn = []; return this; };
-    m.Graphics.prototype.rect = function(...args) {
-      geometry.push(["rect", ...args]); return this;
-    };
-    m.Graphics.prototype.circle = function(...args) {
-      geometry.push(["circle", ...args]); return this;
-    };
-    m.Graphics.prototype.cut = function() {
-      geometry.push(["cut"]); return this;
-    };
-    m.Graphics.prototype.setMask = function() {
-      throw new Error("Inverse masking should never be used");
-    };
-    class Container {
-      addChild(...nodes) { for (const node of nodes) node.parent = this; }
-      destroy() {}
-    }
-    globalThis.game = { user: { isGM: false } };
-    globalThis.foundry = { canvas: { groups: {
-      PrimaryCanvasGroup: { SORT_LAYERS: { TILES: 500 } }
-    } } };
-    globalThis.PIXI = { Graphics: m.Graphics, Container };
-    console.warn = (...args) => { throw new Error(String(args[0])); };
-    m.controller.refresh();
-    assert.ok(m.controller.atlasMapFogLayer?.visible);
-    assert.equal(m.controller.atlasMapFogLayer, m.controller.atlasMapFogCover,
-      "Foundry must sort the PIXI Graphics itself, not a plain parent container");
-    assert.equal(m.controller.atlasMapFogCover.sortLayer, 501);
-    assert.equal(m.controller.atlasMapFogCover.label, "Atlas Exploration Fog");
-    assert.equal(m.controller.atlasMapFogLayer.parent, m.canvas.primary,
-      "fog lives with Scene content below Foundry's effects, not in the interface");
-    assert.equal(geometry.filter(entry => entry[0] === "cut").length, 1,
-      "all discovered circles are cut in a single Graphics operation");
-    assert.ok(geometry.some(entry => entry[0] === "circle"),
-      "lore checkpoint produces a real geometry cut");
-    const coverRect = geometry.filter(entry => entry[0] === "rect").at(-1);
-    const circles = geometry.filter(entry => entry[0] === "circle");
-    assert.ok(circles.every(([, cx, cy, radius]) =>
-      cx - radius > coverRect[1] && cy - radius > coverRect[2] &&
-      cx + radius < coverRect[1] + coverRect[3] &&
-      cy + radius < coverRect[2] + coverRect[4]),
-      "every circle is wholly enclosed by the cut geometry");
-    assert.ok(m.controller.graphics?.strokes > 0,
-      "player road overlay still renders alongside Atlas fog");
-  } finally {
-    m.controller.tearDown();
-    Object.assign(globalThis, { game: previous.game, PIXI: previous.PIXI,
-      foundry: previous.foundry });
-    console.warn = previous.warn;
-  }
+test("v14 manual exploration fails closed on unsupported or malformed grid geometry", () => {
+  const view = {
+    scene: { grid: { size: 50, type: 1 }, dimensions: { rows: 2, columns: 2 } },
+    dimensions: { sceneX: 0, sceneY: 0 },
+    grid: { isGridless: true }
+  };
+  assert.throws(() => nativeFogCells(view), /square or hex Scene grid/);
+  view.grid = { isGridless: false, getShape: () => [{ x: 0, y: 0 }],
+    getCenterPoint: () => ({ x: 25, y: 25 }) };
+  assert.throws(() => nativeFogCells(view), /Invalid native grid cell polygon/);
+  view.grid.getShape = () => [{ x: -25, y: -25 }, { x: 25, y: -25 },
+    { x: 25, y: 25 }, { x: -25, y: 25 }];
+  assert.throws(() => nativeFogCells(view, 3), /cell limit/,
+    "oversized fog grids are rejected before traversal");
 });
