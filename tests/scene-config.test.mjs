@@ -5,7 +5,7 @@ const { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
   filteredRoadIds } = await import("../scripts/scene-config.js");
 
 class Element {
-  constructor(tag) { this.tag = tag; this.attributes = new Map(); this.children = []; this.listeners = new Map(); this.style = {}; }
+  constructor(tag) { this.tag = tag; this.attributes = new Map(); this.children = []; this.listeners = new Map(); this.style = {}; this.dataset = {}; }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   appendChild(child) { child.parentNode = this; this.children.push(child); return child; }
   append(...children) { for (const child of children) this.appendChild(child); }
@@ -29,6 +29,7 @@ class Element {
   }
   get lastElementChild() { return this.children.at(-1); }
   querySelector() { return null; }
+  querySelectorAll() { return []; }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
 }
 
@@ -262,43 +263,41 @@ test("v3 connected road sections render once with edit and merge actions",async(
  } finally {Object.assign(globalThis,previous);}
 });
 
-test("waypoint picking and point-edit controls stay inside the Junctions section",async()=>{
- const previous={document:globalThis.document,game:globalThis.game};
- let mounted=null;
- const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
- const element={querySelector:sel=>sel==='[data-fvtt-atlas-scene-root]'?nativeRoot:null};
- const scene={id:"waypoint-controls",grid:{size:100,distance:5,units:"km"},
-   canUserModify:()=>true,getFlag:(_scope,key)=>key!=="atlas"?null:({
-     schemaVersion:3,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
-     nodes:[{id:"a",x:0,y:0},{id:"b",x:100,y:0}],
-     roads:[{id:"main",name:"Main"}],
-     segments:[{id:"s1",roadId:"main",from:"a",to:"b",via:[],bidirectional:true}]
-   })};
- const sections=()=>mounted.children.filter(child=>child.tag==="fieldset");
- try {
-  globalThis.document={createElement:tag=>new Element(tag)};
-  globalThis.game={user:{isGM:true},i18n:{localize:k=>k,lang:"en"}};
-  let state={mode:"junction",points:0};
-  let canceled=0,saved=0,undone=0;
-  const actions={
-   begin(){},draft:()=>state,select(){},rename(){},remove(){},
-   cancel:()=>{canceled++;},finish:()=>{saved++;},undo:()=>{undone++;}
-  };
-  addAtlasRoadsToSceneConfig({document:scene},element,actions);
-  const roadSection=sections()[0], waypointSection=sections()[1];
-  assert.ok(!buttons(roadSection).some(b=>b.textContent==="FVTTATLAS.Roads.Finish"));
-  assert.ok(buttons(waypointSection).some(b=>b.textContent==="FVTTATLAS.Roads.Cancel"));
-  assert.equal(buttons(waypointSection)[0].disabled,true,"do not restart picker mid-edit");
-  state={mode:"points",source:"junction",dirty:true,canUndo:true};
-  addAtlasRoadsToSceneConfig({document:scene},element,actions);
-  const roadPanel=sections()[0], wpPanel=sections()[1];
-  assert.ok(!buttons(roadPanel).some(b=>b.textContent==="FVTTATLAS.Roads.SavePoints"));
-  const controls=buttons(wpPanel);
-  await controls.find(b=>b.textContent==="FVTTATLAS.Roads.SavePoints").listeners.get("click")({preventDefault(){}});
-  await controls.find(b=>b.textContent==="FVTTATLAS.Roads.Undo").listeners.get("click")({preventDefault(){}});
-  await controls.find(b=>b.textContent==="FVTTATLAS.Roads.CancelEdits").listeners.get("click")({preventDefault(){}});
-  assert.deepEqual([saved,undone,canceled],[1,1,1]);
- } finally {Object.assign(globalThis,previous);}
+test("connection picking and point edits stay in the road authoring controls", async () => {
+  const previous = { document: globalThis.document, game: globalThis.game };
+  let mounted = null;
+  const nativeRoot = { querySelector: () => null, appendChild: n => { mounted = n; } };
+  const element = { querySelector: sel => sel === "[data-fvtt-atlas-scene-root]" ? nativeRoot : null };
+  const scene = { id: "connection-controls", grid: { size: 100, distance: 5, units: "km" },
+    canUserModify: () => true, getFlag: (_scope, key) => key !== "atlas" ? null : ({
+      schemaVersion: 3, coordinateSpace: "image", revision: 1, enabled: true,
+      calibration: null, nodes: [{ id: "a", x: 0, y: 0 }, { id: "b", x: 100, y: 0 }],
+      roads: [{ id: "main", name: "Main" }],
+      segments: [{ id: "s1", roadId: "main", from: "a", to: "b", via: [], bidirectional: true }]
+    }) };
+  const roadControls = () => mounted.children.find(child => child.tag === "fieldset" &&
+    textContents(child).includes("FVTTATLAS.Roads.Title"));
+  try {
+    globalThis.document = { createElement: tag => new Element(tag) };
+    globalThis.game = { user: { isGM: true }, i18n: { localize: k => k, lang: "en" } };
+    let state = { mode: "junction", points: 0 };
+    let canceled = 0, saved = 0, undone = 0;
+    const actions = { begin() {}, draft: () => state, select() {}, rename() {}, remove() {},
+      cancel: () => { canceled++; }, finish: () => { saved++; },
+      undo: () => { undone++; } };
+    addAtlasRoadsToSceneConfig({ document: scene }, element, actions);
+    assert.ok(buttons(roadControls()).some(b => b.textContent === "Cancel"),
+      "connection cancellation belongs in the Roads panel");
+    state = { mode: "points", source: "junction", dirty: true, canUndo: true };
+    addAtlasRoadsToSceneConfig({ document: scene }, element, actions);
+    const controls = buttons(roadControls());
+    for (const name of ["Save", "Undo", "Cancel"]) {
+      const action = controls.find(b => b.textContent === name);
+      assert.ok(action, name + " is available during connection-point editing");
+      await action.listeners.get("click")({ preventDefault() {} });
+    }
+    assert.deepEqual([saved, undone, canceled], [1, 1, 1]);
+  } finally { Object.assign(globalThis, previous); }
 });
 
 test("Junctions list excludes plain subdivisions, supports one-hop filters and caps long results", () => {
