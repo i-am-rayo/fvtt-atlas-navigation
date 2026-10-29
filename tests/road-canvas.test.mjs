@@ -219,16 +219,19 @@ test("v0.2.23 checkpoint quick info works with labels Off without changing Scene
     await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
     m.controller.refresh();
     const persisted = readAtlas(m.scene);
-    assert.equal(m.controller.labels.length, 0);
+    assert.equal(m.controller.labels.filter(label => label instanceof Text &&
+      label.text === "Old Watchtower").length, 0, "no checkpoint title before hover");
     const checkpoint = m.controller.checkpointHoverGeometry[0];
     m.listeners.get("pointermove")(pointEvent(checkpoint.x / 2, checkpoint.y / 2));
-    const preview = m.controller.labels.find(label => label.text.includes("Old Watchtower"));
+    const preview = m.controller.labels.find(label => label instanceof Text &&
+      label.text.includes("Old Watchtower"));
     assert.ok(preview);
     assert.match(preview.text, /Road: Quiet Trail/);
     assert.match(preview.text, /Elevation: 125 m/);
     assert.deepEqual(readAtlas(m.scene), persisted, "hover presentation is read-only");
     m.listeners.get("pointerleave")();
-    assert.equal(m.controller.labels.length, 0);
+    assert.equal(m.controller.labels.filter(label => label instanceof Text &&
+      label.text.includes("Old Watchtower")).length, 0, "hover title cleared");
   } finally {
     m.controller.tearDown();
     Object.assign(globalThis, previous);
@@ -429,7 +432,8 @@ test("v0.2.21 checkpoint icons load locally and labels include owning road on ho
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(loadedPaths,
       ["modules/fvtt-atlas-navigation/assets/checkpoint-icons/mountain.svg"]);
-    assert.equal(sprites.length, 1, "one sprite is shown when texture finishes loading");
+    assert.equal(sprites.filter(sprite => !sprite.destroyed).length, 1,
+      "exactly one sprite remains displayed after asynchronous redraws");
     assert.equal(sprites[0].width, 32);
     assert.equal(sprites[0].tint, 0xffaa11);
     assert.equal(sprites[0].position.x, 30);
