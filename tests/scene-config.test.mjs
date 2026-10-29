@@ -196,71 +196,55 @@ test("anchored v2 road list explicitly offers organization before new editing", 
   } finally { Object.assign(globalThis, previous); }
 });
 
-test("v3 connected road sections render once with edit and merge actions",async()=>{
- const previous={document:globalThis.document,game:globalThis.game};
- let mounted=null;
- const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
- const element={querySelector:selector=>selector==='[data-fvtt-atlas-scene-root]'?nativeRoot:null};
- const scene={id:"v3",grid:{size:100,distance:5,units:"km"},canUserModify:()=>true,
- getFlag:(_scope,key)=>key!=="atlas"?null:({
-  schemaVersion:3,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
-  nodes:[{id:"a",x:0,y:0},{id:"b",x:50,y:0},{id:"c",x:100,y:0},{id:"d",x:50,y:70}],
-  roads:[{id:"old",name:"Main Road"},{id:"new",name:"Spur"}],
-  segments:[
-   {id:"a1",roadId:"old",from:"a",to:"b",via:[],bidirectional:true},
-   {id:"a2",roadId:"old",from:"b",to:"c",via:[],bidirectional:true},
-   {id:"s1",roadId:"new",from:"b",to:"d",via:[],bidirectional:true}
-  ]
- })};
- let editedId,mergedId,junctionId,pickerScene;
- try {
-  globalThis.document={createElement:tag=>new Element(tag)};
-  globalThis.game={user:{isGM:true},i18n:{localize:k=>k,lang:"en"}};
-  addAtlasRoadsToSceneConfig({document:scene},element,{
-   begin(){},draft:()=>null,finish(){},cancel(){},select(){},rename(){},remove(){},
-   beginPointEdit:(_scene,id)=>{editedId=id;},merge:(_scene,road)=>{mergedId=road.id;},
-    beginJunction:(s)=>{pickerScene=s;},selectJunction:(_scene,id)=>{junctionId=id;}
-  });
-  assert.ok(buttons(mounted).length>=13,
-    "Roads [+], road actions, Junctions [+], and junction focus remain available");
-  assert.match(textContents(mounted),/Main Road.*2 FVTTATLAS.Roads.Segments/);
-  const all = [];
-  const collect = value => { all.push(value); for (const child of value.children ?? []) collect(child); };
-  collect(mounted);
-  assert.ok(all.some(value => value.tag === "span" && value.style.display === "inline-flex" &&
-    value.children.some(child => child.tag === "button" && child.textContent === "+")),
-    "Roads [+] must stay on the same line");
-  assert.ok(all.some(value => value.style.fontStyle === "italic" &&
-    value.textContent === "2 FVTTATLAS.Roads.Segments" &&
-    value.title === "FVTTATLAS.Roads.SegmentCountHint"),
-    "the graph-segment count is explanatory metadata, not part of the road name");
-  const rows=[];
-  const visit=node=>{if(node.attributes?.has("data-atlas-road-id"))rows.push(node);node.children?.forEach(visit);};
-  visit(mounted);
-  assert.deepEqual(rows.map(r=>r.attributes.get("data-atlas-road-id")),["old","new"]);
-  const oldButtons=buttons(rows[0]);
-  await oldButtons.find(b=>b.title==="FVTTATLAS.Roads.EditPoints")
-    .listeners.get("click")({preventDefault(){}});
-  assert.equal(editedId,"old");
-  await oldButtons.find(b=>b.title==="FVTTATLAS.Roads.Merge")
-    .listeners.get("click")({preventDefault(){}});
-  assert.equal(mergedId,"old");
-   const wpPlus=buttons(mounted).find(b=>
-     b.textContent==="+" && b.title==="FVTTATLAS.Junctions.Add");
-   assert.equal(wpPlus.disabled,false);
-   await wpPlus.listeners.get("click")({preventDefault(){}});
-   assert.equal(pickerScene,scene);
-   const junctionRows=[];
-   const visitJunction=value=>{
-     if(value.attributes?.has("data-atlas-junction-id"))junctionRows.push(value);
-     value.children?.forEach(visitJunction);
-   };
-   visitJunction(mounted);
-   assert.equal(junctionRows.length,1,
-     "only the real three-edge crossing belongs in Junctions");
-   await buttons(junctionRows[0])[0].listeners.get("click")({preventDefault(){}});
-   assert.equal(junctionId,junctionRows[0].attributes.get("data-atlas-junction-id"));
- } finally {Object.assign(globalThis,previous);}
+test("v3 named roads render once and expanded road tools target the selected road", async () => {
+  const previous = { document: globalThis.document, game: globalThis.game };
+  let mounted = null;
+  const nativeRoot = { querySelector: () => null, appendChild: n => { mounted = n; } };
+  const element = { querySelector: sel => sel === "[data-fvtt-atlas-scene-root]" ? nativeRoot : null };
+  const scene = { id: "v3", grid: { size: 100, distance: 5, units: "km" },
+    canUserModify: () => true, getFlag: (_scope, key) => key !== "atlas" ? null : ({
+      schemaVersion: 3, coordinateSpace: "image", revision: 1, enabled: true,
+      calibration: null,
+      nodes: [{ id: "a", x: 0, y: 0 }, { id: "b", x: 50, y: 0 },
+        { id: "c", x: 100, y: 0 }, { id: "d", x: 50, y: 70 }],
+      roads: [{ id: "old", name: "Main Road" }, { id: "new", name: "Spur" }],
+      segments: [
+        { id: "a1", roadId: "old", from: "a", to: "b", via: [], bidirectional: true },
+        { id: "a2", roadId: "old", from: "b", to: "c", via: [], bidirectional: true },
+        { id: "s1", roadId: "new", from: "b", to: "d", via: [], bidirectional: true }
+      ]
+    }) };
+  const rows = () => {
+    const result = [];
+    const visit = n => { if (n.attributes?.has("data-atlas-road-id")) result.push(n);
+      for (const child of n.children ?? []) visit(child); };
+    visit(mounted); return result;
+  };
+  let editedId, mergedId, connectionScene;
+  try {
+    globalThis.document = { createElement: tag => new Element(tag) };
+    globalThis.game = { user: { isGM: true }, settings: { get: () => null },
+      i18n: { localize: k => k, lang: "en" } };
+    addAtlasRoadsToSceneConfig({ document: scene }, element, {
+      begin() {}, draft: () => null, select() {}, rename() {}, remove() {},
+      beginPointEdit: (_scene, id) => { editedId = id; },
+      merge: (_scene, road) => { mergedId = road.id; },
+      beginJunction: selected => { connectionScene = selected; }
+    });
+    assert.deepEqual(rows().map(row => row.attributes.get("data-atlas-road-id")), ["old", "new"]);
+    const primary = rows()[0];
+    primary.open = true;
+    primary.listeners.get("toggle")();
+    const controls = buttons(primary);
+    for (const label of ["Settings", "Edit path", "Add connection", "Merge", "Delete road"])
+      assert.ok(controls.some(b => b.textContent === label), label + " is available when expanded");
+    await controls.find(b => b.textContent === "Edit path").listeners.get("click")({ preventDefault() {} });
+    await controls.find(b => b.textContent === "Merge").listeners.get("click")({ preventDefault() {} });
+    await controls.find(b => b.textContent === "Add connection").listeners.get("click")({ preventDefault() {} });
+    assert.deepEqual([editedId, mergedId], ["old", "old"]);
+    assert.equal(connectionScene, scene);
+    assert.equal(rows().length, 2, "opening tools does not duplicate road entries");
+  } finally { Object.assign(globalThis, previous); }
 });
 
 test("connection picking and point edits stay in the road authoring controls", async () => {
