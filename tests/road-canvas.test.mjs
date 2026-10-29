@@ -439,7 +439,7 @@ test("v0.2.21 checkpoint icons load locally and labels include owning road on ho
     assert.equal(sprites[0].width, 32);
     assert.equal(sprites[0].tint, 0xffaa11);
     assert.equal(sprites[0].position.x, 30);
-    assert.equal(sprites[0].position.y, 36, "visual icon sits above original node at y=60");
+    assert.equal(sprites[0].position.y, 30, "visual icon is anchored above the checkpoint node at y=60");
     assert.equal(m.controller.labels.filter(x => x instanceof Text).length, 0);
     // canvas point x=sceneX(10)+20, y=sceneY(30)+30 => client midpoint (15,30).
     m.listeners.get("pointermove")(pointEvent(15, 30));
