@@ -321,7 +321,7 @@ test("Junctions list excludes plain subdivisions, supports one-hop filters and c
  } finally {Object.assign(globalThis,previous);}
 });
 
-test("junction filters default to one road, include direct neighbors and can show Scene-wide", () => {
+test("the named-road picker filters and restores all roads", () => {
  const previous={document:globalThis.document,game:globalThis.game};
  let mounted=null;
  const nativeRoot={querySelector:()=>null,appendChild:n=>{
@@ -344,8 +344,8 @@ test("junction filters default to one road, include direct neighbors and can sho
  };
  const scene={id:"filter-scene",grid:{size:100,distance:5,units:"mi"},
    canUserModify:()=>true,getFlag:(_scope,key)=>key!=="atlas"?null:graph};
- const rows=()=>{const result=[];const scan=n=>{if(n.attributes?.has("data-atlas-junction-id"))
-   result.push(n.attributes.get("data-atlas-junction-id"));n.children?.forEach(scan);};
+ const rows=()=>{const result=[];const scan=n=>{if(n.attributes?.has("data-atlas-road-id"))
+   result.push(n.attributes.get("data-atlas-road-id"));n.children?.forEach(scan);};
    scan(mounted);return result;};
  const selects=()=>{const list=[];const scan=n=>{if(n.tag==="select")list.push(n);
    n.children?.forEach(scan);};scan(mounted);return list;};
@@ -354,15 +354,14 @@ test("junction filters default to one road, include direct neighbors and can sho
    globalThis.game={user:{isGM:true},i18n:{localize:k=>k,lang:"en"}};
    const actions={begin(){},draft:()=>null,select(){},rename(){},remove(){}};
    addAtlasRoadsToSceneConfig({document:scene,rendered:true},element,actions);
-   assert.deepEqual(rows(),["b"],"by default only the selected first road");
-   let controls=selects();assert.ok(controls.length>=2);
-   controls[1].value="connected";controls[1].listeners.get("change")();
-   assert.deepEqual(rows(),["d","b"],"one-hop branches included, remote omitted");
-   controls=selects();controls[1].value="scene";controls[1].listeners.get("change")();
-   assert.deepEqual(rows(),["r2","d","b"]);
-   controls=selects();controls[0].value="remote";controls[0].listeners.get("change")();
-   controls=selects();controls[1].value="selected";controls[1].listeners.get("change")();
-   assert.deepEqual(rows(),["r2"],"road selection persists across refreshes");
+   assert.deepEqual(rows(),["main","spur","other","remote"],
+     "all named roads are initially visible");
+   let controls=selects();assert.ok(controls.length>=1);
+   controls[0].value="remote";controls[0].listeners.get("change")();
+   assert.deepEqual(rows(),["remote"],"selection filters named roads");
+   controls=selects();controls[0].value="";controls[0].listeners.get("change")();
+   assert.deepEqual(rows(),["main","spur","other","remote"],
+     "All roads restores the list");
  } finally {Object.assign(globalThis,previous);}
 });
 
