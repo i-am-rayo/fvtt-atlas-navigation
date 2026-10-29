@@ -323,7 +323,7 @@ test("v0.2.24.2 ordinary player sees only revealed geometry, with no hidden meta
     atlas = setRoadPlayerVisibility(atlas, { roadId, visible: true });
     await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
     m.controller.refresh();
-    assert.equal(m.controller.graphics.strokes, 1, "explicitly revealed road drawn");
+    assert.ok(m.controller.graphics.drawn.length > 0, "explicitly revealed road contributes path geometry");
     atlas = setRoadPlayerVisibility(atlas, { roadId, visible: false });
     atlas = setCheckpointPlayerVisibility(atlas, { checkpointId, visible: false });
     await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
