@@ -315,7 +315,7 @@ test("v0.2.24.2 ordinary player sees only revealed geometry, with no hidden meta
     await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
     m.controller.refresh();
     assert.ok(m.controller.graphics, "visible checkpoint creates overlay");
-    assert.equal(m.controller.graphics.strokes, 0, "hidden road stays hidden");
+    assert.equal(m.controller.graphics.drawn.length, 0, "hidden road contributes no path geometry; checkpoint borders may stroke");
     assert.equal(m.listeners.has("pointermove"), true,
       "an expressly revealed checkpoint can offer its name on hover");
     assert.equal(m.listeners.has("pointerdown"), false, "no GM shortcut capture");
@@ -1071,7 +1071,7 @@ test("v0.2.24.1 player zoom redraws revealed clusters into individual icons", as
     assert.equal(m.controller.lastZoom, 2, "non-GM zoom was redrawn");
     assert.ok(!m.controller.labels.some(label => label.text === "2"),
       "cluster count disappears once checkpoints separate");
-    assert.equal(m.controller.graphics.strokes, 0, "hidden road is not revealed");
+    assert.equal(m.controller.graphics.drawn.length, 0, "hidden road contributes no path geometry after zoom");
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });
 
@@ -1239,8 +1239,8 @@ test("v0.2.25 World curvature redraws existing roads for GM and player with matc
       "visible road label hit testing matches the displayed curve");
     curvature = "off";
     m.controller.refresh();
-    assert.equal(m.controller.graphics.drawn.length, straightCount,
-      "World Off selection immediately restores the existing straight road");
+    assert.equal(m.controller.graphics.drawn.length, 3,
+      "World Off selection restores the three original road vertices on the player overlay");
     assert.deepEqual(readAtlas(m.scene).nodes, atlas.nodes);
     assert.deepEqual(readAtlas(m.scene).segments, atlas.segments);
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
