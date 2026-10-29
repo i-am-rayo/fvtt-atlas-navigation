@@ -383,7 +383,7 @@ test("v0.2.18 downstream filters share selected, direct-neighbor and scene-wide 
  assert.deepEqual([...filteredRoadIds(atlas,{roadId:"deleted",scope:"selected"})],[]);
 });
 
-test("v0.2.18.1 corridor native-cost checkbox re-renders Atlas without perMode scope error",()=>{
+test("native Region creation is offered from a road without legacy inline cost controls",()=>{
  const saved={document:globalThis.document,game:globalThis.game,
    CONFIG:globalThis.CONFIG,ui:globalThis.ui};
  class NativeModel {
@@ -438,28 +438,21 @@ test("v0.2.18.1 corridor native-cost checkbox re-renders Atlas without perMode s
      generateRegion(){}};
    addAtlasRoadsToSceneConfig({document:scene,rendered:true},element,actions);
    assert.ok(mounted);
-   const kind=visit(mounted,entry=>entry.tag==="select"&&entry.value==="checkpoint");
-   assert.ok(kind,"generated Regions begin as checkpoints");
-   kind.value="corridor";
-   kind.listeners.get("change")();
-   const checkbox=visit(mounted,entry=>entry.tag==="input"&&entry.type==="checkbox"&&entry.listeners.has("change"));
-   assert.ok(checkbox&&!checkbox.disabled);
-   checkbox.checked=true;
-   checkbox.listeners.get("change")();
-   assert.ok(mounted,"the Atlas settings panel should survive opt-in");
-   assert.doesNotMatch(textContents(mounted),/perMode is not defined/);
-   assert.match(textContents(mounted),/One native Behavior with selected movement modes/);
-   const preview=visit(mounted,entry=>entry.tag==="button"&&
-     entry.textContent==="FVTTATLAS.Generated.Preview");
-   assert.ok(preview);
-   assert.equal(preview.disabled,false);
- } finally {
+   const road=visit(mounted,e=>e.attributes?.get("data-atlas-road-id")==="bridge");
+    assert.ok(road,"the configured road is listed");
+    road.open=true;road.listeners.get("toggle")();
+    assert.ok(visit(road,e=>e.tag==="button"&&e.textContent==="Settings"),
+      "current road settings remain available");
+    assert.ok(visit(road,e=>e.tag==="button"&&e.textContent==="＋ Generate Region"),
+      "native Region generation is reached from the road, not an embedded Scene form");
+    assert.doesNotMatch(textContents(mounted),/perMode is not defined/);
+  } finally {
    for(const [key,value] of Object.entries(saved))globalThis[key]=value;
  }
 });
 
 
-test("v0.2.19 duplicate corridor points to existing surface controls and enables native refresh",async()=>{
+test("native Region generation stays separate from Atlas line styling",async()=>{
   const saved={document:globalThis.document,game:globalThis.game,
     CONFIG:globalThis.CONFIG,ui:globalThis.ui};
   class NativeModel {
@@ -521,26 +514,15 @@ test("v0.2.19 duplicate corridor points to existing surface controls and enables
     const actions={draft:()=>null,begin(){},select(){},rename(){},remove(){},
       generateRegion(){},updateGeneratedRegionCost(_scene,entry){updatedId=entry.id;}};
     addAtlasRoadsToSceneConfig({document:scene,rendered:true},element,actions);
-    assert.match(textContents(mounted),/Atlas road overlay/);
-    assert.match(textContents(mounted),/REGION SETTINGS/);
-    assert.ok(visit(mounted,e=>e.tag==="button"&&
-      e.title?.startsWith("ROAD OVERLAY")),
-    "Road style button clearly describes display-only styling");
-    assert.ok(visit(mounted,e=>e.tag==="button"&&
-      e.title?.startsWith("NATIVE REGION COLOR")),
-    "generated native Region coloring has an explicitly distinct action");
-    const kind=visit(mounted,e=>e.tag==="select"&&e.value==="checkpoint");
-    kind.value="corridor";kind.listeners.get("change")();
-    assert.match(textContents(mounted),/Already generated.*Keep this native Region/);
-    const preview=visit(mounted,e=>e.tag==="button"&&
-      e.textContent==="FVTTATLAS.Generated.Preview");
-    assert.equal(preview.disabled,true,"duplicate creation is blocked before preview");
-    const refresh=visit(mounted,e=>e.tag==="button"&&
-      e.title==="Refresh this corridor's Atlas-managed native movement costs (confirmation)");
-    assert.ok(refresh,"existing corridor has in-place refresh control");
-    assert.equal(refresh.disabled,false);
-    await refresh.listeners.get("click")({preventDefault(){}});
-    assert.equal(updatedId,"native");
+    const road=visit(mounted,e=>e.attributes?.get("data-atlas-road-id")==="bridge");
+    assert.ok(road);
+    road.open=true;road.listeners.get("toggle")();
+    assert.ok(visit(road,e=>e.tag==="button"&&e.textContent==="Settings"),
+      "Atlas line appearance is edited through Road Settings");
+    assert.ok(visit(road,e=>e.tag==="button"&&e.textContent==="＋ Generate Region"),
+      "native Region generation remains a per-road action");
+    assert.doesNotMatch(textContents(mounted),/REGION SETTINGS/,
+      "the native-cost form is no longer embedded in Scene Atlas");
   } finally {
     for(const [key,value] of Object.entries(saved))globalThis[key]=value;
   }
