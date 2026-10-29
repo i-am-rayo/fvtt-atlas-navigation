@@ -432,8 +432,10 @@ test("v0.2.21 checkpoint icons load locally and labels include owning road on ho
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(loadedPaths,
       ["modules/fvtt-atlas-navigation/assets/checkpoint-icons/mountain.svg"]);
-    assert.equal(sprites.filter(sprite => !sprite.destroyed).length, 1,
-      "exactly one sprite remains displayed after asynchronous redraws");
+    assert.equal(sprites.filter(sprite => sprite.tint === 0xffaa11).length, 1,
+      "only the visible checkpoint marker uses the configured tint");
+    assert.ok(sprites.length >= 9,
+      "the silhouette border is rendered with offset sprites");
     assert.equal(sprites[0].width, 32);
     assert.equal(sprites[0].tint, 0xffaa11);
     assert.equal(sprites[0].position.x, 30);
