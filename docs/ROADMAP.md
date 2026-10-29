@@ -119,6 +119,8 @@ The first deliverable is **GM-only**. Player reveal/hide comes later, after test
 - [ ] Route queries never mutate or duplicate authored road data.
 - [ ] Route remains visible/accurate when zooming and recalculates after edits.
 
+**Phase 3 UI follow-up (owner request, October 29):** Revamp the native Token Settings → Atlas — Party Exploration section before/alongside navigation workflows. Use a compact, consistent settings layout with clearer explorer assignment, a discoverable survey-radius control and units, an obvious saved/active state, and concise guidance. Preserve existing Scene-scoped explorer flags and keep Atlas exploration independent of native token vision. This is planned UX work, **not** a v0.2.32 behavior change.
+
 **Phase 3a is the initial functional GM-only milestone.** Proposed Phase 3b will evaluate road paths with Foundry v14's token-specific terrain movement API (`Token#createTerrainMovementPath` and `Token#measureMovementPath`), including existing Region Behaviors. This requires a selected party token/movement action, verification of whether native path calculations can filter to Atlas-linked Regions safely, and tests for mixed systems, overlapping costs, levels, and Region changes. Distances stay geometric; conversion from movement cost to hours/days requires explicit party travel speed.
 
 ## Phase 4 — Maps, places, and usability polish
