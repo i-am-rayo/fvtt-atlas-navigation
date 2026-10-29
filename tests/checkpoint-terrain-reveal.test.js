@@ -34,14 +34,14 @@ test("unknown is hidden; visited and lore expose only chosen terrain circles", (
   let party = { ...defaultPartyExploration(), enabled: true, tokenId: "party" };
   assert.deepEqual(project(party), []);
   party = setCheckpointKnowledge(party, "bridge", "lore");
-  assert.deepEqual(project(party), [{ x: 110, y: 220, radius: 150 }]);
+  assert.deepEqual(project(party), [{ x: 110, y: 220, radius: 100 }]);
   party = setCheckpointRevealRadius(party, "bridge", 1.25);
   assert.equal(checkpointRevealRadiusCells(party, "bridge"), 1.25);
   assert.deepEqual(project(party), [{ x: 110, y: 220, radius: 62.5 }]);
   party = setCheckpointKnowledge(party, "guild", "visited");
   assert.equal(project(party).length, 2);
   party = setCheckpointKnowledge(party, "bridge", "unknown");
-  assert.deepEqual(project(party), [{ x: 180, y: 220, radius: 150 }],
+  assert.deepEqual(project(party), [{ x: 180, y: 220, radius: 100 }],
     "undo removes only the Atlas overlay disc; no native fog data touched");
 });
 
