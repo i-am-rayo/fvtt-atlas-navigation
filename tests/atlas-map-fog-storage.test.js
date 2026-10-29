@@ -12,6 +12,7 @@ test("GM opts in with a placed token; native fog history is never accessed", asy
   const token = { id: "party-token", x: 100, y: 200, width: 1, height: 1 };
   const scene = {
     id: "atlas-scene", tokenVision: true, grid: { size: 50, distance: 5 },
+    dimensions: { rows: 20, columns: 20 },
     tokens: new Map([[token.id, token]]),
     canUserModify: () => true,
     getFlag: (_module, key) => state.get(key),
@@ -23,7 +24,12 @@ test("GM opts in with a placed token; native fog history is never accessed", asy
   });
   try {
     globalThis.game = { user: { isGM: true } };
-    globalThis.canvas = { ready: true, scene, dimensions: { sceneX: 10, sceneY: 30 } };
+    globalThis.canvas = { ready: true, scene, dimensions: { sceneX: 10, sceneY: 30 },
+      grid: {
+        getShape: () => [{ x: -25, y: -25 }, { x: 25, y: -25 },
+          { x: 25, y: 25 }, { x: -25, y: 25 }],
+        getCenterPoint: ({ i, j }) => ({ x: j * 50 + 25, y: i * 50 + 25 })
+      } };
     const enabled = await saveAtlasMapFogMode(scene, {
       enabled: true, expected: defaultAtlasMapFog()
     });
