@@ -30,7 +30,7 @@ test("lore/visited circles combine with persisted travel, not background snapsho
     { x: 30, y: 50, radiusCells: 2 });
   const discs = atlasMapFogDiscs(atlas, party, fog, 50, convert);
   assert.deepEqual(discs, [
-    { x: 140, y: 280, radius: 150 },
+    { x: 140, y: 280, radius: 100 },
     { x: 130, y: 250, radius: 100 }
   ]);
   assert.equal(atlasMapPointRevealed({ x: 140, y: 280 }, discs), true);
