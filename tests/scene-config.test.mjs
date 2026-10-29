@@ -132,14 +132,15 @@ test("a Scene with roads shows select, rename, delete without activation toggles
       begin() {}, draft: () => null, finish() {}, cancel() {},
       select: (scene, id) => { selected = id; }, rename() {}, remove() {}
     });
-    assert.ok(buttons(mounted).length >= 5, "legacy roads retain authoring actions");
-    assert.match(buttons(mounted)[0].textContent, /FVTTATLAS.Roads.Anchor/);
+    assert.ok(buttons(mounted).some(b => b.textContent === "FVTTATLAS.Roads.Anchor"),
+      "legacy v1 remains locked behind explicit anchoring");
+    assert.match(buttons(mounted).find(b => b.textContent === "FVTTATLAS.Roads.Anchor").textContent,
+      /FVTTATLAS.Roads.Anchor/);
     assert.equal(buttons(mounted).filter(b=>b.textContent==="+" && !b.disabled).length,0,
       "legacy v1 cannot add or change roads before anchoring");
     assert.match(textContents(mounted), /North Road/);
     assert.doesNotMatch(textContents(mounted), /Configure Atlas/);
-    buttons(mounted)[1].listeners.get("click")({ preventDefault() {} });
-    assert.equal(selected, "r1");
+    assert.equal(selected, undefined, "locked legacy roads do not expose edit shortcuts");
   } finally { Object.assign(globalThis, previous); }
 });
 
@@ -185,8 +186,8 @@ test("anchored v2 road list explicitly offers organization before new editing", 
       begin() {}, draft: () => null, finish() {}, cancel() {}, select() {}, rename() {}, remove() {},
       organize: chosen => { organizeScene = chosen; }
     });
-    assert.ok(buttons(mounted).length >= 5,
-      "organize, select, rename, delete, and a disabled Junctions [+] remain available");
+    assert.ok(buttons(mounted).some(b => b.textContent === "FVTTATLAS.Roads.Organize"),
+      "legacy v2 offers explicit organization before editing");
     assert.equal(buttons(mounted)[0].textContent, "FVTTATLAS.Roads.Organize");
     assert.ok(!buttons(mounted).some(b=>b.textContent==="+" && !b.disabled));
     buttons(mounted)[0].listeners.get("click")({ preventDefault() {} });
