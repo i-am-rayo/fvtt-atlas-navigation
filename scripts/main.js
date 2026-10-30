@@ -41,6 +41,7 @@ import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
   validJournalUuid } from "./atlas-journal-links.js";
 import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.js";
 import { AtlasRoadEditorDock, activeRoadDockForSceneConfig } from "./road-editor-dock.js";
+import { AtlasNavigationController } from "./navigation-controller.js";
 
 const roadCanvas = new RoadCanvasController();
 roadCanvas.promptCheckpoint = ({ roads, defaultName }) => new Promise(resolve => {
@@ -56,6 +57,7 @@ roadCanvas.promptCheckpoint = ({ roads, defaultName }) => new Promise(resolve =>
     resolve(null);
   });
 });
+const navigation = new AtlasNavigationController();
 const manualFog = new AtlasManualFogController();
 const fogPalette = new AtlasManualFogPalette(manualFog);
 let roadDock = null;
@@ -98,6 +100,7 @@ function openRoadDock(scene, refresh) {
 }
 
 function beginRoadDock(scene, refresh, start) {
+  navigation.tearDown();
   start(() => syncRoadDock(scene, refresh));
   openRoadDock(scene, refresh);
 }
@@ -1332,7 +1335,7 @@ Hooks.once("init", () => {
           onChange:()=>{
             const scene=canvas?.scene;
             if (!scene) return ui.notifications.warn("Open a Scene first.");
-            try { roadActions.begin(scene,()=>refreshAtlasSceneConfig(scene)); }
+            try { navigation.tearDown(); roadActions.begin(scene,()=>refreshAtlasSceneConfig(scene)); }
             catch(error) { ui.notifications.error(error.message); }
           }
         },
@@ -1340,6 +1343,23 @@ Hooks.once("init", () => {
           name:"atlasBrushPalette",title:"Open Atlas Exploration Brushes",
           icon:"fa-solid fa-paintbrush",order:1,button:true,visible:true,
           onChange:()=>fogPalette.toggle()
+        },
+        atlasNavigation:{
+          name:"atlasNavigation",title:"Atlas Navigation — choose Point A and Point B",
+          icon:"fa-solid fa-compass",order:3,button:true,visible:true,
+          onChange:()=>{
+            try {
+              if(navigation.active) navigation.tearDown();
+              else {
+                const scene=canvas?.scene;
+                if (!scene) throw new Error("Open a Scene first.");
+                if (roadCanvas.getDraft(scene)) throw new Error("Save or cancel the Road Editor before navigating.");
+                manualFog.setBrush(null);
+                fogPalette.close();
+                navigation.activate();
+              }
+            } catch(error) { ui.notifications.error(error.message || String(error)); }
+          }
         },
         atlasGMFogPreview:{
           name:"atlasGMFogPreview",title:"Toggle GM Fog Preview",
@@ -1365,10 +1385,11 @@ Hooks.once("init", () => {
     }
     forgetAtlasSceneConfig(app);
   });
-  Hooks.on("canvasReady", () => { roadCanvas.refresh(); manualFog.refresh(); });
+  Hooks.on("canvasReady", () => { navigation.tearDown(); roadCanvas.refresh(); manualFog.refresh(); });
   // Foundry v14 movement includes origin, passed waypoints and destination.
   Hooks.on("moveToken", observeAtlasTokenMovement);
   Hooks.on("canvasTearDown", () => {
+    navigation.tearDown();
     if (roadDock) {
       roadDock.finished = true;
       void roadDock.close();
@@ -1377,13 +1398,13 @@ Hooks.once("init", () => {
     roadCanvas.tearDown();
     manualFog.tearDown();
   });
-  Hooks.on("canvasPan", view => roadCanvas.onCanvasPan(view));
+  Hooks.on("canvasPan", view => { roadCanvas.onCanvasPan(view); navigation.draw(); });
   Hooks.on("sightRefresh", () => roadCanvas.onFogRefresh());
   Hooks.on("updateFogExploration", () => roadCanvas.onFogRefresh());
   Hooks.on("deleteFogExploration", () => roadCanvas.onFogRefresh());
   Hooks.on("updateScene", scene => {
     if (globalThis.canvas?.ready && canvas.scene?.id === scene.id) {
-      roadCanvas.refresh();manualFog.refresh();
+      navigation.tearDown();roadCanvas.refresh();manualFog.refresh();
       if(fogPalette.open)fogPalette.draw();
     }
   });
