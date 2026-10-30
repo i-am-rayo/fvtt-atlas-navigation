@@ -26,5 +26,7 @@ export function createNativeRouteMeasurement(view, scene, atlas) {
 /** Read-only route query: no Scene flags, token movement, or Region changes. */
 export function calculateSceneRoadRoute(view, scene, atlas, start, end, options = {}) {
   const measurePath = createNativeRouteMeasurement(view, scene, atlas);
-  return calculateRoadRoute(atlas, start, end, { ...options, measurePath });
+  const attachmentTolerancePixels = options.attachmentTolerancePixels ?? scene.grid.size / 2;
+  return calculateRoadRoute(atlas, start, end,
+    { ...options, attachmentTolerancePixels, measurePath });
 }
