@@ -44,6 +44,7 @@ import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
 import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.js";
 import { AtlasRoadEditorDock, activeRoadDockForSceneConfig } from "./road-editor-dock.js";
 import { AtlasNavigationController } from "./navigation-controller.js";
+import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED } from "./navigation-time.js";
 
 const roadCanvas = new RoadCanvasController();
 roadCanvas.promptCheckpoint = ({ roads, defaultName }) => new Promise(resolve => {
@@ -1339,6 +1340,12 @@ function atlasGridChangeNotice(scene, change, options) {
 }
 
 Hooks.once("init", () => {
+  game.settings.register(MODULE_ID, NAVIGATION_SPEED_SETTING, {
+    name:"Atlas Default Overland Speed",
+    hint:"Default GM navigation speed in the active Scene's grid distance units per hour (e.g. km/hour for a km Scene). Can be overridden in Navigation. Does not alter token speeds.",
+    scope:"world",config:true,type:Number,default:DEFAULT_NAVIGATION_SPEED,
+    range:{min:0.1,max:1000,step:0.1}
+  });
   game.settings.register(MODULE_ID, "hiddenOverlayHatching", {
     name: "GM Hidden-Item Hatching",
     hint: "Draw subtle burgundy diagonal hatching over GM-visible roads and checkpoints that players have not discovered. Never shown to players.",
