@@ -38,9 +38,10 @@ export function calculateSceneRoadRoute(view, scene, atlas, start, end, options 
   const action = options.movementAction ?? "walk";
   const regions = [];
   let unsupported = false;
+  const incompatible=[];
   let presets=[];
   try {presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING)).presets;}
-  catch {unsupported=true;}
+  catch {unsupported=true;incompatible.push("Atlas World presets");}
   for (const region of scene.regions?.contents ?? []) {
     const cost = nativeCostSummary(region);
     if (!cost.existing || cost.disabled) continue;
@@ -48,6 +49,7 @@ export function calculateSceneRoadRoute(view, scene, atlas, start, end, options 
         cost.actualCosts[action] <= 0 || !Array.from(region.shapes ?? []).every(shape =>
           ["polygon", "ellipse"].includes(shape.type))) {
       unsupported = true;
+      incompatible.push(region.name || region.id);
       continue;
     }
     const priority = routingPriority(region.getFlag?.(MODULE_ID, REGION_ROUTING_PRIORITY_FLAG));
@@ -72,6 +74,8 @@ export function calculateSceneRoadRoute(view, scene, atlas, start, end, options 
       terrainSlices:measureCost.describe(leg.points).slices }));
   }
   return { ...route, terrainWarning: unsupported
-    ? "Native/manual movement-cost Regions cannot be safely resolved; showing distance-only navigation."
+    ? "Native/manual movement costs cannot be safely resolved for: " +
+      incompatible.slice(0,3).join(", ") + (incompatible.length>3?` (+${incompatible.length-3} more)`:"") +
+      ". Showing distance-only navigation; inspect their native Behaviors in Foundry."
     : useTerrain ? "Terrain costs are a sampled Atlas estimate, not native Token movement measurements." : null };
 }
