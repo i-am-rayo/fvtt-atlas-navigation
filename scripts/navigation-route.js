@@ -82,9 +82,10 @@ function candidates(geometries, point, limit, tolerance) {
  * @param {object} options measurePath(points) returns native Grid distance.
  * @returns {{status:string, distance?:number, legs?:object[], start:object, end:object}}
  */
-export function calculateRoadRoute(atlas, start, end, { measurePath, candidateLimit = 8, attachmentTolerancePixels = 0 } = {}) {
+export function calculateRoadRoute(atlas, start, end, { measurePath, measureCost = null, candidateLimit = 8, attachmentTolerancePixels = 0 } = {}) {
   if (!finitePoint(start) || !finitePoint(end)) throw new Error("Select two valid map locations.");
   if (typeof measurePath !== "function") throw new Error("Native Scene Grid measurement is required.");
+  if (measureCost !== null && typeof measureCost !== "function") throw new Error("Invalid terrain cost adapter.");
   if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 32) {
     throw new Error("Route attachment limit must be between 1 and 32.");
   }
@@ -100,6 +101,9 @@ export function calculateRoadRoute(atlas, start, end, { measurePath, candidateLi
   const toHits = candidates(geometries, end, candidateLimit, attachmentTolerancePixels);
   const graph = new Map();
   const addEdge = (from, to, leg, reversible = false) => {
+    const cost = measureCost ? measureCost(leg.points, leg) : leg.distance;
+    if (!Number.isFinite(cost) || cost < 0) throw new Error("Invalid terrain route cost.");
+    leg = { ...leg, cost };
     if (!graph.has(from)) graph.set(from, []);
     graph.get(from).push({ to, leg });
     if (reversible) addEdge(to, from, { ...leg, points: [...leg.points].reverse() });
@@ -143,7 +147,7 @@ export function calculateRoadRoute(atlas, start, end, { measurePath, candidateLi
     const edges = graph.get(state.node) ?? [];
     for (const edge of edges) {
       const usedRoad = state.usedRoad || (edge.leg.kind === "road" && edge.leg.distance > EPSILON);
-      const key = stateKey(edge.to, usedRoad), total = state.distance + edge.leg.distance;
+      const key = stateKey(edge.to, usedRoad), total = state.distance + edge.leg.cost;
       if (total < (best.get(key) ?? Infinity) - EPSILON) {
         best.set(key, total);
         previous.set(key, { key: state.key, leg: edge.leg });
@@ -161,5 +165,7 @@ export function calculateRoadRoute(atlas, start, end, { measurePath, candidateLi
     cursor = item.key;
   }
   legs.reverse();
-  return { status: "ok", distance: best.get(goal), legs, start: { ...start }, end: { ...end } };
+  return { status: "ok", distance: legs.reduce((sum,leg)=>sum+leg.distance,0),
+    cost: best.get(goal), terrainAware: !!measureCost,
+    legs, start: { ...start }, end: { ...end } };
 }
