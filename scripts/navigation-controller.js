@@ -2,6 +2,7 @@ import { readAtlas } from "./atlas-storage.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 import { calculateSceneRoadRoute } from "./navigation-foundry.js";
 import { roadStrokeSpans } from "./road-appearance.js";
+import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.js";
 
 const el = (tag, content) => {
   const node = document.createElement(tag);
@@ -108,19 +109,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     for (const leg of this.result?.legs ?? []) {
       const points = leg.points.map(canvasPoint);
       const spans = leg.kind === "road" ? [points] : roadStrokeSpans(points, "dashed", 4);
-      for (const span of spans) {
-        if (span.length < 2) continue;
-        graphics.moveTo(span[0].x, span[0].y);
-        for (const p of span.slice(1)) graphics.lineTo(p.x, p.y);
-      }
-      graphics.stroke({ color:0xffa51f, width:leg.kind==="road"?6:3.5,
-        alpha:0.95, cap:"round", join:"round" });
+      drawNavigationLine(graphics, spans, {
+        color:0xffa51f, width:leg.kind==="road"?6:3.5, alpha:0.95
+      });
     }
     for (const [point,color] of [[this.start,0x16b9a1],[this.end,0xf34c4c]]) {
       if (!point) continue;
       const p=canvasPoint(point);
-      graphics.circle(p.x,p.y,10).fill({color:0x0c101a,alpha:0.95});
-      graphics.circle(p.x,p.y,7).fill({color});
+      drawNavigationMarker(graphics, p, color);
     }
   }
 
