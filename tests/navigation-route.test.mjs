@@ -39,6 +39,22 @@ test("shortest network route beats an apparently direct but longer loop",()=>{
   assert.ok(!result.legs.some(l=>l.segmentId==="detour"));
 });
 
+test("terrain cost can prefer longer roads while reported distance stays physical",()=>{
+  const atlas=base([
+    {id:"a",x:0,y:0},{id:"b",x:50,y:60},{id:"c",x:100,y:0}
+  ],[road("direct","a","c"),road("up","a","b"),road("down","b","c")]);
+  const result=calculateRoadRoute(atlas,point(0,0),point(100,0),{
+    measurePath:native,candidateLimit:3,
+    measureCost:(points,leg)=>native(points)*(leg.segmentId==="direct"?3:1)
+  });
+  assert.equal(result.status,"ok");
+  assert.ok(result.legs.some(l=>l.segmentId==="up"));
+  assert.ok(result.legs.some(l=>l.segmentId==="down"));
+  assert.ok(!result.legs.some(l=>l.segmentId==="direct"));
+  assert.ok(result.distance>100);
+  assert.equal(result.cost,result.distance);
+});
+
 test("visual road intersections never imply a junction",()=>{
   const atlas=base([
     {id:"left",x:0,y:50},{id:"right",x:100,y:50},
