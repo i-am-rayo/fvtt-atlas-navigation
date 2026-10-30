@@ -31,7 +31,7 @@ test("shortest network route beats an apparently direct but longer loop",()=>{
     road("ab","a","b"),road("bc","b","c"),road("cd","c","d"),
     road("detour","a","d","main",[point(-200,50)])
   ]);
-  const result=calculateRoadRoute(atlas,point(0,0),point(0,100),{measurePath:native,candidateLimit:4});
+  const result=calculateRoadRoute(atlas,point(0,0),point(0,100),{measurePath:native,candidateLimit:1});
   assert.equal(result.status,"ok");
   assert.ok(result.legs.some(l=>l.segmentId==="ab"));
   assert.ok(result.legs.some(l=>l.segmentId==="bc"));
