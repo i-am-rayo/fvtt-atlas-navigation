@@ -54,10 +54,34 @@ test("refuses disconnected or cross-road pairs",()=>{
  atlas.segments[1] = {...atlas.segments[1],from:"c",to:"e"};
  assert.throws(()=>buildGeneratedRegionPlan(atlas,{...settings,kind:"corridor"}),/disconnected/);
 });
-test("refuses an ambiguous same-road loop rather than choosing a route",()=>{
+test("loop chooses the shortest geometric corridor and explicitly marks alternatives",()=>{
  const atlas=fixture();
  atlas.segments.push({id:"loop",roadId:"road",from:"a",to:"c",via:[],bidirectional:true});
- assert.throws(()=>buildGeneratedRegionPlan(atlas,{...settings,kind:"corridor"}),/More than one/);
+ const plan=buildGeneratedRegionPlan(atlas,{...settings,kind:"corridor"});
+ assert.equal(plan.routeSelection.alternatives,true);
+ assert.deepEqual(plan.routeSelection.segmentIds,["loop"]);
+ assert.deepEqual(plan.points,[{x:10,y:20},{x:110,y:120}]);
+ assert.equal(plan.shapes.length,3);
+ const repeat=buildGeneratedRegionPlan(atlas,{...settings,kind:"corridor"});
+ assert.equal(repeat.generatedRegion.shapeSignature,plan.generatedRegion.shapeSignature);
+});
+test("same-road alternate paths consider shaping bends, not just segment count",()=>{
+ const atlas=fixture();
+ atlas.segments.push({id:"direct-but-long",roadId:"road",from:"a",to:"c",
+   via:[{x:-250,y:50}],bidirectional:true});
+ const plan=buildGeneratedRegionPlan(atlas,{...settings,kind:"corridor"});
+ assert.equal(plan.routeSelection.alternatives,true);
+ assert.deepEqual(plan.routeSelection.segmentIds,["s1","s2"]);
+ assert.equal(plan.points.length,4);
+});
+test("equal-length choices use deterministic section IDs for stable preview signatures",()=>{
+ const atlas=fixture();
+ atlas.segments=[...atlas.segments.filter(s=>s.roadId!=="road"),
+   {id:"b-path",roadId:"road",from:"a",to:"c",via:[],bidirectional:true},
+   {id:"a-path",roadId:"road",from:"a",to:"c",via:[],bidirectional:true}];
+ const plan=buildGeneratedRegionPlan(atlas,{...settings,kind:"corridor"});
+ assert.deepEqual(plan.routeSelection.segmentIds,["a-path"]);
+ assert.equal(plan.routeSelection.alternatives,true);
 });
 test("allows other roads to cross without connecting automatically",()=>{
  const atlas=fixture();
