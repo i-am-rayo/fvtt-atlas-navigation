@@ -1,6 +1,32 @@
 /** Read-only Atlas routing priorities. Never affects native Region Behaviors. */
 export const REGION_ROUTING_PRIORITY_FLAG = "routingPriority";
 export const DEFAULT_ROUTING_PRIORITY = 0;
+export const REGION_ROUTING_ORDER_FLAG = "routingRegionOrder";
+
+/** Scene-wide, explicit ordering: first matching Region takes precedence. */
+export function orderedRoutingRegions(regions, order = null) {
+  const ids = regions.map(region => region.id);
+  if (order !== null && (!Array.isArray(order) || order.some(id =>
+      typeof id !== "string") || new Set(order).size !== order.length)) {
+    throw new Error("Atlas Region order is invalid; no routing priorities were changed.");
+  }
+  // Deleted Regions can leave stale IDs in this read-only ranking snapshot.
+  const rank = new Map((order ?? []).filter(id=>ids.includes(id)).map((id,index)=>[id,index]));
+  return [...regions].sort((a,b)=>
+    (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity) ||
+    routingPriority(b.priority) - routingPriority(a.priority) || a.id.localeCompare(b.id));
+}
+
+export function moveRoutingRegion(regions, order, movingId, targetId) {
+  const ordered = orderedRoutingRegions(regions, order).map(region => region.id);
+  if (!ordered.includes(movingId) || !ordered.includes(targetId))
+    throw new Error("Choose two existing Atlas-generated Regions.");
+  if (movingId === targetId) return ordered;
+  const after = ordered.indexOf(movingId) < ordered.indexOf(targetId);
+  const next = ordered.filter(id => id !== movingId);
+  next.splice(next.indexOf(targetId)+(after?1:0),0,movingId);
+  return next;
+}
 
 export function routingPriority(value) {
   if (value == null) return DEFAULT_ROUTING_PRIORITY;
@@ -13,7 +39,9 @@ export function routingPriority(value) {
 /** Highest priority wins, stable region ID breaks equal-priority ties. */
 export function resolveRoutingRegion(regions) {
   const sorted = [...regions].sort((a,b) =>
-    routingPriority(b.priority) - routingPriority(a.priority) || a.id.localeCompare(b.id));
+    (Number.isSafeInteger(a.rank) && Number.isSafeInteger(b.rank)
+      ? a.rank - b.rank : routingPriority(b.priority) - routingPriority(a.priority)) ||
+      a.id.localeCompare(b.id));
   return sorted[0] ?? null;
 }
 
@@ -52,8 +80,9 @@ export function createRegionCostMeasurement({ regions, measurePath, toCanvasPoin
   if (!Number.isFinite(gridSize) || gridSize <= 0 || typeof measurePath !== "function" ||
       typeof toCanvasPoint !== "function") throw new Error("Native grid routing adapter is unavailable.");
   const stepSize = gridSize / 2;
-  return points => {
+  const describe = points => {
     let weightedPixels = 0, totalPixels = 0, count = 0;
+    const slices=[];
     for (let i = 1; i < points.length; i++) {
       const from = points[i-1], to = points[i];
       const a = toCanvasPoint(from), b = toCanvasPoint(to);
@@ -67,12 +96,24 @@ export function createRegionCostMeasurement({ regions, measurePath, toCanvasPoin
         const length = Math.hypot(q.x-p.x,q.y-p.y);
         totalPixels += length;
         weightedPixels += length * (winner?.multiplier ?? 1);
+        const label=winner?.surface ?? winner?.name ?? "Unspecified terrain";
+        const key=winner?.id ?? null;
+        const last=slices.at(-1);
+        if(last?.regionId===key)last.pixels+=length;
+        else slices.push({regionId:key,terrain:label,multiplier:winner?.multiplier??1,pixels:length});
       }
     }
     // Native grid measurement of the whole leg is authoritative. Measuring
     // each sub-cell sample separately would overcount diagonal/grid rounding.
     const distance = measurePath(points.map(toCanvasPoint));
     if (!Number.isFinite(distance) || distance < 0) throw new Error("Native route distance is unavailable.");
-    return totalPixels ? distance * weightedPixels / totalPixels : distance;
+    return {
+      cost:totalPixels ? distance * weightedPixels / totalPixels : distance,
+      slices:slices.map(item=>({regionId:item.regionId,terrain:item.terrain,
+        multiplier:item.multiplier,distance:totalPixels?distance*item.pixels/totalPixels:0}))
+    };
   };
+  const measure = points=>describe(points).cost;
+  measure.describe = describe;
+  return measure;
 }
