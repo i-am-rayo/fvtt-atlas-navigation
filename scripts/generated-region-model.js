@@ -26,42 +26,59 @@ function roadAndCheckpoint(atlas, roadId, checkpointId) {
 
 function chainBetween(atlas, roadId, fromId, toId) {
   if (fromId === toId) throw new Error("Select two different checkpoints.");
+  const nodes = new Map(atlas.nodes.map(node => [node.id, node]));
   const adjacency = new Map();
   for (const segment of atlas.segments.filter(s => s.roadId === roadId)) {
+    const points = [nodes.get(segment.from), ...segment.via, nodes.get(segment.to)];
+    const length = points.slice(1).reduce((sum, p, i) =>
+      sum + Math.hypot(p.x - points[i].x, p.y - points[i].y), 0);
+    if (!(length > 0) || !Number.isFinite(length)) {
+      throw new Error("A named-road section has invalid corridor geometry.");
+    }
     for (const [a, b] of [[segment.from, segment.to], [segment.to, segment.from]]) {
       if (!adjacency.has(a)) adjacency.set(a, []);
-      adjacency.get(a).push({ nodeId: b, segment });
+      adjacency.get(a).push({ nodeId:b, segment, length });
     }
   }
-  const path = (forbiddenId = null) => {
-    const visited = new Set([fromId]), queue = [fromId], cameFrom = new Map();
-    for (let i = 0; i < queue.length; i++) {
-      const node = queue[i];
-      for (const edge of adjacency.get(node) ?? []) {
-        if (edge.segment.id === forbiddenId || visited.has(edge.nodeId)) continue;
-        visited.add(edge.nodeId);
-        cameFrom.set(edge.nodeId, { from: node, segment: edge.segment });
-        if (edge.nodeId === toId) {
-          const result = [];
-          let cursor = toId;
-          while (cursor !== fromId) {
-            const item = cameFrom.get(cursor);
-            result.unshift({ ...item, to: cursor });
-            cursor = item.from;
-          }
-          return result;
+  // Deterministic shortest geometric corridor. Terrain movement costs do not
+  // influence native Region geometry; no road or Region data is modified.
+  const solve = (forbiddenId = null) => {
+    const distances = new Map([[fromId, 0]]);
+    const routes = new Map();
+    const visited = new Set();
+    while (true) {
+      const next = [...distances.keys()].filter(id => !visited.has(id))
+        .sort((a, b) => distances.get(a) - distances.get(b) || a.localeCompare(b))[0];
+      if (!next) return null;
+      if (next === toId) {
+        const result = [];
+        let cursor = toId;
+        while (cursor !== fromId) {
+          const edge = routes.get(cursor);
+          if (!edge) throw new Error("Incomplete corridor path.");
+          result.unshift({ from:edge.from, to:cursor, segment:edge.segment });
+          cursor = edge.from;
         }
-        queue.push(edge.nodeId);
+        return { steps:result, distancePixels:distances.get(toId) };
+      }
+      visited.add(next);
+      for (const edge of [...(adjacency.get(next) ?? [])].sort((a,b) =>
+        a.segment.id.localeCompare(b.segment.id) || a.nodeId.localeCompare(b.nodeId))) {
+        if (edge.segment.id === forbiddenId || visited.has(edge.nodeId)) continue;
+        const candidate = distances.get(next) + edge.length;
+        if (candidate < (distances.get(edge.nodeId) ?? Infinity) - 1e-8) {
+          distances.set(edge.nodeId, candidate);
+          routes.set(edge.nodeId, { from:next, segment:edge.segment });
+        }
       }
     }
-    return null;
   };
-  const chosen = path();
-  if (!chosen) throw new Error("These checkpoints are disconnected on the selected road.");
-  if (chosen.some(edge => path(edge.segment.id))) {
-    throw new Error("More than one route connects these checkpoints on this named road. Choose an unambiguous corridor.");
-  }
-  return chosen;
+  const selected = solve();
+  if (!selected) throw new Error("These checkpoints are disconnected on the selected road.");
+  return {
+    ...selected,
+    alternatives: selected.steps.some(edge => solve(edge.segment.id) !== null)
+  };
 }
 
 function edgePoints(atlas, chosen) {
@@ -168,7 +185,7 @@ export function buildGeneratedRegionPlan(atlasData, {
   const nodes = new Map(atlas.nodes.map(n => [n.id, n]));
   const radius = widthCells * gridSize;
   const project = point => ({ x: point.x + origin.x, y: point.y + origin.y });
-  let points, checkpointIds, name, shapes;
+  let points, checkpointIds, name, shapes, routeSelection = null;
   if (kind === "checkpoint") {
     points = [project(requirePoint(nodes.get(first.nodeId)))];
     checkpointIds = [first.id];
@@ -176,8 +193,8 @@ export function buildGeneratedRegionPlan(atlasData, {
     shapes = [ellipse(points[0], radius)];
   } else {
     const last = roadAndCheckpoint(atlas, roadId, endCheckpointId);
-    points = edgePoints(atlas, chainBetween(atlas, roadId, first.nodeId, last.nodeId))
-      .map(project);
+    routeSelection = chainBetween(atlas, roadId, first.nodeId, last.nodeId);
+    points = edgePoints(atlas, routeSelection.steps).map(project);
     checkpointIds = [first.id, last.id].sort();
     name = road.name + " — " + first.name + " → " + last.name;
     shapes = [];
@@ -192,5 +209,10 @@ export function buildGeneratedRegionPlan(atlasData, {
     shapeSignature: shapeSignature(shapes)
   });
   return { name, kind, roadId, checkpointIds, startCheckpointId: first.id, endCheckpointId: kind === "corridor" ? endCheckpointId : null, points, radius, shapes, generatedRegion,
-    expectedRevision: atlas.revision };
+    expectedRevision: atlas.revision,
+    ...(routeSelection ? { routeSelection: {
+      alternatives:routeSelection.alternatives,
+      distancePixels:routeSelection.distancePixels,
+      segmentIds:routeSelection.steps.map(step => step.segment.id)
+    }} : {}) };
 }
