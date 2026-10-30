@@ -12,7 +12,8 @@ import { REGION_TRAVEL_PRESET_FLAG, TRAVEL_PRESET_SETTING,
 import { buildNativeMovementCostBehavior, nativeCostBehaviors, nativeCostSummary,
   editableManagedNativeCost, sameMovementCosts }
   from "./native-movement-cost.js";
-import { routingPriority, REGION_ROUTING_PRIORITY_FLAG } from "./navigation-terrain.js";
+import { routingPriority, REGION_ROUTING_PRIORITY_FLAG, REGION_ROUTING_ORDER_FLAG,
+  orderedRoutingRegions, moveRoutingRegion } from "./navigation-terrain.js";
 
 function checkScene(scene) {
   const user = globalThis.game?.user;
@@ -65,6 +66,22 @@ export async function setGeneratedRegionRoutingPriority(scene, regionId, priorit
     throw new Error("Choose an editable Atlas-generated Region.");
   }
   await region.setFlag(MODULE_ID, REGION_ROUTING_PRIORITY_FLAG, priority);
+}
+
+export function listSceneOrderedGeneratedRegions(scene) {
+  const regions = listGeneratedRegions(scene).filter(entry => entry.metadata);
+  const saved = scene.getFlag?.(MODULE_ID, REGION_ROUTING_ORDER_FLAG) ?? null;
+  return orderedRoutingRegions(regions, saved);
+}
+
+/** One atomic Scene flag update, no native Region edits or Behavior changes. */
+export async function moveSceneGeneratedRegion(scene, movingId, targetId) {
+  checkScene(scene);
+  const regions = listGeneratedRegions(scene).filter(entry => entry.metadata);
+  const order = scene.getFlag?.(MODULE_ID, REGION_ROUTING_ORDER_FLAG) ?? null;
+  const next = moveRoutingRegion(regions, order, movingId, targetId);
+  await scene.setFlag(MODULE_ID, REGION_ROUTING_ORDER_FLAG, next);
+  return next;
 }
 
 function matchingRegion(scene, flag) {
