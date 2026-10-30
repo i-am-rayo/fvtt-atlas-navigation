@@ -27,7 +27,8 @@ import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-a
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
   applyGeneratedRegionPresetColor, updateGeneratedRegionMovementCost,
-  setGeneratedRegionRoutingPriority } from "./generated-region.js";
+  listSceneOrderedGeneratedRegions,
+  moveSceneGeneratedRegion } from "./generated-region.js";
 import { availableMovementActions, readPreset, previewNativeMovementCost }
   from "./native-movement-cost.js";
 import { presetCostSummary } from "./travel-preset-model.js";
@@ -535,7 +536,7 @@ function actions() {
           row.append(name,btn);checkpointTarget.appendChild(row);
         }
         const regions=new Map();
-        for (const entry of listGeneratedRegions(scene)) {
+        for (const entry of listSceneOrderedGeneratedRegions(scene)) {
           if (entry.metadata?.roadId===road.id) regions.set(entry.id,entry.name);
         }
         for (const entry of scene.regions?.contents??[]) {
@@ -557,10 +558,11 @@ function actions() {
           btn.style.cssText="flex:0 0 auto;width:auto;min-width:8rem;white-space:nowrap;";
           const managed=listGeneratedRegions(scene).find(entry=>entry.id===id);
           if(managed?.metadata){
-            const priority=document.createElement("button");priority.type="button";
-            priority.textContent="Route priority: "+managed.priority;
-            priority.dataset.atlasRegionPriority=id;
-            row.append(label,priority,btn);
+            const handle=document.createElement("span");
+            handle.textContent="☰";handle.title="Drag to reorder routing priority (top wins)";
+            handle.style.cssText="cursor:grab;padding:.3rem;user-select:none;";
+            row.draggable=true;row.dataset.atlasRegionSortable=id;
+            row.append(handle,label,btn);
           }else row.append(label,btn);
           regionTarget.appendChild(row);
         }
@@ -599,7 +601,7 @@ function actions() {
         }
       };
       const onTabClick = event => {
-        const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-region-edit],[data-atlas-region-priority]");
+        const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-region-edit]");
         if (action?.closest?.(".application")?.querySelector?.('input[name="atlasRoadName"]')) {
           event.preventDefault();event.stopImmediatePropagation();
           const tool=action.dataset.atlasRoadTool;
@@ -612,28 +614,6 @@ function actions() {
             :tool==="generateRegion" ? ()=>openAtlasRegionGenerator(scene,road.id,api,refresh)
             :action.dataset.atlasCheckpointEdit ? ()=>api.editCheckpointAppearance(
               scene,readAtlas(scene).checkpoints.find(c=>c.id===action.dataset.atlasCheckpointEdit),refresh)
-            :action.dataset.atlasRegionPriority ? async()=>{
-              const id=action.dataset.atlasRegionPriority;
-              const existing=listGeneratedRegions(scene).find(entry=>entry.id===id);
-              if(!existing?.metadata)throw Error("The Atlas Region changed. Reopen Road Settings.");
-              const container=document.createElement("div");
-              const hint=document.createElement("p");
-              hint.textContent="Highest priority wins for Atlas navigation only (−100 to 100). Native Foundry movement Behaviors are unchanged.";
-              const field=document.createElement("input");field.type="number";
-              field.name="atlasRoutingPriority";field.min="-100";field.max="100";
-              field.step="1";field.value=String(existing.priority);
-              container.append(hint,field);
-              const answer=await foundry.applications.api.DialogV2.input({
-                window:{title:"Atlas Region routing priority"},content:container,
-                ok:{label:"Save Priority"},rejectClose:false,modal:true
-              });
-              if(!answer)return;
-              const raw=String(answer.atlasRoutingPriority??"").trim();
-              if(!/^-?\d+$/.test(raw))throw Error("Enter a whole-number routing priority.");
-              await setGeneratedRegionRoutingPriority(scene,id,Number(raw));
-              populateRelatedLists(checkpointList,regionList);
-              ui.notifications.info("Atlas routing priority saved; native Region Behaviors unchanged.");
-            }
             :()=>api.configureRegion(scene,action.dataset.atlasRegionEdit);
           void Promise.resolve().then(call).catch(error=>ui.notifications.error(error.message));
           return;
@@ -687,6 +667,35 @@ function actions() {
       document.addEventListener("input",onRangeInput,true);
       document.addEventListener("dragover", onJournalDragOver, true);
       document.addEventListener("drop", onJournalDrop, true);
+      let movingRegionId=null;
+      const sortableRegion=event=>{
+        const row=event.target?.closest?.("[data-atlas-region-sortable]");
+        return row?.closest?.('[data-atlas-road-live="'+roadDialogToken+'"]') ? row : null;
+      };
+      const onRegionDragStart=event=>{
+        const row=sortableRegion(event);
+        if(!row)return;
+        movingRegionId=row.dataset.atlasRegionSortable;
+        event.dataTransfer?.setData("text/plain",movingRegionId);
+        if(event.dataTransfer)event.dataTransfer.effectAllowed="move";
+      };
+      const onRegionDragOver=event=>{
+        if(!movingRegionId || !sortableRegion(event))return;
+        event.preventDefault();
+        if(event.dataTransfer)event.dataTransfer.dropEffect="move";
+      };
+      const onRegionDrop=event=>{
+        const row=sortableRegion(event);
+        if(!row || !movingRegionId)return;
+        event.preventDefault();event.stopImmediatePropagation();
+        const source=movingRegionId;movingRegionId=null;
+        void moveSceneGeneratedRegion(scene,source,row.dataset.atlasRegionSortable)
+          .then(()=>populateRelatedLists(checkpointList,regionList))
+          .catch(error=>ui.notifications.error(error.message));
+      };
+      document.addEventListener("dragstart",onRegionDragStart,true);
+      document.addEventListener("dragover",onRegionDragOver,true);
+      document.addEventListener("drop",onRegionDrop,true);
       let result;
       try {
         result = await DialogV2.input({
@@ -704,6 +713,9 @@ function actions() {
         document.removeEventListener("input",onRangeInput,true);
         document.removeEventListener("dragover", onJournalDragOver, true);
         document.removeEventListener("drop", onJournalDrop, true);
+        document.removeEventListener("dragstart",onRegionDragStart,true);
+        document.removeEventListener("dragover",onRegionDragOver,true);
+        document.removeEventListener("drop",onRegionDrop,true);
       }
       if (!result) return;
       if (!Object.hasOwn(result,"atlasJournalUuid"))
