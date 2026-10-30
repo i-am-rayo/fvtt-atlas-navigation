@@ -92,3 +92,48 @@ test("compact checkpoint and junction docks keep persistent map instructions", a
     }
   }
 });
+
+test("floating Save Points remains available after its parent Scene sheet closes", async () => {
+  const previous = {
+    foundry: globalThis.foundry, document: globalThis.document,
+    game: globalThis.game, window: globalThis.window
+  };
+  try {
+    globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
+    globalThis.document = { createElement: tag => new Element(tag) };
+    globalThis.window = { innerWidth: 1280, innerHeight: 800 };
+    globalThis.game = { user: { isGM: true } };
+    const { AtlasRoadEditorDock, activeRoadDockForSceneConfig } =
+      await import("../scripts/road-editor-dock.js");
+    const scene = { id: "dock-scene", canUserModify: () => true };
+    const sheet = { document: scene, rendered: true };
+    let draft = { mode: "points", points: 12, dirty: true, canUndo: false };
+    let saved = 0, canceled = 0;
+    const controller = { getDraft: s => s.id === scene.id ? draft : null };
+    const dock = new AtlasRoadEditorDock({
+      scene, sceneSheet: sheet, controller,
+      onFinish: async () => { saved++; draft = null; return true; },
+      onCancel: () => { canceled++; draft = null; },
+      onClosed() {}
+    });
+    let editorEnded = false;
+    if (!activeRoadDockForSceneConfig(sheet, dock, controller)) editorEnded = true;
+    sheet.rendered = false;
+    assert.equal(editorEnded, false, "closing the parent sheet preserves the active point session");
+    assert.equal(activeRoadDockForSceneConfig({ document: { id: "other" } },
+      dock, controller), false, "other Scene sheets do not own this editor");
+    const root = await dock._renderHTML();
+    assert.ok(button(root, "Save Points"), "Save Points remains available");
+    dock.close = async () => { dock._onClose({}); };
+    await button(root, "Save Points").listeners.get("click")();
+    assert.equal(saved, 1);
+    assert.equal(canceled, 0, "a successful dock save is not canceled by sheet closure");
+    assert.equal(draft, null);
+    assert.equal(dock.finished, true);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete globalThis[key];
+      else globalThis[key] = value;
+    }
+  }
+});
