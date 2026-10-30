@@ -177,6 +177,10 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
     plan.kind === "checkpoint"
       ? "A native Region around this one checkpoint."
       : "A native corridor following the connected road geometry.",
+    ...(plan.routeSelection?.alternatives ? [
+      "This named road has multiple paths between these checkpoints. Atlas selected the shortest stored road path (" +
+      plan.routeSelection.segmentIds.length + " section(s)). Review the highlighted preview. Cancel if this is not the path you intended."
+    ] : []),
     "Half-width: " + plan.generatedRegion.widthCells + " grid cells (" +
       Math.round(plan.radius * 100) / 100 + " px). " +
       plan.shapes.length + " native shape(s).",
