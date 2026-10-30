@@ -9,6 +9,16 @@ const element = (tag, content) => {
 };
 
 /**
+ * A floating point editor owns its transient Scene edit independently of the
+ * Scene configuration sheet. Closing that sheet must not discard pending edits.
+ */
+export function activeRoadDockForSceneConfig(app, dock, controller) {
+  const scene = app?.document;
+  return Boolean(scene?.id && dock?.scene?.id === scene.id &&
+    controller?.getDraft?.(scene));
+}
+
+/**
  * Modeless, transient authoring controls. No Scene write occurs until Finish;
  * closing the dock discards active road point/creation edits just like Cancel.
  */
