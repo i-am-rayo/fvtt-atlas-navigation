@@ -17,10 +17,10 @@ jobs:
       contents: read
     steps:
       - name: Check out the module
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Check syntax and run tests
         run: npm run check
