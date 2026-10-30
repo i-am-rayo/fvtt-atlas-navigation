@@ -40,7 +40,7 @@ import { AtlasCheckpointAppearanceEditor } from "./checkpoint-appearance-editor.
 import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
   validJournalUuid } from "./atlas-journal-links.js";
 import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.js";
-import { AtlasRoadEditorDock } from "./road-editor-dock.js";
+import { AtlasRoadEditorDock, activeRoadDockForSceneConfig } from "./road-editor-dock.js";
 
 const roadCanvas = new RoadCanvasController();
 roadCanvas.promptCheckpoint = ({ roads, defaultName }) => new Promise(resolve => {
@@ -1324,7 +1324,7 @@ Hooks.once("init", () => {
       name:"atlasManualFog",title:"Atlas Exploration",
       icon:"fa-solid fa-map",order:Object.keys(controls).length,
       visible:true,
-      onChange:(_event,active)=>{if(active)fogPalette.show();},
+      // Selecting this control never opens the brush palette; the brush tool does.
       tools:{
         atlasAddRoad:{
           name:"atlasAddRoad",title:"Draw Atlas Road",
@@ -1358,11 +1358,11 @@ Hooks.once("init", () => {
     addAtlasRoadsToSceneConfig(app, element, roadActions);
   });
   Hooks.on("closeSceneConfig", app => {
-    if (roadDock?.sceneSheet === app) {
-      roadDock.finished = true;
-      void roadDock.close();
+    // The floating dock owns an active edit even after its parent Scene sheet closes.
+    // Save Points / Cancel, not the sheet lifecycle, must resolve that edit.
+    if (!activeRoadDockForSceneConfig(app, roadDock, roadCanvas)) {
+      roadCanvas.endEditor(app?.document);
     }
-    roadCanvas.endEditor(app?.document);
     forgetAtlasSceneConfig(app);
   });
   Hooks.on("canvasReady", () => { roadCanvas.refresh(); manualFog.refresh(); });
