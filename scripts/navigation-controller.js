@@ -1,8 +1,14 @@
 import { readAtlas } from "./atlas-storage.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 import { calculateSceneRoadRoute } from "./navigation-foundry.js";
-import { roadStrokeSpans } from "./road-appearance.js";
+import { roadStrokeSpans, smoothRoadPath, readRoadCurvePreset,
+  roadCurveNeighbors } from "./road-appearance.js";
 import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.js";
+import { clipNavigationSpline } from "./navigation-curvature.js";
+import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
+  validateNavigationSpeed, navigationHours, formatNavigationDuration }
+  from "./navigation-time.js";
+import { buildNavigationSteps } from "./navigation-instructions.js";
 
 const el = (tag, content) => {
   const node = document.createElement(tag);
@@ -29,6 +35,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.overlay = null;
     this.pointerDown = this.onPointerDown.bind(this);
     this.closedByController = false;
+    this.speedOverride = null;
   }
 
   get active() { return Boolean(this.scene); }
@@ -106,8 +113,24 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     graphics.clear();
     const atlas = readAtlas(this.scene);
     const canvasPoint = p => toCanvasPoint(view, atlas, p);
+    const nodes=new Map(atlas.nodes.map(n=>[n.id,n]));
+    const segments=new Map(atlas.segments.map(s=>[s.id,s]));
+    const neighbors=roadCurveNeighbors(atlas);
+    const curve=readRoadCurvePreset();
     for (const leg of this.result?.legs ?? []) {
-      const points = leg.points.map(canvasPoint);
+      let points=leg.points.map(canvasPoint);
+      if(leg.kind==="road"){
+        const segment=segments.get(leg.segmentId);
+        if(segment){
+          const adjacent=neighbors.get(segment.id);
+          const full=smoothRoadPath([nodes.get(segment.from),...segment.via,nodes.get(segment.to)]
+            .map(canvasPoint),curve,{
+              before:adjacent?.before?canvasPoint(adjacent.before):null,
+              after:adjacent?.after?canvasPoint(adjacent.after):null
+            });
+          points=clipNavigationSpline(full,points[0],points.at(-1));
+        }
+      }
       const spans = leg.kind === "road" ? [points] : roadStrokeSpans(points, "dashed", 4);
       drawNavigationLine(graphics, spans, {
         color:0xffa51f, width:leg.kind==="road"?6:3.5, alpha:0.95
@@ -138,6 +161,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.start = null;
     this.end = null;
     this.result = null;
+    this.speedOverride = null;
   }
 
   tearDown() {
@@ -156,14 +180,43 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.result?.status==="ok" ? "Route calculated." :
       (this.result?.reason ?? "No connected road route available.");
     root.appendChild(el("p",status));
+    const sceneUnit=this.scene?.grid?.units?.trim() || "Scene units";
+    const configured=Number(game.settings.get("fvtt-atlas-navigation",NAVIGATION_SPEED_SETTING)
+      ?? DEFAULT_NAVIGATION_SPEED);
+    let speed=this.speedOverride ?? configured;
+    try{validateNavigationSpeed(speed);}catch{speed=DEFAULT_NAVIGATION_SPEED;}
+    const fieldRow=el("label");
+    fieldRow.style.cssText="display:flex;flex-direction:column;gap:.2rem;";
+    fieldRow.appendChild(el("span",`Travel speed (${sceneUnit}/hour)`));
+    const speedInput=el("input");speedInput.type="number";
+    speedInput.min="0.1";speedInput.max="1000";speedInput.step="0.1";
+    speedInput.value=String(speed);
+    speedInput.title="Override the world default for this Navigation session only; tokens are not changed.";
+    speedInput.addEventListener("change",()=>{
+      try{
+        const value=validateNavigationSpeed(Number(speedInput.value));
+        this.speedOverride=value;
+        void this.render(true);
+      }catch(error){ui.notifications.warn(error.message);speedInput.value=String(speed);}
+    });
+    fieldRow.appendChild(speedInput);root.appendChild(fieldRow);
     if (this.result?.status === "ok") {
       const unit=this.scene?.grid?.units?.trim() || "units";
       root.appendChild(el("strong",`Total distance: ${this.result.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}`));
+      if (this.result.terrainAware) root.appendChild(el("strong",
+        `Estimated terrain-weighted cost: ${this.result.cost.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}-equivalent`));
+      if (this.result.terrainWarning) root.appendChild(el("p",this.result.terrainWarning));
+      try{
+        const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
+        root.appendChild(el("strong",`Estimated travel time: ${formatNavigationDuration(navigationHours(weighted,speed))}`));
+        if(!this.result.terrainAware)root.appendChild(el("p","Travel time is distance-only until native terrain costs are compatible."));
+      }catch(error){root.appendChild(el("p",error.message));}
       const list=el("ol");
-      for (const leg of this.result.legs) {
-        const label=leg.kind==="off-road" ? "Off-road connection" :
-          (readAtlas(this.scene).roads.find(r=>r.id===leg.roadId)?.name || "Road");
-        list.appendChild(el("li",`${label} — ${leg.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}`));
+      const roads=new Map(readAtlas(this.scene).roads.map(r=>[r.id,r.name]));
+      for (const step of buildNavigationSteps(this.result.legs,id=>roads.get(id)??"Road")) {
+        list.appendChild(el("li",`${step.instruction} — ${step.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}` +
+          (this.result.terrainAware ? ` · ${step.terrain}` : "")+
+          ` · ${formatNavigationDuration(navigationHours(this.result.terrainAware?step.cost:step.distance,speed))}`));
       }
       root.appendChild(list);
     }
