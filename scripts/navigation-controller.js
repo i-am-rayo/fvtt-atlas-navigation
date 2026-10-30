@@ -5,6 +5,9 @@ import { roadStrokeSpans, smoothRoadPath, readRoadCurvePreset,
   roadCurveNeighbors } from "./road-appearance.js";
 import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.js";
 import { clipNavigationSpline } from "./navigation-curvature.js";
+import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
+  validateNavigationSpeed, navigationHours, formatNavigationDuration }
+  from "./navigation-time.js";
 import { buildNavigationSteps } from "./navigation-instructions.js";
 
 const el = (tag, content) => {
@@ -32,6 +35,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.overlay = null;
     this.pointerDown = this.onPointerDown.bind(this);
     this.closedByController = false;
+    this.speedOverride = null;
   }
 
   get active() { return Boolean(this.scene); }
@@ -157,6 +161,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.start = null;
     this.end = null;
     this.result = null;
+    this.speedOverride = null;
   }
 
   tearDown() {
@@ -175,17 +180,43 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.result?.status==="ok" ? "Route calculated." :
       (this.result?.reason ?? "No connected road route available.");
     root.appendChild(el("p",status));
+    const sceneUnit=this.scene?.grid?.units?.trim() || "Scene units";
+    const configured=Number(game.settings.get("fvtt-atlas-navigation",NAVIGATION_SPEED_SETTING)
+      ?? DEFAULT_NAVIGATION_SPEED);
+    let speed=this.speedOverride ?? configured;
+    try{validateNavigationSpeed(speed);}catch{speed=DEFAULT_NAVIGATION_SPEED;}
+    const fieldRow=el("label");
+    fieldRow.style.cssText="display:flex;flex-direction:column;gap:.2rem;";
+    fieldRow.appendChild(el("span",`Travel speed (${sceneUnit}/hour)`));
+    const speedInput=el("input");speedInput.type="number";
+    speedInput.min="0.1";speedInput.max="1000";speedInput.step="0.1";
+    speedInput.value=String(speed);
+    speedInput.title="Override the world default for this Navigation session only; tokens are not changed.";
+    speedInput.addEventListener("change",()=>{
+      try{
+        const value=validateNavigationSpeed(Number(speedInput.value));
+        this.speedOverride=value;
+        void this.render(true);
+      }catch(error){ui.notifications.warn(error.message);speedInput.value=String(speed);}
+    });
+    fieldRow.appendChild(speedInput);root.appendChild(fieldRow);
     if (this.result?.status === "ok") {
       const unit=this.scene?.grid?.units?.trim() || "units";
       root.appendChild(el("strong",`Total distance: ${this.result.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}`));
       if (this.result.terrainAware) root.appendChild(el("strong",
         `Estimated terrain-weighted cost: ${this.result.cost.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}-equivalent`));
       if (this.result.terrainWarning) root.appendChild(el("p",this.result.terrainWarning));
+      try{
+        const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
+        root.appendChild(el("strong",`Estimated travel time: ${formatNavigationDuration(navigationHours(weighted,speed))}`));
+        if(!this.result.terrainAware)root.appendChild(el("p","Travel time is distance-only until native terrain costs are compatible."));
+      }catch(error){root.appendChild(el("p",error.message));}
       const list=el("ol");
       const roads=new Map(readAtlas(this.scene).roads.map(r=>[r.id,r.name]));
       for (const step of buildNavigationSteps(this.result.legs,id=>roads.get(id)??"Road")) {
         list.appendChild(el("li",`${step.instruction} — ${step.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}` +
-          (this.result.terrainAware ? ` · ${step.terrain}` : "")));
+          (this.result.terrainAware ? ` · ${step.terrain}` : "")+
+          ` · ${formatNavigationDuration(navigationHours(this.result.terrainAware?step.cost:step.distance,speed))}`));
       }
       root.appendChild(list);
     }
