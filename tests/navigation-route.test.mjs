@@ -82,3 +82,13 @@ test("invalid input and unavailable Grid measurement fail closed",()=>{
   assert.throws(()=>calculateRoadRoute(atlas,point(0,0),point(10,0),
     {measurePath:()=>NaN}),/unavailable/);
 });
+
+test("distant candidate roads are not used as off-road shortcuts",()=>{
+  const atlas=base([
+    {id:"a",x:0,y:0},{id:"b",x:100,y:0},
+    {id:"c",x:0,y:300},{id:"d",x:100,y:300}
+  ],[road("ab","a","b"),road("cd","c","d")]);
+  const result=calculateRoadRoute(atlas,point(10,2),point(90,298),
+    {measurePath:native,candidateLimit:8,attachmentTolerancePixels:40});
+  assert.equal(result.status,"no-route");
+});
