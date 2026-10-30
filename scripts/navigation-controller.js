@@ -159,11 +159,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if (this.result?.status === "ok") {
       const unit=this.scene?.grid?.units?.trim() || "units";
       root.appendChild(el("strong",`Total distance: ${this.result.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}`));
+      if (this.result.terrainAware) root.appendChild(el("strong",
+        `Estimated terrain-weighted cost: ${this.result.cost.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}-equivalent`));
+      if (this.result.terrainWarning) root.appendChild(el("p",this.result.terrainWarning));
       const list=el("ol");
       for (const leg of this.result.legs) {
         const label=leg.kind==="off-road" ? "Off-road connection" :
           (readAtlas(this.scene).roads.find(r=>r.id===leg.roadId)?.name || "Road");
-        list.appendChild(el("li",`${label} — ${leg.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}`));
+        list.appendChild(el("li",`${label} — ${leg.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}` +
+          (this.result.terrainAware ? ` (cost ${leg.cost.toLocaleString(undefined,{maximumFractionDigits:2})})` : "")));
       }
       root.appendChild(list);
     }
