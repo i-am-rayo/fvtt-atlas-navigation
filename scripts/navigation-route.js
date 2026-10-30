@@ -60,12 +60,14 @@ function slice(geometry, from, to) {
     cumulative[i] > from + EPSILON && cumulative[i] < to - EPSILON), at(to)];
 }
 
-function candidates(geometries, point, limit) {
-  return geometries.flatMap(g => {
+function candidates(geometries, point, limit, tolerance) {
+  const ranked = geometries.flatMap(g => {
     const hit = projection(g, point);
     return hit ? [{ geometry: g, ...hit }] : [];
   }).sort((a, b) => a.pixelDistance - b.pixelDistance ||
-    a.geometry.segment.id.localeCompare(b.geometry.segment.id) || a.offset - b.offset).slice(0, limit);
+    a.geometry.segment.id.localeCompare(b.geometry.segment.id) || a.offset - b.offset);
+  const closest = ranked[0]?.pixelDistance ?? Infinity;
+  return ranked.filter(hit => hit.pixelDistance <= closest + tolerance + EPSILON).slice(0,limit);
 }
 
 /**
@@ -80,19 +82,22 @@ function candidates(geometries, point, limit) {
  * @param {object} options measurePath(points) returns native Grid distance.
  * @returns {{status:string, distance?:number, legs?:object[], start:object, end:object}}
  */
-export function calculateRoadRoute(atlas, start, end, { measurePath, candidateLimit = 8 } = {}) {
+export function calculateRoadRoute(atlas, start, end, { measurePath, candidateLimit = 8, attachmentTolerancePixels = 0 } = {}) {
   if (!finitePoint(start) || !finitePoint(end)) throw new Error("Select two valid map locations.");
   if (typeof measurePath !== "function") throw new Error("Native Scene Grid measurement is required.");
   if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 32) {
     throw new Error("Route attachment limit must be between 1 and 32.");
+  }
+  if (!Number.isFinite(attachmentTolerancePixels) || attachmentTolerancePixels < 0) {
+    throw new Error("Route attachment tolerance must be a nonnegative pixel distance.");
   }
   const current = validateAtlas(atlas);
   if (current.schemaVersion < 3) return { status: "no-route", reason: "Roads must be organized first.", start, end };
   const nodes = new Map(current.nodes.map(n => [n.id, n]));
   const geometries = current.segments.map(s => segmentGeometry(s, nodes));
   if (!geometries.length) return { status: "no-route", reason: "No roads are available.", start, end };
-  const fromHits = candidates(geometries, start, candidateLimit);
-  const toHits = candidates(geometries, end, candidateLimit);
+  const fromHits = candidates(geometries, start, candidateLimit, attachmentTolerancePixels);
+  const toHits = candidates(geometries, end, candidateLimit, attachmentTolerancePixels);
   const graph = new Map();
   const addEdge = (from, to, leg, reversible = false) => {
     if (!graph.has(from)) graph.set(from, []);
