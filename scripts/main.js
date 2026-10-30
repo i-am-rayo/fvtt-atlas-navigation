@@ -26,7 +26,8 @@ import { sceneImageOrigin, toCanvasPoint } from "./road-coordinates.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
-  applyGeneratedRegionPresetColor, updateGeneratedRegionMovementCost } from "./generated-region.js";
+  applyGeneratedRegionPresetColor, updateGeneratedRegionMovementCost,
+  setGeneratedRegionRoutingPriority } from "./generated-region.js";
 import { availableMovementActions, readPreset, previewNativeMovementCost }
   from "./native-movement-cost.js";
 import { presetCostSummary } from "./travel-preset-model.js";
@@ -554,7 +555,14 @@ function actions() {
           const btn=document.createElement("button");btn.type="button";
           btn.textContent="Region settings";btn.dataset.atlasRegionEdit=id;
           btn.style.cssText="flex:0 0 auto;width:auto;min-width:8rem;white-space:nowrap;";
-          row.append(label,btn);regionTarget.appendChild(row);
+          const managed=listGeneratedRegions(scene).find(entry=>entry.id===id);
+          if(managed?.metadata){
+            const priority=document.createElement("button");priority.type="button";
+            priority.textContent="Route priority: "+managed.priority;
+            priority.dataset.atlasRegionPriority=id;
+            row.append(label,priority,btn);
+          }else row.append(label,btn);
+          regionTarget.appendChild(row);
         }
       };
       populateRelatedLists(checkpointList,regionList);
@@ -591,7 +599,7 @@ function actions() {
         }
       };
       const onTabClick = event => {
-        const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-region-edit]");
+        const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-region-edit],[data-atlas-region-priority]");
         if (action?.closest?.(".application")?.querySelector?.('input[name="atlasRoadName"]')) {
           event.preventDefault();event.stopImmediatePropagation();
           const tool=action.dataset.atlasRoadTool;
@@ -604,6 +612,28 @@ function actions() {
             :tool==="generateRegion" ? ()=>openAtlasRegionGenerator(scene,road.id,api,refresh)
             :action.dataset.atlasCheckpointEdit ? ()=>api.editCheckpointAppearance(
               scene,readAtlas(scene).checkpoints.find(c=>c.id===action.dataset.atlasCheckpointEdit),refresh)
+            :action.dataset.atlasRegionPriority ? async()=>{
+              const id=action.dataset.atlasRegionPriority;
+              const existing=listGeneratedRegions(scene).find(entry=>entry.id===id);
+              if(!existing?.metadata)throw Error("The Atlas Region changed. Reopen Road Settings.");
+              const container=document.createElement("div");
+              const hint=document.createElement("p");
+              hint.textContent="Highest priority wins for Atlas navigation only (−100 to 100). Native Foundry movement Behaviors are unchanged.";
+              const field=document.createElement("input");field.type="number";
+              field.name="atlasRoutingPriority";field.min="-100";field.max="100";
+              field.step="1";field.value=String(existing.priority);
+              container.append(hint,field);
+              const answer=await foundry.applications.api.DialogV2.input({
+                window:{title:"Atlas Region routing priority"},content:container,
+                ok:{label:"Save Priority"},rejectClose:false,modal:true
+              });
+              if(!answer)return;
+              const raw=String(answer.atlasRoutingPriority??"").trim();
+              if(!/^-?\d+$/.test(raw))throw Error("Enter a whole-number routing priority.");
+              await setGeneratedRegionRoutingPriority(scene,id,Number(raw));
+              populateRelatedLists(checkpointList,regionList);
+              ui.notifications.info("Atlas routing priority saved; native Region Behaviors unchanged.");
+            }
             :()=>api.configureRegion(scene,action.dataset.atlasRegionEdit);
           void Promise.resolve().then(call).catch(error=>ui.notifications.error(error.message));
           return;
