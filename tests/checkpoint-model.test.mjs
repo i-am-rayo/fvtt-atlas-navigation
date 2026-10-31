@@ -108,6 +108,11 @@ test("a checkpoint protects its attached graph node and named road from destruct
   });
   const checkpointNode = atlas.checkpoints[0].nodeId;
   assert.throws(() => removeRoad(atlas, { roadId: "main" }), /checkpoint/i);
+  const confirmed=removeRoad(atlas,{roadId:"main",removeCheckpoints:true});
+  assert.equal(confirmed.roads.some(road=>road.id==="main"),false);
+  assert.equal(confirmed.checkpoints.length,0);
+  assert.ok(confirmed.roads.some(road=>road.id==="spur"));
+  assert.ok(confirmed.nodes.some(node=>node.id===checkpointNode));
   assert.throws(() => applyRoadGeometryEdit(atlas, {
     roadId: "main", operation: { kind: "demote-junction", nodeId: checkpointNode }
   }), /checkpoint/i);

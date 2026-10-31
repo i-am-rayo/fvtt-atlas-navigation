@@ -272,7 +272,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     if (getRoadMergeCandidates(atlas,road.id).length)
       roadActions.push(["Merge", "Merge connected roads", () => actions.merge(scene,road,refresh)]);
     const preset = presetById.get(road.travelPresetId);
-    roadActions.push(["Travel preset" + (preset ? ": " + preset.name : ""),
+    roadActions.push(["Travel preset: " + (preset?.name ?? "None"),
       "Road travel preset", () => actions.assignRoadTravelPreset(scene,road,refresh)]);
     roadActions.push(["Delete road", "Delete this road (confirmation required)",
       () => actions.remove(scene,road,refresh)]);

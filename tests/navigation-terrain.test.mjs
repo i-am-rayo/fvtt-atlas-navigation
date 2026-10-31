@@ -21,6 +21,14 @@ test("terrain slices preserve the exact native Region identity and name",()=>{
     terrain:"Stone Road",multiplier:1,distance:15
   }]);
 });
+test("road default cost applies only outside higher-priority native Region coverage",()=>{
+  const bridge={id:"bridge",name:"Northern Bridge",surface:"Stone Road",
+    priority:10,multiplier:1.5,shapes:[square(40,0,20)]};
+  const measure=createRegionCostMeasurement({regions:[bridge],gridSize:10,
+    fallbackMultiplier:1.25,fallbackSurface:"Dirt Road",
+    toCanvasPoint:p=>p,measurePath:()=>100});
+  assert.equal(measure([{x:0,y:10},{x:100,y:10}]),130);
+});
 test("ties are stable and priority rejects malformed values",()=>{
   assert.equal(resolveRoutingRegion([{id:"z",priority:5},{id:"a",priority:5}]).id,"a");
   assert.equal(routingPriority(null),0);

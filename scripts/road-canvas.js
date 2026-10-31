@@ -1712,7 +1712,9 @@ export class RoadCanvasController {
         highlighted ? 1 : style.opacity, style.pattern, style.width);
       if(highlighted)drawLine(g,path,color,style.width+2,1,style.pattern);
       else if(this.viewMode==="corridors") {
-        for(const run of roadSurfaceSpans(path,surfaceRegions,style.color,
+        const roadPreset=travelPresets.find(preset=>preset.id===road.travelPresetId);
+        const fallbackColor=roadPreset?.color??style.color;
+        for(const run of roadSurfaceSpans(path,surfaceRegions,fallbackColor,
           canvas.scene.grid?.size))
           drawLine(g,run.points,Number.parseInt(run.color.slice(1),16),
             style.width,style.opacity,style.pattern);
