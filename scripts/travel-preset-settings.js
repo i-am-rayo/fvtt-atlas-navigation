@@ -5,8 +5,7 @@
 import { MODULE_ID, readAtlas } from "./atlas-storage.js";
 import { TRAVEL_PRESET_SETTING, REGION_TRAVEL_PRESET_FLAG, TRAVEL_TYPES,
   defaultTravelPresets, validateTravelPresets, upsertTravelPreset,
-  removeTravelPreset, presetCostSummary, defaultTravelPresetColor,
-  addMissingRecommendedWaterPresets } from "./travel-preset-model.js";
+  removeTravelPreset, presetCostSummary, defaultTravelPresetColor } from "./travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions } from "./native-movement-cost.js";
 
 const TYPE_LABELS = { land: "Land", air: "Air", water: "Water" };
@@ -117,9 +116,6 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
       }
       fieldset.appendChild(button("＋ Add " + TYPE_LABELS[mode] + " Preset",
         () => this._editPreset(null, mode)));
-      if(mode==="water")fieldset.appendChild(button("Add Missing Recommended Water Presets",
-        () => this._addWaterPresets(),
-        "Explicitly add missing built-in Water surfaces without changing existing presets."));
       root.appendChild(fieldset);
     }
     root.appendChild(node("p",
@@ -131,22 +127,6 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
     content.replaceChildren(result);
   }
 
-  async _addWaterPresets(){
-    if(!game.user?.isGM)throw Error("Only a GM can configure Atlas presets.");
-    const current=readWorldTravelPresets();
-    const next=addMissingRecommendedWaterPresets(current);
-    const added=next.presets.length-current.presets.length;
-    if(!added){ui.notifications.info("All recommended Water presets are already present.");return;}
-    const approved=await foundry.applications.api.DialogV2.confirm({
-      window:{title:"Add Recommended Water Surfaces"},
-      content:`Add ${added} Water surface preset(s)? Existing World presets and native Regions will not be changed.`,
-      rejectClose:false,modal:true
-    });
-    if(!approved)return;
-    await game.settings.set(MODULE_ID,TRAVEL_PRESET_SETTING,next);
-    ui.notifications.info(`Added ${added} Atlas Water preset(s).`);
-    await this.render();
-  }
 
   async _editPreset(existing, initialMode = "land") {
     if (!game.user?.isGM) throw new Error("Only a GM can configure Atlas presets.");
