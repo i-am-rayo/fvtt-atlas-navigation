@@ -23,7 +23,7 @@ import { readWorldRoadAppearance, resolveRoadAppearance,
 import { defaultTravelPresets, validateTravelPresets,
   TRAVEL_PRESET_SETTING } from "./travel-preset-model.js";
 import { validateRoadAppearance } from "./road-appearance.js";
-import { sceneRoadSurfaces, roadSurfaceSpans } from "./road-surface-overlay.js";
+import { sceneRoadSurfaces, roadSurfaceSpans, roadSurfaceAtPoint } from "./road-surface-overlay.js";
 import { checkpointIconPath, checkpointFontIcon, checkpointMarkerPosition,
   checkpointCanvasSize,
   resolveCheckpointAppearance }
@@ -1420,10 +1420,12 @@ export class RoadCanvasController {
         if (style.borderEnabled) drawLine(graphics, span,
           Number.parseInt(style.borderColor.slice(1),16),
           style.width + 2 / zoom, style.opacity, style.pattern, style.width);
-        const base=presets.find(p=>p.id===road.travelPresetId)?.color??style.color;
-        for(const run of roadSurfaceSpans(span,surfaceRegions,base,
-          canvas.scene.grid?.size))drawLine(graphics,run.points,
-          Number.parseInt(run.color.slice(1),16),style.width,style.opacity,style.pattern);
+        for(const run of roadSurfaceSpans(span,surfaceRegions,style.color,canvas.scene.grid?.size))
+          if(run.color.toLowerCase()!==style.color.toLowerCase())
+            drawLine(graphics,run.points,Number.parseInt(run.color.slice(1),16),
+              style.width+3/zoom,style.opacity,"solid");
+        drawLine(graphics,span,Number.parseInt(style.color.slice(1),16),
+          style.width,style.opacity,style.pattern);
         hoverPaths.push({ roadId: road.id, path: span,
           tolerance: Math.max(style.width + 2, 8 / zoom) });
         if (style.labelVisibility !== "off") {
@@ -1443,7 +1445,10 @@ export class RoadCanvasController {
             ? this.playerHoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths);
           const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
               zoom, item.style.labelVisibility);
+          const surface=this.playerHoveredRoadId===roadId
+            ?roadSurfaceAtPoint(this.playerHoveredRoadPoint,surfaceRegions):null;
           if (point && opacity > 0) this.#addLabel(graphics, item.road.name +
+            (surface?" · "+surface:"")+
             (this.#journalCanView(journalUuidFor(journals,"road",roadId)) ? " 📖" : ""),
             { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity);
       }
@@ -1698,10 +1703,15 @@ export class RoadCanvasController {
         style.width + 2 / zoom + (highlighted ? 2 : 0),
         highlighted ? 1 : style.opacity, style.pattern, style.width);
       if(highlighted)drawLine(g,path,color,style.width+2,1,style.pattern);
-      else for(const run of roadSurfaceSpans(path,surfaceRegions,
-        travelPresets.find(p=>p.id===road.travelPresetId)?.color??style.color,
-        canvas.scene.grid?.size))drawLine(g,run.points,
-          Number.parseInt(run.color.slice(1),16),style.width,style.opacity,style.pattern);
+      else {
+        for(const run of roadSurfaceSpans(path,surfaceRegions,style.color,
+          canvas.scene.grid?.size))
+          if(run.color.toLowerCase()!==style.color.toLowerCase())
+            drawLine(g,run.points,Number.parseInt(run.color.slice(1),16),
+              style.width+3/zoom,style.opacity,"solid");
+        drawLine(g,path,Number.parseInt(style.color.slice(1),16),
+          style.width,style.opacity,style.pattern);
+      }
       if (hatchHidden && road.playerVisible !== true) {
         drawLine(g, path, 0x922e43, style.width + 5 / zoom, 0.30, "solid");
         drawHiddenHatching(g, roadHiddenMarks(path, style.width, zoom),
@@ -1744,7 +1754,10 @@ export class RoadCanvasController {
           ? this.hoveredRoadPoint : visibleRoadLabelPoint(canvas, item.paths) ?? item.point;
         const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
             zoom, item.style.labelVisibility);
+        const surface=this.hoveredRoadId===roadId
+          ?roadSurfaceAtPoint(this.hoveredRoadPoint,surfaceRegions):null;
         if (opacity > 0) this.#addLabel(g, item.road.name +
+          (surface?" · "+surface:"")+
           (journalUuidFor(gmJournals,"road",roadId) ? " 📖" : ""),
           { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity);
       }
