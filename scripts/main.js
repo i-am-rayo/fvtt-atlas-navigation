@@ -240,17 +240,25 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
 async function promptTravelPreset(title, currentId = null) {
   const chooser = document.createElement("select");
   chooser.name = "atlasTravelPresetId";
-  const options = [["", "None (no Atlas travel preset)"],
-    ...readWorldTravelPresets().presets.map(p => [
-      p.id, p.mode.toUpperCase() + " — " + p.name +
-        " (" + presetCostSummary(p) + ")"
-    ])];
-  for (const [id, name] of options) {
+  const presets=readWorldTravelPresets().presets;
+  const none=document.createElement("option");
+  none.value="";none.textContent="None (no Atlas travel preset)";
+  none.defaultSelected=!currentId;chooser.appendChild(none);
+  const groups=new Map();
+  for (const preset of presets) {
+    const water=/^water-(river|lake|sea|ocean|canal|marsh)(?:-(calm|turbulent|rough))?$/.exec(preset.id);
+    const groupName=water?"WATER — "+(water[1]==="marsh"?"Marsh / Swamp":
+      water[1][0].toUpperCase()+water[1].slice(1)):preset.mode.toUpperCase();
+    if(!groups.has(groupName)){
+      const group=document.createElement("optgroup");
+      group.label=groupName;groups.set(groupName,group);chooser.appendChild(group);
+    }
     const option = document.createElement("option");
-    option.value = id;
-    option.textContent = name;
-    option.defaultSelected = id === (currentId ?? "");
-    chooser.appendChild(option);
+    option.value = preset.id;
+    option.textContent = (water?.[2]?water[2][0].toUpperCase()+water[2].slice(1)+" — ":"")+
+      preset.name+" ("+presetCostSummary(preset)+")";
+    option.defaultSelected = preset.id === currentId;
+    groups.get(groupName).appendChild(option);
   }
   chooser.value = currentId ?? "";
   const container = document.createElement("div");
@@ -513,6 +521,10 @@ function actions() {
       const addRegion=document.createElement("button");addRegion.type="button";
       addRegion.textContent="+ Generate Region";addRegion.dataset.atlasRoadTool="generateRegion";
       panels.regions.appendChild(addRegion);
+      const priorityHelp=document.createElement("p");
+      priorityHelp.textContent="Drag Regions to set Atlas route priority: top wins where Regions overlap. This controls Atlas estimates and the Corridor View color, not Foundry's native Region Behaviors. The settings icon edits a Region; regenerate previews new geometry but preserves its Behaviors.";
+      priorityHelp.style.cssText="font-size:.82em;opacity:.75;line-height:1.4;margin:.5rem 0;";
+      panels.regions.appendChild(priorityHelp);
       const regionList=document.createElement("div");
       regionList.dataset.atlasRoadRegionList="";
       regionList.setAttribute("aria-live","polite");
@@ -551,16 +563,16 @@ function actions() {
         regionTarget.replaceChildren(regionHeader);
         for (const [id,regionName] of regions) {
           const row=document.createElement("div");
-          row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;";
+          row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;min-width:0;";
           const label=document.createElement("span");label.textContent=regionName;
-          label.style.cssText="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;";
+          label.style.cssText="flex:1 1 0;min-width:0;overflow-wrap:anywhere;";
           const btn=document.createElement("button");btn.type="button";
           btn.textContent="⚙";btn.dataset.atlasRegionEdit=id;
           btn.title="Region settings";btn.setAttribute("aria-label","Region settings");
           btn.style.cssText="flex:0 0 2.5rem;width:2.5rem;min-width:2.5rem;";
           const managed=listGeneratedRegions(scene).find(entry=>entry.id===id);
           const buttons=document.createElement("div");
-          buttons.style.cssText="display:flex;flex-wrap:wrap;gap:.3rem;";
+          buttons.style.cssText="display:flex;flex:0 0 auto;flex-wrap:nowrap;gap:.3rem;align-items:center;";
           buttons.appendChild(btn);
           if(managed?.metadata){
             const regenerate=document.createElement("button");
@@ -1415,6 +1427,16 @@ Hooks.once("init", () => {
           name:"atlasBrushPalette",title:"Open Atlas Exploration Brushes",
           icon:"fa-solid fa-paintbrush",order:1,button:true,visible:true,
           onChange:()=>fogPalette.toggle()
+        },
+        atlasRoadLayerView:{
+          name:"atlasRoadLayerView",title:"Toggle Road View / Corridor View (GM only)",
+          icon:"fa-solid fa-layer-group",order:4,button:true,visible:true,
+          onChange:()=>{
+            const mode=roadCanvas.toggleViewMode();
+            ui.notifications.info(mode==="corridors"
+              ?"Atlas Corridor View: roads show the highest-priority terrain preset color."
+              :"Atlas Road View: roads show their authored colors.");
+          }
         },
         atlasNavigation:{
           name:"atlasNavigation",title:"Atlas Navigation — choose Point A and Point B",

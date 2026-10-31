@@ -5,7 +5,8 @@
 import { MODULE_ID, readAtlas } from "./atlas-storage.js";
 import { TRAVEL_PRESET_SETTING, REGION_TRAVEL_PRESET_FLAG, TRAVEL_TYPES,
   defaultTravelPresets, validateTravelPresets, upsertTravelPreset,
-  removeTravelPreset, presetCostSummary, defaultTravelPresetColor } from "./travel-preset-model.js";
+  removeTravelPreset, presetCostSummary, defaultTravelPresetColor,
+  addMissingRecommendedWaterPresets } from "./travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions } from "./native-movement-cost.js";
 
 const TYPE_LABELS = { land: "Land", air: "Air", water: "Water" };
@@ -116,6 +117,13 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
       }
       fieldset.appendChild(button("＋ Add " + TYPE_LABELS[mode] + " Preset",
         () => this._editPreset(null, mode)));
+      if(mode==="water" && ["river","lake","sea","ocean","canal","marsh"]
+        .some(body=>["calm","turbulent","rough"].some(condition=>
+          !group.some(item=>item.id===`water-${body}-${condition}`)))) {
+        fieldset.appendChild(button("＋ Add missing Water conditions",
+          () => this._addWaterConditions(),
+          "Create Calm/Turbulent/Rough variants for each Water type without replacing existing presets."));
+      }
       root.appendChild(fieldset);
     }
     root.appendChild(node("p",
@@ -125,6 +133,49 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
 
   _replaceHTML(result, content) {
     content.replaceChildren(result);
+  }
+
+  async _addWaterConditions() {
+    if(!game.user?.isGM)throw new Error("Only a GM can add Water conditions.");
+    const container=node("div");
+    const intro=node("p","Add missing Calm, Turbulent and Rough variants under River, Lake, Sea, Ocean, Canal and Marsh/Swamp. Set extra cost per movement action; these are one-time editable presets, not automatic changes to existing Regions or Behaviors.");
+    container.appendChild(intro);
+    const actions=["walk","fly","swim","burrow"];
+    for(const condition of ["turbulent","rough"]){
+      const title=node("strong",condition==="turbulent"?"Turbulent (extra cost)":"Rough (extra cost)");
+      container.appendChild(title);
+      for(const action of actions){
+        const row=node("label",action[0].toUpperCase()+action.slice(1)+" +");
+        row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.25rem 0;";
+        const input=node("input");
+        input.type="number";input.step="0.25";input.min="0";input.max="5";
+        input.name="delta_"+condition+"_"+action;
+        input.defaultValue=String(action==="swim"?(condition==="rough"?0.5:0.25):0);
+        input.style.width="6rem";
+        row.appendChild(input);container.appendChild(row);
+      }
+    }
+    const shell=node("div");shell.appendChild(container);
+    const response=await foundry.applications.api.DialogV2.input({
+      window:{title:"Add Water condition variants"},
+      content:shell,ok:{label:"Create Missing Variants"},
+      rejectClose:false,modal:true
+    });
+    if(!response)return;
+    const modifiers={turbulent:{},rough:{}};
+    for(const condition of ["turbulent","rough"])for(const action of actions){
+      const value=Number(response["delta_"+condition+"_"+action]);
+      if(!Number.isFinite(value)||value<0||value>5||
+          Math.abs(value*4-Math.round(value*4))>1e-8)
+        throw new Error("Condition modifiers must use quarter steps from +0.00 to +5.00.");
+      modifiers[condition][action]=value;
+    }
+    const current=readWorldTravelPresets();
+    const next=addMissingRecommendedWaterPresets(current,modifiers);
+    if(next.presets.length===current.presets.length)return;
+    await game.settings.set(MODULE_ID,TRAVEL_PRESET_SETTING,next);
+    ui.notifications.info("Missing Water condition variants added. Edit any variant to customize its costs.");
+    await this.render();
   }
 
 

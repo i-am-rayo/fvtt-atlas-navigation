@@ -238,6 +238,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
       const heading=el("h3","Directions");heading.style.cssText="margin:.2rem 0 0;";root.appendChild(heading);
       const list=el("div");list.style.cssText="display:flex;flex-direction:column;gap:.4rem;";
+      const endpoint=(atStart)=>{
+        const item=el("div");
+        item.style.cssText="display:flex;align-items:center;gap:.8rem;padding:.8rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:8px;";
+        const marker=el("span",atStart?"●":"◆");
+        marker.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;font-weight:bold;color:white;background:"+
+          (atStart?"#16a765":"#d83c49")+";";
+        const body=el("div");
+        const name=el("strong",atStart?"Depart from starting point":"Arrive at destination");
+        const detail=el("div",atStart?"Starting location":"Final destination");
+        detail.style.cssText="opacity:.7;font-size:.8em;margin-top:.2rem;";
+        body.append(name,detail);item.append(marker,body);
+        return item;
+      };
+      list.appendChild(endpoint(true));
       const roads=new Map(readAtlas(this.scene).roads.map(r=>[r.id,r.name]));
       const steps=buildNavigationSteps(this.result.legs,id=>roads.get(id)??"Road");
       for (const step of steps) {
@@ -248,12 +262,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const text=el("div");text.style.minWidth="0";
         const instruction=el("strong",step.instruction);instruction.style.display="block";
         const info=el("div",`${step.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit} · `+
-          `${formatNavigationDuration(navigationHours(this.result.terrainAware?step.cost:step.distance,speed),travel.hoursPerDay??24)}`+
-          (step.terrain ? ` · ${step.terrain}` : "")+
-          (step.regionName && step.regionName!==step.terrain ? ` · ${step.regionName}` : ""));
+          `${formatNavigationDuration(navigationHours(this.result.terrainAware?step.cost:step.distance,speed),travel.hoursPerDay??24)}`);
         info.style.cssText="opacity:.75;font-size:.85em;margin-top:.3rem;";
-        text.append(instruction,info);item.append(marker,text);list.appendChild(item);
+        const surface=el("div",[step.terrain,
+          step.regionName && step.regionName!==step.terrain?step.regionName:null]
+          .filter(Boolean).join(" · "));
+        surface.style.cssText="opacity:.55;font-size:.72em;margin-top:.18rem;";
+        text.append(instruction,info);
+        if(surface.textContent)text.appendChild(surface);
+        item.append(marker,text);list.appendChild(item);
       }
+      list.appendChild(endpoint(false));
       root.appendChild(list);
     } else {
       const hint=el("p",`Travel estimates will use ${travelSource}.`);

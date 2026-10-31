@@ -484,6 +484,8 @@ export class RoadCanvasController {
     this.regionPreview = null;
     this.focusTarget = null;
     this.focusTimer = null;
+    // GM display preference only; never changes authored road/Region colors.
+    this.viewMode = "roads";
     this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
       confirmAttach, confirmDetach, chooseBranch, idFactory, refresh: () => this.refresh() });
   }
@@ -497,6 +499,12 @@ export class RoadCanvasController {
       saving: this.saving,
       mode: this.draft.mode
     };
+  }
+
+  toggleViewMode() {
+    this.viewMode = this.viewMode === "roads" ? "corridors" : "roads";
+    this.refresh();
+    return this.viewMode;
   }
 
   getNewRoadOptions(scene) {
@@ -1703,15 +1711,13 @@ export class RoadCanvasController {
         style.width + 2 / zoom + (highlighted ? 2 : 0),
         highlighted ? 1 : style.opacity, style.pattern, style.width);
       if(highlighted)drawLine(g,path,color,style.width+2,1,style.pattern);
-      else {
+      else if(this.viewMode==="corridors") {
         for(const run of roadSurfaceSpans(path,surfaceRegions,style.color,
           canvas.scene.grid?.size))
-          if(run.color.toLowerCase()!==style.color.toLowerCase())
-            drawLine(g,run.points,Number.parseInt(run.color.slice(1),16),
-              style.width+3/zoom,style.opacity,"solid");
-        drawLine(g,path,Number.parseInt(style.color.slice(1),16),
-          style.width,style.opacity,style.pattern);
-      }
+          drawLine(g,run.points,Number.parseInt(run.color.slice(1),16),
+            style.width,style.opacity,style.pattern);
+      }else drawLine(g,path,Number.parseInt(style.color.slice(1),16),
+        style.width,style.opacity,style.pattern);
       if (hatchHidden && road.playerVisible !== true) {
         drawLine(g, path, 0x922e43, style.width + 5 / zoom, 0.30, "solid");
         drawHiddenHatching(g, roadHiddenMarks(path, style.width, zoom),
