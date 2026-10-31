@@ -23,6 +23,7 @@ import { readWorldRoadAppearance, resolveRoadAppearance,
 import { defaultTravelPresets, validateTravelPresets,
   TRAVEL_PRESET_SETTING } from "./travel-preset-model.js";
 import { validateRoadAppearance } from "./road-appearance.js";
+import { sceneRoadSurfaces, roadSurfaceSpans } from "./road-surface-overlay.js";
 import { checkpointIconPath, checkpointFontIcon, checkpointMarkerPosition,
   checkpointCanvasSize,
   resolveCheckpointAppearance }
@@ -1400,6 +1401,7 @@ export class RoadCanvasController {
     const presets = validateTravelPresets(
       globalThis.game?.settings?.get?.("fvtt-atlas-navigation", TRAVEL_PRESET_SETTING) ??
       defaultTravelPresets()).presets;
+    const surfaceRegions=sceneRoadSurfaces(canvas.scene,presets);
     for (const segment of visible.segments) {
       const from = nodes.get(segment.from), to = nodes.get(segment.to);
       if (!from || !to) continue;
@@ -1418,8 +1420,9 @@ export class RoadCanvasController {
         if (style.borderEnabled) drawLine(graphics, span,
           Number.parseInt(style.borderColor.slice(1),16),
           style.width + 2 / zoom, style.opacity, style.pattern, style.width);
-        drawLine(graphics, span, Number.parseInt(style.color.slice(1), 16),
-          style.width, style.opacity, style.pattern);
+        for(const run of roadSurfaceSpans(span,surfaceRegions,style.color,
+          canvas.scene.grid?.size))drawLine(graphics,run.points,
+          Number.parseInt(run.color.slice(1),16),style.width,style.opacity,style.pattern);
         hoverPaths.push({ roadId: road.id, path: span,
           tolerance: Math.max(style.width + 2, 8 / zoom) });
         if (style.labelVisibility !== "off") {
@@ -1666,6 +1669,7 @@ export class RoadCanvasController {
     const travelPresets = validateTravelPresets(
       globalThis.game?.settings?.get?.("fvtt-atlas-navigation", TRAVEL_PRESET_SETTING) ??
       defaultTravelPresets()).presets;
+    const surfaceRegions=sceneRoadSurfaces(canvas.scene,travelPresets);
     const labelAnchors = new Map();
     const hatchHidden = game.settings?.get?.("fvtt-atlas-navigation", "hiddenOverlayHatching") !== false;
     const exploration = readPartyExploration(canvas.scene);
@@ -1692,8 +1696,10 @@ export class RoadCanvasController {
         Number.parseInt(style.borderColor.slice(1),16),
         style.width + 2 / zoom + (highlighted ? 2 : 0),
         highlighted ? 1 : style.opacity, style.pattern, style.width);
-      drawLine(g, path, color, style.width + (highlighted ? 2 : 0),
-        highlighted ? 1 : style.opacity, style.pattern);
+      if(highlighted)drawLine(g,path,color,style.width+2,1,style.pattern);
+      else for(const run of roadSurfaceSpans(path,surfaceRegions,style.color,
+        canvas.scene.grid?.size))drawLine(g,run.points,
+          Number.parseInt(run.color.slice(1),16),style.width,style.opacity,style.pattern);
       if (hatchHidden && road.playerVisible !== true) {
         drawLine(g, path, 0x922e43, style.width + 5 / zoom, 0.30, "solid");
         drawHiddenHatching(g, roadHiddenMarks(path, style.width, zoom),
