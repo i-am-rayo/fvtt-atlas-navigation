@@ -20,6 +20,10 @@ test("ties are stable and priority rejects malformed values",()=>{
 test("polygon holes and ellipses use canvas coordinates",()=>{
   assert.equal(regionContainsPoint([square(100,100,20)],{x:110,y:110}),true);
   assert.equal(regionContainsPoint([square(100,100,20)],{x:10,y:10}),false);
+  const generated={type:"polygon",origin:{x:100,y:100},
+    points:[95,95,125,95,125,105,95,105]};
+  assert.equal(regionContainsPoint([generated],{x:110,y:100}),true);
+  assert.equal(regionContainsPoint([generated],{x:10,y:10}),false);
   assert.equal(regionContainsPoint([{type:"ellipse",x:10,y:10,radiusX:5,radiusY:3}],{x:12,y:11}),true);
 });
 test("bounded samples fail safely",()=>{
