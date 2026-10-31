@@ -555,16 +555,19 @@ function actions() {
           const label=document.createElement("span");label.textContent=regionName;
           label.style.cssText="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;";
           const btn=document.createElement("button");btn.type="button";
-          btn.textContent="Region settings";btn.dataset.atlasRegionEdit=id;
-          btn.style.cssText="flex:0 0 auto;width:auto;min-width:7rem;white-space:nowrap;";
+          btn.textContent="⚙";btn.dataset.atlasRegionEdit=id;
+          btn.title="Region settings";btn.setAttribute("aria-label","Region settings");
+          btn.style.cssText="flex:0 0 2.5rem;width:2.5rem;min-width:2.5rem;";
           const managed=listGeneratedRegions(scene).find(entry=>entry.id===id);
           const buttons=document.createElement("div");
           buttons.style.cssText="display:flex;flex-wrap:wrap;gap:.3rem;";
           buttons.appendChild(btn);
           if(managed?.metadata){
             const regenerate=document.createElement("button");
-            regenerate.type="button";regenerate.textContent="Regenerate";
+            regenerate.type="button";regenerate.textContent="↻";
             regenerate.dataset.atlasRegionRegenerate=id;
+            regenerate.setAttribute("aria-label","Regenerate Region");
+            regenerate.style.cssText="flex:0 0 2.5rem;width:2.5rem;min-width:2.5rem;";
             regenerate.disabled=!!managed.modified;
             regenerate.title=managed.modified?
               "Native Region geometry was edited; regeneration is blocked.":
