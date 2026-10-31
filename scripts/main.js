@@ -556,15 +556,26 @@ function actions() {
           label.style.cssText="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;";
           const btn=document.createElement("button");btn.type="button";
           btn.textContent="Region settings";btn.dataset.atlasRegionEdit=id;
-          btn.style.cssText="flex:0 0 auto;width:auto;min-width:8rem;white-space:nowrap;";
+          btn.style.cssText="flex:0 0 auto;width:auto;min-width:7rem;white-space:nowrap;";
           const managed=listGeneratedRegions(scene).find(entry=>entry.id===id);
+          const buttons=document.createElement("div");
+          buttons.style.cssText="display:flex;flex-wrap:wrap;gap:.3rem;";
+          buttons.appendChild(btn);
           if(managed?.metadata){
+            const regenerate=document.createElement("button");
+            regenerate.type="button";regenerate.textContent="Regenerate";
+            regenerate.dataset.atlasRegionRegenerate=id;
+            regenerate.disabled=!!managed.modified;
+            regenerate.title=managed.modified?
+              "Native Region geometry was edited; regeneration is blocked.":
+              "Preview then confirm regeneration; preserves existing Region Behaviors and appearance.";
+            buttons.appendChild(regenerate);
             const handle=document.createElement("span");
             handle.textContent="☰";handle.title="Drag to reorder routing priority (top wins)";
             handle.style.cssText="cursor:grab;padding:.3rem;user-select:none;";
             row.draggable=true;row.dataset.atlasRegionSortable=id;
-            row.append(handle,label,btn);
-          }else row.append(label,btn);
+            row.append(handle,label,buttons);
+          }else row.append(label,buttons);
           regionTarget.appendChild(row);
         }
       };
@@ -602,7 +613,7 @@ function actions() {
         }
       };
       const onTabClick = event => {
-        const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-region-edit]");
+        const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-region-edit],[data-atlas-region-regenerate]");
         if (action?.closest?.(".application")?.querySelector?.('input[name="atlasRoadName"]')) {
           event.preventDefault();event.stopImmediatePropagation();
           const tool=action.dataset.atlasRoadTool;
@@ -613,6 +624,11 @@ function actions() {
             :tool==="travel" ? ()=>api.assignRoadTravelPreset(scene,road,refresh)
             :tool==="delete" ? ()=>api.remove(scene,road,refresh)
             :tool==="generateRegion" ? ()=>openAtlasRegionGenerator(scene,road.id,api,refresh)
+            :action.dataset.atlasRegionRegenerate ? ()=>{
+              const entry=listGeneratedRegions(scene).find(item=>item.id===action.dataset.atlasRegionRegenerate);
+              if(!entry)throw Error("This Atlas Region is no longer available.");
+              return api.regenerateRegion(scene,entry,refresh);
+            }
             :action.dataset.atlasCheckpointEdit ? ()=>api.editCheckpointAppearance(
               scene,readAtlas(scene).checkpoints.find(c=>c.id===action.dataset.atlasCheckpointEdit),refresh)
             :()=>api.configureRegion(scene,action.dataset.atlasRegionEdit);
