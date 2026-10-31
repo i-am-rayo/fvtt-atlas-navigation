@@ -110,7 +110,8 @@ export function createRegionCostMeasurement({ regions, measurePath, toCanvasPoin
         const key=winner?.id ?? (fallbackSurface ? "fallback:"+fallbackSurface : null);
         const last=slices.at(-1);
         if(last?.regionId===key)last.pixels+=length;
-        else slices.push({regionId:key,terrain:label,multiplier:winner?.multiplier??1,pixels:length});
+        else slices.push({regionId:key,regionName:winner?.name??null,
+          terrain:label,multiplier:winner?.multiplier??1,pixels:length});
       }
     }
     // Native grid measurement of the whole leg is authoritative. Measuring
@@ -119,7 +120,8 @@ export function createRegionCostMeasurement({ regions, measurePath, toCanvasPoin
     if (!Number.isFinite(distance) || distance < 0) throw new Error("Native route distance is unavailable.");
     return {
       cost:totalPixels ? distance * weightedPixels / totalPixels : distance,
-      slices:slices.map(item=>({regionId:item.regionId,terrain:item.terrain,
+      slices:slices.map(item=>({regionId:item.regionId,regionName:item.regionName,
+        terrain:item.terrain,
         multiplier:item.multiplier,distance:totalPixels?distance*item.pixels/totalPixels:0}))
     };
   };
