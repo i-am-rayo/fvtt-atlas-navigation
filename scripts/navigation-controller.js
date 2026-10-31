@@ -219,7 +219,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       metric("Distance",`${this.result.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}`);
       try{
         const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
-        metric("Travel time",formatNavigationDuration(navigationHours(weighted,speed)));
+        metric("Travel time",formatNavigationDuration(navigationHours(weighted,speed),travel.hoursPerDay??24));
       }catch(error){metric("Travel time","Unavailable");}
       root.appendChild(summary);
       const sourceLabel=el("p",`Speed: ${travelSource}`);
@@ -247,7 +247,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const text=el("div");text.style.minWidth="0";
         const instruction=el("strong",step.instruction);instruction.style.display="block";
         const info=el("div",`${step.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit} · `+
-          `${formatNavigationDuration(navigationHours(this.result.terrainAware?step.cost:step.distance,speed))}`+
+          `${formatNavigationDuration(navigationHours(this.result.terrainAware?step.cost:step.distance,speed),travel.hoursPerDay??24)}`+
           (step.terrain ? ` · ${step.terrain}` : ""));
         info.style.cssText="opacity:.75;font-size:.85em;margin-top:.3rem;";
         text.append(instruction,info);item.append(marker,text);list.appendChild(item);
