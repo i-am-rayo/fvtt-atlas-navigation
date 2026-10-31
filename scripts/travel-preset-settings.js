@@ -5,7 +5,8 @@
 import { MODULE_ID, readAtlas } from "./atlas-storage.js";
 import { TRAVEL_PRESET_SETTING, REGION_TRAVEL_PRESET_FLAG, TRAVEL_TYPES,
   defaultTravelPresets, validateTravelPresets, upsertTravelPreset,
-  removeTravelPreset, presetCostSummary, defaultTravelPresetColor } from "./travel-preset-model.js";
+  removeTravelPreset, presetCostSummary, defaultTravelPresetColor,
+  addMissingRecommendedWaterPresets } from "./travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions } from "./native-movement-cost.js";
 
 const TYPE_LABELS = { land: "Land", air: "Air", water: "Water" };
@@ -27,7 +28,7 @@ export function registerWorldTravelPresets() {
   game.settings.registerMenu(MODULE_ID, "atlasTravelPresetsMenu", {
     name: "Atlas — Region Surfaces & Costs",
     label: "Configure Corridor Surface and Movement Presets",
-    hint: "Land, Air and Water travel surfaces for generated native Regions and their optional movement costs; road overlay styles are separate.",
+    hint: "Land, Air and Water surface colors for Atlas road overlays and new generated native Regions; native costs remain separately confirmed.",
     icon: "fa-solid fa-route",
     type: AtlasTravelPresetSettings,
     restricted: true
@@ -86,7 +87,7 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
     const root = node("div");
     root.style.cssText = "padding:0.8rem 1rem;display:grid;gap:1rem;overflow:auto;height:100%;";
     root.appendChild(node("p",
-      "World presets share movement costs and native Region highlight colors across Scenes. Colors are used for new generated corridors; existing Region colors and Behaviors change only through separate GM actions. No override never blocks movement."));
+      "World presets supply Atlas road-surface colors and movement-cost suggestions. Curved road strokes change color where their assigned Regions overlap; higher-ranked Regions win. Editing presets never changes existing native Region colors or Behaviors."));
     for (const mode of TRAVEL_TYPES) {
       const fieldset = node("fieldset");
       fieldset.style.cssText = "display:grid;gap:0.45rem;min-width:0;";
@@ -116,6 +117,9 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
       }
       fieldset.appendChild(button("＋ Add " + TYPE_LABELS[mode] + " Preset",
         () => this._editPreset(null, mode)));
+      if(mode==="water")fieldset.appendChild(button("Add Missing Recommended Water Presets",
+        () => this._addWaterPresets(),
+        "Explicitly add missing built-in Water surfaces without changing existing presets."));
       root.appendChild(fieldset);
     }
     root.appendChild(node("p",
@@ -125,6 +129,23 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
 
   _replaceHTML(result, content) {
     content.replaceChildren(result);
+  }
+
+  async _addWaterPresets(){
+    if(!game.user?.isGM)throw Error("Only a GM can configure Atlas presets.");
+    const current=readWorldTravelPresets();
+    const next=addMissingRecommendedWaterPresets(current);
+    const added=next.presets.length-current.presets.length;
+    if(!added){ui.notifications.info("All recommended Water presets are already present.");return;}
+    const approved=await foundry.applications.api.DialogV2.confirm({
+      window:{title:"Add Recommended Water Surfaces"},
+      content:`Add ${added} Water surface preset(s)? Existing World presets and native Regions will not be changed.`,
+      rejectClose:false,modal:true
+    });
+    if(!approved)return;
+    await game.settings.set(MODULE_ID,TRAVEL_PRESET_SETTING,next);
+    ui.notifications.info(`Added ${added} Atlas Water preset(s).`);
+    await this.render();
   }
 
   async _editPreset(existing, initialMode = "land") {
