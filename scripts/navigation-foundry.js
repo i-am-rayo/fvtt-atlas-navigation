@@ -37,24 +37,34 @@ export function calculateSceneRoadRoute(view, scene, atlas, start, end, options 
   // Unsupported/manual native terrain rules are intentionally not guessed.
   const action = options.movementAction ?? "walk";
   const regions = [];
+  const surfaces = [];
   let unsupported = false;
   const incompatible=[];
   let presets=[];
   try {presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING)).presets;}
   catch {unsupported=true;incompatible.push("Atlas World presets");}
   for (const region of scene.regions?.contents ?? []) {
+    const presetId=region.getFlag?.(MODULE_ID,REGION_TRAVEL_PRESET_FLAG)?.presetId;
+    const preset=presets.find(item=>item.id===presetId);
+    const shapes=Array.from(region.shapes ?? []);
+    const compatibleShapes=shapes.length>0 && shapes.every(shape=>
+      ["polygon", "ellipse"].includes(shape.type));
+    // Surface identification depends only on explicitly associated Atlas
+    // metadata and native geometry, never on Behavior compatibility.
+    if (preset && compatibleShapes) surfaces.push({id:region.id,
+      name:region.name, surface:preset.name, priority:routingPriority(
+        region.getFlag?.(MODULE_ID,REGION_ROUTING_PRIORITY_FLAG)),
+      multiplier:1,shapes});
     const cost = nativeCostSummary(region);
     if (!cost.existing || cost.disabled) continue;
     if (!cost.managed || cost.count !== 1 || !Number.isFinite(cost.actualCosts?.[action]) ||
-        cost.actualCosts[action] <= 0 || !Array.from(region.shapes ?? []).every(shape =>
-          ["polygon", "ellipse"].includes(shape.type))) {
+        cost.actualCosts[action] <= 0 || !compatibleShapes) {
       unsupported = true;
       incompatible.push(region.name || region.id);
       continue;
     }
     const priority = routingPriority(region.getFlag?.(MODULE_ID, REGION_ROUTING_PRIORITY_FLAG));
-    const presetId=region.getFlag?.(MODULE_ID,REGION_TRAVEL_PRESET_FLAG)?.presetId;
-    const surface=presets.find(item=>item.id===presetId)?.name ?? region.name;
+    const surface=preset?.name ?? region.name;
     regions.push({ id: region.id, name:region.name, surface, priority,
       multiplier: cost.actualCosts[action], shapes: region.shapes });
   }
@@ -63,15 +73,22 @@ export function calculateSceneRoadRoute(view, scene, atlas, start, end, options 
   const useTerrain = options.terrainAware !== false && !unsupported && regions.length > 0;
   const ordered = orderedRoutingRegions(regions, scene.getFlag?.(MODULE_ID, REGION_ROUTING_ORDER_FLAG) ?? null);
   const ranked = ordered.map((region,index)=>({ ...region, rank:index }));
+  const labeled=orderedRoutingRegions(surfaces,scene.getFlag?.(MODULE_ID,
+    REGION_ROUTING_ORDER_FLAG) ?? null).map((region,index)=>({...region,rank:index}));
   const measureCost = !useTerrain ? null : createRegionCostMeasurement({
     regions: ranked, gridSize: scene.grid.size, toCanvasPoint: point => toCanvasPoint(view, atlas, point),
     measurePath: points => view.grid.measurePath(points).distance
   });
+  const measureSurface = labeled.length ? createRegionCostMeasurement({
+    regions:labeled,gridSize:scene.grid.size,
+    toCanvasPoint:point=>toCanvasPoint(view,atlas,point),
+    measurePath:points=>view.grid.measurePath(points).distance
+  }) : null;
   const route = calculateRoadRoute(atlas, start, end,
     { ...options, attachmentTolerancePixels, measurePath, measureCost });
-  if(route.status==="ok" && measureCost?.describe){
+  if(route.status==="ok" && (measureCost?.describe || measureSurface?.describe)){
     route.legs=route.legs.map(leg=>({ ...leg,
-      terrainSlices:measureCost.describe(leg.points).slices }));
+      terrainSlices:(measureCost??measureSurface).describe(leg.points).slices }));
   }
   return { ...route, terrainWarning: unsupported
     ? "Native/manual movement costs cannot be safely resolved for: " +
