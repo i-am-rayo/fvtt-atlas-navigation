@@ -24,12 +24,14 @@ export function buildNavigationSteps(legs, roadName = id => id) {
       const terrain=slice.terrain;
       const prev=steps.at(-1);
       const cost=slice.distance*slice.multiplier;
-      if(prev && prev.kind===kind && prev.roadId===roadId && prev.terrain===terrain){
+      if(prev && prev.kind===kind && prev.roadId===roadId && prev.terrain===terrain &&
+          (prev.regionId??null)===(slice.regionId??null)){
         prev.distance+=slice.distance;prev.cost+=cost;
       }else{
         const verb=steps.length?"Continue":"Head";
         const where=kind==="road" ? " on "+roadName(roadId) : " toward the road or destination";
-        steps.push({kind,roadId,terrain,direction,distance:slice.distance,cost,
+        steps.push({kind,roadId,terrain,regionId:slice.regionId??null,
+          regionName:slice.regionName??null,direction,distance:slice.distance,cost,
           instruction:verb+(direction?" "+direction:"")+where});
       }
     }
