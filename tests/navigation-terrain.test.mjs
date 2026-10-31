@@ -11,6 +11,16 @@ test("highest routing priority overrides overlapping dirt with stone",()=>{
     toCanvasPoint:p=>p,measurePath:p=>Math.hypot(p[1].x-p[0].x,p[1].y-p[0].y)});
   assert.equal(cost([{x:0,y:50},{x:100,y:50}]),95);
 });
+test("terrain slices preserve the exact native Region identity and name",()=>{
+  const bridge={id:"bridge",name:"Millstone-Dirwest Northern Bridge",surface:"Stone Road",
+    priority:10,multiplier:1,shapes:[square(0,0,100)]};
+  const measure=createRegionCostMeasurement({regions:[bridge],gridSize:10,
+    toCanvasPoint:p=>p,measurePath:()=>15});
+  assert.deepEqual(measure.describe([{x:0,y:50},{x:100,y:50}]).slices,[{
+    regionId:"bridge",regionName:"Millstone-Dirwest Northern Bridge",
+    terrain:"Stone Road",multiplier:1,distance:15
+  }]);
+});
 test("ties are stable and priority rejects malformed values",()=>{
   assert.equal(resolveRoutingRegion([{id:"z",priority:5},{id:"a",priority:5}]).id,"a");
   assert.equal(routingPriority(null),0);
