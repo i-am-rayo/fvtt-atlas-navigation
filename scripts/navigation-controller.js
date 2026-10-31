@@ -6,9 +6,11 @@ import { roadStrokeSpans, smoothRoadPath, readRoadCurvePreset,
 import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.js";
 import { clipNavigationSpline } from "./navigation-curvature.js";
 import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
-  validateNavigationSpeed, navigationHours, formatNavigationDuration }
+  navigationHours, formatNavigationDuration }
   from "./navigation-time.js";
 import { buildNavigationSteps } from "./navigation-instructions.js";
+import { readPartyExploration } from "./party-exploration-storage.js";
+import { resolveNavigationTravelSpeed } from "./navigation-party-speed.js";
 
 const el = (tag, content) => {
   const node = document.createElement(tag);
@@ -21,7 +23,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-navigation-panel",
     window: { title: "Atlas — Navigation", resizable: true },
-    position: { width: 365, height: 340, left: 100, top: 170 }
+    position: { width: 420, height: 320, left: 100, top: 170 }
   };
 
   constructor({ canvasProvider = () => globalThis.canvas } = {}) {
@@ -35,7 +37,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.overlay = null;
     this.pointerDown = this.onPointerDown.bind(this);
     this.closedByController = false;
-    this.speedOverride = null;
   }
 
   get active() { return Boolean(this.scene); }
@@ -94,6 +95,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     this.draw();
     void this.render(true);
+    if (this.result?.status === "ok") {
+      const viewport = globalThis.window;
+      this.setPosition?.({
+        width: Math.min(640, Math.max(380, (viewport?.innerWidth ?? 1000) - 64)),
+        height: Math.min(790, Math.max(350, (viewport?.innerHeight ?? 900) - 90))
+      });
+    }
   }
 
   draw() {
@@ -161,7 +169,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.start = null;
     this.end = null;
     this.result = null;
-    this.speedOverride = null;
   }
 
   tearDown() {
@@ -174,54 +181,84 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   async _renderHTML() {
     const root=el("section");
-    root.style.cssText="display:flex;flex-direction:column;gap:.6rem;padding:.65rem;overflow-y:auto;";
+    root.style.cssText="display:flex;flex-direction:column;gap:.85rem;padding:1rem;overflow-y:auto;max-height:100%;";
     const status=!this.start ? "Click the map to select Point A." :
       !this.end ? "Point A selected. Click the map to select Point B." :
       this.result?.status==="ok" ? "Route calculated." :
       (this.result?.reason ?? "No connected road route available.");
-    root.appendChild(el("p",status));
+    const statusLabel=el("p",status);
+    statusLabel.style.cssText="margin:0;font-weight:600;";
+    root.appendChild(statusLabel);
     const sceneUnit=this.scene?.grid?.units?.trim() || "Scene units";
     const configured=Number(game.settings.get("fvtt-atlas-navigation",NAVIGATION_SPEED_SETTING)
       ?? DEFAULT_NAVIGATION_SPEED);
-    let speed=this.speedOverride ?? configured;
-    try{validateNavigationSpeed(speed);}catch{speed=DEFAULT_NAVIGATION_SPEED;}
-    const fieldRow=el("label");
-    fieldRow.style.cssText="display:flex;flex-direction:column;gap:.2rem;";
-    fieldRow.appendChild(el("span",`Travel speed (${sceneUnit}/hour)`));
-    const speedInput=el("input");speedInput.type="number";
-    speedInput.min="0.1";speedInput.max="1000";speedInput.step="0.1";
-    speedInput.value=String(speed);
-    speedInput.title="Override the world default for this Navigation session only; tokens are not changed.";
-    speedInput.addEventListener("change",()=>{
-      try{
-        const value=validateNavigationSpeed(Number(speedInput.value));
-        this.speedOverride=value;
-        void this.render(true);
-      }catch(error){ui.notifications.warn(error.message);speedInput.value=String(speed);}
-    });
-    fieldRow.appendChild(speedInput);root.appendChild(fieldRow);
+    const assignment=this.scene ? readPartyExploration(this.scene) : null;
+    const assignedToken=assignment?.enabled ? this.scene?.tokens?.get?.(assignment.tokenId) : null;
+    let travel;
+    try {
+      travel=resolveNavigationTravelSpeed({ token:assignedToken,sceneUnits:sceneUnit,
+        systemId:game.system?.id,worldSpeed:configured });
+    } catch {
+      travel=resolveNavigationTravelSpeed({ token:null,sceneUnits:sceneUnit,
+        systemId:null,worldSpeed:DEFAULT_NAVIGATION_SPEED });
+    }
+    const speed=travel.speed;
+    const travelSource=travel.source==="party" ?
+      `${travel.actorName} · ${travel.pace} pace · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour` :
+      `Atlas default · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour`;
     if (this.result?.status === "ok") {
       const unit=this.scene?.grid?.units?.trim() || "units";
-      root.appendChild(el("strong",`Total distance: ${this.result.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}`));
-      if (this.result.terrainAware) root.appendChild(el("strong",
-        `Estimated terrain-weighted cost: ${this.result.cost.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}-equivalent`));
-      if (this.result.terrainWarning) root.appendChild(el("p",this.result.terrainWarning));
+      const summary=el("div");
+      summary.style.cssText="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem;";
+      const metric=(label,value)=>{
+        const card=el("div");card.style.cssText="border:1px solid var(--color-border-light-tertiary,#666);border-radius:8px;padding:.75rem;min-width:0;";
+        const small=el("div",label);small.style.cssText="font-size:.8em;opacity:.75;margin-bottom:.25rem;";
+        const big=el("strong",value);big.style.cssText="font-size:1.15em;";
+        card.append(small,big);summary.appendChild(card);
+      };
+      metric("Distance",`${this.result.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}`);
       try{
         const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
-        root.appendChild(el("strong",`Estimated travel time: ${formatNavigationDuration(navigationHours(weighted,speed))}`));
-        if(!this.result.terrainAware)root.appendChild(el("p","Travel time is distance-only until native terrain costs are compatible."));
-      }catch(error){root.appendChild(el("p",error.message));}
-      const list=el("ol");
+        metric("Travel time",formatNavigationDuration(navigationHours(weighted,speed)));
+      }catch(error){metric("Travel time","Unavailable");}
+      root.appendChild(summary);
+      const sourceLabel=el("p",`Speed: ${travelSource}`);
+      sourceLabel.style.cssText="margin:0;font-size:.85em;opacity:.85;";
+      root.appendChild(sourceLabel);
+      if (this.result.terrainAware) {
+        const cost=el("p",`Terrain-weighted distance: ${this.result.cost.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}-equivalent`);
+        cost.style.cssText="margin:0;font-size:.85em;";root.appendChild(cost);
+      }
+      if (this.result.terrainWarning || !this.result.terrainAware) {
+        const details=el("details");
+        const summaryText=el("summary","Terrain calculation notes");
+        details.append(summaryText,el("p",this.result.terrainWarning ||
+          "Estimated times use distance only until native movement costs can be resolved safely."));
+        root.appendChild(details);
+      }
+      const heading=el("h3","Directions");heading.style.cssText="margin:.2rem 0 0;";root.appendChild(heading);
+      const list=el("div");list.style.cssText="display:flex;flex-direction:column;gap:.4rem;";
       const roads=new Map(readAtlas(this.scene).roads.map(r=>[r.id,r.name]));
-      for (const step of buildNavigationSteps(this.result.legs,id=>roads.get(id)??"Road")) {
-        list.appendChild(el("li",`${step.instruction} — ${step.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}` +
-          (this.result.terrainAware ? ` · ${step.terrain}` : "")+
-          ` · ${formatNavigationDuration(navigationHours(this.result.terrainAware?step.cost:step.distance,speed))}`));
+      const steps=buildNavigationSteps(this.result.legs,id=>roads.get(id)??"Road");
+      for (const [index,step] of steps.entries()) {
+        const item=el("div");item.style.cssText="display:flex;align-items:flex-start;gap:.8rem;padding:.8rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:8px;";
+        const marker=el("span",String(index+1));
+        marker.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;background:var(--color-cool-4,#333);font-weight:bold;";
+        const text=el("div");text.style.minWidth="0";
+        const instruction=el("strong",step.instruction);instruction.style.display="block";
+        const info=el("div",`${step.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit} · `+
+          `${formatNavigationDuration(navigationHours(this.result.terrainAware?step.cost:step.distance,speed))}`+
+          (step.terrain ? ` · ${step.terrain}` : ""));
+        info.style.cssText="opacity:.75;font-size:.85em;margin-top:.3rem;";
+        text.append(instruction,info);item.append(marker,text);list.appendChild(item);
       }
       root.appendChild(list);
+    } else {
+      const hint=el("p",`Travel estimates will use ${travelSource}.`);
+      hint.style.cssText="margin:0;opacity:.8;font-size:.9em;";root.appendChild(hint);
     }
     const row=el("div");
-    row.style.cssText="display:flex;gap:.5rem;";
+    row.style.cssText="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.25rem;";
     const clear=el("button", "New Route");
     clear.type="button";
     clear.addEventListener("click",()=>this.clear());
