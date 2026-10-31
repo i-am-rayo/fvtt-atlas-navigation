@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { convertGroupSpeed, readGroupTravelSpeed, resolveNavigationTravelSpeed }
   from "../scripts/navigation-party-speed.js";
+import { formatNavigationDuration } from "../scripts/navigation-time.js";
 
 function party({daily=40,hours=8,units="kph",pace="normal"}={}) {
   return {name:"The Party",type:"group",system:{
@@ -21,6 +22,11 @@ test("D&D 5e Group Actor travel pace determines hourly scene speed",()=>{
 test("travel pace and hours per day alter estimated hourly speed",()=>{
   assert.equal(readGroupTravelSpeed(party({daily:24}),"km").speed,3);
   assert.equal(readGroupTravelSpeed(party({daily:40,hours:10}),"km").speed,4);
+});
+
+test("party travel days respect the Group Actor's hours per day",()=>{
+  assert.equal(formatNavigationDuration(30,8),"3d 6h");
+  assert.equal(formatNavigationDuration(30),"1d 6h");
 });
 
 test("converts metric and imperial units without guessing unrelated units",()=>{
