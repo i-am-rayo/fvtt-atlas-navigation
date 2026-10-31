@@ -86,9 +86,18 @@ export function calculateSceneRoadRoute(view, scene, atlas, start, end, options 
   }) : null;
   const route = calculateRoadRoute(atlas, start, end,
     { ...options, attachmentTolerancePixels, measurePath, measureCost });
-  if(route.status==="ok" && (measureCost?.describe || measureSurface?.describe)){
-    route.legs=route.legs.map(leg=>({ ...leg,
-      terrainSlices:(measureCost??measureSurface).describe(leg.points).slices }));
+  if(route.status==="ok"){
+    const roads=new Map((atlas.roads??[]).map(road=>[road.id,road]));
+    route.legs=route.legs.map(leg=>{
+      const slices=(measureCost??measureSurface)?.describe(leg.points).slices ??
+        [{regionId:null,terrain:"Unspecified terrain",distance:leg.distance,multiplier:1}];
+      return { ...leg,terrainSlices:slices.map(slice=>{
+        if(slice.regionId!==null || leg.kind!=="road")return slice;
+        const presetId=roads.get(leg.roadId)?.travelPresetId;
+        const defaultSurface=presets.find(p=>p.id===presetId)?.name;
+        return defaultSurface?{...slice,terrain:defaultSurface}:slice;
+      }) };
+    });
   }
   return { ...route, terrainWarning: unsupported
     ? "Native/manual movement costs cannot be safely resolved for: " +
