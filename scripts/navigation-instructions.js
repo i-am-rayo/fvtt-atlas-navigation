@@ -9,10 +9,22 @@ export function navigationDirection(points) {
   return DIRECTIONS[(sector+8)%8];
 }
 
+/** Compass arrows point in the same map direction as the instruction. */
+export const NAVIGATION_ARROWS=Object.freeze({north:"↑",northeast:"↗",east:"→",
+  southeast:"↘",south:"↓",southwest:"↙",west:"←",northwest:"↖"});
+
+export function navigationInstruction({kind,roadId,regionName,direction,first,nextRoadId},roadName){
+  const road=roadId?roadName(roadId):null;
+  const namedRegion=regionName && !regionName.includes(" → ") ? regionName : null;
+  const destination=namedRegion??road;
+  if(kind==="road")return `${first?"Head":"Continue"}${direction?" "+direction:""} ${first?"to":"on"} ${destination}`;
+  return `${first?"Head":"Continue"}${direction?" "+direction:""} to ${first&&nextRoadId?roadName(nextRoadId):"the destination"}`;
+}
+
 /** Split by terrain, merge consecutive legs with the same road and surface. */
 export function buildNavigationSteps(legs, roadName = id => id) {
   const steps=[];
-  for(const leg of legs){
+  for(const [legIndex,leg] of legs.entries()){
     if(!Number.isFinite(leg.distance)||leg.distance<0.005)continue;
     const slices=leg.terrainSlices?.length ? leg.terrainSlices :
       [{terrain:"Unspecified terrain",distance:leg.distance,multiplier:1}];
@@ -28,11 +40,11 @@ export function buildNavigationSteps(legs, roadName = id => id) {
           (prev.regionId??null)===(slice.regionId??null)){
         prev.distance+=slice.distance;prev.cost+=cost;
       }else{
-        const verb=steps.length?"Continue":"Head";
-        const where=kind==="road" ? " on "+roadName(roadId) : " toward the road or destination";
         steps.push({kind,roadId,terrain,regionId:slice.regionId??null,
           regionName:slice.regionName??null,direction,distance:slice.distance,cost,
-          instruction:verb+(direction?" "+direction:"")+where});
+          instruction:navigationInstruction({kind,roadId,regionName:slice.regionName,
+            direction,first:steps.length===0,
+            nextRoadId:legs.slice(legIndex+1).find(next=>next.kind==="road")?.roadId},roadName)});
       }
     }
   }
