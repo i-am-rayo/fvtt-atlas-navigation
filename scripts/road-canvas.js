@@ -1420,7 +1420,8 @@ export class RoadCanvasController {
         if (style.borderEnabled) drawLine(graphics, span,
           Number.parseInt(style.borderColor.slice(1),16),
           style.width + 2 / zoom, style.opacity, style.pattern, style.width);
-        for(const run of roadSurfaceSpans(span,surfaceRegions,style.color,
+        const base=presets.find(p=>p.id===road.travelPresetId)?.color??style.color;
+        for(const run of roadSurfaceSpans(span,surfaceRegions,base,
           canvas.scene.grid?.size))drawLine(graphics,run.points,
           Number.parseInt(run.color.slice(1),16),style.width,style.opacity,style.pattern);
         hoverPaths.push({ roadId: road.id, path: span,
@@ -1697,7 +1698,8 @@ export class RoadCanvasController {
         style.width + 2 / zoom + (highlighted ? 2 : 0),
         highlighted ? 1 : style.opacity, style.pattern, style.width);
       if(highlighted)drawLine(g,path,color,style.width+2,1,style.pattern);
-      else for(const run of roadSurfaceSpans(path,surfaceRegions,style.color,
+      else for(const run of roadSurfaceSpans(path,surfaceRegions,
+        travelPresets.find(p=>p.id===road.travelPresetId)?.color??style.color,
         canvas.scene.grid?.size))drawLine(g,run.points,
           Number.parseInt(run.color.slice(1),16),style.width,style.opacity,style.pattern);
       if (hatchHidden && road.playerVisible !== true) {
