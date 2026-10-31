@@ -86,9 +86,11 @@ export function regionContainsPoint(shapes, point) {
  * A strictly bounded sample count avoids freezing large Scenes.
  */
 export function createRegionCostMeasurement({ regions, measurePath, toCanvasPoint, gridSize,
-  maxSamples = 4096, fallbackSurface = null }) {
+  maxSamples = 4096, fallbackSurface = null, fallbackMultiplier = 1 }) {
   if (!Number.isFinite(gridSize) || gridSize <= 0 || typeof measurePath !== "function" ||
-      typeof toCanvasPoint !== "function") throw new Error("Native grid routing adapter is unavailable.");
+      typeof toCanvasPoint !== "function" ||
+      !Number.isFinite(fallbackMultiplier) || fallbackMultiplier<=0)
+    throw new Error("Native grid routing adapter is unavailable.");
   const stepSize = gridSize / 2;
   const describe = points => {
     let weightedPixels = 0, totalPixels = 0, count = 0;
@@ -105,13 +107,13 @@ export function createRegionCostMeasurement({ regions, measurePath, toCanvasPoin
         const winner = resolveRoutingRegion(regions.filter(r => regionContainsPoint(r.shapes, midpoint)));
         const length = Math.hypot(q.x-p.x,q.y-p.y);
         totalPixels += length;
-        weightedPixels += length * (winner?.multiplier ?? 1);
+        weightedPixels += length * (winner?.multiplier ?? fallbackMultiplier);
         const label=winner?.surface ?? winner?.name ?? fallbackSurface ?? "Unspecified terrain";
         const key=winner?.id ?? (fallbackSurface ? "fallback:"+fallbackSurface : null);
         const last=slices.at(-1);
         if(last?.regionId===key)last.pixels+=length;
         else slices.push({regionId:key,regionName:winner?.name??null,
-          terrain:label,multiplier:winner?.multiplier??1,pixels:length});
+          terrain:label,multiplier:winner?.multiplier??fallbackMultiplier,pixels:length});
       }
     }
     // Native grid measurement of the whole leg is authoritative. Measuring

@@ -74,9 +74,10 @@ export function saveRenamedRoad(scene, { roadId, segmentId, name, expectedRevisi
     renameRoad(previous, { roadId, segmentId, name }));
 }
 
-export function saveRemovedRoad(scene, { roadId, segmentId, expectedRevision }) {
+export function saveRemovedRoad(scene, { roadId, segmentId, expectedRevision,
+  removeCheckpoints = false }) {
   return saveChange(scene, expectedRevision, previous =>
-    removeRoad(previous, { roadId, segmentId }));
+    removeRoad(previous, { roadId, segmentId, removeCheckpoints }));
 }
 
 /**

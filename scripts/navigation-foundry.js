@@ -70,15 +70,33 @@ export function calculateSceneRoadRoute(view, scene, atlas, start, end, options 
   }
   // Never silently present an incorrect terrain-weighted estimate if a native
   // movement-cost Region cannot be represented by this conservative adapter.
-  const useTerrain = options.terrainAware !== false && !unsupported && regions.length > 0;
+  const roads=new Map((atlas.roads??[]).map(road=>[road.id,road]));
+  const roadPreset=roadId=>presets.find(p=>p.id===roads.get(roadId)?.travelPresetId);
+  const defaultMultiplier=leg=>{
+    if(leg?.kind!=="road")return 1;
+    const preset=roadPreset(leg.roadId);
+    return preset?.movementCosts?.[action]??preset?.movementCostMultiplier??1;
+  };
+  const roadCostsExist=(atlas.roads??[]).some(road=>
+    road.travelPresetId && defaultMultiplier({kind:"road",roadId:road.id})!==1);
+  const useTerrain = options.terrainAware !== false && !unsupported &&
+    (regions.length > 0 || roadCostsExist);
   const ordered = orderedRoutingRegions(regions, scene.getFlag?.(MODULE_ID, REGION_ROUTING_ORDER_FLAG) ?? null);
   const ranked = ordered.map((region,index)=>({ ...region, rank:index }));
   const labeled=orderedRoutingRegions(surfaces,scene.getFlag?.(MODULE_ID,
     REGION_ROUTING_ORDER_FLAG) ?? null).map((region,index)=>({...region,rank:index}));
-  const measureCost = !useTerrain ? null : createRegionCostMeasurement({
-    regions: ranked, gridSize: scene.grid.size, toCanvasPoint: point => toCanvasPoint(view, atlas, point),
-    measurePath: points => view.grid.measurePath(points).distance
-  });
+  const measures=new Map();
+  const getCostMeasure=leg=>{
+    const multiplier=defaultMultiplier(leg);
+    if(!measures.has(multiplier))measures.set(multiplier,createRegionCostMeasurement({
+      regions:ranked,gridSize:scene.grid.size,
+      toCanvasPoint:point=>toCanvasPoint(view,atlas,point),
+      measurePath:points=>view.grid.measurePath(points).distance,
+      fallbackMultiplier:multiplier
+    }));
+    return measures.get(multiplier);
+  };
+  const measureCost=!useTerrain?null:(points,leg)=>getCostMeasure(leg)(points);
   const measureSurface = labeled.length ? createRegionCostMeasurement({
     regions:labeled,gridSize:scene.grid.size,
     toCanvasPoint:point=>toCanvasPoint(view,atlas,point),
@@ -87,9 +105,8 @@ export function calculateSceneRoadRoute(view, scene, atlas, start, end, options 
   const route = calculateRoadRoute(atlas, start, end,
     { ...options, attachmentTolerancePixels, measurePath, measureCost });
   if(route.status==="ok"){
-    const roads=new Map((atlas.roads??[]).map(road=>[road.id,road]));
     route.legs=route.legs.map(leg=>{
-      const slices=(measureCost??measureSurface)?.describe(leg.points).slices ??
+      const slices=(measureCost ? getCostMeasure(leg) : measureSurface)?.describe(leg.points).slices ??
         [{regionId:null,terrain:"Unspecified terrain",distance:leg.distance,multiplier:1}];
       return { ...leg,terrainSlices:slices.map(slice=>{
         if(slice.regionId!==null || leg.kind!=="road")return slice;
@@ -103,5 +120,5 @@ export function calculateSceneRoadRoute(view, scene, atlas, start, end, options 
     ? "Native/manual movement costs cannot be safely resolved for: " +
       incompatible.slice(0,3).join(", ") + (incompatible.length>3?` (+${incompatible.length-3} more)`:"") +
       ". Showing distance-only navigation; inspect their native Behaviors in Foundry."
-    : useTerrain ? "Terrain costs are a sampled Atlas estimate, not native Token movement measurements." : null };
+    : useTerrain ? "Terrain and road preset costs are sampled Atlas estimates, not native Token movement measurements." : null };
 }

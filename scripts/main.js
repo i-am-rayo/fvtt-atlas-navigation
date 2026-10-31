@@ -1316,18 +1316,76 @@ function actions() {
     },
     async remove(scene, road, refresh) {
       ensureIdle(scene);
-      const revision = readAtlas(scene).revision;
-      const confirmed = await DialogV2.confirm({
+      const atlas=readAtlas(scene),revision=atlas.revision;
+      const checkpoints=atlas.checkpoints?.filter(item=>item.roadId===road.id)??[];
+      const generated=listGeneratedRegions(scene).filter(item=>
+        item.metadata?.roadId===road.id);
+      const deletable=generated.filter(item=>!item.modified && !item.invalid);
+      const protectedRegions=generated.filter(item=>item.modified || item.invalid);
+      // Show exactly what the GM is about to delete on the active map.
+      await centerAtlasOn(scene,road.id);
+      const shell=document.createElement("div");
+      const intro=document.createElement("p");
+      intro.textContent="Delete \""+road.name+"\"? This removes its saved road geometry and settings. This cannot be undone.";
+      shell.appendChild(intro);
+      const checkbox=(key,title,names)=>{
+        if(!names.length)return;
+        const section=document.createElement("div");
+        const note=document.createElement("p");
+        note.textContent=title+" ("+names.length+"):";
+        section.appendChild(note);
+        const list=document.createElement("ul");
+        for(const name of names){
+          const item=document.createElement("li");item.textContent=name;list.appendChild(item);
+        }
+        section.appendChild(list);
+        const label=document.createElement("label");
+        const input=document.createElement("input");
+        input.type="checkbox";input.name=key;
+        label.append(input,document.createTextNode(" I confirm deleting these "+title.toLowerCase()+"."));
+        section.appendChild(label);shell.appendChild(section);
+      };
+      checkbox("deleteCheckpoints","Linked checkpoints",checkpoints.map(item=>item.name));
+      checkbox("deleteRegions","Unmodified Atlas-generated Regions",deletable.map(item=>item.name));
+      if(protectedRegions.length){
+        const note=document.createElement("p");
+        note.textContent="Protected Regions will be retained because their geometry was modified: "+
+          protectedRegions.map(item=>item.name).join(", ")+".";
+        shell.appendChild(note);
+      }
+      const content=document.createElement("div");content.appendChild(shell);
+      const result=await DialogV2.input({
         window: { title: game.i18n.localize("FVTTATLAS.Roads.Delete") },
-        content: "Delete this road and its road-specific settings? This cannot be undone.",
-        rejectClose: false,
-        modal: true
+        content,ok:{label:"Delete Road and Confirmed Items"},
+        rejectClose: false,modal: true
       });
-      if (!confirmed) return;
-      await saveRemovedRoad(scene, { roadId: road.id, segmentId: road.id, expectedRevision: revision });
+      if(!result)return;
+      const checked=key=>result[key]===true || result[key]==="on";
+      if(checkpoints.length && !checked("deleteCheckpoints"))
+        throw new Error("Check the linked checkpoint confirmation to delete this road.");
+      if(deletable.length && !checked("deleteRegions"))
+        throw new Error("Check the generated Region confirmation to delete this road.");
+      // Refuse stale decisions, even if another GM changed a Region while the
+      // dialog was open. The Scene flag write itself is revision-checked.
+      const latest=listGeneratedRegions(scene).filter(item=>item.metadata?.roadId===road.id);
+      if(latest.length!==generated.length || latest.some(item=>
+        !generated.some(previous=>previous.id===item.id &&
+          previous.name===item.name && previous.modified===item.modified)))
+        throw new Error("The road Regions changed while confirming. Reopen Delete Road.");
+      await saveRemovedRoad(scene, { roadId: road.id, segmentId: road.id,
+        expectedRevision: revision,removeCheckpoints:checkpoints.length>0 });
+      if(deletable.length) {
+        try {
+          await scene.deleteEmbeddedDocuments("Region",deletable.map(item=>item.id));
+        } catch(error) {
+          roadCanvas.refresh();refresh();
+          throw new Error("Road and checkpoints were deleted, but some generated Regions may remain. Review native Scene Regions. "+(error.message||String(error)));
+        }
+      }
       roadCanvas.refresh();
       refresh();
-      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.Deleted"));
+      ui.notifications.info("Road deleted with "+checkpoints.length+
+        " checkpoint(s) and "+deletable.length+" generated Region(s).");
     }
   };
 }

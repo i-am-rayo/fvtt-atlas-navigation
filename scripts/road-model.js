@@ -282,7 +282,7 @@ export function renameRoad(atlas, { roadId, segmentId, name }) {
   });
 }
 
-export function removeRoad(atlas, { roadId, segmentId }) {
+export function removeRoad(atlas, { roadId, segmentId, removeCheckpoints = false }) {
   const current = validateAtlas(atlas);
   if (current.schemaVersion < 3) {
     if (!current.segments.some(s => s.id === segmentId)) throw new Error("Road no longer exists in this Scene.");
@@ -290,13 +290,19 @@ export function removeRoad(atlas, { roadId, segmentId }) {
     return validateAtlas({ ...current, segments, enabled: segments.length > 0 });
   }
   if (!current.roads.some(r => r.id === roadId)) throw new Error("Road no longer exists in this Scene.");
-  if (current.checkpoints?.some(c => c.roadId === roadId)) {
+  if (!removeCheckpoints && current.checkpoints?.some(c => c.roadId === roadId)) {
     throw new Error("Remove or reassign this road’s checkpoints before deleting it.");
   }
   const roads = current.roads.filter(r => r.id !== roadId);
   const segments = current.segments.filter(s => s.roadId !== roadId);
   // Keep shared and orphaned junctions; removing a Road never cascades to others.
-  return validateAtlas({ ...current, roads, segments, enabled: segments.length > 0 });
+  // Only explicitly confirmed checkpoints are removed. Preserve their graph
+  // nodes: shared topology may be used by another named road.
+  const checkpoints = removeCheckpoints
+    ? current.checkpoints?.filter(c => c.roadId !== roadId) : current.checkpoints;
+  return validateAtlas({ ...current, roads, segments,
+    ...(Array.isArray(checkpoints) ? {checkpoints} : {}),
+    enabled: segments.length > 0 });
 }
 
 export function getRoadMergeCandidates(atlas, roadId) {
