@@ -15,7 +15,10 @@ const DEFAULT_COLORS = Object.freeze({
   "land-stone": "#9CA3AF", "land-gravel": "#B99A72",
   "land-dirt": "#AD7955", "land-forest": "#4F9068",
   "air-clear": "#86BDEB", "air-turbulent": "#8976BF",
-  "water-calm": "#47AFC0", "water-rough": "#3F72AF"
+  "water-calm": "#47AFC0", "water-rough": "#3F72AF",
+  "water-river": "#3E9CBA", "water-lake": "#58B7B5",
+  "water-sea": "#4385BD", "water-ocean": "#285B97",
+  "water-canal": "#6AADB5", "water-marsh": "#5A8776"
 });
 const MODE_COLORS = Object.freeze({
   land: "#AD9779", air: "#869AC8", water: "#4B9FBF"
@@ -41,8 +44,25 @@ const defaults = [
   ["air-clear", "air", "Clear Skies"],
   ["air-turbulent", "air", "Turbulent Air"],
   ["water-calm", "water", "Calm Waters"],
-  ["water-rough", "water", "Rough Seas"]
+  ["water-rough", "water", "Rough Seas"],
+  ["water-river", "water", "River"],
+  ["water-lake", "water", "Lake"],
+  ["water-sea", "water", "Sea"],
+  ["water-ocean", "water", "Ocean"],
+  ["water-canal", "water", "Canal"],
+  ["water-marsh", "water", "Marsh / Swamp"]
 ];
+
+/** Explicit opt-in addition for existing Worlds; never resets custom presets. */
+export function addMissingRecommendedWaterPresets(current) {
+  const catalog=validateTravelPresets(current);
+  const existing=new Set(catalog.presets.map(p=>p.id));
+  const names=new Set(catalog.presets.map(p=>p.mode+":"+p.name.toLocaleLowerCase()));
+  const additions=defaultTravelPresets().presets.filter(p=>p.mode==="water" &&
+    !existing.has(p.id) && !names.has(p.mode+":"+p.name.toLocaleLowerCase()));
+  return validateTravelPresets({schemaVersion:TRAVEL_PRESET_CATALOG_VERSION,
+    presets:[...catalog.presets,...additions]});
+}
 
 export function defaultTravelPresets() {
   return { schemaVersion: TRAVEL_PRESET_CATALOG_VERSION,
