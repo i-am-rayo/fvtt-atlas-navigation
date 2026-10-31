@@ -45,3 +45,9 @@ export function roadSurfaceSpans(path, regions, defaultColor, gridSize, maxSampl
   }
   return runs;
 }
+
+/** Label only the currently hovered, explicitly preset-backed terrain. */
+export function roadSurfaceAtPoint(point, regions) {
+  if(!point)return null;
+  return resolveRoutingRegion(regions.filter(r=>regionContainsPoint(r.shapes,point)))?.name??null;
+}
