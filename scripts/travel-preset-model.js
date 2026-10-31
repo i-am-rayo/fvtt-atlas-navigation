@@ -71,12 +71,27 @@ const BUILTIN_WATER_IDS=new Set(defaults.filter(([,mode])=>mode==="water")
   .map(([id])=>id));
 
 /** Explicit opt-in addition for existing Worlds; never resets custom presets. */
-export function addMissingRecommendedWaterPresets(current) {
+export function addMissingRecommendedWaterPresets(current, modifiers = null) {
   const catalog=validateTravelPresets(current);
   const existing=new Set(catalog.presets.map(p=>p.id));
   const names=new Set(catalog.presets.map(p=>p.mode+":"+p.name.toLocaleLowerCase()));
   const additions=defaultTravelPresets().presets.filter(p=>p.mode==="water" &&
-    !existing.has(p.id) && !names.has(p.mode+":"+p.name.toLocaleLowerCase()));
+    !existing.has(p.id) && !names.has(p.mode+":"+p.name.toLocaleLowerCase()))
+    .map(p=>{
+      const match=/^water-(river|lake|sea|ocean|canal|marsh)-(calm|turbulent|rough)$/.exec(p.id);
+      if(!match || !modifiers)return p;
+      const base=catalog.presets.find(item=>item.id==="water-"+match[1]);
+      const costs={...(base?.movementCosts??NEUTRAL_MOVEMENT_COSTS)};
+      for(const [action,delta] of Object.entries(modifiers[match[2]]??{})){
+        if(!/^[A-Za-z0-9_.-]{1,128}$/.test(action) ||
+            !Number.isFinite(delta) || delta<0 || delta>5)
+          throw new Error("Water condition modifiers must be between +0.00 and +5.00.");
+        const value=(costs[action]??1)+delta;
+        if(value>10)throw new Error("Water condition cost exceeds the maximum ×10.00.");
+        costs[action]=Math.round(value*100)/100;
+      }
+      return {...p,movementCosts:costs};
+    });
   return validateTravelPresets({schemaVersion:TRAVEL_PRESET_CATALOG_VERSION,
     presets:[...catalog.presets,...additions]});
 }

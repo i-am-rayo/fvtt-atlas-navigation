@@ -36,3 +36,29 @@ test("existing World catalog gains missing Water surfaces only by explicit updat
   assert.deepEqual(addMissingRecommendedWaterPresets(next),next);
   assert.equal(validateTravelPresets(trimmed).presets.some(p=>p.id==="water-river"),false);
 });
+
+test("condition variants use independent per-action deltas without touching existing presets",()=>{
+  const catalog=defaultTravelPresets();
+  const trimmed={...catalog,presets:catalog.presets
+    .filter(p=>!/^water-sea-(calm|turbulent|rough)$/.test(p.id))
+    .map(p=>p.id==="water-sea"?{...p,movementCosts:{walk:2,fly:1,swim:1.25,burrow:3}}:p)};
+  const modifiers={turbulent:{walk:0,fly:0.25,swim:0.25,burrow:0},
+    rough:{walk:0.5,fly:0,swim:0.5,burrow:0}};
+  const next=addMissingRecommendedWaterPresets(trimmed,modifiers);
+  assert.deepEqual(next.presets.find(p=>p.id==="water-sea").movementCosts,
+    {walk:2,fly:1,swim:1.25,burrow:3});
+  assert.deepEqual(next.presets.find(p=>p.id==="water-sea-turbulent").movementCosts,
+    {walk:2,fly:1.25,swim:1.5,burrow:3});
+  assert.deepEqual(next.presets.find(p=>p.id==="water-sea-rough").movementCosts,
+    {walk:2.5,fly:1,swim:1.75,burrow:3});
+  assert.deepEqual(addMissingRecommendedWaterPresets(next,modifiers),next);
+  assert.equal(trimmed.presets.some(p=>p.id==="water-sea-rough"),false);
+});
+
+test("condition generation rejects costs that would exceed native preset bounds",()=>{
+  const current=defaultTravelPresets();
+  const trimmed={...current,presets:current.presets.filter(p=>p.id!=="water-sea-rough")
+    .map(p=>p.id==="water-sea"?{...p,movementCosts:{swim:9.75}}:p)};
+  assert.throws(()=>addMissingRecommendedWaterPresets(trimmed,
+    {rough:{swim:0.5}}),/maximum/);
+});
