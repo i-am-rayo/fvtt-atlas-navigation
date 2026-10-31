@@ -19,15 +19,14 @@ export function addAtlasExplorerToTokenConfig(app, element) {
   const selected = expected.enabled && expected.tokenId === token.id;
   const fieldset = document.createElement("fieldset");
   fieldset.dataset.atlasExplorerConfig = "";
-  fieldset.style.cssText = "margin:1em .5em;padding:.8em;border:1px solid var(--color-border-light-tertiary);";
+  fieldset.style.cssText = "margin:1em .5em;padding:1em;border:1px solid var(--color-border-light-tertiary);border-radius:8px;display:flex;flex-direction:column;gap:.7em;";
   const legend = document.createElement("legend");
-  legend.textContent = "Atlas — Party Exploration";
+  legend.textContent = "Atlas — Party Explorer";
   fieldset.append(legend);
   const description = document.createElement("p");
-  description.textContent =
-    "Manual Scene explorer assignment; uses Atlas exploration, not token vision. " +
-    "Moves reveal and permanently save traveled terrain while a GM views this Scene. " +
-    "Native token vision remains independent; checkpoint discovery is shared.";
+  description.textContent = "Choose the token that reveals explored map areas as your party travels. " +
+    "Atlas exploration is separate from Foundry token vision.";
+  description.style.cssText="margin:0;opacity:.85;";
   fieldset.append(description);
   const checkboxLabel = document.createElement("label");
   checkboxLabel.style.cssText = "display:flex;align-items:center;gap:.6em;";
@@ -37,8 +36,8 @@ export function addAtlasExplorerToTokenConfig(app, element) {
   checkboxLabel.append(checkbox, document.createTextNode("Use this placed token as Atlas explorer"));
   fieldset.append(checkboxLabel);
   const radiusLabel = document.createElement("label");
-  radiusLabel.textContent = "Survey Radius (" + (scene.grid?.units || "Scene units") + ")";
-  radiusLabel.style.cssText = "display:block;margin-top:.7em;";
+  radiusLabel.textContent = "Discovery radius (" + (scene.grid?.units || "Scene units") + ")";
+  radiusLabel.style.cssText = "display:block;";
   const radius = document.createElement("input");
   radius.type = "number";
   radius.min = "0.01";
@@ -47,10 +46,20 @@ export function addAtlasExplorerToTokenConfig(app, element) {
   radius.style.width = "100%";
   radiusLabel.append(radius);
   fieldset.append(radiusLabel);
+  const radiusHint=document.createElement("small");
+  radiusHint.textContent="How far this token explores. This does not affect travel speed or route distances.";
+  radiusHint.style.opacity=".8";
+  fieldset.append(radiusHint);
+  if (token.actor?.type === "group" && game.system?.id === "dnd5e") {
+    const movementHint=document.createElement("p");
+    movementHint.textContent="Navigation reads Land travel pace from this Group Actor's Movement tab when this token is assigned and its speed is available.";
+    movementHint.style.cssText="margin:0;font-size:.9em;opacity:.85;";
+    fieldset.append(movementHint);
+  }
   const button = document.createElement("button");
   button.type = "button";
-  button.textContent = "Save Atlas Explorer";
-  button.style.cssText = "width:100%;margin-top:.7em;";
+  button.textContent = "Save Explorer Settings";
+  button.style.cssText = "width:100%;";
   fieldset.append(button);
   const status = document.createElement("p");
   status.textContent = expected.tokenId === token.id ? "Currently assigned to this Scene." :
