@@ -26,6 +26,14 @@ const MODE_COLORS = Object.freeze({
 
 /** Legacy/new preset fallback colors are deterministic and never rewrite Regions. */
 export function defaultTravelPresetColor(id, mode) {
+  const variant=/^(water-(?:river|lake|sea|ocean|canal|marsh))-(calm|turbulent|rough)$/.exec(id);
+  if(variant){
+    const base=DEFAULT_COLORS[variant[1]];
+    const factor={calm:1.12,turbulent:.94,rough:.76}[variant[2]];
+    return "#"+[1,3,5].map(index=>Math.min(255,
+      Math.round(Number.parseInt(base.slice(index,index+2),16)*factor))
+      .toString(16).padStart(2,"0")).join("").toUpperCase();
+  }
   return DEFAULT_COLORS[id] ?? MODE_COLORS[mode] ?? "#888888";
 }
 
@@ -50,8 +58,17 @@ const defaults = [
   ["water-sea", "water", "Sea"],
   ["water-ocean", "water", "Ocean"],
   ["water-canal", "water", "Canal"],
-  ["water-marsh", "water", "Marsh / Swamp"]
+  ["water-marsh", "water", "Marsh / Swamp"],
+  ...["river","lake","sea","ocean","canal","marsh"].flatMap(body=>
+    ["calm","turbulent","rough"].map(condition=>[
+      `water-${body}-${condition}`,"water",
+      `${condition[0].toUpperCase()+condition.slice(1)} ${body==="marsh"?"Marsh / Swamp":body[0].toUpperCase()+body.slice(1)}`
+    ]))
 ];
+
+const NEUTRAL_MOVEMENT_COSTS=Object.freeze({walk:1,fly:1,swim:1,burrow:1});
+const BUILTIN_WATER_IDS=new Set(defaults.filter(([,mode])=>mode==="water")
+  .map(([id])=>id));
 
 /** Explicit opt-in addition for existing Worlds; never resets custom presets. */
 export function addMissingRecommendedWaterPresets(current) {
@@ -67,7 +84,8 @@ export function addMissingRecommendedWaterPresets(current) {
 export function defaultTravelPresets() {
   return { schemaVersion: TRAVEL_PRESET_CATALOG_VERSION,
     presets: defaults.map(([id, mode, name]) => ({
-      id, mode, name, movementCostMultiplier: 1, movementCosts: null,
+      id, mode, name, movementCostMultiplier: 1,
+      movementCosts:mode==="water"?{...NEUTRAL_MOVEMENT_COSTS}:null,
       color: defaultTravelPresetColor(id, mode)
     })) };
 }
@@ -132,7 +150,10 @@ export function validateTravelPresets(value) {
     names.add(nameKey);
     return { id, mode: preset.mode, name,
       movementCostMultiplier: preset.movementCostMultiplier,
-      movementCosts: legacy ? null : validateMovementCosts(preset.movementCosts ?? null),
+      movementCosts:legacy?null:validateMovementCosts(
+        preset.movementCosts==null && BUILTIN_WATER_IDS.has(id) &&
+        preset.movementCostMultiplier===1 ? {...NEUTRAL_MOVEMENT_COSTS} :
+          (preset.movementCosts??null)),
       color: validateTravelPresetColor(oldCatalog
         ? defaultTravelPresetColor(id, preset.mode)
         : (Object.hasOwn(preset, "color") ? preset.color :
