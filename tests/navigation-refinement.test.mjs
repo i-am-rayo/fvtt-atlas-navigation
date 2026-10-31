@@ -27,6 +27,19 @@ test("route instructions split terrain and remove zero-distance sections",()=>{
   assert.equal(steps[0].terrain,"Dirt");assert.equal(steps[1].terrain,"Stone");
   assert.match(steps[0].instruction,/east/);
 });
+test("directions retain native Region names and do not merge distinct Regions",()=>{
+  const legs=[{kind:"road",roadId:"bridge-road",distance:30,
+    points:[{x:0,y:0},{x:30,y:0}],terrainSlices:[
+      {regionId:"dirt",regionName:"Dirwest Approach",terrain:"Dirt Road",distance:10,multiplier:1},
+      {regionId:"bridge",regionName:"Millstone-Dirwest Northern Bridge",terrain:"Stone Road",distance:15,multiplier:.75},
+      {regionId:"other-stone",regionName:"Western Stone Path",terrain:"Stone Road",distance:5,multiplier:.75}
+    ]}];
+  const steps=buildNavigationSteps(legs,id=>id);
+  assert.equal(steps.length,3);
+  assert.equal(steps[1].regionName,"Millstone-Dirwest Northern Bridge");
+  assert.equal(steps[1].distance,15);
+  assert.equal(steps[2].regionName,"Western Stone Path");
+});
 test("selected navigation route clips the road's already-smoothed shape",()=>{
   const curve=[{x:0,y:0},{x:25,y:-10},{x:50,y:-12},{x:75,y:-5},{x:100,y:0}];
   const clipped=clipNavigationSpline(curve,{x:25,y:-10},{x:75,y:-5});
