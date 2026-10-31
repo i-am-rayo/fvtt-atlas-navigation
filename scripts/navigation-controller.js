@@ -8,7 +8,7 @@ import { clipNavigationSpline } from "./navigation-curvature.js";
 import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
   navigationHours, formatNavigationDuration }
   from "./navigation-time.js";
-import { buildNavigationSteps } from "./navigation-instructions.js";
+import { buildNavigationSteps, NAVIGATION_ARROWS } from "./navigation-instructions.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { resolveNavigationTravelSpeed } from "./navigation-party-speed.js";
 
@@ -240,10 +240,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const list=el("div");list.style.cssText="display:flex;flex-direction:column;gap:.4rem;";
       const roads=new Map(readAtlas(this.scene).roads.map(r=>[r.id,r.name]));
       const steps=buildNavigationSteps(this.result.legs,id=>roads.get(id)??"Road");
-      for (const [index,step] of steps.entries()) {
+      for (const step of steps) {
         const item=el("div");item.style.cssText="display:flex;align-items:flex-start;gap:.8rem;padding:.8rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:8px;";
-        const marker=el("span",String(index+1));
+        const marker=el("span",NAVIGATION_ARROWS[step.direction]??"•");
         marker.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;background:var(--color-cool-4,#333);font-weight:bold;";
+        marker.title=step.direction||"Route";
         const text=el("div");text.style.minWidth="0";
         const instruction=el("strong",step.instruction);instruction.style.display="block";
         const info=el("div",`${step.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit} · `+
