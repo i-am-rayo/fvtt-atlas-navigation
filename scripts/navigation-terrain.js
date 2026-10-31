@@ -53,7 +53,16 @@ export function regionContainsPoint(shapes, point) {
     let inside = false;
     if (obj.type === "polygon") {
       const coords = obj.points ?? [];
-      const x = point.x - (obj.origin?.x ?? 0), y = point.y - (obj.origin?.y ?? 0);
+      // Native shapes may store local polygon points with an origin, while
+      // Atlas-generated corridor rectangles store absolute point coordinates.
+      // Detect the frame conservatively from the polygon bounds rather than
+      // subtracting the origin from every generated corridor.
+      const xs=coords.filter((_,i)=>i%2===0),ys=coords.filter((_,i)=>i%2===1);
+      const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+      const ox=obj.origin?.x??0,oy=obj.origin?.y??0;
+      const local=Boolean(obj.origin) && (ox<=minX-(maxX-minX)||ox>=maxX+(maxX-minX)||
+        oy<=minY-(maxY-minY)||oy>=maxY+(maxY-minY));
+      const x = point.x-(local?ox:0), y = point.y-(local?oy:0);
       for (let i = 0, j = coords.length / 2 - 1; i < coords.length / 2; j = i++) {
         const xi = coords[2*i], yi = coords[2*i+1];
         const xj = coords[2*j], yj = coords[2*j+1];
@@ -76,7 +85,8 @@ export function regionContainsPoint(shapes, point) {
  * Cost is measured for every subdivision with the caller's native ruler.
  * A strictly bounded sample count avoids freezing large Scenes.
  */
-export function createRegionCostMeasurement({ regions, measurePath, toCanvasPoint, gridSize, maxSamples = 4096 }) {
+export function createRegionCostMeasurement({ regions, measurePath, toCanvasPoint, gridSize,
+  maxSamples = 4096, fallbackSurface = null }) {
   if (!Number.isFinite(gridSize) || gridSize <= 0 || typeof measurePath !== "function" ||
       typeof toCanvasPoint !== "function") throw new Error("Native grid routing adapter is unavailable.");
   const stepSize = gridSize / 2;
@@ -96,8 +106,8 @@ export function createRegionCostMeasurement({ regions, measurePath, toCanvasPoin
         const length = Math.hypot(q.x-p.x,q.y-p.y);
         totalPixels += length;
         weightedPixels += length * (winner?.multiplier ?? 1);
-        const label=winner?.surface ?? winner?.name ?? "Unspecified terrain";
-        const key=winner?.id ?? null;
+        const label=winner?.surface ?? winner?.name ?? fallbackSurface ?? "Unspecified terrain";
+        const key=winner?.id ?? (fallbackSurface ? "fallback:"+fallbackSurface : null);
         const last=slices.at(-1);
         if(last?.regionId===key)last.pixels+=length;
         else slices.push({regionId:key,terrain:label,multiplier:winner?.multiplier??1,pixels:length});
