@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { defaultTravelPresets } from "../scripts/travel-preset-model.js";
+import { defaultCheckpointPresets } from "../scripts/checkpoint-preset-model.js";
 
 class FakeElement {
   constructor(tag){this.tag=tag;this.children=[];this.style={};this.value="";
@@ -55,5 +56,18 @@ test("shared icon picker reports chosen IDs, reuses the same browser and makes n
     picker.value="house";
     assert.equal(picker.value,"house");
     assert.deepEqual(changes,["flag"],"programmatic preset application is not a user change");
+  }finally{globalThis.document=previous;}
+});
+
+test("checkpoint preset selector offers all World types instead of filtering to Bridge",async()=>{
+  const previous=globalThis.document;
+  try{
+    globalThis.document={createElement:tag=>new FakeElement(tag)};
+    const {createCheckpointPresetSelect}=await import("../scripts/settings-controls.js");
+    const select=createCheckpointPresetSelect(defaultCheckpointPresets().presets);
+    assert.ok(descendants(select).some(item=>item.value==="checkpoint-bridge"));
+    assert.ok(descendants(select).some(item=>item.value==="checkpoint-port"));
+    assert.ok(descendants(select).some(item=>item.value==="checkpoint-temple"));
+    assert.ok(descendants(select).some(item=>item.value==="checkpoint-monster"));
   }finally{globalThis.document=previous;}
 });

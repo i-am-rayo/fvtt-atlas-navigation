@@ -1,6 +1,7 @@
 import { CHECKPOINT_FREE_ICONS, resolveCheckpointAppearance,
   validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { createCheckpointIconPicker } from "./checkpoint-icon-control.js";
+import { createCheckpointPresetSelect } from "./settings-controls.js";
 import { readAtlas } from "./atlas-storage.js";
 import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
   validJournalUuid } from "./atlas-journal-links.js";
@@ -251,17 +252,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     updateType();
     const catalog=readWorldCheckpointPresets();
     const populatePresets=()=>{
-      presetPicker.replaceChildren();
-      const none=el("option","None — keep current settings");none.value="";
-      presetPicker.appendChild(none);
-      for(const preset of catalog.presets.filter(p=>p.category===category.value)){
-        const option=el("option",preset.name);option.value=preset.id;
-        presetPicker.appendChild(option);
-      }
+      const grouped=createCheckpointPresetSelect(catalog.presets);
+      presetPicker.replaceChildren(...grouped.children);
     };
     const applyPreset=()=>{
       const preset=catalog.presets.find(p=>p.id===presetPicker.value);
       if(!preset)return;
+      category.value=preset.category;
       const a=resolveCheckpointAppearance(preset.appearance);
       type.value=a.type;selected=a.icon;image.value=a.image;
       size.value=String(a.size);sizeValue.textContent=a.size+" px";
@@ -283,8 +280,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         " cells. Native Region geometry and Behaviors stay unchanged.";
     };
     category.addEventListener("change",()=>{
-      populatePresets();
-      if(presetPicker.options.length>1){presetPicker.selectedIndex=1;applyPreset();}
+      const suggested=catalog.presets.find(p=>p.category===category.value);
+      presetPicker.value=suggested?.id??"";
+      if(suggested)applyPreset();
     });
     presetPicker.addEventListener("change",applyPreset);
     populatePresets();

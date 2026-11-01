@@ -5,6 +5,7 @@
  */
 import { readWorldTravelPresets, travelPresetDisplayGroup } from "./travel-preset-settings.js";
 import { presetCostSummary } from "./travel-preset-model.js";
+import { CHECKPOINT_TYPE_GROUPS } from "./checkpoint-types.js";
 
 const node=(tag,text)=>{
   const element=document.createElement(tag);
@@ -42,4 +43,37 @@ export function createTravelPresetSelect({selectedId=null,name="atlasTravelPrese
   }
   select.value=selectedId??"";
   return select;
+}
+
+/** Whole-World checkpoint preset catalog, not only the current checkpoint type. */
+export function createCheckpointPresetSelect(presets,{selectedId=null,
+  noneLabel="None — keep current settings"}={}){
+  const select=node("select");
+  const none=node("option",noneLabel);none.value="";select.appendChild(none);
+  for(const [heading,types] of CHECKPOINT_TYPE_GROUPS){
+    const matches=presets.filter(p=>types.some(([type])=>type===p.category));
+    if(!matches.length)continue;
+    const group=node("optgroup");group.label=heading;
+    for(const preset of matches){
+      const option=node("option",preset.name);option.value=preset.id;
+      group.appendChild(option);
+    }
+    select.appendChild(group);
+  }
+  select.value=selectedId??"";
+  return select;
+}
+
+/** Consistent accessible icon-only action for compact settings rows. */
+export function createSettingsActionButton({icon,label,onClick,danger=false}){
+  if(!/^[a-z-]+$/.test(icon)||!label?.trim()||typeof onClick!=="function")
+    throw Error("Invalid Atlas settings action.");
+  const button=node("button");button.type="button";
+  button.title=label;button.setAttribute("aria-label",label);
+  button.style.cssText="min-width:2.1rem;min-height:2.1rem;display:grid;place-items:center;";
+  if(danger)button.style.color="var(--color-level-error, #d56859)";
+  const glyph=node("i");glyph.className="fa-solid fa-"+icon;
+  glyph.setAttribute("aria-hidden","true");button.appendChild(glyph);
+  button.addEventListener("click",onClick);
+  return button;
 }

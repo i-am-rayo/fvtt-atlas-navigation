@@ -26,6 +26,24 @@ test("new Worlds include editable checkpoint templates with disabled event autom
   assert.equal(bridge.elevationMeters,null);
   assert.equal(bridge.discoveryStatus,"unknown");
   assert.equal(bridge.journalUuid,null);
+  assert.ok(initial.presets.every(p=>p.appearance?.type==="fa"),
+    "Every built-in checkpoint preset has a Font Awesome icon");
+  assert.ok(initial.presets.every(p=>/^#[0-9A-Fa-f]{6}$/.test(p.appearance.color)));
+  assert.notEqual(presetForCheckpointType(initial,"port").appearance.color,
+    presetForCheckpointType(initial,"bridge").appearance.color);
+});
+
+test("legacy built-in dots gain themed icons without overwriting customized presets",()=>{
+  const initial=defaultCheckpointPresets();
+  const old={...initial,presets:initial.presets.map(p=>({...p,appearance:null}))};
+  const upgraded=validateCheckpointPresets(old);
+  assert.equal(presetForCheckpointType(upgraded,"port").appearance.icon,"solid:anchor");
+  assert.equal(presetForCheckpointType(upgraded,"bridge").appearance.icon,"solid:bridge");
+  const custom={...initial.presets.find(p=>p.category==="port"),
+    appearance:{...initial.presets.find(p=>p.category==="port").appearance,color:"#FF00AA"}};
+  const edited=upsertCheckpointPreset(old,custom);
+  assert.equal(presetForCheckpointType(edited,"port").appearance.color,"#FF00AA");
+  assert.equal(old.presets[0].appearance,null,"legacy input is never mutated");
 });
 
 test("full checkpoint preset defaults round-trip without overwriting legacy catalogs",()=>{

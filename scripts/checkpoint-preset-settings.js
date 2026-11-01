@@ -4,6 +4,9 @@ import { CHECKPOINT_TYPE_GROUPS, CHECKPOINT_TYPES } from "./checkpoint-types.js"
 import { CHECKPOINT_PRESET_SETTING, defaultCheckpointPresets,
   validateCheckpointPresets, removeCheckpointPreset }
   from "./checkpoint-preset-model.js";
+import { checkpointFontIcon,resolveCheckpointAppearance }
+  from "./checkpoint-appearance.js";
+import { createSettingsActionButton } from "./settings-controls.js";
 
 const node=(tag,label)=>{const n=document.createElement(tag);if(label!==undefined)n.textContent=label;return n;};
 export function readWorldCheckpointPresets(){
@@ -38,14 +41,29 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
       fieldset.appendChild(node("legend",group));
       for(const preset of matches){
         const row=node("div");row.style.cssText="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;padding:.2rem 0;";
+        const appearance=resolveCheckpointAppearance(preset.appearance);
+        const icon=checkpointFontIcon(appearance.icon);
+        const symbol=node("span");
+        symbol.style.cssText="display:grid;place-items:center;width:1.6rem;height:1.6rem;flex:0 0 1.6rem;color:"+appearance.color+";";
+        if(appearance.type==="fa"&&icon){
+          symbol.textContent=icon.glyph;
+          symbol.style.fontFamily=icon.family;symbol.style.fontWeight=String(icon.weight);
+        }else if(appearance.type==="image"&&appearance.image){
+          const image=node("img");image.src=appearance.image;image.alt="";
+          image.style.cssText="max-width:1.6rem;max-height:1.6rem;object-fit:contain;";
+          symbol.appendChild(image);
+        }else{
+          symbol.textContent="●";
+        }
+        symbol.setAttribute("aria-hidden","true");row.appendChild(symbol);
         const typeName=CHECKPOINT_TYPES.find(([id])=>id===preset.category)?.[1]??preset.category;
         const label=node("span",preset.name.toLocaleLowerCase()===typeName.toLocaleLowerCase()
           ?preset.name:preset.name+" · "+typeName);
         label.style.cssText="flex:1 1 12rem;";row.appendChild(label);
-        const edit=node("button","Edit");edit.type="button";
-        edit.addEventListener("click",()=>void this._run(()=>this._edit(preset)));
-        const remove=node("button","Delete");remove.type="button";
-        remove.addEventListener("click",()=>void this._run(()=>this._delete(preset)));
+        const edit=createSettingsActionButton({icon:"gear",label:"Edit "+preset.name,
+          onClick:()=>void this._run(()=>this._edit(preset))});
+        const remove=createSettingsActionButton({icon:"trash",label:"Delete "+preset.name,
+          onClick:()=>void this._run(()=>this._delete(preset)),danger:true});
         row.append(edit,remove);fieldset.appendChild(row);
       }
       root.appendChild(fieldset);
