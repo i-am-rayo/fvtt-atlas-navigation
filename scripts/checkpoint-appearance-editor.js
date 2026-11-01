@@ -14,7 +14,11 @@ import { checkpointKnowledge, checkpointRevealRadiusCells }
   from "./party-exploration-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
-import { CHECKPOINT_TYPES, checkpointCategory, saveCheckpointCategory } from "./checkpoint-types.js";
+import { CHECKPOINT_TYPES, CHECKPOINT_TYPE_GROUPS, checkpointCategory, saveCheckpointCategory } from "./checkpoint-types.js";
+import { CHECKPOINT_PRESET_SETTING, upsertCheckpointPreset } from "./checkpoint-preset-model.js";
+import { readWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
+import { MODULE_ID } from "./atlas-storage.js";
+import { checkpointTerrainSuggestion, saveCheckpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
 
 const el = (tag, label) => {
   const item = document.createElement(tag);
@@ -99,7 +103,18 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     field("Checkpoint name", name);
     const category=field("Checkpoint type",select(CHECKPOINT_TYPES,
       this.createDraft?"generic":checkpointCategory(this.scene,this.checkpointId)));
-    category.title="Informational checkpoint category. Bridge details and type-specific travel behavior come in a later version.";
+    category.replaceChildren();
+    for(const [heading,types] of CHECKPOINT_TYPE_GROUPS){
+      const group=el("optgroup");group.label=heading;
+      for(const [id,label] of types){const option=el("option",label);option.value=id;group.appendChild(option);}
+      category.appendChild(group);
+    }
+    category.value=this.createDraft?"generic":checkpointCategory(this.scene,this.checkpointId);
+    category.title="Changing type suggests its World checkpoint preset. Changes are staged until Save.";
+    const presetPicker=field("Checkpoint preset",el("select"));
+    const presetHint=el("small","Choose a saved preset to fill editable marker and discovery defaults. This never changes a native Region.");
+    fields.appendChild(presetHint);
+    let terrainSuggestion=this.createDraft?null:checkpointTerrainSuggestion(this.scene,this.checkpointId);
     const draftRoad = this.createDraft
       ? field("Named road", select(this.createDraft.roads.map(road => [road.id, road.name]),
           this.createDraft.roads[0]?.id ?? "")) : null;
@@ -410,6 +425,38 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     };
     type.addEventListener("change", updateType);
     updateType();
+    const catalog=readWorldCheckpointPresets();
+    const populatePresets=()=>{
+      presetPicker.replaceChildren();
+      const none=el("option","None — keep current settings");none.value="";
+      presetPicker.appendChild(none);
+      for(const preset of catalog.presets.filter(p=>p.category===category.value)){
+        const option=el("option",preset.name);option.value=preset.id;
+        presetPicker.appendChild(option);
+      }
+    };
+    const applyPreset=()=>{
+      const preset=catalog.presets.find(p=>p.id===presetPicker.value);
+      if(!preset)return;
+      const a=resolveCheckpointAppearance(preset.appearance);
+      type.value=a.type;selected=a.icon;image.value=a.image;
+      size.value=String(a.size);sizeValue.textContent=a.size+" px";
+      color.value=a.color;borderColor.value=a.borderColor;
+      mode.value=a.labelMode;showRoad.checked=a.showRoadName;textColor.value=a.textColor;
+      discoveryMethod&&(discoveryMethod.value=preset.discoveryMethod);
+      if(revealRadius)revealRadius.value=String(preset.revealRadiusCells);
+      terrainSuggestion={...preset.terrain};
+      syncSelection();updateType();
+      presetHint.textContent="Applied ‘"+preset.name+"’ to editable fields. Suggested Region: "+
+        (preset.terrain.presetId??"None")+" · radius "+preset.terrain.radiusCells+
+        " cells. Native Region geometry and Behaviors stay unchanged.";
+    };
+    category.addEventListener("change",()=>{
+      populatePresets();
+      if(presetPicker.options.length>1){presetPicker.selectedIndex=1;applyPreset();}
+    });
+    presetPicker.addEventListener("change",applyPreset);
+    populatePresets();
     if (type.value === "fa" && (!selected || !ICON_DETAILS.has(selected))) iconSection.open=true;
     iconSection.addEventListener("toggle",()=>{
       if (!this.rendered || pageMarker.hidden) return;
@@ -520,6 +567,34 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const save = el("button", "Save Checkpoint Settings");
     save.type = "button";
     if (this.createDraft) { save.textContent = "Create Checkpoint"; reset.hidden = true; }
+    const saveAsPreset=el("button","Save as Preset");saveAsPreset.type="button";
+    saveAsPreset.addEventListener("click",async()=>{
+      try{
+        const wrapper=el("div"),input=el("input");
+        input.name="presetName";input.required=true;input.maxLength=120;
+        input.defaultValue=category.selectedOptions[0]?.textContent??"Checkpoint";
+        const label=el("label","Preset name");label.appendChild(input);wrapper.appendChild(label);
+        const values=await foundry.applications.api.DialogV2.input({
+          window:{title:"Save Checkpoint as World Preset"},content:wrapper,
+          ok:{label:"Save Preset"},rejectClose:false,modal:true
+        });
+        if(!values)return;
+        const a=validateCheckpointAppearance({type:type.value,icon:selected,image:image.value.trim(),
+          size:Number(size.value),color:color.value,borderColor:borderColor.value,
+          labelMode:mode.value,showRoadName:showRoad.checked,textColor:textColor.value});
+        const world=readWorldCheckpointPresets();
+        const suggested=terrainSuggestion;
+        const preset={id:"checkpoint-custom-"+foundry.utils.randomID(),
+          name:String(values.presetName??"").trim(),category:category.value,
+          appearance:a,discoveryMethod:discoveryMethod?.value??"automatic",
+          revealRadiusCells:Number(revealRadius?.value??3),
+          terrain:suggested?{...suggested}:{presetId:null,radiusCells:.25},
+          event:{kind:"none",enabled:false}};
+        const next=upsertCheckpointPreset(world,preset);
+        await game.settings.set(MODULE_ID,CHECKPOINT_PRESET_SETTING,next);
+        ui.notifications.info("Checkpoint preset saved to World settings. This checkpoint was not changed.");
+      }catch(error){ui.notifications.error(error.message??String(error));}
+    });
     const saveValue = async value => {
       if (save.disabled) return;
       save.disabled = true; reset.disabled = true;
@@ -556,6 +631,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
             revealRadiusCells: revealRadius ? Number(revealRadius.value) : null,
             generateTerrainRegion:generateAfterCreate?.checked??false
             ,checkpointType:category.value
+            ,terrainSuggestion
           };
           this.createResolved = true;
           this.onCreate?.(config);
@@ -574,6 +650,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         });
         if(category.value!==checkpointCategory(this.scene,this.checkpointId))
           await saveCheckpointCategory(this.scene,this.checkpointId,category.value);
+        if(JSON.stringify(terrainSuggestion)!==JSON.stringify(
+          checkpointTerrainSuggestion(this.scene,this.checkpointId)))
+          await saveCheckpointTerrainSuggestion(this.scene,this.checkpointId,terrainSuggestion);
         if (discovery && (discovery.value !==
             checkpointKnowledge(exploration, this.checkpointId) ||
             Number(revealRadius.value) !==
@@ -601,7 +680,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       }
     };
     save.addEventListener("click", () => void saveValue(undefined));
-    controls.append(reset, cancel, save);
+    controls.append(saveAsPreset,reset,cancel,save);
     root.appendChild(controls);
     return root;
   }

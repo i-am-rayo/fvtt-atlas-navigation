@@ -87,7 +87,7 @@ test("module init registers World travel and appearance menus without an obsolet
     assert.equal(typeof events.get("ready"), "function");
     events.get("init")();
 
-    const worldKeys = ["corridorTravelPresets", "roadCurvature", "roadAppearanceDefaults"];
+    const worldKeys = ["corridorTravelPresets", "checkpointPresets", "roadCurvature", "roadAppearanceDefaults"];
     for (const key of worldKeys) {
       const matches = registrations.filter(([, registered]) => registered === key);
       assert.equal(matches.length, 1, key + " is registered once");
@@ -98,7 +98,7 @@ test("module init registers World travel and appearance menus without an obsolet
       assert.equal(options.type, key === "roadCurvature" ? String : Object);
     }
     assert.deepEqual(menus.map(([, key]) => key),
-      ["atlasTravelPresetsMenu", "atlasRoadAppearanceMenu"]);
+      ["atlasTravelPresetsMenu", "checkpointPresetMenu", "atlasRoadAppearanceMenu"]);
     assert.ok(menus.every(([namespace, , options]) =>
       namespace === "fvtt-atlas-navigation" && options.restricted));
     assert.equal(typeof events.get("renderSceneConfig"), "function");

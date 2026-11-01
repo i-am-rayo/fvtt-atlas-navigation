@@ -1,15 +1,27 @@
 import { MODULE_ID } from "./atlas-storage.js";
 
 export const CHECKPOINT_TYPE_FLAG="checkpointCategories";
-export const CHECKPOINT_TYPES=Object.freeze([
-  ["generic","General / Unspecified"],
-  ["bridge","Bridge"],
-  ["toll","Toll Gate"],
-  ["settlement","Settlement"],
-  ["crossing","Crossing"],
-  ["landmark","Landmark"],
-  ["event","Event / Encounter"]
+export const CHECKPOINT_TYPE_GROUPS=Object.freeze([
+  ["General",[["generic","General / Unspecified"]]],
+  ["Infrastructure",[["bridge","Bridge"],["port","Port"],["dock","Dock"],
+    ["toll","Toll Gate"],["security","Security Checkpoint"],["crossing","Road Crossing"]]],
+  ["Settlements & Services",[["settlement","Settlement"],["city","City"],
+    ["village","Village"],["inn","Inn"],["tavern","Tavern"],
+    ["rest","Resting Area"],["safehouse","Safehouse"],["trading","Trading Post"]]],
+  ["Military & Defense",[["watchtower","Watchtower"],["fort","Fort"],
+    ["guard","Guard Post"],["outpost","Outpost"]]],
+  ["Religious & Cultural",[["temple","Temple"],["shrine","Shrine"],
+    ["monument","Monument"],["ruins","Ruins"]]],
+  ["Exploration",[["landmark","Landmark"],["cave","Cave Entrance"],
+    ["pass","Mountain Pass"],["camp","Campsite"]]],
+  ["Environmental Hazards",[["falling-rocks","Falling Rocks"],
+    ["quicksand","Quicksand"],["moving-sand","Moving Sand"],
+    ["avalanche","Avalanche"],["flood","Flood"]]],
+  ["Encounters",[["event","Event / Encounter"],["monster","Monster Attack"],
+    ["bandits","Bandit Ambush"],["thieves","Thief Attack"],["npc","NPC Encounter"]]],
+  ["Custom",[["custom","Custom"]]]
 ]);
+export const CHECKPOINT_TYPES=Object.freeze(CHECKPOINT_TYPE_GROUPS.flatMap(([,types])=>types));
 const VALID_TYPES=new Set(CHECKPOINT_TYPES.map(([id])=>id));
 const VALID_ID=/^[A-Za-z0-9_-]{1,128}$/;
 

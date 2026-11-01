@@ -10,6 +10,7 @@ import { listSceneRegions } from "./region-atlas.js";
 import { listRoadCheckpoints } from "./checkpoint-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
+import { checkpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
 import { presetCostSummary } from "./travel-preset-model.js";
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
@@ -1018,9 +1019,11 @@ class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 
     }
     if(this.checkpointId && (!selected || selected.first!==this.checkpointId)) {
       const road=readAtlas(this.scene).roads.find(item=>item.id===this.roadId);
+      const suggestion=checkpointTerrainSuggestion(this.scene,this.checkpointId);
       generatorState.set(this.scene.id,{
         roadId:this.roadId,kind:"checkpoint",first:this.checkpointId,
-        widthCells:.5,presetId:road?.travelPresetId??null,
+        widthCells:suggestion?.radiusCells??.5,
+        presetId:suggestion?.presetId??road?.travelPresetId??null,
         presetEdited:false,applyNativeCost:false,movementAction:""
       });
     }

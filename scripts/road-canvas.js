@@ -16,6 +16,7 @@ import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
 import { checkpointRevealKeys } from "./checkpoint-exploration.js";
 import { readCheckpointDiscoveryMethods } from "./checkpoint-discovery-method.js";
 import { saveCheckpointCategory } from "./checkpoint-types.js";
+import { saveCheckpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
 import { checkpointKnowledge } from "./party-exploration-model.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
@@ -797,6 +798,8 @@ export class RoadCanvasController {
           }
           if(config.checkpointType && config.checkpointType!=="generic")
             await saveCheckpointCategory(scene,newId,config.checkpointType);
+          if(config.terrainSuggestion)
+            await saveCheckpointTerrainSuggestion(scene,newId,config.terrainSuggestion);
         } catch (metadataError) {
           this.notify()?.warn?.("Checkpoint created, but some discovery or Journal settings could not be saved: " +
             (metadataError.message ?? String(metadataError)));

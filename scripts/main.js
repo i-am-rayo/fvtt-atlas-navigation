@@ -34,6 +34,7 @@ import { availableMovementActions, readPreset, previewNativeMovementCost }
 import { presetCostSummary } from "./travel-preset-model.js";
 import { registerWorldTravelPresets, readWorldTravelPresets, travelPresetDisplayGroup }
   from "./travel-preset-settings.js";
+import { registerWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance }
   from "./road-appearance-settings.js";
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
@@ -1669,6 +1670,7 @@ Hooks.once("init", () => {
   });
   registerManualBrushSettings();
   registerWorldTravelPresets();
+  registerWorldCheckpointPresets();
   registerWorldRoadAppearance(() => roadCanvas.refresh());
   const roadActions = actions();
   roadCanvas.setShortcutHandler((scene, target) => {
