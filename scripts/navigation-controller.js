@@ -229,13 +229,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const cost=el("p",`Terrain-weighted distance: ${this.result.cost.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}-equivalent`);
         cost.style.cssText="margin:0;font-size:.85em;";root.appendChild(cost);
       }
-      if (this.result.terrainWarning || !this.result.terrainAware) {
-        const details=el("details");
-        const summaryText=el("summary","Terrain calculation notes");
-        details.append(summaryText,el("p",this.result.terrainWarning ||
-          "Estimated times use distance only until native movement costs can be resolved safely."));
-        root.appendChild(details);
-      }
+      const details=el("details");
+      const summaryText=el("summary","How Atlas calculated this journey");
+      summaryText.style.cursor="pointer";
+      details.appendChild(summaryText);
+      const calculation=el("p",this.result.terrainWarning ||
+        (this.result.terrainAware?
+          "Terrain-weighted distance applies the applicable Region movement cost first, " +
+          "then the road's travel preset where no Region applies. " +
+          "Overlapping Regions follow GM priority; short checkpoint Regions are included. " +
+          "Travel time is an estimate and never changes native Token movement.":
+          "No compatible terrain cost was available, so travel time uses physical distance."));
+      calculation.style.cssText="font-size:.85em;opacity:.85;line-height:1.4;margin:.4rem 0;";
+      details.appendChild(calculation);
+      root.appendChild(details);
       const heading=el("h3","Directions");heading.style.cssText="margin:.2rem 0 0;";root.appendChild(heading);
       const list=el("div");list.style.cssText="display:flex;flex-direction:column;gap:.4rem;";
       const endpoint=(atStart)=>{
