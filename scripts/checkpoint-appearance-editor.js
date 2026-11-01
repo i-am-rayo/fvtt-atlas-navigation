@@ -12,6 +12,8 @@ import { readPartyExploration, saveCheckpointKnowledge }
   from "./party-exploration-storage.js";
 import { checkpointKnowledge, checkpointRevealRadiusCells }
   from "./party-exploration-model.js";
+import { listGeneratedRegions } from "./generated-region.js";
+import { readWorldTravelPresets } from "./travel-preset-settings.js";
 
 const el = (tag, label) => {
   const item = document.createElement(tag);
@@ -28,7 +30,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     position: { width: 630, height: 540 }
   };
 
-  constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null }) {
+  constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null, onTerrainAction = null }) {
     super({ position: {
       width: Math.min(630, Math.max(360, window.innerWidth - 60)),
       height: Math.min(710, Math.max(440, window.innerHeight - 70))
@@ -39,6 +41,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     this.onSaved = onSaved;
     this.createDraft = createDraft;
     this.onCreate = onCreate;
+    this.onTerrainAction = onTerrainAction;
     this.createResolved = false;
   }
 
@@ -338,7 +341,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     styleFilter.addEventListener("change", () => renderIcons(true));
     more.addEventListener("click", () => { visible += pageSize; renderIcons(); });
     renderIcons(true);
-    const pageGeneral = el("section"), pageMarker = el("section"), pageJournal = el("section");
+    const pageGeneral = el("section"), pageMarker = el("section"), pageTerrain = el("section");
     pageGeneral.appendChild(fields);
 
     const imageSection = el("div");
@@ -410,9 +413,56 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     });
     const journalControls = journalLinkFields(journalLinks,"checkpoint",this.checkpointId);
     pageGeneral.appendChild(journalControls);
+    pageTerrain.style.cssText="min-width:0;";
+    const checkpointRegions=this.createDraft?[]:listGeneratedRegions(this.scene).filter(item=>
+      item.metadata?.checkpointIds?.includes(this.checkpointId));
+    const presetNames=new Map(checkpointRegions.length?
+      readWorldTravelPresets().presets.map(p=>[p.id,p.name]):[]);
+    pageTerrain.appendChild(el("p","A checkpoint Region overrides the road's default travel preset where its geometry applies. Higher-priority overlapping Regions win. Native Behaviors are edited separately."));
+    const terrainButton=(title,action,regionId=null)=>{
+      const button=el("button",title);button.type="button";
+      button.addEventListener("click",async()=>{
+        button.disabled=true;
+        try{
+          await this.onTerrainAction?.(action,regionId);
+          if(action!=="create")await this.render(true);
+        }catch(error){ui.notifications.error(error.message||String(error));}
+        finally{button.disabled=false;}
+      });
+      return button;
+    };
+    if(!this.createDraft && this.onTerrainAction){
+      pageTerrain.appendChild(terrainButton("+ Generate checkpoint Region","create"));
+      if(!checkpointRegions.length)pageTerrain.appendChild(el("p","No generated Terrain Regions are linked to this checkpoint."));
+      for(const region of checkpointRegions){
+        const card=el("section");
+        card.style.cssText="border:1px solid var(--color-border-light-tertiary,#666);padding:.7rem;display:grid;gap:.45rem;";
+        card.appendChild(el("strong",region.name));
+        card.appendChild(el("small","Travel preset: "+(presetNames.get(region.presetId)??"None")+
+          " · "+(region.metadata.kind==="checkpoint"?"Checkpoint area":"Road corridor")));
+        if(region.modified)card.appendChild(el("small","Geometry was manually modified; regeneration is protected."));
+        const commands=el("div");commands.style.cssText="display:flex;gap:.35rem;flex-wrap:wrap;";
+        commands.append(terrainButton("Travel preset","preset",region.id),
+          terrainButton("Region settings","settings",region.id),
+          terrainButton("Radius / width","geometry",region.id),
+          terrainButton("Regenerate","regenerate",region.id),
+          terrainButton("Delete","delete",region.id));
+        if(region.modified)for(const index of [2,3])commands.querySelectorAll("button")[index].disabled=true;
+        card.appendChild(commands);pageTerrain.appendChild(card);
+      }
+    }else if(this.createDraft){
+      pageTerrain.appendChild(el("p","A Terrain Region can be generated immediately after the new checkpoint is saved. You'll preview its geometry and choose its travel preset before confirming."));
+    }
+    const generateAfterCreate=this.createDraft?el("input"):null;
+    if(generateAfterCreate){
+      generateAfterCreate.type="checkbox";
+      const choice=el("label");choice.append(generateAfterCreate,
+        document.createTextNode(" Open Terrain Region generator after creating checkpoint"));
+      pageTerrain.appendChild(choice);
+    }
     const editorTabs = el("nav");
     editorTabs.style.cssText = "display:flex;gap:.4rem;flex-wrap:wrap;padding-bottom:.65rem;border-bottom:1px solid var(--color-border-light-tertiary,#655);";
-    const pages = [["General",pageGeneral],["Marker & labels",pageMarker]];
+    const pages = [["General",pageGeneral],["Marker & labels",pageMarker],["Terrain Region",pageTerrain]];
     for (const [name,page] of pages) {
       const item=el("button",name);
       item.type="button"; item.style.cssText="flex:1;min-width:8rem;border:1px solid var(--color-border-light-tertiary,#655);";
@@ -440,7 +490,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     pages.forEach(([,page],index)=>{page.hidden=index!==0;});
 
     root.prepend(editorTabs);
-    root.append(pageGeneral,pageMarker);
+    root.append(pageGeneral,pageMarker,pageTerrain);
     const journalInput = journalControls.querySelector('input[name="atlasJournalUuid"]');
     const controls = el("div");
     controls.style.cssText = "position:sticky;bottom:0;z-index:2;display:flex;gap:0.5rem;justify-content:flex-end;background:#100f17;padding:.4rem 0;";
@@ -485,7 +535,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
             journalUuid: nextJournal,
             knowledge: discovery?.value ?? null,
             discoveryMethod: discoveryMethod?.value ?? null,
-            revealRadiusCells: revealRadius ? Number(revealRadius.value) : null
+            revealRadiusCells: revealRadius ? Number(revealRadius.value) : null,
+            generateTerrainRegion:generateAfterCreate?.checked??false
           };
           this.createResolved = true;
           this.onCreate?.(config);

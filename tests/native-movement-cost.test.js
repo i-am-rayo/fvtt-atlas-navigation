@@ -127,6 +127,16 @@ test("without opt-in corridor creation preserves metadata and no native Behavior
   assert.equal(regionRecords[0].flags[MODULE_ID].travelPreset.presetId,"land-stone");
 });
 
+test("checkpoint Region accepts its own surface preset, color and no automatic Behavior",async()=>{
+  const {scene,regionRecords,settings}=setup();
+  const plan=planSceneGeneratedRegion(scene,{...settings,kind:"checkpoint",endCheckpointId:null});
+  await saveGeneratedNativeRegion(scene,plan,{presetId:"land-stone",
+    expectedColor:"#9CA3AF"});
+  assert.equal(regionRecords[0].flags[MODULE_ID].travelPreset.presetId,"land-stone");
+  assert.equal(regionRecords[0].color,"#9CA3AF");
+  assert.deepEqual(regionRecords[0].behaviors,[]);
+});
+
 test("reject invalid action or stale cost before creating any native Region",async()=>{
   const {scene,regionRecords,settings}=setup();
   const plan=planSceneGeneratedRegion(scene,settings);

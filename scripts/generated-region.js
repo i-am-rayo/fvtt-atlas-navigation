@@ -166,7 +166,7 @@ export async function saveGeneratedNativeRegion(scene, plan,
   }
   const [created] = await scene.createEmbeddedDocuments("Region", [{
     name: fresh.name,
-    ...(plan.kind === "corridor" && selectedPreset ? { color: selectedPreset.color } : {}),
+    ...(selectedPreset ? { color: selectedPreset.color } : {}),
     shapes: fresh.shapes,
     behaviors: behavior ? [behavior] : [],
     flags: {

@@ -10,6 +10,15 @@ import { TRAVEL_PRESET_SETTING, REGION_TRAVEL_PRESET_FLAG, TRAVEL_TYPES,
 import { availableMovementActions, unavailableMovementActions } from "./native-movement-cost.js";
 
 const TYPE_LABELS = { land: "Land", air: "Air", water: "Water" };
+const WATER_BODIES={river:"River",lake:"Lake",sea:"Sea",ocean:"Ocean",canal:"Canal",marsh:"Marsh / Swamp"};
+
+/** Presentation-only hierarchy: stable preset IDs and names remain untouched. */
+export function travelPresetDisplayGroup(preset) {
+  const match=/^water-(river|lake|sea|ocean|canal|marsh)(?:-(calm|turbulent|rough))?$/.exec(preset.id);
+  return match ? {group:"WATER",subgroup:WATER_BODIES[match[1]],
+    name:match[2]?preset.name:"Default"} :
+    {group:preset.mode.toUpperCase(),subgroup:null,name:preset.name};
+}
 
 export function readWorldTravelPresets() {
   return validateTravelPresets(globalThis.game?.settings?.get?.(MODULE_ID, TRAVEL_PRESET_SETTING)
@@ -96,7 +105,22 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
       fieldset.appendChild(legend);
       const group = presets.presets.filter(p => p.mode === mode);
       if (!group.length) fieldset.appendChild(node("p", "No presets configured."));
+      const waterGroups=new Map();
       for (const preset of group) {
+        const hierarchy=travelPresetDisplayGroup(preset);
+        let destination=fieldset;
+        if(mode==="water" && hierarchy.subgroup){
+          if(!waterGroups.has(hierarchy.subgroup)){
+            const section=node("section");
+            section.style.cssText="display:grid;gap:.4rem;padding-left:1rem;";
+            const heading=node("h4",hierarchy.subgroup);
+            heading.style.cssText="margin:.65rem 0 .15rem;";
+            section.appendChild(heading);
+            waterGroups.set(hierarchy.subgroup,section);
+            fieldset.appendChild(section);
+          }
+          destination=waterGroups.get(hierarchy.subgroup);
+        }
         const row = node("div");
         row.style.cssText = "display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;";
         const swatch = node("span");
@@ -105,7 +129,8 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
           "background:" + preset.color + ";";
         swatch.title = "Native Region color " + preset.color;
         row.appendChild(swatch);
-        const details = node("span", preset.name + " (" + preset.color + ")");
+        const details = node("span", (hierarchy.subgroup?
+          hierarchy.name:preset.name)+" (" + preset.color + ")");
         details.style.flex = "1 1 12rem";
         row.appendChild(details);
         const cost = node("span", presetCostSummary(preset));
@@ -113,7 +138,7 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
         row.appendChild(cost);
         row.appendChild(button("Edit", () => this._editPreset(preset)));
         row.appendChild(button("Delete", () => this._deletePreset(preset)));
-        fieldset.appendChild(row);
+        destination.appendChild(row);
       }
       fieldset.appendChild(button("＋ Add " + TYPE_LABELS[mode] + " Preset",
         () => this._editPreset(null, mode)));

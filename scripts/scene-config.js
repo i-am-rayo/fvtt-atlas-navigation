@@ -694,7 +694,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     const presetForCost = presetById.get(selected.presetId);
     const perMode = selected.kind === "corridor" &&
       !!presetForCost && presetForCost.movementCosts !== null;
-    if (selected.kind === "corridor") {
+    {
       const choices = [["", label("FVTTATLAS.Travel.None")],
         ...travelPresets.map(p => [
           p.id, p.mode.toUpperCase() + " — " + p.name
@@ -708,6 +708,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
         }));
       const supported = availableMovementActions();
       const selectedPreset = presetForCost;
+      if (selected.kind === "corridor") {
       const costOption = node("label");
       costOption.style.display = "flex";
       costOption.style.gap = "0.5rem";
@@ -769,6 +770,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
           names + (unavailable.length > 5 ? "…" : "") + ".",
           "hint"));
       }
+      }
     }
     const selectedCheckpointIds = selected.kind === "corridor"
       ? [selected.first, selected.last].sort()
@@ -784,7 +786,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
         checkpointId: selected.first,
         endCheckpointId: selected.kind === "corridor" ? selected.last : null,
         widthCells: Number(width.value),
-        presetId: selected.kind === "corridor" ? (selected.presetId ?? null) : null,
+        presetId: selected.presetId ?? null,
         applyNativeCost: selected.kind === "corridor" && !!selected.applyNativeCost,
         movementAction: selected.kind === "corridor" ? selected.movementAction : null
       }, refresh));
@@ -999,12 +1001,13 @@ class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 
     window:{ title:"Atlas — Generate Terrain Region", resizable:true },
     position:{width:600,height:620}
   };
-  constructor({scene,roadId,actions,refresh}) {
+  constructor({scene,roadId,checkpointId=null,actions,refresh}) {
     super({ position:{
       width:Math.min(600,window.innerWidth-60),
       height:Math.min(620,window.innerHeight-85)
     } });
-    this.scene=scene;this.roadId=roadId;this.actions=actions;this.externalRefresh=refresh;
+    this.scene=scene;this.roadId=roadId;this.checkpointId=checkpointId;
+    this.actions=actions;this.externalRefresh=refresh;
   }
   async _renderHTML() {
     this._scrollY = this.element?.querySelector?.("[data-atlas-generator-scroll]")?.scrollTop ?? 0;
@@ -1012,6 +1015,14 @@ class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 
     const selected=generatorState.get(this.scene.id);
     if (selected && selected.roadId!==this.roadId) {
       selected.roadId=this.roadId;selected.presetEdited=false;
+    }
+    if(this.checkpointId && (!selected || selected.first!==this.checkpointId)) {
+      const road=readAtlas(this.scene).roads.find(item=>item.id===this.roadId);
+      generatorState.set(this.scene.id,{
+        roadId:this.roadId,kind:"checkpoint",first:this.checkpointId,
+        widthCells:.5,presetId:road?.travelPresetId??null,
+        presetEdited:false,applyNativeCost:false,movementAction:""
+      });
     }
     const body=atlasPanel(this.scene,readAtlas(this.scene),this.actions,
       ()=>{this.externalRefresh?.();void this.render(true);},{generatorOnly:true});
@@ -1030,9 +1041,9 @@ class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 
   }
 }
 
-export function openAtlasRegionGenerator(scene,roadId,actions,refresh) {
+export function openAtlasRegionGenerator(scene,roadId,actions,refresh,checkpointId=null) {
   if (!game.user?.isGM) throw Error("Only the GM can generate terrain Regions.");
-  new AtlasRegionGeneratorWindow({scene,roadId,actions,refresh}).render(true);
+  new AtlasRegionGeneratorWindow({scene,roadId,checkpointId,actions,refresh}).render(true);
 }
 
 /**

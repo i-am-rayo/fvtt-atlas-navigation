@@ -801,6 +801,10 @@ export class RoadCanvasController {
         this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Checkpoints.Saved"));
         this.refresh();
         callback?.(config.roadId);
+        if(config.generateTerrainRegion){
+          try{this.onCheckpointCreated?.(scene,newId,config.roadId);}
+          catch(error){this.notify()?.error?.(error.message??String(error));}
+        }
       } catch (error) {
         this.notify()?.error?.(error.message);
       } finally {

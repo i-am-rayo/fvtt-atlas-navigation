@@ -32,7 +32,7 @@ import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegio
 import { availableMovementActions, readPreset, previewNativeMovementCost }
   from "./native-movement-cost.js";
 import { presetCostSummary } from "./travel-preset-model.js";
-import { registerWorldTravelPresets, readWorldTravelPresets }
+import { registerWorldTravelPresets, readWorldTravelPresets, travelPresetDisplayGroup }
   from "./travel-preset-settings.js";
 import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance }
   from "./road-appearance-settings.js";
@@ -47,6 +47,10 @@ import { AtlasNavigationController } from "./navigation-controller.js";
 import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED } from "./navigation-time.js";
 
 const roadCanvas = new RoadCanvasController();
+roadCanvas.onCheckpointCreated=(scene,checkpointId,roadId)=>
+  openAtlasRegionGenerator(scene,roadId,actions(),()=>{
+    roadCanvas.refresh();refreshAtlasSceneConfig(scene);
+  },checkpointId);
 roadCanvas.promptCheckpoint = ({ roads, defaultName }) => new Promise(resolve => {
   const scene = globalThis.canvas?.scene;
   if (!scene) { resolve(null); return; }
@@ -254,17 +258,16 @@ async function promptTravelPreset(title, currentId = null) {
   none.defaultSelected=!currentId;chooser.appendChild(none);
   const groups=new Map();
   for (const preset of presets) {
-    const water=/^water-(river|lake|sea|ocean|canal|marsh)(?:-(calm|turbulent|rough))?$/.exec(preset.id);
-    const groupName=water?"WATER — "+(water[1]==="marsh"?"Marsh / Swamp":
-      water[1][0].toUpperCase()+water[1].slice(1)):preset.mode.toUpperCase();
+    const hierarchy=travelPresetDisplayGroup(preset);
+    const groupName=hierarchy.subgroup??hierarchy.group;
     if(!groups.has(groupName)){
       const group=document.createElement("optgroup");
       group.label=groupName;groups.set(groupName,group);chooser.appendChild(group);
     }
     const option = document.createElement("option");
     option.value = preset.id;
-    option.textContent = (water?.[2]?water[2][0].toUpperCase()+water[2].slice(1)+" — ":"")+
-      preset.name+" ("+presetCostSummary(preset)+")";
+    option.textContent = (hierarchy.subgroup?hierarchy.name:preset.name)+
+      " ("+presetCostSummary(preset)+")";
     option.defaultSelected = preset.id === currentId;
     groups.get(groupName).appendChild(option);
   }
@@ -1027,6 +1030,37 @@ function actions() {
       }, { regenerate: true });
       refresh();
     },
+    async editGeneratedRegionGeometry(scene, entry, refresh) {
+      ensureIdle(scene);
+      if(!entry.metadata || entry.modified || entry.invalid)
+        throw new Error("Manually modified or invalid native Region geometry is protected.");
+      const meta=entry.metadata;
+      const wrap=document.createElement("div");
+      const help=document.createElement("p");
+      help.textContent="Adjust the radius/half-width for “"+entry.name+"”. Atlas previews geometry while preserving native Behaviors, Levels and travel preset.";
+      const label=document.createElement("label");
+      label.textContent=meta.kind==="checkpoint"?"Radius (cells)":"Corridor half-width (cells)";
+      const input=document.createElement("input");
+      input.type="number";input.name="regionWidthCells";input.min="0.25";input.max="3";input.step="0.25";
+      input.defaultValue=String(meta.widthCells);
+      label.appendChild(input);wrap.append(help,label);
+      const form=await DialogV2.input({window:{title:"Resize Terrain Region"},content:wrap,
+        ok:{label:"Preview New Geometry"},rejectClose:false,modal:true});
+      if(!form)return false;
+      const widthCells=Number(form.regionWidthCells);
+      if(!Number.isFinite(widthCells)||widthCells<.25||widthCells>3||
+          Math.abs(widthCells*4-Math.round(widthCells*4))>1e-8)
+        throw new Error("Radius must be 0.25–3 cells in quarter-cell increments.");
+      const fresh=listGeneratedRegions(scene).find(item=>item.id===entry.id);
+      if(!fresh || fresh.modified || fresh.invalid ||
+          JSON.stringify(fresh.metadata)!==JSON.stringify(meta))
+        throw new Error("Region changed. Reopen its geometry settings.");
+      await previewAndSaveRegion(scene,{kind:meta.kind,roadId:meta.roadId,
+        checkpointId:meta.checkpointIds[0],
+        endCheckpointId:meta.kind==="corridor"?meta.checkpointIds[1]:null,
+        widthCells},{regenerate:true});
+      roadCanvas.refresh();refresh();return true;
+    },
     beginJunction(scene, refresh) {
       roadCanvas.startJunction(scene, () => {
         refresh();
@@ -1116,7 +1150,23 @@ function actions() {
       }
       new AtlasCheckpointAppearanceEditor({
         scene, checkpointId: checkpoint.id, expectedRevision: atlas.revision,
-        onSaved: () => { roadCanvas.refresh(); refresh(); }
+        onSaved: () => { roadCanvas.refresh(); refresh(); },
+        onTerrainAction:async (action,regionId)=>{
+          const api=actions();
+          const entry=regionId?listGeneratedRegions(scene).find(item=>item.id===regionId):null;
+          if(regionId&&!entry)throw new Error("This linked Region no longer exists.");
+          if(action==="create")return openAtlasRegionGenerator(scene,checkpoint.roadId,api,
+            ()=>{roadCanvas.refresh();refresh();},checkpoint.id);
+          if(action==="preset")return api.assignGeneratedRegionTravelPreset(scene,entry,
+            ()=>{roadCanvas.refresh();refresh();});
+          if(action==="settings")return api.configureRegion(scene,regionId);
+          if(action==="geometry")return api.editGeneratedRegionGeometry(scene,entry,
+            ()=>{roadCanvas.refresh();refresh();});
+          if(action==="regenerate")return api.regenerateRegion(scene,entry,
+            ()=>{roadCanvas.refresh();refresh();});
+          if(action==="delete")return api.deleteGeneratedRegion(scene,regionId,
+            ()=>{roadCanvas.refresh();refresh();});
+        }
       }).render(true);
     },
     async editCheckpoint(scene, checkpoint, refresh) {
