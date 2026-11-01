@@ -71,3 +71,15 @@ test("checkpoint preset selector offers all World types instead of filtering to 
     assert.ok(descendants(select).some(item=>item.value==="checkpoint-monster"));
   }finally{globalThis.document=previous;}
 });
+
+test("preset list glyph uses the same bundled font configuration as the icon browser",async()=>{
+  const previous=globalThis.document;
+  try{
+    globalThis.document={createElement:tag=>new FakeElement(tag)};
+    const {createCheckpointIconGlyph}=await import("../scripts/checkpoint-icon-control.js");
+    const anchor=createCheckpointIconGlyph("solid:anchor");
+    assert.equal(anchor.tag,"span");
+    assert.match(anchor.style.cssText,/Atlas FA 7 Solid/);
+    assert.equal(anchor.attributes.get("aria-hidden"),"true");
+  }finally{globalThis.document=previous;}
+});

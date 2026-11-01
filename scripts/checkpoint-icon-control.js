@@ -21,6 +21,11 @@ const fontGlyph=id=>{
   glyph.setAttribute("aria-hidden","true");return glyph;
 };
 
+/** Same webfont markup for forms, galleries and World preset list rows. */
+export function createCheckpointIconGlyph(id){
+  return CHECKPOINT_ICONS.includes(id)?iconImage(id):fontGlyph(id);
+}
+
 /** Return a control and a stable value getter; no World/Scene writes or save listeners. */
 export function createCheckpointIconPicker({selectedId="location-dot",onChange=()=>{}}={}){
   let selected=selectedId;
@@ -81,7 +86,7 @@ export function createCheckpointIconPicker({selectedId="location-dot",onChange=(
   const choices=new Map();
   const refreshSelection=()=>{
     const info=details.get(selected);
-    const glyph=CHECKPOINT_ICONS.includes(selected)?iconImage(selected):fontGlyph(selected);
+    const glyph=createCheckpointIconGlyph(selected);
     glyph.style.fontSize="46px";
     if(CHECKPOINT_ICONS.includes(selected)){glyph.style.width="44px";glyph.style.height="44px";}
     picture.replaceChildren(glyph);
@@ -100,7 +105,7 @@ export function createCheckpointIconPicker({selectedId="location-dot",onChange=(
     button.title=id+" — "+label;
     button.setAttribute("aria-label","Use "+label+" checkpoint icon");
     button.style.cssText="display:grid;justify-items:center;gap:.2rem;padding:.35rem;border:2px solid transparent;min-height:"+(compact?42:69)+"px;";
-    button.appendChild(CHECKPOINT_ICONS.includes(id)?iconImage(id):fontGlyph(id));
+    button.appendChild(createCheckpointIconGlyph(id));
     if(!compact)button.appendChild(node("small",label));
     button.addEventListener("click",()=>{selected=id;onChange(id);refreshSelection();});
     choices.set(id,button);return button;

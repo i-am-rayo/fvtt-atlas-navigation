@@ -16,10 +16,14 @@ Atlas settings are split into three layers:
 | `createCheckpointIconPicker` | Checkpoint Settings, World checkpoint preset editor | `checkpoint-appearance` icon catalog |
 | `createCheckpointPresetSelect` | Checkpoint creation and editing | Full World checkpoint preset catalog, grouped by checkpoint type |
 | `createSettingsActionButton` | World checkpoint preset management (and future compact settings rows) | Accessible label + Font Awesome action icon |
+| `createCheckpointIconGlyph` | Shared icon picker and World preset list | Same bundled Atlas Font Awesome font faces |
+| `checkpoint-field-definitions` | Checkpoint Settings and World preset editor | Canonical marker, label, discovery choices and Region radius constraints |
 
 The travel selector preserves stable IDs while grouping Land, Water body and Air consistently. The icon picker owns category tabs, style filter, search, preview and paging; both editors use its selected value. A control may be re-rendered, but its source of choices and behavior must not be copied into an editor.
 
 Built-in checkpoint presets provide category-appropriate Font Awesome glyphs and colors as defaults. The normalized World catalog only fills these into the original built-in templates when appearance is unset; user-customized appearances and custom preset templates are preserved. This is a presentation/defaults evolution, not a new Scene schema.
+
+Checkpoint preset **identity** is persisted separately in Scene metadata (`checkpointPresetAssignments`). This is not inferred from checkpoint category, appearance or matching values: several distinct presets may use the same category, and changing a checkpoint's appearance must not silently select another preset.
 
 ## Intended next migrations
 

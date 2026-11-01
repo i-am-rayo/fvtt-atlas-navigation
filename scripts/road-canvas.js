@@ -17,6 +17,7 @@ import { checkpointRevealKeys } from "./checkpoint-exploration.js";
 import { readCheckpointDiscoveryMethods } from "./checkpoint-discovery-method.js";
 import { saveCheckpointCategory } from "./checkpoint-types.js";
 import { saveCheckpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
+import { saveCheckpointPresetAssignment } from "./checkpoint-preset-assignment.js";
 import { checkpointKnowledge } from "./party-exploration-model.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
@@ -800,6 +801,8 @@ export class RoadCanvasController {
             await saveCheckpointCategory(scene,newId,config.checkpointType);
           if(config.terrainSuggestion)
             await saveCheckpointTerrainSuggestion(scene,newId,config.terrainSuggestion);
+          if(config.checkpointPresetId)
+            await saveCheckpointPresetAssignment(scene,newId,config.checkpointPresetId);
         } catch (metadataError) {
           this.notify()?.warn?.("Checkpoint created, but some discovery or Journal settings could not be saved: " +
             (metadataError.message ?? String(metadataError)));

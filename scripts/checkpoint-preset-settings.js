@@ -4,8 +4,9 @@ import { CHECKPOINT_TYPE_GROUPS, CHECKPOINT_TYPES } from "./checkpoint-types.js"
 import { CHECKPOINT_PRESET_SETTING, defaultCheckpointPresets,
   validateCheckpointPresets, removeCheckpointPreset }
   from "./checkpoint-preset-model.js";
-import { checkpointFontIcon,resolveCheckpointAppearance }
+import { resolveCheckpointAppearance }
   from "./checkpoint-appearance.js";
+import { createCheckpointIconGlyph } from "./checkpoint-icon-control.js";
 import { createSettingsActionButton } from "./settings-controls.js";
 
 const node=(tag,label)=>{const n=document.createElement(tag);if(label!==undefined)n.textContent=label;return n;};
@@ -42,12 +43,10 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
       for(const preset of matches){
         const row=node("div");row.style.cssText="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;padding:.2rem 0;";
         const appearance=resolveCheckpointAppearance(preset.appearance);
-        const icon=checkpointFontIcon(appearance.icon);
         const symbol=node("span");
         symbol.style.cssText="display:grid;place-items:center;width:1.6rem;height:1.6rem;flex:0 0 1.6rem;color:"+appearance.color+";";
-        if(appearance.type==="fa"&&icon){
-          symbol.textContent=icon.glyph;
-          symbol.style.fontFamily=icon.family;symbol.style.fontWeight=String(icon.weight);
+        if(appearance.type==="fa"){
+          symbol.appendChild(createCheckpointIconGlyph(appearance.icon));
         }else if(appearance.type==="image"&&appearance.image){
           const image=node("img");image.src=appearance.image;image.alt="";
           image.style.cssText="max-width:1.6rem;max-height:1.6rem;object-fit:contain;";

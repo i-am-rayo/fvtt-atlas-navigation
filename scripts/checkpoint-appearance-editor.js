@@ -20,6 +20,11 @@ import { CHECKPOINT_PRESET_SETTING, upsertCheckpointPreset } from "./checkpoint-
 import { readWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { MODULE_ID } from "./atlas-storage.js";
 import { checkpointTerrainSuggestion, saveCheckpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
+import { checkpointAssignedPresetId,saveCheckpointPresetAssignment }
+  from "./checkpoint-preset-assignment.js";
+import { CHECKPOINT_MARKER_TYPES,CHECKPOINT_LABEL_MODES,
+  CHECKPOINT_DISCOVERY_STATES,CHECKPOINT_DISCOVERY_METHODS }
+  from "./checkpoint-field-definitions.js";
 
 const el = (tag, label) => {
   const item = document.createElement(tag);
@@ -150,17 +155,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     let discoveryMethod = null;
     if (exploration.enabled) {
       const state = checkpointKnowledge(exploration, this.checkpointId);
-      discovery = field("Discovery status", select([
-        ["unknown", "Undiscovered"],
-        ["visited", "Seen / Visited"],
-        ["lore", "Known through Lore"]
-      ], state));
+      discovery = field("Discovery status", select(CHECKPOINT_DISCOVERY_STATES,state));
       discovery.setAttribute("aria-label", "Checkpoint discovery status");
-      discoveryMethod = field("Discovery method", select([
-        ["automatic", "Automatic — explorer proximity"],
-        ["gm", "GM Only — manual reveal"],
-        ["lore", "Lore Only — story discovery"]
-      ], checkpointDiscoveryMethod(discoveryMethods,this.checkpointId)));
+      discoveryMethod = field("Discovery method", select(CHECKPOINT_DISCOVERY_METHODS,
+        checkpointDiscoveryMethod(discoveryMethods,this.checkpointId)));
 
       revealRadius = el("input");
       revealRadius.type = "number";
@@ -180,10 +178,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     } else {
       field("Show to players", playerVisibility);
     }
-    const type = field("Checkpoint marker", select([
-      ["dot", "Default dot"], ["fa", "Font Awesome Free icon"],
-      ["image", "Custom Foundry image"]
-    ], appearance.type));
+    const type = field("Checkpoint marker", select(CHECKPOINT_MARKER_TYPES,appearance.type));
     let selected = appearance.icon;
     const iconPicker = createCheckpointIconPicker({selectedId:selected,
       onChange:id=>{selected=id;}});
@@ -231,9 +226,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     field("Checkpoint border color", borderColor);
     fields = el("div"); fields.style.cssText = "display:grid;gap:.55rem;";
     pageMarker.appendChild(fields);
-    const mode = field("Checkpoint label", select([
-      ["off", "Off"], ["hover", "On hover"], ["always", "Always"]
-    ], appearance.labelMode));
+    const mode = field("Checkpoint label", select(CHECKPOINT_LABEL_MODES,appearance.labelMode));
     const showRoad = el("input");
     showRoad.type = "checkbox"; showRoad.checked = appearance.showRoadName;
     field("Include road name with label", showRoad);
@@ -286,6 +279,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     });
     presetPicker.addEventListener("change",applyPreset);
     populatePresets();
+    if(!this.createDraft){
+      const assigned=checkpointAssignedPresetId(this.scene,this.checkpointId);
+      if(assigned&&catalog.presets.some(p=>p.id===assigned))presetPicker.value=assigned;
+    }
     if (type.value === "fa" && (!selected || !ICON_DETAILS.has(selected))) iconSection.open=true;
     iconSection.addEventListener("toggle",()=>{
       if (!this.rendered || pageMarker.hidden) return;
@@ -464,6 +461,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
             revealRadiusCells: revealRadius ? Number(revealRadius.value) : null,
             generateTerrainRegion:generateAfterCreate?.checked??false
             ,checkpointType:category.value
+            ,checkpointPresetId:presetPicker.value||null
             ,terrainSuggestion
           };
           this.createResolved = true;
@@ -483,6 +481,11 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         });
         if(category.value!==checkpointCategory(this.scene,this.checkpointId))
           await saveCheckpointCategory(this.scene,this.checkpointId,category.value);
+        const selectedPresetId=value===null?null:presetPicker.value||null;
+        if(selectedPresetId&&!readWorldCheckpointPresets().presets.some(p=>p.id===selectedPresetId))
+          throw Error("This checkpoint preset no longer exists. Reopen the settings.");
+        if(selectedPresetId!==checkpointAssignedPresetId(this.scene,this.checkpointId))
+          await saveCheckpointPresetAssignment(this.scene,this.checkpointId,selectedPresetId);
         if(JSON.stringify(terrainSuggestion)!==JSON.stringify(
           checkpointTerrainSuggestion(this.scene,this.checkpointId)))
           await saveCheckpointTerrainSuggestion(this.scene,this.checkpointId,terrainSuggestion);
