@@ -332,11 +332,37 @@ async function promptNewRoadSettings(scene) {
   field(pages.general,"Show to players",visible);
   const travel = document.createElement("select");
   travel.name = "draftRoadPreset";
-  for (const [id,label] of [["","None (Land fallback)"],...presets.map(p=>[p.id,p.name])]) {
-    const option=document.createElement("option");option.value=id;option.textContent=label;
-    option.defaultSelected=id==="";
-    travel.appendChild(option);
+  const fallback=document.createElement("option");
+  fallback.value="";fallback.textContent="None (Land fallback)";
+  fallback.defaultSelected=true;travel.appendChild(fallback);
+  const appendGroup=(label,entries)=>{
+    if(!entries.length)return;
+    const group=document.createElement("optgroup");group.label=label;
+    for(const preset of entries){
+      const option=document.createElement("option");
+      option.value=preset.id;option.textContent=preset.name;
+      group.appendChild(option);
+    }
+    travel.appendChild(group);
+  };
+  const land=presets.filter(p=>p.mode==="land");
+  const landOrder=["land-dirt","land-gravel","land-stone"];
+  land.sort((a,b)=>{
+    const rank=id=>landOrder.includes(id)?landOrder.indexOf(id):landOrder.length;
+    return rank(a.id)-rank(b.id);
+  });
+  appendGroup("Land",land);
+  const water=presets.filter(p=>p.mode==="water");
+  if(water.length){
+    const heading=document.createElement("option");
+    heading.disabled=true;heading.textContent="Water";travel.appendChild(heading);
+    for(const body of ["River","Lake","Sea","Ocean","Canal","Marsh / Swamp"]){
+      const entries=water.filter(p=>travelPresetDisplayGroup(p).subgroup===body);
+      appendGroup(body,entries);
+    }
+    appendGroup("Other Water",water.filter(p=>!travelPresetDisplayGroup(p).subgroup));
   }
+  appendGroup("Air",presets.filter(p=>p.mode==="air"));
   field(pages.general,"Travel preset",travel);
   const journal = document.createElement("input");
   journal.type="text";journal.name="draftRoadJournal";journal.placeholder="JournalEntry… or JournalEntryPage… UUID";

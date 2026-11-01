@@ -6,7 +6,7 @@ import { MODULE_ID, readAtlas } from "./atlas-storage.js";
 import { TRAVEL_PRESET_SETTING, REGION_TRAVEL_PRESET_FLAG, TRAVEL_TYPES,
   defaultTravelPresets, validateTravelPresets, upsertTravelPreset,
   removeTravelPreset, presetCostSummary, defaultTravelPresetColor,
-  addMissingRecommendedWaterPresets } from "./travel-preset-model.js";
+  addMissingRecommendedWaterPresets, addMissingRecommendedLandPresets } from "./travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions } from "./native-movement-cost.js";
 
 const TYPE_LABELS = { land: "Land", air: "Air", water: "Water" };
@@ -142,6 +142,13 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
       }
       fieldset.appendChild(button("＋ Add " + TYPE_LABELS[mode] + " Preset",
         () => this._editPreset(null, mode)));
+      if(mode==="land"){
+        const next=addMissingRecommendedLandPresets(presets);
+        if(next.presets.length>presets.presets.length)
+          fieldset.appendChild(button("＋ Add missing Land terrains",
+            () => this._addLandTerrains(),
+            "Add desert dunes, beach sand, mud, scree, snow, ice and grassland without modifying existing presets."));
+      }
       if(mode==="water" && ["river","lake","sea","ocean","canal","marsh"]
         .some(body=>["calm","turbulent","rough"].some(condition=>
           !group.some(item=>item.id===`water-${body}-${condition}`)))) {
@@ -158,6 +165,22 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
 
   _replaceHTML(result, content) {
     content.replaceChildren(result);
+  }
+
+  async _addLandTerrains() {
+    if(!game.user?.isGM)throw new Error("Only a GM can add Land terrains.");
+    const confirmed=await foundry.applications.api.DialogV2.confirm({
+      window:{title:"Add recommended Land terrains"},modal:true,
+      content:"<p>Add Desert Dunes, Beach Sand, Muddy Trail, Rocky Scree, Snowfield, Ice and Grassland with editable suggested movement costs and colors?</p><p>Existing presets, roads, Regions, and native Behaviors will not be changed.</p>",
+      rejectClose:false
+    });
+    if(!confirmed)return;
+    const current=readWorldTravelPresets();
+    const next=addMissingRecommendedLandPresets(current);
+    if(next.presets.length===current.presets.length)return;
+    await game.settings.set(MODULE_ID,TRAVEL_PRESET_SETTING,next);
+    ui.notifications.info("Missing Land terrains added. Their movement costs and colors are editable.");
+    await this.render();
   }
 
   async _addWaterConditions() {

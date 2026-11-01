@@ -1,7 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {defaultTravelPresets,addMissingRecommendedWaterPresets,
+import {defaultTravelPresets,addMissingRecommendedWaterPresets,addMissingRecommendedLandPresets,
   validateTravelPresets} from "../scripts/travel-preset-model.js";
+
+test("recommended land surfaces are available to new Worlds and opt-in to existing Worlds",()=>{
+  const expected=["Desert Dunes","Beach Sand","Muddy Trail","Rocky Scree","Snowfield","Ice","Grassland"];
+  const original=defaultTravelPresets();
+  for(const name of expected){
+    const preset=original.presets.find(p=>p.mode==="land"&&p.name===name);
+    assert.ok(preset,name);
+    assert.ok(preset.movementCosts.walk>=1);
+    assert.match(preset.color,/^#[0-9A-F]{6}$/);
+  }
+  const legacy={...original,presets:original.presets.filter(p=>!expected.includes(p.name))};
+  const next=addMissingRecommendedLandPresets(legacy);
+  assert.equal(next.presets.length,legacy.presets.length+expected.length);
+  assert.deepEqual(next.presets.slice(0,legacy.presets.length),legacy.presets);
+  assert.deepEqual(addMissingRecommendedLandPresets(next),next);
+});
 
 test("new Worlds include named river/lake/sea/ocean/canal/marsh surfaces",()=>{
   const items=defaultTravelPresets().presets.filter(p=>p.mode==="water");

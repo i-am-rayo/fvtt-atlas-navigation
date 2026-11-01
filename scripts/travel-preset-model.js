@@ -14,6 +14,10 @@ export const MAX_PRESET_MOVEMENT_ACTIONS = 24;
 const DEFAULT_COLORS = Object.freeze({
   "land-stone": "#9CA3AF", "land-gravel": "#B99A72",
   "land-dirt": "#AD7955", "land-forest": "#4F9068",
+  "land-desert-dunes": "#D5B66A", "land-beach-sand": "#E6C994",
+  "land-muddy-trail": "#77634E", "land-rocky-scree": "#8E8880",
+  "land-snowfield": "#C5DCE7", "land-ice": "#9BCADC",
+  "land-grassland": "#8CAB65",
   "air-clear": "#86BDEB", "air-turbulent": "#8976BF",
   "water-calm": "#47AFC0", "water-rough": "#3F72AF",
   "water-river": "#3E9CBA", "water-lake": "#58B7B5",
@@ -49,6 +53,13 @@ const defaults = [
   ["land-gravel", "land", "Gravel Road"],
   ["land-dirt", "land", "Dirt Road"],
   ["land-forest", "land", "Forest Trail"],
+  ["land-desert-dunes", "land", "Desert Dunes"],
+  ["land-beach-sand", "land", "Beach Sand"],
+  ["land-muddy-trail", "land", "Muddy Trail"],
+  ["land-rocky-scree", "land", "Rocky Scree"],
+  ["land-snowfield", "land", "Snowfield"],
+  ["land-ice", "land", "Ice"],
+  ["land-grassland", "land", "Grassland"],
   ["air-clear", "air", "Clear Skies"],
   ["air-turbulent", "air", "Turbulent Air"],
   ["water-calm", "water", "Calm Waters"],
@@ -67,6 +78,15 @@ const defaults = [
 ];
 
 const NEUTRAL_MOVEMENT_COSTS=Object.freeze({walk:1,fly:1,swim:1,burrow:1});
+const RECOMMENDED_LAND_COSTS=Object.freeze({
+  "land-desert-dunes":{walk:1.75,fly:1,swim:3,burrow:1.25},
+  "land-beach-sand":{walk:1.25,fly:1,swim:3,burrow:1.25},
+  "land-muddy-trail":{walk:1.5,fly:1,swim:3,burrow:1.5},
+  "land-rocky-scree":{walk:1.5,fly:1,swim:3,burrow:1.75},
+  "land-snowfield":{walk:1.5,fly:1,swim:3,burrow:1.5},
+  "land-ice":{walk:1.5,fly:1,swim:3,burrow:2},
+  "land-grassland":{walk:1,fly:1,swim:3,burrow:1}
+});
 const BUILTIN_WATER_IDS=new Set(defaults.filter(([,mode])=>mode==="water")
   .map(([id])=>id));
 
@@ -96,11 +116,24 @@ export function addMissingRecommendedWaterPresets(current, modifiers = null) {
     presets:[...catalog.presets,...additions]});
 }
 
+/** Add missing suggested land surfaces without changing existing world presets. */
+export function addMissingRecommendedLandPresets(current) {
+  const catalog=validateTravelPresets(current);
+  const ids=new Set(catalog.presets.map(p=>p.id));
+  const names=new Set(catalog.presets.map(p=>p.mode+":"+p.name.toLocaleLowerCase()));
+  const additions=defaultTravelPresets().presets.filter(p=>
+    Object.hasOwn(RECOMMENDED_LAND_COSTS,p.id) && !ids.has(p.id) &&
+    !names.has(p.mode+":"+p.name.toLocaleLowerCase()));
+  return validateTravelPresets({schemaVersion:TRAVEL_PRESET_CATALOG_VERSION,
+    presets:[...catalog.presets,...additions]});
+}
+
 export function defaultTravelPresets() {
   return { schemaVersion: TRAVEL_PRESET_CATALOG_VERSION,
     presets: defaults.map(([id, mode, name]) => ({
       id, mode, name, movementCostMultiplier: 1,
-      movementCosts:mode==="water"?{...NEUTRAL_MOVEMENT_COSTS}:null,
+      movementCosts:mode==="water"?{...NEUTRAL_MOVEMENT_COSTS}:
+        (RECOMMENDED_LAND_COSTS[id]?{...RECOMMENDED_LAND_COSTS[id]}:null),
       color: defaultTravelPresetColor(id, mode)
     })) };
 }
