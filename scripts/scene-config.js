@@ -12,6 +12,7 @@ import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { checkpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
 import { createCheckpointRegionWidth } from "./checkpoint-form-controls.js";
+import { appendSettingsField } from "./settings-layout.js";
 import { presetCostSummary } from "./travel-preset-model.js";
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
@@ -642,13 +643,8 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       select.addEventListener("change", () => { changed(select.value); refresh(); });
       return select;
     };
-    const addField = (title, control) => {
-      const row = node("div", undefined, "form-group");
-      const fieldLabel = node("label", label(title));
-      row.appendChild(fieldLabel);
-      row.appendChild(control);
-      generatedSection.appendChild(row);
-    };
+    const addField = (title, control) => appendSettingsField(
+      generatedSection,label(title),control,{variant:"native-div"});
     const checkpoints = atlas.checkpoints.filter(c => c.roadId === selected.roadId);
     addField("Region shape", makeSelect([
       ["checkpoint", "Area around one checkpoint"],

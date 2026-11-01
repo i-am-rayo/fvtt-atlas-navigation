@@ -9,6 +9,7 @@ import { createCheckpointChoice,createCheckpointNumber,createCheckpointRange,
   createCheckpointRegionWidth,createCheckpointMarkerSize,createCheckpointColor,
   createCheckpointCheckbox,createCheckpointElevation }
   from "./checkpoint-form-controls.js";
+import { appendSettingsField } from "./settings-layout.js";
 import { resolveCheckpointAppearance,validateCheckpointAppearance }
   from "./checkpoint-appearance.js";
 import { CHECKPOINT_MARKER_TYPES,CHECKPOINT_LABEL_MODES,
@@ -52,11 +53,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
       }
     };
     root.appendChild(tabs);
-    const field=(panel,label,control)=>{
-      const row=el("label");
-      row.style.cssText="display:grid;grid-template-columns:minmax(130px,1fr) minmax(160px,1.4fr);gap:.6rem;align-items:center;";
-      row.append(el("span",label),control);panel.appendChild(row);return control;
-    };
+    const field=(panel,label,control)=>appendSettingsField(panel,label,control,{variant:"grid"});
     const input=(value,type="text")=>{
       const n=el("input");n.type=type;n.value=String(value??"");return n;
     };

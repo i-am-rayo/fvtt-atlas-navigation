@@ -35,6 +35,7 @@ import { presetCostSummary } from "./travel-preset-model.js";
 import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
 import { createTravelPresetSelect } from "./settings-controls.js";
+import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
 import { registerWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance }
   from "./road-appearance-settings.js";
@@ -295,15 +296,7 @@ async function promptNewRoadSettings(scene) {
     panel.hidden = key !== "general";
     pages[key] = panel;
   }
-  const field = (parent,label,control) => {
-    const row = document.createElement("label");
-    row.className = "form-group";
-    const caption = document.createElement("span");
-    caption.textContent = label;
-    row.append(caption,control);
-    parent.appendChild(row);
-    return control;
-  };
+  const field = (parent,label,control) => appendSettingsField(parent,label,control);
   const name = document.createElement("input");
   name.type = "text";name.name = "draftRoadName";name.maxLength=120;
   name.required = true;name.value=suggestRoadName(atlas);name.defaultValue=name.value;
@@ -446,24 +439,16 @@ function actions() {
       // Foundry v14 DialogV2.input requires the content element itself
       // to have NO attributes. Style a child wrapper only.
       const mode = roadAppearanceMode(actual, readWorldTravelPresets().presets);
-      const nameRow = document.createElement("label");
-      nameRow.className = "form-group";
-      const nameLabel = document.createElement("span");
-      nameLabel.textContent = "Road name";
       const name = document.createElement("input");
       name.type = "text"; name.name = "atlasRoadName"; name.maxLength = 120;
       name.required = true; name.value = actual.name; name.defaultValue = actual.name;
-      nameRow.append(nameLabel, name);
-      const visibilityRow = document.createElement("label");
-      visibilityRow.className = "form-group";
-      const visibilityLabel = document.createElement("span");
-      visibilityLabel.textContent = "Show to players";
-       visibilityLabel.title = "Only this road. Checkpoint discovery is separate.";
+      const nameRow=createSettingsFieldRow("Road name",name);
       const visibility = document.createElement("input");
       visibility.type = "checkbox"; visibility.name = "atlasRoadVisible";
       visibility.value = "true"; visibility.checked = actual.playerVisible === true;
       visibility.defaultChecked = visibility.checked;
-      visibilityRow.append(visibilityLabel, visibility);
+      const visibilityRow=createSettingsFieldRow("Show to players",visibility);
+      visibilityRow.firstElementChild.title="Only this road. Checkpoint discovery is separate.";
       const baseline = resolveRoadAppearance(actual, readWorldRoadAppearance(), mode);
       const journalLinks = readAtlasJournalLinks(scene);
       const journalControls = journalLinkFields(journalLinks,"road",road.id);

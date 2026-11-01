@@ -19,6 +19,7 @@ Atlas settings are split into three layers:
 | `createCheckpointIconGlyph` | Shared icon picker and World preset list | Same bundled Atlas Font Awesome font faces |
 | `checkpoint-field-definitions` | Checkpoint Settings and World preset editor | Canonical marker, label, discovery choices and Region radius constraints |
 | `checkpoint-form-controls` | Checkpoint Settings, World preset editor and Scene Region generator | Identical elevation sliders with optional numeric input, marker-size sliders, colors, checkboxes, discovery selects, reveal-radius inputs and bounded Region width/radius sliders |
+| `settings-layout` | Checkpoint, preset, Road Settings and Scene Region generator | Single field-row construction with explicit responsive layout variants; never clones or rewrites live input values |
 
 The travel selector preserves stable IDs while grouping Land, Water body and Air consistently. The icon picker owns category tabs, style filter, search, preview and paging; both editors use its selected value. A control may be re-rendered, but its source of choices and behavior must not be copied into an editor.
 
@@ -28,7 +29,7 @@ Checkpoint preset **identity** is persisted separately in Scene metadata (`check
 
 ## Intended next migrations
 
-- Centralize remaining layout/field-row composition and checkpoint-type selection; the underlying elevation, marker, color, label, discovery and Region geometry controls now share factories.
+- Centralize checkpoint-type selection and remaining nested Region-row variants; the main field rows, elevation, marker, color, label, discovery and Region geometry controls now share factories.
 - Replace remaining one-off road and Region selectors with the shared travel selector after confirming those dialogs' native Behavior semantics.
 - Add UI-level tests with Foundry v14 DOM events for selection, cancellation and re-rendering.
 

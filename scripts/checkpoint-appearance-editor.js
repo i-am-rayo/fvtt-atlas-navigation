@@ -4,6 +4,7 @@ import { createCheckpointIconPicker } from "./checkpoint-icon-control.js";
 import { createCheckpointChoice,createCheckpointRange,createCheckpointMarkerSize,
   createCheckpointColor,createCheckpointCheckbox,createCheckpointElevation }
   from "./checkpoint-form-controls.js";
+import { appendSettingsField } from "./settings-layout.js";
 import { createCheckpointPresetSelect } from "./settings-controls.js";
 import { readAtlas } from "./atlas-storage.js";
 import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
@@ -88,14 +89,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
 
     let fields = el("div");
     fields.style.cssText = "display:grid;gap:0.55rem;";
-    const field = (title, control) => {
-      const row = el("label");
-      row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:1rem;";
-      row.append(el("span", title), control);
-      control.style.maxWidth = "16rem";
-      fields.appendChild(row);
-      return control;
-    };
+    const field = (title, control) => appendSettingsField(fields,title,control,{variant:"split"});
     const select = (choices, value) => {
       const box = el("select");
       for (const [key, title] of choices) {
