@@ -1152,6 +1152,7 @@ function actions() {
         scene, checkpointId: checkpoint.id, expectedRevision: atlas.revision,
         onSaved: () => { roadCanvas.refresh(); refresh(); },
         onTerrainAction:async (action,regionId)=>{
+          if(action==="clearPreview")return roadCanvas.clearRegionPreview();
           const api=actions();
           const entry=regionId?listGeneratedRegions(scene).find(item=>item.id===regionId):null;
           if(regionId&&!entry)throw new Error("This linked Region no longer exists.");
@@ -1160,10 +1161,14 @@ function actions() {
           if(action==="preset")return api.assignGeneratedRegionTravelPreset(scene,entry,
             ()=>{roadCanvas.refresh();refresh();});
           if(action==="settings")return api.configureRegion(scene,regionId);
-          if(action==="geometry")return api.editGeneratedRegionGeometry(scene,entry,
-            ()=>{roadCanvas.refresh();refresh();});
-          if(action==="regenerate")return api.regenerateRegion(scene,entry,
-            ()=>{roadCanvas.refresh();refresh();});
+          if(action==="geometry")try{
+            return await api.editGeneratedRegionGeometry(scene,entry,
+              ()=>{roadCanvas.refresh();refresh();});
+          }finally{roadCanvas.clearRegionPreview();}
+          if(action==="regenerate")try{
+            return await api.regenerateRegion(scene,entry,
+              ()=>{roadCanvas.refresh();refresh();});
+          }finally{roadCanvas.clearRegionPreview();}
           if(action==="delete")return api.deleteGeneratedRegion(scene,regionId,
             ()=>{roadCanvas.refresh();refresh();});
         }
@@ -1456,7 +1461,7 @@ function actions() {
       refresh();
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Regions.Unlinked"));
     },
-    configureRegion(scene, regionId) {
+    async configureRegion(scene, regionId) {
       if (!game.user?.isGM || !scene.canUserModify(game.user, "update")) {
         throw new Error("Only a GM can configure Atlas Regions.");
       }
@@ -1465,8 +1470,10 @@ function actions() {
           !region.canUserModify(game.user, "update")) {
         throw new Error(game.i18n.localize("FVTTATLAS.Regions.Missing"));
       }
-      return new foundry.applications.sheets.RegionConfig({ document: region })
-        .render({ force: true });
+      const sheet=new foundry.applications.sheets.RegionConfig({document:region});
+      await sheet.render({force:true});
+      sheet.bringToFront?.();
+      return sheet;
     },
     finish: () => roadCanvas.finish(),
     cancel: () => roadCanvas.cancel(),

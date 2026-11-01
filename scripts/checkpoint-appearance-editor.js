@@ -42,10 +42,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     this.createDraft = createDraft;
     this.onCreate = onCreate;
     this.onTerrainAction = onTerrainAction;
+    this.activePage = "General";
     this.createResolved = false;
   }
 
   async close(options) {
+    // A dismissed native Region dialog must not strand a transient preview.
+    this.onTerrainAction?.("clearPreview");
     if (this.createDraft && !this.createResolved) {
       this.createResolved = true;
       this.onCreate?.(null);
@@ -421,11 +424,21 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     pageTerrain.appendChild(el("p","A checkpoint Region overrides the road's default travel preset where its geometry applies. Higher-priority overlapping Regions win. Native Behaviors are edited separately."));
     const terrainButton=(title,action,regionId=null)=>{
       const button=el("button",title);button.type="button";
+      const icon={geometry:"fa-solid fa-ruler-combined",
+        regenerate:"fa-solid fa-rotate",delete:"fa-solid fa-trash"}[action];
+      if(icon){
+        button.textContent="";
+        const glyph=el("i");glyph.className=icon;
+        button.appendChild(glyph);
+        button.title=title;button.setAttribute("aria-label",title);
+        button.style.cssText="width:2.6rem;min-width:2.6rem;display:inline-flex;justify-content:center;align-items:center;";
+      }
       button.addEventListener("click",async()=>{
         button.disabled=true;
         try{
           await this.onTerrainAction?.(action,regionId);
-          if(action!=="create")await this.render(true);
+          // Opening a native sheet is not a data mutation; retain unsaved fields.
+          if(!["create","settings"].includes(action))await this.render(true);
         }catch(error){ui.notifications.error(error.message||String(error));}
         finally{button.disabled=false;}
       });
@@ -466,11 +479,12 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     for (const [name,page] of pages) {
       const item=el("button",name);
       item.type="button"; item.style.cssText="flex:1;min-width:8rem;border:1px solid var(--color-border-light-tertiary,#655);";
-      const selected=page===pageGeneral;
+      const selected=name===this.activePage;
       item.style.background=selected?"rgba(156,123,240,.22)":"transparent";
       item.style.fontWeight=selected?"700":"400";
       item.setAttribute("aria-selected",String(selected));
       item.addEventListener("click",()=>{
+        this.activePage=name;
         for (const [,p] of pages) p.hidden=p!==page;
         if (page===pageMarker && iconSection.open) this.setPosition({
           width:Math.min(860,window.innerWidth-50),height:Math.min(850,window.innerHeight-80)
@@ -487,7 +501,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       });
       editorTabs.appendChild(item);
     }
-    pages.forEach(([,page],index)=>{page.hidden=index!==0;});
+    pages.forEach(([name,page])=>{page.hidden=name!==this.activePage;});
 
     root.prepend(editorTabs);
     root.append(pageGeneral,pageMarker,pageTerrain);

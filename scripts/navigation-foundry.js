@@ -56,14 +56,24 @@ export function calculateSceneRoadRoute(view, scene, atlas, start, end, options 
         region.getFlag?.(MODULE_ID,REGION_ROUTING_PRIORITY_FLAG)),
       multiplier:1,shapes});
     const cost = nativeCostSummary(region);
-    if (!cost.existing || cost.disabled) continue;
+    const priority = routingPriority(region.getFlag?.(MODULE_ID, REGION_ROUTING_PRIORITY_FLAG));
+    if (!cost.existing || cost.disabled) {
+      // Atlas-only preset fallback: a checkpoint area may have no native
+      // movement Behavior, but must still influence Atlas navigation.
+      if(preset && compatibleShapes){
+        const multiplier=preset.movementCosts?.[action]??preset.movementCostMultiplier??1;
+        if(Number.isFinite(multiplier)&&multiplier>0)regions.push({
+          id:region.id,name:region.name,surface:preset.name,priority,multiplier,shapes
+        });
+      }
+      continue;
+    }
     if (!cost.managed || cost.count !== 1 || !Number.isFinite(cost.actualCosts?.[action]) ||
         cost.actualCosts[action] <= 0 || !compatibleShapes) {
       unsupported = true;
       incompatible.push(region.name || region.id);
       continue;
     }
-    const priority = routingPriority(region.getFlag?.(MODULE_ID, REGION_ROUTING_PRIORITY_FLAG));
     const surface=preset?.name ?? region.name;
     regions.push({ id: region.id, name:region.name, surface, priority,
       multiplier: cost.actualCosts[action], shapes: region.shapes });

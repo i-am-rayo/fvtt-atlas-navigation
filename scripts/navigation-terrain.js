@@ -86,12 +86,14 @@ export function regionContainsPoint(shapes, point) {
  * A strictly bounded sample count avoids freezing large Scenes.
  */
 export function createRegionCostMeasurement({ regions, measurePath, toCanvasPoint, gridSize,
-  maxSamples = 4096, fallbackSurface = null, fallbackMultiplier = 1 }) {
+  maxSamples = 16384, fallbackSurface = null, fallbackMultiplier = 1 }) {
   if (!Number.isFinite(gridSize) || gridSize <= 0 || typeof measurePath !== "function" ||
       typeof toCanvasPoint !== "function" ||
       !Number.isFinite(fallbackMultiplier) || fallbackMultiplier<=0)
     throw new Error("Native grid routing adapter is unavailable.");
-  const stepSize = gridSize / 2;
+  // Checkpoint Regions can be only 0.25 cells in radius. Half-cell samples
+  // may skip the entire bridge; eighth-cell samples capture its short span.
+  const stepSize = gridSize / 8;
   const describe = points => {
     let weightedPixels = 0, totalPixels = 0, count = 0;
     const slices=[];

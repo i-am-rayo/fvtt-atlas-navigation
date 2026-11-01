@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createEmptyAtlas } from "../scripts/atlas-model.js";
 import { createNativeRouteMeasurement, calculateSceneRoadRoute }
   from "../scripts/navigation-foundry.js";
+import { defaultTravelPresets } from "../scripts/travel-preset-model.js";
 
 const scene = {id:"scene",grid:{type:1,size:100,distance:5,units:"km"}};
 const atlas = {
@@ -45,4 +46,28 @@ test("Foundry adapter rejects absent or invalid Grid measurement",()=>{
   const invalid={...view,grid:{measurePath:()=>({distance:NaN})}};
   assert.throws(()=>createNativeRouteMeasurement(invalid,scene,atlas)
     ([{x:0,y:0},{x:10,y:0}]),/could not measure/);
+});
+
+test("small checkpoint preset Region overrides road fallback in Atlas estimates",()=>{
+  const prior=globalThis.game;
+  try{
+    const presets=defaultTravelPresets();
+    presets.presets.find(item=>item.id==="land-dirt").movementCostMultiplier=1.25;
+    presets.presets.find(item=>item.id==="land-stone").movementCostMultiplier=.75;
+    globalThis.game={settings:{get:()=>presets}};
+    const bridge={id:"bridge",name:"Stone Bridge",behaviors:[],
+      shapes:[{type:"ellipse",x:290,y:120,radiusX:25,radiusY:25}],
+      getFlag:(module,key)=>key==="travelPreset"?{presetId:"land-stone"}:null};
+    const regionScene={...scene,regions:{contents:[bridge]},getFlag:()=>null};
+    const regionView={...view,scene:regionScene};
+    const withRoad={...atlas,schemaVersion:5,checkpoints:[],
+      roads:[{id:"r",name:"Road",travelPresetId:"land-dirt"}]};
+    const result=calculateSceneRoadRoute(regionView,regionScene,withRoad,
+      {x:0,y:0},{x:100,y:0});
+    assert.equal(result.status,"ok");
+    assert.equal(result.terrainAware,true);
+    assert.ok(result.legs.some(leg=>leg.terrainSlices?.some(slice=>
+      slice.terrain==="Stone Road"&&slice.distance>0)));
+    assert.ok(result.cost<result.distance*1.25);
+  }finally{globalThis.game=prior;}
 });

@@ -15,9 +15,9 @@ const WATER_BODIES={river:"River",lake:"Lake",sea:"Sea",ocean:"Ocean",canal:"Can
 /** Presentation-only hierarchy: stable preset IDs and names remain untouched. */
 export function travelPresetDisplayGroup(preset) {
   const match=/^water-(river|lake|sea|ocean|canal|marsh)(?:-(calm|turbulent|rough))?$/.exec(preset.id);
-  return match ? {group:"WATER",subgroup:WATER_BODIES[match[1]],
+  return match ? {group:"water",subgroup:WATER_BODIES[match[1]],
     name:match[2]?preset.name:"Default"} :
-    {group:preset.mode.toUpperCase(),subgroup:null,name:preset.name};
+    {group:preset.mode,subgroup:null,name:preset.name};
 }
 
 export function readWorldTravelPresets() {
