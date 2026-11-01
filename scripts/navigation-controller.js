@@ -264,7 +264,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const info=el("div",`${step.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit} · `+
           `${formatNavigationDuration(navigationHours(this.result.terrainAware?step.cost:step.distance,speed),travel.hoursPerDay??24)}`);
         info.style.cssText="opacity:.75;font-size:.85em;margin-top:.3rem;";
-        const surface=el("div",[step.terrain,
+        const surface=el("div",[step.terrain === "Unspecified terrain" ? null : step.terrain,
           step.regionName && step.regionName!==step.terrain?step.regionName:null]
           .filter(Boolean).join(" · "));
         surface.style.cssText="opacity:.55;font-size:.72em;margin-top:.18rem;";

@@ -18,7 +18,7 @@ export function navigationInstruction({kind,roadId,regionName,direction,first,ne
   const namedRegion=regionName && !regionName.includes(" → ") ? regionName : null;
   const destination=namedRegion??road;
   if(kind==="road")return `${first?"Head":"Continue"}${direction?" "+direction:""} ${first?"to":"on"} ${destination}`;
-  return `${first?"Head":"Continue"}${direction?" "+direction:""} to ${first&&nextRoadId?roadName(nextRoadId):"the destination"}`;
+  return `${first?"Head":"Continue"}${direction?" "+direction:""} to ${nextRoadId?roadName(nextRoadId):"the destination"}`;
 }
 
 /** Split by terrain, merge consecutive legs with the same road and surface. */

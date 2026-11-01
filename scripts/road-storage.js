@@ -160,6 +160,16 @@ export function saveRemovedCheckpoint(scene, { checkpointId, expectedRevision })
     removeRoadCheckpoint(previous, { checkpointId }));
 }
 
+/** A GM-reviewed set of checkpoint removals is one Scene-flag revision. */
+export function saveRemovedCheckpoints(scene, { checkpointIds, expectedRevision }) {
+  if(!Array.isArray(checkpointIds) || !checkpointIds.length ||
+      new Set(checkpointIds).size!==checkpointIds.length)
+    throw new Error("Choose distinct checkpoints to delete.");
+  return saveChange(scene,expectedRevision,previous=>
+    checkpointIds.reduce((current,checkpointId)=>
+      removeRoadCheckpoint(current,{checkpointId}),previous));
+}
+
 /**
  * First assignment explicitly upgrades a v3/v4 atlas to v5. Preset IDs are
  * stable world references; deleting/renaming a preset never rewrites roads.

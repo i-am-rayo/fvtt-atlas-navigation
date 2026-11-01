@@ -1196,7 +1196,7 @@ export class RoadCanvasController {
     if (this.shortcutHandler) element.addEventListener("pointerdown", this.shortcutPointerHandler, true);
   }
 
-  #addLabel(graphics, name, point, textColor, anchorX = 0.5, zoom = 1, opacity = 1) {
+  #addLabel(graphics, name, point, textColor, anchorX = 0.5, zoom = 1, opacity = 1, subtitle = null) {
     if (!globalThis.PIXI?.Text || !graphics.addChild) return;
     const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
     const color = Number.parseInt(textColor.slice(1), 16);
@@ -1213,11 +1213,22 @@ export class RoadCanvasController {
     const label = new PIXI.Text(String(name), style);
     sharpenText(label, zoom);
     label.anchor?.set?.(anchorX, 0.5);
-    label.position?.set?.(point.x, point.y);
+    label.position?.set?.(point.x,point.y-(subtitle?6/scale:0));
     label.eventMode = "none";
     label.alpha = opacity;
     graphics.addChild(label);
     this.labels.push(label);
+    if(subtitle){
+      const smallStyle=major>=8
+        ?{...common,fontSize:fontSize*.73,stroke:{color:0x000000,width:2/scale}}
+        :{...common,fontSize:fontSize*.73,stroke:0x000000,strokeThickness:2/scale};
+      const small=new PIXI.Text(String(subtitle),smallStyle);
+      sharpenText(small,zoom);
+      small.anchor?.set?.(anchorX,.5);
+      small.position?.set?.(point.x,point.y+fontSize*.73);
+      small.eventMode="none";small.alpha=opacity*.85;
+      graphics.addChild(small);this.labels.push(small);
+    }
   }
 
   #addCheckpointLabels(graphics, checkpointName, roadName, appearance, point, zoom) {
@@ -1454,11 +1465,11 @@ export class RoadCanvasController {
           const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
               zoom, item.style.labelVisibility);
           const surface=this.playerHoveredRoadId===roadId
-            ?roadSurfaceAtPoint(this.playerHoveredRoadPoint,surfaceRegions):null;
+            ?roadSurfaceAtPoint(this.playerHoveredRoadPoint,surfaceRegions) ??
+              presets.find(p=>p.id===item.road.travelPresetId)?.name:null;
           if (point && opacity > 0) this.#addLabel(graphics, item.road.name +
-            (surface?" · "+surface:"")+
             (this.#journalCanView(journalUuidFor(journals,"road",roadId)) ? " 📖" : ""),
-            { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity);
+            { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity,surface);
       }
     }
     const markers = visible.checkpoints.flatMap(checkpoint => {
@@ -1763,11 +1774,11 @@ export class RoadCanvasController {
         const opacity = roadLabelOpacityNearCheckpoints(point, checkpointPositions,
             zoom, item.style.labelVisibility);
         const surface=this.hoveredRoadId===roadId
-          ?roadSurfaceAtPoint(this.hoveredRoadPoint,surfaceRegions):null;
+          ?roadSurfaceAtPoint(this.hoveredRoadPoint,surfaceRegions) ??
+            travelPresets.find(p=>p.id===item.road.travelPresetId)?.name:null;
         if (opacity > 0) this.#addLabel(g, item.road.name +
-          (surface?" · "+surface:"")+
           (journalUuidFor(gmJournals,"road",roadId) ? " 📖" : ""),
-          { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity);
+          { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity,surface);
       }
     }
     const checkpointMarkers = [];

@@ -18,7 +18,7 @@ import { AtlasManualFogPalette, registerManualBrushSettings }
   from "./atlas-manual-fog-panel.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
-  saveEditedCheckpoint, saveRemovedCheckpoint, saveRoadTravelPreset,
+  saveEditedCheckpoint, saveRemovedCheckpoint, saveRemovedCheckpoints, saveRoadTravelPreset,
   saveRoadAppearance, saveRoadPresentation, saveRoadPlayerVisibility,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
 import { getRoadMergeCandidates, suggestRoadName } from "./road-model.js";
@@ -144,9 +144,17 @@ async function centerAtlasOn(scene, roadId, checkpointId=null) {
   const converted=points.map(point=>toCanvasPoint(view,atlas,point));
   const x=(Math.min(...converted.map(p=>p.x))+Math.max(...converted.map(p=>p.x)))/2;
   const y=(Math.min(...converted.map(p=>p.y))+Math.max(...converted.map(p=>p.y)))/2;
+  const bounds={width:Math.max(1,Math.max(...converted.map(p=>p.x))-Math.min(...converted.map(p=>p.x))),
+    height:Math.max(1,Math.max(...converted.map(p=>p.y))-Math.min(...converted.map(p=>p.y)))};
+  const viewport=view.app?.renderer?.screen??view.app?.screen;
+  const currentZoom=view.stage?.scale?.x??1;
+  const fitZoom=!checkpointId && Number.isFinite(viewport?.width) && Number.isFinite(viewport?.height)
+    ?Math.min(currentZoom,Math.max(.1,Math.min(
+      (viewport.width-120)/bounds.width,(viewport.height-120)/bounds.height)))
+    :currentZoom;
   fadeSceneSheet(scene);
   roadCanvas.focusOn(scene,checkpointId?"checkpoint":"road",checkpointId??roadId);
-  await view.animatePan({x,y,scale:checkpointId ? Math.max(2.2, view.stage?.scale?.x??1) : (view.stage?.scale?.x??1),duration:450});
+  await view.animatePan({x,y,scale:checkpointId ? Math.max(2.2,currentZoom) : fitZoom,duration:450});
 }
 
 function ensureIdle(scene) {
@@ -411,6 +419,7 @@ function actions() {
       roadCanvas.refresh();
       refresh();
       ui.notifications.info("Atlas named-road default travel preset saved.");
+      return presetId;
     },
     async editJournal(scene,kind,id,refresh) {
       ensureIdle(scene);
@@ -502,8 +511,9 @@ function actions() {
       const toolsLegend=document.createElement("legend");toolsLegend.textContent="Road tools";
       roadTools.appendChild(toolsLegend);
       roadTools.style.cssText="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.6rem;min-width:0;";
+      const assignedPreset=readWorldTravelPresets().presets.find(p=>p.id===actual.travelPresetId);
       for (const [title,kind] of [["Edit path","edit"],["Add connection","connection"],
-        ["Travel preset","travel"],["Delete road","delete"]]) {
+        ["Travel preset: "+(assignedPreset?.name??"None"),"travel"],["Delete road","delete"]]) {
         const btn=document.createElement("button");btn.type="button";
         btn.textContent=title;btn.dataset.atlasRoadTool=kind;
         btn.style.cssText="flex:0 0 auto;width:auto;min-width:0;";
@@ -544,9 +554,17 @@ function actions() {
           row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;";
           const name=document.createElement("span");name.textContent=checkpoint.name;
           name.style.cssText="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;";
+          const controls=document.createElement("div");
+          controls.style.cssText="display:flex;gap:.3rem;flex:0 0 auto;";
           const btn=document.createElement("button");btn.type="button";
-          btn.textContent="Settings";btn.dataset.atlasCheckpointEdit=checkpoint.id;
-          row.append(name,btn);checkpointTarget.appendChild(row);
+          btn.textContent="⚙";btn.dataset.atlasCheckpointEdit=checkpoint.id;
+          btn.title="Checkpoint settings";btn.setAttribute("aria-label","Checkpoint settings");
+          const remove=document.createElement("button");remove.type="button";
+          remove.textContent="×";remove.dataset.atlasCheckpointDelete=checkpoint.id;
+          remove.title="Delete checkpoint";remove.setAttribute("aria-label","Delete checkpoint");
+          for(const action of [btn,remove])
+            action.style.cssText="flex:0 0 2.5rem;width:2.5rem;min-width:2.5rem;";
+          controls.append(btn,remove);row.append(name,controls);checkpointTarget.appendChild(row);
         }
         const regions=new Map();
         for (const entry of listSceneOrderedGeneratedRegions(scene)) {
@@ -585,6 +603,13 @@ function actions() {
               "Native Region geometry was edited; regeneration is blocked.":
               "Preview then confirm regeneration; preserves existing Region Behaviors and appearance.";
             buttons.appendChild(regenerate);
+            const remove=document.createElement("button");
+            remove.type="button";remove.textContent="×";
+            remove.dataset.atlasRegionDelete=id;
+            remove.setAttribute("aria-label","Delete Region");
+            remove.title="Delete this native Region after confirmation";
+            remove.style.cssText="flex:0 0 2.5rem;width:2.5rem;min-width:2.5rem;";
+            buttons.appendChild(remove);
             const handle=document.createElement("span");
             handle.textContent="☰";handle.title="Drag to reorder routing priority (top wins)";
             handle.style.cssText="cursor:grab;padding:.3rem;user-select:none;";
@@ -628,7 +653,7 @@ function actions() {
         }
       };
       const onTabClick = event => {
-        const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-region-edit],[data-atlas-region-regenerate]");
+        const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-checkpoint-delete],[data-atlas-region-edit],[data-atlas-region-regenerate],[data-atlas-region-delete]");
         if (action?.closest?.(".application")?.querySelector?.('input[name="atlasRoadName"]')) {
           event.preventDefault();event.stopImmediatePropagation();
           const tool=action.dataset.atlasRoadTool;
@@ -639,6 +664,10 @@ function actions() {
             :tool==="travel" ? ()=>api.assignRoadTravelPreset(scene,road,refresh)
             :tool==="delete" ? ()=>api.remove(scene,road,refresh)
             :tool==="generateRegion" ? ()=>openAtlasRegionGenerator(scene,road.id,api,refresh)
+            :action.dataset.atlasRegionDelete ? ()=>api.deleteGeneratedRegion(
+              scene,action.dataset.atlasRegionDelete,refresh)
+            :action.dataset.atlasCheckpointDelete ? ()=>api.deleteCheckpointWithDependents(
+              scene,action.dataset.atlasCheckpointDelete,refresh)
             :action.dataset.atlasRegionRegenerate ? ()=>{
               const entry=listGeneratedRegions(scene).find(item=>item.id===action.dataset.atlasRegionRegenerate);
               if(!entry)throw Error("This Atlas Region is no longer available.");
@@ -647,7 +676,25 @@ function actions() {
             :action.dataset.atlasCheckpointEdit ? ()=>api.editCheckpointAppearance(
               scene,readAtlas(scene).checkpoints.find(c=>c.id===action.dataset.atlasCheckpointEdit),refresh)
             :()=>api.configureRegion(scene,action.dataset.atlasRegionEdit);
-          void Promise.resolve().then(call).catch(error=>ui.notifications.error(error.message));
+          const host=action.closest(".application");
+          void Promise.resolve().then(call).then(result=>{
+            if(tool==="travel" && result!==undefined){
+              const current=readAtlas(scene).roads?.find(item=>item.id===road.id);
+              const preset=readWorldTravelPresets().presets.find(p=>p.id===current?.travelPresetId);
+              const button=host?.querySelector('[data-atlas-road-tool="travel"]');
+              if(button)button.textContent="Travel preset: "+(preset?.name??"None");
+            }
+            if((tool==="delete" && result===true) ||
+                (["edit","connection"].includes(tool) && result!==false)){
+              const close=host?.querySelector('.window-header [data-action="close"]');
+              if(close)close.click();
+              else {
+                const id=Number(host?.dataset?.appid);
+                const app=foundry.applications?.instances?.get?.(id);
+                if(app)void app.close();
+              }
+            }
+          }).catch(error=>ui.notifications.error(error.message));
           return;
         }
         const tab=event.target?.closest?.("[data-atlas-road-tab]");
@@ -1116,27 +1163,116 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.Updated"));
     },
     async removeCheckpoint(scene, checkpoint, refresh) {
+      return this.deleteCheckpointWithDependents(scene,checkpoint.id,refresh);
+    },
+    async deleteGeneratedRegion(scene, regionId, refresh) {
       ensureIdle(scene);
-      const atlas = readAtlas(scene);
-      const current = atlas.checkpoints?.find(c => c.id === checkpoint.id);
-      if (!current) throw new Error("Checkpoint no longer exists.");
-      const content = document.createElement("div");
-      const text = document.createElement("p");
-      text.textContent = game.i18n.format("FVTTATLAS.Checkpoints.DeleteWarning", {
-        name: current.name
+      if(!game.user?.isGM || !scene.canUserModify?.(game.user,"update"))
+        throw new Error("Only a GM may delete native Regions.");
+      const entry=listGeneratedRegions(scene).find(item=>item.id===regionId);
+      if(!entry?.metadata || entry.invalid)
+        throw new Error("Only Atlas-generated Regions can be deleted here.");
+      const region=scene.regions?.get(regionId);
+      if(!region?.canUserModify?.(game.user,"delete"))
+        throw new Error("No permission to delete this Region.");
+      const approved=await DialogV2.confirm({
+        window:{title:"Delete Terrain Region?"},
+        content:"Delete native Region “"+entry.name+"”? Its shapes and Behaviors will be deleted. Checkpoints and roads will remain.",
+        yes:{label:"Delete Region"},rejectClose:false,modal:true
       });
-      content.appendChild(text);
-      const approved = await DialogV2.confirm({
-        window: { title: game.i18n.localize("FVTTATLAS.Checkpoints.Delete") },
-        content, rejectClose: false, modal: true
+      if(!approved)return false;
+      const fresh=listGeneratedRegions(scene).find(item=>item.id===regionId);
+      if(!fresh?.metadata || fresh.name!==entry.name ||
+          fresh.modified!==entry.modified)
+        throw new Error("This Region changed while confirming. Reopen its deletion.");
+      await scene.deleteEmbeddedDocuments("Region",[regionId]);
+      roadCanvas.refresh();refresh();
+      ui.notifications.info("Terrain Region deleted.");
+      return true;
+    },
+    async deleteCheckpointWithDependents(scene, checkpointId, refresh) {
+      ensureIdle(scene);
+      const atlas=readAtlas(scene);
+      const checkpoint=atlas.checkpoints?.find(item=>item.id===checkpointId);
+      if(!checkpoint)throw new Error("Checkpoint no longer exists.");
+      const related=listGeneratedRegions(scene).filter(item=>
+        item.metadata?.checkpointIds?.includes(checkpointId));
+      const protectedRegions=related.filter(item=>item.modified||item.invalid);
+      if(protectedRegions.length)
+        throw new Error("A native Region attached to this checkpoint has modified geometry. Review it before deleting the checkpoint: "+
+          protectedRegions.map(item=>item.name).join(", "));
+      const partners=[...new Set(related.flatMap(item=>item.metadata.checkpointIds)
+        .filter(id=>id!==checkpointId))].map(id=>atlas.checkpoints?.find(item=>item.id===id))
+        .filter(Boolean);
+      const content=document.createElement("div");
+      const section=document.createElement("div");
+      section.style.cssText="display:grid;gap:.5rem;";
+      const intro=document.createElement("p");
+      intro.textContent="Delete checkpoint “"+checkpoint.name+"”? This does not remove its shared graph node or the road.";
+      section.appendChild(intro);
+      const confirm=document.createElement("label");
+      const check=document.createElement("input");
+      check.type="checkbox";check.name="confirmCheckpoint";
+      confirm.append(check,document.createTextNode(" Confirm deletion of this checkpoint"));
+      section.appendChild(confirm);
+      if(related.length){
+        const text=document.createElement("p");
+        text.textContent="Attached generated Regions ("+related.length+"): "+
+          related.map(item=>item.name).join("; ")+".";
+        section.appendChild(text);
+        const label=document.createElement("label");
+        const input=document.createElement("input");
+        input.type="checkbox";input.name="confirmRegions";
+        label.append(input,document.createTextNode(" Also delete these native Regions and their Behaviors"));
+        section.appendChild(label);
+      }
+      if(partners.length){
+        const note=document.createElement("p");
+        note.textContent="The corridor also references the following checkpoint(s). They will stay unless individually selected:";
+        section.appendChild(note);
+        for(const partner of partners){
+          const label=document.createElement("label");
+          const input=document.createElement("input");
+          input.type="checkbox";input.name="partner_"+partner.id;
+          label.append(input,document.createTextNode(" Also delete "+partner.name));
+          section.appendChild(label);
+        }
+      }
+      content.appendChild(section);
+      const result=await DialogV2.input({
+        window:{title:"Delete Checkpoint — "+checkpoint.name},
+        content,ok:{label:"Delete Confirmed Items"},
+        rejectClose:false,modal:true
       });
-      if (!approved) return;
-      await saveRemovedCheckpoint(scene, {
-        checkpointId: current.id, expectedRevision: atlas.revision
-      });
+      if(!result)return false;
+      const checked=name=>result[name]===true||result[name]==="on";
+      if(!checked("confirmCheckpoint"))throw new Error("Confirm the checkpoint deletion.");
+      if(related.length&&!checked("confirmRegions"))
+        throw new Error("Confirm removal of dependent Regions first.");
+      const chosen=[checkpointId,...partners.filter(item=>checked("partner_"+item.id)).map(item=>item.id)];
+      // Do not silently remove any other corridor attached to a paired endpoint.
+      const extra=listGeneratedRegions(scene).filter(item=>
+        item.metadata?.checkpointIds?.some(id=>chosen.includes(id)) &&
+        !related.some(old=>old.id===item.id));
+      if(extra.length)throw new Error("A paired checkpoint has other Regions. Delete those separately first: "+
+        extra.map(item=>item.name).join(", "));
+      if(readAtlas(scene).revision!==atlas.revision ||
+          related.some(item=>!listGeneratedRegions(scene).some(fresh=>
+            fresh.id===item.id && fresh.name===item.name && !fresh.modified)))
+        throw new Error("Checkpoints or Regions changed while confirming. Reopen Delete.");
+      await saveRemovedCheckpoints(scene,{checkpointIds:chosen,expectedRevision:atlas.revision});
+      if(related.length) {
+        try {await scene.deleteEmbeddedDocuments("Region",related.map(item=>item.id));}
+        catch(error){
+          roadCanvas.refresh();refresh();
+          throw new Error("Checkpoint(s) deleted, but some native Regions may remain. Review Terrain Regions. "+
+            (error.message||String(error)));
+        }
+      }
       roadCanvas.refresh();
       refresh();
-      ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.Removed"));
+      ui.notifications.info(chosen.length+" checkpoint(s) deleted; "+related.length+" generated Region(s) removed.");
+      return true;
     },
     beginPointEdit(scene, roadId, refresh) {
       beginRoadDock(scene, refresh, onChange => roadCanvas.startPointEdit(scene, roadId, onChange));
@@ -1386,6 +1522,7 @@ function actions() {
       refresh();
       ui.notifications.info("Road deleted with "+checkpoints.length+
         " checkpoint(s) and "+deletable.length+" generated Region(s).");
+      return true;
     }
   };
 }
