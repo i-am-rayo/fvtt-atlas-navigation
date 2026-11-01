@@ -1,6 +1,9 @@
 import { CHECKPOINT_FREE_ICONS, resolveCheckpointAppearance,
   validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { createCheckpointIconPicker } from "./checkpoint-icon-control.js";
+import { createCheckpointChoice,createCheckpointRange,createCheckpointMarkerSize,
+  createCheckpointColor,createCheckpointCheckbox,createCheckpointElevation }
+  from "./checkpoint-form-controls.js";
 import { createCheckpointPresetSelect } from "./settings-controls.js";
 import { readAtlas } from "./atlas-storage.js";
 import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
@@ -129,56 +132,31 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           this.createDraft.roads[0]?.id ?? "")) : null;
     const imperial = game.settings.get("fvtt-atlas-navigation","elevationUnits") === "imperial";
     const elevationFactor = imperial ? 3.280839895 : 1;
-    const elevation = el("input");
-    elevation.type = "number"; elevation.step = "any";
-    elevation.value = current.elevationMeters === null ? "" : String(Math.round(current.elevationMeters * elevationFactor * 100) / 100);
-    elevation.setAttribute("aria-label", imperial ? "Checkpoint elevation in feet" : "Checkpoint elevation in meters");
-    const elevationRange = el("input");
-    elevationRange.type = "range"; elevationRange.min = "-1000";
-    elevationRange.max = "10000"; elevationRange.step = "10";
-    elevationRange.value = String(Math.max(-1000,Math.min(10000,Number(elevation.value)||0)));
-    elevation.style.width = "5.5rem";
-    const elevationControl = el("div");
-    elevationControl.style.cssText = "display:flex;align-items:center;gap:.35rem;";
-    elevationRange.addEventListener("input",()=>{elevation.value=elevationRange.value;});
-    elevation.addEventListener("input",()=>{
-      if (elevation.value !== "") elevationRange.value=elevation.value;
-    });
-    elevationControl.append(elevationRange,elevation);
-    field(imperial ? "Elevation (ft)" : "Elevation (m)", elevationControl);
-    const playerVisibility = el("input");
-    playerVisibility.type = "checkbox";
-    playerVisibility.checked = current.playerVisible === true;
-    playerVisibility.setAttribute("aria-label", "Checkpoint visible to players");
+    const elevationControl=createCheckpointElevation(current.elevationMeters,{imperial});
+    const elevation=elevationControl.number;
+    const elevationRange=elevationControl.slider;
+    field(imperial ? "Elevation (ft)" : "Elevation (m)",elevationControl.element);
+    const playerVisibility = createCheckpointCheckbox(current.playerVisible,
+      {label:"Checkpoint visible to players"});
     let discovery = null;
     let revealRadius = null;
     let discoveryMethod = null;
     if (exploration.enabled) {
       const state = checkpointKnowledge(exploration, this.checkpointId);
-      discovery = field("Discovery status", select(CHECKPOINT_DISCOVERY_STATES,state));
+      discovery = field("Discovery status", createCheckpointChoice(CHECKPOINT_DISCOVERY_STATES,state));
       discovery.setAttribute("aria-label", "Checkpoint discovery status");
-      discoveryMethod = field("Discovery method", select(CHECKPOINT_DISCOVERY_METHODS,
+      discoveryMethod = field("Discovery method", createCheckpointChoice(CHECKPOINT_DISCOVERY_METHODS,
         checkpointDiscoveryMethod(discoveryMethods,this.checkpointId)));
 
-      revealRadius = el("input");
-      revealRadius.type = "number";
-      revealRadius.min = "0"; revealRadius.max = "100"; revealRadius.step = "0.25";
-      revealRadius.value = String(checkpointRevealRadiusCells(exploration, this.checkpointId));
-      revealRadius.setAttribute("aria-label", "Checkpoint terrain reveal radius in grid cells");
-      revealRadius.style.width = "5rem";
-      const radiusSlider = el("input");
-      radiusSlider.type = "range"; radiusSlider.min = "0"; radiusSlider.max = "100";
-      radiusSlider.step = "0.25"; radiusSlider.value = revealRadius.value;
-      radiusSlider.addEventListener("input",()=>{revealRadius.value=radiusSlider.value;});
-      revealRadius.addEventListener("input",()=>{radiusSlider.value=revealRadius.value;});
-      const radiusControl = el("div");
-      radiusControl.style.cssText = "display:flex;align-items:center;gap:.35rem;";
-      radiusControl.append(radiusSlider,revealRadius);
-      field("Reveal radius (cells)", radiusControl);
+      const radiusControl=createCheckpointRange(
+        checkpointRevealRadiusCells(exploration,this.checkpointId),
+        {min:0,max:100,step:.25,label:"Checkpoint terrain reveal radius in grid cells"});
+      revealRadius=radiusControl.number;
+      field("Reveal radius (cells)",radiusControl.element);
     } else {
       field("Show to players", playerVisibility);
     }
-    const type = field("Checkpoint marker", select(CHECKPOINT_MARKER_TYPES,appearance.type));
+    const type = field("Checkpoint marker", createCheckpointChoice(CHECKPOINT_MARKER_TYPES,appearance.type));
     let selected = appearance.icon;
     const iconPicker = createCheckpointIconPicker({selectedId:selected,
       onChange:id=>{selected=id;}});
@@ -207,31 +185,19 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
 
     fields = el("div"); fields.style.cssText = "display:grid;gap:.55rem;";
     pageMarker.appendChild(fields);
-    const size = el("input");
-    size.type = "range"; size.min = "12"; size.max = "64"; size.step = "1";
-    size.value = String(appearance.size);
-    const sizeControls = el("div");
-    sizeControls.style.cssText = "display:flex;align-items:center;gap:0.6rem;flex:1;";
-    size.style.width = "11rem";
-    const sizeValue = el("output", appearance.size + " px");
-    size.setAttribute("aria-label", "Checkpoint marker size in pixels");
-    size.addEventListener("input", () => { sizeValue.textContent = size.value + " px"; });
-    sizeControls.append(size, sizeValue);
-    field("Marker size (12–64 px)", sizeControls);
-    const color = el("input");
-    color.type = "color"; color.value = appearance.color; color.style.cssText = "width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
+    const markerSize=createCheckpointMarkerSize(appearance.size);
+    const size=markerSize.input;
+    field("Marker size (12–64 px)", markerSize.element);
+    const color = createCheckpointColor(appearance.color,{label:"Dot / Font Awesome color"});
     field("Dot / Font Awesome color", color);
-    const borderColor = el("input");
-    borderColor.type = "color"; borderColor.value = appearance.borderColor; borderColor.style.cssText = "width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
+    const borderColor = createCheckpointColor(appearance.borderColor,{label:"Checkpoint border color"});
     field("Checkpoint border color", borderColor);
     fields = el("div"); fields.style.cssText = "display:grid;gap:.55rem;";
     pageMarker.appendChild(fields);
-    const mode = field("Checkpoint label", select(CHECKPOINT_LABEL_MODES,appearance.labelMode));
-    const showRoad = el("input");
-    showRoad.type = "checkbox"; showRoad.checked = appearance.showRoadName;
+    const mode = field("Checkpoint label", createCheckpointChoice(CHECKPOINT_LABEL_MODES,appearance.labelMode));
+    const showRoad = createCheckpointCheckbox(appearance.showRoadName);
     field("Include road name with label", showRoad);
-    const textColor = el("input");
-    textColor.type = "color"; textColor.value = appearance.textColor; textColor.style.cssText = "width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
+    const textColor = createCheckpointColor(appearance.textColor,{label:"Checkpoint label text color"});
     field("Checkpoint / road label text color", textColor);
     // Choose a marker type after the label controls, then its icon last.
     pageMarker.appendChild(type.closest("label"));
@@ -254,7 +220,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       category.value=preset.category;
       const a=resolveCheckpointAppearance(preset.appearance);
       type.value=a.type;selected=a.icon;image.value=a.image;
-      size.value=String(a.size);sizeValue.textContent=a.size+" px";
+      size.value=String(a.size);markerSize.output.textContent=a.size+" px";
       color.value=a.color;borderColor.value=a.borderColor;
       mode.value=a.labelMode;showRoad.checked=a.showRoadName;textColor.value=a.textColor;
       discoveryMethod&&(discoveryMethod.value=preset.discoveryMethod);

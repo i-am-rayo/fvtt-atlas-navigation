@@ -11,6 +11,7 @@ import { listRoadCheckpoints } from "./checkpoint-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { checkpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
+import { createCheckpointRegionWidth } from "./checkpoint-form-controls.js";
 import { presetCostSummary } from "./travel-preset-model.js";
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
@@ -670,26 +671,14 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
         other.map(c => [c.id, c.name]), selected.last,
         value => { selected.last = value; }));
     }
-    const width = node("input");
-    width.type = "range";
-    width.min = "0.25";
-    width.max = "3";
-    width.step = "0.25";
-    width.value = String(selected.widthCells ?? 0.5);
-    width.setAttribute("aria-label", selected.kind === "corridor"
-      ? "Distance on either side of the road in grid cells" : "Radius around checkpoint in grid cells");
-    width.style.cssText = "flex:1;min-width:8rem;";
-    const widthValue = node("output", width.value + " cells");
-    widthValue.style.cssText = "min-width:4.3rem;text-align:right;";
-    const widthControl = node("div");
-    widthControl.style.cssText = "display:flex;align-items:center;gap:.75rem;width:100%;";
-    widthControl.append(width,widthValue);
-    width.addEventListener("input", () => {
-      selected.widthCells = Number(width.value);
-      widthValue.textContent = width.value + " cells";
+    const widthControl=createCheckpointRegionWidth(selected.widthCells??.5,{
+      label:selected.kind==="corridor"
+        ? "Distance on either side of the road in grid cells"
+        : "Radius around checkpoint in grid cells",
+      onChange:value=>{selected.widthCells=value;}
     });
     addField(selected.kind === "corridor"
-      ? "Distance on either side of road (cells)" : "Radius around checkpoint (cells)", widthControl);
+      ? "Distance on either side of road (cells)" : "Radius around checkpoint (cells)", widthControl.element);
     // Shared with the Preview button state below; keep it outside the
     // corridor-only block so opting in cannot crash the Atlas render.
     const presetForCost = presetById.get(selected.presetId);

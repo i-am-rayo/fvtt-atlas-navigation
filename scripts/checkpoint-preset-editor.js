@@ -5,10 +5,14 @@ import { CHECKPOINT_PRESET_SETTING,upsertCheckpointPreset,
 import { readWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { createTravelPresetSelect } from "./settings-controls.js";
 import { createCheckpointIconPicker } from "./checkpoint-icon-control.js";
+import { createCheckpointChoice,createCheckpointNumber,createCheckpointRange,
+  createCheckpointRegionWidth,createCheckpointMarkerSize,createCheckpointColor,
+  createCheckpointCheckbox,createCheckpointElevation }
+  from "./checkpoint-form-controls.js";
 import { resolveCheckpointAppearance,validateCheckpointAppearance }
   from "./checkpoint-appearance.js";
 import { CHECKPOINT_MARKER_TYPES,CHECKPOINT_LABEL_MODES,
-  CHECKPOINT_DISCOVERY_STATES,CHECKPOINT_DISCOVERY_METHODS,CHECKPOINT_REGION_RADIUS }
+  CHECKPOINT_DISCOVERY_STATES,CHECKPOINT_DISCOVERY_METHODS }
   from "./checkpoint-field-definitions.js";
 
 const el=(tag,label)=>{const n=document.createElement(tag);if(label!==undefined)n.textContent=label;return n;};
@@ -72,33 +76,38 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     }
     category.value=preset?.category??"custom";
     field(general,"Checkpoint type",category);
-    const elevation=field(general,"Default elevation (m)",input(preset?.elevationMeters??"","number"));
-    elevation.step="any";elevation.placeholder="No elevation override";
-    const discovery=field(general,"Default discovery status",choose(
+    const imperial=game.settings.get(MODULE_ID,"elevationUnits")==="imperial";
+    const elevationControl=createCheckpointElevation(preset?.elevationMeters??null,{imperial});
+    field(general,imperial?"Default elevation (ft)":"Default elevation (m)",elevationControl.element);
+    const elevation=elevationControl.number;
+    elevation.placeholder="No elevation override";
+    const discovery=field(general,"Default discovery status",createCheckpointChoice(
       CHECKPOINT_DISCOVERY_STATES,preset?.discoveryStatus??"unknown"));
-    const discoveryMethod=field(general,"Discovery method",choose(
+    const discoveryMethod=field(general,"Discovery method",createCheckpointChoice(
       CHECKPOINT_DISCOVERY_METHODS,preset?.discoveryMethod??"automatic"));
-    const reveal=field(general,"Reveal radius (cells)",input(preset?.revealRadiusCells??3,"number"));
-    reveal.min="0";reveal.max="100";reveal.step="0.25";
+    const revealControl=createCheckpointRange(preset?.revealRadiusCells??3,
+      {min:0,max:100,step:.25,label:"Checkpoint terrain reveal radius in grid cells"});
+    field(general,"Reveal radius (cells)",revealControl.element);
+    const reveal=revealControl.number;
     const journal=field(general,"Default linked Journal / Page UUID",input(preset?.journalUuid??""));
     journal.placeholder="Optional; copied only when this preset is applied";
     general.appendChild(el("small","Journal links follow Foundry's native permissions. Leave empty if each checkpoint should link to a different entry."));
-    const playerVisible=field(general,"Show to players by default",el("input"));
-    playerVisible.type="checkbox";playerVisible.checked=preset?.playerVisible===true;
+    const playerVisible=field(general,"Show to players by default",
+      createCheckpointCheckbox(preset?.playerVisible===true));
     general.appendChild(el("small","Visibility is still controlled by Atlas discovery and native Foundry permissions. A preset never reveals existing checkpoints retroactively."));
 
     const marker=sections.get("Marker & labels");
-    const markerType=field(marker,"Checkpoint marker",choose(CHECKPOINT_MARKER_TYPES,
+    const markerType=field(marker,"Checkpoint marker",createCheckpointChoice(CHECKPOINT_MARKER_TYPES,
       appearance.type));
-    const size=field(marker,"Marker size (12–64 px)",input(appearance.size,"number"));
-    size.min="12";size.max="64";size.step="1";
-    const color=field(marker,"Dot / icon color",input(appearance.color,"color"));
-    const border=field(marker,"Checkpoint border color",input(appearance.borderColor,"color"));
-    const labelMode=field(marker,"Checkpoint label",choose(CHECKPOINT_LABEL_MODES,
+    const markerSize=createCheckpointMarkerSize(appearance.size);
+    field(marker,"Marker size (12–64 px)",markerSize.element);
+    const size=markerSize.input;
+    const color=field(marker,"Dot / icon color",createCheckpointColor(appearance.color));
+    const border=field(marker,"Checkpoint border color",createCheckpointColor(appearance.borderColor));
+    const labelMode=field(marker,"Checkpoint label",createCheckpointChoice(CHECKPOINT_LABEL_MODES,
       appearance.labelMode));
-    const roadName=field(marker,"Include road name",el("input"));
-    roadName.type="checkbox";roadName.checked=appearance.showRoadName;
-    const textColor=field(marker,"Label text color",input(appearance.textColor,"color"));
+    const roadName=field(marker,"Include road name",createCheckpointCheckbox(appearance.showRoadName));
+    const textColor=field(marker,"Label text color",createCheckpointColor(appearance.textColor));
     const imagePath=input(appearance.image);
     imagePath.placeholder="worlds/…/checkpoint.webp";
     const imageRow=el("div");imageRow.style.cssText="display:flex;gap:.3rem;";
@@ -139,10 +148,10 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     const terrainId=createTravelPresetSelect({selectedId:preset?.terrain?.presetId,
       noneLabel:"None — no terrain suggestion"});
     field(terrain,"Suggested travel preset",terrainId);
-    const radius=field(terrain,"Suggested radius (cells)",input(preset?.terrain?.radiusCells??.25,"number"));
-    radius.min=String(CHECKPOINT_REGION_RADIUS.min);
-    radius.max=String(CHECKPOINT_REGION_RADIUS.max);
-    radius.step=String(CHECKPOINT_REGION_RADIUS.step);
+    const regionRadius=createCheckpointRegionWidth(preset?.terrain?.radiusCells??.25,
+      {label:"Suggested checkpoint Region radius in grid cells"});
+    field(terrain,"Suggested radius (cells)",regionRadius.element);
+    const radius=regionRadius.input;
     const eventKind=field(terrain,"Event classification (future)",choose([
       ["none","None"],["hazard","Environmental hazard"],["encounter","Encounter"]],
       preset?.event?.kind??"none"));
@@ -164,7 +173,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
           showRoadName:roadName.checked,textColor:textColor.value});
         const next={id:preset?.id??("checkpoint-custom-"+foundry.utils.randomID()),
           name:name.value.trim(),category:category.value,appearance:style,
-          elevationMeters:elevation.value.trim()===""?null:Number(elevation.value),
+          elevationMeters:elevationControl.getMeters(),
           discoveryStatus:discovery.value,discoveryMethod:discoveryMethod.value,
           revealRadiusCells:Number(reveal.value),journalUuid:journal.value.trim()||null,
           playerVisible:playerVisible.checked,
