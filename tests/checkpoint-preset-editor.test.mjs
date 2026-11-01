@@ -34,6 +34,10 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
       "Checkpoint label","Suggested travel preset","Save Checkpoint Preset"])
       assert.ok(labels.includes(label),label);
     assert.ok(all(root).some(item=>item.tag==="input"&&item.type==="color"));
-    assert.ok(all(root).some(item=>item.tag==="input"&&item.placeholder?.includes("bundled icons")));
+    assert.ok(all(root).some(item=>item.tag==="input"&&item.placeholder?.includes("fantasy icons")));
+    assert.ok(labels.includes("RPG picks"));
+    assert.ok(labels.includes("All / Advanced"));
+    assert.ok(all(root).some(item=>item.tag==="optgroup"&&item.label==="Land"));
+    assert.ok(all(root).some(item=>item.tag==="optgroup"&&item.label==="Air"));
   }finally{Object.assign(globalThis,previous);}
 });

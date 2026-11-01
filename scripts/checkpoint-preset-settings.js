@@ -38,7 +38,9 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
       fieldset.appendChild(node("legend",group));
       for(const preset of matches){
         const row=node("div");row.style.cssText="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;padding:.2rem 0;";
-        const label=node("span",preset.name+" · "+(CHECKPOINT_TYPES.find(([id])=>id===preset.category)?.[1]??preset.category));
+        const typeName=CHECKPOINT_TYPES.find(([id])=>id===preset.category)?.[1]??preset.category;
+        const label=node("span",preset.name.toLocaleLowerCase()===typeName.toLocaleLowerCase()
+          ?preset.name:preset.name+" · "+typeName);
         label.style.cssText="flex:1 1 12rem;";row.appendChild(label);
         const edit=node("button","Edit");edit.type="button";
         edit.addEventListener("click",()=>void this._run(()=>this._edit(preset)));

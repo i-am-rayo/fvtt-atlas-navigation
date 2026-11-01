@@ -114,6 +114,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const presetPicker=field("Checkpoint preset",el("select"));
     const presetHint=el("small","Choose a saved preset to fill editable marker and discovery defaults. This never changes a native Region.");
     fields.appendChild(presetHint);
+    // The same General page is used for creation and editing: choose a reusable
+    // template before entering or refining checkpoint-specific values.
+    fields.prepend(presetPicker.closest("label"),presetHint);
     let terrainSuggestion=this.createDraft?null:checkpointTerrainSuggestion(this.scene,this.checkpointId);
     const draftRoad = this.createDraft
       ? field("Named road", select(this.createDraft.roads.map(road => [road.id, road.name]),

@@ -76,8 +76,11 @@ export function validateCheckpointPresets(value){
 
 export function upsertCheckpointPreset(catalog,preset){
   const current=validateCheckpointPresets(catalog);
-  return validateCheckpointPresets({...current,presets:[
-    ...current.presets.filter(p=>p.id!==preset.id),preset]});
+  const index=current.presets.findIndex(p=>p.id===preset.id);
+  const presets=[...current.presets];
+  if(index>=0)presets[index]=preset;
+  else presets.push(preset);
+  return validateCheckpointPresets({...current,presets});
 }
 
 export function removeCheckpointPreset(catalog,id){

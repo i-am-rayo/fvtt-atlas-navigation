@@ -39,7 +39,9 @@ test("full checkpoint preset defaults round-trip without overwriting legacy cata
   const custom={...upgraded.presets[0],elevationMeters:12,
     discoveryStatus:"lore",journalUuid:"JournalEntry.abc123"};
   const changed=upsertCheckpointPreset(upgraded,custom);
-  assert.deepEqual(changed.presets.at(-1),custom);
+  assert.deepEqual(changed.presets[0],custom);
+  assert.equal(changed.presets[1].id,upgraded.presets[1].id);
+  assert.equal(changed.presets.length,upgraded.presets.length);
   assert.equal(legacy.presets[0].journalUuid,undefined);
   assert.throws(()=>upsertCheckpointPreset(upgraded,{...custom,
     journalUuid:"https://example.com/unsafe"}),/Journal/);
