@@ -120,7 +120,7 @@ export class RoadPointEditor {
     const s = {
       scene, sceneId: scene.id, roadId, expectedRevision: atlas.revision,
       working: atlas, history: [atlas], operations: [], element, onChange, source,
-      drag: null, confirming: false, selectedHandle: null, onDown: null, onMove: null,
+      drag: null, confirming: false, selectedHandle: null, extending: null, onDown: null, onMove: null,
       onUp: null, onDoubleClick: null, onKeydown: null
     };
     s.onDown = async event => {
@@ -129,8 +129,38 @@ export class RoadPointEditor {
       const point = this.#localPoint(event);
       if (!point) return;
       const handle = nearestRoadHandle(s.working, roadId, point, this.#tolerance());
+      if(s.extending && !handle){
+        this.#consume(event);
+        try{
+          const anchored=s.working.segments.filter(section=>
+            section.from===s.extending.nodeId||section.to===s.extending.nodeId).length!==1 ||
+            s.working.checkpoints?.some(c=>c.nodeId===s.extending.nodeId);
+          const op={kind:anchored?"append-road-section":"extend-endpoint",segmentId:s.extending.segmentId,
+            nodeId:s.extending.nodeId,x:Math.round(point.x*100)/100,
+            y:Math.round(point.y*100)/100,
+            ...(anchored?{newNodeId:this.idFactory(),newSegmentId:this.idFactory()}:{})};
+          this.#perform(op);
+          if(anchored)s.extending={segmentId:op.newSegmentId,nodeId:op.newNodeId};
+          s.selectedHandle=null;
+          this.notify()?.info?.("Road extended. Click again to continue; Ctrl/Cmd+Z undoes the last point. Esc stops continuation.");
+        }catch(error){this.notify()?.warn?.(error.message);}
+        return;
+      }
       if (handle) {
         this.#consume(event);
+        if(s.extending && !event.shiftKey)s.extending=null;
+        if(event.shiftKey && !event.altKey && handle.kind==="node"){
+          const incident=s.working.segments.filter(segment=>
+            segment.from===handle.nodeId||segment.to===handle.nodeId);
+          const owned=incident.filter(section=>section.roadId===roadId);
+          if(owned.length===1){
+            s.extending={segmentId:owned[0].id,nodeId:handle.nodeId};
+            s.selectedHandle=handle;
+            this.refresh();
+            this.notify()?.info?.("Continuation armed. Click the map to extend this endpoint; Esc stops continuation.");
+            return;
+          }
+        }
         if (event.altKey && handle.kind === "bend") {
           try {
             this.#perform({ kind: "remove-bend", segmentId: handle.segmentId,
@@ -299,8 +329,10 @@ export class RoadPointEditor {
       if (s.confirming) return;
       if (event.key === "Escape") {
         event.preventDefault?.();
-        this.cancel();
+        if(s.extending){s.extending=null;s.selectedHandle=null;this.refresh();}
+        else this.cancel();
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        if(event.target?.isContentEditable || ["INPUT","TEXTAREA"].includes(event.target?.tagName))return;
         event.preventDefault?.();
         this.undo();
       } else if ((event.key === "Delete" || event.key === "Backspace") &&
@@ -344,6 +376,7 @@ export class RoadPointEditor {
     s.history.pop();
     s.working = s.history.at(-1);
     s.drag = null;
+    s.extending = null;
     s.selectedHandle = null;
     this.#notifyChange(s.onChange);
   }

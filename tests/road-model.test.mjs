@@ -8,6 +8,34 @@ function makeIds() {
   return () => `id${++i}`;
 }
 
+test("continuing a free endpoint adds bends without moving previous route or creating junctions",()=>{
+  const original=addRoad(createEmptyAtlas(),{points:[{x:0,y:0},{x:100,y:0}],idFactory:makeIds()});
+  const section=original.segments[0];
+  const end=section.to;
+  const once=applyRoadGeometryEdit(original,{roadId:section.roadId,operation:{
+    kind:"extend-endpoint",segmentId:section.id,nodeId:end,x:150,y:25}});
+  const twice=applyRoadGeometryEdit(once,{roadId:section.roadId,operation:{
+    kind:"extend-endpoint",segmentId:section.id,nodeId:end,x:200,y:40}});
+  assert.equal(twice.nodes.length,2);
+  assert.equal(twice.segments.length,1);
+  assert.deepEqual(twice.segments[0].via,[{x:100,y:0},{x:150,y:25}]);
+  assert.deepEqual(twice.nodes.find(n=>n.id===end),{...original.nodes.find(n=>n.id===end),x:200,y:40});
+  assert.deepEqual(original.segments[0].via,[]);
+});
+
+test("continuing an anchored endpoint creates a section without moving shared roads",()=>{
+  const ids=makeIds();
+  const first=addRoad(createEmptyAtlas(),{points:[{x:0,y:0},{x:100,y:0}],idFactory:ids});
+  const joined=addRoad(first,{points:[{x:100,y:0},{x:100,y:100}],idFactory:ids});
+  const section=joined.segments[0];
+  const next=applyRoadGeometryEdit(joined,{roadId:section.roadId,operation:{
+    kind:"append-road-section",segmentId:section.id,nodeId:section.to,
+    newNodeId:"extensionNode",newSegmentId:"extensionSection",x:140,y:25}});
+  assert.equal(next.segments.length,joined.segments.length+1);
+  assert.deepEqual(next.nodes.find(n=>n.id===section.to),joined.nodes.find(n=>n.id===section.to));
+  assert.equal(next.segments.at(-1).roadId,section.roadId);
+});
+
 test("new roads form named Scene-space polylines with stable junctions", () => {
   const source = createEmptyAtlas();
   const first = addRoad(source, {

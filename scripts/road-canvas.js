@@ -15,6 +15,7 @@ import { readPartyExploration, saveCheckpointKnowledge } from "./party-explorati
 import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
 import { checkpointRevealKeys } from "./checkpoint-exploration.js";
 import { readCheckpointDiscoveryMethods } from "./checkpoint-discovery-method.js";
+import { saveCheckpointCategory } from "./checkpoint-types.js";
 import { checkpointKnowledge } from "./party-exploration-model.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
@@ -604,6 +605,13 @@ export class RoadCanvasController {
   }
 
   undo() {
+    if(this.draft?.mode==="new" && !this.saving && !this.draft.confirming){
+      if(this.draft.points.length){
+        this.draft.redoPoints.push({point:this.draft.points.pop(),snap:this.draft.snap.pop()});
+        this.refresh();this.#changed();
+      }
+      return;
+    }
     this.pointEditor.undo();
   }
 
@@ -787,6 +795,8 @@ export class RoadCanvasController {
               expected: readAtlasJournalLinks(scene)
             });
           }
+          if(config.checkpointType && config.checkpointType!=="generic")
+            await saveCheckpointCategory(scene,newId,config.checkpointType);
         } catch (metadataError) {
           this.notify()?.warn?.("Checkpoint created, but some discovery or Journal settings could not be saved: " +
             (metadataError.message ?? String(metadataError)));
@@ -866,7 +876,7 @@ export class RoadCanvasController {
     const draft = {
       scene, sceneId: scene.id, expectedRevision: atlas.revision,
       mode: "new", confirming: false,
-      points: [], snap: [], element, onChange,
+      points: [], snap: [], redoPoints: [], element, onChange,
       options: { name: suggestRoadName(atlas), presetId: null, appearance: null, playerVisible: false, journalUuid: null, ...initialOptions },
       onPointer: null, onKeydown: null
     };
@@ -904,6 +914,7 @@ export class RoadCanvasController {
       event.stopImmediatePropagation?.();
       draft.points.push(point);
       draft.snap.push(allowSnap);
+      draft.redoPoints.length=0;
       this.refresh();
       this.#changed();
     };
@@ -917,11 +928,18 @@ export class RoadCanvasController {
           !["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(event.target?.tagName)) {
         event.preventDefault?.();
         void this.finish();
-      } else if (event.key === "Backspace" && !event.target?.isContentEditable &&
-          !["INPUT", "TEXTAREA"].includes(event.target?.tagName)) {
+      } else if (((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="z") ||
+          (event.key === "Backspace" && !event.target?.isContentEditable &&
+          !["INPUT", "TEXTAREA"].includes(event.target?.tagName))) {
+        if(event.target?.isContentEditable || ["INPUT","TEXTAREA","SELECT"].includes(event.target?.tagName))return;
         event.preventDefault?.();
-        draft.points.pop();
-        draft.snap.pop();
+        event.stopImmediatePropagation?.();
+        if((event.ctrlKey||event.metaKey)&&event.shiftKey){
+          const redo=draft.redoPoints.pop();
+          if(redo){draft.points.push(redo.point);draft.snap.push(redo.snap);}
+        }else if(draft.points.length){
+          draft.redoPoints.push({point:draft.points.pop(),snap:draft.snap.pop()});
+        }
         this.refresh();
         this.#changed();
       }

@@ -573,6 +573,44 @@ export function applyRoadGeometryEdit(atlas, { roadId, operation }) {
       nodes: current.nodes.map(n => n.id === op.nodeId ? { ...n, ...position } : n)
     });
   }
+  if (op.kind === "extend-endpoint") {
+    // Move a *free* terminal node outward and retain its former position as
+    // an ordinary bend. No new junction or road is introduced.
+    const segment=related.find(s=>s.id===op.segmentId);
+    if(!segment || ![segment.from,segment.to].includes(op.nodeId))
+      throw new Error("Choose an endpoint on this road to continue it.");
+    const incident=current.segments.filter(s=>s.from===op.nodeId||s.to===op.nodeId);
+    if(incident.length!==1 || current.checkpoints?.some(c=>c.nodeId===op.nodeId))
+      throw new Error("This endpoint anchors a junction or checkpoint; add a new road section instead.");
+    const previous=current.nodes.find(n=>n.id===op.nodeId);
+    if(Math.hypot(previous.x-op.x,previous.y-op.y)<1)
+      throw new Error("Place the next road point farther from the endpoint.");
+    const via=segment.to===op.nodeId ? [...segment.via,{x:previous.x,y:previous.y}]
+      : [{x:previous.x,y:previous.y},...segment.via];
+    if(via.length>1000)throw new Error("This road section has reached its bend limit.");
+    return validateAtlas({...current,
+      nodes:current.nodes.map(n=>n.id===op.nodeId?{...n,x:op.x,y:op.y}:n),
+      segments:current.segments.map(s=>s.id===segment.id?{...s,via}:s)});
+  }
+  if(op.kind==="append-road-section"){
+    const section=related.find(s=>s.id===op.segmentId);
+    if(!section || ![section.from,section.to].includes(op.nodeId))
+      throw Error("Choose a terminal node on the road to continue.");
+    if(related.filter(s=>s.from===op.nodeId||s.to===op.nodeId).length!==1)
+      throw Error("Continue only from a terminal node of this road.");
+    if(current.nodes.some(n=>n.id===op.newNodeId)||
+       current.segments.some(s=>s.id===op.newSegmentId)||
+       !/^[A-Za-z0-9_-]{1,128}$/.test(op.newNodeId??"")||
+       !/^[A-Za-z0-9_-]{1,128}$/.test(op.newSegmentId??""))
+      throw Error("Continuation requires unique node and section IDs.");
+    const anchor=current.nodes.find(n=>n.id===op.nodeId);
+    if(Math.hypot(anchor.x-op.x,anchor.y-op.y)<1)
+      throw Error("Place the next road point farther from the endpoint.");
+    return validateAtlas({...current,
+      nodes:[...current.nodes,{id:op.newNodeId,x:op.x,y:op.y}],
+      segments:[...current.segments,{id:op.newSegmentId,roadId,
+        from:op.nodeId,to:op.newNodeId,via:[],bidirectional:true}]});
+  }
   const segment = related.find(s => s.id === op.segmentId);
   if (!segment) throw new Error("This segment does not belong to the selected road.");
   const via = segment.via.map(p => ({ ...p }));

@@ -72,8 +72,8 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       : draft.mode === "checkpoint"
       ? "Click the road where you want the checkpoint. Then give it a name and set its appearance."
       : draft.mode === "points"
-      ? "Drag road points on the map. Save Points keeps the changes; Cancel discards them."
-      : "Click the map to draw the road. Finish saves the road; Cancel discards it.";
+      ? "Drag points; double-click a road section to add a bend. Shift-click a free endpoint, then click the map to continue the same road. Esc stops continuing. Alt-click a bend to remove it. Ctrl/Cmd+Z undoes; Save Points commits."
+      : "Click to draw each road point. Ctrl/Cmd+Z or Backspace undoes the last point; Ctrl/Cmd+Shift+Z redoes it. Finish saves; Cancel discards.";
     root.appendChild(guidance);
     const row = (title, input) => {
       const wrapper = element("label");
@@ -127,7 +127,8 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       } catch (error) { ui.notifications.error(error.message || String(error)); }
       finally { this.busy = false; save.disabled = false; }
     }) : null;
-    if (draft.mode === "points" && draft.canUndo) {
+    if ((draft.mode === "points" && draft.canUndo) ||
+        (draft.mode === "new" && draft.points > 0)) {
       makeButton("Undo", () => { this.controller.undo(); void this.render(true); });
     }
     makeButton("Cancel", async () => {

@@ -14,6 +14,7 @@ import { checkpointKnowledge, checkpointRevealRadiusCells }
   from "./party-exploration-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
+import { CHECKPOINT_TYPES, checkpointCategory, saveCheckpointCategory } from "./checkpoint-types.js";
 
 const el = (tag, label) => {
   const item = document.createElement(tag);
@@ -96,6 +97,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     name.type = "text"; name.maxLength = 120; name.required = true; name.value = current.name;
     name.setAttribute("aria-label", "Checkpoint name");
     field("Checkpoint name", name);
+    const category=field("Checkpoint type",select(CHECKPOINT_TYPES,
+      this.createDraft?"generic":checkpointCategory(this.scene,this.checkpointId)));
+    category.title="Informational checkpoint category. Bridge details and type-specific travel behavior come in a later version.";
     const draftRoad = this.createDraft
       ? field("Named road", select(this.createDraft.roads.map(road => [road.id, road.name]),
           this.createDraft.roads[0]?.id ?? "")) : null;
@@ -551,6 +555,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
             discoveryMethod: discoveryMethod?.value ?? null,
             revealRadiusCells: revealRadius ? Number(revealRadius.value) : null,
             generateTerrainRegion:generateAfterCreate?.checked??false
+            ,checkpointType:category.value
           };
           this.createResolved = true;
           this.onCreate?.(config);
@@ -567,6 +572,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           playerVisible: playerVisibility.checked, appearance: next,
           expectedRevision: this.expectedRevision
         });
+        if(category.value!==checkpointCategory(this.scene,this.checkpointId))
+          await saveCheckpointCategory(this.scene,this.checkpointId,category.value);
         if (discovery && (discovery.value !==
             checkpointKnowledge(exploration, this.checkpointId) ||
             Number(revealRadius.value) !==
