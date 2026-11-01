@@ -2,9 +2,9 @@ import { MODULE_ID } from "./atlas-storage.js";
 import { CHECKPOINT_TYPE_GROUPS } from "./checkpoint-types.js";
 import { CHECKPOINT_PRESET_SETTING,upsertCheckpointPreset } from "./checkpoint-preset-model.js";
 import { readWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
-import { readWorldTravelPresets,travelPresetDisplayGroup } from "./travel-preset-settings.js";
-import { CHECKPOINT_ICONS,CHECKPOINT_ICON_ROOT,CHECKPOINT_FREE_ICONS,findCheckpointIcons,
-  checkpointFontIcon,resolveCheckpointAppearance,validateCheckpointAppearance }
+import { createTravelPresetSelect } from "./settings-controls.js";
+import { createCheckpointIconPicker } from "./checkpoint-icon-control.js";
+import { resolveCheckpointAppearance,validateCheckpointAppearance }
   from "./checkpoint-appearance.js";
 
 const el=(tag,label)=>{const n=document.createElement(tag);if(label!==undefined)n.textContent=label;return n;};
@@ -109,128 +109,24 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     });
     imageRow.append(imagePath,browse);field(marker,"Custom image path",imageRow);
 
-    const iconPanel=el("div");iconPanel.style.cssText="display:grid;gap:.4rem;min-width:0;";
-    const selected=el("div");
     let iconId=appearance.icon;
-    const details=new Map(CHECKPOINT_FREE_ICONS.map(item=>[item.id,item]));
-    const preview=el("div");
-    preview.style.cssText="display:grid;justify-items:center;gap:.3rem;padding:.65rem;border:1px solid #8a70c6;border-radius:.5rem;";
-    preview.setAttribute("aria-label","Selected icon preview");
-    const previewGlyph=el("div"),previewName=el("strong"),previewDetails=el("small");
-    preview.append(previewGlyph,previewName,previewDetails);
-    const choices=new Map();
-    const iconSearch=input("");iconSearch.type="search";
-    iconSearch.placeholder="Search fantasy icons: bridge, ship, castle, cave…";
-    const categoryFilter=choose([
-      ["rpg","RPG & fantasy (recommended)"],["settlements","Settlements & structures"],
-      ["travel","Roads & travel"],["nature","Nature & terrain"],
-      ["danger","Combat & danger"],["magic","Magic & mystery"],
-      ["creatures","Characters & creatures"],["all","Advanced — all icons, including modern brands"]],"rpg");
-    const styleFilter=choose([["all","All Free icon styles"],["solid","Solid"],
-      ["regular","Regular"],["brands","Brands"]],"all");
-    const iconTabs=el("div");iconTabs.style.cssText="display:flex;gap:.25rem;flex-wrap:wrap;";
-    const tabButtons=[];
-    for(const [key,title] of [["rpg","RPG picks"],["settlements","Places"],
-      ["travel","Travel"],["nature","Nature"],["danger","Danger"],
-      ["magic","Magic"],["creatures","Creatures"],["all","All / Advanced"]]){
-      const tab=el("button",title);tab.type="button";
-      tab.addEventListener("click",()=>{categoryFilter.value=key;renderIcons(true);});
-      iconTabs.appendChild(tab);tabButtons.push([key,tab]);
-    }
-    const quick=el("div");quick.style.cssText="display:flex;flex-wrap:wrap;gap:.25rem;";
-    const grid=el("div");
-    grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:.35rem;max-height:325px;overflow:auto;";
-    const results=el("small");
-    const glyphFor=id=>{
-      const font=checkpointFontIcon(id);
-      if(font){const glyph=el("span",font.glyph);
-        glyph.style.cssText="font-family:'"+font.family+"';font-weight:"+font.weight+";font-size:24px;";
-        return glyph;}
-      const img=el("img");img.src=CHECKPOINT_ICON_ROOT+id+".svg";img.alt="";
-      img.style.cssText="width:24px;height:24px;";return img;
-    };
-    const syncIcon=()=>{
-      const item=details.get(iconId);
-      previewGlyph.replaceChildren(glyphFor(iconId));
-      previewName.textContent=item?.label??iconId;
-      previewDetails.textContent=item?.terms??"Classic Atlas icon";
-      selected.textContent="Selected: "+iconId;
-      for(const [id,button] of choices){
-        button.style.borderColor=id===iconId?"#8a70c6":"transparent";
-        button.setAttribute("aria-pressed",String(id===iconId));
-      }
-    };
-    const makeIconButton=(id,label,compact=false)=>{
-      const button=el("button");button.type="button";
-      button.style.cssText="display:grid;justify-items:center;gap:.2rem;padding:.35rem;border:2px solid transparent;min-height:"+(compact?42:69)+"px;";
-      button.title=id+" — "+label;
-      button.setAttribute("aria-label","Use "+label+" checkpoint icon");
-      button.appendChild(glyphFor(id));
-      if(!compact)button.appendChild(el("small",label));
-      button.addEventListener("click",()=>{iconId=id;syncIcon();});
-      choices.set(id,button);
-      return button;
-    };
-    for(const id of CHECKPOINT_ICONS)quick.appendChild(makeIconButton(id,id,true));
-    let visible=36;
-    const renderIcons=(newSearch=false)=>{
-      if(newSearch)visible=36;
-      const matches=findCheckpointIcons(iconSearch.value,styleFilter.value,categoryFilter.value);
-      for(const id of [...choices.keys()])if(!CHECKPOINT_ICONS.includes(id))choices.delete(id);
-      grid.replaceChildren();
-      for(const item of matches.slice(0,visible))grid.appendChild(makeIconButton(item.id,item.label));
-      results.textContent=matches.length+" matching Free icons · showing "+Math.min(visible,matches.length)+". Bundled locally.";
-      for(const [id,tab] of tabButtons){
-        tab.style.borderColor=id===categoryFilter.value?"#9c7bf0":"transparent";
-        tab.setAttribute("aria-pressed",String(id===categoryFilter.value));
-      }
-      more.hidden=visible>=matches.length;
-      syncIcon();
-    };
-    const more=el("button","Show 36 more icons");more.type="button";
-    more.addEventListener("click",()=>{visible+=36;renderIcons();});
-    iconSearch.addEventListener("input",()=>renderIcons(true));
-    styleFilter.addEventListener("change",()=>renderIcons(true));
-    categoryFilter.addEventListener("change",()=>renderIcons(true));
-    const sidebar=el("div");sidebar.style.cssText="display:grid;gap:.5rem;align-content:start;";
-    sidebar.append(el("strong","Search"),iconSearch,el("small","Icon style"),styleFilter,
-      preview,selected);
-    const gallery=el("div");gallery.style.cssText="display:grid;gap:.45rem;min-width:0;";
-    gallery.append(iconTabs,el("small","Original quick picks"),quick,results,grid,more);
-    const browser=el("div");browser.style.cssText="display:grid;grid-template-columns:minmax(180px,1fr) minmax(280px,2fr);gap:.8rem;min-width:0;";
-    browser.append(sidebar,gallery);
-    const iconSection=el("details");
-    iconSection.style.cssText="min-width:0;padding:.6rem;border:1px solid var(--color-border-light-tertiary,#666);";
-    const iconLegend=el("summary","Choose icon");iconLegend.style.cursor="pointer";
-    iconSection.append(iconLegend,browser);
-    iconPanel.appendChild(iconSection);
-    // Match Checkpoint Settings: marker type, custom image, then icon picker are last.
+    const iconPicker=createCheckpointIconPicker({selectedId:iconId,
+      onChange:id=>{iconId=id;}});
+    const iconSection=iconPicker.element;
+    // The same shared icon browser appears in Checkpoint Settings and World presets.
     marker.appendChild(markerType.closest("label"));
     marker.appendChild(imageRow.closest("label"));
-    marker.appendChild(iconPanel);
+    marker.appendChild(iconSection);
     const updateMarker=()=>{
-      iconPanel.hidden=markerType.value!=="fa";
+      iconSection.hidden=markerType.value!=="fa";
       imageRow.closest("label").hidden=markerType.value!=="image";
     };
-    markerType.addEventListener("change",updateMarker);syncIcon();renderIcons();updateMarker();
+    markerType.addEventListener("change",updateMarker);updateMarker(); 
 
     const terrain=sections.get("Terrain Region");
     terrain.appendChild(el("p","These are suggestions for the native checkpoint Region generator; creating or editing actual Region geometry and Behaviors still requires GM confirmation."));
-    const terrainId=el("select");
-    const noTerrain=el("option","None — no terrain suggestion");noTerrain.value="";
-    terrainId.appendChild(noTerrain);
-    const groups=new Map();
-    for(const presetItem of readWorldTravelPresets().presets){
-      const display=travelPresetDisplayGroup(presetItem);
-      const heading=display.subgroup?display.group+" — "+display.subgroup:display.group;
-      if(!groups.has(heading)){
-        const group=el("optgroup");group.label=heading;
-        groups.set(heading,group);terrainId.appendChild(group);
-      }
-      const option=el("option",display.name);option.value=presetItem.id;
-      groups.get(heading).appendChild(option);
-    }
-    terrainId.value=preset?.terrain?.presetId??"";
+    const terrainId=createTravelPresetSelect({selectedId:preset?.terrain?.presetId,
+      noneLabel:"None — no terrain suggestion"});
     field(terrain,"Suggested travel preset",terrainId);
     const radius=field(terrain,"Suggested radius (cells)",input(preset?.terrain?.radiusCells??.25,"number"));
     radius.min="0.25";radius.max="3";radius.step="0.25";

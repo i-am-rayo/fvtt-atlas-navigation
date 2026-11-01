@@ -32,8 +32,9 @@ import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegio
 import { availableMovementActions, readPreset, previewNativeMovementCost }
   from "./native-movement-cost.js";
 import { presetCostSummary } from "./travel-preset-model.js";
-import { registerWorldTravelPresets, readWorldTravelPresets, travelPresetDisplayGroup }
+import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
+import { createTravelPresetSelect } from "./settings-controls.js";
 import { registerWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance }
   from "./road-appearance-settings.js";
@@ -251,28 +252,7 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
 
 /** Native DialogV2 picker shared by road defaults and generated Region overrides. */
 async function promptTravelPreset(title, currentId = null) {
-  const chooser = document.createElement("select");
-  chooser.name = "atlasTravelPresetId";
-  const presets=readWorldTravelPresets().presets;
-  const none=document.createElement("option");
-  none.value="";none.textContent="None (no Atlas travel preset)";
-  none.defaultSelected=!currentId;chooser.appendChild(none);
-  const groups=new Map();
-  for (const preset of presets) {
-    const hierarchy=travelPresetDisplayGroup(preset);
-    const groupName=hierarchy.subgroup??hierarchy.group;
-    if(!groups.has(groupName)){
-      const group=document.createElement("optgroup");
-      group.label=groupName;groups.set(groupName,group);chooser.appendChild(group);
-    }
-    const option = document.createElement("option");
-    option.value = preset.id;
-    option.textContent = (hierarchy.subgroup?hierarchy.name:preset.name)+
-      " ("+presetCostSummary(preset)+")";
-    option.defaultSelected = preset.id === currentId;
-    groups.get(groupName).appendChild(option);
-  }
-  chooser.value = currentId ?? "";
+  const chooser=createTravelPresetSelect({selectedId:currentId,includeCosts:true});
   const container = document.createElement("div");
   const hint = document.createElement("p");
   hint.textContent = "References a world Atlas preset. Native Behaviors are never changed by assignment; apply them separately.";
@@ -331,39 +311,7 @@ async function promptNewRoadSettings(scene) {
   const visible = document.createElement("input");
   visible.type="checkbox";visible.name="draftRoadVisible";visible.value="true";
   field(pages.general,"Show to players",visible);
-  const travel = document.createElement("select");
-  travel.name = "draftRoadPreset";
-  const fallback=document.createElement("option");
-  fallback.value="";fallback.textContent="None (Land fallback)";
-  fallback.defaultSelected=true;travel.appendChild(fallback);
-  const appendGroup=(label,entries)=>{
-    if(!entries.length)return;
-    const group=document.createElement("optgroup");group.label=label;
-    for(const preset of entries){
-      const option=document.createElement("option");
-      option.value=preset.id;option.textContent=preset.name;
-      group.appendChild(option);
-    }
-    travel.appendChild(group);
-  };
-  const land=presets.filter(p=>p.mode==="land");
-  const landOrder=["land-dirt","land-gravel","land-stone"];
-  land.sort((a,b)=>{
-    const rank=id=>landOrder.includes(id)?landOrder.indexOf(id):landOrder.length;
-    return rank(a.id)-rank(b.id);
-  });
-  appendGroup("Land",land);
-  const water=presets.filter(p=>p.mode==="water");
-  if(water.length){
-    const heading=document.createElement("option");
-    heading.disabled=true;heading.textContent="Water";travel.appendChild(heading);
-    for(const body of ["River","Lake","Sea","Ocean","Canal","Marsh / Swamp"]){
-      const entries=water.filter(p=>travelPresetDisplayGroup(p).subgroup===body);
-      appendGroup(body,entries);
-    }
-    appendGroup("Other Water",water.filter(p=>!travelPresetDisplayGroup(p).subgroup));
-  }
-  appendGroup("Air",presets.filter(p=>p.mode==="air"));
+  const travel=createTravelPresetSelect({name:"draftRoadPreset",noneLabel:"None (Land fallback)"});
   field(pages.general,"Travel preset",travel);
   const journal = document.createElement("input");
   journal.type="text";journal.name="draftRoadJournal";journal.placeholder="JournalEntry… or JournalEntryPage… UUID";
