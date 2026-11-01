@@ -15,7 +15,9 @@ export function defaultCheckpointPresets(){
   return {schemaVersion:CHECKPOINT_PRESET_VERSION,presets:CHECKPOINT_TYPES
     .filter(([id])=>id!=="generic"&&id!=="custom")
     .map(([id])=>({id:"checkpoint-"+id,name:names.get(id),category:id,
-      appearance:null,discoveryMethod:"automatic",revealRadiusCells:3,
+      appearance:null,elevationMeters:null,discoveryStatus:"unknown",journalUuid:null,
+      playerVisible:false,
+      discoveryMethod:"automatic",revealRadiusCells:3,
       terrain:{presetId:null,radiusCells:.25},
       event:{kind:HAZARDS.has(id)?"hazard":ENCOUNTERS.has(id)?"encounter":"none",enabled:false}}))};
 }
@@ -31,7 +33,8 @@ export function validateCheckpointPresets(value){
   const ids=new Set();
   const presets=value.presets.map(p=>{
     if(!p||typeof p!=="object"||Array.isArray(p)||
-        Object.keys(p).some(k=>!["id","name","category","appearance",
+        Object.keys(p).some(k=>!["id","name","category","appearance","elevationMeters",
+          "discoveryStatus","journalUuid","playerVisible",
           "discoveryMethod","revealRadiusCells","terrain","event"].includes(k))||
         typeof p.id!=="string"||!ID.test(p.id)||ids.has(p.id)||
         typeof p.name!=="string"||!p.name.trim()||p.name.length>120||
@@ -39,6 +42,15 @@ export function validateCheckpointPresets(value){
         !Number.isFinite(p.revealRadiusCells)||p.revealRadiusCells<0||p.revealRadiusCells>100)
       throw Error("Invalid checkpoint preset identity or defaults.");
     ids.add(p.id);
+    if(p.elevationMeters!=null&&(!Number.isFinite(p.elevationMeters)||
+      Math.abs(p.elevationMeters)>10000000))throw Error("Invalid checkpoint elevation default.");
+    if(p.discoveryStatus!==undefined&&!["unknown","visited","lore"].includes(p.discoveryStatus))
+      throw Error("Invalid checkpoint discovery status default.");
+    if(p.journalUuid!=null&&(typeof p.journalUuid!=="string"||p.journalUuid.length>300||
+      !/^(JournalEntry\.|Compendium\.)[A-Za-z0-9_.-]+$/.test(p.journalUuid)))
+      throw Error("Invalid checkpoint Journal UUID default.");
+    if(p.playerVisible!==undefined&&typeof p.playerVisible!=="boolean")
+      throw Error("Invalid checkpoint player visibility default.");
     const terrain=p.terrain;
     if(!terrain||typeof terrain!=="object"||Array.isArray(terrain)||
         Object.keys(terrain).some(k=>!["presetId","radiusCells"].includes(k))||
@@ -52,6 +64,9 @@ export function validateCheckpointPresets(value){
       throw Error("Checkpoint events are configuration-only in this release.");
     return {id:p.id,name:p.name.trim(),category:p.category,
       appearance:p.appearance==null?null:validateCheckpointAppearance(p.appearance),
+      elevationMeters:p.elevationMeters??null,discoveryStatus:p.discoveryStatus??"unknown",
+      journalUuid:p.journalUuid??null,
+      playerVisible:p.playerVisible??false,
       discoveryMethod:p.discoveryMethod,revealRadiusCells:p.revealRadiusCells,
       terrain:{presetId:terrain.presetId,radiusCells:terrain.radiusCells},
       event:{kind:event.kind,enabled:false}};

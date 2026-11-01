@@ -23,6 +23,26 @@ test("new Worlds include editable checkpoint templates with disabled event autom
   assert.equal(bridge.discoveryMethod,"automatic");
   assert.equal(presetForCheckpointType(initial,"falling-rocks").event.kind,"hazard");
   assert.equal(presetForCheckpointType(initial,"monster").event.enabled,false);
+  assert.equal(bridge.elevationMeters,null);
+  assert.equal(bridge.discoveryStatus,"unknown");
+  assert.equal(bridge.journalUuid,null);
+});
+
+test("full checkpoint preset defaults round-trip without overwriting legacy catalogs",()=>{
+  const old=defaultCheckpointPresets();
+  const legacy={...old,presets:old.presets.map(({elevationMeters,discoveryStatus,journalUuid,playerVisible,...rest})=>rest)};
+  const upgraded=validateCheckpointPresets(legacy);
+  assert.equal(upgraded.presets[0].elevationMeters,null);
+  assert.equal(upgraded.presets[0].discoveryStatus,"unknown");
+  assert.equal(upgraded.presets[0].journalUuid,null);
+  assert.equal(upgraded.presets[0].playerVisible,false);
+  const custom={...upgraded.presets[0],elevationMeters:12,
+    discoveryStatus:"lore",journalUuid:"JournalEntry.abc123"};
+  const changed=upsertCheckpointPreset(upgraded,custom);
+  assert.deepEqual(changed.presets.at(-1),custom);
+  assert.equal(legacy.presets[0].journalUuid,undefined);
+  assert.throws(()=>upsertCheckpointPreset(upgraded,{...custom,
+    journalUuid:"https://example.com/unsafe"}),/Journal/);
 });
 
 test("checkpoint presets use stable IDs, snapshots and never permit active event triggers",()=>{
@@ -30,6 +50,7 @@ test("checkpoint presets use stable IDs, snapshots and never permit active event
   const before=structuredClone(initial);
   const newPreset={id:"custom-bridge",name:"Old Stone Bridge",category:"bridge",
     appearance:null,discoveryMethod:"gm",revealRadiusCells:2,
+    playerVisible:false,elevationMeters:null,discoveryStatus:"unknown",journalUuid:null,
     terrain:{presetId:"land-stone",radiusCells:.5},
     event:{kind:"none",enabled:false}};
   const edited=upsertCheckpointPreset(initial,newPreset);

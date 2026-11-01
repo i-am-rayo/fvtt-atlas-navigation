@@ -2,9 +2,8 @@
 import { MODULE_ID } from "./atlas-storage.js";
 import { CHECKPOINT_TYPE_GROUPS, CHECKPOINT_TYPES } from "./checkpoint-types.js";
 import { CHECKPOINT_PRESET_SETTING, defaultCheckpointPresets,
-  validateCheckpointPresets, upsertCheckpointPreset, removeCheckpointPreset }
+  validateCheckpointPresets, removeCheckpointPreset }
   from "./checkpoint-preset-model.js";
-import { readWorldTravelPresets } from "./travel-preset-settings.js";
 
 const node=(tag,label)=>{const n=document.createElement(tag);if(label!==undefined)n.textContent=label;return n;};
 export function readWorldCheckpointPresets(){
@@ -31,7 +30,7 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
     const catalog=readWorldCheckpointPresets();
     const root=node("div");
     root.style.cssText="padding:1rem;overflow:auto;height:100%;display:grid;gap:.8rem;align-content:start;";
-    root.appendChild(node("p","Checkpoint presets fill editable defaults for new or existing checkpoints. They never copy checkpoint names, locations, Journal links, discovery status or native Region geometry. Events are informational only in this release."));
+    root.appendChild(node("p","Checkpoint presets fill editable defaults for new or existing checkpoints, including marker, labels, discovery and optional Journal links. Checkpoint names, map positions and native Region geometry remain independent. Events are informational only in this release."));
     for(const [group,types] of CHECKPOINT_TYPE_GROUPS){
       const matches=catalog.presets.filter(p=>types.some(([type])=>type===p.category));
       if(!matches.length)continue;
@@ -58,49 +57,8 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
   async _run(action){try{await action();}catch(e){ui.notifications.error(e.message??String(e));}}
   async _edit(existing){
     if(!game.user?.isGM)throw Error("GM permission required.");
-    const shell=node("div"),body=node("div");
-    body.style.cssText="display:grid;gap:.45rem;max-height:65vh;overflow:auto;";
-    shell.appendChild(body); // DialogV2.input expects a plain outer div.
-    const field=(label,name,tag="input",value="",attrs={})=>{
-      const row=node("label",label),input=node(tag);row.style.cssText="display:grid;gap:.2rem;";
-      input.name=name;for(const [k,v] of Object.entries(attrs))input[k]=v;
-      if(tag==="select"){
-        for(const [id,text] of value){const op=node("option",text);op.value=id;
-          op.defaultSelected=id===(attrs.current??"");input.appendChild(op);}
-      }else input.defaultValue=String(value);
-      row.appendChild(input);body.appendChild(row);return input;
-    };
-    field("Preset name","name","input",existing?.name??"",{required:true,maxLength:120});
-    field("Checkpoint category","category","select",CHECKPOINT_TYPES,
-      {current:existing?.category??"custom"});
-    field("Discovery method","discoveryMethod","select",[
-      ["automatic","Automatic"],["gm","GM Only"],["lore","Lore Only"]],
-      {current:existing?.discoveryMethod??"automatic"});
-    field("Reveal radius (cells)","revealRadiusCells","input",existing?.revealRadiusCells??3,
-      {type:"number",min:"0",max:"100",step:"0.25"});
-    const travel=[["","None — no terrain suggestion"],...readWorldTravelPresets().presets.map(p=>[p.id,p.name])];
-    field("Suggested Terrain Region travel preset","terrainId","select",travel,
-      {current:existing?.terrain?.presetId??""});
-    field("Suggested checkpoint Region radius (cells)","terrainRadius","input",
-      existing?.terrain?.radiusCells??.25,{type:"number",min:"0.25",max:"3",step:"0.25"});
-    field("Event classification (future only)","eventKind","select",[
-      ["none","None"],["hazard","Environmental hazard"],["encounter","Encounter"]],
-      {current:existing?.event?.kind??"none"});
-    body.appendChild(node("p","Marker and label appearance can be captured using Save as Preset in an individual Checkpoint Settings window. Existing appearance stays intact when editing this template."));
-    const form=await foundry.applications.api.DialogV2.input({
-      window:{title:existing?"Edit Checkpoint Preset":"Add Checkpoint Preset"},
-      content:shell,ok:{label:"Save Preset"},rejectClose:false,modal:true
-    });
-    if(!form)return;
-    const preset={id:existing?.id??("checkpoint-custom-"+foundry.utils.randomID()),
-      name:String(form.name??"").trim(),category:String(form.category),
-      appearance:existing?.appearance??null,
-      discoveryMethod:String(form.discoveryMethod),revealRadiusCells:Number(form.revealRadiusCells),
-      terrain:{presetId:form.terrainId||null,radiusCells:Number(form.terrainRadius)},
-      event:{kind:String(form.eventKind),enabled:false}};
-    const next=upsertCheckpointPreset(readWorldCheckpointPresets(),preset);
-    await game.settings.set(MODULE_ID,CHECKPOINT_PRESET_SETTING,next);
-    await this.render();
+    const {AtlasCheckpointPresetEditor}=await import("./checkpoint-preset-editor.js");
+    new AtlasCheckpointPresetEditor({preset:existing,onSaved:()=>this.render()}).render(true);
   }
   async _delete(preset){
     if(!game.user?.isGM)throw Error("GM permission required.");

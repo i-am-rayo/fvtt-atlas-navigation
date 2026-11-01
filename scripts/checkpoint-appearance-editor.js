@@ -445,6 +445,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       mode.value=a.labelMode;showRoad.checked=a.showRoadName;textColor.value=a.textColor;
       discoveryMethod&&(discoveryMethod.value=preset.discoveryMethod);
       if(revealRadius)revealRadius.value=String(preset.revealRadiusCells);
+      if(preset.elevationMeters!==null){
+        elevation.value=String(Math.round(preset.elevationMeters*elevationFactor*100)/100);
+        elevationRange.value=elevation.value;
+      }
+      if(discovery)discovery.value=preset.discoveryStatus??"unknown";
+      if(preset.journalUuid)journalInput.value=preset.journalUuid;
+      playerVisibility.checked=preset.playerVisible===true;
       terrainSuggestion={...preset.terrain};
       syncSelection();updateType();
       presetHint.textContent="Applied ‘"+preset.name+"’ to editable fields. Suggested Region: "+
@@ -587,6 +594,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         const preset={id:"checkpoint-custom-"+foundry.utils.randomID(),
           name:String(values.presetName??"").trim(),category:category.value,
           appearance:a,discoveryMethod:discoveryMethod?.value??"automatic",
+          elevationMeters:elevation.value.trim()===""?null:Number(elevation.value)/elevationFactor,
+          discoveryStatus:discovery?.value??"unknown",
+          journalUuid:journalInput.value.trim()||null,
+          playerVisible:playerVisibility.checked,
           revealRadiusCells:Number(revealRadius?.value??3),
           terrain:suggested?{...suggested}:{presetId:null,radiusCells:.25},
           event:{kind:"none",enabled:false}};
