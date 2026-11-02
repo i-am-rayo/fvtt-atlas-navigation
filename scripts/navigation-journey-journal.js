@@ -7,6 +7,8 @@ import { annotateJourneyDirections } from "./navigation-journey-timeline.js";
 export const JOURNEY_JOURNAL_FLAG="guidedJourney";
 export const JOURNEY_JOURNAL_SCHEMA=1;
 export const JOURNEY_JOURNAL_PAGE="Atlas Journey Summary";
+export const JOURNEY_JOURNAL_FOLDER="Atlas Navigation Logs";
+const JOURNEY_FOLDER_FLAG="journeyLogFolder";
 const RECOVERABLE=new Set(["moving","paused","interrupted"]);
 const STATUSES=new Set([...RECOVERABLE,"completed","ended"]);
 const point=p=>({x:Number(p.x),y:Number(p.y)});
@@ -132,7 +134,10 @@ export function formatJourneyJournalHTML(raw){
       terrainAware:leg.terrainAware});
     const rows=timeline.map(step=>step.kind==="journey-event"?
       `<li><strong>${escapeHTML(step.label)}</strong> after `+
-      `${escapeHTML(formatNavigationDuration(step.atHours,24))} of travel`+
+      `${escapeHTML(formatNavigationDuration(step.atHours,24))} on this leg`+
+      (step.todayHours!==null?
+        ` (${escapeHTML(formatNavigationDuration(step.todayHours,24))} traveled today)`:
+        "")+
       (step.hours?` (+${escapeHTML(formatNavigationDuration(step.hours,24))})`:"")+"</li>":
       `<li>${escapeHTML(step.instruction)} — ${escapeHTML(Number(step.distance).toFixed(2))} `+
       `${escapeHTML(leg.units)}</li>`).join("");
@@ -165,13 +170,39 @@ export function findRecoverableJourney(journals,{sceneId,tokenId,atlasRevision})
   return found[0]??null;
 }
 
+let folderCreation=null;
+/** Keep Journal organization separate from persisted journey state. Existing
+ * matching World folders are reused, and concurrent new journeys share one
+ * in-flight folder creation. Never move the user's other Journal Entries. */
+export async function ensureJourneyLogFolder({folders=globalThis.game?.folders,
+  create=globalThis.foundry?.documents?.Folder?.create?.bind(
+    globalThis.foundry?.documents?.Folder)}={}){
+  if(!globalThis.game?.user?.isGM)throw Error("Only a GM may organize Atlas Journey Journals.");
+  const entries=[...(folders?.contents??folders??[])];
+  const existing=entries.find(folder=>folder.type==="JournalEntry"&&
+    (folder.getFlag?.(MODULE_ID,JOURNEY_FOLDER_FLAG)===true||
+      folder.name===JOURNEY_JOURNAL_FOLDER));
+  if(existing)return existing;
+  if(folderCreation)return folderCreation;
+  if(typeof create!=="function")throw Error("Foundry Journal folder creation is unavailable.");
+  folderCreation=Promise.resolve().then(()=>create({name:JOURNEY_JOURNAL_FOLDER,
+    type:"JournalEntry",flags:{[MODULE_ID]:{[JOURNEY_FOLDER_FLAG]:true}}}));
+  try{
+    const created=await folderCreation;
+    if(!created?.id)throw Error("Foundry did not create the Atlas Journey folder.");
+    return created;
+  }finally{folderCreation=null;}
+}
+
 /** All writes go through one Journal; its Atlas flag is the recovery source.
  * Generated text lives in one dedicated managed page; users may add other pages. */
-export async function saveJourneyJournal(record,{journal=null,create=null,updatePage=true}={}){
+export async function saveJourneyJournal(record,{journal=null,create=null,
+  folderProvider=ensureJourneyLogFolder,updatePage=true}={}){
   if(!globalThis.game?.user?.isGM)throw Error("Only a GM may save an Atlas Journey Journal.");
   const state=validateJourneyRecord(record);
   const html=formatJourneyJournalHTML(state);
   if(!journal){
+    const folder=await folderProvider();
     const JournalEntry=globalThis.foundry?.documents?.JournalEntry;
     const creator=create??(JournalEntry?.create?.bind(JournalEntry));
     if(typeof creator!=="function")throw Error("Foundry Journal creation is unavailable.");
@@ -179,6 +210,7 @@ export async function saveJourneyJournal(record,{journal=null,create=null,update
       format:globalThis.CONST?.JOURNAL_ENTRY_PAGE_FORMATS?.HTML??1,content:html
     }};
     const data={name:`Atlas Journey — ${state.legs[0].sceneName}`,
+      folder:folder.id,
       ownership:{default:globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.NONE??0},
       pages:[page],flags:{[MODULE_ID]:{[JOURNEY_JOURNAL_FLAG]:state}}};
     journal=await creator(data);

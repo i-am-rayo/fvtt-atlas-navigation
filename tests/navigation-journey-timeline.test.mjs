@@ -28,6 +28,15 @@ test("recorded rests divide actual direction cards without modifying the itinera
   assert.deepEqual(steps,source,"live directions must never mutate the saved itinerary");
 });
 
+test("recovered-leg travel decisions retain the day's moving hours separately from leg hours",()=>{
+  const annotated=annotateJourneyDirections(steps,[
+    {action:"continue",atHours:1/12,todayHours:17,hours:0}
+  ],{travelHours:12,speed:1});
+  const stop=annotated.find(step=>step.kind==="journey-event");
+  assert.equal(stop.atHours,1/12);
+  assert.equal(stop.todayHours,17);
+});
+
 test("elapsed travel time includes completed rest, while ETA includes future breaks",()=>{
   const result=projectJourneyTiming({travelHours:19.7,percent:40,totalHours:51.7,
     breakHours:0});

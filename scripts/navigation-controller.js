@@ -87,6 +87,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.recoveryRecord=null;
     this.journeyJournal=null;
     this.journalStarting=false;
+    this.autoResumePending=null;
+    this.autoResumeAttempts=new Map();
+    this.canvasTeardownClose=Promise.resolve();
   }
 
   get active() { return Boolean(this.scene); }
@@ -512,6 +515,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
       completedDistance:0,totalDistance,currentChunk:null,timer:null,clock:null};
+    session.finished=new Promise(resolve=>{session.resolveFinished=resolve;});
     // The Journal is the one durable journey store. Create it before any
     // movement; a failed Journal write cannot leave an unrecorded trip.
     this.journalStarting=true;
@@ -669,7 +673,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           }
         }
         const arrived=reachedEnd&&session.phase!=="ending"&&!clockFailed;
-        if(arrived)this.setTravelProgress(100);
+        if(arrived){
+          // The 100ms animation sampler clamps to 99% until arrival. Stop it
+          // first so it cannot overwrite a confirmed 100% during Journal I/O.
+          if(session.timer!==null){clearInterval(session.timer);session.timer=null;}
+          this.setTravelProgress(100);
+        }
         try{await this.saveJourneyCheckpoint(session,arrived?"completed":
           session.phase==="ending"?"ended":"interrupted");}
         catch(error){
@@ -711,6 +720,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.travelSession=null;
         if(this.active)void this.render(true);
       }
+      session.resolveFinished?.();
     }
   }
 
@@ -848,16 +858,85 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       reason,sceneId:this.scene?.id??null,journeyActive:Boolean(session),
       completedPercent:Math.floor(this.travelProgress)
     });
+    if(reason==="canvasTearDown"&&session?.phase==="moving"&&
+        session.journal?.id&&session.journeyRecord){
+      const attempts=(this.autoResumeAttempts.get(session.journal.id)??0)+1;
+      this.autoResumeAttempts.set(session.journal.id,attempts);
+      if(attempts<=6){
+        this.autoResumePending={sceneId:session.sceneId,tokenId:session.token.id,
+          journalId:session.journal.id,revision:session.journeyRecord.atlasRevision,
+          session};
+      }else{
+        this.autoResumePending=null;
+        atlasWarn("journey","Automatic continuation stopped after repeated canvas rebuilds",{
+          sceneId:session.sceneId,journalId:session.journal.id,attempts});
+      }
+    }
     if(session&&["canvasTearDown","canvasReady"].includes(reason)){
-      const message="Atlas journey was interrupted by a Foundry canvas redraw. "+
-        "Reopen Navigation to continue from the token's current location.";
+      const message=this.autoResumePending?
+        "Atlas journey interrupted by a Foundry canvas redraw. Atlas will try to continue safely.":
+        "Atlas journey interrupted by a Foundry canvas redraw. Reopen Navigation to recover it.";
       atlasWarn("lifecycle",message,{reason,sceneId:session.sceneId});
       globalThis.ui?.notifications?.warn?.(message);
     }
     this.stop();
     if (this.rendered) {
       this.closedByController = true;
-      void this.close();
+      this.canvasTeardownClose=Promise.resolve(this.close()).catch(error=>
+        atlasWarn("lifecycle","Navigation window could not close during canvas teardown",error));
+    }
+  }
+
+  /** A native canvas replacement can interrupt an already-approved journey.
+   * Continue only after its old movement/clock/Journal writes settle, using the
+   * validated Journal and the live token. Manual pause and End never opt in. */
+  async autoResumeAfterCanvasReady(){
+    const pending=this.autoResumePending;
+    if(!pending)return false;
+    const view=this.canvasProvider();
+    if(!game.user?.isGM||!view?.ready||view.scene?.id!==pending.sceneId){
+      this.autoResumePending=null;return false;
+    }
+    let timeout;
+    const settled=await Promise.race([
+      Promise.all([pending.session.finished??Promise.resolve(),
+        pending.session.journalQueue??Promise.resolve(),
+        this.canvasTeardownClose]).then(()=>true,()=>false),
+      new Promise(resolve=>{timeout=setTimeout(()=>resolve(false),8000);})
+    ]).finally(()=>clearTimeout(timeout));
+    if(!settled||this.autoResumePending!==pending||this.active){
+      if(this.autoResumePending===pending)this.autoResumePending=null;
+      atlasWarn("journey","Automatic continuation skipped; recover the saved Journal manually",{
+        sceneId:pending.sceneId,journalId:pending.journalId});
+      return false;
+    }
+    try{
+      if(game.users?.activeGM?.id!==game.user.id)
+        throw Error("Automatic continuation requires the active GM.");
+      if(this.atlasProvider(view.scene).revision!==pending.revision)
+        throw Error("The road network changed.");
+      const token=this.partyTokenProvider(view.scene);
+      if(token?.id!==pending.tokenId)
+        throw Error("The assigned party token changed.");
+      this.activate();
+      if(this.recoverableJourney?.id!==pending.journalId)
+        throw Error("The saved journey is no longer eligible for recovery.");
+      this.recoverSavedJourney();
+      this.autoResumePending=null;
+      atlasDebug("journey","Automatically continuing after canvas rebuild",{
+        sceneId:pending.sceneId,journalId:pending.journalId});
+      void this.startGuidedTravel().catch(error=>{
+        atlasWarn("journey","Automatic continuation failed; the Journal remains recoverable",error);
+        globalThis.ui?.notifications?.warn?.(
+          "Atlas could not continue automatically. Open Navigation to recover the journey.");
+      });
+      return true;
+    }catch(error){
+      this.autoResumePending=null;
+      atlasWarn("journey","Automatic continuation unavailable; recover manually",error);
+      globalThis.ui?.notifications?.warn?.(
+        "Atlas paused after a canvas rebuild. Open Navigation to recover the journey.");
+      return false;
     }
   }
 
@@ -1118,9 +1197,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           badge.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;background:#5c482c;";
           const content=el("div");
           const name=el("strong",step.label);
+          const timeContext=`After ${formatNavigationDuration(step.atHours,24)} on this leg`+
+            (step.todayHours!==null?
+              ` · ${formatNavigationDuration(step.todayHours,24)} traveled today`:"");
           const detail=el("div",step.hours?
-            `${formatNavigationDuration(step.hours,24)} downtime · After ${formatNavigationDuration(step.atHours,24)} moving`:
-            `One extra travel hour approved · After ${formatNavigationDuration(step.atHours,24)} moving`);
+            `${formatNavigationDuration(step.hours,24)} downtime · ${timeContext}`:
+            `One extra travel hour approved · ${timeContext}`);
           detail.style.cssText="opacity:.75;font-size:.85em;margin-top:.2rem;";
           content.append(name,detail);item.append(badge,content);list.appendChild(item);
           continue;

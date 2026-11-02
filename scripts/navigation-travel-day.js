@@ -115,7 +115,7 @@ export class GuidedTravelDayTracker {
     if(this.events.length>=MAX_GUIDED_TRAVEL_EVENTS)
       throw Error("The journey has too many travel decisions. Plan a shorter route.");
     this.events.push(Object.freeze({action:choice.action,atHours:this.completedHours,
-      hours:choice.hours}));
+      todayHours:this.todayHours,hours:choice.hours}));
     if(choice.action==="continue"){
       this.permittedExtraUntil=Math.min(24,this.todayHours+1);
       return;

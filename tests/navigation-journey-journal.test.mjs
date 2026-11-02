@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   eligibleJourneyRecord,formatJourneyJournalHTML,saveJourneyJournal,
-  findRecoverableJourney,JOURNEY_JOURNAL_FLAG,JOURNEY_JOURNAL_PAGE }
+  findRecoverableJourney,ensureJourneyLogFolder,JOURNEY_JOURNAL_FLAG,
+  JOURNEY_JOURNAL_PAGE,JOURNEY_JOURNAL_FOLDER }
   from "../scripts/navigation-journey-journal.js";
 const MODULE_ID="fvtt-atlas-navigation";
 const itinerary=()=>({schemaVersion:1,scene:{name:"Paedor",units:"km"},
@@ -61,8 +62,10 @@ test("Journal creation, metadata updates, and the managed summary all use one re
       getFlag(namespace,key){return namespace===MODULE_ID&&key===JOURNEY_JOURNAL_FLAG?
         this.record:null;}};
     const creation=async data=>{created.push(data);journal.record=data.flags[MODULE_ID][JOURNEY_JOURNAL_FLAG];return journal;};
-    assert.equal(await saveJourneyJournal(createRecord(),{create:creation}),journal);
+    assert.equal(await saveJourneyJournal(createRecord(),{create:creation,
+      folderProvider:async()=>({id:"folder-1"})}),journal);
     assert.equal(created.length,1);
+    assert.equal(created[0].folder,"folder-1");
     assert.equal(created[0].ownership.default,0,"Journeys are GM-only by default");
     assert.match(created[0].pages[0].text.content,/Directions/);
     const updated=checkpointJourneyRecord(createRecord(),{schedule,progress:45,status:"paused"});
@@ -76,4 +79,30 @@ test("Journal creation, metadata updates, and the managed summary all use one re
     globalThis.game.user.isGM=false;
     await assert.rejects(saveJourneyJournal(updated,{journal}),/Only a GM/);
   }finally{globalThis.game=prev.game;globalThis.CONST=prev.CONST;}
+});
+
+test("Atlas Journey Journals share a native Journal folder and reuse its stable ID",async()=>{
+  const before=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    const folders=[];
+    const created=[];
+    const create=async data=>{
+      created.push(data);
+      const folder={id:"atlas-log-folder",...data};
+      folders.push(folder);
+      return folder;
+    };
+    const [first,parallel]=await Promise.all([
+      ensureJourneyLogFolder({folders,create}),
+      ensureJourneyLogFolder({folders,create})
+    ]);
+    assert.equal(first.id,parallel.id);
+    assert.equal(created.length,1,"concurrent journeys must not duplicate the folder");
+    assert.equal(created[0].type,"JournalEntry");
+    assert.equal(created[0].name,JOURNEY_JOURNAL_FOLDER);
+    const reused=await ensureJourneyLogFolder({folders,create});
+    assert.equal(reused.id,first.id);
+    assert.equal(created.length,1);
+  }finally{globalThis.game=before;}
 });

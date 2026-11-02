@@ -108,8 +108,8 @@ test("short rest plus long rest accumulates both breaks at one direction boundar
   assert.equal(day.estimate.totalHours,19,
     "10 moving + 1 short + 8 long; the pending overnight was replaced");
   assert.deepEqual(day.events,[
-    {action:"short",atHours:8,hours:1},
-    {action:"long",atHours:8,hours:8}
+    {action:"short",atHours:8,todayHours:8,hours:1},
+    {action:"long",atHours:8,todayHours:8,hours:8}
   ]);
 });
 

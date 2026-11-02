@@ -42,7 +42,8 @@ export function annotateJourneyDirections(steps,events,{travelHours,speed,terrai
       throw Error("Invalid journey event position.");
     result.push({kind:"journey-event",action:event.action,
       label:journeyBreakLabel(event.action),hours:event.hours,
-      atHours:event.atHours});
+      atHours:event.atHours,todayHours:Number.isFinite(event.todayHours)?
+        event.todayHours:null});
   };
   for(const step of steps){
     const hours=duration(step);

@@ -53,6 +53,53 @@ test("unexpected canvas redraw reports and safely ends the active journey",()=>{
   }finally{globalThis.ui=old.ui;globalThis.game=old.game;}
 });
 
+test("canvas recovery restarts only the matching GM-approved Journey after its writes settle",async()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui};
+  try{
+    const scene={id:"same-scene"},token={id:"assigned-token"};
+    const canvas={ready:true,scene};
+    globalThis.game={user:{id:"gm-1",isGM:true},users:{activeGM:{id:"gm-1"}}};
+    globalThis.ui={notifications:{warn(){throw Error("Unexpected warning");}}};
+    const nav=new AtlasNavigationController({canvasProvider:()=>canvas,
+      atlasProvider:()=>({revision:17}),partyTokenProvider:()=>token});
+    let recovered=0,started=0;
+    nav.activate=()=>{nav.scene=scene;nav.recoverableJourney={id:"saved-journey"};};
+    nav.recoverSavedJourney=()=>{recovered++;return true;};
+    nav.startGuidedTravel=async()=>{started++;return true;};
+    nav.autoResumePending={sceneId:scene.id,tokenId:token.id,
+      revision:17,journalId:"saved-journey",session:{
+        finished:Promise.resolve(),journalQueue:Promise.resolve()}};
+    assert.equal(await nav.autoResumeAfterCanvasReady(),true);
+    assert.equal(recovered,1);assert.equal(started,1);
+    assert.equal(nav.autoResumePending,null);
+    assert.equal(await nav.autoResumeAfterCanvasReady(),false,
+      "an already recovered journey cannot queue a second restart");
+    nav.scene=null;
+    nav.autoResumePending={sceneId:scene.id,tokenId:token.id,
+      revision:18,journalId:"saved-journey",session:{finished:Promise.resolve()}};
+    // A changed road network blocks any automatic token movement.
+    globalThis.ui={notifications:{warn(){}}};
+    assert.equal(await nav.autoResumeAfterCanvasReady(),false);
+    assert.equal(started,1);
+  }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
+test("manual pauses never arm automatic journey continuation",()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui};
+  try{
+    globalThis.game={user:{isGM:true}};
+    globalThis.ui={notifications:{warn(){}}};
+    const nav=new AtlasNavigationController();
+    nav.scene={id:"manual-paused-scene"};
+    nav.travelSession={sceneId:"manual-paused-scene",token:{id:"t"},
+      journal:{id:"j"},journeyRecord:{atlasRevision:7},phase:"paused",
+      schedule:{completedHours:0,todayHours:0,permittedExtraUntil:0,
+        restEvents:0,lastForcedCheck:null,events:[]},completedDistance:0,totalDistance:1};
+    nav.tearDown("canvasTearDown");
+    assert.equal(nav.autoResumePending,null);
+  }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
 test("navigation locks the completed route until deliberate endpoint gestures or New Route",async()=>{
   const previous={foundry:globalThis.foundry,game:globalThis.game,window:globalThis.window,
     PIXI:globalThis.PIXI,ui:globalThis.ui,document:globalThis.document};

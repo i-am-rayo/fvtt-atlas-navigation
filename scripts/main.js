@@ -56,7 +56,7 @@ import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.j
 import { AtlasRoadEditorDock, activeRoadDockForSceneConfig } from "./road-editor-dock.js";
 import { AtlasNavigationController } from "./navigation-controller.js";
 import { registerNavigationWorldSettings } from "./navigation-world-settings.js";
-import { registerAtlasDebugSettings,atlasDebug } from "./atlas-debug.js";
+import { registerAtlasDebugSettings,atlasDebug,atlasWarn } from "./atlas-debug.js";
 
 const roadCanvas = new RoadCanvasController();
 roadCanvas.onCheckpointCreated=(scene,checkpointId,roadId)=>
@@ -1717,6 +1717,8 @@ Hooks.once("init", () => {
     atlasDebug("lifecycle","Foundry canvasReady",{sceneId:canvas?.scene?.id??null});
     navigation.tearDown("canvasReady");
     roadCanvas.refresh();manualFog.refresh();
+    void navigation.autoResumeAfterCanvasReady().catch(error=>
+      atlasWarn("journey","Automatic canvas recovery failed",error));
   });
   // Foundry v14 movement includes origin, passed waypoints and destination.
   Hooks.on("moveToken", observeAtlasTokenMovement);
