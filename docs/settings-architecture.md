@@ -21,7 +21,7 @@ Atlas settings are split into three layers:
 | `checkpoint-form-controls` | Checkpoint Settings, World preset editor and Scene Region generator | Identical elevation sliders with optional numeric input, marker-size sliders, colors, checkboxes, discovery selects, reveal-radius inputs and bounded Region width/radius sliders |
 | `settings-layout` | Checkpoint, preset, Road Settings and Scene Region generator | Single field-row construction with explicit responsive layout variants; never clones or rewrites live input values |
 
-The travel selector preserves stable IDs while grouping Land, Water body and Air consistently. The icon picker owns category tabs, style filter, search, preview and paging; both editors use its selected value. A control may be re-rendered, but its source of choices and behavior must not be copied into an editor.
+The travel selector preserves stable IDs while grouping Land, Water body and Air consistently. Every native-dialog dropdown must express the persisted choice in **HTML-serializable form** (for example, `option.defaultSelected`, plus the live `select.value`), because Foundry v14 DialogV2 can recreate inputs from serialized markup. Save, close/reopen, and refresh tests must assert the *rendered* selected option, not only the stored ID. The icon picker owns category tabs, style filter, search, preview and paging; both editors use its selected value. A control may be re-rendered, but its source of choices and behavior must not be copied into an editor.
 
 Built-in checkpoint presets provide category-appropriate Font Awesome glyphs and colors as defaults. The normalized World catalog only fills these into the original built-in templates when appearance is unset; user-customized appearances and custom preset templates are preserved. This is a presentation/defaults evolution, not a new Scene schema.
 
@@ -31,9 +31,10 @@ Icon-only actions preserve native save/delete dispatch. The Road Settings Dialog
 
 ## Intended next migrations
 
+- **v0.3.5-beta.5 priority:** Replace the flat, mode-prefixed **Generate Terrain Region → Travel preset** options in `scripts/scene-config.js` with `createTravelPresetSelect`. Match Road Settings' Land/Water-body/Air optgroups and default-selected behavior. Retain the generator's explicit selection-change effects (preview invalidation, native movement-cost opt-in reset, movement action reset); shared controls never directly edit native Regions.
 - Centralize checkpoint-type selection and remaining nested Region-row variants; the main field rows, elevation, marker, color, label, discovery and Region geometry controls now share factories.
 - Replace remaining one-off road and Region selectors with the shared travel selector after confirming those dialogs' native Behavior semantics.
-- Add UI-level tests with Foundry v14 DOM events for selection, cancellation and re-rendering.
+- Add UI-level tests with Foundry v14 DOM events for selection, cancellation, cloning, reopening and re-rendering, including persisted option attributes.
 
 ## Compatibility requirements
 

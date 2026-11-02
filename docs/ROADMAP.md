@@ -1,3 +1,82 @@
+# Active v0.3.x roadmap — updated November 2, 2026
+
+This section is the **current delivery order**. Older Phase 0–6 notes below remain historical design and safety references; their former release gates do not override the owner's subsequent v0.3.x approvals. Each new feature still requires its own draft/test build and live Foundry v14 sign-off before merging. This roadmap records planned scope; it does **not** indicate that the features below have been implemented.
+
+**Current baseline:** v0.3.5-beta.4.5.4 was confirmed by the owner to retain Road Settings' saved Travel Preset after reopen. The reusable selector must persist both its saved ID and HTML `defaultSelected` state because Foundry's DialogV2 may serialize and recreate its inputs.
+
+| Order | Proposed milestone | Primary outcome | Release gate |
+| --- | --- | --- | --- |
+| 1 | **v0.3.5-beta.5** | Finish common settings controls and eliminate one-off Terrain Region preset menus | Existing data intact; cloned-dialog selections, save/discard, and native Region invariants pass |
+| 2 | **v0.3.6** | Deliberate, retained Point A → B navigation and polished directions | Ordinary clicks cannot replace a completed route; shortcut and route-lifecycle tests pass |
+| 3 | **v0.3.7** | GM-guided token travel following the rendered road, then separately gated player requests | Motion follows the route safely; player discovery restrictions pass a two-client security review |
+| 4 | **v0.3.8** | Travel methods and transfer points, followed by checkpoint/road toll, slope and fee metadata | Mixed-mode journey estimates remain correct and no native Behavior or Actor is silently modified |
+| 5 | **v0.3.9 (proposed)** | Save and revisit route itineraries through Journals | Snapshot, permissions, and stale-route behavior are clear; route presentation works without a live controller |
+| 6 | **v0.3.10+ (proposed)** | Opt-in Region/checkpoint encounters and terrain events; later vehicle presentation | Event evaluation is GM-controlled, deterministic when seeded, safe to disable, and never runs on ordinary reads |
+
+## 1. v0.3.5-beta.5 — settings consolidation and reliability
+
+1. Replace **Generate Terrain Region → Travel preset** in `scripts/scene-config.js` with `createTravelPresetSelect` from the shared settings controls. Use the same nested **Land / Water (River, Lake, Sea, Ocean, Canal, Marsh/Swamp) / Air** groups, names, order and saved selection behavior as Road Settings, not duplicated `LAND — Name` / `WATER — Name` flat options. Keep the existing generator's `selected.presetId`, explicit preview invalidation, movement-action reset, and native-cost opt-in semantics when the selection changes.
+2. Audit remaining one-off Road, Checkpoint, World Preset and generated/native Region selectors and consolidate only controls that truly share semantics. Use the common option catalog, label, validation, `defaultSelected`/default-value handling, and forms; preserve native Foundry controls where behavior differs.
+3. Use the same field definitions for numeric inputs, sliders, min/max/step, units, colors, checkboxes and dropdowns in creation, editing and preset windows. Consistently order actions, provide brief `Locate …`/`Save …` tooltips, keyboard labels and safe unsaved-change prompts.
+4. Add regression coverage for saving and reopening every preset selector, DialogV2 HTML cloning/re-render, close/Save/Discard, missing/removed presets, GM permissions, and style/Region preview changes. Run a real v14 GM + player smoke test and confirm a reload before acceptance.
+
+**Non-goals:** No network/graph migration, no change to preset IDs or World costs, no automatic native Region Behavior updates, and no new travel modes in this stabilization build. See [settings architecture](settings-architecture.md).
+
+## 2. v0.3.6 — retained navigation and direction quality
+
+1. Initial two explicit map picks choose **Point A (departure)** and **Point B (destination)**. Once both are set, ordinary map clicks are ignored by Atlas navigation: the route, overlay, directions and estimates remain visible.
+2. **Shift+click** an eligible map location deliberately replaces Point A. **Alt/Option+click** replaces Point B. Recalculate only when an endpoint intentionally changes. Keep a visible **New Route / Clear** action; test shortcut precedence against existing road/checkpoint canvas editing and native Foundry interactions.
+3. Keep the route stable through navigation-panel rerenders and normal map pan/zoom while navigation mode is active. Scene switches, leaving navigation mode and invalidated/deleted roads need explicit, predictable clear/recalculate behavior; do not persist an itinerary as a Scene write yet.
+4. Improve instructions: merge repetitive same-road/same-heading legs where accurate; keep meaningful turns, checkpoint/port transitions, surface changes, distance, time, pace and terrain-weighted explanations. Verify native distance and travel-time calculations are unaffected by visual curve sampling.
+5. Introduce a **pure, versioned itinerary snapshot/projection** (endpoints, ordered road/leg IDs, names, geometry references, measured metrics and human-readable directions) independent of the live dialog. This is the foundation for v0.3.7 movement and future Journal export, **not** automatic Journal creation in v0.3.6.
+
+**Acceptance:** Start and destination stay pinned after a route is calculated; plain clicks do nothing; Shift/Alt change only their designated endpoint; keyboard/Scene lifecycle works; disconnected/edited paths fail clearly; no new Scene flag writes or native token movement.
+
+## 3. v0.3.7 — guided token travel along roads
+
+1. Define a small **traveler context** (assigned party token, route snapshot, travel mode, pace and current progress). Start with GM-authorized travel on a single valid route; define mode/vehicle extension points now so v0.3.8 need not rebuild the animation.
+2. Drive visible motion using the **same bounded, sampled, curved path that the Atlas route overlay displays**, including segment boundaries and joins. Preserve the original route graph and Foundry-native measured distance/time; visual curve sampling must never rewrite saved geometry or distance costs.
+3. Separate transient visual interpolation from authoritative token-position updates. Specify pause/cancel/interrupt, disconnected or changed roads, Scene switching, ownership, animation completion and recovery from reload; never teleport or write token positions at every animation frame without a tested v14 mechanism.
+4. **GM first.** Only after a separate two-client security/permission test, permit a player to request Atlas travel to **already discovered and authorized** destinations along allowed discovered connections. Validate destinations and every accessible leg at the authoritative action boundary, not just by hiding controls, and do not expose hidden road geometry through results or payloads. If Foundry's ordinary token drag remains unrestricted, document/resolve that separate permission path before promising an absolute movement ban.
+5. Treat unexplored destinations, missing explorer assignments, invalid ownership, unsafe crossings and changes during travel as explicit denials with useful feedback; do not allow ordinary drag/drop to bypass Atlas checks.
+
+**Acceptance:** GM can start, monitor, pause and cancel smooth travel without damaging road, Fog, Region or token data. Player travel stays disabled until genuinely enforceable discovery restrictions and GM/player reconnect tests pass.
+
+## 4. v0.3.8 — transport transitions and road/checkpoint economics
+
+Implement in this dependency order, as separate reviewable beta slices:
+
+1. **Mode/capability model:** Distinguish walking, mounted travel, sailing and eventual flying/vehicles without conflating Foundry's combat movement actions with overland transport. Each travel method can supply allowed surfaces, speed/pace and optional descriptive pricing; defaults remain system-agnostic. Preserve existing D&D5e Group Actor speed reads where supported but never silently overwrite them.
+2. **Transfer points:** Checkpoint presets such as **Port, Dock, Stable, Gate** may list available travel methods. At a port connecting Dirt Road to a Water route, the journey may offer an explicit embark/disembark choice. A route cannot switch transport mode arbitrarily between incompatible legs; calculate time/price per leg and show a clear itinerary breakdown before confirmation.
+3. **Tolls, slopes and passage constraints:** Add optional, typed **Atlas metadata** on checkpoint/road presets for tolls, bridges, road gradients, restricted methods and service costs. Elevation/grade requires real directional horizontal distance and explicit units. Prefer Foundry native Regions/Behaviors for token movement rules; no automatic creation, modification, stacking or charging of native Behaviors from merely selecting a preset.
+4. **Costs/transactions:** First show GM-configured price quotes and total journey estimates; do **not** automatically debit Actors or presume a D&D5e currency schema. Any currency/party-inventory integration requires separate system adapters, explicit confirmation, permission checks, rollback/error handling and dedicated tests.
+
+**Acceptance:** An overland → Port → Water journey reports valid transitions, mode-specific duration and optional costs; missing transport methods produce a friendly blocked-route explanation. Old checkpoints, native Regions/Behaviors and existing roads remain unchanged unless the GM explicitly edits them.
+
+## 5. v0.3.9 — optional Journal itineraries (after navigation stabilizes)
+
+- Provide an **explicit GM Save to Journal** action from a completed navigation itinerary, using the versioned route snapshot from v0.3.6 and transport/fee breakdowns from v0.3.8. Store a readable, styled route summary, directions, distance, duration, checkpoints and chosen methods with stable identifiers and a captured-at timestamp.
+- Respect Foundry's existing `JournalEntry`/Page ownership. A player can only open a saved itinerary with native Journal permissions; saving must not expose undiscovered checkpoints, roads or encounters. Provide a sanitized player-facing projection where appropriate.
+- Preserve a **historical snapshot** when the Scene graph or World travel presets later change. Offer an explicit **Recalculate using current map** action after validating references and permissions; do not silently rewrite a Journal or promise that a historical route is still traversable.
+
+## 6. v0.3.10+ — encounters, hazards, vehicles and extensions
+
+- Opt-in, versioned checkpoint/Region event definitions: toll/event narration, watchtowers, safehouses, rest areas, moving sand, rockfalls, bandit/monster encounters. Keep these **informational only** until a separately approved trigger engine exists.
+- Later event evaluation may use route crossing, probability, weight, cooldown, party context and GM preview/confirmation. No hidden rerolls on render, no side effects from opening settings, and no non-GM exposure of secret tables. Reusable preset definitions are not automatic native Region Behavior rules.
+- Cosmetic horse/cart/boat/airship travel markers and richer vehicle effects follow the transport-mode model, with asset/license review; no parallel map geometry or movement engine.
+- Other deferred candidates include cross-Scene travel, route bookmarks, GM teleport/relocation distinctions, journal autocomplete, accessibility/localization and denser-map performance work. Prioritize them based on separately owner-tested needs.
+
+## Cross-milestone engineering gates
+
+- Maintain **separate layers** for saved graph/Region data, pure itinerary calculation, traveler capability/price metadata, transient route selection/animation, and Journal snapshots. Reuse components and immutable IDs instead of duplicating settings and route calculations.
+- Continue strict schema validation, explicit migration/confirmation for data changes, stable IDs and revision/conflict checks. Read-only UI opens and World preset edits must not mutate Scene flags, native FogExploration, Journal access or native Region Behaviors.
+- Use Foundry v14 public APIs and the actual Scene Grid/native measurement as authoritative. Test separate GM/player clients, Scene refresh/switch, pan/zoom, route edits, and legacy World/Scene data; never claim live v14 behavior from mocks alone.
+- Security is an explicit gate for player navigation: GM-only shortcuts and rendered Fog masking do **not** secure network-accessible Scene flags or native token drag permissions.
+
+---
+
+## Historical Phase 0–6 notes (retained for reference)
+
 > **v0.2.26 Manual Exploration Foundation (authorized, draft):** Replace experimental dynamic travel fog with independent, permanent GM-painted native square/hex-cell fog. Include Reveal/Hide/Clear, brush radius, GM preview, non-GM persistence and reversible legacy import. Temporarily disable explorer token fog recording. Acceptance: exact cells persist over reload/GM+player sessions, no movement-based disappearance, safe padding changes, no core FogExploration/Region changes; live v14 test before merge. Follow-ups: automatic explorer discovery through same state, checkpoint lore integration and appearance polish.
 
 > **v0.2.19 existing generated corridor update:** Native Regions remain unique per checkpoint interval and keep stable IDs. A GM explicitly assigns a new surface preset, optionally applies its native Region color, and may separately confirm refreshing ONE unchanged, enabled, Atlas-provenance Modify Movement Cost Behavior in place. Previously selected modes dropped by the new preset are set to neutral ×1. The update rejects manual/disabled/duplicated or altered cost Behaviors and stale confirmation snapshots, never changes Region shapes, Levels, visibility, or other Behaviors; preset edits/assignment alone remain metadata-only. No Phase 3 token previews/routing.
