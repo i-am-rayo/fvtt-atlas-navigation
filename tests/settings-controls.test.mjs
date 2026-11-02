@@ -10,6 +10,10 @@ class FakeElement {
   appendChild(item){item.parentNode=this;this.children.push(item);return item;}
   replaceChildren(...items){this.children=[];this.append(...items);}
   setAttribute(key,value){this.attributes.set(key,value);}
+  set defaultSelected(value){
+    if(value)this.setAttribute("selected","");
+    else this.attributes.delete("selected");
+  }
   addEventListener(name,callback){this.listeners.set(name,callback);}
   closest(tag){for(let item=this;item;item=item.parentNode)if(item.tag===tag)return item;return null;}
 }
@@ -33,6 +37,15 @@ test("shared travel selector preserves IDs and groups Water, Land and Air",async
     assert.ok(groups.some(group=>group.label==="Water — River"));
     assert.ok(descendants(select).some(item=>item.value==="land-dirt"));
     assert.equal(select.children[0].value,"");
+    assert.deepEqual(descendants(select).filter(item=>item.attributes.has("selected"))
+      .map(item=>item.value),["land-dirt"],
+      "the selected option must survive DialogV2's HTML serialization");
+    const reopened=createTravelPresetSelect({selectedId:"land-dirt"});
+    assert.deepEqual(descendants(reopened).filter(item=>item.attributes.has("selected"))
+      .map(item=>item.value),["land-dirt"]);
+    const missing=createTravelPresetSelect({selectedId:"deleted-preset"});
+    assert.deepEqual(descendants(missing).filter(item=>item.attributes.has("selected"))
+      .map(item=>item.value),[""],"removed presets safely fall back to None");
   }finally{Object.assign(globalThis,previous);}
 });
 
@@ -64,11 +77,15 @@ test("checkpoint preset selector offers all World types instead of filtering to 
   try{
     globalThis.document={createElement:tag=>new FakeElement(tag)};
     const {createCheckpointPresetSelect}=await import("../scripts/settings-controls.js");
-    const select=createCheckpointPresetSelect(defaultCheckpointPresets().presets);
+    const select=createCheckpointPresetSelect(defaultCheckpointPresets().presets,
+      {selectedId:"checkpoint-bridge"});
     assert.ok(descendants(select).some(item=>item.value==="checkpoint-bridge"));
     assert.ok(descendants(select).some(item=>item.value==="checkpoint-port"));
     assert.ok(descendants(select).some(item=>item.value==="checkpoint-temple"));
     assert.ok(descendants(select).some(item=>item.value==="checkpoint-monster"));
+    assert.deepEqual(descendants(select).filter(item=>item.attributes.has("selected"))
+      .map(item=>item.value),["checkpoint-bridge"],
+      "checkpoint presets also retain their selection in cloned dialogs");
   }finally{globalThis.document=previous;}
 });
 

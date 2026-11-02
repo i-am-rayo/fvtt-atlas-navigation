@@ -17,8 +17,14 @@ const node=(tag,text)=>{
 export function createTravelPresetSelect({selectedId=null,name="atlasTravelPresetId",
   noneLabel="None (no Atlas travel preset)",includeCosts=false}={}){
   const select=node("select");select.name=name;
-  const none=node("option",noneLabel);none.value="";select.appendChild(none);
   const presets=readWorldTravelPresets().presets;
+  const activeId=presets.some(preset=>preset.id===selectedId)?selectedId:"";
+  const none=node("option",noneLabel);none.value="";
+  // Foundry v14 DialogV2 serializes the supplied HTMLElement to HTML before
+  // rendering it. `select.value` alone is not serialized, so the reopened
+  // form otherwise selects the first option (None) even for a saved road.
+  none.defaultSelected=activeId==="";
+  select.appendChild(none);
   const ranks=new Map([["land-dirt",0],["land-gravel",1],["land-stone",2]]);
   const indexed=presets.map((preset,index)=>({preset,index}));
   indexed.sort((a,b)=>{
@@ -39,9 +45,11 @@ export function createTravelPresetSelect({selectedId=null,name="atlasTravelPrese
       groups.set(groupName,group);select.appendChild(group);
     }
     const option=node("option",display.name+(includeCosts?" ("+presetCostSummary(preset)+")":""));
-    option.value=preset.id;groups.get(groupName).appendChild(option);
+    option.value=preset.id;
+    option.defaultSelected=preset.id===activeId;
+    groups.get(groupName).appendChild(option);
   }
-  select.value=selectedId??"";
+  select.value=activeId;
   return select;
 }
 
@@ -49,18 +57,22 @@ export function createTravelPresetSelect({selectedId=null,name="atlasTravelPrese
 export function createCheckpointPresetSelect(presets,{selectedId=null,
   noneLabel="None — keep current settings"}={}){
   const select=node("select");
-  const none=node("option",noneLabel);none.value="";select.appendChild(none);
+  const activeId=presets.some(preset=>preset.id===selectedId)?selectedId:"";
+  const none=node("option",noneLabel);none.value="";
+  none.defaultSelected=activeId==="";
+  select.appendChild(none);
   for(const [heading,types] of CHECKPOINT_TYPE_GROUPS){
     const matches=presets.filter(p=>types.some(([type])=>type===p.category));
     if(!matches.length)continue;
     const group=node("optgroup");group.label=heading;
     for(const preset of matches){
       const option=node("option",preset.name);option.value=preset.id;
+      option.defaultSelected=preset.id===activeId;
       group.appendChild(option);
     }
     select.appendChild(group);
   }
-  select.value=selectedId??"";
+  select.value=activeId;
   return select;
 }
 
