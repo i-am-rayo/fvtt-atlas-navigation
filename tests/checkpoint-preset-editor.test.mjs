@@ -31,8 +31,9 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     for(const label of ["General","Marker & labels","Terrain Region",
       "Default elevation (m)","Default discovery status","Default linked Journal / Page UUID",
       "Checkpoint marker","Marker size (12–64 px)","Checkpoint border color",
-      "Checkpoint label","Suggested travel preset","Save Checkpoint Preset"])
+      "Checkpoint label","Suggested travel preset"])
       assert.ok(labels.includes(label),label);
+    assert.ok(all(root).some(item=>item.title==="Save preset"),"shared save icon");
     assert.ok(all(root).some(item=>item.tag==="input"&&item.type==="color"));
     assert.ok(all(root).some(item=>item.tag==="input"&&item.placeholder?.includes("fantasy icons")));
     assert.ok(labels.includes("RPG picks"));

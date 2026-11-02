@@ -3,7 +3,8 @@ import { CHECKPOINT_TYPE_GROUPS } from "./checkpoint-types.js";
 import { CHECKPOINT_PRESET_SETTING,upsertCheckpointPreset,
   checkpointPresetAppearance } from "./checkpoint-preset-model.js";
 import { readWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
-import { createTravelPresetSelect } from "./settings-controls.js";
+import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
+import { approveSettingsClose,trackSettingsChanges } from "./settings-close-guard.js";
 import { createCheckpointIconPicker } from "./checkpoint-icon-control.js";
 import { createCheckpointChoice,createCheckpointNumber,createCheckpointRange,
   createCheckpointRegionWidth,createCheckpointMarkerSize,createCheckpointColor,
@@ -28,6 +29,19 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     super({position:{width:Math.min(720,window.innerWidth-60),
       height:Math.min(740,window.innerHeight-65)}});
     this.preset=preset;this.onSaved=onSaved;this.activeTab="General";
+  }
+
+  async close(options){
+    if(!this._skipClosePrompt){
+      if(this._checkingClose)return this;
+      this._checkingClose=true;
+      try{
+        const approved=await approveSettingsClose({isDirty:this._isDirty,
+          save:this._saveDraft,title:"Checkpoint Preset"});
+        if(!approved||this._skipClosePrompt)return this;
+      }finally{this._checkingClose=false;}
+    }
+    return super.close(options);
   }
 
   async _renderHTML(){
@@ -157,11 +171,10 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     for(const panel of sections.values())root.appendChild(panel);
     const footer=el("div");
     footer.style.cssText="display:flex;justify-content:flex-end;gap:.5rem;position:sticky;bottom:0;background:#100f17;padding:.5rem 0;";
-    const cancel=el("button","Cancel");cancel.type="button";
-    cancel.addEventListener("click",()=>this.close());
-    const save=el("button","Save Checkpoint Preset");save.type="button";
-    save.addEventListener("click",async()=>{
-      if(save.disabled)return;
+    const save=createSettingsIconButton({icon:"floppy-disk",label:"Save preset"});
+    save.type="button";
+    const saveValue=async()=>{
+      if(save.disabled)return false;
       save.disabled=true;
       try{
         const style=validateCheckpointAppearance({type:markerType.value,icon:iconId,
@@ -178,12 +191,17 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
           event:{kind:eventKind.value,enabled:false}};
         await game.settings.set(MODULE_ID,CHECKPOINT_PRESET_SETTING,
           upsertCheckpointPreset(readWorldCheckpointPresets(),next));
+        this._skipClosePrompt=true;
         await this.close();await this.onSaved?.();
         ui.notifications.info("Checkpoint preset saved. Existing checkpoints remain unchanged.");
-      }catch(error){ui.notifications.error(error.message??String(error));}
+        return true;
+      }catch(error){ui.notifications.error(error.message??String(error));return false;}
       finally{save.disabled=false;}
-    });
-    footer.append(cancel,save);root.appendChild(footer);showTab();
+    };
+    save.addEventListener("click",()=>void saveValue());
+    footer.append(save);root.appendChild(footer);showTab();
+    this._saveDraft=saveValue;
+    this._isDirty=trackSettingsChanges(root,()=>({iconId}));
     return root;
   }
   _replaceHTML(result,content){content.replaceChildren(result);}

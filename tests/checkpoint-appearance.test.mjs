@@ -302,6 +302,10 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const save = all(root).find(node => node.tag === "button" &&
       node.title === "Save Checkpoint Settings");
     assert.ok(save);
+    assert.ok(all(root).some(node=>node.tag==="button"&&node.title==="Save as preset"),
+      "preset saving is an icon beside the preset selector");
+    assert.ok(!all(root).some(node=>node.textContent==="Reset to default dot"||
+      node.textContent==="Cancel"),"checkpoint footer has no reset or cancel buttons");
     save.listeners.get("click")();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(stored.schemaVersion, 9);

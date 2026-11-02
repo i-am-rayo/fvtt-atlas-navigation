@@ -35,6 +35,7 @@ import { presetCostSummary } from "./travel-preset-model.js";
 import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
+import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges } from "./settings-close-guard.js";
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
 import { registerWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance }
@@ -469,22 +470,20 @@ function actions() {
         panels[key].dataset.atlasRoadPanel=key;
         panels[key].hidden=key!=="general";
       }
+      const presetSelect=createTravelPresetSelect({selectedId:actual.travelPresetId,
+        name:"atlasRoadPresetId",noneLabel:"None (Land fallback)"});
+      const presetRow=createSettingsFieldRow("Travel preset",presetSelect);
       const roadTools=document.createElement("div");
-      roadTools.style.cssText="display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;min-width:0;margin:.45rem 0;";
-      const assignedPreset=readWorldTravelPresets().presets.find(p=>p.id===actual.travelPresetId);
-      for (const [title,kind,icon] of [["Edit path","edit","pen-to-square"],
+      roadTools.dataset.atlasRoadActions="";
+      roadTools.style.cssText="position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:.4rem;align-items:center;padding:.5rem 0;background:#100f17;z-index:2;";
+      for (const [title,kind,icon] of [["Edit road","edit","pen-to-square"],
         ["Add connection","connection","link"],
-        ["Travel preset: "+(assignedPreset?.name??"None"),"travel",null],
         ["Delete road","delete","trash"]]) {
-        const btn=icon?createSettingsIconButton({icon,label:title,danger:kind==="delete"}):
-          document.createElement("button");
-        if(!icon){btn.type="button";btn.textContent=title;
-          btn.title="Choose road travel preset";btn.setAttribute("aria-label",title);
-          btn.style.cssText="flex:0 1 auto;width:auto;min-width:0;";}
+        const btn=createSettingsIconButton({icon,label:title,danger:kind==="delete"});
         btn.dataset.atlasRoadTool=kind;
         roadTools.appendChild(btn);
       }
-      panels.general.append(nameRow,visibilityRow,roadTools,journalControls);
+      panels.general.append(nameRow,visibilityRow,presetRow,journalControls);
       panels.style.appendChild(roadAppearanceForm(baseline));
       const addCheckpoint=document.createElement("button");addCheckpoint.type="button";
       addCheckpoint.textContent="+ Add checkpoint";addCheckpoint.dataset.atlasRoadTool="newCheckpoint";
@@ -577,7 +576,7 @@ function actions() {
       scrollBody.style.cssText="max-height:"+Math.max(220,Math.min(610,window.innerHeight-235))+"px;overflow-y:auto;min-width:0;min-height:0;padding-right:.5rem;overscroll-behavior:contain;";
       scrollBody.append(tabs,panels.general,panels.style,panels.checkpoints,panels.regions);
       scrollBody.dataset.atlasRoadLive=roadDialogToken;
-      content.appendChild(scrollBody);
+      content.append(scrollBody,roadTools);
       // DialogV2.input may clone its HTMLElement content when rendered. Its
       // cloned input loses the listener registered by journalLinkFields, unlike
       // the modeless checkpoint editor. Delegate on the live document instead.
@@ -605,6 +604,55 @@ function actions() {
           ui.notifications.warn(error.message || "Journal drop could not be read.");
         }
       };
+      let roadDialog=null;
+      let roadSaveButton=null;
+      let roadDirty=()=>false;
+      let roadMayClose=false;
+      let roadClosePending=false;
+      let afterRoadSave=null;
+      const renderRoadDialog=(_event,dialog)=>{
+        roadDialog=dialog;
+        const bar=dialog.element?.querySelector?.("[data-atlas-road-actions]");
+        const footer=dialog.form?.querySelector?.(".form-footer") ??
+          dialog.element?.querySelector?.(".form-footer");
+        const nativeSave=footer?.querySelector?.("button") ??
+          dialog.form?.querySelector?.('button[data-action="ok"]');
+        if(bar&&nativeSave){
+          roadSaveButton=nativeSave;
+          nativeSave.title="Save road";
+          nativeSave.setAttribute("aria-label","Save road");
+          nativeSave.style.cssText="width:2.5rem;min-width:2.5rem;height:2.5rem;flex:0 0 2.5rem;";
+          bar.insertBefore(nativeSave,bar.querySelector('[data-atlas-road-tool="delete"]'));
+          if(footer)footer.style.display="none";
+          nativeSave.addEventListener("click",()=>{
+            if(dialog.form?.checkValidity?.()!==false) roadMayClose=true;
+          });
+        }
+        roadDirty=trackSettingsChanges(dialog.form);
+        if(dialog._atlasCloseGuard)return;
+        dialog._atlasCloseGuard=true;
+        const baseClose=dialog.close.bind(dialog);
+        dialog.close=async options=>{
+          if(roadMayClose)return baseClose(options);
+          if(roadClosePending)return dialog;
+          roadClosePending=true;
+          try{
+            const approved=await approveSettingsClose({isDirty:roadDirty,title:"Road Settings",
+              save:async()=>{
+                if(!roadSaveButton)return false;
+                if(dialog.form?.checkValidity?.()===false){
+                  dialog.form.reportValidity?.();return false;
+                }
+                roadMayClose=true;
+                roadSaveButton.click();
+                return true;
+              }});
+            if(!approved||roadMayClose)return dialog;
+            roadMayClose=true;
+            return baseClose(options);
+          }finally{roadClosePending=false;}
+        };
+      };
       const onTabClick = event => {
         const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-checkpoint-delete],[data-atlas-region-edit],[data-atlas-region-regenerate],[data-atlas-region-delete]");
         if (action?.closest?.(".application")?.querySelector?.('input[name="atlasRoadName"]')) {
@@ -614,7 +662,6 @@ function actions() {
           const call=tool==="edit" ? ()=>api.beginPointEdit(scene,road.id,refresh)
             :tool==="connection" ? ()=>api.beginJunction(scene,refresh)
             :tool==="newCheckpoint" ? ()=>api.beginCheckpoint(scene,refresh)
-            :tool==="travel" ? ()=>api.assignRoadTravelPreset(scene,road,refresh)
             :tool==="delete" ? ()=>api.remove(scene,road,refresh)
             :tool==="generateRegion" ? ()=>openAtlasRegionGenerator(scene,road.id,api,refresh)
             :action.dataset.atlasRegionDelete ? ()=>api.deleteGeneratedRegion(
@@ -629,23 +676,22 @@ function actions() {
             :action.dataset.atlasCheckpointEdit ? ()=>api.editCheckpointAppearance(
               scene,readAtlas(scene).checkpoints.find(c=>c.id===action.dataset.atlasCheckpointEdit),refresh)
             :()=>api.configureRegion(scene,action.dataset.atlasRegionEdit);
-          const host=action.closest(".application");
-          void Promise.resolve().then(call).then(result=>{
-            if(tool==="travel" && result!==undefined){
-              const current=readAtlas(scene).roads?.find(item=>item.id===road.id);
-              const preset=readWorldTravelPresets().presets.find(p=>p.id===current?.travelPresetId);
-              const button=host?.querySelector('[data-atlas-road-tool="travel"]');
-              if(button)button.textContent="Travel preset: "+(preset?.name??"None");
+          void Promise.resolve().then(async()=>{
+            if(["edit","connection","delete"].includes(tool)&&roadDirty()){
+              const choice=await confirmUnsavedSettings("Road Settings");
+              if(choice==="continue")return;
+              if(choice==="save"){
+                if(!roadSaveButton)return;
+                afterRoadSave=call;
+                roadSaveButton.click();
+                return;
+              }
             }
+            const result=await call();
             if((tool==="delete" && result===true) ||
                 (["edit","connection"].includes(tool) && result!==false)){
-              const close=host?.querySelector('.window-header [data-action="close"]');
-              if(close)close.click();
-              else {
-                const id=Number(host?.dataset?.appid);
-                const app=foundry.applications?.instances?.get?.(id);
-                if(app)void app.close();
-              }
+              roadMayClose=true;
+              await roadDialog?.close();
             }
           }).catch(error=>ui.notifications.error(error.message));
           return;
@@ -733,7 +779,8 @@ function actions() {
         result = await DialogV2.input({
           window: { title: "Road Settings — " + actual.name, resizable: true },
           position: { width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(740, Math.max(440, window.innerHeight - 70)) },
-          content, ok: {label:"",icon:"fa-solid fa-floppy-disk",tooltip:"Save Road Settings"},
+          content, ok: {label:"",icon:"fa-solid fa-floppy-disk",tooltip:"Save road"},
+          render:renderRoadDialog,
           rejectClose: false, modal: false
         });
       } finally {
@@ -752,6 +799,9 @@ function actions() {
       if (!result) return;
       if (!Object.hasOwn(result,"atlasJournalUuid"))
         throw Error("Foundry did not return the Journal UUID field. No Road Settings were saved.");
+      const selectedPresetId=String(result.atlasRoadPresetId??"")||null;
+      if(selectedPresetId&&!readWorldTravelPresets().presets.some(p=>p.id===selectedPresetId))
+        throw Error("This travel preset no longer exists. Reopen Road Settings.");
       const nextJournal=journalUuidFromForm(result.atlasJournalUuid);
       if(nextJournal&&!validJournalUuid(nextJournal))
         throw Error("Choose a valid Journal Entry or Journal Page UUID.");
@@ -773,6 +823,11 @@ function actions() {
           result.atlasRoadVisible === "true" || result.atlasRoadVisible === "on",
         appearance: inherits ? null : selected, expectedRevision: currentAtlas.revision
       });
+      if(selectedPresetId!==currentRoad.travelPresetId){
+        await saveRoadTravelPreset(scene,{
+          roadId:road.id,presetId:selectedPresetId,expectedRevision:readAtlas(scene).revision
+        });
+      }
       const currentLinks=readAtlasJournalLinks(scene);
       if(nextJournal!==journalUuidFor(currentLinks,"road",road.id)) {
         if (journalUuidFor(currentLinks,"road",road.id)!==
@@ -785,6 +840,7 @@ function actions() {
       roadCanvas.refresh();
       refresh();
       ui.notifications.info("Atlas road settings saved.");
+      if(afterRoadSave)await afterRoadSave();
     },
     async resetRoadAppearance(scene, road, refresh) {
       ensureIdle(scene);

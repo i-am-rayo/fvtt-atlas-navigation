@@ -6,6 +6,7 @@ import { createCheckpointChoice,createCheckpointRange,createCheckpointMarkerSize
   from "./checkpoint-form-controls.js";
 import { appendSettingsField } from "./settings-layout.js";
 import { createCheckpointPresetSelect,createSettingsIconButton } from "./settings-controls.js";
+import { approveSettingsClose,trackSettingsChanges } from "./settings-close-guard.js";
 import { readAtlas } from "./atlas-storage.js";
 import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
   validJournalUuid } from "./atlas-journal-links.js";
@@ -63,6 +64,17 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   }
 
   async close(options) {
+    if (!this._skipClosePrompt) {
+      if (this._checkingClose) return this;
+      this._checkingClose = true;
+      try {
+        const approved = await approveSettingsClose({
+          isDirty: this._isDirty, save: this._saveDraft,
+          title: "Checkpoint Settings"
+        });
+        if (!approved || this._skipClosePrompt) return this;
+      } finally { this._checkingClose = false; }
+    }
     // A dismissed native Region dialog must not strand a transient preview.
     this.onTerrainAction?.("clearPreview");
     if (this.createDraft && !this.createResolved) {
@@ -115,12 +127,19 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     }
     category.value=this.createDraft?"generic":checkpointCategory(this.scene,this.checkpointId);
     category.title="Changing type suggests its World checkpoint preset. Changes are staged until Save.";
-    const presetPicker=field("Checkpoint preset",el("select"));
+    const presetPicker=el("select");
+    const saveAsPreset=createSettingsIconButton({icon:"floppy-disk",label:"Save as preset"});
+    saveAsPreset.type="button";
+    const presetControls=el("div");
+    presetControls.style.cssText="display:flex;align-items:center;gap:.4rem;flex:0 1 16rem;min-width:0;";
+    presetPicker.style.cssText="flex:1;min-width:0;";
+    presetControls.append(presetPicker,saveAsPreset);
+    field("Checkpoint preset",presetControls);
     const presetHint=el("small","Choose a saved preset to fill editable marker and discovery defaults. This never changes a native Region.");
     fields.appendChild(presetHint);
     // The same General page is used for creation and editing: choose a reusable
     // template before entering or refining checkpoint-specific values.
-    fields.prepend(presetPicker.closest("label"),presetHint);
+    fields.prepend(presetControls.closest("label"),presetHint);
     let terrainSuggestion=this.createDraft?null:checkpointTerrainSuggestion(this.scene,this.checkpointId);
     const draftRoad = this.createDraft
       ? field("Named road", select(this.createDraft.roads.map(road => [road.id, road.name]),
@@ -346,15 +365,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const journalInput = journalControls.querySelector('input[name="atlasJournalUuid"]');
     const controls = el("div");
     controls.style.cssText = "position:sticky;bottom:0;z-index:2;display:flex;gap:0.5rem;justify-content:flex-end;background:#100f17;padding:.4rem 0;";
-    const reset = el("button", "Reset to default dot");
-    reset.type = "button";
-    reset.addEventListener("click", () => void saveValue(null));
-    const cancel = el("button", "Cancel");
-    cancel.type = "button"; cancel.addEventListener("click", () => this.close());
     const save = this.createDraft ? el("button", "Create Checkpoint") :
       createSettingsIconButton({icon:"floppy-disk",label:"Save Checkpoint Settings"});
     save.type = "button";
-    if (this.createDraft) reset.hidden = true;
     const remove = !this.createDraft && this.onDelete ?
       createSettingsIconButton({icon:"trash",label:"Delete checkpoint",danger:true}):null;
     remove?.addEventListener("click",async()=>{
@@ -362,11 +375,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       remove.disabled=true;
       try{
         const deleted=await this.onDelete();
-        if(deleted===true)await this.close();
+        if(deleted===true){this._skipClosePrompt=true;await this.close();}
       }catch(error){ui.notifications.error(error.message??String(error));}
       finally{remove.disabled=false;}
     });
-    const saveAsPreset=el("button","Save as Preset");saveAsPreset.type="button";
     saveAsPreset.addEventListener("click",async()=>{
       try{
         const wrapper=el("div"),input=el("input");
@@ -400,7 +412,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     });
     const saveValue = async value => {
       if (save.disabled) return;
-      save.disabled = true; reset.disabled = true;
+      save.disabled = true;
       try {
         if (readAtlas(this.scene).revision !== this.expectedRevision) {
           throw new Error("Scene Atlas changed. Close and reopen this checkpoint editor.");
@@ -439,8 +451,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           };
           this.createResolved = true;
           this.onCreate?.(config);
+          this._skipClosePrompt=true;
           await this.close();
-          return;
+          return true;
         }
         if (discovery && JSON.stringify(readPartyExploration(this.scene)) !==
             JSON.stringify(exploration)) {
@@ -481,18 +494,22 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           });
         }
         this.onSaved?.();
+        this._skipClosePrompt=true;
         await this.close();
         ui.notifications.info("Atlas checkpoint settings saved.");
+        return true;
       } catch (error) {
         ui.notifications.error(error.message || String(error));
-        save.disabled = false; reset.disabled = false;
+        save.disabled = false;
+        return false;
       }
     };
     save.addEventListener("click", () => void saveValue(undefined));
-    controls.append(saveAsPreset,reset);
     if(remove)controls.appendChild(remove);
-    controls.append(cancel,save);
+    controls.appendChild(save);
     root.appendChild(controls);
+    this._saveDraft=()=>saveValue(undefined);
+    this._isDirty=trackSettingsChanges(root,()=>({selected,terrainSuggestion}));
     return root;
   }
 
