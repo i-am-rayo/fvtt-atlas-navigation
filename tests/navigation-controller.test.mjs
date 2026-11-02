@@ -262,6 +262,29 @@ test("GM guided travel uses native TokenDocument.move and can be stopped without
     resolveTravel(true);
     assert.equal(await again,true);
     assert.match(nav.travelNotice,/Arrived/);
+
+    // Foundry may finish the Document update before the Canvas animation ends.
+    // A second Travel Route must never queue another complete trip in that gap.
+    let endVisibleAnimation;
+    token.object={movementAnimationPromise:new Promise(resolve=>{endVisibleAnimation=resolve;})};
+    const third=nav.startGuidedTravel();
+    await Promise.resolve();
+    assert.equal(calls.length,3);
+    resolveTravel(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.ok(nav.travelSession,"retain the journey lock during the visual animation");
+    assert.doesNotMatch(nav.travelNotice,/Arrived/);
+    await assert.rejects(nav.startGuidedTravel(),/already in progress/);
+    assert.equal(calls.length,3,"no additional native movement may be queued");
+    const stillMoving=await nav._renderHTML();
+    assert.ok(find(stillMoving,node=>node.tag==="button"&&node.textContent==="Pause Travel"));
+    assert.equal(find(stillMoving,node=>node.tag==="button"&&node.textContent==="Travel Route"),undefined);
+    endVisibleAnimation();
+    assert.equal(await third,true);
+    assert.equal(nav.travelSession,null);
+    assert.match(nav.travelNotice,/Arrived/);
     nav.stop();
   }finally{Object.assign(globalThis,previous);}
 });

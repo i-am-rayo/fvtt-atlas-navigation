@@ -6,6 +6,7 @@ import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.
 import { navigationCanvasLegPaths } from "./navigation-render-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
+import { waitForTokenTravelAnimation } from "./navigation-movement-lifecycle.js";
 import { calculateGuidedPlayback,formatPlaybackDuration,readGuidedPlaybackSetting }
   from "./navigation-playback.js";
 import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
@@ -275,6 +276,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         animate:true,autoRotate:false,showRuler:false,pan:false,
         animation:{movementSpeed:playback.movementSpeed}
       });
+      // The document move may settle before the client-side curve animation.
+      // Maintain the single-flight lock and pause/end controls until both end.
+      await waitForTokenTravelAnimation(token);
       if(this.travelSession===session){
         this.travelNotice=completed?"Arrived at destination.":"Travel stopped before arrival.";
         return completed;
