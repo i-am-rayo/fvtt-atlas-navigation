@@ -3,6 +3,8 @@ import { NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT,
   NAVIGATION_PLAYBACK_MIN,NAVIGATION_PLAYBACK_MAX } from "./navigation-playback.js";
 import { NAVIGATION_RULES_PROFILE_SETTING,NAVIGATION_RULES_PROFILE_DEFAULT,
   NAVIGATION_RULES_PROFILES } from "./navigation-rules-profile.js";
+import { NAVIGATION_WORLD_CLOCK_SETTING,NAVIGATION_WORLD_CLOCK_DEFAULT }
+  from "./navigation-world-clock.js";
 
 const MODULE_ID="fvtt-atlas-navigation";
 
@@ -30,5 +32,13 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
       "Custom parameters will be editable when those features arrive.",
     scope:"world",config:true,type:String,default:NAVIGATION_RULES_PROFILE_DEFAULT,
     choices:{...NAVIGATION_RULES_PROFILES}
+  });
+  settings.register(MODULE_ID,NAVIGATION_WORLD_CLOCK_SETTING,{
+    name:"Atlas Guided Travel — Allow World Time Advancement",
+    hint:"Disabled by default. If enabled, the active GM can separately opt in for each guided journey " +
+      "to advance Foundry World time only after confirmed token movement. " +
+      "Travel hours do not include overnight rests; Atlas does not yet perform rest, " +
+      "exhaustion, Actor, or currency changes.",
+    scope:"world",config:true,type:Boolean,default:NAVIGATION_WORLD_CLOCK_DEFAULT
   });
 }

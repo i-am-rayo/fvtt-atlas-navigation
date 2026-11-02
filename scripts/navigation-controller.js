@@ -8,6 +8,8 @@ import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
 import { planGuidedTravelChunks, waitForTokenTravelAnimation }
   from "./navigation-movement-lifecycle.js";
+import { GuidedJourneyClock, readNavigationWorldClockSetting, formatGuidedWorldTime }
+  from "./navigation-world-clock.js";
 import { calculateGuidedPlayback,formatPlaybackDuration,readGuidedPlaybackSetting }
   from "./navigation-playback.js";
 import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
@@ -59,6 +61,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelNotice="";
     this.travelProgress=0;
     this.travelProgressUI=null;
+    this.worldClockOptIn=false;
+    this.worldTimeAdvancedSeconds=0;
+    this.worldTimeUI=null;
     this.pointerTarget = null;
     this.overlay = null;
     this.pointerDown = this.onPointerDown.bind(this);
@@ -95,6 +100,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.result=null;
     this.itinerary=null;
     this.travelProgress=0;
+    this.worldClockOptIn=false;
+    this.worldTimeAdvancedSeconds=0;
     if(!this.start||!this.end)return;
     try{
       this.result=this.routeCalculator(view,this.scene,atlas,this.start,this.end);
@@ -249,9 +256,24 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
   }
 
+  setWorldTimeAdvanced(seconds){
+    this.worldTimeAdvancedSeconds=seconds;
+    if(this.worldTimeUI)this.worldTimeUI.textContent=
+      `Foundry World time advanced: +${formatGuidedWorldTime(seconds)} (travel only; no rests)`;
+  }
+
+  async commitGuidedWorldTime(session,{force=false}={}){
+    if(!session.clock)return 0;
+    const delta=await session.clock.commit(session.completedDistance,{force});
+    if(this.travelSession===session)this.setWorldTimeAdvanced(session.clock.advancedSeconds);
+    return delta;
+  }
+
   /** Hold the next native move while the GM decides whether to resume or end. */
   async waitForGuidedTravelResume(session){
     if(session.phase==="pausing"){
+      // A GM must see the confirmed World time before the paused state settles.
+      await this.commitGuidedWorldTime(session,{force:true});
       session.phase="paused";
       this.travelNotice="Journey paused. Resume Travel continues from this position.";
       if(this.active)void this.render(true);
@@ -278,12 +300,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const atlas=this.atlasProvider(this.scene);
     if(atlas.revision!==this.routeRevision)
       throw Error("The road network changed. Calculate a fresh route before traveling.");
+    const requestedWorldTime=this.worldClockOptIn;
     if(this.sourceMode==="party" && this.syncPartyDeparture(view,atlas)){
       // Re-read live token position before movement, never follow an outdated route.
       this.calculateRoute(view,atlas);
       this.draw();
       void this.render(true);
       if(this.result?.status!=="ok")throw Error("The party token's current position has no connected road route.");
+      if(requestedWorldTime)
+        throw Error("The token's departure changed. Review the new route and reselect World time advancement.");
     }
     const paths=navigationCanvasLegPaths(view,atlas,this.result);
     const waypoints=createGuidedTokenWaypoints(paths,token,this.scene.grid?.size);
@@ -296,12 +321,29 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       movementSpeed:playback.movementSpeed,gridSize:this.scene.grid.size
     });
     const totalDistance=chunks.reduce((sum,chunk)=>sum+chunk.distance,0);
+    const advanceWorldTime=this.worldClockOptIn;
+    if(advanceWorldTime){
+      if(!readNavigationWorldClockSetting(game.settings))
+        throw Error("Enable Atlas World time in Module Settings before choosing time advancement.");
+      if(game.users?.activeGM?.id!==game.user?.id||!game.user?.isGM)
+        throw Error("Only Foundry's active GM can advance World time during an Atlas journey.");
+      if(typeof game.time?.advance!=="function")
+        throw Error("Foundry World time is unavailable for guided travel.");
+    }
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,
-      completedDistance:0,totalDistance,currentChunk:null,timer:null};
+      completedDistance:0,totalDistance,currentChunk:null,timer:null,clock:null};
+    if(advanceWorldTime)session.clock=new GuidedJourneyClock({
+      travelHours:playback.travelHours,totalDistance,
+      advance:seconds=>game.time.advance(seconds),
+      authorize:()=>game.user?.isGM&&game.users?.activeGM?.id===game.user?.id&&
+        readNavigationWorldClockSetting(game.settings)&&
+        this.travelSession===session&&this.scene?.id===session.sceneId
+    });
     this.travelSession=session;
     this.travelNotice="Guided travel in progress. Pause Travel stops at the next short stretch.";
     this.setTravelProgress(0);
+    this.setWorldTimeAdvanced(0);
     try{
       // Render the controls before awaiting Foundry's long-running native move.
       await this.render(true);
@@ -315,12 +357,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.setTravelProgress(Math.min(99,100*(session.completedDistance+
           (chunk?.distance??0)*fraction)/session.totalDistance));
       },100);
-      let reachedEnd=true,interruptedReason=null;
+      let reachedEnd=true,interruptedReason=null,clockFailed=false;
       for(const chunk of chunks){
         if(this.travelSession!==session||session.phase==="ending"){
           reachedEnd=false;break;
         }
-        await this.waitForGuidedTravelResume(session);
+        try{await this.waitForGuidedTravelResume(session);}
+        catch(error){
+          reachedEnd=false;clockFailed=true;
+          interruptedReason="World time could not advance: "+(error.message||String(error));
+          break;
+        }
         if(this.travelSession!==session||session.phase==="ending"){
           reachedEnd=false;break;
         }
@@ -334,9 +381,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         // Never submit the next stretch until this Canvas animation is finished.
         await waitForTokenTravelAnimation(token);
         if(this.travelSession!==session)return false;
-        if(completed)session.completedDistance+=chunk.distance;
         session.currentChunk=null;
-        this.setTravelProgress(Math.min(99,100*session.completedDistance/totalDistance));
         if(!completed){
           interruptedReason="Foundry stopped or blocked the current travel stretch.";
           reachedEnd=false;break;
@@ -347,9 +392,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           interruptedReason="The token left the planned road path. Recalculate before traveling again.";
           reachedEnd=false;break;
         }
+        // Credit progress only after Foundry confirms the expected destination.
+        // An interrupted/redirected movement must never receive World time.
+        session.completedDistance+=chunk.distance;
+        this.setTravelProgress(Math.min(99,100*session.completedDistance/totalDistance));
+        try{await this.commitGuidedWorldTime(session);}
+        catch(error){
+          reachedEnd=false;clockFailed=true;
+          interruptedReason="World time could not advance: "+(error.message||String(error));
+          break;
+        }
       }
       if(this.travelSession===session){
-        const arrived=reachedEnd&&session.phase!=="ending";
+        if(!clockFailed){
+          try{await this.commitGuidedWorldTime(session,{force:true});}
+          catch(error){
+            clockFailed=true;
+            interruptedReason="World time could not advance: "+(error.message||String(error));
+          }
+        }
+        const arrived=reachedEnd&&session.phase!=="ending"&&!clockFailed;
         if(arrived)this.setTravelProgress(100);
         this.travelNotice=arrived?"Arrived at destination.":
           (interruptedReason??"Journey ended at the last completed road stretch.");
@@ -361,6 +423,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       session.resumeWaiter?.();
       if(this.travelSession===session){
         this.travelSession=null;
+        this.worldClockOptIn=false;
         if(this.active)void this.render(true);
       }
     }
@@ -407,6 +470,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.notice=reason;
     this.travelNotice="";
     this.travelProgress=0;
+    this.worldClockOptIn=false;
+    this.worldTimeAdvancedSeconds=0;
     this.draw();
     if (this.active) void this.render(true);
   }
@@ -455,6 +520,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelNotice="";
     this.travelProgress=0;
     this.travelProgressUI=null;
+    this.worldClockOptIn=false;
+    this.worldTimeAdvancedSeconds=0;
+    this.worldTimeUI=null;
   }
 
   tearDown() {
@@ -576,6 +644,31 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         body.appendChild(progressWrap);
         this.travelProgressUI={bar:progressBar,label:progressLabel};
       }else this.travelProgressUI=null;
+      const clockAllowed=readNavigationWorldClockSetting(game.settings);
+      const clockRow=el("label");
+      clockRow.style.cssText="display:flex;align-items:flex-start;gap:.6rem;font-size:.85em;";
+      const clockInput=el("input");
+      clockInput.type="checkbox";
+      clockInput.checked=this.worldClockOptIn||Boolean(this.travelSession?.clock);
+      clockInput.disabled=Boolean(this.travelSession)||!clockAllowed;
+      clockInput.title=clockAllowed?"Advance Foundry World time only for confirmed travel":"Enable in Atlas World Settings first";
+      clockInput.addEventListener("change",()=>{
+        if(!this.travelSession&&clockAllowed)this.worldClockOptIn=clockInput.checked;
+      });
+      const clockLabel=el("span","Advance Foundry World time during this journey");
+      clockRow.append(clockInput,clockLabel);
+      body.appendChild(clockRow);
+      const clockHint=el("p",clockAllowed?
+        "GM opt-in: only confirmed travel hours advance the World clock. Overnight rests, exhaustion and Actor changes are not included yet.":
+        "World time stays unchanged. Enable Atlas Guided Travel World Time in Module Settings to allow a per-journey opt-in.");
+      clockHint.style.cssText="margin:-.5rem 0 0;font-size:.77em;opacity:.7;";
+      body.appendChild(clockHint);
+      if(this.travelSession?.clock||this.worldTimeAdvancedSeconds>0){
+        const clockStatus=el("p",`Foundry World time advanced: +${formatGuidedWorldTime(this.worldTimeAdvancedSeconds)} (travel only; no rests)`);
+        clockStatus.style.cssText="margin:0;font-size:.85em;font-weight:600;";
+        this.worldTimeUI=clockStatus;
+        body.appendChild(clockStatus);
+      }else this.worldTimeUI=null;
       const sourceLabel=el("p",`Speed: ${travelSource}`);
       sourceLabel.style.cssText="margin:0;font-size:.85em;opacity:.85;";
       body.appendChild(sourceLabel);

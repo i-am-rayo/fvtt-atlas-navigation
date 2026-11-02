@@ -334,3 +334,121 @@ test("guided travel rejects missing GM permission and a stale route before nativ
     await assert.rejects(nav.startGuidedTravel(),/road network changed/);
   }finally{Object.assign(globalThis,previous);}
 });
+
+test("explicit active-GM opt-in advances Foundry time only for confirmed journey chunks",async()=>{
+  const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
+    ui:globalThis.ui,document:globalThis.document};
+  let nav;
+  try{
+    const seconds=[];
+    let failClock=false,moveCount=0;
+    globalThis.game={user:{id:"gm-1",isGM:true},users:{activeGM:{id:"gm-1"}},
+      settings:{get:(_module,key)=>key==="guidedTravelAdvanceWorldTime"?true:
+        key==="guidedTravelSecondsPerHour"?2:5},
+      time:{advance:async amount=>{
+        if(failClock)throw Error("Clock is unavailable");
+        seconds.push(amount);return seconds.reduce((a,b)=>a+b,0);
+      }}};
+    globalThis.window={innerWidth:1200,innerHeight:800};
+    globalThis.PIXI=undefined;
+    globalThis.ui={notifications:{error(message){throw Error(message);}}};
+    globalThis.document={createElement:tag=>({tag,style:{},children:[],textContent:"",
+      listeners:new Map(),append(...nodes){this.children.push(...nodes);},
+      appendChild(node){this.children.push(node);},
+      addEventListener(name,handler){this.listeners.set(name,handler);}})};
+    let autoResolve=true,completeMovement,misplaceNext=false;
+    const token={x:50,y:50,width:1,height:1,canUserModify:()=>true,
+      move(waypoints){
+        moveCount++;
+        const goal=waypoints.at(-1);
+        const finish=value=>{
+          if(value&&!misplaceNext){this.x=goal.x;this.y=goal.y;}
+          return value;
+        };
+        return autoResolve?Promise.resolve(finish(true)):
+          new Promise(resolve=>{completeMovement=value=>resolve(finish(value));});
+      }};
+    const scene={id:"clock-scene",name:"Paedor",grid:{size:100,units:"km"},
+      canUserModify:()=>true,getFlag:()=>null};
+    const view={ready:true,scene};
+    const atlas={revision:9,nodes:[{id:"a",...point(100,100)},{id:"b",...point(300,200)}],
+      segments:[{id:"segment-a",roadId:"road-a",from:"a",to:"b",via:[]}],
+      roads:[{id:"road-a",name:"Road A"}]};
+    nav=new AtlasNavigationController({canvasProvider:()=>view,
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token});
+    nav.scene=scene;nav.routeRevision=9;
+    nav.start=point(100,100);nav.end=point(300,200);
+    nav.result={status:"ok",start:nav.start,end:nav.end,
+      distance:20,cost:20,terrainAware:false,
+      legs:[{kind:"road",roadId:"road-a",segmentId:"segment-a",
+        points:[point(100,100),point(200,150),point(300,200)],distance:20,cost:20}]};
+
+    const find=(node,match)=>match(node)?node:
+      node.children.map(child=>find(child,match)).find(Boolean);
+    nav.worldClockOptIn=true;
+    const prepared=await nav._renderHTML();
+    const optIn=find(prepared,node=>node.tag==="input"&&node.type==="checkbox");
+    assert.equal(optIn.checked,true);
+    assert.equal(optIn.disabled,false);
+    assert.equal(await nav.startGuidedTravel(),true);
+    assert.equal(seconds.reduce((a,b)=>a+b,0),14400,
+      "four real travel hours advance exactly four World hours, not displayed days");
+    assert.equal(nav.worldTimeAdvancedSeconds,14400);
+    assert.equal(nav.worldClockOptIn,false,"every new journey requires a new explicit opt-in");
+    assert.equal(nav.travelProgress,100);
+
+    token.x=50;token.y=50;
+    const count=seconds.length;
+    assert.equal(await nav.startGuidedTravel(),true);
+    assert.equal(seconds.length,count,"default journey does not touch Foundry time");
+
+    token.x=50;token.y=50;
+    nav.worldClockOptIn=true;
+    game.users.activeGM={id:"another-gm"};
+    await assert.rejects(nav.startGuidedTravel(),/active GM/);
+    assert.equal(seconds.length,count);
+    game.users.activeGM={id:"gm-1"};
+
+    // If the GM interrupts after one completed chunk, only that part is paid.
+    autoResolve=false;
+    nav.worldClockOptIn=true;
+    const interrupted=nav.startGuidedTravel();
+    for(let i=0;i<5;i++)await Promise.resolve();
+    nav.pauseGuidedTravel();
+    completeMovement(true);
+    for(let i=0;i<15;i++)await Promise.resolve();
+    assert.equal(nav.travelSession.phase,"paused");
+    const beforeEnd=seconds.reduce((a,b)=>a+b,0);
+    assert.ok(beforeEnd>14400&&beforeEnd<28800,
+      "only the completed stretch advances time during a pause");
+    nav.stopGuidedTravel();
+    assert.equal(await interrupted,false);
+    assert.equal(seconds.reduce((a,b)=>a+b,0),beforeEnd,
+      "ending a paused journey does not advance untraveled hours");
+
+    // A rejected Foundry clock update stops subsequent native moves without
+    // pretending that the failed delta was applied or restarting the route.
+    token.x=50;token.y=50;
+    autoResolve=true;
+    failClock=true;
+    nav.worldClockOptIn=true;
+    const previousMoves=moveCount;
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(moveCount,previousMoves+1,"time failure prevents further movement chunks");
+    assert.equal(nav.worldTimeAdvancedSeconds,0);
+    assert.match(nav.travelNotice,/World time could not advance: Clock is unavailable/);
+
+    // A native operation reporting true but ending off the route is not
+    // confirmed travel: neither progress nor World time may be credited.
+    failClock=false;
+    misplaceNext=true;
+    token.x=50;token.y=50;
+    nav.worldClockOptIn=true;
+    const beforeMismatch=seconds.reduce((a,b)=>a+b,0);
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(nav.worldTimeAdvancedSeconds,0);
+    assert.equal(nav.travelProgress,0);
+    assert.match(nav.travelNotice,/left the planned road path/);
+    assert.equal(seconds.reduce((a,b)=>a+b,0),beforeMismatch);
+  }finally{nav?.stop();Object.assign(globalThis,previous);}
+});

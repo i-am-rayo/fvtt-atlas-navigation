@@ -3,6 +3,7 @@ import test from "node:test";
 import { registerNavigationWorldSettings } from "../scripts/navigation-world-settings.js";
 import { NAVIGATION_PLAYBACK_SETTING } from "../scripts/navigation-playback.js";
 import { NAVIGATION_RULES_PROFILE_SETTING } from "../scripts/navigation-rules-profile.js";
+import { NAVIGATION_WORLD_CLOCK_SETTING } from "../scripts/navigation-world-clock.js";
 
 test("navigation World Settings register once in a reusable module with bounded slider",()=>{
   const catalog=new Map();
@@ -13,7 +14,7 @@ test("navigation World Settings register once in a reusable module with bounded 
   }};
   let updates=0;
   registerNavigationWorldSettings({settings,onPlaybackChange:()=>updates++});
-  assert.equal(catalog.size,3);
+  assert.equal(catalog.size,4);
   const slider=catalog.get(NAVIGATION_PLAYBACK_SETTING);
   assert.deepEqual(slider.range,{min:0.5,max:8,step:0.5});
   assert.equal(slider.default,2);
@@ -25,4 +26,10 @@ test("navigation World Settings register once in a reusable module with bounded 
   assert.deepEqual(Object.keys(rules.choices),["system","dnd5e2014","dnd5e2024","custom"]);
   assert.equal(rules.default,"system");
   assert.match(rules.hint,/does not yet apply rest, exhaustion/);
+  const worldClock=catalog.get(NAVIGATION_WORLD_CLOCK_SETTING);
+  assert.equal(worldClock.default,false,"World time advancement is off for existing Worlds");
+  assert.equal(worldClock.scope,"world");
+  assert.equal(worldClock.config,true);
+  assert.equal(worldClock.type,Boolean);
+  assert.match(worldClock.hint,/active GM can separately opt in/);
 });
