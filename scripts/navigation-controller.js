@@ -399,6 +399,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session=this.travelSession;
     if(!session||session.phase!=="rest-choice"||!session.restWaiter)return false;
     session.phase="rest-applying";
+    session.restCheckpointed=false;
     atlasDebug("journey","GM selected travel-day decision",{
       sceneId:session.sceneId,action,completedPercent:Math.floor(this.travelProgress)
     });
@@ -411,6 +412,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   async waitForDailyTravelChoice(session){
     if(!session.schedule.needsDecision)return true;
+    session.phase="rest-checkpointing";
+    // A daily-limit boundary is a durable confirmed stop, even if fewer than
+    // five native movement stretches have completed since the last save.
+    await this.saveJourneyCheckpoint(session,"paused");
+    if(session.phase==="ending"||this.travelSession!==session)return false;
     session.phase="rest-choice";
     atlasDebug("journey","Daily travel limit reached",{
       sceneId:session.sceneId,todayHours:session.schedule.todayHours
@@ -439,7 +445,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     session.schedule.applyBreak(choice);
     if(session.clock)this.setWorldTimeAdvanced(
       session.clock.advancedSeconds,session.clock.restSeconds);
-    await this.saveJourneyCheckpoint(session,"moving");
+    await this.saveJourneyCheckpoint(session,session.phase==="ending"?
+      "interrupted":"moving");
+    session.restCheckpointed=true;
+    atlasDebug("journey","Rest decision and World-time checkpoint settled",{
+      sceneId:session.sceneId,action,interrupted:session.phase==="ending",
+      confirmedRestHours:session.schedule.breakHours
+    });
     this.travelNotice=action==="continue"?
       "Forced travel approved for one more hour. Resolve required saves manually.":
       `${action==="overnight"?"Overnight camp":action==="long"?"Long rest":"Short rest"} `+
@@ -514,7 +526,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
-      completedDistance:0,totalDistance,currentChunk:null,timer:null,clock:null};
+      completedDistance:0,totalDistance,currentChunk:null,timer:null,clock:null,
+      confirmedSegments:0,restCheckpointed:false};
     session.finished=new Promise(resolve=>{session.resolveFinished=resolve;});
     // The Journal is the one durable journey store. Create it before any
     // movement; a failed Journal write cannot leave an unrecorded trip.
@@ -647,6 +660,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           completedPercent:Math.round(100*session.completedDistance/totalDistance)
         },{level:"verbose"});
         schedule.recordMovement(chunk.distance/totalDistance*playback.travelHours);
+        session.confirmedSegments++;
         this.setTravelProgress(Math.min(99,100*session.completedDistance/totalDistance));
         try{await this.commitGuidedWorldTime(session);}
         catch(error){
@@ -655,13 +669,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           break;
         }
         if(this.travelSession!==session)return false;
-        try{await this.saveJourneyCheckpoint(session,"moving",{
-          updatePage:index%5===0});}
-        catch(error){
-          reachedEnd=false;
-          interruptedReason="The Journey Journal could not save confirmed progress: "+
-            (error.message||String(error));
-          break;
+        if(session.confirmedSegments%5===0){
+          try{await this.saveJourneyCheckpoint(session,"moving");}
+          catch(error){
+            reachedEnd=false;
+            interruptedReason="The Journey Journal could not save confirmed progress: "+
+              (error.message||String(error));
+            break;
+          }
         }
       }
       if(this.travelSession===session){
@@ -856,16 +871,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session=this.travelSession;
     atlasDebug("lifecycle","Navigation teardown",{
       reason,sceneId:this.scene?.id??null,journeyActive:Boolean(session),
-      completedPercent:Math.floor(this.travelProgress)
+      completedPercent:Math.floor(this.travelProgress),phase:session?.phase??null
     });
-    if(reason==="canvasTearDown"&&session?.phase==="moving"&&
+    if(reason==="canvasTearDown"&&["moving","rest-applying"].includes(session?.phase)&&
         session.journal?.id&&session.journeyRecord){
       const attempts=(this.autoResumeAttempts.get(session.journal.id)??0)+1;
       this.autoResumeAttempts.set(session.journal.id,attempts);
       if(attempts<=6){
         this.autoResumePending={sceneId:session.sceneId,tokenId:session.token.id,
           journalId:session.journal.id,revision:session.journeyRecord.atlasRevision,
-          session};
+          requiresRestCheckpoint:session.phase==="rest-applying",session};
       }else{
         this.autoResumePending=null;
         atlasWarn("journey","Automatic continuation stopped after repeated canvas rebuilds",{
@@ -907,6 +922,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(!settled||this.autoResumePending!==pending||this.active){
       if(this.autoResumePending===pending)this.autoResumePending=null;
       atlasWarn("journey","Automatic continuation skipped; recover the saved Journal manually",{
+        sceneId:pending.sceneId,journalId:pending.journalId});
+      return false;
+    }
+    if(pending.requiresRestCheckpoint&&!pending.session.restCheckpointed){
+      this.autoResumePending=null;
+      atlasWarn("journey","Automatic continuation withheld: rest/time checkpoint was not committed",{
         sceneId:pending.sceneId,journalId:pending.journalId});
       return false;
     }

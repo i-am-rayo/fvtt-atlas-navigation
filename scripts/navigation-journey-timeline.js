@@ -71,6 +71,34 @@ export function annotateJourneyDirections(steps,events,{travelHours,speed,terrai
   return result;
 }
 
+/** Present only confirmed travel in a Journal leg. Retain the original full
+ * directions in the record for routing metadata and future recovery. */
+export function confirmedJourneyDirections(steps,events,{travelHours,speed,
+  terrainAware=false,confirmedHours=travelHours}={}){
+  if(!Number.isFinite(confirmedHours)||confirmedHours<0||
+      confirmedHours>travelHours+EPS)
+    throw Error("Invalid confirmed journey duration.");
+  const timeline=annotateJourneyDirections(steps,events,{travelHours,speed,terrainAware});
+  const output=[];
+  let moving=0;
+  for(const step of timeline){
+    if(step.kind==="journey-event"){
+      if(step.atHours<=confirmedHours+EPS)output.push(step);
+      continue;
+    }
+    const hours=(terrainAware?step.cost:step.distance)/speed;
+    const left=Math.max(0,confirmedHours-moving);
+    if(hours<=EPS){
+      if(moving<=confirmedHours+EPS)output.push(step);
+    }else if(left>EPS){
+      const fraction=Math.min(1,left/hours);
+      output.push(fraction>=1-EPS?step:splitStep(step,0,fraction));
+    }
+    moving+=hours;
+  }
+  return output;
+}
+
 function splitStep(step,from,to){
   const first=from<=EPS;
   let instruction=step.instruction;

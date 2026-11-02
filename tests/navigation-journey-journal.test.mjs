@@ -38,6 +38,11 @@ test("one versioned record contains readable route, rest history, and recovery s
   assert.match(html,/Interrupted — may resume/);
   assert.match(html,/Long Rest/);
   assert.match(html,/Confirmed progress: 45%/);
+  assert.match(html,/Only confirmed travel and approved stops/);
+  assert.match(html,/Moving time: 18h/,
+    "full intended itinerary remains available as metadata");
+  assert.doesNotMatch(html,/94\.20 km<\/li>/,
+    "an interrupted leg must not claim all planned directions were traveled");
   assert.match(html,/&lt;Bridge&gt; &amp; Road/);
   assert.doesNotMatch(html,/<Bridge>/);
   const resumed=resumeJourneyRecord(changed,{itinerary:itinerary(),atlasRevision:12});
@@ -47,6 +52,23 @@ test("one versioned record contains readable route, rest history, and recovery s
   assert.equal(eligibleJourneyRecord({...resumed,status:"completed"},
     {sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
   assert.throws(()=>resumeJourneyRecord(changed,{itinerary:itinerary(),atlasRevision:13}),/cannot safely/);
+});
+
+test("an interrupted Journal renders only reached directions and approved rests",()=>{
+  const record=createRecord();
+  record.legs[0].directions=[
+    {kind:"road",instruction:"Head to First Stop",distance:47.1,cost:47.1},
+    {kind:"road",instruction:"Head to Final Stop",distance:47.1,cost:47.1}
+  ];
+  const partial=checkpointJourneyRecord(record,{schedule:{...schedule,
+    completedHours:6,events:[{action:"short",atHours:5,hours:1}]},
+    progress:33.333,status:"interrupted"});
+  const html=formatJourneyJournalHTML(partial);
+  assert.match(html,/First Stop/);
+  assert.match(html,/Short Rest/);
+  assert.doesNotMatch(html,/Final Stop/);
+  assert.equal(partial.legs[0].directions.length,2,
+    "the persisted full route is not edited to fit the confirmed summary");
 });
 
 test("Journal creation, metadata updates, and the managed summary all use one record",async()=>{

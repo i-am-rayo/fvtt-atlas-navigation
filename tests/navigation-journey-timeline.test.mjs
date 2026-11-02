@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { annotateJourneyDirections,projectJourneyTiming }
+import { annotateJourneyDirections,confirmedJourneyDirections,projectJourneyTiming }
   from "../scripts/navigation-journey-timeline.js";
 
 const steps=[
@@ -48,4 +48,18 @@ test("elapsed travel time includes completed rest, while ETA includes future bre
   assert.ok(Math.abs(rested.etaHours-19.94)<1e-8);
   assert.throws(()=>annotateJourneyDirections(steps,[{atHours:-2,hours:1}],
     {travelHours:12,speed:1}),/Journey event/);
+});
+
+test("confirmed direction projection cuts a partially traversed segment without mutating route data",()=>{
+  const original=structuredClone(steps);
+  const rows=confirmedJourneyDirections(steps,[
+    {action:"short",atHours:4,hours:1},
+    {action:"long",atHours:10,hours:8}
+  ],{travelHours:12,speed:1,confirmedHours:7});
+  assert.equal(rows.filter(row=>row.kind==="journey-event").length,1);
+  assert.ok(Math.abs(rows.filter(row=>row.kind==="road")
+    .reduce((sum,row)=>sum+row.distance,0)-7)<1e-8);
+  assert.deepEqual(steps,original);
+  assert.throws(()=>confirmedJourneyDirections(steps,[],{
+    travelHours:12,speed:1,confirmedHours:13}),/Invalid confirmed/);
 });

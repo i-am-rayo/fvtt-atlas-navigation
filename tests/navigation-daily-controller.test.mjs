@@ -146,3 +146,52 @@ test("ending at a day-limit prompt never adds unapproved rest time",async()=>{
       "End Journey is terminal, distinct from an interrupted journey");
   }finally{f.restore();}
 });
+
+test("a rest-triggered canvas rebuild waits for its World-time and Journal checkpoint",async()=>{
+  const f=await journeyFixture();
+  try{
+    const notices=[];
+    globalThis.ui.notifications.warn=message=>notices.push(message);
+    const running=f.nav.startGuidedTravel();
+    await tickUntil(()=>f.nav.travelSession?.phase==="rest-choice"&&
+      Boolean(f.nav.travelSession.restWaiter));
+    const oldAdvance=game.time.advance;
+    game.time.advance=async seconds=>{
+      await oldAdvance(seconds);
+      if(seconds===8*3600)f.nav.tearDown("canvasTearDown");
+    };
+    assert.equal(f.nav.chooseDailyTravelBreak("long"),true);
+    assert.equal(await running,false,"canvas interruption stops the old movement loop");
+    const pending=f.nav.autoResumePending;
+    assert.ok(pending?.requiresRestCheckpoint);
+    assert.equal(pending.session.restCheckpointed,true);
+    assert.equal(f.calls.reduce((sum,value)=>sum+value,0),16*3600,
+      "the confirmed 8h movement and 8h rest are each credited once");
+    const final=f.journalStates.at(-1);
+    assert.equal(final.status,"interrupted");
+    assert.equal(final.legs[0].events.at(-1).action,"long");
+    let recovered=0;
+    f.nav.activate=()=>{f.nav.scene=pending.session.token&&{
+      id:pending.sceneId};f.nav.recoverableJourney={id:pending.journalId};};
+    f.nav.recoverSavedJourney=()=>{recovered++;return true;};
+    f.nav.startGuidedTravel=async()=>true;
+    assert.equal(await f.nav.autoResumeAfterCanvasReady(),true);
+    assert.equal(recovered,1);
+  }finally{f.restore();}
+});
+
+test("native movement Journal writes are batched, but rest boundaries and arrival are immediate",async()=>{
+  const f=await journeyFixture({clockEnabled:false,hours:10});
+  try{
+    const running=f.nav.startGuidedTravel();
+    await tickUntil(()=>f.nav.travelSession?.phase==="rest-choice"&&
+      Boolean(f.nav.travelSession.restWaiter));
+    assert.ok(f.journalStates.some(state=>state.status==="paused"));
+    assert.equal(f.nav.chooseDailyTravelBreak("overnight"),true);
+    assert.equal(await running,true);
+    assert.ok(f.token.moves.length>5);
+    assert.ok(f.journalStates.length<f.token.moves.length,
+      "do not issue a flag/page write for every short native movement segment");
+    assert.equal(f.journalStates.at(-1).status,"completed");
+  }finally{f.restore();}
+});

@@ -81,6 +81,12 @@ test("canvas recovery restarts only the matching GM-approved Journey after its w
     globalThis.ui={notifications:{warn(){}}};
     assert.equal(await nav.autoResumeAfterCanvasReady(),false);
     assert.equal(started,1);
+    nav.autoResumePending={sceneId:scene.id,tokenId:token.id,
+      revision:17,journalId:"saved-journey",requiresRestCheckpoint:true,
+      session:{finished:Promise.resolve(),restCheckpointed:false}};
+    assert.equal(await nav.autoResumeAfterCanvasReady(),false,
+      "an interrupted, uncommitted rest cannot restart token movement");
+    assert.equal(started,1);
   }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
 });
 

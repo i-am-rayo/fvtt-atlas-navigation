@@ -1,6 +1,6 @@
 import { MODULE_ID } from "./atlas-storage.js";
 import { formatNavigationDuration } from "./navigation-time.js";
-import { annotateJourneyDirections } from "./navigation-journey-timeline.js";
+import { confirmedJourneyDirections } from "./navigation-journey-timeline.js";
 
 /** A Journal Entry owns the recoverable record and a generated human-readable page.
  * No Scene flag, token flag, or second persistent journey store is needed. */
@@ -129,9 +129,9 @@ export function formatJourneyJournalHTML(raw){
   const clockMoving=record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0);
   const clockBreaks=record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0);
   const legs=record.legs.map((leg,index)=>{
-    const timeline=annotateJourneyDirections(leg.directions,leg.events,{
+    const timeline=confirmedJourneyDirections(leg.directions,leg.events,{
       travelHours:leg.movingHours,speed:leg.speedPerHour,
-      terrainAware:leg.terrainAware});
+      terrainAware:leg.terrainAware,confirmedHours:leg.completedMovingHours});
     const rows=timeline.map(step=>step.kind==="journey-event"?
       `<li><strong>${escapeHTML(step.label)}</strong> after `+
       `${escapeHTML(formatNavigationDuration(step.atHours,24))} on this leg`+
@@ -146,7 +146,10 @@ export function formatJourneyJournalHTML(raw){
       `Moving time: ${escapeHTML(formatNavigationDuration(leg.movingHours,24))}; `+
       `Confirmed progress: ${Math.floor(leg.completedPercent)}% `+
       `(${escapeHTML(formatNavigationDuration(leg.completedMovingHours,24))} moving).</p>`+
-      `<h3>Directions and Confirmed Stops</h3><ol>${rows}</ol>`+"</section>";
+      `<h3>Confirmed Directions and Stops</h3>`+
+      `<p>The full planned route remains in this Journey's saved metadata. `+
+      `Only confirmed travel and approved stops appear below.</p>`+
+      `<ol>${rows}</ol>`+"</section>";
   }).join("");
   return `<h1>Atlas Journey — ${escapeHTML(title)}</h1>`+
     `<p>Atlas automatically maintains this summary. Add personal notes as a separate Journal page.</p>`+
