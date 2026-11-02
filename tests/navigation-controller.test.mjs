@@ -181,9 +181,10 @@ test("party departure chooses B with one click, tracks live token center, and pr
   }finally{Object.assign(globalThis,previous);}
 });
 
-test("GM guided travel uses native TokenDocument.move and can be stopped without teleporting",async()=>{
+test("GM guided travel pauses and ends at native chunk boundaries with honest progress",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
     ui:globalThis.ui,document:globalThis.document};
+  let nav;
   try{
     globalThis.game={user:{isGM:true},settings:{get:(_module,key)=>
       key==="guidedTravelSecondsPerHour"?2:5}};
@@ -195,17 +196,21 @@ test("GM guided travel uses native TokenDocument.move and can be stopped without
       appendChild(node){this.children.push(node);},
       addEventListener(name,handler){this.listeners.set(name,handler);}})};
     const calls=[];
-    let resolveTravel;
-    const token={x:50,y:50,width:1,height:1,
-      canUserModify:()=>true,
+    let resolveTravel,autoResolve=false;
+    const token={x:50,y:50,width:1,height:1,canUserModify:()=>true,
       move(waypoints,options){
         calls.push({waypoints,options});
-        return new Promise(resolve=>{resolveTravel=resolve;});
+        const target=waypoints.at(-1);
+        const complete=value=>{
+          if(value){this.x=target.x;this.y=target.y;}
+          return value;
+        };
+        return autoResolve?Promise.resolve(complete(true)):new Promise(resolve=>{
+          resolveTravel=value=>resolve(complete(value));
+        });
       },
-      pauseMovement(){this.pauses=(this.pauses??0)+1;return ()=>{
-        this.resumes=(this.resumes??0)+1;return Promise.resolve(true);
-      };},
-      stopMovement(){this.stops=(this.stops??0)+1;return true;}
+      pauseMovement(){throw Error("Native pause should not be called after Document completion.");},
+      stopMovement(){throw Error("Native stop should not be required for Atlas control.");}
     };
     const scene={id:"scene-guided",name:"Paedor",grid:{size:100,units:"km"},
       canUserModify:()=>true,getFlag:()=>null};
@@ -213,80 +218,101 @@ test("GM guided travel uses native TokenDocument.move and can be stopped without
     const atlas={revision:7,nodes:[{id:"a",...point(100,100)},{id:"b",...point(300,200)}],
       segments:[{id:"segment-a",roadId:"road-a",from:"a",to:"b",via:[]}],
       roads:[{id:"road-a",name:"Road A"}]};
-    const nav=new AtlasNavigationController({canvasProvider:()=>view,
+    nav=new AtlasNavigationController({canvasProvider:()=>view,
       atlasProvider:()=>atlas,partyTokenProvider:()=>token});
-    nav.scene=scene;
-    nav.routeRevision=7;
-    nav.start=point(100,100);
-    nav.end=point(300,200);
+    nav.scene=scene;nav.routeRevision=7;
+    nav.start=point(100,100);nav.end=point(300,200);
     nav.result={status:"ok",start:nav.start,end:nav.end,
-      distance:2,cost:2,terrainAware:false,
+      distance:20,cost:20,terrainAware:false,
       legs:[{kind:"road",roadId:"road-a",segmentId:"segment-a",
-        points:[point(100,100),point(200,150),point(300,200)],distance:2,cost:2}]};
+        points:[point(100,100),point(200,150),point(300,200)],distance:20,cost:20}]};
     const pending=nav.startGuidedTravel();
     assert.equal(calls.length,0,"render the Pause button before native movement begins");
-    await Promise.resolve();
+    for(let i=0;i<5;i++)await Promise.resolve();
     assert.equal(calls.length,1);
     assert.deepEqual(calls[0].waypoints[0],point(50,50));
-    assert.deepEqual(calls[0].waypoints.at(-1),point(250,150));
+    assert.notDeepEqual(calls[0].waypoints.at(-1),point(250,150),
+      "long journeys are divided into short native chunks");
     assert.equal(calls[0].options.animate,true);
     assert.equal(calls[0].options.showRuler,false);
     assert.ok(calls[0].options.animation.movementSpeed>0);
-    assert.notEqual(calls[0].options.animation.movementSpeed,8,
-      "native animation speed must be derived from calculated travel time");
     assert.equal(calls[0].options.constrainOptions,undefined,
       "Foundry native movement constraints are not bypassed");
-    assert.ok(nav.travelSession);
     const find=(item,match)=>match(item)?item:item.children.map(child=>find(child,match)).find(Boolean);
     const movingPanel=await nav._renderHTML();
     assert.ok(find(movingPanel,node=>node.tag==="button"&&node.textContent==="Pause Travel"));
     assert.ok(find(movingPanel,node=>node.tag==="button"&&node.textContent==="End Journey"));
+    const bar=find(movingPanel,node=>node.tag==="progress");
+    assert.equal(bar.value,0);
+    assert.equal(bar.max,100);
     assert.equal(nav.pauseGuidedTravel(),true);
+    assert.equal(nav.travelSession.phase,"pausing");
+    const pausingPanel=await nav._renderHTML();
+    assert.ok(find(pausingPanel,node=>node.tag==="button"&&node.textContent==="Pausing…"));
+    resolveTravel(true);
+    for(let i=0;i<10;i++)await Promise.resolve();
     assert.equal(nav.travelSession.phase,"paused");
-    assert.equal(token.pauses,1);
+    assert.equal(calls.length,1,"pausing prevents the next chunk from starting");
+    assert.ok(nav.travelProgress>0&&nav.travelProgress<100);
     const pausedPanel=await nav._renderHTML();
     assert.ok(find(pausedPanel,node=>node.tag==="button"&&node.textContent==="Resume Travel"));
     assert.equal(nav.resumeGuidedTravel(),true);
-    assert.equal(token.resumes,1);
-    assert.equal(nav.travelSession.phase,"moving");
+    for(let i=0;i<4;i++)await Promise.resolve();
+    assert.equal(calls.length,2,"resume begins at the last completed stretch");
     assert.equal(nav.stopGuidedTravel(),true);
-    assert.equal(token.stops,1);
-    resolveTravel(false);
+    assert.equal(nav.travelSession.phase,"ending");
+    resolveTravel(true);
     assert.equal(await pending,false);
     assert.equal(nav.travelSession,null);
-    assert.match(nav.travelNotice,/stopped before arrival/);
+    assert.match(nav.travelNotice,/Journey ended/);
+    assert.ok(nav.travelProgress>0&&nav.travelProgress<100);
 
+    // A complete journey progresses through its chunks and reaches 100%.
+    autoResolve=true;
+    token.x=50;token.y=50;
     const again=nav.startGuidedTravel();
-    await Promise.resolve();
-    assert.equal(calls.length,2);
-    resolveTravel(true);
     assert.equal(await again,true);
+    assert.equal(nav.travelProgress,100);
     assert.match(nav.travelNotice,/Arrived/);
 
-    // Foundry may finish the Document update before the Canvas animation ends.
-    // A second Travel Route must never queue another complete trip in that gap.
+    // Native Document movement may finish while the Canvas animation remains active.
+    // The in-progress lock and Pause/End controls must persist until it ends.
     let endVisibleAnimation;
+    token.x=50;token.y=50;
     token.object={movementAnimationPromise:new Promise(resolve=>{endVisibleAnimation=resolve;})};
+    const before=calls.length;
     const third=nav.startGuidedTravel();
-    await Promise.resolve();
-    assert.equal(calls.length,3);
-    resolveTravel(true);
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.ok(nav.travelSession,"retain the journey lock during the visual animation");
-    assert.doesNotMatch(nav.travelNotice,/Arrived/);
+    for(let i=0;i<4;i++)await Promise.resolve();
+    assert.equal(calls.length,before+1);
     await assert.rejects(nav.startGuidedTravel(),/already in progress/);
-    assert.equal(calls.length,3,"no additional native movement may be queued");
     const stillMoving=await nav._renderHTML();
     assert.ok(find(stillMoving,node=>node.tag==="button"&&node.textContent==="Pause Travel"));
     assert.equal(find(stillMoving,node=>node.tag==="button"&&node.textContent==="Travel Route"),undefined);
+    assert.equal(nav.pauseGuidedTravel(),true,"pause requests remain possible after native Document completion");
+    assert.equal(nav.stopGuidedTravel(),true,"End Journey works while only Canvas animation remains");
     endVisibleAnimation();
-    assert.equal(await third,true);
+    assert.equal(await third,false);
+    assert.equal(calls.length,before+1,"ending during Canvas animation prevents subsequent native chunks");
     assert.equal(nav.travelSession,null);
-    assert.match(nav.travelNotice,/Arrived/);
+    assert.ok(nav.travelProgress<100);
+
+    // End Journey must also wake a travel loop waiting on the paused state.
+    token.object={movementAnimationPromise:null};
+    token.x=50;token.y=50;
+    autoResolve=false;
+    const previousCount=calls.length;
+    const pausedJourney=nav.startGuidedTravel();
+    for(let i=0;i<5;i++)await Promise.resolve();
+    assert.equal(calls.length,previousCount+1);
+    nav.pauseGuidedTravel();
+    resolveTravel(true);
+    for(let i=0;i<10;i++)await Promise.resolve();
+    assert.equal(nav.travelSession.phase,"paused");
+    assert.equal(nav.stopGuidedTravel(),true);
+    assert.equal(await pausedJourney,false);
+    assert.equal(calls.length,previousCount+1,"no chunk may start after End Journey wakes a pause");
     nav.stop();
-  }finally{Object.assign(globalThis,previous);}
+  }finally{nav?.stop();Object.assign(globalThis,previous);}
 });
 
 test("guided travel rejects missing GM permission and a stale route before native movement",async()=>{

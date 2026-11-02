@@ -6,7 +6,8 @@ import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.
 import { navigationCanvasLegPaths } from "./navigation-render-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
-import { waitForTokenTravelAnimation } from "./navigation-movement-lifecycle.js";
+import { planGuidedTravelChunks, waitForTokenTravelAnimation }
+  from "./navigation-movement-lifecycle.js";
 import { calculateGuidedPlayback,formatPlaybackDuration,readGuidedPlaybackSetting }
   from "./navigation-playback.js";
 import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
@@ -56,6 +57,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.notice="";
     this.travelSession=null;
     this.travelNotice="";
+    this.travelProgress=0;
+    this.travelProgressUI=null;
     this.pointerTarget = null;
     this.overlay = null;
     this.pointerDown = this.onPointerDown.bind(this);
@@ -91,6 +94,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.routeRevision=atlas.revision;
     this.result=null;
     this.itinerary=null;
+    this.travelProgress=0;
     if(!this.start||!this.end)return;
     try{
       this.result=this.routeCalculator(view,this.scene,atlas,this.start,this.end);
@@ -235,6 +239,29 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     return this.scene?this.partyTokenProvider(this.scene):null;
   }
 
+  /** Update the live progress display without re-rendering the scrollable directions. */
+  setTravelProgress(percent){
+    this.travelProgress=Math.max(0,Math.min(100,Number(percent)||0));
+    const ui=this.travelProgressUI;
+    if(ui){
+      ui.bar.value=this.travelProgress;
+      ui.label.textContent=`${Math.floor(this.travelProgress)}% complete`;
+    }
+  }
+
+  /** Hold the next native move while the GM decides whether to resume or end. */
+  async waitForGuidedTravelResume(session){
+    if(session.phase==="pausing"){
+      session.phase="paused";
+      this.travelNotice="Journey paused. Resume Travel continues from this position.";
+      if(this.active)void this.render(true);
+    }
+    if(session.phase==="paused"){
+      await new Promise(resolve=>{session.resumeWaiter=resolve;});
+      session.resumeWaiter=null;
+    }
+  }
+
   /** Execute the already-previewed curve through Foundry's native movement pipeline. */
   async startGuidedTravel(){
     const view=this.canvasProvider();
@@ -245,7 +272,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(!this.result.legs?.some(leg=>leg.kind==="road"))
       throw Error("Guided travel requires a route containing an Atlas road.");
     const token=this.getPartyToken();
-    if(!token||typeof token.move!=="function"||typeof token.stopMovement!=="function"||
+    if(!token||typeof token.move!=="function"||
         !token.canUserModify?.(game.user,"update"))
       throw Error("Assign a placed party explorer token with movement permission before travel.");
     const atlas=this.atlasProvider(this.scene);
@@ -265,26 +292,73 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       gridSize:this.scene.grid?.size,
       secondsPerHour:readGuidedPlaybackSetting(game.settings)
     });
-    const session={token,sceneId:this.scene.id,phase:"moving",resume:null};
+    const chunks=planGuidedTravelChunks(waypoints,{
+      movementSpeed:playback.movementSpeed,gridSize:this.scene.grid.size
+    });
+    const totalDistance=chunks.reduce((sum,chunk)=>sum+chunk.distance,0);
+    const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
+      phase:"moving",resumeWaiter:null,
+      completedDistance:0,totalDistance,currentChunk:null,timer:null};
     this.travelSession=session;
-    this.travelNotice="Guided travel in progress. Pause Travel to stop temporarily.";
+    this.travelNotice="Guided travel in progress. Pause Travel stops at the next short stretch.";
+    this.setTravelProgress(0);
     try{
       // Render the controls before awaiting Foundry's long-running native move.
       await this.render(true);
       if(this.travelSession!==session)return false;
-      const completed=await token.move(waypoints,{
-        animate:true,autoRotate:false,showRuler:false,pan:false,
-        animation:{movementSpeed:playback.movementSpeed}
-      });
-      // The document move may settle before the client-side curve animation.
-      // Maintain the single-flight lock and pause/end controls until both end.
-      await waitForTokenTravelAnimation(token);
+      const pixelsPerSecond=playback.movementSpeed*this.scene.grid.size;
+      session.timer=setInterval(()=>{
+        if(this.travelSession!==session)return;
+        const chunk=session.currentChunk;
+        const fraction=chunk?Math.min(.99,Math.max(0,
+          (Date.now()-chunk.startedAt)/chunk.durationMs)):0;
+        this.setTravelProgress(Math.min(99,100*(session.completedDistance+
+          (chunk?.distance??0)*fraction)/session.totalDistance));
+      },100);
+      let reachedEnd=true,interruptedReason=null;
+      for(const chunk of chunks){
+        if(this.travelSession!==session||session.phase==="ending"){
+          reachedEnd=false;break;
+        }
+        await this.waitForGuidedTravelResume(session);
+        if(this.travelSession!==session||session.phase==="ending"){
+          reachedEnd=false;break;
+        }
+        session.currentChunk={distance:chunk.distance,startedAt:Date.now(),
+          durationMs:1000*chunk.distance/pixelsPerSecond};
+        const completed=await token.move(chunk.waypoints,{
+          animate:true,autoRotate:false,showRuler:false,pan:false,
+          animation:{movementSpeed:playback.movementSpeed}
+        });
+        // Native document updates can finish long before the visible movement.
+        // Never submit the next stretch until this Canvas animation is finished.
+        await waitForTokenTravelAnimation(token);
+        if(this.travelSession!==session)return false;
+        if(completed)session.completedDistance+=chunk.distance;
+        session.currentChunk=null;
+        this.setTravelProgress(Math.min(99,100*session.completedDistance/totalDistance));
+        if(!completed){
+          interruptedReason="Foundry stopped or blocked the current travel stretch.";
+          reachedEnd=false;break;
+        }
+        const target=chunk.waypoints.at(-1);
+        if(Math.hypot(token.x-target.x,token.y-target.y)>
+            Math.max(1,session.gridSize/20)){
+          interruptedReason="The token left the planned road path. Recalculate before traveling again.";
+          reachedEnd=false;break;
+        }
+      }
       if(this.travelSession===session){
-        this.travelNotice=completed?"Arrived at destination.":"Travel stopped before arrival.";
-        return completed;
+        const arrived=reachedEnd&&session.phase!=="ending";
+        if(arrived)this.setTravelProgress(100);
+        this.travelNotice=arrived?"Arrived at destination.":
+          (interruptedReason??"Journey ended at the last completed road stretch.");
+        return arrived;
       }
       return false;
     }finally{
+      if(session.timer!==null)clearInterval(session.timer);
+      session.resumeWaiter?.();
       if(this.travelSession===session){
         this.travelSession=null;
         if(this.active)void this.render(true);
@@ -292,58 +366,34 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
   }
 
-  /** Native Foundry v14 pause retains the same movement path and completion Promise. */
+  /** Pause at the next short native movement boundary (at most ~2s). */
   pauseGuidedTravel(){
     const session=this.travelSession;
-    if(!session||session.phase!=="moving"||typeof session.token.pauseMovement!=="function")
-      return false;
-    let resume;
-    try{resume=session.token.pauseMovement();}
-    catch(error){
-      ui.notifications.warn("The journey could not pause: "+(error.message||String(error)));
-      return false;
-    }
-    if(typeof resume!=="function")return false;
-    session.resume=resume;
-    session.phase="paused";
-    this.travelNotice="Journey paused. Resume Travel continues from this position.";
+    if(!session||session.phase!=="moving")return false;
+    session.phase="pausing";
+    this.travelNotice="Pausing after the current short road stretch…";
     if(this.active)void this.render(true);
     return true;
   }
 
   resumeGuidedTravel(){
     const session=this.travelSession;
-    if(!session||session.phase!=="paused"||typeof session.resume!=="function")return false;
-    const resume=session.resume;
-    try{
-      const completed=resume();
-      session.resume=null;
-      session.phase="moving";
-      this.travelNotice="Journey resumed.";
-      if(this.active)void this.render(true);
-      void Promise.resolve(completed).catch(error=>{
-        if(this.travelSession!==session)return;
-        this.stopGuidedTravel();
-        ui.notifications.error("The journey could not resume: "+(error.message||String(error)));
-      });
-      return true;
-    }catch(error){
-      ui.notifications.error("The journey could not resume: "+(error.message||String(error)));
-      return false;
-    }
+    if(!session||session.phase!=="paused"||!session.resumeWaiter)return false;
+    session.phase="moving";
+    this.travelNotice="Journey resumed.";
+    session.resumeWaiter();
+    if(this.active)void this.render(true);
+    return true;
   }
 
   stopGuidedTravel({render=true}={}){
     const session=this.travelSession;
     if(!session)return false;
-    const stopped=session.token.stopMovement();
-    if(stopped){
-      session.phase="ending";
-      session.resume=null;
-      this.travelNotice="Ending the journey at the current token position.";
-      if(render&&this.active)void this.render(true);
-    }
-    return stopped;
+    session.phase="ending";
+    session.resumeWaiter?.();
+    this.travelNotice="Ending journey after the current short road stretch…";
+    if(render&&this.active)void this.render(true);
+    return true;
   }
 
   /** Deliberate route reset without any Scene or token mutation. */
@@ -356,6 +406,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.routeRevision=null;
     this.notice=reason;
     this.travelNotice="";
+    this.travelProgress=0;
     this.draw();
     if (this.active) void this.render(true);
   }
@@ -402,6 +453,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.routeRevision=null;
     this.notice="";
     this.travelNotice="";
+    this.travelProgress=0;
+    this.travelProgressUI=null;
   }
 
   tearDown() {
@@ -505,6 +558,24 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         metric("Travel time",formatNavigationDuration(navigationHours(weighted,speed),travel.hoursPerDay??24));
       }catch(error){metric("Travel time","Unavailable");}
       body.appendChild(summary);
+      if(this.travelSession||this.travelProgress>0){
+        const progressWrap=el("div");
+        progressWrap.style.cssText="display:flex;flex-direction:column;gap:.35rem;padding:.45rem 0;";
+        const progressHeader=el("div");
+        progressHeader.style.cssText="display:flex;justify-content:space-between;gap:1rem;font-size:.85em;";
+        const progressTitle=el("strong","Journey progress");
+        const progressLabel=el("span",`${Math.floor(this.travelProgress)}% complete`);
+        const progressBar=el("progress");
+        progressBar.max=100;
+        progressBar.value=this.travelProgress;
+        progressBar.title="Journey progress";
+        progressBar.setAttribute?.("aria-label","Journey progress");
+        progressBar.style.cssText="width:100%;height:.75rem;accent-color:#16b9a1;";
+        progressHeader.append(progressTitle,progressLabel);
+        progressWrap.append(progressHeader,progressBar);
+        body.appendChild(progressWrap);
+        this.travelProgressUI={bar:progressBar,label:progressLabel};
+      }else this.travelProgressUI=null;
       const sourceLabel=el("p",`Speed: ${travelSource}`);
       sourceLabel.style.cssText="margin:0;font-size:.85em;opacity:.85;";
       body.appendChild(sourceLabel);
@@ -595,11 +666,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(this.result?.status==="ok"){
       const phase=this.travelSession?.phase;
       const move=el("button",phase==="paused"?"Resume Travel":phase==="moving"?
-        "Pause Travel":phase==="ending"?"Ending Journey…":"Travel Route");
+        "Pause Travel":phase==="pausing"?"Pausing…":phase==="ending"?"Ending Journey…":"Travel Route");
       move.type="button";
-      move.disabled=phase==="ending";
+      move.disabled=phase==="ending"||phase==="pausing";
       move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
-        "Pause the journey without losing the route":"Move the assigned party token along this route";
+        "Pause after the current short road stretch":"Move the assigned party token along this route";
       move.addEventListener("click",()=>{
         if(this.travelSession){
           const ok=this.travelSession.phase==="paused"?this.resumeGuidedTravel():
