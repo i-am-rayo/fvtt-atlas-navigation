@@ -183,13 +183,17 @@ test("party departure chooses B with one click, tracks live token center, and pr
 
 test("GM guided travel uses native TokenDocument.move and can be stopped without teleporting",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
-    ui:globalThis.ui};
+    ui:globalThis.ui,document:globalThis.document};
   try{
     globalThis.game={user:{isGM:true},settings:{get:(_module,key)=>
       key==="guidedTravelSecondsPerHour"?2:5}};
     globalThis.window={innerWidth:1200,innerHeight:800};
     globalThis.PIXI=undefined;
     globalThis.ui={notifications:{error(message){throw Error(message);}}};
+    globalThis.document={createElement:tag=>({tag,style:{},children:[],textContent:"",
+      listeners:new Map(),append(...nodes){this.children.push(...nodes);},
+      appendChild(node){this.children.push(node);},
+      addEventListener(name,handler){this.listeners.set(name,handler);}})};
     const calls=[];
     let resolveTravel;
     const token={x:50,y:50,width:1,height:1,
@@ -198,6 +202,9 @@ test("GM guided travel uses native TokenDocument.move and can be stopped without
         calls.push({waypoints,options});
         return new Promise(resolve=>{resolveTravel=resolve;});
       },
+      pauseMovement(){this.pauses=(this.pauses??0)+1;return ()=>{
+        this.resumes=(this.resumes??0)+1;return Promise.resolve(true);
+      };},
       stopMovement(){this.stops=(this.stops??0)+1;return true;}
     };
     const scene={id:"scene-guided",name:"Paedor",grid:{size:100,units:"km"},
@@ -217,6 +224,8 @@ test("GM guided travel uses native TokenDocument.move and can be stopped without
       legs:[{kind:"road",roadId:"road-a",segmentId:"segment-a",
         points:[point(100,100),point(200,150),point(300,200)],distance:2,cost:2}]};
     const pending=nav.startGuidedTravel();
+    assert.equal(calls.length,0,"render the Pause button before native movement begins");
+    await Promise.resolve();
     assert.equal(calls.length,1);
     assert.deepEqual(calls[0].waypoints[0],point(50,50));
     assert.deepEqual(calls[0].waypoints.at(-1),point(250,150));
@@ -228,6 +237,18 @@ test("GM guided travel uses native TokenDocument.move and can be stopped without
     assert.equal(calls[0].options.constrainOptions,undefined,
       "Foundry native movement constraints are not bypassed");
     assert.ok(nav.travelSession);
+    const find=(item,match)=>match(item)?item:item.children.map(child=>find(child,match)).find(Boolean);
+    const movingPanel=await nav._renderHTML();
+    assert.ok(find(movingPanel,node=>node.tag==="button"&&node.textContent==="Pause Travel"));
+    assert.ok(find(movingPanel,node=>node.tag==="button"&&node.textContent==="End Journey"));
+    assert.equal(nav.pauseGuidedTravel(),true);
+    assert.equal(nav.travelSession.phase,"paused");
+    assert.equal(token.pauses,1);
+    const pausedPanel=await nav._renderHTML();
+    assert.ok(find(pausedPanel,node=>node.tag==="button"&&node.textContent==="Resume Travel"));
+    assert.equal(nav.resumeGuidedTravel(),true);
+    assert.equal(token.resumes,1);
+    assert.equal(nav.travelSession.phase,"moving");
     assert.equal(nav.stopGuidedTravel(),true);
     assert.equal(token.stops,1);
     resolveTravel(false);
@@ -236,6 +257,7 @@ test("GM guided travel uses native TokenDocument.move and can be stopped without
     assert.match(nav.travelNotice,/stopped before arrival/);
 
     const again=nav.startGuidedTravel();
+    await Promise.resolve();
     assert.equal(calls.length,2);
     resolveTravel(true);
     assert.equal(await again,true);
