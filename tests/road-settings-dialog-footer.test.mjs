@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {arrangeRoadDialogFooter} from "../scripts/road-settings-dialog-footer.js";
 
 test("Road Settings keeps Foundry's Save button in its native DialogV2 footer",()=>{
@@ -30,4 +31,16 @@ test("missing native footer leaves Road Settings controls untouched",()=>{
   const dialog={element:{querySelector:()=>({style:{},querySelector:()=>null})},
     form:{querySelector:()=>null}};
   assert.equal(arrangeRoadDialogFooter(dialog),null);
+});
+
+test("Road Settings Save is compact before the render callback moves footer tools",()=>{
+  const manifest=JSON.parse(readFileSync(new URL("../module.json",import.meta.url),"utf8"));
+  assert.ok(manifest.styles.includes("styles/road-settings-dialog.css"));
+  const css=readFileSync(new URL("../styles/road-settings-dialog.css",import.meta.url),"utf8");
+  assert.match(css,/\.application:has\(\[data-atlas-road-live\]\) \.form-footer/);
+  assert.match(css,/button\[data-action="ok"\]/);
+  assert.match(css,/flex: 0 0 2\.5rem !important/);
+  assert.match(css,/\[data-atlas-road-actions\]/);
+  assert.doesNotMatch(css,/\.application \.form-footer\s*\{/,
+    "Do not resize Save buttons in unrelated Foundry dialogs");
 });
