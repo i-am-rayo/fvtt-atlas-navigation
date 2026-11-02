@@ -26,6 +26,9 @@ import { createNavigationItinerary } from "./navigation-itinerary.js";
 import { REGION_ROUTING_ORDER_FLAG } from "./navigation-terrain.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { resolveNavigationTravelSpeed } from "./navigation-party-speed.js";
+import { NAVIGATION_TRAVEL_METHODS,resolveNavigationMethodTravel,
+  assessNavigationMethodRoute } from "./navigation-travel-method.js";
+import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
 import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
@@ -63,6 +66,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.journeyJournalStore=journeyJournalStore;
     this.scene = null;
     this.sourceMode = "map";
+    this.travelMethod = "walking";
     this.start = null;
     this.end = null;
     this.result = null;
@@ -102,6 +106,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     this.stop();
     this.scene = view.scene;
+    this.travelMethod="walking";
     // Favor the manually assigned Atlas party explorer when it can actually
     // provide a valid Scene-to-Atlas origin. Otherwise retain map-point mode.
     try{
@@ -140,7 +145,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.journeyTimeUI=null;
     if(!this.start||!this.end)return;
     try{
-      this.result=this.routeCalculator(view,this.scene,atlas,this.start,this.end);
+      // Transport speeds are independent of native Walk/Swim terrain-action
+      // costs. Until transport costs exist, estimate physical distance only.
+      this.result=this.routeCalculator(view,this.scene,atlas,this.start,this.end,
+        this.travelMethod==="walking"?{}:{terrainAware:false});
       if(this.result?.status==="ok"){
         this.itinerary=createNavigationItinerary({
           sceneId:this.scene.id,sceneName:this.scene.name??"",
@@ -185,6 +193,33 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.draw();
       void this.render(true);
     }catch(error){ui.notifications.warn(error.message||String(error));}
+  }
+
+  /** Method changes recalculate the estimate, never move a token or save data. */
+  setTravelMethod(method){
+    if(!Object.hasOwn(NAVIGATION_TRAVEL_METHODS,method)||this.travelSession||
+        this.journalStarting||!this.scene||method===this.travelMethod)return;
+    const view=this.canvasProvider();
+    if(!game.user?.isGM||!view?.ready||view.scene?.id!==this.scene.id)return;
+    try{
+      if(method!=="walking")resolveNavigationMethodTravel(method,{speed:1},game.settings,
+        this.scene?.grid?.units?.trim()||"");
+    }catch(error){ui.notifications.warn(error.message||String(error));return;}
+    this.travelMethod=method;
+    this.travelNotice="";
+    this.calculateRoute(view,this.atlasProvider(this.scene));
+    this.draw();
+    void this.render(true);
+  }
+
+  assessTravelMethod(){
+    if(this.travelMethod==="walking")return {compatible:true,guided:true,reason:null};
+    try{
+      const atlas=this.atlasProvider(this.scene);
+      const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
+      return assessNavigationMethodRoute(this.travelMethod,this.result,atlas,presets.presets);
+    }catch{return {compatible:false,guided:false,
+      reason:"Atlas could not verify the road travel surfaces. Check World presets."};}
   }
 
   refreshPartyDeparture() {
@@ -402,6 +437,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   /** All rule interpretations flow through one pure World settings adapter. */
   resolveTravelRules(travel){
+    if(travel?.methodId&&travel.methodId!=="walking")return {
+      profile:"transport-preview",label:"Transport movement-only preview",dailyHours:null,
+      overnightHours:0,shortRestHours:1,longRestHours:8,forcedMarch:"custom"
+    };
     return resolveNavigationTravelRules({settings:game.settings,
       systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
   }
@@ -497,6 +536,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   /** Execute the already-previewed curve through Foundry's native movement pipeline. */
   async startGuidedTravel(){
+    if(this.travelMethod!=="walking")
+      throw Error("Guided mounted/sailing journeys require checkpoint transfers in a later v0.3.8 beta. Select Walking to travel now.");
     const view=this.canvasProvider();
     if(this.travelSession||this.journalStarting)
       throw Error("Guided travel is already in progress or being prepared.");
@@ -1003,7 +1044,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       travel=resolveNavigationTravelSpeed({token:null,sceneUnits:sceneUnit,
         systemId:null,worldSpeed:DEFAULT_NAVIGATION_SPEED});
     }
-    return {sceneUnit,travel};
+    return {sceneUnit,travel:resolveNavigationMethodTravel(this.travelMethod,travel,game.settings,sceneUnit)};
   }
 
   async _renderHTML() {
@@ -1044,6 +1085,22 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       departure.appendChild(refresh);
     }
     body.appendChild(departure);
+    const methodRow=el("div");
+    methodRow.style.cssText="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;";
+    const methodLabel=el("label","Travel by");
+    methodLabel.htmlFor="atlas-navigation-travel-method";
+    const methodSelect=el("select");
+    methodSelect.id="atlas-navigation-travel-method";
+    methodSelect.title="Select overland transport for the estimate; checkpoint transfers come later";
+    methodSelect.disabled=Boolean(this.travelSession||this.journalStarting);
+    methodSelect.style.cssText="flex:1;min-width:12rem;";
+    for(const [id,method] of Object.entries(NAVIGATION_TRAVEL_METHODS)){
+      const option=el("option",method.label);option.value=id;methodSelect.appendChild(option);
+    }
+    methodSelect.value=this.travelMethod;
+    methodSelect.addEventListener("change",()=>this.setTravelMethod(methodSelect.value));
+    methodRow.append(methodLabel,methodSelect);
+    body.appendChild(methodRow);
     const statusLabel=el("p",status);
     statusLabel.style.cssText="margin:0;font-weight:600;flex:1;min-width:0;";
     const statusRow=el("div");
@@ -1072,9 +1129,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const {sceneUnit,travel}=this.resolveTravel();
     const speed=travel.speed;
-    const travelSource=travel.source==="party" ?
+    const travelSource=travel.source==="atlas-method"?
+      `${travel.methodLabel} (GM World setting) · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour`:
+      travel.source==="party" ?
       `${travel.actorName} · ${travel.pace} pace · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour` :
       `Atlas default · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour`;
+    const methodAssessment=this.assessTravelMethod();
+    if(this.travelMethod!=="walking"){
+      const advisory=el("p",methodAssessment.reason??"Transport planning only.");
+      advisory.style.cssText="margin:0;padding:.5rem;border:1px solid #b18b54;border-radius:6px;font-size:.83em;";
+      body.appendChild(advisory);
+    }
     const help=el("p",partyMode?
       "Atlas reads Point A from the assigned party token's Scene location. Click the map for B; Alt/Option+click changes B. Refresh location after moving the token.":
       "After choosing A and B, ordinary map clicks leave the route unchanged. Shift+click sets Point A; Alt/Option+click sets Point B.");
@@ -1101,7 +1166,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           this.journeySchedule:null;
         const plan=schedule?.estimate??estimateNavigationTotalTrip(hours,rules);
         metric("Total Trip",formatNavigationDuration(plan.totalHours,24));
-        const explanation=rules.dailyHours===null?
+        const explanation=this.travelMethod!=="walking"?
+          "Transport preview: Total Trip currently includes moving time only. D&D 2024 mounts can double " +
+          "their distance for one hour before needing a rest; ships may travel longer depending on crew. " +
+          "Neither rule is automatically simulated until method-specific travel/rest policies are added.":
+          rules.dailyHours===null?
           "Total Trip currently counts movement only; select D&D or Custom rules in Module Settings to plan rests.":
           `Plan: ${rules.dailyHours}h travel/day, ${rules.overnightHours}h overnight downtime `+
           `(including rest); ${plan.overnights} overnight stop${plan.overnights===1?"":"s"} remaining.`+
@@ -1205,7 +1274,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       summaryText.style.cursor="pointer";
       details.appendChild(summaryText);
       const calculation=el("p",this.result.terrainWarning ||
-        (this.result.terrainAware?
+        (this.travelMethod!=="walking"?
+          "Transport planning uses physical route distance and the GM's method speed. " +
+          "Native Walk/Swim cost Behaviors are not transport costs; transfer points and mode-specific rests are upcoming betas.":
+          this.result.terrainAware?
           "Terrain-weighted distance applies the applicable Region movement cost first, " +
           "then the road's travel preset where no Region applies. " +
           "Overlapping Regions follow GM priority; short checkpoint Regions are included. " +
@@ -1316,7 +1388,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Pause Travel":phase==="pausing"?"Pausing…":phase==="ending"?"Ending Journey…":
           phase==="rest-applying"?"Recording Break…":"Travel Route");
         move.type="button";
-        move.disabled=this.journalStarting||phase==="ending"||
+        move.disabled=this.journalStarting||(!this.travelSession&&!methodAssessment.guided)||phase==="ending"||
           phase==="pausing"||phase==="rest-applying";
         move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
           "Pause after the current short road stretch":"Move the assigned party token along this route";

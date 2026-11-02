@@ -66,6 +66,7 @@ export function createNavigationItinerary({
       travelHours:speed?navigationHours(weightedDistance,speed):null},
     travel:{speedPerHour:speed,pace:nullableText(travel?.pace),
       source:nullableText(travel?.source),
+      ...(travel?.methodId?{methodId:nullableText(travel.methodId)}:{}),
       hoursPerDay:nonnegative(travel?.hoursPerDay)?travel.hoursPerDay:null},
     terrainWarning:nullableText(route.terrainWarning),
     legs,directions

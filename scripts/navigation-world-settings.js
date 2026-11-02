@@ -7,6 +7,9 @@ import { NAVIGATION_RULES_PROFILE_SETTING,NAVIGATION_RULES_PROFILE_DEFAULT,
   from "./navigation-rules-profile.js";
 import { NAVIGATION_WORLD_CLOCK_SETTING,NAVIGATION_WORLD_CLOCK_DEFAULT }
   from "./navigation-world-clock.js";
+import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
+  NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
+  from "./navigation-travel-method.js";
 
 const MODULE_ID="fvtt-atlas-navigation";
 
@@ -16,6 +19,19 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
     name:"Atlas Default Overland Speed",
     hint:"Default GM navigation speed in the active Scene's grid distance units per hour (e.g. km/hour for a km Scene). Can be overridden in Navigation. Does not alter token speeds.",
     scope:"world",config:true,type:Number,default:DEFAULT_NAVIGATION_SPEED,
+    range:{min:0.1,max:1000,step:0.1}
+  });
+  for(const [key,name,initial] of [
+    [NAVIGATION_MOUNTED_SPEED_SETTING,"Mounted",NAVIGATION_MOUNTED_SPEED_DEFAULT],
+    [NAVIGATION_SAILING_SPEED_SETTING,"Sailing",NAVIGATION_SAILING_SPEED_DEFAULT]
+  ])settings.register(MODULE_ID,key,{
+    name:`Atlas ${name} Travel Speed`,
+    hint:`GM-configured ${name.toLowerCase()} speed in miles per hour, converted to the active Scene's `+
+      "mile/km Grid units for estimates. Defaults reference D&D 2024: a mount's Normal pace " +
+      "(3 mph sustained; one-hour double-speed burst needs rest) or a Sailing Ship (2 mph). " +
+      "Used for transport planning only in v0.3.8-beta.1. " +
+      "Does not change Group Actor speeds, native Token movement or Region Behaviors.",
+    scope:"world",config:true,type:Number,default:initial,
     range:{min:0.1,max:1000,step:0.1}
   });
   settings.register(MODULE_ID,NAVIGATION_PLAYBACK_SETTING,{

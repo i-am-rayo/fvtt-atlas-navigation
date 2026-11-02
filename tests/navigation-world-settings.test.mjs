@@ -7,6 +7,8 @@ import { CUSTOM_DAY_HOURS_SETTING,CUSTOM_OVERNIGHT_HOURS_SETTING,
   CUSTOM_SHORT_REST_HOURS_SETTING,CUSTOM_LONG_REST_HOURS_SETTING }
   from "../scripts/navigation-rules-profile.js";
 import { NAVIGATION_WORLD_CLOCK_SETTING } from "../scripts/navigation-world-clock.js";
+import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING }
+  from "../scripts/navigation-travel-method.js";
 
 test("navigation World Settings register once in a reusable module with bounded slider",()=>{
   const catalog=new Map();
@@ -17,7 +19,13 @@ test("navigation World Settings register once in a reusable module with bounded 
   }};
   let updates=0;
   registerNavigationWorldSettings({settings,onPlaybackChange:()=>updates++});
-  assert.equal(catalog.size,8);
+  assert.equal(catalog.size,10);
+  assert.equal(catalog.get(NAVIGATION_MOUNTED_SPEED_SETTING).default,3);
+  assert.equal(catalog.get(NAVIGATION_SAILING_SPEED_SETTING).default,2);
+  for(const key of [NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING]){
+    assert.equal(catalog.get(key).scope,"world");
+    assert.match(catalog.get(key).hint,/planning only/);
+  }
   const slider=catalog.get(NAVIGATION_PLAYBACK_SETTING);
   assert.deepEqual(slider.range,{min:0.5,max:8,step:0.5});
   assert.equal(slider.default,2);

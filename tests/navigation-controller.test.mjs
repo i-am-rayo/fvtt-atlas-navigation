@@ -203,6 +203,25 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.match(nav.notice,/Scene Grid/);
     newRoute.listeners.get("click")();
     assert.equal(nav.notice,"");
+    listeners.get("pointerdown")(pointer(10,10));
+    listeners.get("pointerdown")(pointer(40,10));
+    nav.setTravelMethod("mounted");
+    assert.equal(nav.travelMethod,"mounted");
+    assert.equal(nav.result.status,"ok");
+    const transportPanel=await nav._renderHTML();
+    const methodSelect=find(transportPanel,item=>item.tag==="select"&&
+      item.id==="atlas-navigation-travel-method");
+    assert.equal(methodSelect.value,"mounted");
+    const transportButton=find(transportPanel,item=>item.tag==="button"&&
+      item.textContent==="Travel Route");
+    assert.equal(transportButton.disabled,true,
+      "transport planning never silently starts native walking token movement");
+    await assert.rejects(nav.startGuidedTravel(),/checkpoint transfers/);
+    nav.setTravelMethod("walking");
+    assert.equal(nav.travelMethod,"walking");
+    const walkingPanel=await nav._renderHTML();
+    assert.equal(find(walkingPanel,item=>item.tag==="button"&&
+      item.textContent==="Travel Route").disabled,false);
     nav.stop();
     assert.equal(listeners.has("pointerdown"),false);
   }finally{Object.assign(globalThis,previous);}
