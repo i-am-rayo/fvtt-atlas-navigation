@@ -19,7 +19,7 @@ import { AtlasManualFogPalette, registerManualBrushSettings }
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
   saveEditedCheckpoint, saveRemovedCheckpoint, saveRemovedCheckpoints, saveRoadTravelPreset,
-  saveRoadAppearance, saveRoadPresentation, saveRoadPlayerVisibility,
+  saveRoadAppearance, saveRoadSettings, saveRoadPlayerVisibility,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
 import { getRoadMergeCandidates, suggestRoadName } from "./road-model.js";
 import { sceneImageOrigin, toCanvasPoint } from "./road-coordinates.js";
@@ -35,8 +35,9 @@ import { presetCostSummary } from "./travel-preset-model.js";
 import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
+import { createRoadPresetStage } from "./road-settings-preset.js";
 import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges,
-  liveSettingsFieldValue,interceptDialogHeaderClose } from "./settings-close-guard.js";
+  interceptDialogHeaderClose } from "./settings-close-guard.js";
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
 import { registerWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance }
@@ -505,6 +506,9 @@ function actions() {
       regionList.setAttribute("aria-live","polite");
       panels.regions.appendChild(regionList);
       const roadDialogToken=foundry.utils.randomID();
+      // Track the user's actual dropdown change before DialogV2 serializes or
+      // removes its content. FormData alone has proven unreliable for this field.
+      const stagedRoadPreset=createRoadPresetStage(actual.travelPresetId,roadDialogToken);
       // Rebuild only the two lists. Tabs, unsaved form fields and scroll
       // positions remain untouched during live Scene/Region updates.
       const populateRelatedLists = (checkpointTarget, regionTarget) => {
@@ -611,14 +615,9 @@ function actions() {
       let roadMayClose=false;
       let roadClosePending=false;
       let afterRoadSave=null;
-      let submittedRoadPresetId;
       const renderRoadDialog=(_event,dialog)=>{
         roadDialog=dialog;
         const liveRoadForm=dialog.element?.querySelector?.('[data-atlas-road-live="'+roadDialogToken+'"]');
-        const captureTravelPreset=()=>{
-          submittedRoadPresetId=liveSettingsFieldValue(liveRoadForm,
-            "atlasRoadPresetId",submittedRoadPresetId);
-        };
         const bar=dialog.element?.querySelector?.("[data-atlas-road-actions]");
         const footer=dialog.form?.querySelector?.(".form-footer") ??
           dialog.element?.querySelector?.(".form-footer");
@@ -632,7 +631,6 @@ function actions() {
           bar.insertBefore(nativeSave,bar.querySelector('[data-atlas-road-tool="delete"]'));
           if(footer)footer.style.display="none";
           nativeSave.addEventListener("click",()=>{
-            captureTravelPreset();
             if(dialog.form?.checkValidity?.()!==false) roadMayClose=true;
           });
         }
@@ -741,6 +739,8 @@ function actions() {
       const regionUpdateHook=Hooks.on("updateRegion",onRegionChanged);
       const deleteHook=Hooks.on("deleteRegion",onRegionChanged);
       document.addEventListener("click",onTabClick,true);
+      document.addEventListener("change",stagedRoadPreset.handle,true);
+      document.addEventListener("input",stagedRoadPreset.handle,true);
       const onRangeInput = event => {
         if (event.target?.name === "atlasRoadBorderEnabled") {
           const form=event.target.closest?.(".application");
@@ -802,6 +802,8 @@ function actions() {
         Hooks.off("updateRegion",regionUpdateHook);
         Hooks.off("deleteRegion",deleteHook);
         document.removeEventListener("click",onTabClick,true);
+        document.removeEventListener("change",stagedRoadPreset.handle,true);
+        document.removeEventListener("input",stagedRoadPreset.handle,true);
         document.removeEventListener("input",onRangeInput,true);
         document.removeEventListener("dragover", onJournalDragOver, true);
         document.removeEventListener("drop", onJournalDrop, true);
@@ -812,7 +814,7 @@ function actions() {
       if (!result) return;
       if (!Object.hasOwn(result,"atlasJournalUuid"))
         throw Error("Foundry did not return the Journal UUID field. No Road Settings were saved.");
-      const selectedPresetId=String(submittedRoadPresetId??result.atlasRoadPresetId??"")||null;
+      const selectedPresetId=stagedRoadPreset.value;
       if(selectedPresetId&&!readWorldTravelPresets().presets.some(p=>p.id===selectedPresetId))
         throw Error("This travel preset no longer exists. Reopen Road Settings.");
       const nextJournal=journalUuidFromForm(result.atlasJournalUuid);
@@ -828,19 +830,19 @@ function actions() {
       // unrelated checkpoint additions to advance the Scene revision.
       if (currentRoad.name!==actual.name ||
           currentRoad.playerVisible!==actual.playerVisible ||
+          (currentRoad.travelPresetId??null)!==(actual.travelPresetId??null) ||
           JSON.stringify(currentRoad.appearance??null)!==JSON.stringify(actual.appearance??null))
         throw Error("This road's settings changed elsewhere. Reopen the editor before saving.");
-      await saveRoadPresentation(scene, {
+      const saved=await saveRoadSettings(scene, {
         roadId: road.id, name: String(result.atlasRoadName ?? ""),
         playerVisible: result.atlasRoadVisible === true ||
           result.atlasRoadVisible === "true" || result.atlasRoadVisible === "on",
-        appearance: inherits ? null : selected, expectedRevision: currentAtlas.revision
+        appearance: inherits ? null : selected, presetId:selectedPresetId,
+        expectedRevision: currentAtlas.revision
       });
-      if(selectedPresetId!==currentRoad.travelPresetId){
-        await saveRoadTravelPreset(scene,{
-          roadId:road.id,presetId:selectedPresetId,expectedRevision:readAtlas(scene).revision
-        });
-      }
+      if(saved.roads.find(item=>item.id===road.id)?.travelPresetId!==selectedPresetId ||
+          readAtlas(scene).roads.find(item=>item.id===road.id)?.travelPresetId!==selectedPresetId)
+        throw Error("Road travel preset did not persist. Reopen Road Settings before continuing.");
       const currentLinks=readAtlasJournalLinks(scene);
       if(nextJournal!==journalUuidFor(currentLinks,"road",road.id)) {
         if (journalUuidFor(currentLinks,"road",road.id)!==

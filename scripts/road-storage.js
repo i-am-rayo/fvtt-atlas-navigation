@@ -213,6 +213,34 @@ export function saveRoadPresentation(scene, {
   });
 }
 
+/** Save the full Road Settings form in one revision-checked Scene flag update.
+ * Keeping travel preset alongside the road's name and appearance avoids an
+ * intermediate Scene update overwriting or obscuring a staged selection.
+ */
+export function saveRoadSettings(scene, {
+  roadId, name, appearance, playerVisible, presetId = null, expectedRevision
+}) {
+  const style=appearance===null?null:validateRoadAppearance(appearance);
+  if(presetId!==null){
+    validateTravelPresetId(presetId);
+    const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
+    if(!presets.presets.some(preset=>preset.id===presetId))
+      throw Error("Choose an existing World travel preset.");
+  }
+  return saveChange(scene,expectedRevision,previous=>{
+    if(!previous.roads?.some(road=>road.id===roadId))
+      throw Error("This road no longer exists.");
+    const named=renameRoad(previous,{roadId,name});
+    const styled=upgradeAtlasRoadTextAppearance(named);
+    const visible=setRoadPlayerVisibility({ ...styled,roads:styled.roads.map(road=>
+      road.id===roadId?{...road,appearance:style}:road) },
+      {roadId,visible:playerVisible});
+    const current=upgradeAtlasTravelPresets(visible);
+    return { ...current,roads:current.roads.map(road=>road.id===roadId
+      ? {...road,travelPresetId:presetId}:road) };
+  });
+}
+
 /** Only this single GM request may migrate the Scene flag to v6. */
 export function saveRoadAppearance(scene, { roadId, appearance, expectedRevision }) {
   const value = appearance === null ? null : validateRoadAppearance(appearance);
