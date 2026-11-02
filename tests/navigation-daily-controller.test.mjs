@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createNavigationItinerary } from "../scripts/navigation-itinerary.js";
 
 const priorFoundry=globalThis.foundry;
 globalThis.foundry={applications:{api:{ApplicationV2:class {
@@ -21,6 +22,7 @@ async function journeyFixture({clockEnabled=true,hours=10}={}){
   const old={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
     ui:globalThis.ui,document:globalThis.document};
   const calls=[];
+  const journalStates=[];
   globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}},
     system:{id:"dnd5e"},settings:{get:(_module,key)=>({
       guidedTravelAdvanceWorldTime:clockEnabled,
@@ -35,7 +37,7 @@ async function journeyFixture({clockEnabled=true,hours=10}={}){
     listeners:new Map(),append(...nodes){this.children.push(...nodes);},
     appendChild(node){this.children.push(node);},
     addEventListener(name,handler){this.listeners.set(name,handler);}})};
-  const token={x:50,y:50,width:1,height:1,canUserModify:()=>true,moves:[],
+  const token={id:"daily-token",x:50,y:50,width:1,height:1,canUserModify:()=>true,moves:[],
     async move(waypoints){
       this.moves.push(waypoints);
       const end=waypoints.at(-1);
@@ -49,7 +51,12 @@ async function journeyFixture({clockEnabled=true,hours=10}={}){
     roads:[{id:"r",name:"Main Road"}],
     segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[]}]};
   const nav=new AtlasNavigationController({canvasProvider:()=>view,
-    atlasProvider:()=>atlas,partyTokenProvider:()=>token});
+    atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+    journeyJournalStore:{save:async(record,{journal}={})=>{
+      journalStates.push(structuredClone(record));
+      return journal??{id:"daily-journal"};
+    },
+      find:()=>null}});
   nav.scene=scene;nav.routeRevision=5;
   nav.start=point(100,100);nav.end=point(300,200);
   nav.result={status:"ok",start:nav.start,end:nav.end,distance:hours,cost:hours,
@@ -57,7 +64,11 @@ async function journeyFixture({clockEnabled=true,hours=10}={}){
       cost:hours,points:[point(100,100),point(200,150),point(300,200)]}]};
   nav.resolveTravel=()=>({sceneUnit:"km",travel:{speed:1,hoursPerDay:8,
     source:"party",actorName:"Group",pace:"normal"}});
-  return {nav,token,calls,restore:()=>{nav.stop();Object.assign(globalThis,old);}};
+  nav.itinerary=createNavigationItinerary({sceneId:scene.id,sceneName:scene.name,
+    sceneUnits:scene.grid.units,atlasRevision:atlas.revision,route:nav.result,
+    travel:{speed:1}});
+  return {nav,token,calls,journalStates,
+    restore:()=>{nav.stop();Object.assign(globalThis,old);}};
 }
 
 test("guided travel waits at 8h and confirms 16h overnight before moving again",async()=>{
@@ -84,6 +95,9 @@ test("guided travel waits at 8h and confirms 16h overnight before moving again",
     assert.equal(f.calls.reduce((a,b)=>a+b,0),26*3600);
     assert.equal(f.nav.journeySchedule.breakHours,16);
     assert.equal(f.nav.journeySchedule.estimate.totalHours,26);
+    assert.equal(f.journalStates.at(-1).status,"completed");
+    assert.ok(f.journalStates.some(state=>state.legs[0].events.some(event=>
+      event.action==="overnight")),"GM rest decisions persist in the same Journal");
   }finally{f.restore();}
 });
 
@@ -128,5 +142,7 @@ test("ending at a day-limit prompt never adds unapproved rest time",async()=>{
     assert.equal(f.calls.reduce((a,b)=>a+b,0),8*3600);
     assert.ok(f.nav.travelProgress<100);
     assert.equal(f.nav.journeySchedule.breakHours,0);
+    assert.equal(f.journalStates.at(-1).status,"ended",
+      "End Journey is terminal, distinct from an interrupted journey");
   }finally{f.restore();}
 });

@@ -44,10 +44,11 @@ test("one browser-local logging dropdown replaces all redundant World checkboxes
 });
 
 test("diagnostic console is quiet by default, but failures always remain visible",()=>{
-  const prior={game:globalThis.game,debug:console.debug,warn:console.warn};
-  const debug=[],warnings=[];
+  const prior={game:globalThis.game,debug:console.debug,info:console.info,warn:console.warn};
+  const debug=[],info=[],warnings=[];
   try{
     console.debug=(...args)=>debug.push(args);
+    console.info=(...args)=>info.push(args);
     console.warn=(...args)=>warnings.push(args);
     let level="off";
     globalThis.game={user:{isGM:true},settings:{get(_namespace,key){
@@ -58,12 +59,17 @@ test("diagnostic console is quiet by default, but failures always remain visible
     level="standard";
     atlasDebug("journey","started",{sceneId:"example"});
     atlasDebug("journey","stretch",undefined,{level:"verbose"});
+    assert.equal(info.length,1);
+    assert.equal(debug.length,0);
+    assert.match(info[0][0],/\[journey\] started/);
+    level="verbose";
+    atlasDebug("movement","stretch",undefined,{level:"verbose"});
     assert.equal(debug.length,1);
-    assert.match(debug[0][0],/\[journey\] started/);
     atlasWarn("journey","Something stopped");
     assert.equal(warnings.length,1);
     assert.match(warnings[0][0],/Something stopped/);
   }finally{
-    globalThis.game=prior.game;console.debug=prior.debug;console.warn=prior.warn;
+    globalThis.game=prior.game;console.debug=prior.debug;
+    console.info=prior.info;console.warn=prior.warn;
   }
 });

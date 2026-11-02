@@ -37,8 +37,11 @@ export function atlasDebugEnabled(category,{settings=globalThis.game?.settings,u
 export function atlasDebug(category,message,details,{level="info"}={}){
   if(!atlasDebugEnabled(category,{level}))return;
   const prefix=`[fvtt-atlas-navigation][${category}] ${message}`;
-  if(details===undefined)console.debug(prefix);
-  else console.debug(prefix,details);
+  // Chrome/Firefox commonly hide console.debug behind a Verbose filter.
+  // Standard journey milestones must remain visible with normal Info logs.
+  const output=(LEVEL_VALUE[level]??1)<=1?console.info:console.debug;
+  if(details===undefined)output(prefix);
+  else output(prefix,details);
 }
 
 /** Failures are visible even with debug disabled, with no private Scene dump. */

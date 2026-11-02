@@ -1,4 +1,4 @@
-import { readAtlas } from "./atlas-storage.js";
+import { MODULE_ID,readAtlas } from "./atlas-storage.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 import { calculateSceneRoadRoute } from "./navigation-foundry.js";
 import { roadStrokeSpans } from "./road-appearance.js";
@@ -27,6 +27,9 @@ import { REGION_ROUTING_ORDER_FLAG } from "./navigation-terrain.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { resolveNavigationTravelSpeed } from "./navigation-party-speed.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
+import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
+  validateJourneyRecord,eligibleJourneyRecord,findRecoverableJourney,saveJourneyJournal,
+  JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
 
 const el = (tag, content) => {
   const node = document.createElement(tag);
@@ -45,6 +48,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   constructor({ canvasProvider = () => globalThis.canvas,
     routeCalculator=calculateSceneRoadRoute,atlasProvider=readAtlas,
     atlasPoint=toAtlasPoint,
+    journeyJournalStore={save:saveJourneyJournal,find:findRecoverableJourney},
     partyTokenProvider=scene=>{
       const assignment=readPartyExploration(scene);
       return assignment.enabled?scene?.tokens?.get?.(assignment.tokenId):null;
@@ -55,6 +59,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.atlasProvider=atlasProvider;
     this.atlasPoint=atlasPoint;
     this.partyTokenProvider=partyTokenProvider;
+    this.journeyJournalStore=journeyJournalStore;
     this.scene = null;
     this.sourceMode = "map";
     this.start = null;
@@ -77,6 +82,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.overlay = null;
     this.pointerDown = this.onPointerDown.bind(this);
     this.closedByController = false;
+    this.recoverableJourney=null;
+    this.recoveryJournal=null;
+    this.recoveryRecord=null;
+    this.journeyJournal=null;
+    this.journalStarting=false;
   }
 
   get active() { return Boolean(this.scene); }
@@ -89,6 +99,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.stop();
     this.scene = view.scene;
     atlasDebug("lifecycle","Navigation opened",{sceneId:this.scene.id});
+    this.findRecoverableJournal();
     this.bindPointer();
     void this.render(true);
     this.draw();
@@ -259,6 +270,69 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     return this.scene?this.partyTokenProvider(this.scene):null;
   }
 
+  findRecoverableJournal(){
+    this.recoverableJourney=null;
+    if(!this.scene||!game.user?.isGM)return;
+    const token=this.getPartyToken();
+    if(!token?.id)return;
+    try{
+      this.recoverableJourney=this.journeyJournalStore.find(
+        game.journal?.contents??game.journal??[],{
+          sceneId:this.scene.id,tokenId:token.id,
+          atlasRevision:this.atlasProvider(this.scene).revision
+        });
+    }catch(error){atlasWarn("journey","Could not locate saved journey",error);}
+  }
+
+  /** Load a saved destination, but never start a token movement automatically. */
+  recoverSavedJourney(){
+    if(this.travelSession||this.journalStarting||!this.scene)return false;
+    const journal=this.recoverableJourney;
+    const record=journal?.getFlag?.(MODULE_ID,JOURNEY_JOURNAL_FLAG);
+    const token=this.getPartyToken();
+    const atlas=this.atlasProvider(this.scene);
+    if(!eligibleJourneyRecord(record,{sceneId:this.scene.id,
+      tokenId:token?.id,atlasRevision:atlas.revision}))
+      throw Error("The saved journey no longer matches this Scene or party token.");
+    const view=this.canvasProvider();
+    if(!view?.ready||view.scene?.id!==this.scene.id)
+      throw Error("Open the journey's original Scene before resuming.");
+    const saved=validateJourneyRecord(record);
+    this.sourceMode="party";
+    this.syncPartyDeparture(view,atlas);
+    this.end={...saved.destination};
+    this.calculateRoute(view,atlas);
+    if(this.result?.status!=="ok")
+      throw Error("The remaining journey cannot be routed safely. Review the road network.");
+    this.recoveryJournal=journal;
+    this.recoveryRecord=saved;
+    this.journeyJournal=journal;
+    this.travelNotice="Saved journey loaded. Review the remaining route, then select Travel Route. "+
+      "Atlas will not replay prior movement or World time.";
+    atlasDebug("journey","Saved journey prepared for GM recovery",{
+      sceneId:this.scene.id,journalId:journal.id
+    });
+    this.draw();void this.render(true);
+    return true;
+  }
+
+  async saveJourneyCheckpoint(session,status,{updatePage=true}={}){
+    if(!session?.journal||!session.journeyRecord)return;
+    const saved=checkpointJourneyRecord(session.journeyRecord,{
+      schedule:session.schedule,status,
+      progress:Math.max(0,Math.min(100,100*session.completedDistance/session.totalDistance)),
+      worldTravelSeconds:session.clock?.advancedSeconds??0,
+      worldRestSeconds:session.clock?.restSeconds??0
+    });
+    session.journeyRecord=saved;
+    // Scene redraws may interrupt an in-flight write. Serialize the final
+    // interrupted state after any earlier checkpoint; last committed wins.
+    session.journalQueue=(session.journalQueue??Promise.resolve()).catch(()=>{}).then(async()=>{
+      await this.journeyJournalStore.save(saved,{journal:session.journal,updatePage});
+    });
+    await session.journalQueue;
+  }
+
   /** Update the live progress display without re-rendering the scrollable directions. */
   setTravelProgress(percent){
     this.travelProgress=Math.max(0,Math.min(100,Number(percent)||0));
@@ -362,6 +436,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     session.schedule.applyBreak(choice);
     if(session.clock)this.setWorldTimeAdvanced(
       session.clock.advancedSeconds,session.clock.restSeconds);
+    await this.saveJourneyCheckpoint(session,"moving");
     this.travelNotice=action==="continue"?
       "Forced travel approved for one more hour. Resolve required saves manually.":
       `${action==="overnight"?"Overnight camp":action==="long"?"Long rest":"Short rest"} `+
@@ -377,6 +452,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(session.phase==="pausing"){
       // A GM must see the confirmed World time before the paused state settles.
       await this.commitGuidedWorldTime(session,{force:true});
+      await this.saveJourneyCheckpoint(session,"paused");
+      if(session.phase==="ending"||this.travelSession!==session)return;
       session.phase="paused";
       this.travelNotice="Journey paused. Resume Travel continues from this position.";
       if(this.active)void this.render(true);
@@ -390,7 +467,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** Execute the already-previewed curve through Foundry's native movement pipeline. */
   async startGuidedTravel(){
     const view=this.canvasProvider();
-    if(this.travelSession)throw Error("Guided travel is already in progress.");
+    if(this.travelSession||this.journalStarting)
+      throw Error("Guided travel is already in progress or being prepared.");
     if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
         !view?.ready||view.scene?.id!==this.scene?.id||this.result?.status!=="ok")
       throw Error("A GM must calculate a route on the active Scene before guided travel.");
@@ -434,6 +512,35 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
       completedDistance:0,totalDistance,currentChunk:null,timer:null,clock:null};
+    // The Journal is the one durable journey store. Create it before any
+    // movement; a failed Journal write cannot leave an unrecorded trip.
+    this.journalStarting=true;
+    try{
+      const recovered=this.recoveryRecord;
+      const record=recovered?
+        resumeJourneyRecord(recovered,{itinerary:this.itinerary,atlasRevision:atlas.revision}):
+        createJourneyRecord({sceneId:this.scene.id,tokenId:token.id,
+          atlasRevision:atlas.revision,itinerary:this.itinerary});
+      if(recovered){
+        schedule.todayHours=recovered.day.todayHours;
+        schedule.permittedExtraUntil=recovered.day.permittedExtraUntil;
+        schedule.restEvents=recovered.day.restEvents;
+        schedule.lastForcedCheck=recovered.day.lastForcedCheck;
+      }
+      session.journal=await this.journeyJournalStore.save(record,{
+        journal:this.recoveryJournal});
+      session.journeyRecord=record;
+      session.journalQueue=Promise.resolve();
+      if(this.scene?.id!==session.sceneId||!this.canvasProvider()?.ready||
+          this.routeRevision!==atlas.revision||this.result?.status!=="ok"){
+        await this.saveJourneyCheckpoint(session,"interrupted");
+        throw Error("The Scene or route changed while the journey was being prepared. Reopen Navigation to recover it.");
+      }
+      this.journeyJournal=session.journal;
+      this.recoveryJournal=null;
+      this.recoveryRecord=null;
+      this.recoverableJourney=null;
+    }finally{this.journalStarting=false;}
     if(advanceWorldTime)session.clock=new GuidedJourneyClock({
       travelHours:playback.travelHours,totalDistance,
       advance:seconds=>game.time.advance(seconds),
@@ -543,6 +650,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           interruptedReason="World time could not advance: "+(error.message||String(error));
           break;
         }
+        if(this.travelSession!==session)return false;
+        try{await this.saveJourneyCheckpoint(session,"moving",{
+          updatePage:index%5===0});}
+        catch(error){
+          reachedEnd=false;
+          interruptedReason="The Journey Journal could not save confirmed progress: "+
+            (error.message||String(error));
+          break;
+        }
       }
       if(this.travelSession===session){
         if(!clockFailed){
@@ -554,6 +670,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
         const arrived=reachedEnd&&session.phase!=="ending"&&!clockFailed;
         if(arrived)this.setTravelProgress(100);
+        try{await this.saveJourneyCheckpoint(session,arrived?"completed":
+          session.phase==="ending"?"ended":"interrupted");}
+        catch(error){
+          interruptedReason="The Journey Journal could not finalize: "+
+            (error.message||String(error));
+          atlasWarn("journey",interruptedReason);
+        }
         this.travelNotice=arrived?"Arrived at destination."+
           (schedule.lastForcedCheck?` Resolve the latest forced-march DC `+
             `${schedule.lastForcedCheck.dc} Constitution saves manually.`:""):
@@ -576,6 +699,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       });
       if(this.travelSession===session){
         this.travelNotice="Journey interrupted: "+(error.message||String(error));
+        try{await this.saveJourneyCheckpoint(session,"interrupted");}
+        catch(saveError){atlasWarn("journey","Could not record interrupted journey",saveError);}
       }
       throw error;
     }finally{
@@ -642,6 +767,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.worldRestAdvancedSeconds=0;
     this.journeySchedule=null;
     this.journeyTimeUI=null;
+    this.recoveryJournal=null;
+    this.recoveryRecord=null;
+    this.recoverableJourney=null;
+    this.journeyJournal=null;
     this.draw();
     if (this.active) void this.render(true);
   }
@@ -675,7 +804,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(this.scene)atlasDebug("lifecycle","Navigation stopped",{
       sceneId:this.scene.id,journeyActive:Boolean(this.travelSession)
     });
-    if(this.travelSession)this.stopGuidedTravel({render:false});
+    if(this.travelSession){
+      const session=this.travelSession;
+      // A closed navigation window or canvas redraw is an interruption, not
+      // an End Journey. Preserve the last confirmed position in its Journal.
+      void this.saveJourneyCheckpoint(session,"interrupted").catch(error=>
+        atlasWarn("journey","Journey interrupted but its Journal could not update",error));
+      this.stopGuidedTravel({render:false});
+    }
     this.travelSession=null;
     this.pointerTarget?.removeEventListener?.("pointerdown",this.pointerDown,true);
     this.pointerTarget = null;
@@ -699,6 +835,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.worldTimeUI=null;
     this.journeySchedule=null;
     this.journeyTimeUI=null;
+    this.recoverableJourney=null;
+    this.recoveryJournal=null;
+    this.recoveryRecord=null;
+    this.journeyJournal=null;
+    this.journalStarting=false;
   }
 
   tearDown(reason="requested") {
@@ -786,6 +927,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const message=el("p",this.travelNotice);
       message.style.cssText="margin:0;font-size:.85em;opacity:.85;";
       body.appendChild(message);
+    }
+    if(this.recoverableJourney&&!this.travelSession&&!this.recoveryRecord){
+      const recovery=el("div");
+      recovery.style.cssText="border:1px solid #b18b54;border-radius:8px;padding:.75rem;display:flex;flex-wrap:wrap;align-items:center;gap:.7rem;";
+      const description=el("span","A saved Atlas journey is available. Recover its destination from the party token's current location.");
+      description.style.cssText="flex:1;min-width:12rem;font-size:.85em;";
+      const recover=el("button","Recover Saved Journey");
+      recover.type="button";
+      recover.title="Recalculate the remaining journey from the party token without moving it";
+      recover.addEventListener("click",()=>{
+        try{this.recoverSavedJourney();}
+        catch(error){ui.notifications.warn(error.message||String(error));}
+      });
+      recovery.append(description,recover);
+      body.appendChild(recovery);
     }
     const {sceneUnit,travel}=this.resolveTravel();
     const speed=travel.speed;
@@ -996,13 +1152,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     row.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;padding:.65rem 1rem;border-top:1px solid var(--color-border-light-tertiary,#555);background:var(--color-bg,#100e18);flex:none;";
     const newRoute=el("button","New Route");
     newRoute.type="button";
-    newRoute.disabled=Boolean(this.travelSession);
+    newRoute.disabled=Boolean(this.travelSession||this.journalStarting);
     newRoute.title=partyMode?"Choose a new destination from the party token":"Clear route and choose a new Point A";
     newRoute.addEventListener("click",()=>{
       this.clear();
       if(partyMode)this.refreshPartyDeparture();
     });
     row.appendChild(newRoute);
+    if(this.journeyJournal){
+      const open=el("button","Open Journey Journal");
+      open.type="button";
+      open.title="Open the saved journey log and recovery record";
+      open.addEventListener("click",()=>void this.journeyJournal.sheet?.render(true));
+      row.appendChild(open);
+    }
     if(this.result?.status==="ok"){
       const phase=this.travelSession?.phase;
       if(phase==="rest-choice"){
@@ -1023,7 +1186,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Pause Travel":phase==="pausing"?"Pausing…":phase==="ending"?"Ending Journey…":
           phase==="rest-applying"?"Recording Break…":"Travel Route");
         move.type="button";
-        move.disabled=phase==="ending"||phase==="pausing"||phase==="rest-applying";
+        move.disabled=this.journalStarting||phase==="ending"||
+          phase==="pausing"||phase==="rest-applying";
         move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
           "Pause after the current short road stretch":"Move the assigned party token along this route";
         move.addEventListener("click",()=>{

@@ -1,5 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createNavigationItinerary } from "../scripts/navigation-itinerary.js";
+import { createJourneyRecord,checkpointJourneyRecord,findRecoverableJourney,
+  JOURNEY_JOURNAL_FLAG } from "../scripts/navigation-journey-journal.js";
+
+const journalStore={save:async(_record,{journal}={})=>journal??{id:"test-journey"},
+  find:()=>null};
+const tickUntil=async condition=>{
+  for(let index=0;index<500;index++){
+    if(condition())return;
+    await Promise.resolve();
+  }
+  throw Error("Journey did not reach the expected state.");
+};
 
 const previousFoundry=globalThis.foundry;
 globalThis.foundry={applications:{api:{ApplicationV2:class {
@@ -205,6 +218,74 @@ test("party departure chooses B with one click, tracks live token center, and pr
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("a saved Journal offers deliberate recovery from the actual token without replaying movement",async()=>{
+  const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
+    ui:globalThis.ui,document:globalThis.document};
+  try{
+    globalThis.window={innerWidth:1200,innerHeight:900};
+    globalThis.PIXI=undefined;
+    globalThis.ui={notifications:{warn(message){throw Error(message);}}};
+    globalThis.document={createElement:tag=>({tag,style:{},children:[],textContent:"",
+      listeners:new Map(),append(...nodes){this.children.push(...nodes);},
+      appendChild(node){this.children.push(node);},
+      addEventListener(name,handler){this.listeners.set(name,handler);}})};
+    const token={id:"party-one",x:100,y:50,width:1,height:1,
+      canUserModify:()=>true,move(){throw Error("Recovery must never move a token.");}};
+    const scene={id:"saved-scene",name:"Paedor",grid:{size:50,units:"km"},
+      canUserModify:()=>true,getFlag:()=>null,tokens:{get:()=>token}};
+    const atlas={revision:11,roads:[{id:"road",name:"Trade Route"}]};
+    const priorRoute={status:"ok",start:point(10,20),end:point(300,200),
+      distance:15,cost:15,terrainAware:false,legs:[{
+        kind:"road",roadId:"road",segmentId:"segment",
+        points:[point(10,20),point(300,200)],distance:15,cost:15}]};
+    const itinerary=createNavigationItinerary({sceneId:scene.id,sceneName:scene.name,
+      sceneUnits:"km",atlasRevision:11,route:priorRoute,travel:{speed:5}});
+    const record=checkpointJourneyRecord(createJourneyRecord({sceneId:scene.id,
+      tokenId:token.id,atlasRevision:11,itinerary}),{
+      schedule:{completedHours:1,todayHours:1,permittedExtraUntil:0,
+        restEvents:0,lastForcedCheck:null,events:[]},
+      progress:33,status:"interrupted"});
+    const journal={id:"recover-1",getFlag:(scope,key)=>
+      scope==="fvtt-atlas-navigation"&&key===JOURNEY_JOURNAL_FLAG?record:null};
+    globalThis.game={user:{isGM:true},journal:{contents:[journal]},
+      settings:{get:()=>5},system:{id:"test"}};
+    const target={addEventListener(){},removeEventListener(){}};
+    const view={ready:true,scene,app:{canvas:target},
+      canvasCoordinatesFromClient:({x,y})=>point(x,y)};
+    const starts=[];
+    const nav=new AtlasNavigationController({canvasProvider:()=>view,
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      atlasPoint:(_view,_atlas,p)=>point(p.x,p.y),
+      journeyJournalStore:{find:findRecoverableJourney,
+        save:async()=>{throw Error("Recovery preview must not write a Journal.");}},
+      routeCalculator:(_view,_scene,_atlas,start,end)=>{
+        starts.push({...start});
+        return {...priorRoute,start:{...start},end:{...end},
+          legs:[{...priorRoute.legs[0],points:[{...start},{...end}]}]};
+      }});
+    nav.activate();
+    const original=await nav._renderHTML();
+    const find=(node,match)=>match(node)?node:
+      node.children.map(item=>find(item,match)).find(Boolean);
+    assert.ok(find(original,node=>node.textContent==="Recover Saved Journey"));
+    assert.equal(nav.recoverSavedJourney(),true);
+    assert.equal(nav.sourceMode,"party");
+    assert.deepEqual(starts,[point(125,75)],
+      "recovery uses the placed token, not the original Point A");
+    assert.deepEqual(nav.end,point(300,200));
+    assert.equal(nav.recoveryJournal,journal);
+    assert.equal(nav.recoveryRecord.status,"interrupted");
+    const prepared=await nav._renderHTML();
+    assert.ok(find(prepared,node=>node.textContent==="Open Journey Journal"));
+    nav.clear();
+    assert.equal(nav.recoveryRecord,null,"New Route abandons the loaded recovery");
+    nav.findRecoverableJournal();
+    atlas.revision=12;
+    assert.throws(()=>nav.recoverSavedJourney(),/no longer matches/);
+    nav.stop();
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("GM guided travel pauses and ends at native chunk boundaries with honest progress",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
     ui:globalThis.ui,document:globalThis.document};
@@ -221,7 +302,7 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
       addEventListener(name,handler){this.listeners.set(name,handler);}})};
     const calls=[];
     let resolveTravel,autoResolve=false;
-    const token={x:50,y:50,width:1,height:1,canUserModify:()=>true,
+    const token={id:"token-guided",x:50,y:50,width:1,height:1,canUserModify:()=>true,
       move(waypoints,options){
         calls.push({waypoints,options});
         const target=waypoints.at(-1);
@@ -243,16 +324,20 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
       segments:[{id:"segment-a",roadId:"road-a",from:"a",to:"b",via:[]}],
       roads:[{id:"road-a",name:"Road A"}]};
     nav=new AtlasNavigationController({canvasProvider:()=>view,
-      atlasProvider:()=>atlas,partyTokenProvider:()=>token});
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      journeyJournalStore:journalStore});
     nav.scene=scene;nav.routeRevision=7;
     nav.start=point(100,100);nav.end=point(300,200);
     nav.result={status:"ok",start:nav.start,end:nav.end,
       distance:20,cost:20,terrainAware:false,
       legs:[{kind:"road",roadId:"road-a",segmentId:"segment-a",
         points:[point(100,100),point(200,150),point(300,200)],distance:20,cost:20}]};
+    nav.itinerary=createNavigationItinerary({sceneId:scene.id,sceneName:scene.name,
+      sceneUnits:scene.grid.units,atlasRevision:atlas.revision,route:nav.result,
+      travel:{speed:5}});
     const pending=nav.startGuidedTravel();
     assert.equal(calls.length,0,"render the Pause button before native movement begins");
-    for(let i=0;i<5;i++)await Promise.resolve();
+    await tickUntil(()=>calls.length===1);
     assert.equal(calls.length,1);
     assert.deepEqual(calls[0].waypoints[0],point(50,50));
     assert.notDeepEqual(calls[0].waypoints.at(-1),point(250,150),
@@ -274,14 +359,14 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     const pausingPanel=await nav._renderHTML();
     assert.ok(find(pausingPanel,node=>node.tag==="button"&&node.textContent==="Pausing…"));
     resolveTravel(true);
-    for(let i=0;i<10;i++)await Promise.resolve();
+    await tickUntil(()=>nav.travelSession?.phase==="paused");
     assert.equal(nav.travelSession.phase,"paused");
     assert.equal(calls.length,1,"pausing prevents the next chunk from starting");
     assert.ok(nav.travelProgress>0&&nav.travelProgress<100);
     const pausedPanel=await nav._renderHTML();
     assert.ok(find(pausedPanel,node=>node.tag==="button"&&node.textContent==="Resume Travel"));
     assert.equal(nav.resumeGuidedTravel(),true);
-    for(let i=0;i<4;i++)await Promise.resolve();
+    await tickUntil(()=>calls.length===2);
     assert.equal(calls.length,2,"resume begins at the last completed stretch");
     assert.equal(nav.stopGuidedTravel(),true);
     assert.equal(nav.travelSession.phase,"ending");
@@ -306,7 +391,7 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     token.object={movementAnimationPromise:new Promise(resolve=>{endVisibleAnimation=resolve;})};
     const before=calls.length;
     const third=nav.startGuidedTravel();
-    for(let i=0;i<4;i++)await Promise.resolve();
+    await tickUntil(()=>calls.length===before+1);
     assert.equal(calls.length,before+1);
     await assert.rejects(nav.startGuidedTravel(),/already in progress/);
     const stillMoving=await nav._renderHTML();
@@ -326,11 +411,11 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     autoResolve=false;
     const previousCount=calls.length;
     const pausedJourney=nav.startGuidedTravel();
-    for(let i=0;i<5;i++)await Promise.resolve();
+    await tickUntil(()=>calls.length===previousCount+1);
     assert.equal(calls.length,previousCount+1);
     nav.pauseGuidedTravel();
     resolveTravel(true);
-    for(let i=0;i<10;i++)await Promise.resolve();
+    await tickUntil(()=>nav.travelSession?.phase==="paused");
     assert.equal(nav.travelSession.phase,"paused");
     assert.equal(nav.stopGuidedTravel(),true);
     assert.equal(await pausedJourney,false);
@@ -381,7 +466,7 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
       appendChild(node){this.children.push(node);},
       addEventListener(name,handler){this.listeners.set(name,handler);}})};
     let autoResolve=true,completeMovement,misplaceNext=false,failMovement=false;
-    const token={x:50,y:50,width:1,height:1,canUserModify:()=>true,
+    const token={id:"token-clock",x:50,y:50,width:1,height:1,canUserModify:()=>true,
       move(waypoints){
         moveCount++;
         if(failMovement)throw Error("Native animation failed");
@@ -400,13 +485,17 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
       segments:[{id:"segment-a",roadId:"road-a",from:"a",to:"b",via:[]}],
       roads:[{id:"road-a",name:"Road A"}]};
     nav=new AtlasNavigationController({canvasProvider:()=>view,
-      atlasProvider:()=>atlas,partyTokenProvider:()=>token});
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      journeyJournalStore:journalStore});
     nav.scene=scene;nav.routeRevision=9;
     nav.start=point(100,100);nav.end=point(300,200);
     nav.result={status:"ok",start:nav.start,end:nav.end,
       distance:20,cost:20,terrainAware:false,
       legs:[{kind:"road",roadId:"road-a",segmentId:"segment-a",
         points:[point(100,100),point(200,150),point(300,200)],distance:20,cost:20}]};
+    nav.itinerary=createNavigationItinerary({sceneId:scene.id,sceneName:scene.name,
+      sceneUnits:scene.grid.units,atlasRevision:atlas.revision,route:nav.result,
+      travel:{speed:5}});
 
     const find=(node,match)=>match(node)?node:
       node.children.map(child=>find(child,match)).find(Boolean);
@@ -440,7 +529,7 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     for(let i=0;i<5;i++)await Promise.resolve();
     nav.pauseGuidedTravel();
     completeMovement(true);
-    for(let i=0;i<15;i++)await Promise.resolve();
+    await tickUntil(()=>nav.travelSession?.phase==="paused");
     assert.equal(nav.travelSession.phase,"paused");
     const beforeEnd=seconds.reduce((a,b)=>a+b,0);
     assert.ok(beforeEnd>14400&&beforeEnd<28800,
