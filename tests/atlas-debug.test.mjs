@@ -4,36 +4,39 @@ import { ATLAS_DEBUG_CATEGORIES,ATLAS_DEBUG_LEVEL_SETTING,ATLAS_DEBUG_LEVELS,
   registerAtlasDebugSettings,atlasDebugEnabled,atlasDebug,atlasWarn }
   from "../scripts/atlas-debug.js";
 
-test("GM can independently choose diagnostic categories and verbosity",()=>{
+test("one browser-local logging dropdown replaces all redundant World checkboxes",()=>{
   const registered=new Map();
   registerAtlasDebugSettings({settings:{register(namespace,key,options){
     assert.equal(namespace,"fvtt-atlas-navigation");
     assert.equal(registered.has(key),false);
     registered.set(key,options);
   }}});
-  assert.equal(registered.size,1+Object.keys(ATLAS_DEBUG_CATEGORIES).length);
-  assert.deepEqual(registered.get(ATLAS_DEBUG_LEVEL_SETTING).choices,ATLAS_DEBUG_LEVELS);
-  assert.equal(registered.get(ATLAS_DEBUG_LEVEL_SETTING).default,"off");
-  for(const {key} of Object.values(ATLAS_DEBUG_CATEGORIES)){
-    const setting=registered.get(key);
-    assert.equal(setting.type,Boolean);
-    assert.equal(setting.default,false);
-    assert.equal(setting.scope,"world");
-    assert.equal(setting.config,true);
-  }
-  const enabled=new Set(["debugJourney","debugFog"]);
+  assert.equal(registered.size,1,"no category checkboxes should be registered");
+  const only=registered.get(ATLAS_DEBUG_LEVEL_SETTING);
+  assert.ok(only);
+  assert.deepEqual(only.choices,ATLAS_DEBUG_LEVELS);
+  assert.deepEqual(Object.keys(only.choices),["off","standard","verbose","trace"]);
+  assert.equal(only.default,"off");
+  assert.equal(only.type,String);
+  assert.equal(only.scope,"client","console logging must not trigger a World Setting write");
+  assert.equal(only.config,true);
+  assert.match(only.hint,/browser only/);
+  assert.equal(Object.keys(ATLAS_DEBUG_CATEGORIES).length,5);
   let level="off";
   const settings={get(_namespace,key){
     if(key===ATLAS_DEBUG_LEVEL_SETTING)return level;
-    return enabled.has(key);
+    throw Error("Retired category settings must never be read");
   }};
   const gm={isGM:true};
   assert.equal(atlasDebugEnabled("journey",{settings,user:gm}),false);
-  level="info";
+  level="standard";
   assert.equal(atlasDebugEnabled("journey",{settings,user:gm}),true);
   assert.equal(atlasDebugEnabled("fog",{settings,user:gm,level:"verbose"}),false);
-  assert.equal(atlasDebugEnabled("movement",{settings,user:gm}),false);
+  assert.equal(atlasDebugEnabled("movement",{settings,user:gm}),true);
   assert.equal(atlasDebugEnabled("journey",{settings,user:{isGM:false}}),false);
+  level="verbose";
+  assert.equal(atlasDebugEnabled("fog",{settings,user:gm,level:"verbose"}),true);
+  assert.equal(atlasDebugEnabled("fog",{settings,user:gm,level:"trace"}),false);
   level="trace";
   assert.equal(atlasDebugEnabled("fog",{settings,user:gm,level:"trace"}),true);
   assert.equal(atlasDebugEnabled("not-a-category",{settings,user:gm}),false);
@@ -48,11 +51,11 @@ test("diagnostic console is quiet by default, but failures always remain visible
     console.warn=(...args)=>warnings.push(args);
     let level="off";
     globalThis.game={user:{isGM:true},settings:{get(_namespace,key){
-      return key===ATLAS_DEBUG_LEVEL_SETTING?level:key==="debugJourney";
+      return key===ATLAS_DEBUG_LEVEL_SETTING?level:false;
     }}};
     atlasDebug("journey","started",{sceneId:"example"});
     assert.equal(debug.length,0);
-    level="info";
+    level="standard";
     atlasDebug("journey","started",{sceneId:"example"});
     atlasDebug("journey","stretch",undefined,{level:"verbose"});
     assert.equal(debug.length,1);
