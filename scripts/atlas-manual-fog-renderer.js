@@ -7,6 +7,7 @@ import { checkpointRevealKeys } from "./checkpoint-exploration.js";
 import { resolveManualBrushMode } from "./atlas-manual-fog-shortcuts.js";
 import { BRUSH_REVEAL_SHORTCUT, BRUSH_HIDE_SHORTCUT }
   from "./atlas-manual-fog-panel.js";
+import { atlasDebug } from "./atlas-debug.js";
 /** Dedicated independent renderer: only persisted manual overrides determine visibility. */
 export class AtlasManualFogController {
   constructor() {
@@ -84,6 +85,11 @@ export class AtlasManualFogController {
       const checkpointCells=checkpointRevealKeys(all,readAtlas(view.scene),
         readPartyExploration(view.scene),Number(view.scene.grid?.size),
         {x:sceneX,y:sceneY});
+      atlasDebug("fog","Exploration mask rebuilt",{
+        sceneId:view.scene.id,totalCells:all.length,
+        revealedCells:revealed.size,hiddenCells:hidden.size,
+        checkpointCells:checkpointCells.size
+      },{level:"trace"});
       for(const cell of all) {
         const key=cellKey(cell);
         if((revealed.has(key)||checkpointCells.has(key))&&!hidden.has(key))continue;

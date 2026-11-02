@@ -16,6 +16,30 @@ const pointer=(x,y,flags={})=>({button:0,clientX:x,clientY:y,
   prevented:0,stopped:0,...flags,
   preventDefault(){this.prevented++;},stopImmediatePropagation(){this.stopped++;}});
 
+test("unexpected canvas redraw reports and safely ends the active journey",()=>{
+  const old={ui:globalThis.ui,game:globalThis.game};
+  const messages=[];
+  try{
+    globalThis.game={user:{isGM:true},settings:{get:()=>false}};
+    globalThis.ui={notifications:{warn:message=>messages.push(message)}};
+    const nav=new AtlasNavigationController();
+    nav.scene={id:"scene-reloaded"};
+    nav.rendered=true;
+    nav.travelProgress=52;
+    let woke=0;
+    const session={phase:"moving",resumeWaiter:()=>woke++,restWaiter:()=>{}};
+    nav.travelSession=session;
+    nav.tearDown("canvasTearDown");
+    assert.equal(messages.length,1);
+    assert.match(messages[0],/canvas redraw/);
+    assert.equal(nav.travelSession,null);
+    assert.equal(nav.active,false);
+    assert.equal(session.phase,"ending");
+    assert.equal(woke,1);
+    assert.equal(nav.closed,true);
+  }finally{globalThis.ui=old.ui;globalThis.game=old.game;}
+});
+
 test("navigation locks the completed route until deliberate endpoint gestures or New Route",async()=>{
   const previous={foundry:globalThis.foundry,game:globalThis.game,window:globalThis.window,
     PIXI:globalThis.PIXI,ui:globalThis.ui,document:globalThis.document};
@@ -356,10 +380,11 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
       listeners:new Map(),append(...nodes){this.children.push(...nodes);},
       appendChild(node){this.children.push(node);},
       addEventListener(name,handler){this.listeners.set(name,handler);}})};
-    let autoResolve=true,completeMovement,misplaceNext=false;
+    let autoResolve=true,completeMovement,misplaceNext=false,failMovement=false;
     const token={x:50,y:50,width:1,height:1,canUserModify:()=>true,
       move(waypoints){
         moveCount++;
+        if(failMovement)throw Error("Native animation failed");
         const goal=waypoints.at(-1);
         const finish=value=>{
           if(value&&!misplaceNext){this.x=goal.x;this.y=goal.y;}
@@ -436,9 +461,17 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     assert.equal(nav.worldTimeAdvancedSeconds,0);
     assert.match(nav.travelNotice,/World time could not advance: Clock is unavailable/);
 
+    // Unexpected errors inside an active movement should be visible in the
+    // Navigation window rather than silently dropping the in-flight session.
+    failClock=false;failMovement=true;
+    token.x=50;token.y=50;
+    await assert.rejects(nav.startGuidedTravel(),/Native animation failed/);
+    assert.match(nav.travelNotice,/Journey interrupted: Native animation failed/);
+    assert.equal(nav.travelSession,null);
+
     // A native operation reporting true but ending off the route is not
     // confirmed travel: neither progress nor World time may be credited.
-    failClock=false;
+    failClock=false;failMovement=false;
     misplaceNext=true;
     token.x=50;token.y=50;
     const beforeMismatch=seconds.reduce((a,b)=>a+b,0);

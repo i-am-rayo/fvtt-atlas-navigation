@@ -5,6 +5,7 @@ import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
 import { readAtlas } from "./atlas-storage.js";
 import { tokenTravelPath, surveyTrailCells, discoveredOnPath }
   from "./atlas-token-survey.js";
+import { atlasDebug } from "./atlas-debug.js";
 
 const pending=new Map();
 function primaryGM() {
@@ -27,6 +28,9 @@ async function recordSurvey(scene,tokenId,path) {
       !Number.isFinite(gridDistance)||gridDistance<=0)throw Error("Invalid Scene survey grid scale.");
   const radiusPx=Math.max(gridSize*0.5,(config.radius/gridDistance)*gridSize);
   const cells=surveyTrailCells(nativeFogCells(canvas),path,radiusPx);
+  atlasDebug("fog","Explorer survey calculated",{
+    sceneId:scene.id,waypoints:path.length,exploredCells:cells.length
+  },{level:"verbose"});
   if(cells.length)await applyManualFogBrush(scene,cells,"reveal");
   const checkpoints=discoveredOnPath(readAtlas(scene),path,radiusPx,
     {x:Number(canvas.dimensions.sceneX),y:Number(canvas.dimensions.sceneY)});

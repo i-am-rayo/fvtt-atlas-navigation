@@ -2,6 +2,7 @@ import { MODULE_ID } from "./atlas-storage.js";
 import { MANUAL_FOG_FLAG, validateManualFog, paintManualFog,cellKey } from "./atlas-manual-fog-model.js";
 import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
 import { readAtlasMapFog } from "./atlas-map-fog-storage.js";
+import { atlasDebug } from "./atlas-debug.js";
 export function readManualFog(scene) {
   if(!scene?.getFlag)throw new Error("Select an Atlas Scene.");
   const saved = scene.getFlag(MODULE_ID,MANUAL_FOG_FLAG);
@@ -55,7 +56,16 @@ export function applyManualFogBrush(scene, positions,mode) {
     const covered=new Set(previous.hidden.map(cellKey));
     if(updated.revealed.length===exposed.size&&updated.hidden.length===covered.size&&
         updated.revealed.every(p=>exposed.has(cellKey(p)))&&
-        updated.hidden.every(p=>covered.has(cellKey(p))))return previous;
+        updated.hidden.every(p=>covered.has(cellKey(p)))){
+      atlasDebug("fog","Exploration survey skipped unchanged Scene flags",{
+        sceneId:scene.id
+      },{level:"trace"});
+      return previous;
+    }
+    atlasDebug("fog","Exploration saved",{
+      sceneId:scene.id,addedRevealed:updated.revealed.length-exposed.size,
+      totalRevealed:updated.revealed.length,totalHidden:updated.hidden.length
+    },{level:"verbose"});
     await scene.setFlag(MODULE_ID,MANUAL_FOG_FLAG,updated);
     return updated;
   });

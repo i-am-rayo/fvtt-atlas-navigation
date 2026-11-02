@@ -11,3 +11,27 @@ export function isManualFogOnlySceneUpdate(changes){
     Object.keys(moduleFlags).length===1&&
     Object.hasOwn(moduleFlags,"manualFog");
 }
+
+/** A Scene clock, lighting, or weather change must not rebuild the Atlas fog
+ * mask. Native time modules can update the Scene on every guided stretch; a
+ * complete mask replacement during those updates caused a visible dark frame.
+ * Rebuild only when inputs to the mask actually change. */
+export function shouldRefreshManualFogForSceneUpdate(changes){
+  if(!changes||typeof changes!=="object")return true;
+  for(const field of ["grid","width","height","x","y","padding"]){
+    if(Object.hasOwn(changes,field))return true;
+  }
+  const flags=changes.flags;
+  if(flags&&typeof flags==="object"){
+    const moduleFlags=flags[MODULE_ID];
+    if(moduleFlags&&typeof moduleFlags==="object"){
+      if(Object.keys(moduleFlags).some(key=>
+        ["manualFog","partyExploration","atlas"].includes(key.replace(/^-=/,""))))return true;
+    }
+    // Support the flattened form emitted by some Scene.update callers.
+    if(Object.keys(flags).some(key=>["manualFog","partyExploration","atlas"].some(field=>
+      key===`${MODULE_ID}.${field}`)))return true;
+  }
+  return Object.keys(changes).some(key=>["manualFog","partyExploration","atlas"].some(field=>
+    key===`flags.${MODULE_ID}.${field}`));
+}

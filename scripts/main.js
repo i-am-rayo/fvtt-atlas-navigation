@@ -14,7 +14,8 @@ import { savePartyExplorationConfig,
 import { readManualFog, setManualFogEnabled }
   from "./atlas-manual-fog-storage.js";
 import { AtlasManualFogController } from "./atlas-manual-fog-renderer.js";
-import { isManualFogOnlySceneUpdate } from "./atlas-manual-fog-refresh.js";
+import { isManualFogOnlySceneUpdate,shouldRefreshManualFogForSceneUpdate }
+  from "./atlas-manual-fog-refresh.js";
 import { AtlasManualFogPalette, registerManualBrushSettings }
   from "./atlas-manual-fog-panel.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
@@ -55,6 +56,7 @@ import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.j
 import { AtlasRoadEditorDock, activeRoadDockForSceneConfig } from "./road-editor-dock.js";
 import { AtlasNavigationController } from "./navigation-controller.js";
 import { registerNavigationWorldSettings } from "./navigation-world-settings.js";
+import { registerAtlasDebugSettings,atlasDebug } from "./atlas-debug.js";
 
 const roadCanvas = new RoadCanvasController();
 roadCanvas.onCheckpointCreated=(scene,checkpointId,roadId)=>
@@ -1604,6 +1606,7 @@ function atlasGridChangeNotice(scene, change, options) {
 }
 
 Hooks.once("init", () => {
+  registerAtlasDebugSettings();
   registerNavigationWorldSettings({onPlaybackChange:()=>{
     if(navigation.active)void navigation.render(true);
   }});
@@ -1710,11 +1713,18 @@ Hooks.once("init", () => {
     }
     forgetAtlasSceneConfig(app);
   });
-  Hooks.on("canvasReady", () => { navigation.tearDown(); roadCanvas.refresh(); manualFog.refresh(); });
+  Hooks.on("canvasReady", () => {
+    atlasDebug("lifecycle","Foundry canvasReady",{sceneId:canvas?.scene?.id??null});
+    navigation.tearDown("canvasReady");
+    roadCanvas.refresh();manualFog.refresh();
+  });
   // Foundry v14 movement includes origin, passed waypoints and destination.
   Hooks.on("moveToken", observeAtlasTokenMovement);
   Hooks.on("canvasTearDown", () => {
-    navigation.tearDown();
+    atlasDebug("lifecycle","Foundry canvasTearDown",{
+      sceneId:canvas?.scene?.id??null,journeyActive:Boolean(navigation.travelSession)
+    });
+    navigation.tearDown("canvasTearDown");
     if (roadDock) {
       roadDock.finished = true;
       void roadDock.close();
@@ -1732,9 +1742,17 @@ Hooks.once("init", () => {
   Hooks.on("deleteFogExploration", () => roadCanvas.onFogRefresh());
   Hooks.on("updateScene", (scene,changes) => {
     if (globalThis.canvas?.ready && canvas.scene?.id === scene.id) {
+      atlasDebug("lifecycle","Scene updated",{
+        sceneId:scene.id,changedFields:Object.keys(changes??{})
+      },{level:"trace"});
       navigation.onSceneUpdated(scene,changes);
       if(!game.user?.isGM||!isManualFogOnlySceneUpdate(changes))roadCanvas.refresh();
-      manualFog.refresh();
+      if(shouldRefreshManualFogForSceneUpdate(changes)){
+        atlasDebug("fog","Atlas fog refresh after Scene update",{
+          sceneId:scene.id,changedFields:Object.keys(changes??{})
+        },{level:"trace"});
+        manualFog.refresh();
+      }
       if(fogPalette.open)fogPalette.draw();
     }
   });

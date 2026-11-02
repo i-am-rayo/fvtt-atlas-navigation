@@ -2,7 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AtlasManualFogController } from "../scripts/atlas-manual-fog-renderer.js";
 import { applyManualFogBrush } from "../scripts/atlas-manual-fog-storage.js";
-import { isManualFogOnlySceneUpdate } from "../scripts/atlas-manual-fog-refresh.js";
+import { isManualFogOnlySceneUpdate,shouldRefreshManualFogForSceneUpdate }
+  from "../scripts/atlas-manual-fog-refresh.js";
+
+test("World clock, light, and unrelated Scene changes never rebuild Atlas fog",()=>{
+  for(const changes of [
+    {darkness:0.42},{flags:{"another-module":{clock:28}}},
+    {flags:{"fvtt-atlas-navigation":{irrelevant:true}}},
+    {name:"Paedor"},{background:{color:"#080808"}}
+  ])assert.equal(shouldRefreshManualFogForSceneUpdate(changes),false);
+  for(const changes of [
+    {grid:{size:200}},{width:2000},
+    {flags:{"fvtt-atlas-navigation":{manualFog:{revealed:[]}}}},
+    {flags:{"fvtt-atlas-navigation":{partyExploration:{discoveredCheckpointIds:[]}}}},
+    {flags:{"fvtt-atlas-navigation":{atlas:{revision:2}}}},
+    {"flags.fvtt-atlas-navigation.manualFog":{revealed:[]}},
+    {flags:{"fvtt-atlas-navigation.manualFog":{revealed:[]}}}
+  ])assert.equal(shouldRefreshManualFogForSceneUpdate(changes),true);
+});
 
 test("only isolated manual-fog flag updates skip expensive GM road redraws",()=>{
   assert.equal(isManualFogOnlySceneUpdate({flags:{"fvtt-atlas-navigation":{

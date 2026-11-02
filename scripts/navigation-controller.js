@@ -26,6 +26,7 @@ import { createNavigationItinerary } from "./navigation-itinerary.js";
 import { REGION_ROUTING_ORDER_FLAG } from "./navigation-terrain.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { resolveNavigationTravelSpeed } from "./navigation-party-speed.js";
+import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 
 const el = (tag, content) => {
   const node = document.createElement(tag);
@@ -87,6 +88,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     this.stop();
     this.scene = view.scene;
+    atlasDebug("lifecycle","Navigation opened",{sceneId:this.scene.id});
     this.bindPointer();
     void this.render(true);
     this.draw();
@@ -300,6 +302,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   async commitGuidedWorldTime(session,{force=false}={}){
     if(!session.clock)return 0;
     const delta=await session.clock.commit(session.completedDistance,{force});
+    if(delta)atlasDebug("clock","Confirmed travel time advanced",{
+      sceneId:session.sceneId,seconds:delta,
+      totalMovingSeconds:session.clock.advancedSeconds,force
+    },{level:"verbose"});
     if(this.travelSession===session)this.setWorldTimeAdvanced(
       session.clock.advancedSeconds,session.clock.restSeconds);
     return delta;
@@ -316,6 +322,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session=this.travelSession;
     if(!session||session.phase!=="rest-choice"||!session.restWaiter)return false;
     session.phase="rest-applying";
+    atlasDebug("journey","GM selected travel-day decision",{
+      sceneId:session.sceneId,action,completedPercent:Math.floor(this.travelProgress)
+    });
     const resolve=session.restWaiter;
     session.restWaiter=null;
     resolve(action);
@@ -326,6 +335,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   async waitForDailyTravelChoice(session){
     if(!session.schedule.needsDecision)return true;
     session.phase="rest-choice";
+    atlasDebug("journey","Daily travel limit reached",{
+      sceneId:session.sceneId,todayHours:session.schedule.todayHours
+    });
     const past=session.schedule.lastForcedCheck;
     const forced=past?` Resolve the hour-${past.extraHour} forced-march DC ${past.dc} `+
       "Constitution saves with your players; Atlas never applies exhaustion.":"";
@@ -342,6 +354,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // calendar break, preserving ledger order across Foundry time hooks.
       await this.commitGuidedWorldTime(session,{force:true});
       if(session.clock)await session.clock.commitBreak(Math.round(choice.hours*3600));
+      atlasDebug("clock","GM-confirmed rest recorded",{
+        sceneId:session.sceneId,action,hours:choice.hours,
+        worldTimeAdvanced:Boolean(session.clock)
+      });
     }
     session.schedule.applyBreak(choice);
     if(session.clock)this.setWorldTimeAdvanced(
@@ -426,6 +442,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.travelSession===session&&this.scene?.id===session.sceneId
     });
     this.travelSession=session;
+    atlasDebug("journey","Guided journey started",{
+      sceneId:session.sceneId,chunkCount:chunks.length,
+      plannedTravelHours:Math.round(playback.travelHours*100)/100,
+      worldClockEnabled:advanceWorldTime
+    });
     this.journeySchedule=schedule;
     this.travelNotice="Guided travel in progress. Pause Travel stops at the next short stretch.";
     this.setTravelProgress(0);
@@ -484,6 +505,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
         session.currentChunk={distance:chunk.distance,startedAt:Date.now(),
           durationMs:1000*chunk.distance/pixelsPerSecond};
+        atlasDebug("movement","Native token move requested",{
+          sceneId:session.sceneId,chunk:index+1,chunkCount:chunks.length,
+          plannedDurationMs:Math.round(session.currentChunk.durationMs)
+        },{level:"verbose"});
         const completed=await token.move(chunk.waypoints,{
           animate:true,autoRotate:false,showRuler:false,pan:false,
           animation:{movementSpeed:playback.movementSpeed}
@@ -506,6 +531,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         // Credit progress only after Foundry confirms the expected destination.
         // An interrupted/redirected movement must never receive World time.
         session.completedDistance+=chunk.distance;
+        atlasDebug("movement","Native movement confirmed",{
+          sceneId:session.sceneId,chunk:index+1,
+          completedPercent:Math.round(100*session.completedDistance/totalDistance)
+        },{level:"verbose"});
         schedule.recordMovement(chunk.distance/totalDistance*playback.travelHours);
         this.setTravelProgress(Math.min(99,100*session.completedDistance/totalDistance));
         try{await this.commitGuidedWorldTime(session);}
@@ -529,9 +558,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           (schedule.lastForcedCheck?` Resolve the latest forced-march DC `+
             `${schedule.lastForcedCheck.dc} Constitution saves manually.`:""):
           (interruptedReason??"Journey ended at the last completed road stretch.");
+        atlasDebug("journey",arrived?"Journey arrived":
+          "Journey stopped",{
+          sceneId:session.sceneId,reason:arrived?"arrived":
+            (interruptedReason??(session.phase==="ending"?"gm-ended":"interrupted")),
+          completedPercent:Math.floor(this.travelProgress)
+        });
+        if(interruptedReason)atlasWarn("journey",interruptedReason);
         return arrived;
       }
       return false;
+    }catch(error){
+      atlasWarn("journey","Guided travel failed unexpectedly",error);
+      atlasDebug("journey","Unexpected journey exception",{
+        sceneId:session.sceneId,phase:session.phase,
+        confirmedPercent:Math.floor(100*session.completedDistance/totalDistance)
+      });
+      if(this.travelSession===session){
+        this.travelNotice="Journey interrupted: "+(error.message||String(error));
+      }
+      throw error;
     }finally{
       if(session.timer!==null)clearInterval(session.timer);
       session.resumeWaiter?.();
@@ -548,6 +594,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session=this.travelSession;
     if(!session||session.phase!=="moving")return false;
     session.phase="pausing";
+    atlasDebug("journey","Pause requested",{sceneId:session.sceneId});
     this.travelNotice="Pausing after the current short road stretch…";
     if(this.active)void this.render(true);
     return true;
@@ -557,6 +604,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session=this.travelSession;
     if(!session||session.phase!=="paused"||!session.resumeWaiter)return false;
     session.phase="moving";
+    atlasDebug("journey","Journey resumed",{sceneId:session.sceneId});
     this.travelNotice="Journey resumed.";
     session.resumeWaiter();
     if(this.active)void this.render(true);
@@ -567,6 +615,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session=this.travelSession;
     if(!session)return false;
     session.phase="ending";
+    atlasDebug("journey","End journey requested",{sceneId:session.sceneId});
     session.resumeWaiter?.();
     session.restWaiter?.(null);
     this.travelNotice="Ending journey after the current short road stretch…";
@@ -576,6 +625,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   /** Deliberate route reset without any Scene or token mutation. */
   clear(reason="") {
+    if(reason)atlasDebug("lifecycle","Navigation route cleared",{
+      sceneId:this.scene?.id??null,reason,journeyActive:Boolean(this.travelSession)
+    });
     if(this.travelSession)this.stopGuidedTravel({render:false});
     this.start = null;
     this.end = null;
@@ -620,6 +672,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   stop() {
+    if(this.scene)atlasDebug("lifecycle","Navigation stopped",{
+      sceneId:this.scene.id,journeyActive:Boolean(this.travelSession)
+    });
     if(this.travelSession)this.stopGuidedTravel({render:false});
     this.travelSession=null;
     this.pointerTarget?.removeEventListener?.("pointerdown",this.pointerDown,true);
@@ -646,7 +701,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.journeyTimeUI=null;
   }
 
-  tearDown() {
+  tearDown(reason="requested") {
+    const session=this.travelSession;
+    atlasDebug("lifecycle","Navigation teardown",{
+      reason,sceneId:this.scene?.id??null,journeyActive:Boolean(session),
+      completedPercent:Math.floor(this.travelProgress)
+    });
+    if(session&&["canvasTearDown","canvasReady"].includes(reason)){
+      const message="Atlas journey was interrupted by a Foundry canvas redraw. "+
+        "Reopen Navigation to continue from the token's current location.";
+      atlasWarn("lifecycle",message,{reason,sceneId:session.sceneId});
+      globalThis.ui?.notifications?.warn?.(message);
+    }
     this.stop();
     if (this.rendered) {
       this.closedByController = true;
@@ -998,6 +1064,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   _replaceHTML(result,content) { content.replaceChildren(result); }
 
   _onClose(options) {
+    if(this.travelSession)atlasDebug("lifecycle","Navigation window closed during journey",{
+      sceneId:this.scene?.id??null,phase:this.travelSession.phase
+    });
     super._onClose?.(options);
     this.stop();
     this.closedByController = false;
