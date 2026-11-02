@@ -1,4 +1,6 @@
 /** Pure, bounded waypoint planning for Foundry v14's native TokenDocument.move API. */
+import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
+
 export const MAX_GUIDED_WAYPOINTS = 1024;
 const valid = point => Number.isFinite(point?.x) && Number.isFinite(point?.y);
 
@@ -59,7 +61,7 @@ export function createGuidedTokenWaypoints(legPaths, token, gridSize, {
   if (centers.length < 2) throw Error("The route has no distance to travel.");
   const halfWidth = token.width * gridSize / 2;
   const halfHeight = token.height * gridSize / 2;
-  const origin = { x: token.x + halfWidth, y: token.y + halfHeight };
+  const origin = partyTokenCanvasCenter(token,gridSize);
   if (Math.hypot(origin.x - centers[0].x, origin.y - centers[0].y) > gridSize * 0.75) {
     throw Error("Place Point A on the party token before starting guided travel.");
   }

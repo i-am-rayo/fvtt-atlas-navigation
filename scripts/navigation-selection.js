@@ -3,9 +3,13 @@
  * against unmodified map clicks. Other Foundry tools receive ignored clicks.
  * No DOM, Scene flag or token writes are performed here.
  */
-export function navigationPointIntent(event,{start=null,end=null}={}) {
+export function navigationPointIntent(event,{start=null,end=null,sourceMode="map"}={}) {
   if(event?.button!==0 || event.ctrlKey || event.metaKey ||
       (event.shiftKey && event.altKey))return null;
+  if(sourceMode==="party"){
+    if(event.shiftKey)return null; // Party token, not a map click, owns Point A.
+    return start && (event.altKey || !end) ? "end" : null;
+  }
   if(event.shiftKey)return "start";
   if(event.altKey)return start ? "end" : null;
   if(!start)return "start";

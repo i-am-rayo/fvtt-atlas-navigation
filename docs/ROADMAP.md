@@ -1,6 +1,6 @@
 # Active v0.3.x roadmap — updated November 2, 2026
 
-This section is the **current delivery order**. Older Phase 0–6 notes below remain historical design and safety references; their former release gates do not override the owner's subsequent v0.3.x approvals. Each new feature still requires its own draft/test build and live Foundry v14 sign-off before merging. The owner accepted v0.3.6-beta.1.1; **v0.3.7-beta.1 is a GM-only guided travel draft awaiting live Foundry v14 testing**. Later milestones remain planned.
+This section is the **current delivery order**. Older Phase 0–6 notes below remain historical design and safety references; their former release gates do not override the owner's subsequent v0.3.x approvals. Each new feature still requires its own draft/test build and live Foundry v14 sign-off before merging. The owner accepted v0.3.6-beta.1.1; **v0.3.7-beta.1.1 is a GM-only guided travel test draft awaiting live Foundry v14 testing**. Later milestones remain planned.
 
 **Current baseline:** v0.3.5-beta.5.1 was confirmed by the owner. The reusable selector must persist both its saved ID and HTML `defaultSelected` state because Foundry's DialogV2 may serialize and recreate its inputs. The beta.5.1 Road Settings footer hotfix is included in the v0.3.6 test branch.
 
@@ -11,6 +11,8 @@ This section is the **current delivery order**. Older Phase 0–6 notes below re
 **v0.3.6-beta.1.1 hotfix:** While Navigation is active, idle GM Shift-click on roads, checkpoint icons and checkpoint clusters belongs to Point A selection, not the road/checkpoint Settings shortcut. Once Navigation closes, normal editing shortcuts resume. No saved data, Region, Fog or token behavior changes.
 
 **v0.3.7-beta.1 GM travel slice:** A new explicit Navigation **Travel Route / Stop Travel** command moves the manually assigned explorer token over the same bounded, curved path rendered by the route overlay, using public Foundry v14 `TokenDocument.move(waypoints)` and `stopMovement()`. It refuses invalid or stale routes and token departures far from A. Existing native movement constraints and Region Behaviors remain authoritative. The direct drag/drop destination UX and any player-initiated travel/discovery restrictions remain **unimplemented and separately gated** until a live v14 movement/permission review. See [beta.1 travel guide](NAVIGATION_V037_TESTING.md).
+
+**v0.3.7-beta.1.1 navigation usability follow-up:** The Navigation panel supports **Map Point A → B** or **Party token location → B**, using the token's actual placed Scene center with the same Atlas coordinate conversion. In party mode the GM selects only B and can refresh the token's current position. The Travel Route / Stop Travel controls stay in a non-scrolling action footer alongside New Route and Exit Navigation. The engine is still GM-only; no automatic permission or Fog enforcement is claimed.
 
 | Order | Proposed milestone | Primary outcome | Release gate |
 | --- | --- | --- | --- |

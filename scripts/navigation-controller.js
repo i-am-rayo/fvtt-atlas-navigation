@@ -5,6 +5,7 @@ import { roadStrokeSpans } from "./road-appearance.js";
 import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.js";
 import { navigationCanvasLegPaths } from "./navigation-render-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
+import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
 import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
   navigationHours, formatNavigationDuration }
   from "./navigation-time.js";
@@ -43,6 +44,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.atlasPoint=atlasPoint;
     this.partyTokenProvider=partyTokenProvider;
     this.scene = null;
+    this.sourceMode = "map";
     this.start = null;
     this.end = null;
     this.result = null;
@@ -81,6 +83,72 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     target.addEventListener("pointerdown", this.pointerDown, true);
   }
 
+  /** Use one route calculation for both map-point and live party departures. */
+  calculateRoute(view,atlas) {
+    this.routeRevision=atlas.revision;
+    this.result=null;
+    this.itinerary=null;
+    if(!this.start||!this.end)return;
+    try{
+      this.result=this.routeCalculator(view,this.scene,atlas,this.start,this.end);
+      if(this.result?.status==="ok"){
+        this.itinerary=createNavigationItinerary({
+          sceneId:this.scene.id,sceneName:this.scene.name??"",
+          sceneUnits:this.scene.grid?.units??"",atlasRevision:atlas.revision,
+          route:this.result,roadName:id=>atlas.roads.find(road=>road.id===id)?.name??"Road",
+          travel:this.resolveTravel().travel
+        });
+      }
+    }catch(error){
+      this.result={status:"error",reason:error.message||String(error)};
+      ui.notifications.error(this.result.reason);
+    }
+  }
+
+  /** Translate the actual placed TokenDocument center through the regular Atlas converter. */
+  syncPartyDeparture(view,atlas) {
+    const token=this.getPartyToken();
+    if(!token || !token.canUserModify?.(game.user,"update"))
+      throw Error("Assign a placed Atlas party explorer token that the GM may move.");
+    const center=partyTokenCanvasCenter(token,this.scene?.grid?.size);
+    const origin=this.atlasPoint(view,atlas,center);
+    if(!Number.isFinite(origin?.x)||!Number.isFinite(origin?.y))
+      throw Error("The party token location is outside the usable Atlas map.");
+    const changed=!this.start||Math.hypot(origin.x-this.start.x,origin.y-this.start.y)>0.001;
+    this.start=origin;
+    return changed;
+  }
+
+  /** Switching departure modes leaves B intact but makes the chosen A explicit. */
+  setSourceMode(mode) {
+    if(this.travelSession||!this.scene||!["map","party"].includes(mode))return;
+    const view=this.canvasProvider();
+    if(!game.user?.isGM||!view?.ready||view.scene?.id!==this.scene.id)return;
+    try{
+      const atlas=this.atlasProvider(this.scene);
+      if(mode==="party")this.syncPartyDeparture(view,atlas);
+      else if(mode!==this.sourceMode)this.start=null;
+      this.sourceMode=mode;
+      this.notice="";
+      this.travelNotice="";
+      this.calculateRoute(view,atlas);
+      this.draw();
+      void this.render(true);
+    }catch(error){ui.notifications.warn(error.message||String(error));}
+  }
+
+  refreshPartyDeparture() {
+    if(this.sourceMode!=="party"||this.travelSession||!this.scene)return;
+    const view=this.canvasProvider();
+    try{
+      const atlas=this.atlasProvider(this.scene);
+      this.syncPartyDeparture(view,atlas);
+      this.calculateRoute(view,atlas);
+      this.draw();
+      void this.render(true);
+    }catch(error){ui.notifications.warn(error.message||String(error));}
+  }
+
   onPointerDown(event) {
     if(!this.scene||this.travelSession)return;
     const intent=navigationPointIntent(event,this);
@@ -100,6 +168,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     try{
       atlas=this.atlasProvider(this.scene);
       location=this.atlasPoint(view,atlas,canvasPoint);
+      if(this.sourceMode==="party")this.syncPartyDeparture(view,atlas);
     }catch(error){
       ui.notifications.error(error.message||String(error));return;
     }
@@ -112,24 +181,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     } else {
       this.end = location;
     }
-    this.routeRevision=atlas.revision;
-    this.result=null;this.itinerary=null;
-    if(this.start&&this.end){
-      try{
-        this.result=this.routeCalculator(view,this.scene,atlas,this.start,this.end);
-        if(this.result?.status==="ok"){
-          this.itinerary=createNavigationItinerary({
-            sceneId:this.scene.id,sceneName:this.scene.name??"",
-            sceneUnits:this.scene.grid?.units??"",atlasRevision:atlas.revision,
-            route:this.result,roadName:id=>atlas.roads.find(road=>road.id===id)?.name??"Road",
-            travel:this.resolveTravel().travel
-          });
-        }
-      }catch(error){
-        this.result={status:"error",reason:error.message||String(error)};
-        ui.notifications.error(this.result.reason);
-      }
-    }
+    this.calculateRoute(view,atlas);
     this.draw();
     void this.render(true);
     if (this.result?.status === "ok") {
@@ -196,6 +248,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const atlas=this.atlasProvider(this.scene);
     if(atlas.revision!==this.routeRevision)
       throw Error("The road network changed. Calculate a fresh route before traveling.");
+    if(this.sourceMode==="party" && this.syncPartyDeparture(view,atlas)){
+      // Re-read live token position before movement, never follow an outdated route.
+      this.calculateRoute(view,atlas);
+      this.draw();
+      void this.render(true);
+      if(this.result?.status!=="ok")throw Error("The party token's current position has no connected road route.");
+    }
     const paths=navigationCanvasLegPaths(view,atlas,this.result);
     const waypoints=createGuidedTokenWaypoints(paths,token,this.scene.grid?.size);
     const session={token,sceneId:this.scene.id};
@@ -274,6 +333,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.overlay?.destroy?.();
     this.overlay = null;
     this.scene = null;
+    this.sourceMode = "map";
     this.start = null;
     this.end = null;
     this.result = null;
@@ -311,52 +371,63 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   async _renderHTML() {
     const root=el("section");
-    root.style.cssText="display:flex;flex-direction:column;gap:.85rem;padding:1rem;overflow-y:auto;max-height:100%;";
-    const status=!this.start ? (this.notice||"Click the map to select Point A.") :
-      !this.end ? "Point A selected. Click the map to select Point B." :
-      this.result?.status==="ok" ? "Route calculated. Use Shift+click for A or Alt/Option+click for B." :
+    root.style.cssText="display:flex;flex-direction:column;height:100%;max-height:100%;min-height:0;overflow:hidden;";
+    const body=el("div");
+    body.style.cssText="display:flex;flex-direction:column;gap:.85rem;padding:1rem;flex:1;min-height:0;overflow-y:auto;";
+    const partyMode=this.sourceMode==="party";
+    const status=!this.start ? (this.notice||(partyMode?
+      "Party token location unavailable. Refresh its location before choosing B.":
+      "Click the map to select Point A.")) :
+      !this.end ? (partyMode?"Party token is Point A. Click the map to select Point B.":
+        "Point A selected. Click the map to select Point B.") :
+      this.result?.status==="ok" ? (partyMode?
+        "Route calculated from party token. Alt/Option+click to change B.":
+        "Route calculated. Shift+click changes A; Alt/Option+click changes B.") :
       (this.result?.reason ?? "No connected road route available.");
+    const departure=el("div");
+    departure.style.cssText="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;";
+    const departureLabel=el("label","Start from");
+    departureLabel.htmlFor="atlas-navigation-departure";
+    const departureSelect=el("select");
+    departureSelect.id="atlas-navigation-departure";
+    departureSelect.title="Choose the route departure source";
+    departureSelect.disabled=Boolean(this.travelSession);
+    departureSelect.style.cssText="flex:1;min-width:12rem;";
+    for(const [value,label] of [["map","Map Point A"],["party","Party token location"]]){
+      const option=el("option",label);option.value=value;departureSelect.appendChild(option);
+    }
+    departureSelect.value=this.sourceMode;
+    departureSelect.addEventListener("change",()=>this.setSourceMode(departureSelect.value));
+    departure.append(departureLabel,departureSelect);
+    if(partyMode){
+      const refresh=el("button","Refresh location");
+      refresh.type="button";refresh.title="Recalculate from the party token's current location";
+      refresh.disabled=Boolean(this.travelSession);
+      refresh.addEventListener("click",()=>this.refreshPartyDeparture());
+      departure.appendChild(refresh);
+    }
+    body.appendChild(departure);
     const statusLabel=el("p",status);
     statusLabel.style.cssText="margin:0;font-weight:600;flex:1;min-width:0;";
     const statusRow=el("div");
     statusRow.style.cssText="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;";
-    const newRoute=el("button","New Route");
-    newRoute.type="button";
-    newRoute.disabled=Boolean(this.travelSession);
-    newRoute.title="Clear route and choose a new Point A";
-    newRoute.addEventListener("click",()=>this.clear());
-    statusRow.append(statusLabel,newRoute);
-    if(this.result?.status==="ok"){
-      const move=el("button",this.travelSession?"Stop Travel":"Travel Route");
-      move.type="button";
-      move.title=this.travelSession?"Stop the moving party token":"Move the assigned party token along this route";
-      move.addEventListener("click",()=>{
-        if(this.travelSession){
-          if(!this.stopGuidedTravel())ui.notifications.warn("The token could not be stopped.");
-          return;
-        }
-        void this.startGuidedTravel().catch(error=>{
-          this.travelNotice=error.message||String(error);
-          ui.notifications.error(this.travelNotice);
-          if(this.active)void this.render(true);
-        });
-      });
-      statusRow.appendChild(move);
-    }
-    root.appendChild(statusRow);
+    statusRow.append(statusLabel);
+    body.appendChild(statusRow);
     if(this.travelNotice){
       const message=el("p",this.travelNotice);
       message.style.cssText="margin:0;font-size:.85em;opacity:.85;";
-      root.appendChild(message);
+      body.appendChild(message);
     }
     const {sceneUnit,travel}=this.resolveTravel();
     const speed=travel.speed;
     const travelSource=travel.source==="party" ?
       `${travel.actorName} · ${travel.pace} pace · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour` :
       `Atlas default · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour`;
-    const help=el("p","After choosing A and B, ordinary map clicks leave the route unchanged. Shift+click sets Point A; Alt/Option+click sets Point B.");
+    const help=el("p",partyMode?
+      "Atlas reads Point A from the assigned party token's Scene location. Click the map for B; Alt/Option+click changes B. Refresh location after moving the token.":
+      "After choosing A and B, ordinary map clicks leave the route unchanged. Shift+click sets Point A; Alt/Option+click sets Point B.");
     help.style.cssText="margin:0;font-size:.8em;opacity:.75;line-height:1.35;";
-    root.appendChild(help);
+    body.appendChild(help);
     if (this.result?.status === "ok") {
       const unit=this.scene?.grid?.units?.trim() || "units";
       const summary=el("div");
@@ -372,13 +443,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
         metric("Travel time",formatNavigationDuration(navigationHours(weighted,speed),travel.hoursPerDay??24));
       }catch(error){metric("Travel time","Unavailable");}
-      root.appendChild(summary);
+      body.appendChild(summary);
       const sourceLabel=el("p",`Speed: ${travelSource}`);
       sourceLabel.style.cssText="margin:0;font-size:.85em;opacity:.85;";
-      root.appendChild(sourceLabel);
+      body.appendChild(sourceLabel);
       if (this.result.terrainAware) {
         const cost=el("p",`Terrain-weighted distance: ${this.result.cost.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}-equivalent`);
-        cost.style.cssText="margin:0;font-size:.85em;";root.appendChild(cost);
+        cost.style.cssText="margin:0;font-size:.85em;";body.appendChild(cost);
       }
       const details=el("details");
       const summaryText=el("summary","How Atlas calculated this journey");
@@ -393,8 +464,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "No compatible terrain cost was available, so travel time uses physical distance."));
       calculation.style.cssText="font-size:.85em;opacity:.85;line-height:1.4;margin:.4rem 0;";
       details.appendChild(calculation);
-      root.appendChild(details);
-      const heading=el("h3","Directions");heading.style.cssText="margin:.2rem 0 0;";root.appendChild(heading);
+      body.appendChild(details);
+      const heading=el("h3","Directions");heading.style.cssText="margin:.2rem 0 0;";body.appendChild(heading);
       const list=el("div");list.style.cssText="display:flex;flex-direction:column;gap:.4rem;";
       const endpoint=(atStart)=>{
         const item=el("div");
@@ -431,18 +502,45 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         item.append(marker,text);list.appendChild(item);
       }
       list.appendChild(endpoint(false));
-      root.appendChild(list);
+      body.appendChild(list);
     } else {
       const hint=el("p",`Travel estimates will use ${travelSource}.`);
-      hint.style.cssText="margin:0;opacity:.8;font-size:.9em;";root.appendChild(hint);
+      hint.style.cssText="margin:0;opacity:.8;font-size:.9em;";body.appendChild(hint);
     }
     const row=el("div");
-    row.style.cssText="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.25rem;";
+    row.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;padding:.65rem 1rem;border-top:1px solid var(--color-border-light-tertiary,#555);background:var(--color-bg,#100e18);flex:none;";
+    const newRoute=el("button","New Route");
+    newRoute.type="button";
+    newRoute.disabled=Boolean(this.travelSession);
+    newRoute.title=partyMode?"Choose a new destination from the party token":"Clear route and choose a new Point A";
+    newRoute.addEventListener("click",()=>{
+      this.clear();
+      if(partyMode)this.refreshPartyDeparture();
+    });
+    row.appendChild(newRoute);
+    if(this.result?.status==="ok"){
+      const move=el("button",this.travelSession?"Stop Travel":"Travel Route");
+      move.type="button";
+      move.title=this.travelSession?"Stop the moving party token":"Move the assigned party token along this route";
+      move.addEventListener("click",()=>{
+        if(this.travelSession){
+          if(!this.stopGuidedTravel())ui.notifications.warn("The token could not be stopped.");
+          return;
+        }
+        void this.startGuidedTravel().catch(error=>{
+          this.travelNotice=error.message||String(error);
+          ui.notifications.error(this.travelNotice);
+          if(this.active)void this.render(true);
+        });
+      });
+      row.appendChild(move);
+    }
+    const filler=el("span");filler.style.flex="1";row.appendChild(filler);
     const close=el("button","Exit Navigation");
     close.type="button";
     close.addEventListener("click",()=>void this.close());
     row.appendChild(close);
-    root.appendChild(row);
+    root.append(body,row);
     return root;
   }
 

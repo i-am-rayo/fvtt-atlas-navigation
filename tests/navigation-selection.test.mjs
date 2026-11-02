@@ -28,3 +28,13 @@ test("ambiguous or editing modifiers and non-primary buttons are never captured"
     assert.equal(navigationPointIntent(click(change),{start:A,end:B}),null);
   }
 });
+
+test("party departure comes from token, so map clicks only set destination B",()=>{
+  const current={sourceMode:"party",start:A};
+  assert.equal(navigationPointIntent(click(),current),"end");
+  assert.equal(navigationPointIntent(click({altKey:true}),current),"end");
+  assert.equal(navigationPointIntent(click({shiftKey:true}),current),null);
+  assert.equal(navigationPointIntent(click(),{...current,end:B}),null);
+  assert.equal(navigationPointIntent(click({altKey:true}),{...current,end:B}),"end");
+  assert.equal(navigationPointIntent(click(),{sourceMode:"party"}),null);
+});

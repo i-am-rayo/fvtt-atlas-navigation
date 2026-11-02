@@ -79,8 +79,13 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     const content=await nav._renderHTML();
     const find=(item,match)=>match(item)?item:item.children.map(child=>find(child,match)).find(Boolean);
     const newRoute=find(content,item=>item.tag==="button"&&item.textContent==="New Route");
-    assert.ok(newRoute,"New Route stays at the top while Directions can scroll");
-    assert.equal(content.children[0].children.includes(newRoute),true);
+    assert.ok(newRoute,"New Route is always visible in the non-scrolling footer");
+    const footer=content.children.at(-1);
+    assert.equal(footer.children.includes(newRoute),true);
+    assert.match(content.children[0].style.cssText,/overflow-y:auto/,
+      "the route Directions scroll without hiding travel controls");
+    const travelButton=find(content,item=>item.tag==="button"&&item.textContent==="Travel Route");
+    assert.equal(footer.children.includes(travelButton),true);
     nav.onSceneUpdated(scene,{flags:{unrelated:true}});
     assert.equal(calculations,3);assert.deepEqual(nav.end,point(120,50));
     nav.onSceneUpdated(scene,{flags:{"fvtt-atlas-navigation":{irrelevant:true}}});
@@ -107,6 +112,70 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.equal(nav.notice,"");
     nav.stop();
     assert.equal(listeners.has("pointerdown"),false);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("party departure chooses B with one click, tracks live token center, and preserves map mode",async()=>{
+  const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
+    ui:globalThis.ui,document:globalThis.document};
+  try{
+    globalThis.game={user:{isGM:true},system:{id:"test"},settings:{get:()=>5}};
+    globalThis.window={innerWidth:1200,innerHeight:850};
+    globalThis.PIXI=undefined;
+    const warnings=[];
+    globalThis.ui={notifications:{error(message){throw Error(message);},warn(message){warnings.push(message);}}};
+    globalThis.document={createElement:tag=>({tag,style:{},children:[],textContent:"",
+      listeners:new Map(),append(...nodes){this.children.push(...nodes);},
+      appendChild(node){this.children.push(node);},
+      addEventListener(name,handler){this.listeners.set(name,handler);}})};
+    const token={x:250,y:150,width:2,height:1,canUserModify:()=>true};
+    const scene={id:"party-scene",name:"Paedor",grid:{size:50,units:"km"},
+      getFlag:()=>null,tokens:{get:()=>token},canUserModify:()=>true};
+    const target={addEventListener(){},removeEventListener(){}};
+    const view={ready:true,scene,app:{canvas:target},
+      canvasCoordinatesFromClient:({x,y})=>point(x,y),
+      dimensions:{sceneRect:{contains:()=>true}}};
+    const atlas={revision:9,roads:[{id:"road-a",name:"Road A"}]};
+    const origins=[];
+    const nav=new AtlasNavigationController({canvasProvider:()=>view,atlasProvider:()=>atlas,
+      partyTokenProvider:()=>token,
+      atlasPoint:(_view,_atlas,p)=>point(p.x-200,p.y-100),
+      routeCalculator:(_view,_scene,_atlas,start,end)=>{
+        origins.push({...start});
+        const distance=Math.hypot(end.x-start.x,end.y-start.y);
+        return {status:"ok",start:{...start},end:{...end},distance,cost:distance,terrainAware:false,
+          legs:[{kind:"road",roadId:"road-a",segmentId:"s",points:[start,end],distance,cost:distance}]};
+      }});
+    nav.activate();
+    nav.setSourceMode("party");
+    assert.equal(nav.sourceMode,"party");
+    assert.deepEqual(nav.start,point(100,75));
+    const destination=pointer(500,300);nav.onPointerDown(destination);
+    assert.deepEqual(nav.end,point(300,200));
+    assert.deepEqual(origins,[point(100,75)]);
+    assert.equal(destination.prevented,1);
+    const miss=pointer(700,400,{shiftKey:true});nav.onPointerDown(miss);
+    assert.equal(miss.prevented,0,"Shift must never overwrite token departure");
+    token.x+=20;token.y+=10;
+    nav.refreshPartyDeparture();
+    assert.deepEqual(nav.start,point(120,85));
+    assert.deepEqual(origins.at(-1),point(120,85));
+    const panel=await nav._renderHTML();
+    const find=(node,match)=>match(node)?node:node.children.map(child=>find(child,match)).find(Boolean);
+    const selector=find(panel,node=>node.tag==="select"&&node.id==="atlas-navigation-departure");
+    assert.equal(selector.value,"party");
+    const footer=panel.children.at(-1);
+    assert.equal(footer.children.some(node=>node.textContent==="Travel Route"),true);
+    const reset=find(panel,node=>node.tag==="button"&&node.textContent==="New Route");
+    reset.listeners.get("click")();
+    assert.deepEqual(nav.start,point(120,85),"New Route keeps token departure in party mode");
+    assert.equal(nav.end,null);
+    nav.setSourceMode("map");
+    assert.equal(nav.start,null,"map mode requires an intentional map Point A");
+    nav.onPointerDown(pointer(450,210));
+    assert.deepEqual(nav.start,point(250,110));
+    nav.stop();
+    assert.deepEqual(warnings,[]);
   }finally{Object.assign(globalThis,previous);}
 });
 
