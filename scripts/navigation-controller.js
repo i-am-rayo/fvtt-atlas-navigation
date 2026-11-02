@@ -6,6 +6,8 @@ import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.
 import { navigationCanvasLegPaths } from "./navigation-render-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
+import { calculateGuidedPlayback,formatPlaybackDuration,readGuidedPlaybackSetting }
+  from "./navigation-playback.js";
 import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
   navigationHours, formatNavigationDuration }
   from "./navigation-time.js";
@@ -257,6 +259,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const paths=navigationCanvasLegPaths(view,atlas,this.result);
     const waypoints=createGuidedTokenWaypoints(paths,token,this.scene.grid?.size);
+    const playback=calculateGuidedPlayback({
+      route:this.result,travel:this.resolveTravel().travel,paths,
+      gridSize:this.scene.grid?.size,
+      secondsPerHour:readGuidedPlaybackSetting(game.settings)
+    });
     const session={token,sceneId:this.scene.id};
     this.travelSession=session;
     this.travelNotice="Guided travel in progress. Stop Travel to interrupt.";
@@ -264,7 +271,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     try{
       const completed=await token.move(waypoints,{
         animate:true,autoRotate:false,showRuler:false,pan:false,
-        animation:{movementSpeed:8}
+        animation:{movementSpeed:playback.movementSpeed}
       });
       if(this.travelSession===session){
         this.travelNotice=completed?"Arrived at destination.":"Travel stopped before arrival.";
@@ -447,6 +454,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const sourceLabel=el("p",`Speed: ${travelSource}`);
       sourceLabel.style.cssText="margin:0;font-size:.85em;opacity:.85;";
       body.appendChild(sourceLabel);
+      try{
+        const playback=calculateGuidedPlayback({route:this.result,travel,
+          paths:navigationCanvasLegPaths(this.canvasProvider(),this.atlasProvider(this.scene),this.result),
+          gridSize:this.scene?.grid?.size,
+          secondsPerHour:readGuidedPlaybackSetting(game.settings)});
+        const animationLabel=el("p",`Token playback: about ${formatPlaybackDuration(playback.durationSeconds)} `+
+          `(${playback.secondsPerHour} real seconds per in-game travel hour). `+
+          "Visual speed only; the game clock does not advance yet.");
+        animationLabel.style.cssText="margin:0;font-size:.8em;opacity:.75;";
+        body.appendChild(animationLabel);
+      }catch{
+        // Invalid/missing canvas geometry must not conceal the route summary.
+      }
       if (this.result.terrainAware) {
         const cost=el("p",`Terrain-weighted distance: ${this.result.cost.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}-equivalent`);
         cost.style.cssText="margin:0;font-size:.85em;";body.appendChild(cost);

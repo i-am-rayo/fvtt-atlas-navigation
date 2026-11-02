@@ -29,7 +29,7 @@ test("navigation locks the completed route until deliberate endpoint gestures or
       listeners:new Map(),append(...nodes){this.children.push(...nodes);},
       appendChild(node){this.children.push(node);},
       addEventListener(name,handler){this.listeners.set(name,handler);}})};
-    const scene={id:"scene-1",name:"Paedor",grid:{units:"km"},
+    const scene={id:"scene-1",name:"Paedor",grid:{units:"km",size:100},
       getFlag:()=>null,tokens:{get:()=>null},canUserModify:()=>true,
       setFlag(){throw Error("Navigation must not write Scene flags.");}};
     const listeners=new Map();
@@ -38,7 +38,7 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     const view={ready:true,scene,app:{canvas:target},
       canvasCoordinatesFromClient:({x,y})=>point(x,y),
       dimensions:{sceneRect:{contains:()=>true}}};
-    const atlas={revision:7,roads:[{id:"road-a",name:"Road A"}]};
+    const atlas={revision:7,roads:[{id:"road-a",name:"Road A"}],nodes:[],segments:[]};
     let calculations=0;
     const nav=new AtlasNavigationController({canvasProvider:()=>view,atlasProvider:()=>atlas,
       atlasPoint:(_view,_atlas,location)=>location,
@@ -86,6 +86,8 @@ test("navigation locks the completed route until deliberate endpoint gestures or
       "the route Directions scroll without hiding travel controls");
     const travelButton=find(content,item=>item.tag==="button"&&item.textContent==="Travel Route");
     assert.equal(footer.children.includes(travelButton),true);
+    assert.ok(find(content,item=>item.textContent?.startsWith?.("Token playback:")),
+      "Navigation displays the estimated animation duration independently of travel time");
     nav.onSceneUpdated(scene,{flags:{unrelated:true}});
     assert.equal(calculations,3);assert.deepEqual(nav.end,point(120,50));
     nav.onSceneUpdated(scene,{flags:{"fvtt-atlas-navigation":{irrelevant:true}}});
@@ -183,7 +185,8 @@ test("GM guided travel uses native TokenDocument.move and can be stopped without
   const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
     ui:globalThis.ui};
   try{
-    globalThis.game={user:{isGM:true}};
+    globalThis.game={user:{isGM:true},settings:{get:(_module,key)=>
+      key==="guidedTravelSecondsPerHour"?2:5}};
     globalThis.window={innerWidth:1200,innerHeight:800};
     globalThis.PIXI=undefined;
     globalThis.ui={notifications:{error(message){throw Error(message);}}};
@@ -198,7 +201,7 @@ test("GM guided travel uses native TokenDocument.move and can be stopped without
       stopMovement(){this.stops=(this.stops??0)+1;return true;}
     };
     const scene={id:"scene-guided",name:"Paedor",grid:{size:100,units:"km"},
-      canUserModify:()=>true};
+      canUserModify:()=>true,getFlag:()=>null};
     const view={ready:true,scene};
     const atlas={revision:7,nodes:[{id:"a",...point(100,100)},{id:"b",...point(300,200)}],
       segments:[{id:"segment-a",roadId:"road-a",from:"a",to:"b",via:[]}],
@@ -219,6 +222,9 @@ test("GM guided travel uses native TokenDocument.move and can be stopped without
     assert.deepEqual(calls[0].waypoints.at(-1),point(250,150));
     assert.equal(calls[0].options.animate,true);
     assert.equal(calls[0].options.showRuler,false);
+    assert.ok(calls[0].options.animation.movementSpeed>0);
+    assert.notEqual(calls[0].options.animation.movementSpeed,8,
+      "native animation speed must be derived from calculated travel time");
     assert.equal(calls[0].options.constrainOptions,undefined,
       "Foundry native movement constraints are not bypassed");
     assert.ok(nav.travelSession);

@@ -1,6 +1,6 @@
 # Active v0.3.x roadmap — updated November 2, 2026
 
-This section is the **current delivery order**. Older Phase 0–6 notes below remain historical design and safety references; their former release gates do not override the owner's subsequent v0.3.x approvals. Each new feature still requires its own draft/test build and live Foundry v14 sign-off before merging. The owner accepted v0.3.6-beta.1.1; **v0.3.7-beta.1.1 is a GM-only guided travel test draft awaiting live Foundry v14 testing**. Later milestones remain planned.
+This section is the **current delivery order**. Older Phase 0–6 notes below remain historical design and safety references; their former release gates do not override the owner's subsequent v0.3.x approvals. Each new feature still requires its own draft/test build and live Foundry v14 sign-off before merging. The owner accepted v0.3.7-beta.1.1's token departure and Travel Route interaction; **v0.3.7-beta.2 is the guided movement speed test draft awaiting live Foundry v14 testing**. Later milestones remain planned.
 
 **Current baseline:** v0.3.5-beta.5.1 was confirmed by the owner. The reusable selector must persist both its saved ID and HTML `defaultSelected` state because Foundry's DialogV2 may serialize and recreate its inputs. The beta.5.1 Road Settings footer hotfix is included in the v0.3.6 test branch.
 
@@ -13,6 +13,8 @@ This section is the **current delivery order**. Older Phase 0–6 notes below re
 **v0.3.7-beta.1 GM travel slice:** A new explicit Navigation **Travel Route / Stop Travel** command moves the manually assigned explorer token over the same bounded, curved path rendered by the route overlay, using public Foundry v14 `TokenDocument.move(waypoints)` and `stopMovement()`. It refuses invalid or stale routes and token departures far from A. Existing native movement constraints and Region Behaviors remain authoritative. The direct drag/drop destination UX and any player-initiated travel/discovery restrictions remain **unimplemented and separately gated** until a live v14 movement/permission review. See [beta.1 travel guide](NAVIGATION_V037_TESTING.md).
 
 **v0.3.7-beta.1.1 navigation usability follow-up:** The Navigation panel supports **Map Point A → B** or **Party token location → B**, using the token's actual placed Scene center with the same Atlas coordinate conversion. In party mode the GM selects only B and can refresh the token's current position. The Travel Route / Stop Travel controls stay in a non-scrolling action footer alongside New Route and Exit Navigation. The engine is still GM-only; no automatic permission or Fog enforcement is claimed.
+
+**v0.3.7-beta.2 animation pacing:** Replace the fixed 8-grid-cells-per-second TokenDocument movement animation with an opt-in World Settings *visual* compression slider (0.5–8 real seconds per in-game traveling hour; default 2). The calculation derives actual TokenDocument movementSpeed from the rendered curve's length, active Scene grid scale and weighted travel duration at the Group Actor's travel pace. Navigation shows a separate real-world playback estimate. World time, native Movement actions, Region Behaviors and Actor stats remain unchanged. Add a saved rules-profile selection: **System default / D&D 5e (2014) / D&D 5e (2024, 5.5e) / Custom**; these profiles will control future rest/forced-march behavior, not animation speed. See [beta.2 test guide](NAVIGATION_V037_BETA2_TESTING.md).
 
 | Order | Proposed milestone | Primary outcome | Release gate |
 | --- | --- | --- | --- |
@@ -51,6 +53,8 @@ This section is the **current delivery order**. Older Phase 0–6 notes below re
 5. Treat unexplored destinations, missing explorer assignments, invalid ownership, unsafe crossings and changes during travel as explicit denials with useful feedback; do not allow ordinary drag/drop to bypass Atlas checks.
 
 **Acceptance:** GM can start, monitor, pause and cancel smooth travel without damaging road, Fog, Region or token data. Player travel stays disabled until genuinely enforceable discovery restrictions and GM/player reconnect tests pass.
+
+**Next v0.3.7 gates after beta.2:** An explicitly GM-opt-in, single-authority Foundry World-clock advance using `game.time.advance` only for confirmed movement progress; then segmented daily travel with pause/rest/continue choices. Rules adapters must distinguish 2014 5e, 2024/5.5e and customizable variants. Short rests do not automatically reset daily travel allowance; do not silently apply exhaustion, currencies, fatigue or Actor-resource changes. World-clock advancement and rules-effect automation require separate full Foundry GM/player tests before release.
 
 ## 4. v0.3.8 — transport transitions and road/checkpoint economics
 
