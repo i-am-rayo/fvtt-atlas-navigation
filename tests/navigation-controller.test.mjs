@@ -109,3 +109,82 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.equal(listeners.has("pointerdown"),false);
   }finally{Object.assign(globalThis,previous);}
 });
+
+test("GM guided travel uses native TokenDocument.move and can be stopped without teleporting",async()=>{
+  const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
+    ui:globalThis.ui};
+  try{
+    globalThis.game={user:{isGM:true}};
+    globalThis.window={innerWidth:1200,innerHeight:800};
+    globalThis.PIXI=undefined;
+    globalThis.ui={notifications:{error(message){throw Error(message);}}};
+    const calls=[];
+    let resolveTravel;
+    const token={x:50,y:50,width:1,height:1,
+      canUserModify:()=>true,
+      move(waypoints,options){
+        calls.push({waypoints,options});
+        return new Promise(resolve=>{resolveTravel=resolve;});
+      },
+      stopMovement(){this.stops=(this.stops??0)+1;return true;}
+    };
+    const scene={id:"scene-guided",name:"Paedor",grid:{size:100,units:"km"},
+      canUserModify:()=>true};
+    const view={ready:true,scene};
+    const atlas={revision:7,nodes:[{id:"a",...point(100,100)},{id:"b",...point(300,200)}],
+      segments:[{id:"segment-a",roadId:"road-a",from:"a",to:"b",via:[]}],
+      roads:[{id:"road-a",name:"Road A"}]};
+    const nav=new AtlasNavigationController({canvasProvider:()=>view,
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token});
+    nav.scene=scene;
+    nav.routeRevision=7;
+    nav.start=point(100,100);
+    nav.end=point(300,200);
+    nav.result={status:"ok",start:nav.start,end:nav.end,
+      distance:2,cost:2,terrainAware:false,
+      legs:[{kind:"road",roadId:"road-a",segmentId:"segment-a",
+        points:[point(100,100),point(200,150),point(300,200)],distance:2,cost:2}]};
+    const pending=nav.startGuidedTravel();
+    assert.equal(calls.length,1);
+    assert.deepEqual(calls[0].waypoints[0],point(50,50));
+    assert.deepEqual(calls[0].waypoints.at(-1),point(250,150));
+    assert.equal(calls[0].options.animate,true);
+    assert.equal(calls[0].options.showRuler,false);
+    assert.equal(calls[0].options.constrainOptions,undefined,
+      "Foundry native movement constraints are not bypassed");
+    assert.ok(nav.travelSession);
+    assert.equal(nav.stopGuidedTravel(),true);
+    assert.equal(token.stops,1);
+    resolveTravel(false);
+    assert.equal(await pending,false);
+    assert.equal(nav.travelSession,null);
+    assert.match(nav.travelNotice,/stopped before arrival/);
+
+    const again=nav.startGuidedTravel();
+    assert.equal(calls.length,2);
+    resolveTravel(true);
+    assert.equal(await again,true);
+    assert.match(nav.travelNotice,/Arrived/);
+    nav.stop();
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("guided travel rejects missing GM permission and a stale route before native movement",async()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+  try{
+    globalThis.game={user:{isGM:false}};
+    globalThis.PIXI=undefined;
+    const scene={id:"scene-guided",grid:{size:100},canUserModify:()=>true};
+    const view={ready:true,scene};
+    const token={x:0,y:0,width:1,height:1,canUserModify:()=>true,
+      move(){throw Error("This must not be called.");},stopMovement:()=>true};
+    const atlas={revision:2,nodes:[],segments:[],roads:[]};
+    const nav=new AtlasNavigationController({canvasProvider:()=>view,atlasProvider:()=>atlas,
+      partyTokenProvider:()=>token});
+    nav.scene=scene;nav.routeRevision=1;
+    nav.result={status:"ok",legs:[{kind:"road",roadId:"road-a",segmentId:"segment-a"}]};
+    await assert.rejects(nav.startGuidedTravel(),/A GM must/);
+    globalThis.game.user.isGM=true;
+    await assert.rejects(nav.startGuidedTravel(),/road network changed/);
+  }finally{Object.assign(globalThis,previous);}
+});
