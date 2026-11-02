@@ -1,12 +1,14 @@
 # Active v0.3.x roadmap — updated November 2, 2026
 
-This section is the **current delivery order**. Older Phase 0–6 notes below remain historical design and safety references; their former release gates do not override the owner's subsequent v0.3.x approvals. Each new feature still requires its own draft/test build and live Foundry v14 sign-off before merging. The owner accepted the beta.5.1 Settings hotfix; **v0.3.6-beta.1 is a draft awaiting live Foundry v14 testing**. Subsequent milestones remain planned, not implemented.
+This section is the **current delivery order**. Older Phase 0–6 notes below remain historical design and safety references; their former release gates do not override the owner's subsequent v0.3.x approvals. Each new feature still requires its own draft/test build and live Foundry v14 sign-off before merging. The owner accepted the beta.5.1 Settings hotfix; **v0.3.6-beta.1.1 is a draft hotfix awaiting live Foundry v14 testing**. Subsequent milestones remain planned, not implemented.
 
 **Current baseline:** v0.3.5-beta.5.1 was confirmed by the owner. The reusable selector must persist both its saved ID and HTML `defaultSelected` state because Foundry's DialogV2 may serialize and recreate its inputs. The beta.5.1 Road Settings footer hotfix is included in the v0.3.6 test branch.
 
 **Beta.5 accepted:** Shared plain/grouped selectors and generic number/range/color/checkbox controls back the applicable World, Scene, Road, Checkpoint and Party Token settings; Generate Terrain Region uses the grouped World Travel Preset selector. The native Region cost/editor commands remain deliberately separate from reusable presentation factories.
 
 **v0.3.6-beta.1 draft:** The navigation controller holds A/B stable after the second pick, supports Shift-click for A and Alt/Option-click for B, and offers a persistent New Route action. Unrelated Scene updates preserve the route; Road/Grid/Region changes invalidate it. Straight same-road directions coalesce while meaningful turns remain distinct. A pure, versioned, JSON-safe itinerary snapshot is available in memory for later movement and Journal layers. No Scene/Journal/token writes are introduced. See [navigation beta test guide](NAVIGATION_V036_TESTING.md).
+
+**v0.3.6-beta.1.1 hotfix:** While Navigation is active, idle GM Shift-click on roads, checkpoint icons and checkpoint clusters belongs to Point A selection, not the road/checkpoint Settings shortcut. Once Navigation closes, normal editing shortcuts resume. No saved data, Region, Fog or token behavior changes.
 
 | Order | Proposed milestone | Primary outcome | Release gate |
 | --- | --- | --- | --- |

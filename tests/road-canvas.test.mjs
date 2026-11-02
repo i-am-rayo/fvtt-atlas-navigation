@@ -122,6 +122,56 @@ test("v0.2.22 idle GM Shift-click opens a road without requiring label visibilit
   } finally { Object.assign(globalThis, previous); }
 });
 
+test("Navigation reserves Shift-click on roads and checkpoints without consuming the pointer", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: true } };
+    globalThis.PIXI = { Graphics: m.Graphics };
+    m.canvas.stage = { scale: { x: 1 } };
+    let id = 0;
+    const idFactory = () => "reserved" + ++id;
+    let atlas = addRoad(createEmptyAtlas(), {
+      points: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
+      name: "Reserved road", idFactory
+    });
+    atlas = addRoadCheckpoint(atlas, {
+      candidate: { kind: "node", nodeId: atlas.segments[0].from },
+      roadId: atlas.roads[0].id, name: "Reserved checkpoint",
+      elevationMeters: null, idFactory
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
+    let navigationActive = true;
+    const hits = [];
+    m.controller.setShortcutHandler((scene, target) => hits.push(target), {
+      isReserved: () => navigationActive
+    });
+    const click = (x, y) => {
+      const event = pointEvent(x, y);
+      event.shiftKey = true;
+      m.listeners.get("pointerdown")(event);
+      return event;
+    };
+    const roadWhileNavigating = click(25, 15);
+    const checkpointWhileNavigating = click(5, 15);
+    await Promise.resolve();
+    assert.equal(roadWhileNavigating.prevented, false);
+    assert.equal(checkpointWhileNavigating.prevented, false);
+    assert.deepEqual(hits, [], "road/checkpoint editors must not open during Navigation");
+    assert.deepEqual(m.notifications.info, [], "Navigation must also reserve cluster warnings");
+
+    navigationActive = false;
+    assert.equal(click(25, 15).prevented, true);
+    assert.equal(click(5, 15).prevented, true);
+    await Promise.resolve();
+    assert.deepEqual(hits.map(target => target.kind), ["road", "checkpoint"],
+      "idle Shift-click must immediately return to its usual editing behavior");
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, previous);
+  }
+});
+
 test("v0.2.22 canvas zoom redraws checkpoint overlay after a short debounce", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
   const m = setup();

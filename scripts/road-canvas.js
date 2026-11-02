@@ -456,6 +456,7 @@ export class RoadCanvasController {
     this.hoverHandler = null;
     this.hoverExitHandler = null;
     this.shortcutHandler = null;
+    this.shortcutReserved = () => false;
     this.shortcutPointerHandler = null;
     this.hoverGeometry = [];
     this.lastHoverAt = 0;
@@ -1091,8 +1092,9 @@ export class RoadCanvasController {
   }
 
   /** Installed by the Scene Atlas authoring bootstrap, never player-facing. */
-  setShortcutHandler(callback) {
+  setShortcutHandler(callback, { isReserved = () => false } = {}) {
     this.shortcutHandler = callback;
+    this.shortcutReserved = isReserved;
     this.#stopHover(); // Rebind pointerdown if a shortcut was installed after canvasReady.
     this.refresh();
   }
@@ -1184,6 +1186,7 @@ export class RoadCanvasController {
     this.shortcutPointerHandler = event => {
       if (event.button !== 0 || !event.shiftKey || event.altKey ||
           event.ctrlKey || event.metaKey || !this.shortcutHandler ||
+          this.shortcutReserved() ||
           this.draft || this.pointEditor.session || this.saving ||
           this.canvasProvider()?.scene?.id !== canvas.scene?.id) return;
       const position = canvas.canvasCoordinatesFromClient?.({

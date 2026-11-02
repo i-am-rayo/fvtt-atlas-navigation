@@ -1637,7 +1637,7 @@ Hooks.once("init", () => {
       const road = atlas.roads?.find(r => r.id === target.id);
       if (road) return roadActions.editRoadAppearance(scene, road, refresh);
     }
-  });
+  }, { isReserved: () => navigation.active });
   Hooks.on("getSceneControlButtons", controls => {
     if(!game.user?.isGM)return;
     controls.atlasManualFog={
