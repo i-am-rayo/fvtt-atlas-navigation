@@ -6,8 +6,11 @@ import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.
 import { navigationCanvasLegPaths } from "./navigation-render-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
-import { planGuidedTravelChunks, waitForTokenTravelAnimation }
+import { planGuidedTravelChunks, waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS }
   from "./navigation-movement-lifecycle.js";
+import { GuidedTravelDayTracker,estimateNavigationTotalTrip,
+  splitGuidedChunkAtDistance,MAX_GUIDED_REST_EVENTS } from "./navigation-travel-day.js";
+import { resolveNavigationTravelRules } from "./navigation-rules-profile.js";
 import { GuidedJourneyClock, readNavigationWorldClockSetting, formatGuidedWorldTime }
   from "./navigation-world-clock.js";
 import { calculateGuidedPlayback,formatPlaybackDuration,readGuidedPlaybackSetting }
@@ -62,7 +65,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelProgress=0;
     this.travelProgressUI=null;
     this.worldTimeAdvancedSeconds=0;
+    this.worldTravelAdvancedSeconds=0;
+    this.worldRestAdvancedSeconds=0;
     this.worldTimeUI=null;
+    this.journeySchedule=null;
     this.pointerTarget = null;
     this.overlay = null;
     this.pointerDown = this.onPointerDown.bind(this);
@@ -100,6 +106,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.itinerary=null;
     this.travelProgress=0;
     this.worldTimeAdvancedSeconds=0;
+    this.worldTravelAdvancedSeconds=0;
+    this.worldRestAdvancedSeconds=0;
+    this.journeySchedule=null;
     if(!this.start||!this.end)return;
     try{
       this.result=this.routeCalculator(view,this.scene,atlas,this.start,this.end);
@@ -254,17 +263,79 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
   }
 
-  setWorldTimeAdvanced(seconds){
-    this.worldTimeAdvancedSeconds=seconds;
+  worldTimeStatus(){
+    const moving=formatGuidedWorldTime(this.worldTravelAdvancedSeconds);
+    const rest=this.worldRestAdvancedSeconds;
+    return `Foundry World time advanced: +${formatGuidedWorldTime(this.worldTimeAdvancedSeconds)} `+
+      (rest?`(moving ${moving}; breaks ${formatGuidedWorldTime(rest)})`:
+        "(moving only; no breaks yet)");
+  }
+
+  setWorldTimeAdvanced(movingSeconds,breakSeconds=0){
+    this.worldTravelAdvancedSeconds=movingSeconds;
+    this.worldRestAdvancedSeconds=breakSeconds;
+    this.worldTimeAdvancedSeconds=movingSeconds+breakSeconds;
     if(this.worldTimeUI)this.worldTimeUI.textContent=
-      `Foundry World time advanced: +${formatGuidedWorldTime(seconds)} (travel only; no rests)`;
+      this.worldTimeStatus();
   }
 
   async commitGuidedWorldTime(session,{force=false}={}){
     if(!session.clock)return 0;
     const delta=await session.clock.commit(session.completedDistance,{force});
-    if(this.travelSession===session)this.setWorldTimeAdvanced(session.clock.advancedSeconds);
+    if(this.travelSession===session)this.setWorldTimeAdvanced(
+      session.clock.advancedSeconds,session.clock.restSeconds);
     return delta;
+  }
+
+  /** All rule interpretations flow through one pure World settings adapter. */
+  resolveTravelRules(travel){
+    return resolveNavigationTravelRules({settings:game.settings,
+      systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
+  }
+
+  /** The GM's choice is explicit; it cannot originate in a background timer. */
+  chooseDailyTravelBreak(action){
+    const session=this.travelSession;
+    if(!session||session.phase!=="rest-choice"||!session.restWaiter)return false;
+    session.phase="rest-applying";
+    const resolve=session.restWaiter;
+    session.restWaiter=null;
+    resolve(action);
+    if(this.active)void this.render(true);
+    return true;
+  }
+
+  async waitForDailyTravelChoice(session){
+    if(!session.schedule.needsDecision)return true;
+    session.phase="rest-choice";
+    const past=session.schedule.lastForcedCheck;
+    const forced=past?` Resolve the hour-${past.extraHour} forced-march DC ${past.dc} `+
+      "Constitution saves with your players; Atlas never applies exhaustion.":"";
+    this.travelNotice=`Daily travel limit (${session.schedule.rules.dailyHours}h) reached. `+
+      "Choose an overnight camp, a long or short rest, or continued travel."+forced;
+    const choicePromise=new Promise(resolve=>{session.restWaiter=resolve;});
+    if(this.active)await this.render(true);
+    const action=await choicePromise;
+    session.restWaiter=null;
+    if(session.phase==="ending"||this.travelSession!==session||!action)return false;
+    const choice=session.schedule.breakChoice(action);
+    if(choice.hours>0){
+      // Settle any remaining travel seconds before an independently confirmed
+      // calendar break, preserving ledger order across Foundry time hooks.
+      await this.commitGuidedWorldTime(session,{force:true});
+      if(session.clock)await session.clock.commitBreak(Math.round(choice.hours*3600));
+    }
+    session.schedule.applyBreak(choice);
+    if(session.clock)this.setWorldTimeAdvanced(
+      session.clock.advancedSeconds,session.clock.restSeconds);
+    this.travelNotice=action==="continue"?
+      "Forced travel approved for one more hour. Resolve required saves manually.":
+      `${action==="overnight"?"Overnight camp":action==="long"?"Long rest":"Short rest"} `+
+      `completed (${formatGuidedWorldTime(Math.round(choice.hours*3600))}). `+
+      (choice.resetsDay?"Daily travel allowance reset.":"Daily travel hours are unchanged.");
+    if(session.phase!=="ending")session.phase="moving";
+    if(this.active)await this.render(true);
+    return session.phase!=="ending";
   }
 
   /** Hold the next native move while the GM decides whether to resume or end. */
@@ -307,8 +378,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const paths=navigationCanvasLegPaths(view,atlas,this.result);
     const waypoints=createGuidedTokenWaypoints(paths,token,this.scene.grid?.size);
+    const travel=this.resolveTravel().travel;
     const playback=calculateGuidedPlayback({
-      route:this.result,travel:this.resolveTravel().travel,paths,
+      route:this.result,travel,paths,
       gridSize:this.scene.grid?.size,
       secondsPerHour:readGuidedPlaybackSetting(game.settings)
     });
@@ -316,6 +388,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       movementSpeed:playback.movementSpeed,gridSize:this.scene.grid.size
     });
     const totalDistance=chunks.reduce((sum,chunk)=>sum+chunk.distance,0);
+    const schedule=new GuidedTravelDayTracker({travelHours:playback.travelHours,
+      rules:this.resolveTravelRules(travel)});
     const advanceWorldTime=readNavigationWorldClockSetting(game.settings);
     if(advanceWorldTime){
       if(game.users?.activeGM?.id!==game.user?.id||!game.user?.isGM)
@@ -324,7 +398,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("Foundry World time is unavailable for guided travel.");
     }
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
-      phase:"moving",resumeWaiter:null,
+      phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
       completedDistance:0,totalDistance,currentChunk:null,timer:null,clock:null};
     if(advanceWorldTime)session.clock=new GuidedJourneyClock({
       travelHours:playback.travelHours,totalDistance,
@@ -334,6 +408,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.travelSession===session&&this.scene?.id===session.sceneId
     });
     this.travelSession=session;
+    this.journeySchedule=schedule;
     this.travelNotice="Guided travel in progress. Pause Travel stops at the next short stretch.";
     this.setTravelProgress(0);
     this.setWorldTimeAdvanced(0);
@@ -351,7 +426,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           (chunk?.distance??0)*fraction)/session.totalDistance));
       },100);
       let reachedEnd=true,interruptedReason=null,clockFailed=false;
-      for(const chunk of chunks){
+      for(let index=0;index<chunks.length;index++){
         if(this.travelSession!==session||session.phase==="ending"){
           reachedEnd=false;break;
         }
@@ -363,6 +438,31 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
         if(this.travelSession!==session||session.phase==="ending"){
           reachedEnd=false;break;
+        }
+        // A short rest advances the clock but does not replenish daily travel
+        // hours. Offer another choice at the same boundary before any move.
+        while(schedule.needsDecision){
+          try{
+            const approved=await this.waitForDailyTravelChoice(session);
+            if(!approved){reachedEnd=false;break;}
+          }catch(error){
+            reachedEnd=false;clockFailed=true;
+            interruptedReason="Travel break could not complete: "+(error.message||String(error));
+            break;
+          }
+        }
+        if(!reachedEnd)break;
+        if(this.travelSession!==session||session.phase==="ending"){
+          reachedEnd=false;break;
+        }
+        let chunk=chunks[index];
+        const availableDistance=schedule.availableHours/playback.travelHours*totalDistance;
+        if(Number.isFinite(availableDistance)&&availableDistance<chunk.distance-1e-5){
+          if(chunks.length>=MAX_GUIDED_CHUNKS+MAX_GUIDED_REST_EVENTS)
+            throw Error("The journey needs too many movement-day boundaries.");
+          const halves=splitGuidedChunkAtDistance(chunk,availableDistance);
+          chunks.splice(index,1,...halves);
+          chunk=halves[0];
         }
         session.currentChunk={distance:chunk.distance,startedAt:Date.now(),
           durationMs:1000*chunk.distance/pixelsPerSecond};
@@ -388,6 +488,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         // Credit progress only after Foundry confirms the expected destination.
         // An interrupted/redirected movement must never receive World time.
         session.completedDistance+=chunk.distance;
+        schedule.recordMovement(chunk.distance/totalDistance*playback.travelHours);
         this.setTravelProgress(Math.min(99,100*session.completedDistance/totalDistance));
         try{await this.commitGuidedWorldTime(session);}
         catch(error){
@@ -406,7 +507,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
         const arrived=reachedEnd&&session.phase!=="ending"&&!clockFailed;
         if(arrived)this.setTravelProgress(100);
-        this.travelNotice=arrived?"Arrived at destination.":
+        this.travelNotice=arrived?"Arrived at destination."+
+          (schedule.lastForcedCheck?` Resolve the latest forced-march DC `+
+            `${schedule.lastForcedCheck.dc} Constitution saves manually.`:""):
           (interruptedReason??"Journey ended at the last completed road stretch.");
         return arrived;
       }
@@ -414,6 +517,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }finally{
       if(session.timer!==null)clearInterval(session.timer);
       session.resumeWaiter?.();
+      session.restWaiter?.(null);
       if(this.travelSession===session){
         this.travelSession=null;
         if(this.active)void this.render(true);
@@ -446,6 +550,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(!session)return false;
     session.phase="ending";
     session.resumeWaiter?.();
+    session.restWaiter?.(null);
     this.travelNotice="Ending journey after the current short road stretch…";
     if(render&&this.active)void this.render(true);
     return true;
@@ -463,6 +568,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelNotice="";
     this.travelProgress=0;
     this.worldTimeAdvancedSeconds=0;
+    this.worldTravelAdvancedSeconds=0;
+    this.worldRestAdvancedSeconds=0;
+    this.journeySchedule=null;
     this.draw();
     if (this.active) void this.render(true);
   }
@@ -512,7 +620,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelProgress=0;
     this.travelProgressUI=null;
     this.worldTimeAdvancedSeconds=0;
+    this.worldTravelAdvancedSeconds=0;
+    this.worldRestAdvancedSeconds=0;
     this.worldTimeUI=null;
+    this.journeySchedule=null;
   }
 
   tearDown() {
@@ -603,7 +714,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if (this.result?.status === "ok") {
       const unit=this.scene?.grid?.units?.trim() || "units";
       const summary=el("div");
-      summary.style.cssText="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem;";
+      summary.style.cssText="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;";
       const metric=(label,value)=>{
         const card=el("div");card.style.cssText="border:1px solid var(--color-border-light-tertiary,#666);border-radius:8px;padding:.75rem;min-width:0;";
         const small=el("div",label);small.style.cssText="font-size:.8em;opacity:.75;margin-bottom:.25rem;";
@@ -611,20 +722,27 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         card.append(small,big);summary.appendChild(card);
       };
       metric("Distance",`${this.result.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}`);
-      let travelDayLabel=null;
+      let tripExplanation=null;
       try{
         const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
         const hours=navigationHours(weighted,speed);
-        metric("Travel time (moving)",formatGuidedWorldTime(Math.round(hours*3600)));
-        if(Number.isFinite(travel.hoursPerDay)&&travel.hoursPerDay>0&&travel.hoursPerDay<24){
-          const days=el("p",`Travel-day estimate: ${formatNavigationDuration(hours,travel.hoursPerDay)} `+
-            `(${travel.hoursPerDay} travel hours/day; overnight rests not included).`);
-          days.style.cssText="margin:0;font-size:.8em;opacity:.75;";
-          travelDayLabel=days;
-        }
-      }catch(error){metric("Travel time","Unavailable");}
+        metric("Travel Time",formatGuidedWorldTime(Math.round(hours*3600)));
+        const rules=this.resolveTravelRules(travel);
+        const schedule=this.journeySchedule&&Math.abs(this.journeySchedule.travelHours-hours)<1e-5?
+          this.journeySchedule:null;
+        const plan=schedule?.estimate??estimateNavigationTotalTrip(hours,rules);
+        metric("Total Trip",formatNavigationDuration(plan.totalHours,24));
+        const explanation=rules.dailyHours===null?
+          "Total Trip currently counts movement only; select D&D or Custom rules in Module Settings to plan rests.":
+          `Plan: ${rules.dailyHours}h travel/day, ${rules.overnightHours}h overnight downtime `+
+          `(including rest); ${plan.overnights} overnight stop${plan.overnights===1?"":"s"} remaining.`+
+          (plan.breakHours?` ${formatGuidedWorldTime(Math.round(plan.breakHours*3600))} of confirmed breaks included.`:"")+
+          " The GM's rest or forced-travel choices update this estimate.";
+        tripExplanation=el("p",explanation);
+        tripExplanation.style.cssText="margin:0;font-size:.8em;opacity:.75;";
+      }catch(error){metric("Travel Time","Unavailable");metric("Total Trip","Unavailable");}
       body.appendChild(summary);
-      if(travelDayLabel)body.appendChild(travelDayLabel);
+      if(tripExplanation)body.appendChild(tripExplanation);
       if(this.travelSession||this.travelProgress>0){
         const progressWrap=el("div");
         progressWrap.style.cssText="display:flex;flex-direction:column;gap:.35rem;padding:.45rem 0;";
@@ -643,14 +761,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         body.appendChild(progressWrap);
         this.travelProgressUI={bar:progressBar,label:progressLabel};
       }else this.travelProgressUI=null;
+      if(this.travelSession?.phase==="rest-choice"){
+        const prompt=el("div","Daily limit reached — choose a rest or continued travel below. " +
+          "Short rests add time without resetting the daily travel allowance. " +
+          "Resolve forced-march saves and exhaustion manually.");
+        prompt.style.cssText="padding:.8rem;border:1px solid #d99c46;border-radius:8px;font-size:.85em;";
+        body.appendChild(prompt);
+      }
       const clockAllowed=readNavigationWorldClockSetting(game.settings);
       const clockHint=el("p",clockAllowed?
-        "Foundry World time advances automatically for confirmed movement. Overnight rests are not included. Change this in Module Settings.":
-        "Foundry World time stays unchanged. Enable it in Atlas Module Settings to advance time during guided travel.");
+        "Foundry World time advances for confirmed movement and GM-approved breaks. Actor rests and exhaustion remain manual; change the clock setting in Module Settings.":
+        "Foundry World time stays unchanged. Planned breaks are still counted in Total Trip; enable clock advancement in Atlas Module Settings.");
       clockHint.style.cssText="margin:0;font-size:.77em;opacity:.7;";
       body.appendChild(clockHint);
       if(this.travelSession?.clock||this.worldTimeAdvancedSeconds>0){
-        const clockStatus=el("p",`Foundry World time advanced: +${formatGuidedWorldTime(this.worldTimeAdvancedSeconds)} (travel only; no rests)`);
+        const clockStatus=el("p",this.worldTimeStatus());
         clockStatus.style.cssText="margin:0;font-size:.85em;font-weight:600;";
         this.worldTimeUI=clockStatus;
         body.appendChild(clockStatus);
@@ -744,26 +869,42 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     row.appendChild(newRoute);
     if(this.result?.status==="ok"){
       const phase=this.travelSession?.phase;
-      const move=el("button",phase==="paused"?"Resume Travel":phase==="moving"?
-        "Pause Travel":phase==="pausing"?"Pausing…":phase==="ending"?"Ending Journey…":"Travel Route");
-      move.type="button";
-      move.disabled=phase==="ending"||phase==="pausing";
-      move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
-        "Pause after the current short road stretch":"Move the assigned party token along this route";
-      move.addEventListener("click",()=>{
-        if(this.travelSession){
-          const ok=this.travelSession.phase==="paused"?this.resumeGuidedTravel():
-            this.pauseGuidedTravel();
-          if(!ok)ui.notifications.warn("The token could not change its movement state yet.");
-          return;
+      if(phase==="rest-choice"){
+        const rules=this.travelSession.schedule.rules;
+        for(const [action,label,title] of [
+          ["overnight",`Overnight Camp (${rules.overnightHours}h)`,"Camp overnight and reset the daily travel allowance"],
+          ["long",`Long Rest (${rules.longRestHours}h)`,"Record a long rest; Actor resources remain unchanged"],
+          ["short",`Short Rest (${rules.shortRestHours}h)`,"Add a short rest without resetting daily travel hours"],
+          ["continue","Continue March","Continue one more travel hour; adjudicate any Constitution saves manually"]]){
+          const button=el("button",label);
+          button.type="button";button.title=title;
+          button.disabled=action==="continue"&&this.travelSession.schedule.todayHours>=24-1e-7;
+          button.addEventListener("click",()=>this.chooseDailyTravelBreak(action));
+          row.appendChild(button);
         }
-        void this.startGuidedTravel().catch(error=>{
-          this.travelNotice=error.message||String(error);
-          ui.notifications.error(this.travelNotice);
-          if(this.active)void this.render(true);
+      }else{
+        const move=el("button",phase==="paused"?"Resume Travel":phase==="moving"?
+          "Pause Travel":phase==="pausing"?"Pausing…":phase==="ending"?"Ending Journey…":
+          phase==="rest-applying"?"Recording Break…":"Travel Route");
+        move.type="button";
+        move.disabled=phase==="ending"||phase==="pausing"||phase==="rest-applying";
+        move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
+          "Pause after the current short road stretch":"Move the assigned party token along this route";
+        move.addEventListener("click",()=>{
+          if(this.travelSession){
+            const ok=this.travelSession.phase==="paused"?this.resumeGuidedTravel():
+              this.pauseGuidedTravel();
+            if(!ok)ui.notifications.warn("The token could not change its movement state yet.");
+            return;
+          }
+          void this.startGuidedTravel().catch(error=>{
+            this.travelNotice=error.message||String(error);
+            ui.notifications.error(this.travelNotice);
+            if(this.active)void this.render(true);
+          });
         });
-      });
-      row.appendChild(move);
+        row.appendChild(move);
+      }
       if(this.travelSession){
         const end=el("button","End Journey");
         end.type="button";

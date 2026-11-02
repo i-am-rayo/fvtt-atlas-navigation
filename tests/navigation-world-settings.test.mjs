@@ -3,6 +3,9 @@ import test from "node:test";
 import { registerNavigationWorldSettings } from "../scripts/navigation-world-settings.js";
 import { NAVIGATION_PLAYBACK_SETTING } from "../scripts/navigation-playback.js";
 import { NAVIGATION_RULES_PROFILE_SETTING } from "../scripts/navigation-rules-profile.js";
+import { CUSTOM_DAY_HOURS_SETTING,CUSTOM_OVERNIGHT_HOURS_SETTING,
+  CUSTOM_SHORT_REST_HOURS_SETTING,CUSTOM_LONG_REST_HOURS_SETTING }
+  from "../scripts/navigation-rules-profile.js";
 import { NAVIGATION_WORLD_CLOCK_SETTING } from "../scripts/navigation-world-clock.js";
 
 test("navigation World Settings register once in a reusable module with bounded slider",()=>{
@@ -14,7 +17,7 @@ test("navigation World Settings register once in a reusable module with bounded 
   }};
   let updates=0;
   registerNavigationWorldSettings({settings,onPlaybackChange:()=>updates++});
-  assert.equal(catalog.size,4);
+  assert.equal(catalog.size,8);
   const slider=catalog.get(NAVIGATION_PLAYBACK_SETTING);
   assert.deepEqual(slider.range,{min:0.5,max:8,step:0.5});
   assert.equal(slider.default,2);
@@ -25,12 +28,19 @@ test("navigation World Settings register once in a reusable module with bounded 
   const rules=catalog.get(NAVIGATION_RULES_PROFILE_SETTING);
   assert.deepEqual(Object.keys(rules.choices),["system","dnd5e2014","dnd5e2024","custom"]);
   assert.equal(rules.default,"system");
-  assert.match(rules.hint,/does not yet apply rest, exhaustion/);
+  assert.match(rules.hint,/GM-confirmed rests/);
+  for(const key of [CUSTOM_DAY_HOURS_SETTING,CUSTOM_OVERNIGHT_HOURS_SETTING,
+    CUSTOM_SHORT_REST_HOURS_SETTING,CUSTOM_LONG_REST_HOURS_SETTING]){
+    const option=catalog.get(key);
+    assert.equal(option.scope,"world");
+    assert.ok(option.range.min<=option.default&&option.default<=option.range.max);
+  }
   const worldClock=catalog.get(NAVIGATION_WORLD_CLOCK_SETTING);
   assert.equal(worldClock.default,false,"World time advancement is off for existing Worlds");
   assert.equal(worldClock.scope,"world");
   assert.equal(worldClock.config,true);
   assert.equal(worldClock.type,Boolean);
-  assert.match(worldClock.hint,/automatically advances Foundry World time/);
+  assert.match(worldClock.hint,/active GM advances Foundry World time/);
   assert.match(worldClock.hint,/confirmed token movement/);
+  assert.match(worldClock.hint,/explicitly selected short rest/);
 });

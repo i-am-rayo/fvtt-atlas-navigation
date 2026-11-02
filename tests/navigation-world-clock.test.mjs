@@ -46,6 +46,30 @@ test("time authorization and API failures fail closed without crediting time",as
   assert.equal(clock.advancedSeconds,0);
 });
 
+test("GM-confirmed rest time is credited separately and never mutates travel distance",async()=>{
+  const calls=[];
+  let permitted=true,fail=false;
+  const clock=new GuidedJourneyClock({travelHours:4,totalDistance:100,
+    authorize:()=>permitted,advance:async seconds=>{
+      if(fail)throw Error("Foundry denied rest time");
+      calls.push(seconds);
+    }});
+  await clock.commit(50,{force:true});
+  assert.equal(clock.advancedSeconds,7200);
+  assert.equal(await clock.commitBreak(8*3600),8*3600);
+  assert.equal(clock.restSeconds,8*3600);
+  await clock.commit(100,{force:true});
+  assert.equal(clock.advancedSeconds,14400);
+  assert.equal(calls.reduce((total,seconds)=>total+seconds,0),12*3600);
+  permitted=false;
+  await assert.rejects(clock.commitBreak(3600),/active GM/);
+  assert.equal(clock.restSeconds,8*3600);
+  permitted=true;fail=true;
+  await assert.rejects(clock.commitBreak(3600),/Foundry denied/);
+  assert.equal(clock.restSeconds,8*3600);
+  await assert.rejects(clock.commitBreak(-1),/invalid/i);
+});
+
 test("World time uses true hours, not display travel-days, and enforces bounds",()=>{
   assert.equal(guidedWorldTimeSeconds(16),57600);
   assert.equal(formatGuidedWorldTime(57600),"16h 0m");

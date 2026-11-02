@@ -46,6 +46,7 @@ export class GuidedJourneyClock {
     this.advance=advance;
     this.authorize=authorize;
     this.advancedSeconds=0;
+    this.restSeconds=0;
     this.minimumStep=Math.max(1,Math.ceil(this.totalSeconds/maxWrites));
   }
 
@@ -65,5 +66,17 @@ export class GuidedJourneyClock {
     await this.advance(delta);
     this.advancedSeconds=target;
     return delta;
+  }
+
+  /** A separately confirmed GM break is World downtime, never movement credit.
+   * Guard, commit and account only once; failure leaves the ledger unchanged. */
+  async commitBreak(seconds){
+    if(!Number.isSafeInteger(seconds)||seconds<0||seconds>24*3600)
+      throw Error("The confirmed rest duration is invalid.");
+    if(seconds===0)return 0;
+    if(!this.authorize())throw Error("Only the active GM may advance Atlas travel time.");
+    await this.advance(seconds);
+    this.restSeconds+=seconds;
+    return seconds;
   }
 }

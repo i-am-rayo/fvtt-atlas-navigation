@@ -389,7 +389,7 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     const optIn=find(prepared,node=>node.tag==="input"&&node.type==="checkbox");
     assert.equal(optIn,undefined,"Navigation has no per-journey clock checkbox");
     assert.ok(find(prepared,node=>node.textContent?.startsWith?.(
-      "Foundry World time advances automatically")));
+      "Foundry World time advances for confirmed movement")));
     assert.equal(await nav.startGuidedTravel(),true);
     assert.equal(seconds.reduce((a,b)=>a+b,0),14400,
       "four real travel hours advance exactly four World hours, not displayed days");
@@ -452,10 +452,13 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     // calendar days when the World clock advances only active movement time.
     nav.resolveTravel=()=>({sceneUnit:"km",travel:{speed:6.38,hoursPerDay:8,
       source:"party",actorName:"The Party",pace:"fast"}});
+    game.system={id:"dnd5e"};
     nav.result={...nav.result,cost:110.44,distance:93.85,terrainAware:true};
     const durationPanel=await nav._renderHTML();
     assert.ok(find(durationPanel,node=>node.tag==="strong"&&node.textContent==="17h 19m"));
-    const travelDays=find(durationPanel,node=>node.textContent?.startsWith?.("Travel-day estimate:"));
-    assert.match(travelDays.textContent,/2d 1h 19m.*8 travel hours\/day/);
+    assert.ok(find(durationPanel,node=>node.tag==="strong"&&node.textContent==="2d 1h 19m"),
+      "the third card includes two overnight downtime periods");
+    const travelDays=find(durationPanel,node=>node.textContent?.startsWith?.("Plan:"));
+    assert.match(travelDays.textContent,/8h travel\/day.*2 overnight stops/);
   }finally{nav?.stop();Object.assign(globalThis,previous);}
 });

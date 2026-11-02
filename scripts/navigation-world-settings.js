@@ -2,7 +2,9 @@ import { NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED } from "./navigation-
 import { NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT,
   NAVIGATION_PLAYBACK_MIN,NAVIGATION_PLAYBACK_MAX } from "./navigation-playback.js";
 import { NAVIGATION_RULES_PROFILE_SETTING,NAVIGATION_RULES_PROFILE_DEFAULT,
-  NAVIGATION_RULES_PROFILES } from "./navigation-rules-profile.js";
+  NAVIGATION_RULES_PROFILES,CUSTOM_DAY_HOURS_SETTING,CUSTOM_OVERNIGHT_HOURS_SETTING,
+  CUSTOM_SHORT_REST_HOURS_SETTING,CUSTOM_LONG_REST_HOURS_SETTING }
+  from "./navigation-rules-profile.js";
 import { NAVIGATION_WORLD_CLOCK_SETTING,NAVIGATION_WORLD_CLOCK_DEFAULT }
   from "./navigation-world-clock.js";
 
@@ -26,19 +28,33 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
     onChange:onPlaybackChange
   });
   settings.register(MODULE_ID,NAVIGATION_RULES_PROFILE_SETTING,{
-    name:"Atlas Travel Rules Profile (Upcoming Rest Rules)",
-    hint:"Choose the ruleset Atlas should use for future travel-day/rest/forced-march features. " +
-      "This beta does not yet apply rest, exhaustion, or other character effects. " +
-      "Custom parameters will be editable when those features arrive.",
+    name:"Atlas Guided Travel — Rules Profile",
+    hint:"Choose D&D 2014, D&D 2024/5.5e, Custom, or system defaults for daily travel " +
+      "and GM-confirmed rests. An unknown game system has no automatic daily limit. " +
+      "Atlas never automatically changes Actor resources or exhaustion.",
     scope:"world",config:true,type:String,default:NAVIGATION_RULES_PROFILE_DEFAULT,
     choices:{...NAVIGATION_RULES_PROFILES}
   });
+  const custom=(key,name,hint,defaultValue,range)=>settings.register(MODULE_ID,key,{
+    name,hint,scope:"world",config:true,type:Number,default:defaultValue,range
+  });
+  custom(CUSTOM_DAY_HOURS_SETTING,"Atlas Custom — Travel Hours Per Day",
+    "Maximum moving hours before the GM chooses a rest or continued travel. Used only with Custom rules.",
+    8,{min:1,max:24,step:1});
+  custom(CUSTOM_OVERNIGHT_HOURS_SETTING,"Atlas Custom — Overnight Downtime (Hours)",
+    "Time added for an overnight camp, including any long rest. Used only with Custom rules.",
+    16,{min:0,max:24,step:1});
+  custom(CUSTOM_SHORT_REST_HOURS_SETTING,"Atlas Custom — Short Rest (Hours)",
+    "Adds World time but does not reset daily travel hours. Used only with Custom rules.",
+    1,{min:0.5,max:8,step:0.5});
+  custom(CUSTOM_LONG_REST_HOURS_SETTING,"Atlas Custom — Long Rest (Hours)",
+    "Adds World time and resets Atlas's journey-day counter; Actor resources are not changed.",
+    8,{min:1,max:24,step:1});
   settings.register(MODULE_ID,NAVIGATION_WORLD_CLOCK_SETTING,{
     name:"Atlas Guided Travel — Advance World Time",
-    hint:"Disabled by default. When enabled, Atlas automatically advances Foundry World time " +
-      "during each active-GM guided journey, only after confirmed token movement. " +
-      "Travel hours do not include overnight rests; Atlas does not yet perform rest, " +
-      "exhaustion, Actor, or currency changes.",
+    hint:"Disabled by default. When enabled, the active GM advances Foundry World time " +
+      "after confirmed token movement and after an explicitly selected short rest, long rest, " +
+      "or overnight camp. No Actor, exhaustion, or currency changes are applied.",
     scope:"world",config:true,type:Boolean,default:NAVIGATION_WORLD_CLOCK_DEFAULT
   });
 }
