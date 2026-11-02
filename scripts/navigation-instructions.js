@@ -21,7 +21,7 @@ export function navigationInstruction({kind,roadId,regionName,direction,first,ne
   return `${first?"Head":"Continue"}${direction?" "+direction:""} to ${nextRoadId?roadName(nextRoadId):"the destination"}`;
 }
 
-/** Split by terrain, merge consecutive legs with the same road and surface. */
+/** Split meaningful turns and terrain transitions; merge only straight-enough repeats. */
 export function buildNavigationSteps(legs, roadName = id => id) {
   const steps=[];
   for(const [legIndex,leg] of legs.entries()){
@@ -37,6 +37,7 @@ export function buildNavigationSteps(legs, roadName = id => id) {
       const prev=steps.at(-1);
       const cost=slice.distance*slice.multiplier;
       if(prev && prev.kind===kind && prev.roadId===roadId && prev.terrain===terrain &&
+          prev.direction===direction &&
           (prev.regionId??null)===(slice.regionId??null)){
         prev.distance+=slice.distance;prev.cost+=cost;
       }else{

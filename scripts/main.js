@@ -1726,12 +1726,15 @@ Hooks.once("init", () => {
     manualFog.tearDown();
   });
   Hooks.on("canvasPan", view => { roadCanvas.onCanvasPan(view); navigation.draw(); });
+  for(const event of ["createRegion","updateRegion","deleteRegion"]){
+    Hooks.on(event,region=>navigation.onRegionUpdated(region));
+  }
   Hooks.on("sightRefresh", () => roadCanvas.onFogRefresh());
   Hooks.on("updateFogExploration", () => roadCanvas.onFogRefresh());
   Hooks.on("deleteFogExploration", () => roadCanvas.onFogRefresh());
-  Hooks.on("updateScene", scene => {
+  Hooks.on("updateScene", (scene,changes) => {
     if (globalThis.canvas?.ready && canvas.scene?.id === scene.id) {
-      navigation.tearDown();roadCanvas.refresh();manualFog.refresh();
+      navigation.onSceneUpdated(scene,changes);roadCanvas.refresh();manualFog.refresh();
       if(fogPalette.open)fogPalette.draw();
     }
   });
