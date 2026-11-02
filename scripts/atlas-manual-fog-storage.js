@@ -1,5 +1,5 @@
 import { MODULE_ID } from "./atlas-storage.js";
-import { MANUAL_FOG_FLAG, validateManualFog, paintManualFog } from "./atlas-manual-fog-model.js";
+import { MANUAL_FOG_FLAG, validateManualFog, paintManualFog,cellKey } from "./atlas-manual-fog-model.js";
 import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
 import { readAtlasMapFog } from "./atlas-map-fog-storage.js";
 export function readManualFog(scene) {
@@ -47,7 +47,15 @@ export function applyManualFogBrush(scene, positions,mode) {
   return enqueue(scene,async()=>{
     const previous=readManualFog(scene);
     if(!previous.enabled)throw new Error("Enable Atlas manual fog before painting.");
+    // The party's 2-second native travel stretches can revisit the same
+    // explored cells repeatedly. Avoid redundant Scene flag writes and their
+    // expensive canvas refreshes when the requested override already holds.
     const updated=paintManualFog(previous,positions,mode);
+    const exposed=new Set(previous.revealed.map(cellKey));
+    const covered=new Set(previous.hidden.map(cellKey));
+    if(updated.revealed.length===exposed.size&&updated.hidden.length===covered.size&&
+        updated.revealed.every(p=>exposed.has(cellKey(p)))&&
+        updated.hidden.every(p=>covered.has(cellKey(p))))return previous;
     await scene.setFlag(MODULE_ID,MANUAL_FOG_FLAG,updated);
     return updated;
   });

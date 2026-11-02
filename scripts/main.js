@@ -14,6 +14,7 @@ import { savePartyExplorationConfig,
 import { readManualFog, setManualFogEnabled }
   from "./atlas-manual-fog-storage.js";
 import { AtlasManualFogController } from "./atlas-manual-fog-renderer.js";
+import { isManualFogOnlySceneUpdate } from "./atlas-manual-fog-refresh.js";
 import { AtlasManualFogPalette, registerManualBrushSettings }
   from "./atlas-manual-fog-panel.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
@@ -1731,7 +1732,9 @@ Hooks.once("init", () => {
   Hooks.on("deleteFogExploration", () => roadCanvas.onFogRefresh());
   Hooks.on("updateScene", (scene,changes) => {
     if (globalThis.canvas?.ready && canvas.scene?.id === scene.id) {
-      navigation.onSceneUpdated(scene,changes);roadCanvas.refresh();manualFog.refresh();
+      navigation.onSceneUpdated(scene,changes);
+      if(!game.user?.isGM||!isManualFogOnlySceneUpdate(changes))roadCanvas.refresh();
+      manualFog.refresh();
       if(fogPalette.open)fogPalette.draw();
     }
   });

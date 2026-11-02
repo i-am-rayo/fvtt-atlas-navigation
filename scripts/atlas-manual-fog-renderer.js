@@ -66,37 +66,41 @@ export class AtlasManualFogController {
     const shouldDraw=state.enabled&&(!game.user.isGM||this.preview);
     if(!shouldDraw){if(this.layer)this.layer.visible=false;return;}
     if(!globalThis.PIXI?.Graphics||!view.primary?.addChild)return;
-    if(!this.layer||this.view!==view||this.layer.destroyed) {
-      this.layer?.parent?.removeChild?.(this.layer);this.layer?.destroy?.();
-      const sort=foundry?.canvas?.groups?.PrimaryCanvasGroup?.SORT_LAYERS;
-      if(!Number.isFinite(sort?.TILES))throw new Error("Foundry v14 Primary Canvas is unavailable.");
-      this.layer=new PIXI.Graphics();
-      this.layer.label="Atlas Manual Exploration Fog";
-      this.layer.eventMode="none";this.layer.sortLayer=sort.TILES+1;
-      this.layer.elevation=0;this.layer.sort=1e100;
-      view.primary.addChild(this.layer);this.view=view;
-    }
-    const g=this.layer;
-    // Fail closed if geometry is not valid. No token position or travel history is used.
+    const sort=foundry?.canvas?.groups?.PrimaryCanvasGroup?.SORT_LAYERS;
+    if(!Number.isFinite(sort?.TILES))throw new Error("Foundry v14 Primary Canvas is unavailable.");
+    // Build off-screen, then replace the previous complete mask. Re-clearing a
+    // live mask on every explorer TokenDocument.move briefly flashed a solid
+    // black screen while the new grid polygons were tessellated.
+    const g=new PIXI.Graphics();
+    g.label="Atlas Manual Exploration Fog";
+    g.eventMode="none";g.sortLayer=sort.TILES+1;
+    g.elevation=0;g.sort=1e100;
     const sceneX=Number(view.dimensions?.sceneX),sceneY=Number(view.dimensions?.sceneY);
     const width=Number(view.dimensions?.sceneWidth),height=Number(view.dimensions?.sceneHeight);
-    g.clear();g.visible=true;
-    if([sceneX,sceneY,width,height].every(Number.isFinite)&&width>0&&height>0){
-      g.beginFill(0x080b12,1);g.drawRect(sceneX,sceneY,width,height);g.endFill();
+    try{
+      const all=nativeFogCells(view);
+      const revealed=new Set(state.revealed.map(cellKey));
+      const hidden=new Set(state.hidden.map(cellKey));
+      const checkpointCells=checkpointRevealKeys(all,readAtlas(view.scene),
+        readPartyExploration(view.scene),Number(view.scene.grid?.size),
+        {x:sceneX,y:sceneY});
+      for(const cell of all) {
+        const key=cellKey(cell);
+        if((revealed.has(key)||checkpointCells.has(key))&&!hidden.has(key))continue;
+        g.beginFill(0x080b12,game.user.isGM?0.62:1);
+        g.drawPolygon(cell.polygon.flat());
+        g.endFill();
+      }
+    }catch(error){
+      // Failed grid validation must never expose previously hidden cells.
+      if([sceneX,sceneY,width,height].every(Number.isFinite)&&width>0&&height>0){
+        g.beginFill(0x080b12,1);g.drawRect(sceneX,sceneY,width,height);g.endFill();
+      }else{g.destroy?.();throw error;}
+      console.warn("[fvtt-atlas-navigation] Atlas fog was covered after invalid grid geometry",error);
     }
-    const all=nativeFogCells(view);
-    const revealed=new Set(state.revealed.map(cellKey));
-    const hidden=new Set(state.hidden.map(cellKey));
-    const checkpointCells=checkpointRevealKeys(all,readAtlas(view.scene),
-      readPartyExploration(view.scene),Number(view.scene.grid?.size),
-      {x:sceneX,y:sceneY});
-    g.clear();
-    for(const cell of all) {
-      const key=cellKey(cell);
-      if((revealed.has(key)||checkpointCells.has(key))&&!hidden.has(key))continue;
-      g.beginFill(0x080b12,game.user.isGM?0.62:1);
-      g.drawPolygon(cell.polygon.flat());
-      g.endFill();
-    }
+    view.primary.addChild(g);
+    const old=this.layer;
+    this.layer=g;this.view=view;
+    old?.parent?.removeChild?.(old);old?.destroy?.();
   }
 }

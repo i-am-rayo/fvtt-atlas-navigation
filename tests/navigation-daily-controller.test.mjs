@@ -97,6 +97,13 @@ test("short rest then forced march leaves daily hours intact and requires manual
       f.nav.travelSession.schedule.breakHours===1);}
     catch(error){throw new Error(`${error.message}; phase=${f.nav.travelSession?.phase}; today=${f.nav.travelSession?.schedule.todayHours}; completed=${f.nav.travelSession?.schedule.completedHours}; break=${f.nav.travelSession?.schedule.breakHours}; notice=${f.nav.travelNotice}`);}
     assert.ok(Math.abs(f.nav.travelSession.schedule.todayHours-8)<1e-7);
+    const view=await f.nav._renderHTML();
+    const findAll=(node,match)=>[...(match(node)?[node]:[]),...node.children.flatMap(child=>findAll(child,match))];
+    assert.ok(findAll(view,node=>node.textContent==="Short Rest").length>0,
+      "the confirmed rest appears between route directions at eight moving hours");
+    assert.ok(findAll(view,node=>node.textContent==="ETA remaining (in-game)").length>0);
+    assert.ok(findAll(view,node=>node.textContent?.includes?.("does not restore daily travel hours")).length>0,
+      "the GM sees why a short rest does not permit more travel");
     assert.equal(f.nav.chooseDailyTravelBreak("continue"),true);
     await tickUntil(()=>f.nav.travelSession?.phase==="rest-choice"&&
       f.nav.travelSession.schedule.lastForcedCheck?.dc===11);

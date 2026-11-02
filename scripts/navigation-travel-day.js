@@ -3,6 +3,7 @@
  * No Foundry document access, rest automation or Actor/exhaustion mutation.
  */
 export const MAX_GUIDED_REST_EVENTS=48;
+export const MAX_GUIDED_TRAVEL_EVENTS=2048;
 const EPSILON=1e-7;
 
 const finiteNonnegative=value=>Number.isFinite(value)&&value>=0;
@@ -48,6 +49,7 @@ export class GuidedTravelDayTracker {
     this.permittedExtraUntil=0;
     this.restEvents=0;
     this.lastForcedCheck=null;
+    this.events=[];
   }
 
   get remainingHours(){return Math.max(0,this.travelHours-this.completedHours);}
@@ -110,6 +112,10 @@ export class GuidedTravelDayTracker {
     const expected=this.breakChoice(choice.action);
     if(expected.hours!==choice.hours||expected.resetsDay!==choice.resetsDay)
       throw Error("The selected travel break changed before confirmation.");
+    if(this.events.length>=MAX_GUIDED_TRAVEL_EVENTS)
+      throw Error("The journey has too many travel decisions. Plan a shorter route.");
+    this.events.push(Object.freeze({action:choice.action,atHours:this.completedHours,
+      hours:choice.hours}));
     if(choice.action==="continue"){
       this.permittedExtraUntil=Math.min(24,this.todayHours+1);
       return;

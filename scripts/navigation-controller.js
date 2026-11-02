@@ -10,6 +10,8 @@ import { planGuidedTravelChunks, waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS }
   from "./navigation-movement-lifecycle.js";
 import { GuidedTravelDayTracker,estimateNavigationTotalTrip,
   splitGuidedChunkAtDistance,MAX_GUIDED_REST_EVENTS } from "./navigation-travel-day.js";
+import { annotateJourneyDirections,projectJourneyTiming }
+  from "./navigation-journey-timeline.js";
 import { resolveNavigationTravelRules } from "./navigation-rules-profile.js";
 import { GuidedJourneyClock, readNavigationWorldClockSetting, formatGuidedWorldTime }
   from "./navigation-world-clock.js";
@@ -64,6 +66,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelNotice="";
     this.travelProgress=0;
     this.travelProgressUI=null;
+    this.journeyTimeUI=null;
     this.worldTimeAdvancedSeconds=0;
     this.worldTravelAdvancedSeconds=0;
     this.worldRestAdvancedSeconds=0;
@@ -109,6 +112,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.worldTravelAdvancedSeconds=0;
     this.worldRestAdvancedSeconds=0;
     this.journeySchedule=null;
+    this.journeyTimeUI=null;
     if(!this.start||!this.end)return;
     try{
       this.result=this.routeCalculator(view,this.scene,atlas,this.start,this.end);
@@ -261,6 +265,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       ui.bar.value=this.travelProgress;
       ui.label.textContent=`${Math.floor(this.travelProgress)}% complete`;
     }
+    this.updateJourneyTiming();
+  }
+
+  updateJourneyTiming(){
+    const ui=this.journeyTimeUI;
+    if(!ui)return;
+    const schedule=this.journeySchedule;
+    const plan=schedule?.estimate??ui.plan;
+    const timing=projectJourneyTiming({travelHours:ui.travelHours,
+      percent:this.travelProgress,totalHours:plan.totalHours,
+      breakHours:schedule?.breakHours??0});
+    ui.moving.textContent=formatNavigationDuration(timing.movingHours,24);
+    ui.elapsed.textContent=formatNavigationDuration(timing.elapsedHours,24);
+    ui.eta.textContent=formatNavigationDuration(timing.etaHours,24);
   }
 
   worldTimeStatus(){
@@ -571,6 +589,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.worldTravelAdvancedSeconds=0;
     this.worldRestAdvancedSeconds=0;
     this.journeySchedule=null;
+    this.journeyTimeUI=null;
     this.draw();
     if (this.active) void this.render(true);
   }
@@ -624,6 +643,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.worldRestAdvancedSeconds=0;
     this.worldTimeUI=null;
     this.journeySchedule=null;
+    this.journeyTimeUI=null;
   }
 
   tearDown() {
@@ -760,12 +780,43 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         progressWrap.append(progressHeader,progressBar);
         body.appendChild(progressWrap);
         this.travelProgressUI={bar:progressBar,label:progressLabel};
-      }else this.travelProgressUI=null;
+        const status=el("div");
+        status.style.cssText="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem;font-size:.78em;";
+        const timePart=label=>{
+          const section=el("div");
+          const heading=el("div",label);heading.style.cssText="opacity:.7;margin-bottom:.15rem;";
+          const value=el("strong","—");
+          section.append(heading,value);status.appendChild(section);
+          return value;
+        };
+        this.journeyTimeUI={travelHours:navigationHours(
+          this.result.terrainAware?this.result.cost:this.result.distance,speed),
+          plan:estimateNavigationTotalTrip(navigationHours(
+            this.result.terrainAware?this.result.cost:this.result.distance,speed),
+            this.resolveTravelRules(travel)),
+          moving:timePart("Travelled (moving)"),
+          elapsed:timePart("Elapsed (with rests)"),
+          eta:timePart("ETA remaining (in-game)")};
+        progressWrap.appendChild(status);
+        this.updateJourneyTiming();
+      }else{this.travelProgressUI=null;this.journeyTimeUI=null;}
       if(this.travelSession?.phase==="rest-choice"){
-        const prompt=el("div","Daily limit reached — choose a rest or continued travel below. " +
-          "Short rests add time without resetting the daily travel allowance. " +
-          "Resolve forced-march saves and exhaustion manually.");
-        prompt.style.cssText="padding:.8rem;border:1px solid #d99c46;border-radius:8px;font-size:.85em;";
+        const schedule=this.travelSession.schedule,rules=schedule.rules;
+        const routeHours=navigationHours(this.result.terrainAware?this.result.cost:
+          this.result.distance,speed);
+        const routeAverage=this.result.distance/routeHours;
+        const upcomingExtra=Math.floor(Math.max(0,schedule.todayHours-rules.dailyHours)+1e-6)+1;
+        const options=[
+          `Overnight Camp: +${rules.overnightHours}h downtime; resets travel allowance to ${rules.dailyHours}h.`,
+          `Long Rest: +${rules.longRestHours}h downtime; resets travel allowance to ${rules.dailyHours}h.`,
+          `Short Rest: +${rules.shortRestHours}h downtime; does not restore daily travel hours.`,
+          `Continue March: +1h moving (roughly ${routeAverage.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit} on this route).`+
+            (rules.forcedMarch!=="custom"?` DC ${10+upcomingExtra} Constitution save afterward (GM adjudicates).`:"")
+        ];
+        const prompt=el("div");
+        prompt.style.cssText="padding:.8rem;border:1px solid #d99c46;border-radius:8px;font-size:.85em;display:grid;gap:.3rem;";
+        prompt.appendChild(el("strong","Daily travel limit reached — choose how to proceed:"));
+        for(const option of options)prompt.appendChild(el("div",option));
         body.appendChild(prompt);
       }
       const clockAllowed=readNavigationWorldClockSetting(game.settings);
@@ -830,9 +881,28 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         return item;
       };
       list.appendChild(endpoint(true));
-      const steps=this.itinerary?.directions??buildNavigationSteps(this.result.legs,
+      const baseSteps=this.itinerary?.directions??buildNavigationSteps(this.result.legs,
         id=>this.atlasProvider(this.scene).roads.find(road=>road.id===id)?.name??"Road");
+      const steps=this.journeySchedule?.events?.length?
+        annotateJourneyDirections(baseSteps,this.journeySchedule.events,{
+          travelHours:navigationHours(this.result.terrainAware?this.result.cost:
+            this.result.distance,speed),speed,
+          terrainAware:Boolean(this.result.terrainAware)}):baseSteps;
       for (const step of steps) {
+        if(step.kind==="journey-event"){
+          const item=el("div");
+          item.style.cssText="display:flex;align-items:center;gap:.8rem;padding:.8rem;border:1px solid #b18b54;border-radius:8px;background:rgba(177,139,84,.08);";
+          const badge=el("span",step.action==="continue"?"➜":"☕");
+          badge.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;background:#5c482c;";
+          const content=el("div");
+          const name=el("strong",step.label);
+          const detail=el("div",step.hours?
+            `${formatNavigationDuration(step.hours,24)} downtime · After ${formatNavigationDuration(step.atHours,24)} moving`:
+            `One extra travel hour approved · After ${formatNavigationDuration(step.atHours,24)} moving`);
+          detail.style.cssText="opacity:.75;font-size:.85em;margin-top:.2rem;";
+          content.append(name,detail);item.append(badge,content);list.appendChild(item);
+          continue;
+        }
         const item=el("div");item.style.cssText="display:flex;align-items:flex-start;gap:.8rem;padding:.8rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:8px;";
         const marker=el("span",NAVIGATION_ARROWS[step.direction]??"•");
         marker.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;background:var(--color-cool-4,#333);font-weight:bold;";

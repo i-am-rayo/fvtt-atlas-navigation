@@ -97,6 +97,22 @@ test("custom long rest resets a day's travel but never creates Actor updates",()
   assert.equal(day.lastForcedCheck,null);
 });
 
+test("short rest plus long rest accumulates both breaks at one direction boundary",()=>{
+  const day=new GuidedTravelDayTracker({travelHours:10,rules:dnd()});
+  day.recordMovement(8);
+  day.applyBreak(day.breakChoice("short"));
+  assert.equal(day.estimate.totalHours,27,
+    "a short rest is added while the next overnight remains in the estimate");
+  day.applyBreak(day.breakChoice("long"));
+  day.recordMovement(2);
+  assert.equal(day.estimate.totalHours,19,
+    "10 moving + 1 short + 8 long; the pending overnight was replaced");
+  assert.deepEqual(day.events,[
+    {action:"short",atHours:8,hours:1},
+    {action:"long",atHours:8,hours:8}
+  ]);
+});
+
 test("hour boundaries split visible curves without shortcuts or duplicate vertices",()=>{
   const chunk={waypoints:[{x:0,y:0},{x:5,y:0},{x:5,y:5}],distance:10};
   const [first,second]=splitGuidedChunkAtDistance(chunk,6);
