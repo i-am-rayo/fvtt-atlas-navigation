@@ -43,6 +43,7 @@ class ElementStub {
 
   append(...children) { this.children.push(...children); }
   appendChild(child) { this.children.push(child); return child; }
+  addEventListener(name,handler) { (this.listeners??=new Map()).set(name,handler); }
 }
 
 function namedField(parent, name) {

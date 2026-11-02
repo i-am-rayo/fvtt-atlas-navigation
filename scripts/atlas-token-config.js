@@ -2,6 +2,7 @@ import { readPartyExploration, savePartyExplorationConfig }
   from "./party-exploration-storage.js";
 import { revealAssignedExplorer } from "./atlas-token-exploration.js";
 import { resolveNavigationTravelSpeed } from "./navigation-party-speed.js";
+import { createSettingsInput } from "./settings-input.js";
 
 /**
  * GM entry point on the native placed Token configuration. Atlas's per-Scene
@@ -46,9 +47,8 @@ export function addAtlasExplorerToTokenConfig(app, element) {
     "Only one placed token is the Scene's Atlas explorer. Assignment is manual and Scene-specific.");
   const checkboxLabel = document.createElement("label");
   checkboxLabel.style.cssText = "display:flex;align-items:center;gap:.6em;";
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.checked = selected;
+  const checkbox = createSettingsInput("checkbox",selected,
+    {ariaLabel:"Use this token as the party explorer"});
   checkboxLabel.append(checkbox, document.createTextNode("Use this token as the party explorer"));
   assignmentSection.append(checkboxLabel);
   const status=document.createElement("p");
@@ -64,11 +64,8 @@ export function addAtlasExplorerToTokenConfig(app, element) {
   const radiusLabel = document.createElement("label");
   radiusLabel.textContent = "Survey distance (" + (scene.grid?.units || "Scene units") + ")";
   radiusLabel.style.cssText = "display:grid;gap:.35rem;";
-  const radius = document.createElement("input");
-  radius.type = "number";
-  radius.min = "0.01";
-  radius.step = "any";
-  radius.value = String(expected.radius);
+  const radius = createSettingsInput("number",expected.radius,
+    {min:0.01,step:"any",ariaLabel:"Party survey distance"});
   radius.style.width = "100%";
   radiusLabel.append(radius);
   discoverySection.append(radiusLabel);

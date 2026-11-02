@@ -83,18 +83,6 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       root.appendChild(wrapper);
       return input;
     };
-    const dropdown = (options, current, changed) => {
-      const select = element("select");
-      for (const [value, label] of options) {
-        const option = element("option", label);
-        option.value = value;
-        select.appendChild(option);
-      }
-      select.value = current;
-      select.addEventListener("change", () => changed(select.value));
-      return select;
-    };
-
     if (draft.mode === "new") {
       const options = this.controller.getNewRoadOptions(this.scene);
       const summary = element("div");

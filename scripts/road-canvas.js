@@ -18,6 +18,7 @@ import { readCheckpointDiscoveryMethods } from "./checkpoint-discovery-method.js
 import { saveCheckpointCategory } from "./checkpoint-types.js";
 import { saveCheckpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
 import { saveCheckpointPresetAssignment } from "./checkpoint-preset-assignment.js";
+import { createSettingsSelect } from "./settings-select.js";
 import { checkpointKnowledge } from "./party-exploration-model.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
@@ -327,26 +328,22 @@ async function chooseRoadBranch({ roadName, junction, sections }) {
   field.className = "form-group";
   const label = document.createElement("label");
   label.textContent = game.i18n.localize("FVTTATLAS.Roads.DetachBranchSelect");
-  const select = document.createElement("select");
-  select.name = "sectionId";
-  select.style.width = "100%";
   const nodes = new Map(junction.nodes.map(n => [n.id, n]));
   const directions = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"];
-  sections.forEach((segment, index) => {
+  const choices=sections.map((segment, index) => {
     const outbound = segment.from === junction.id
       ? (segment.via[0] ?? nodes.get(segment.to))
       : (segment.via.at(-1) ?? nodes.get(segment.from));
     const dx = outbound.x - junction.x;
     const dy = outbound.y - junction.y;
     const angle = (Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8;
-    const option = document.createElement("option");
-    option.value = segment.id;
-    option.textContent = game.i18n.format("FVTTATLAS.Roads.DetachBranchOption", {
+    return [segment.id,game.i18n.format("FVTTATLAS.Roads.DetachBranchOption", {
       number: index + 1, direction: dx || dy ? directions[angle] : "?",
       section: segment.id.slice(-6)
-    });
-    select.appendChild(option);
+    })];
   });
+  const select=createSettingsSelect(choices,{name:"sectionId"});
+  select.style.width="100%";
   field.appendChild(label);
   field.appendChild(select);
   content.appendChild(field);
@@ -378,14 +375,8 @@ async function promptRoadCheckpoint({ roads, defaultName }) {
   content.appendChild(name);
   const roadLabel = document.createElement("label");
   roadLabel.textContent = game.i18n.localize("FVTTATLAS.Checkpoints.Road");
-  const road = document.createElement("select");
-  road.name = "checkpointRoadId";
-  for (const item of roads) {
-    const option = document.createElement("option");
-    option.value = item.id;
-    option.textContent = item.name;
-    road.appendChild(option);
-  }
+  const road=createSettingsSelect(roads.map(item=>[item.id,item.name]),{
+    name:"checkpointRoadId"});
   content.appendChild(roadLabel);
   content.appendChild(road);
   const elevationLabel = document.createElement("label");

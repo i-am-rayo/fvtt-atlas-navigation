@@ -8,6 +8,7 @@ import { TRAVEL_PRESET_SETTING, REGION_TRAVEL_PRESET_FLAG, TRAVEL_TYPES,
   removeTravelPreset, presetCostSummary, defaultTravelPresetColor,
   addMissingRecommendedWaterPresets, addMissingRecommendedLandPresets } from "./travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions } from "./native-movement-cost.js";
+import { createSettingsSelect } from "./settings-select.js";
 
 const TYPE_LABELS = { land: "Land", air: "Air", water: "Water" };
 const WATER_BODIES={river:"River",lake:"Lake",sea:"Sea",ocean:"Ocean",canal:"Canal",marsh:"Marsh / Swamp"};
@@ -238,13 +239,8 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
     name.defaultValue = existing?.name ?? "";
     container.append(nameLabel, name);
     container.appendChild(node("label", "Travel type"));
-    const mode = node("select");
-    mode.name = "presetMode";
-    for (const [key, label] of Object.entries(TYPE_LABELS)) {
-      const option = node("option", label);
-      option.value = key; option.defaultSelected = key === (existing?.mode ?? initialMode);
-      mode.appendChild(option);
-    }
+    const mode=createSettingsSelect(Object.entries(TYPE_LABELS),{
+      name:"presetMode",selectedId:existing?.mode??initialMode});
     container.appendChild(mode);
     container.appendChild(node("label", "Native Region highlight color"));
     const color = node("input");

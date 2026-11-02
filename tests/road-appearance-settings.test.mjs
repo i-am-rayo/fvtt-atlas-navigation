@@ -82,6 +82,30 @@ test("road DialogV2 form serializes label color through explicit input defaults"
   } finally { globalThis.document = oldDocument; }
 });
 
+test("World Road Appearance saves the actual border checkbox and reflected select defaults",async()=>{
+  const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
+  let stored;
+  try {
+    globalThis.document={createElement:tag=>new Element(tag)};
+    const legacy=Object.fromEntries(Object.entries(DEFAULT_ROAD_APPEARANCE)
+      .filter(([key])=>["color","width","opacity","pattern","labelVisibility"].includes(key)));
+    globalThis.game={user:{isGM:true},settings:{get:()=>legacy,
+      async set(_module,_name,value){stored=value;}}};
+    globalThis.ui={notifications:{info(){},error(error){throw Error(error);}}};
+    const app=new AtlasRoadAppearanceSettings();
+    const root=await app._renderHTML();
+    const land=root.children.find(child=>child.tag==="fieldset").children[1];
+    const fields=land.querySelectorAll("[name]");
+    const border=fields.find(field=>field.name==="atlasRoadBorderEnabled");
+    border.checked=false;
+    const labels=fields.find(field=>field.name==="atlasRoadLabels");
+    assert.equal(labels.children.filter(option=>option.defaultSelected).length,1);
+    await root.children.at(-1).listeners.get("click")();
+    assert.equal(stored.profiles.land.borderEnabled,false,
+      "unchecked HTML checkbox must not keep its fixed value attribute");
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("v0.2.25 global curvature offers restricted World presets and live refresh", () => {
   const previous = globalThis.game;
   const registered = new Map();

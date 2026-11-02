@@ -49,6 +49,36 @@ test("shared travel selector preserves IDs and groups Water, Land and Air",async
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("Terrain Region generator reuses grouped options and invalidates native cost draft",async()=>{
+  const previous={document:globalThis.document,game:globalThis.game,
+    foundry:globalThis.foundry};
+  try{
+    globalThis.document={createElement:tag=>new FakeElement(tag)};
+    globalThis.foundry={applications:{api:{ApplicationV2:class{}}}};
+    globalThis.game={settings:{get:()=>defaultTravelPresets()}};
+    const {createTerrainRegionTravelPresetControl}=await import(
+      "../scripts/terrain-region-generator-controls.js");
+    const draft={presetId:"land-dirt",presetEdited:false,
+      applyNativeCost:true,movementAction:"walk"};
+    let rerenders=0;
+    const control=createTerrainRegionTravelPresetControl(draft,{
+      noneLabel:"No Atlas travel preset",onChange:()=>rerenders++});
+    assert.equal(control.value,"land-dirt");
+    assert.deepEqual(descendants(control).filter(item=>item.attributes.has("selected"))
+      .map(item=>item.value),["land-dirt"]);
+    assert.ok(control.children.some(item=>item.tag==="optgroup"&&item.label==="Land"));
+    assert.ok(control.children.some(item=>item.tag==="optgroup"&&item.label==="Water — River"));
+    assert.ok(control.children.some(item=>item.tag==="optgroup"&&item.label==="Air"));
+    control.value="water-river";
+    control.listeners.get("change")();
+    assert.equal(draft.presetId,"water-river");
+    assert.equal(draft.presetEdited,true);
+    assert.equal(draft.applyNativeCost,false,"changing surface requires a fresh native opt-in");
+    assert.equal(draft.movementAction,"");
+    assert.equal(rerenders,1);
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("shared icon picker reports chosen IDs, reuses the same browser and makes no writes",async()=>{
   const previous=globalThis.document;
   try{

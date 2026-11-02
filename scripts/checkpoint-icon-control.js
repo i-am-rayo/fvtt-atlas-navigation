@@ -1,6 +1,7 @@
 /** Reusable, render-only Foundry v14 icon picker for checkpoint and World preset forms. */
 import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT, CHECKPOINT_FREE_ICONS,
   findCheckpointIcons, checkpointFontIcon } from "./checkpoint-appearance.js";
+import { createSettingsSelect } from "./settings-select.js";
 
 const node=(tag,text)=>{
   const item=document.createElement(tag);
@@ -43,11 +44,7 @@ export function createCheckpointIconPicker({selectedId="location-dot",onChange=(
   const search=node("input");search.type="search";
   search.placeholder="Search fantasy icons: bridge, ship, castle, cave…";
   search.setAttribute("aria-label","Filter checkpoint icons");
-  const select=(items,value)=>{
-    const control=node("select");
-    for(const [key,label] of items){const option=node("option",label);option.value=key;control.appendChild(option);}
-    control.value=value;return control;
-  };
+  const select=(items,value)=>createSettingsSelect(items,{selectedId:value});
   const category=select([["rpg","RPG & fantasy (recommended)"],
     ["settlements","Settlements & structures"],["travel","Roads & travel"],
     ["nature","Nature & terrain"],["danger","Combat & danger"],

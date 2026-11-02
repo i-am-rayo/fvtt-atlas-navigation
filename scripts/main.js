@@ -35,6 +35,8 @@ import { presetCostSummary } from "./travel-preset-model.js";
 import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
+import { createSettingsSelect } from "./settings-select.js";
+import { promptNativeMovementAction } from "./native-movement-action-picker.js";
 import { createRoadPresetStage } from "./road-settings-preset.js";
 import { arrangeRoadDialogFooter } from "./road-settings-dialog-footer.js";
 import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges,
@@ -923,30 +925,14 @@ function actions() {
       if (!registered.length) throw new Error("This system exposes no supported native movement actions.");
       let action = null;
       if (!perMode) {
-        const content = document.createElement("div");
-        const description = document.createElement("p");
-        description.textContent = "Legacy preset: choose one native movement action for " +
-          preset.name + " (" + presetCostSummary(preset) + ").";
-        const select = document.createElement("select");
-        select.name = "atlasMovementAction";
-        const placeholder = document.createElement("option");
-        placeholder.value = ""; placeholder.textContent = "Choose movement action…";
-        placeholder.defaultSelected = true;
-        select.appendChild(placeholder);
-        for (const available of registered) {
-          const option = document.createElement("option");
-          option.value = available.id;
-          option.textContent = game.i18n.localize(available.label) || available.label;
-          select.appendChild(option);
-        }
-        content.append(description, select);
-        const choice = await DialogV2.input({
-          window: { title: "Apply native movement cost — " + entry.name },
-          content, ok: { label: "Review Cost" }, rejectClose: false, modal: true
+        action=await promptNativeMovementAction({
+          title:"Apply native movement cost — "+entry.name,
+          message:"Legacy preset: choose one native movement action for "+
+            preset.name+" ("+presetCostSummary(preset)+").",
+          actions:registered,
+          invalidMessage:"Choose a valid movement action before applying."
         });
-        if (!choice) return;
-        action = registered.find(available => available.id === choice.atlasMovementAction);
-        if (!action) throw new Error("Choose a valid movement action before applying.");
+        if(!action)return;
       }
       const preflight = previewNativeMovementCost(preset.id, action?.id ?? null);
       if (!preflight.ok) throw new Error(preflight.message);
@@ -982,31 +968,14 @@ function actions() {
       const perMode = preset.movementCosts !== null;
       let action = null;
       if (!perMode) {
-        const content = document.createElement("div");
-        const description = document.createElement("p");
-        description.textContent = "Legacy preset: choose one supported movement action for " +
-          preset.name + " (" + presetCostSummary(preset) + ").";
-        const select = document.createElement("select");
-        select.name = "atlasMovementAction";
-        const placeholder = document.createElement("option");
-        placeholder.value = ""; placeholder.textContent = "Choose movement action…";
-        placeholder.defaultSelected = true;
-        select.appendChild(placeholder);
-        for (const available of availableMovementActions()) {
-          const option = document.createElement("option");
-          option.value = available.id;
-          option.textContent = game.i18n.localize(available.label) || available.label;
-          select.appendChild(option);
-        }
-        content.append(description, select);
-        const choice = await DialogV2.input({
-          window: { title: "Refresh native movement cost — " + entry.name },
-          content, ok: { label: "Review Cost" }, rejectClose: false, modal: true
+        action=await promptNativeMovementAction({
+          title:"Refresh native movement cost — "+entry.name,
+          message:"Legacy preset: choose one supported movement action for "+
+            preset.name+" ("+presetCostSummary(preset)+").",
+          actions:availableMovementActions(),
+          invalidMessage:"Choose a supported native movement action."
         });
-        if (!choice) return;
-        action = availableMovementActions().find(item =>
-          item.id === choice.atlasMovementAction);
-        if (!action) throw new Error("Choose a supported native movement action.");
+        if(!action)return;
       }
       const preflight = previewNativeMovementCost(preset.id, action?.id ?? null);
       if (!preflight.ok) throw new Error(preflight.message);
@@ -1398,14 +1367,8 @@ function actions() {
       if (!options.length) throw new Error("This road has no adjacent road to merge.");
       let otherId = options[0].id;
       if (options.length > 1) {
-        const select = document.createElement("select");
-        select.name = "mergeRoadId";
-        for (const candidate of options) {
-          const item = document.createElement("option");
-          item.value = candidate.id;
-          item.textContent = candidate.name;
-          select.appendChild(item);
-        }
+        const select=createSettingsSelect(options.map(candidate=>[candidate.id,candidate.name]),
+          {name:"mergeRoadId",selectedId:otherId});
         // Foundry v14 requires an outermost plain div for DOM dialog content.
         const content = document.createElement("div");
         const instruction = document.createElement("p");
@@ -1440,15 +1403,8 @@ function actions() {
       const choices = listSceneRegions(scene).filter(region => !region.linked && !region.invalidLink);
       if (!choices.length) throw new Error(game.i18n.localize("FVTTATLAS.Regions.NoAvailable"));
       const content = document.createElement("div");
-      const select = document.createElement("select");
-      select.name = "atlasRegionId";
-      select.setAttribute("aria-label", game.i18n.localize("FVTTATLAS.Regions.Choose"));
-      for (const region of choices) {
-        const option = document.createElement("option");
-        option.value = region.id;
-        option.textContent = region.name;
-        select.appendChild(option);
-      }
+      const select=createSettingsSelect(choices.map(region=>[region.id,region.name]),{
+        name:"atlasRegionId",ariaLabel:game.i18n.localize("FVTTATLAS.Regions.Choose")});
       content.appendChild(select);
       const result = await DialogV2.input({
         window: { title: game.i18n.localize("FVTTATLAS.Regions.Link") },

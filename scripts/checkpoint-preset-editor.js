@@ -4,6 +4,7 @@ import { CHECKPOINT_PRESET_SETTING,upsertCheckpointPreset,
   checkpointPresetAppearance } from "./checkpoint-preset-model.js";
 import { readWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
+import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
 import { approveSettingsClose,trackSettingsChanges } from "./settings-close-guard.js";
 import { createCheckpointIconPicker } from "./checkpoint-icon-control.js";
 import { createCheckpointChoice,createCheckpointNumber,createCheckpointRange,
@@ -71,21 +72,13 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     const input=(value,type="text")=>{
       const n=el("input");n.type=type;n.value=String(value??"");return n;
     };
-    const choose=(choices,value)=>{
-      const n=el("select");
-      for(const [key,title] of choices){const option=el("option",title);option.value=key;n.appendChild(option);}
-      n.value=value;return n;
-    };
+    const choose=(choices,value)=>createSettingsSelect(choices,{selectedId:value});
     const general=sections.get("General");
     general.appendChild(el("p","Reusable defaults for checkpoints. Names, map coordinates and discovery history remain independent until the GM explicitly applies this preset."));
     const name=field(general,"Preset name",input(preset?.name??""));name.maxLength=120;name.required=true;
-    const category=el("select");
-    for(const [heading,types] of CHECKPOINT_TYPE_GROUPS){
-      const group=el("optgroup");group.label=heading;
-      for(const [key,title] of types){const option=el("option",title);option.value=key;group.appendChild(option);}
-      category.appendChild(group);
-    }
-    category.value=preset?.category??"custom";
+    const category=createSettingsGroupedSelect(CHECKPOINT_TYPE_GROUPS.map(
+      ([heading,types])=>({label:heading,options:types})),
+      {selectedId:preset?.category??"custom"});
     field(general,"Checkpoint type",category);
     const imperial=game.settings.get(MODULE_ID,"elevationUnits")==="imperial";
     const elevationControl=createCheckpointElevation(preset?.elevationMeters??null,{imperial});

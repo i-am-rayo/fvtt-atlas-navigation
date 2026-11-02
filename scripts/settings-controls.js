@@ -6,6 +6,7 @@
 import { readWorldTravelPresets, travelPresetDisplayGroup } from "./travel-preset-settings.js";
 import { presetCostSummary } from "./travel-preset-model.js";
 import { CHECKPOINT_TYPE_GROUPS } from "./checkpoint-types.js";
+import { createSettingsGroupedSelect } from "./settings-select.js";
 
 const node=(tag,text)=>{
   const element=document.createElement(tag);
@@ -16,15 +17,7 @@ const node=(tag,text)=>{
 /** A single category structure for road, Region, and checkpoint travel selectors. */
 export function createTravelPresetSelect({selectedId=null,name="atlasTravelPresetId",
   noneLabel="None (no Atlas travel preset)",includeCosts=false}={}){
-  const select=node("select");select.name=name;
   const presets=readWorldTravelPresets().presets;
-  const activeId=presets.some(preset=>preset.id===selectedId)?selectedId:"";
-  const none=node("option",noneLabel);none.value="";
-  // Foundry v14 DialogV2 serializes the supplied HTMLElement to HTML before
-  // rendering it. `select.value` alone is not serialized, so the reopened
-  // form otherwise selects the first option (None) even for a saved road.
-  none.defaultSelected=activeId==="";
-  select.appendChild(none);
   const ranks=new Map([["land-dirt",0],["land-gravel",1],["land-stone",2]]);
   const indexed=presets.map((preset,index)=>({preset,index}));
   indexed.sort((a,b)=>{
@@ -41,39 +34,27 @@ export function createTravelPresetSelect({selectedId=null,name="atlasTravelPrese
     const display=travelPresetDisplayGroup(preset);
     const groupName=display.subgroup?display.group+" — "+display.subgroup:display.group;
     if(!groups.has(groupName)){
-      const group=node("optgroup");group.label=groupName;
-      groups.set(groupName,group);select.appendChild(group);
+      groups.set(groupName,[]);
     }
-    const option=node("option",display.name+(includeCosts?" ("+presetCostSummary(preset)+")":""));
-    option.value=preset.id;
-    option.defaultSelected=preset.id===activeId;
-    groups.get(groupName).appendChild(option);
+    groups.get(groupName).push([preset.id,
+      display.name+(includeCosts?" ("+presetCostSummary(preset)+")":"")]);
   }
-  select.value=activeId;
-  return select;
+  return createSettingsGroupedSelect([
+    {label:null,options:[["",noneLabel]]},
+    ...[...groups].map(([label,options])=>({label,options}))
+  ],{name,selectedId});
 }
 
 /** Whole-World checkpoint preset catalog, not only the current checkpoint type. */
 export function createCheckpointPresetSelect(presets,{selectedId=null,
   noneLabel="None — keep current settings"}={}){
-  const select=node("select");
-  const activeId=presets.some(preset=>preset.id===selectedId)?selectedId:"";
-  const none=node("option",noneLabel);none.value="";
-  none.defaultSelected=activeId==="";
-  select.appendChild(none);
+  const groups=[{label:null,options:[["",noneLabel]]}];
   for(const [heading,types] of CHECKPOINT_TYPE_GROUPS){
     const matches=presets.filter(p=>types.some(([type])=>type===p.category));
     if(!matches.length)continue;
-    const group=node("optgroup");group.label=heading;
-    for(const preset of matches){
-      const option=node("option",preset.name);option.value=preset.id;
-      option.defaultSelected=preset.id===activeId;
-      group.appendChild(option);
-    }
-    select.appendChild(group);
+    groups.push({label:heading,options:matches.map(preset=>[preset.id,preset.name])});
   }
-  select.value=activeId;
-  return select;
+  return createSettingsGroupedSelect(groups,{selectedId});
 }
 
 /** Accessible glyph-only control; can be wired by a delegated editor handler. */

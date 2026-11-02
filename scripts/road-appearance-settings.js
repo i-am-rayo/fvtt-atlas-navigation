@@ -4,6 +4,8 @@ import { DEFAULT_WORLD_ROAD_APPEARANCE, ROAD_APPEARANCE_SETTING, readWorldRoadAp
   ROAD_CURVE_SETTING, ROAD_CURVE_PRESETS, DEFAULT_ROAD_CURVE_PRESET,
   validateRoadAppearance, validateWorldRoadAppearance }
   from "./road-appearance.js";
+import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsInput, settingsFormValues } from "./settings-input.js";
 
 const element = (tag, value = "") => {
   const result = document.createElement(tag);
@@ -23,29 +25,16 @@ export function roadAppearanceForm(appearance) {
     row.appendChild(element("span", label));
     let field;
     if (type === "select") {
-      field = element("select");
-      for (const optionName of options.choices) {
-        const option = element("option", optionName.charAt(0).toUpperCase() + optionName.slice(1));
-        option.value = optionName;
-        option.defaultSelected = optionName === value;
-        field.appendChild(option);
-      }
-      field.value = value;
+      field = createSettingsSelect(options.choices.map(optionName =>
+        [optionName,optionName.charAt(0).toUpperCase()+optionName.slice(1)]),
+        {selectedId:value,name});
     } else {
-      field = element("input");
-      field.type = type;
-      field.value = String(value);
-      field.defaultValue = String(value);
-      if (type === "number") {
-        field.min = String(options.min); field.max = String(options.max);
-        field.step = String(options.step);
-      }
+      field = createSettingsInput(name === "atlasRoadWidth" || name === "atlasRoadOpacity"
+        ? "range":type,value,{name,min:options.min,max:options.max,step:options.step});
     }
-    field.name = name;
     field.style.maxWidth = "13rem";
     if (type === "color") field.style.cssText = "width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
     if (name === "atlasRoadWidth" || name === "atlasRoadOpacity") {
-      field.type = "range";
       field.style.width = "10rem";
       const wrap = element("div");
       wrap.style.cssText = "display:flex;align-items:center;gap:.35rem;";
@@ -62,9 +51,8 @@ export function roadAppearanceForm(appearance) {
   borderToggle.className="form-group";
   borderToggle.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:1rem;";
   borderToggle.appendChild(element("span","Road border"));
-  const borderOn=element("input");borderOn.type="checkbox";borderOn.name="atlasRoadBorderEnabled";
-  borderOn.value="true";borderOn.checked=current.borderEnabled;
-  borderOn.defaultChecked=borderOn.checked;
+  const borderOn=createSettingsInput("checkbox",current.borderEnabled,
+    {name:"atlasRoadBorderEnabled"});
   borderToggle.appendChild(borderOn);
   root.appendChild(borderToggle);
   input("Road border color", "atlasRoadBorderColor", "color", current.borderColor);
@@ -132,8 +120,7 @@ export class AtlasRoadAppearanceSettings extends foundry.applications.api.Applic
       try {
         if (!game.user?.isGM) throw new Error("Only a GM may edit road appearance defaults.");
         const profiles = Object.fromEntries([...forms].map(([mode, form]) => {
-          const values = Object.fromEntries([...form.querySelectorAll("[name]")]
-            .map(field => [field.name, field.value]));
+          const values = settingsFormValues(form.querySelectorAll("[name]"));
           return [mode, roadAppearanceFromForm(values)];
         }));
         await game.settings.set(MODULE_ID, ROAD_APPEARANCE_SETTING,

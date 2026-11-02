@@ -1,36 +1,23 @@
 import { CHECKPOINT_REGION_RADIUS } from "./checkpoint-field-definitions.js";
+import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsInput } from "./settings-input.js";
 
 /** Presentation-only checkpoint controls. Persistence belongs to the editor. */
 export function createCheckpointChoice(choices, selected, {label}={}) {
-  const control=document.createElement("select");
-  if(label)control.setAttribute("aria-label",label);
-  for(const [id,title] of choices){
-    const option=document.createElement("option");
-    option.value=id;option.textContent=title;control.appendChild(option);
-  }
-  control.value=selected;
-  return control;
+  return createSettingsSelect(choices,{selectedId:selected,ariaLabel:label});
 }
 
 export function createCheckpointNumber(value,{min,max,step="any",label,empty=false}={}) {
-  const control=document.createElement("input");
-  control.type="number";
-  control.value=empty&&value==null?"":String(value??"");
-  if(min!==undefined)control.min=String(min);
-  if(max!==undefined)control.max=String(max);
-  control.step=String(step);
-  if(label)control.setAttribute("aria-label",label);
-  return control;
+  return createSettingsInput("number",empty&&value==null?"":value,
+    {min,max,step,ariaLabel:label});
 }
 
 /** Linked range/number fields are kept in sync without touching persisted data. */
 export function createCheckpointRange(value,{min,max,step=1,label,numberWidth="5rem"}) {
   const container=document.createElement("div");
   container.style.cssText="display:flex;align-items:center;gap:.35rem;";
-  const slider=document.createElement("input");
-  slider.type="range";slider.min=String(min);slider.max=String(max);
-  slider.step=String(step);slider.value=String(value);
-  if(label)slider.setAttribute("aria-label",label+" slider");
+  const slider=createSettingsInput("range",value,{min,max,step,
+    ariaLabel:label?label+" slider":null});
   const number=createCheckpointNumber(value,{min,max,step,label});
   number.style.width=numberWidth;
   slider.addEventListener("input",()=>{number.value=slider.value;});
@@ -47,14 +34,9 @@ export function createCheckpointRegionRadius(value,{label="Checkpoint Region rad
 export function createCheckpointRegionWidth(value,{label="Region radius or width in grid cells",onChange}={}){
   const element=document.createElement("div");
   element.style.cssText="display:flex;align-items:center;gap:.75rem;width:100%;";
-  const slider=document.createElement("input");
-  slider.type="range";
-  slider.min=String(CHECKPOINT_REGION_RADIUS.min);
-  slider.max=String(CHECKPOINT_REGION_RADIUS.max);
-  slider.step=String(CHECKPOINT_REGION_RADIUS.step);
-  slider.value=String(value);
+  const slider=createSettingsInput("range",value,{...CHECKPOINT_REGION_RADIUS,
+    ariaLabel:label});
   slider.style.cssText="flex:1;min-width:8rem;";
-  slider.setAttribute("aria-label",label);
   const output=document.createElement("output");
   output.textContent=slider.value+" cells";
   output.style.cssText="min-width:4.3rem;text-align:right;";
@@ -84,10 +66,9 @@ export function createCheckpointElevation(value,{imperial=false}={}){
 export function createCheckpointMarkerSize(value){
   const element=document.createElement("div");
   element.style.cssText="display:flex;align-items:center;gap:.6rem;flex:1;";
-  const slider=document.createElement("input");
-  slider.type="range";slider.min="12";slider.max="64";slider.step="1";
-  slider.value=String(value);slider.style.width="11rem";
-  slider.setAttribute("aria-label","Checkpoint marker size in pixels");
+  const slider=createSettingsInput("range",value,{min:12,max:64,step:1,
+    ariaLabel:"Checkpoint marker size in pixels"});
+  slider.style.width="11rem";
   const output=document.createElement("output");
   output.textContent=slider.value+" px";
   slider.addEventListener("input",()=>{output.textContent=slider.value+" px";});
@@ -96,16 +77,11 @@ export function createCheckpointMarkerSize(value){
 }
 
 export function createCheckpointColor(value,{label}={}){
-  const control=document.createElement("input");
-  control.type="color";control.value=value;
+  const control=createSettingsInput("color",value,{ariaLabel:label});
   control.style.cssText="width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
-  if(label)control.setAttribute("aria-label",label);
   return control;
 }
 
 export function createCheckpointCheckbox(checked,{label}={}){
-  const control=document.createElement("input");
-  control.type="checkbox";control.checked=Boolean(checked);
-  if(label)control.setAttribute("aria-label",label);
-  return control;
+  return createSettingsInput("checkbox",checked,{ariaLabel:label});
 }

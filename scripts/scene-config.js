@@ -14,6 +14,9 @@ import { checkpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
 import { createCheckpointRegionWidth } from "./checkpoint-form-controls.js";
 import { appendSettingsField } from "./settings-layout.js";
 import { createSettingsActionButton } from "./settings-controls.js";
+import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsInput } from "./settings-input.js";
+import { createTerrainRegionTravelPresetControl } from "./terrain-region-generator-controls.js";
 import { presetCostSummary } from "./travel-preset-model.js";
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
@@ -236,17 +239,11 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     const filter = node("div");
     filter.style.cssText = "display:flex;align-items:center;gap:.6rem;margin:.35rem 0 .65rem;";
     filter.appendChild(node("label","Road"));
-    const picker = node("select");
+    const picker=createSettingsSelect([
+      ["","All roads"],...atlas.roads.map(road=>[road.id,road.name])
+    ],{selectedId:sharedFilter.scope==="scene"?"":sharedFilter.roadId,
+      ariaLabel:"Show road"});
     picker.style.cssText = "flex:1;min-width:0;max-width:100%;";
-    picker.setAttribute("aria-label","Show road");
-    for (const [id, name] of [
-      ["", "All roads"], ...atlas.roads.map(road => [road.id,road.name])
-    ]) {
-      const option=node("option",name);
-      option.value=id;
-      picker.appendChild(option);
-    }
-    picker.value=sharedFilter.scope === "scene" ? "" : sharedFilter.roadId;
     picker.addEventListener("change",()=>{
       sharedFilter.scope=picker.value ? "selected" : "scene";
       if (picker.value) sharedFilter.roadId=picker.value;
@@ -549,19 +546,13 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
         () => actions.removeCheckpoint(scene, checkpoint, refresh)));
       if (party.enabled || state.enabled) {
         const knowledge = checkpointKnowledge(party, checkpoint.id);
-        const knowledgeSelect = node("select");
+        const knowledgeSelect=createSettingsSelect([
+          ["unknown","Undiscovered"],
+          ["visited","Seen / Visited"],
+          ["lore","Known through Lore"]
+        ],{selectedId:knowledge==="legacy"?"unknown":knowledge,
+          ariaLabel:"Knowledge of "+checkpoint.name});
         knowledgeSelect.title = "GM checkpoint discovery / lore knowledge";
-        knowledgeSelect.setAttribute("aria-label", "Knowledge of " + checkpoint.name);
-        for (const [value, text] of [
-          ["unknown", "Undiscovered"],
-          ["visited", "Seen / Visited"],
-          ["lore", "Known through Lore"]
-        ]) {
-          const option = node("option", text);
-          option.value = value;
-          knowledgeSelect.appendChild(option);
-        }
-        knowledgeSelect.value = knowledge === "legacy" ? "unknown" : knowledge;
         knowledgeSelect.addEventListener("change", async () => {
           try {
             await actions.setCheckpointKnowledge(scene, {
@@ -577,15 +568,12 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
         if (state.enabled) {
           const radiusLabel = node("label", "Terrain radius (cells)");
           radiusLabel.title = "Checkpoint reveal radius, 0 = show marker without revealing terrain.";
-          const radiusInput = document.createElement("input");
-          radiusInput.type = "number";
-          radiusInput.min = "0";
-          radiusInput.max = "100";
-          radiusInput.step = "1";
+          const radiusInput = createSettingsInput("number",
+            Object.hasOwn(party.checkpointRevealRadiusCells,checkpoint.id)
+              ? party.checkpointRevealRadiusCells[checkpoint.id]
+              : party.defaultRevealRadiusCells,
+            {min:0,max:100,step:1,ariaLabel:"Checkpoint terrain reveal radius"});
           radiusInput.style.width = "5em";
-          radiusInput.value = String(Object.hasOwn(party.checkpointRevealRadiusCells,checkpoint.id)
-            ? party.checkpointRevealRadiusCells[checkpoint.id]
-            : party.defaultRevealRadiusCells);
           radiusInput.addEventListener("change", async () => {
             try {
               await actions.setCheckpointKnowledge(scene, {
@@ -647,15 +635,8 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     if (selected.presetId !== null && selected.presetId !== undefined &&
         !presetById.has(selected.presetId)) selected.presetId = null;
     const makeSelect = (choices, current, changed) => {
-      const select = node("select");
-      for (const [value, name] of choices) {
-        const option = node("option", name);
-        option.value = value;
-        select.appendChild(option);
-      }
-      select.value = current;
-      select.addEventListener("change", () => { changed(select.value); refresh(); });
-      return select;
+      return createSettingsSelect(choices,{selectedId:current,
+        onChange:value=>{changed(value);refresh();}});
     };
     const addField = (title, control) => appendSettingsField(
       generatedSection,label(title),control,{variant:"native-div"});
@@ -695,17 +676,12 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     const perMode = selected.kind === "corridor" &&
       !!presetForCost && presetForCost.movementCosts !== null;
     {
-      const choices = [["", label("FVTTATLAS.Travel.None")],
-        ...travelPresets.map(p => [
-          p.id, p.mode.toUpperCase() + " — " + p.name
-        ])];
-      addField("Travel preset", makeSelect(
-        choices, selected.presetId ?? "", value => {
-          selected.presetId = value || null;
-          selected.presetEdited = true;
-          selected.applyNativeCost = false;
-          selected.movementAction = "";
-        }));
+      // Same categorized option catalog as Road Settings. The generator owns
+      // preview/native-cost resets; the shared select never writes Regions.
+      const travelSelect=createTerrainRegionTravelPresetControl(selected,{
+        noneLabel:label("FVTTATLAS.Travel.None"),onChange:refresh
+      });
+      addField("Travel preset",travelSelect);
       const supported = availableMovementActions();
       const selectedPreset = presetForCost;
       if (selected.kind === "corridor") {

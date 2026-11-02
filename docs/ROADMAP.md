@@ -1,8 +1,10 @@
 # Active v0.3.x roadmap — updated November 2, 2026
 
-This section is the **current delivery order**. Older Phase 0–6 notes below remain historical design and safety references; their former release gates do not override the owner's subsequent v0.3.x approvals. Each new feature still requires its own draft/test build and live Foundry v14 sign-off before merging. This roadmap records planned scope; it does **not** indicate that the features below have been implemented.
+This section is the **current delivery order**. Older Phase 0–6 notes below remain historical design and safety references; their former release gates do not override the owner's subsequent v0.3.x approvals. Each new feature still requires its own draft/test build and live Foundry v14 sign-off before merging. Beta.5 has an implementation awaiting live sign-off; subsequent milestones remain planned, not implemented.
 
 **Current baseline:** v0.3.5-beta.4.5.4 was confirmed by the owner to retain Road Settings' saved Travel Preset after reopen. The reusable selector must persist both its saved ID and HTML `defaultSelected` state because Foundry's DialogV2 may serialize and recreate its inputs.
+
+**Beta.5 draft status:** Shared plain/grouped selectors and generic number/range/color/checkbox controls now back the applicable World, Scene, Road, Checkpoint and Party Token settings; Generate Terrain Region uses the grouped World Travel Preset selector. The native Region cost/editor commands remain deliberately separate from reusable presentation factories. Automated regressions pass, but live GM/player Foundry v14 acceptance is still pending.
 
 | Order | Proposed milestone | Primary outcome | Release gate |
 | --- | --- | --- | --- |

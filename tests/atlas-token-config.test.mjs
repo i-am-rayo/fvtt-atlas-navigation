@@ -8,6 +8,7 @@ class ElementStub {
     this.textContent="";this.listeners=new Map();
   }
   append(...children){this.children.push(...children);}
+  setAttribute(name,value){this[name]=String(value);}
   addEventListener(name,callback){this.listeners.set(name,callback);}
   querySelector(selector){
     if(selector===".tab.active"||selector==="form")return null;

@@ -6,6 +6,7 @@ import { createCheckpointChoice,createCheckpointRange,createCheckpointMarkerSize
   from "./checkpoint-form-controls.js";
 import { appendSettingsField } from "./settings-layout.js";
 import { createCheckpointPresetSelect,createSettingsIconButton } from "./settings-controls.js";
+import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
 import { approveSettingsClose,trackSettingsChanges } from "./settings-close-guard.js";
 import { readAtlas } from "./atlas-storage.js";
 import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
@@ -20,7 +21,7 @@ import { checkpointKnowledge, checkpointRevealRadiusCells }
   from "./party-exploration-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
-import { CHECKPOINT_TYPES, CHECKPOINT_TYPE_GROUPS, checkpointCategory, saveCheckpointCategory } from "./checkpoint-types.js";
+import { CHECKPOINT_TYPE_GROUPS, checkpointCategory, saveCheckpointCategory } from "./checkpoint-types.js";
 import { CHECKPOINT_PRESET_SETTING, upsertCheckpointPreset } from "./checkpoint-preset-model.js";
 import { readWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { MODULE_ID } from "./atlas-storage.js";
@@ -103,29 +104,14 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     let fields = el("div");
     fields.style.cssText = "display:grid;gap:0.55rem;";
     const field = (title, control) => appendSettingsField(fields,title,control,{variant:"split"});
-    const select = (choices, value) => {
-      const box = el("select");
-      for (const [key, title] of choices) {
-        const option = el("option", title);
-        option.value = key;
-        box.appendChild(option);
-      }
-      box.value = value;
-      return box;
-    };
+    const select=(choices,value)=>createSettingsSelect(choices,{selectedId:value});
     const name = el("input");
     name.type = "text"; name.maxLength = 120; name.required = true; name.value = current.name;
     name.setAttribute("aria-label", "Checkpoint name");
     field("Checkpoint name", name);
-    const category=field("Checkpoint type",select(CHECKPOINT_TYPES,
-      this.createDraft?"generic":checkpointCategory(this.scene,this.checkpointId)));
-    category.replaceChildren();
-    for(const [heading,types] of CHECKPOINT_TYPE_GROUPS){
-      const group=el("optgroup");group.label=heading;
-      for(const [id,label] of types){const option=el("option",label);option.value=id;group.appendChild(option);}
-      category.appendChild(group);
-    }
-    category.value=this.createDraft?"generic":checkpointCategory(this.scene,this.checkpointId);
+    const category=field("Checkpoint type",createSettingsGroupedSelect(
+      CHECKPOINT_TYPE_GROUPS.map(([heading,types])=>({label:heading,options:types})),
+      {selectedId:this.createDraft?"generic":checkpointCategory(this.scene,this.checkpointId)}));
     category.title="Changing type suggests its World checkpoint preset. Changes are staged until Save.";
     const presetPicker=el("select");
     const saveAsPreset=createSettingsIconButton({icon:"floppy-disk",label:"Save as preset"});
