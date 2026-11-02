@@ -16,6 +16,26 @@ export function trackSettingsChanges(root, extra) {
   return () => editableSettingsSnapshot(root, extra) !== initial;
 }
 
+/** Read a staged control from its live editor, not a stale dialog result. */
+export function liveSettingsFieldValue(root, name, fallback = undefined) {
+  if (!/^[a-zA-Z][a-zA-Z0-9]*$/.test(name)) throw Error("Invalid settings field name.");
+  const control = root?.querySelector?.('[name="' + name + '"]');
+  return typeof control?.value === "string" ? control.value : fallback;
+}
+
+/** Guard the native Foundry window X even when its action bypasses close(). */
+export function interceptDialogHeaderClose(dialog, isDirty) {
+  const closeButton=dialog?.element?.querySelector?.('.window-header [data-action="close"]');
+  if(!closeButton)return false;
+  closeButton.addEventListener("click",event=>{
+    if(!isDirty())return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void dialog.close();
+  },true);
+  return true;
+}
+
 /** Closing the prompt itself is the same as continuing to edit. */
 export async function confirmUnsavedSettings(title = "Settings") {
   const choice = await foundry.applications.api.DialogV2.wait({

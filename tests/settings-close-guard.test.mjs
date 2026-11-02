@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { editableSettingsSnapshot,trackSettingsChanges,
-  approveSettingsClose,confirmUnsavedSettings } from "../scripts/settings-close-guard.js";
+  approveSettingsClose,confirmUnsavedSettings,liveSettingsFieldValue,
+  interceptDialogHeaderClose }
+  from "../scripts/settings-close-guard.js";
 
 test("settings dirty tracking captures typed, checked, selected and icon values",()=>{
   const state=[
@@ -23,6 +25,39 @@ test("settings dirty tracking captures typed, checked, selected and icon values"
   icon="archway";
   assert.equal(dirty(),true);
   assert.match(editableSettingsSnapshot(root),/Bridge/);
+});
+
+test("live road travel selection wins over absent or stale DialogV2 form results",()=>{
+  const select={name:"atlasRoadPresetId",type:"select-one",value:"land-gravel",dataset:{}};
+  const root={querySelectorAll:()=>[select],querySelector:selector=>
+    selector==='[name="atlasRoadPresetId"]'?select:null};
+  const dirty=trackSettingsChanges(root);
+  const nativeDialogResult={atlasRoadPresetId:""};
+  assert.equal(dirty(),false);
+  select.value="land-dirt";
+  assert.equal(dirty(),true,"the live select is tracked even when the dialog form is incomplete");
+  const selected=liveSettingsFieldValue(root,"atlasRoadPresetId",nativeDialogResult.atlasRoadPresetId);
+  assert.equal(selected,"land-dirt");
+  assert.equal(liveSettingsFieldValue(null,"atlasRoadPresetId","land-stone"),"land-stone");
+});
+
+test("Foundry's header X asks the Road editor before discarding live edits",async()=>{
+  let clicked,closeCount=0,prevented=false,stopped=false;
+  const button={addEventListener:(name,handler,capture)=>{
+    assert.equal(name,"click");assert.equal(capture,true);clicked=handler;
+  }};
+  const dialog={element:{querySelector:()=>button},close:async()=>{closeCount++;}};
+  let dirty=true;
+  assert.equal(interceptDialogHeaderClose(dialog,()=>dirty),true);
+  clicked({preventDefault:()=>{prevented=true;},stopImmediatePropagation:()=>{stopped=true;}});
+  assert.equal(closeCount,1);
+  assert.equal(prevented,true);
+  assert.equal(stopped,true);
+  dirty=false;prevented=false;stopped=false;
+  clicked({preventDefault:()=>{prevented=true;},stopImmediatePropagation:()=>{stopped=true;}});
+  assert.equal(closeCount,1,"clean windows retain Foundry's normal close action");
+  assert.equal(prevented,false);
+  assert.equal(stopped,false);
 });
 
 test("closing with edits offers Save, Discard and Continue in that order",async()=>{

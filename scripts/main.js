@@ -35,7 +35,8 @@ import { presetCostSummary } from "./travel-preset-model.js";
 import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
-import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges } from "./settings-close-guard.js";
+import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges,
+  liveSettingsFieldValue,interceptDialogHeaderClose } from "./settings-close-guard.js";
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
 import { registerWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance }
@@ -610,8 +611,14 @@ function actions() {
       let roadMayClose=false;
       let roadClosePending=false;
       let afterRoadSave=null;
+      let submittedRoadPresetId;
       const renderRoadDialog=(_event,dialog)=>{
         roadDialog=dialog;
+        const liveRoadForm=dialog.element?.querySelector?.('[data-atlas-road-live="'+roadDialogToken+'"]');
+        const captureTravelPreset=()=>{
+          submittedRoadPresetId=liveSettingsFieldValue(liveRoadForm,
+            "atlasRoadPresetId",submittedRoadPresetId);
+        };
         const bar=dialog.element?.querySelector?.("[data-atlas-road-actions]");
         const footer=dialog.form?.querySelector?.(".form-footer") ??
           dialog.element?.querySelector?.(".form-footer");
@@ -625,10 +632,13 @@ function actions() {
           bar.insertBefore(nativeSave,bar.querySelector('[data-atlas-road-tool="delete"]'));
           if(footer)footer.style.display="none";
           nativeSave.addEventListener("click",()=>{
+            captureTravelPreset();
             if(dialog.form?.checkValidity?.()!==false) roadMayClose=true;
           });
         }
-        roadDirty=trackSettingsChanges(dialog.form);
+        // DialogV2's form getter can be incomplete during its render callback.
+        // Track the actual live inputs inside Atlas's own content wrapper.
+        roadDirty=trackSettingsChanges(liveRoadForm??dialog.form??dialog.element);
         if(dialog._atlasCloseGuard)return;
         dialog._atlasCloseGuard=true;
         const baseClose=dialog.close.bind(dialog);
@@ -652,6 +662,9 @@ function actions() {
             return baseClose(options);
           }finally{roadClosePending=false;}
         };
+        // Catch the header X before Foundry handles its window action. This
+        // also covers v14 dialog paths which bypass a patched close method.
+        interceptDialogHeaderClose(dialog,()=>!roadMayClose&&roadDirty());
       };
       const onTabClick = event => {
         const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-checkpoint-delete],[data-atlas-region-edit],[data-atlas-region-regenerate],[data-atlas-region-delete]");
@@ -799,7 +812,7 @@ function actions() {
       if (!result) return;
       if (!Object.hasOwn(result,"atlasJournalUuid"))
         throw Error("Foundry did not return the Journal UUID field. No Road Settings were saved.");
-      const selectedPresetId=String(result.atlasRoadPresetId??"")||null;
+      const selectedPresetId=String(submittedRoadPresetId??result.atlasRoadPresetId??"")||null;
       if(selectedPresetId&&!readWorldTravelPresets().presets.some(p=>p.id===selectedPresetId))
         throw Error("This travel preset no longer exists. Reopen Road Settings.");
       const nextJournal=journalUuidFromForm(result.atlasJournalUuid);
