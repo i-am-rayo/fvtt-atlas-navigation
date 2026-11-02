@@ -20,9 +20,12 @@ export function guidedWorldTimeSeconds(travelHours){
 
 export function formatGuidedWorldTime(seconds){
   if(!Number.isSafeInteger(seconds)||seconds<0)throw Error("Invalid confirmed travel time.");
-  const hours=Math.floor(seconds/3600),minutes=Math.floor((seconds%3600)/60);
-  const remaining=seconds%60;
-  return `${hours}h ${minutes}m${hours||minutes?"":` ${remaining}s`}`;
+  // The route estimate rounds to whole minutes. Match that convention when
+  // presenting committed time, while the actual game.time.advance ledger keeps
+  // every confirmed second, including seconds past whole travel days.
+  if(seconds<60)return `0h 0m ${seconds}s`;
+  const roundedMinutes=Math.round(seconds/60);
+  return `${Math.floor(roundedMinutes/60)}h ${roundedMinutes%60}m`;
 }
 
 /**

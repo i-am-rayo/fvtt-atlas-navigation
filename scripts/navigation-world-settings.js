@@ -34,9 +34,9 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
     choices:{...NAVIGATION_RULES_PROFILES}
   });
   settings.register(MODULE_ID,NAVIGATION_WORLD_CLOCK_SETTING,{
-    name:"Atlas Guided Travel — Allow World Time Advancement",
-    hint:"Disabled by default. If enabled, the active GM can separately opt in for each guided journey " +
-      "to advance Foundry World time only after confirmed token movement. " +
+    name:"Atlas Guided Travel — Advance World Time",
+    hint:"Disabled by default. When enabled, Atlas automatically advances Foundry World time " +
+      "during each active-GM guided journey, only after confirmed token movement. " +
       "Travel hours do not include overnight rests; Atlas does not yet perform rest, " +
       "exhaustion, Actor, or currency changes.",
     scope:"world",config:true,type:Boolean,default:NAVIGATION_WORLD_CLOCK_DEFAULT

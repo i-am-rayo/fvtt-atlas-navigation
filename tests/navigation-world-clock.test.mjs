@@ -4,7 +4,7 @@ import { GuidedJourneyClock, guidedWorldTimeSeconds, formatGuidedWorldTime,
   readNavigationWorldClockSetting,NAVIGATION_WORLD_CLOCK_SETTING }
   from "../scripts/navigation-world-clock.js";
 
-test("World time is opt-in and never enabled by a missing or unrelated setting",()=>{
+test("World time is enabled only by the explicit global Module setting",()=>{
   assert.equal(readNavigationWorldClockSetting({get:()=>undefined}),false);
   assert.equal(readNavigationWorldClockSetting({get:()=>"true"}),false);
   assert.equal(readNavigationWorldClockSetting({get:()=>true}),true);
@@ -50,6 +50,8 @@ test("World time uses true hours, not display travel-days, and enforces bounds",
   assert.equal(guidedWorldTimeSeconds(16),57600);
   assert.equal(formatGuidedWorldTime(57600),"16h 0m");
   assert.equal(formatGuidedWorldTime(30),"0h 0m 30s");
+  assert.equal(formatGuidedWorldTime(62317),"17h 19m",
+    "the clock display uses the same nearest-minute rounding as travel estimates");
   assert.throws(()=>guidedWorldTimeSeconds(Infinity),/invalid/);
   assert.throws(()=>guidedWorldTimeSeconds(0),/invalid/);
   assert.throws(()=>guidedWorldTimeSeconds(24*366),/invalid/);

@@ -335,15 +335,15 @@ test("guided travel rejects missing GM permission and a stale route before nativ
   }finally{Object.assign(globalThis,previous);}
 });
 
-test("explicit active-GM opt-in advances Foundry time only for confirmed journey chunks",async()=>{
+test("World setting alone advances Foundry time only for confirmed active-GM journey chunks",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
     ui:globalThis.ui,document:globalThis.document};
   let nav;
   try{
     const seconds=[];
-    let failClock=false,moveCount=0;
+    let failClock=false,moveCount=0,worldEnabled=true;
     globalThis.game={user:{id:"gm-1",isGM:true},users:{activeGM:{id:"gm-1"}},
-      settings:{get:(_module,key)=>key==="guidedTravelAdvanceWorldTime"?true:
+      settings:{get:(_module,key)=>key==="guidedTravelAdvanceWorldTime"?worldEnabled:
         key==="guidedTravelSecondsPerHour"?2:5},
       time:{advance:async amount=>{
         if(failClock)throw Error("Clock is unavailable");
@@ -385,25 +385,25 @@ test("explicit active-GM opt-in advances Foundry time only for confirmed journey
 
     const find=(node,match)=>match(node)?node:
       node.children.map(child=>find(child,match)).find(Boolean);
-    nav.worldClockOptIn=true;
     const prepared=await nav._renderHTML();
     const optIn=find(prepared,node=>node.tag==="input"&&node.type==="checkbox");
-    assert.equal(optIn.checked,true);
-    assert.equal(optIn.disabled,false);
+    assert.equal(optIn,undefined,"Navigation has no per-journey clock checkbox");
+    assert.ok(find(prepared,node=>node.textContent?.startsWith?.(
+      "Foundry World time advances automatically")));
     assert.equal(await nav.startGuidedTravel(),true);
     assert.equal(seconds.reduce((a,b)=>a+b,0),14400,
       "four real travel hours advance exactly four World hours, not displayed days");
     assert.equal(nav.worldTimeAdvancedSeconds,14400);
-    assert.equal(nav.worldClockOptIn,false,"every new journey requires a new explicit opt-in");
     assert.equal(nav.travelProgress,100);
 
     token.x=50;token.y=50;
     const count=seconds.length;
+    worldEnabled=false;
     assert.equal(await nav.startGuidedTravel(),true);
-    assert.equal(seconds.length,count,"default journey does not touch Foundry time");
+    assert.equal(seconds.length,count,"disabled World setting prevents time writes");
 
     token.x=50;token.y=50;
-    nav.worldClockOptIn=true;
+    worldEnabled=true;
     game.users.activeGM={id:"another-gm"};
     await assert.rejects(nav.startGuidedTravel(),/active GM/);
     assert.equal(seconds.length,count);
@@ -411,7 +411,6 @@ test("explicit active-GM opt-in advances Foundry time only for confirmed journey
 
     // If the GM interrupts after one completed chunk, only that part is paid.
     autoResolve=false;
-    nav.worldClockOptIn=true;
     const interrupted=nav.startGuidedTravel();
     for(let i=0;i<5;i++)await Promise.resolve();
     nav.pauseGuidedTravel();
@@ -431,7 +430,6 @@ test("explicit active-GM opt-in advances Foundry time only for confirmed journey
     token.x=50;token.y=50;
     autoResolve=true;
     failClock=true;
-    nav.worldClockOptIn=true;
     const previousMoves=moveCount;
     assert.equal(await nav.startGuidedTravel(),false);
     assert.equal(moveCount,previousMoves+1,"time failure prevents further movement chunks");
@@ -443,12 +441,21 @@ test("explicit active-GM opt-in advances Foundry time only for confirmed journey
     failClock=false;
     misplaceNext=true;
     token.x=50;token.y=50;
-    nav.worldClockOptIn=true;
     const beforeMismatch=seconds.reduce((a,b)=>a+b,0);
     assert.equal(await nav.startGuidedTravel(),false);
     assert.equal(nav.worldTimeAdvancedSeconds,0);
     assert.equal(nav.travelProgress,0);
     assert.match(nav.travelNotice,/left the planned road path/);
     assert.equal(seconds.reduce((a,b)=>a+b,0),beforeMismatch);
+
+    // Eight-hour travel-day estimates must never be mistaken for 24-hour
+    // calendar days when the World clock advances only active movement time.
+    nav.resolveTravel=()=>({sceneUnit:"km",travel:{speed:6.38,hoursPerDay:8,
+      source:"party",actorName:"The Party",pace:"fast"}});
+    nav.result={...nav.result,cost:110.44,distance:93.85,terrainAware:true};
+    const durationPanel=await nav._renderHTML();
+    assert.ok(find(durationPanel,node=>node.tag==="strong"&&node.textContent==="17h 19m"));
+    const travelDays=find(durationPanel,node=>node.textContent?.startsWith?.("Travel-day estimate:"));
+    assert.match(travelDays.textContent,/2d 1h 19m.*8 travel hours\/day/);
   }finally{nav?.stop();Object.assign(globalThis,previous);}
 });

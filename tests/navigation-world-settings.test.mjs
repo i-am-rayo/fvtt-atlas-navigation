@@ -31,5 +31,6 @@ test("navigation World Settings register once in a reusable module with bounded 
   assert.equal(worldClock.scope,"world");
   assert.equal(worldClock.config,true);
   assert.equal(worldClock.type,Boolean);
-  assert.match(worldClock.hint,/active GM can separately opt in/);
+  assert.match(worldClock.hint,/automatically advances Foundry World time/);
+  assert.match(worldClock.hint,/confirmed token movement/);
 });

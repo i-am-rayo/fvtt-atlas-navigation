@@ -61,7 +61,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelNotice="";
     this.travelProgress=0;
     this.travelProgressUI=null;
-    this.worldClockOptIn=false;
     this.worldTimeAdvancedSeconds=0;
     this.worldTimeUI=null;
     this.pointerTarget = null;
@@ -100,7 +99,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.result=null;
     this.itinerary=null;
     this.travelProgress=0;
-    this.worldClockOptIn=false;
     this.worldTimeAdvancedSeconds=0;
     if(!this.start||!this.end)return;
     try{
@@ -300,15 +298,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const atlas=this.atlasProvider(this.scene);
     if(atlas.revision!==this.routeRevision)
       throw Error("The road network changed. Calculate a fresh route before traveling.");
-    const requestedWorldTime=this.worldClockOptIn;
     if(this.sourceMode==="party" && this.syncPartyDeparture(view,atlas)){
       // Re-read live token position before movement, never follow an outdated route.
       this.calculateRoute(view,atlas);
       this.draw();
       void this.render(true);
       if(this.result?.status!=="ok")throw Error("The party token's current position has no connected road route.");
-      if(requestedWorldTime)
-        throw Error("The token's departure changed. Review the new route and reselect World time advancement.");
     }
     const paths=navigationCanvasLegPaths(view,atlas,this.result);
     const waypoints=createGuidedTokenWaypoints(paths,token,this.scene.grid?.size);
@@ -321,10 +316,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       movementSpeed:playback.movementSpeed,gridSize:this.scene.grid.size
     });
     const totalDistance=chunks.reduce((sum,chunk)=>sum+chunk.distance,0);
-    const advanceWorldTime=this.worldClockOptIn;
+    const advanceWorldTime=readNavigationWorldClockSetting(game.settings);
     if(advanceWorldTime){
-      if(!readNavigationWorldClockSetting(game.settings))
-        throw Error("Enable Atlas World time in Module Settings before choosing time advancement.");
       if(game.users?.activeGM?.id!==game.user?.id||!game.user?.isGM)
         throw Error("Only Foundry's active GM can advance World time during an Atlas journey.");
       if(typeof game.time?.advance!=="function")
@@ -423,7 +416,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       session.resumeWaiter?.();
       if(this.travelSession===session){
         this.travelSession=null;
-        this.worldClockOptIn=false;
         if(this.active)void this.render(true);
       }
     }
@@ -470,7 +462,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.notice=reason;
     this.travelNotice="";
     this.travelProgress=0;
-    this.worldClockOptIn=false;
     this.worldTimeAdvancedSeconds=0;
     this.draw();
     if (this.active) void this.render(true);
@@ -520,7 +511,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelNotice="";
     this.travelProgress=0;
     this.travelProgressUI=null;
-    this.worldClockOptIn=false;
     this.worldTimeAdvancedSeconds=0;
     this.worldTimeUI=null;
   }
@@ -621,11 +611,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         card.append(small,big);summary.appendChild(card);
       };
       metric("Distance",`${this.result.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}`);
+      let travelDayLabel=null;
       try{
         const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
-        metric("Travel time",formatNavigationDuration(navigationHours(weighted,speed),travel.hoursPerDay??24));
+        const hours=navigationHours(weighted,speed);
+        metric("Travel time (moving)",formatGuidedWorldTime(Math.round(hours*3600)));
+        if(Number.isFinite(travel.hoursPerDay)&&travel.hoursPerDay>0&&travel.hoursPerDay<24){
+          const days=el("p",`Travel-day estimate: ${formatNavigationDuration(hours,travel.hoursPerDay)} `+
+            `(${travel.hoursPerDay} travel hours/day; overnight rests not included).`);
+          days.style.cssText="margin:0;font-size:.8em;opacity:.75;";
+          travelDayLabel=days;
+        }
       }catch(error){metric("Travel time","Unavailable");}
       body.appendChild(summary);
+      if(travelDayLabel)body.appendChild(travelDayLabel);
       if(this.travelSession||this.travelProgress>0){
         const progressWrap=el("div");
         progressWrap.style.cssText="display:flex;flex-direction:column;gap:.35rem;padding:.45rem 0;";
@@ -645,23 +644,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.travelProgressUI={bar:progressBar,label:progressLabel};
       }else this.travelProgressUI=null;
       const clockAllowed=readNavigationWorldClockSetting(game.settings);
-      const clockRow=el("label");
-      clockRow.style.cssText="display:flex;align-items:flex-start;gap:.6rem;font-size:.85em;";
-      const clockInput=el("input");
-      clockInput.type="checkbox";
-      clockInput.checked=this.worldClockOptIn||Boolean(this.travelSession?.clock);
-      clockInput.disabled=Boolean(this.travelSession)||!clockAllowed;
-      clockInput.title=clockAllowed?"Advance Foundry World time only for confirmed travel":"Enable in Atlas World Settings first";
-      clockInput.addEventListener("change",()=>{
-        if(!this.travelSession&&clockAllowed)this.worldClockOptIn=clockInput.checked;
-      });
-      const clockLabel=el("span","Advance Foundry World time during this journey");
-      clockRow.append(clockInput,clockLabel);
-      body.appendChild(clockRow);
       const clockHint=el("p",clockAllowed?
-        "GM opt-in: only confirmed travel hours advance the World clock. Overnight rests, exhaustion and Actor changes are not included yet.":
-        "World time stays unchanged. Enable Atlas Guided Travel World Time in Module Settings to allow a per-journey opt-in.");
-      clockHint.style.cssText="margin:-.5rem 0 0;font-size:.77em;opacity:.7;";
+        "Foundry World time advances automatically for confirmed movement. Overnight rests are not included. Change this in Module Settings.":
+        "Foundry World time stays unchanged. Enable it in Atlas Module Settings to advance time during guided travel.");
+      clockHint.style.cssText="margin:0;font-size:.77em;opacity:.7;";
       body.appendChild(clockHint);
       if(this.travelSession?.clock||this.worldTimeAdvancedSeconds>0){
         const clockStatus=el("p",`Foundry World time advanced: +${formatGuidedWorldTime(this.worldTimeAdvancedSeconds)} (travel only; no rests)`);
@@ -679,7 +665,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           secondsPerHour:readGuidedPlaybackSetting(game.settings)});
         const animationLabel=el("p",`Token playback: about ${formatPlaybackDuration(playback.durationSeconds)} `+
           `(${playback.secondsPerHour} real seconds per in-game travel hour). `+
-          "Visual speed only; the game clock does not advance yet.");
+          "Playback speed is visual only and does not change travel hours.");
         animationLabel.style.cssText="margin:0;font-size:.8em;opacity:.75;";
         body.appendChild(animationLabel);
       }catch{
@@ -729,7 +715,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const text=el("div");text.style.minWidth="0";
         const instruction=el("strong",step.instruction);instruction.style.display="block";
         const info=el("div",`${step.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit} · `+
-          `${formatNavigationDuration(navigationHours(this.result.terrainAware?step.cost:step.distance,speed),travel.hoursPerDay??24)}`);
+          `${formatGuidedWorldTime(Math.round(navigationHours(this.result.terrainAware?step.cost:step.distance,speed)*3600))}`);
         info.style.cssText="opacity:.75;font-size:.85em;margin-top:.3rem;";
         const surface=el("div",[step.terrain === "Unspecified terrain" ? null : step.terrain,
           step.regionName && step.regionName!==step.terrain?step.regionName:null]
