@@ -36,6 +36,7 @@ import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
 import { createRoadPresetStage } from "./road-settings-preset.js";
+import { arrangeRoadDialogFooter } from "./road-settings-dialog-footer.js";
 import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges,
   interceptDialogHeaderClose } from "./settings-close-guard.js";
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
@@ -615,23 +616,20 @@ function actions() {
       let roadMayClose=false;
       let roadClosePending=false;
       let afterRoadSave=null;
+      let roadSaveRequested=false;
       const renderRoadDialog=(_event,dialog)=>{
         roadDialog=dialog;
         const liveRoadForm=dialog.element?.querySelector?.('[data-atlas-road-live="'+roadDialogToken+'"]');
-        const bar=dialog.element?.querySelector?.("[data-atlas-road-actions]");
-        const footer=dialog.form?.querySelector?.(".form-footer") ??
-          dialog.element?.querySelector?.(".form-footer");
-        const nativeSave=footer?.querySelector?.("button") ??
-          dialog.form?.querySelector?.('button[data-action="ok"]');
-        if(bar&&nativeSave){
+        const nativeSave=arrangeRoadDialogFooter(dialog);
+        if(nativeSave){
           roadSaveButton=nativeSave;
           nativeSave.title="Save road";
           nativeSave.setAttribute("aria-label","Save road");
           nativeSave.style.cssText="width:2.5rem;min-width:2.5rem;height:2.5rem;flex:0 0 2.5rem;";
-          bar.insertBefore(nativeSave,bar.querySelector('[data-atlas-road-tool="delete"]'));
-          if(footer)footer.style.display="none";
           nativeSave.addEventListener("click",()=>{
-            if(dialog.form?.checkValidity?.()!==false) roadMayClose=true;
+            if(dialog.form?.checkValidity?.()===false)return;
+            roadSaveRequested=true;
+            roadMayClose=true;
           });
         }
         // DialogV2's form getter can be incomplete during its render callback.
@@ -811,7 +809,11 @@ function actions() {
         document.removeEventListener("dragover",onRegionDragOver,true);
         document.removeEventListener("drop",onRegionDrop,true);
       }
-      if (!result) return;
+      if (!result) {
+        if(roadSaveRequested)
+          ui.notifications.error("Road Settings did not submit. No road changes were saved.");
+        return;
+      }
       if (!Object.hasOwn(result,"atlasJournalUuid"))
         throw Error("Foundry did not return the Journal UUID field. No Road Settings were saved.");
       const selectedPresetId=stagedRoadPreset.value;
