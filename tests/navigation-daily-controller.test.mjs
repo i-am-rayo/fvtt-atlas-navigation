@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNavigationItinerary } from "../scripts/navigation-itinerary.js";
+import { formatJourneyJournalHTML } from "../scripts/navigation-journey-journal.js";
 
 const priorFoundry=globalThis.foundry;
 globalThis.foundry={applications:{api:{ApplicationV2:class {
@@ -23,13 +24,20 @@ async function journeyFixture({clockEnabled=true,hours=10}={}){
     ui:globalThis.ui,document:globalThis.document};
   const calls=[];
   const journalStates=[];
+  const clock={worldTime:30*86400+9*3600,
+    calendar:{format(seconds){
+      const day=Math.floor(seconds/86400)+1;
+      const hour=Math.floor(seconds%86400/3600);
+      return `Day ${day}, ${String(hour).padStart(2,"0")}:00`;
+    }},
+    async advance(seconds){calls.push(seconds);this.worldTime+=seconds;}};
   globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}},
     system:{id:"dnd5e"},settings:{get:(_module,key)=>({
       guidedTravelAdvanceWorldTime:clockEnabled,
       guidedTravelRulesProfile:"dnd5e2014",
       guidedTravelSecondsPerHour:2,
       overlandSpeed:1
-    })[key]},time:{advance:async seconds=>{calls.push(seconds);}}};
+    })[key]},time:clock};
   globalThis.window={innerWidth:1400,innerHeight:900};
   globalThis.PIXI=undefined;
   globalThis.ui={notifications:{error(message){throw Error(message);},warn(message){throw Error(message);}}};
@@ -157,7 +165,7 @@ test("a rest-triggered canvas rebuild waits for its World-time and Journal check
       Boolean(f.nav.travelSession.restWaiter));
     const oldAdvance=game.time.advance;
     game.time.advance=async seconds=>{
-      await oldAdvance(seconds);
+      await oldAdvance.call(game.time,seconds);
       if(seconds===8*3600)f.nav.tearDown("canvasTearDown");
     };
     assert.equal(f.nav.chooseDailyTravelBreak("long"),true);
@@ -193,5 +201,30 @@ test("native movement Journal writes are batched, but rest boundaries and arriva
     assert.ok(f.journalStates.length<f.token.moves.length,
       "do not issue a flag/page write for every short native movement segment");
     assert.equal(f.journalStates.at(-1).status,"completed");
+    assert.equal(f.journalStates.at(-1).startedWorldTime,
+      f.journalStates.at(-1).arrivedWorldTime,
+      "the disabled World clock must not invent elapsed calendar time");
+    assert.match(formatJourneyJournalHTML(f.journalStates.at(-1)),/World clock unchanged/);
+  }finally{f.restore();}
+});
+
+test("Journey logs snapshot campaign departure, both rest times, and confirmed arrival",async()=>{
+  const f=await journeyFixture({hours:10});
+  try{
+    const running=f.nav.startGuidedTravel();
+    await tickUntil(()=>f.nav.travelSession?.phase==="rest-choice"&&
+      Boolean(f.nav.travelSession.restWaiter));
+    assert.equal(f.nav.chooseDailyTravelBreak("long"),true);
+    assert.equal(await running,true);
+    const record=f.journalStates.at(-1);
+    assert.equal(record.startedTimeLabel,"Day 31, 09:00");
+    assert.equal(record.arrivedTimeLabel,"Day 32, 03:00");
+    const rest=record.legs[0].events.find(event=>event.action==="long");
+    assert.equal(rest.startedTimeLabel,"Day 31, 17:00");
+    assert.equal(rest.endedTimeLabel,"Day 32, 01:00");
+    const html=formatJourneyJournalHTML(record);
+    assert.match(html,/Departed \(World time\):<\/strong> Day 31, 09:00/);
+    assert.match(html,/Arrived \(World time\):<\/strong> Day 32, 03:00/);
+    assert.match(html,/World time: Day 31, 17:00 to Day 32, 01:00/);
   }finally{f.restore();}
 });

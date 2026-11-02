@@ -108,14 +108,24 @@ export class GuidedTravelDayTracker {
   }
 
   /** Apply only after any requested World-clock update succeeds. */
-  applyBreak(choice){
+  applyBreak(choice,{startedWorldTime=null,endedWorldTime=null,
+    startedTimeLabel=null,endedTimeLabel=null}={}){
     const expected=this.breakChoice(choice.action);
     if(expected.hours!==choice.hours||expected.resetsDay!==choice.resetsDay)
       throw Error("The selected travel break changed before confirmation.");
     if(this.events.length>=MAX_GUIDED_TRAVEL_EVENTS)
       throw Error("The journey has too many travel decisions. Plan a shorter route.");
+    if([startedWorldTime,endedWorldTime].some(value=>value!==null&&
+        !Number.isFinite(value))||
+        [startedTimeLabel,endedTimeLabel].some(value=>value!==null&&
+          (typeof value!=="string"||value.length>100)))
+      throw Error("Invalid World-time snapshot for this travel decision.");
     this.events.push(Object.freeze({action:choice.action,atHours:this.completedHours,
-      todayHours:this.todayHours,hours:choice.hours}));
+      todayHours:this.todayHours,hours:choice.hours,
+      ...(startedWorldTime!==null?{startedWorldTime}:{}),
+      ...(endedWorldTime!==null?{endedWorldTime}:{}),
+      ...(startedTimeLabel?{startedTimeLabel}:{}),
+      ...(endedTimeLabel?{endedTimeLabel}:{})}));
     if(choice.action==="continue"){
       this.permittedExtraUntil=Math.min(24,this.todayHours+1);
       return;

@@ -140,6 +140,7 @@ test("navigation locks the completed route until deliberate endpoint gestures or
             points:[{...start},{...end}],distance,cost:distance}]};
       }});
     nav.activate();
+    assert.equal(nav.sourceMode,"map","Scenes without an assigned explorer keep map-point mode");
     assert.equal(listeners.has("pointerdown"),true);
     const first=pointer(10,20);listeners.get("pointerdown")(first);
     assert.deepEqual(nav.start,point(10,20));assert.equal(nav.end,null);
@@ -239,8 +240,7 @@ test("party departure chooses B with one click, tracks live token center, and pr
           legs:[{kind:"road",roadId:"road-a",segmentId:"s",points:[start,end],distance,cost:distance}]};
       }});
     nav.activate();
-    nav.setSourceMode("party");
-    assert.equal(nav.sourceMode,"party");
+    assert.equal(nav.sourceMode,"party","assigned Atlas explorer is the default on open");
     assert.deepEqual(nav.start,point(100,75));
     const destination=pointer(500,300);nav.onPointerDown(destination);
     assert.deepEqual(nav.end,point(300,200));

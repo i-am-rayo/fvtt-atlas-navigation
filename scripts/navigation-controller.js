@@ -27,6 +27,7 @@ import { REGION_ROUTING_ORDER_FLAG } from "./navigation-terrain.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { resolveNavigationTravelSpeed } from "./navigation-party-speed.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
+import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
 import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   validateJourneyRecord,eligibleJourneyRecord,findRecoverableJourney,saveJourneyJournal,
   JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
@@ -101,6 +102,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     this.stop();
     this.scene = view.scene;
+    // Favor the manually assigned Atlas party explorer when it can actually
+    // provide a valid Scene-to-Atlas origin. Otherwise retain map-point mode.
+    try{
+      if(this.getPartyToken()){
+        this.syncPartyDeparture(view,this.atlasProvider(this.scene));
+        this.sourceMode="party";
+      }
+    }catch{this.sourceMode="map";this.start=null;}
     atlasDebug("lifecycle","Navigation opened",{sceneId:this.scene.id});
     this.findRecoverableJournal();
     this.bindPointer();
@@ -321,11 +330,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   async saveJourneyCheckpoint(session,status,{updatePage=true}={}){
     if(!session?.journal||!session.journeyRecord)return;
+    const arrival=status==="completed"?journeyWorldStamp(game.time):null;
     const saved=checkpointJourneyRecord(session.journeyRecord,{
       schedule:session.schedule,status,
       progress:Math.max(0,Math.min(100,100*session.completedDistance/session.totalDistance)),
       worldTravelSeconds:session.clock?.advancedSeconds??0,
-      worldRestSeconds:session.clock?.restSeconds??0
+      worldRestSeconds:session.clock?.restSeconds??0,
+      arrivedWorldTime:arrival?.seconds??null,
+      arrivedTimeLabel:arrival?.label??null
     });
     session.journeyRecord=saved;
     // Scene redraws may interrupt an in-flight write. Serialize the final
@@ -432,17 +444,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     session.restWaiter=null;
     if(session.phase==="ending"||this.travelSession!==session||!action)return false;
     const choice=session.schedule.breakChoice(action);
+    // A break's start must be measured after any pending confirmed movement
+    // time is credited, but before the GM-approved downtime advances time.
+    await this.commitGuidedWorldTime(session,{force:true});
+    const restStart=journeyWorldStamp(game.time);
     if(choice.hours>0){
-      // Settle any remaining travel seconds before an independently confirmed
-      // calendar break, preserving ledger order across Foundry time hooks.
-      await this.commitGuidedWorldTime(session,{force:true});
       if(session.clock)await session.clock.commitBreak(Math.round(choice.hours*3600));
       atlasDebug("clock","GM-confirmed rest recorded",{
         sceneId:session.sceneId,action,hours:choice.hours,
         worldTimeAdvanced:Boolean(session.clock)
       });
     }
-    session.schedule.applyBreak(choice);
+    const restEnd=journeyWorldStamp(game.time);
+    session.schedule.applyBreak(choice,{
+      startedWorldTime:restStart.seconds,endedWorldTime:restEnd.seconds,
+      startedTimeLabel:restStart.label,endedTimeLabel:restEnd.label});
     if(session.clock)this.setWorldTimeAdvanced(
       session.clock.advancedSeconds,session.clock.restSeconds);
     await this.saveJourneyCheckpoint(session,session.phase==="ending"?
@@ -534,10 +550,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.journalStarting=true;
     try{
       const recovered=this.recoveryRecord;
+      const departureStamp=recovered?null:journeyWorldStamp(game.time);
       const record=recovered?
         resumeJourneyRecord(recovered,{itinerary:this.itinerary,atlasRevision:atlas.revision}):
         createJourneyRecord({sceneId:this.scene.id,tokenId:token.id,
-          atlasRevision:atlas.revision,itinerary:this.itinerary});
+          atlasRevision:atlas.revision,itinerary:this.itinerary,
+          startedWorldTime:departureStamp?.seconds??null,
+          startedTimeLabel:departureStamp?.label??null,
+          title:navigationJourneyTitle({atlas,
+            departure:this.itinerary.endpoints.departure,
+            destination:this.itinerary.endpoints.destination,
+            dateLabel:departureStamp?.label??null,time:game.time})});
       if(recovered){
         schedule.todayHours=recovered.day.todayHours;
         schedule.permittedExtraUntil=recovered.day.permittedExtraUntil;
@@ -796,6 +819,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.recoveryRecord=null;
     this.recoverableJourney=null;
     this.journeyJournal=null;
+    if(this.sourceMode==="party"&&this.scene){
+      try{this.syncPartyDeparture(this.canvasProvider(),this.atlasProvider(this.scene));}
+      catch{this.start=null;}
+    }
     this.draw();
     if (this.active) void this.render(true);
   }

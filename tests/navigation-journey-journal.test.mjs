@@ -128,3 +128,21 @@ test("Atlas Journey Journals share a native Journal folder and reuse its stable 
     assert.equal(created.length,1);
   }finally{globalThis.game=before;}
 });
+
+test("a new Journey keeps its trip-start title across recovery and checkpoints",async()=>{
+  const title="14 Marpenoth 1492 — Dirwest to Millstone";
+  const record=createJourneyRecord({sceneId:"scene",tokenId:"token",atlasRevision:12,
+    itinerary:itinerary(),title});
+  const changed=checkpointJourneyRecord(record,{schedule,progress:45,status:"interrupted"});
+  const continued=resumeJourneyRecord(changed,{itinerary:itinerary(),atlasRevision:12});
+  assert.equal(continued.title,title);
+  assert.match(formatJourneyJournalHTML(continued),/14 Marpenoth 1492 — Dirwest to Millstone — In progress/);
+  const previous=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    let name;
+    await saveJourneyJournal(record,{folderProvider:async()=>({id:"log-folder"}),
+      create:async data=>{name=data.name;return {id:"new-journal"};}});
+    assert.equal(name,title);
+  }finally{globalThis.game=previous;}
+});

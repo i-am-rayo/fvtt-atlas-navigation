@@ -43,7 +43,9 @@ export function journeyLegFromItinerary(itinerary){
   };
 }
 
-export function createJourneyRecord({sceneId,tokenId,atlasRevision,itinerary,now=new Date().toISOString()}={}){
+export function createJourneyRecord({sceneId,tokenId,atlasRevision,itinerary,
+  title=null,startedWorldTime=null,startedTimeLabel=null,
+  now=new Date().toISOString()}={}){
   if(!sceneId||!tokenId||!Number.isSafeInteger(atlasRevision))
     throw Error("Journey recovery requires a Scene, assigned token, and Atlas revision.");
   const leg=journeyLegFromItinerary(itinerary);
@@ -51,6 +53,9 @@ export function createJourneyRecord({sceneId,tokenId,atlasRevision,itinerary,now
     schemaVersion:JOURNEY_JOURNAL_SCHEMA,status:"moving",
     sceneId:String(sceneId),tokenId:String(tokenId),atlasRevision,
     destination:point(leg.destination),createdAt:now,updatedAt:now,
+    ...(title?{title:String(title).trim()}:{}),
+    ...(Number.isFinite(startedWorldTime)?{startedWorldTime}:{}),
+    ...(startedTimeLabel?{startedTimeLabel:String(startedTimeLabel)}:{}),
     legs:[leg],day:{todayHours:0,permittedExtraUntil:0,restEvents:0,lastForcedCheck:null}
   };
 }
@@ -60,6 +65,13 @@ export function validateJourneyRecord(value){
   if(!value||value.schemaVersion!==JOURNEY_JOURNAL_SCHEMA||
       !STATUSES.has(value.status)||!value.sceneId||!value.tokenId||
       !Number.isSafeInteger(value.atlasRevision)||!validPoint(value.destination)||
+      (value.title!==undefined&&(typeof value.title!=="string"||
+        !value.title.trim()||value.title.length>240))||
+      ["startedWorldTime","arrivedWorldTime"].some(key=>
+        value[key]!==undefined&&!Number.isFinite(value[key]))||
+      ["startedTimeLabel","arrivedTimeLabel"].some(key=>
+        value[key]!==undefined&&(typeof value[key]!=="string"||
+          !value[key].trim()||value[key].length>100))||
       !Array.isArray(value.legs)||!value.legs.length||value.legs.length>24||
       value.legs.some(leg=>!validPoint(leg.departure)||!validPoint(leg.destination)||
         !Number.isFinite(leg.movingHours)||leg.movingHours<=0||
@@ -69,6 +81,12 @@ export function validateJourneyRecord(value){
         leg.completedMovingHours>leg.movingHours+1e-4||
         !Number.isFinite(leg.completedPercent)||leg.completedPercent<0||leg.completedPercent>100||
         !Array.isArray(leg.events)||leg.events.length>2048||
+        leg.events.some(event=>!event||typeof event!=="object"||
+          ["startedWorldTime","endedWorldTime"].some(key=>
+            event[key]!==undefined&&!Number.isFinite(event[key]))||
+          ["startedTimeLabel","endedTimeLabel"].some(key=>
+            event[key]!==undefined&&(typeof event[key]!=="string"||
+              event[key].length>100)))||
         !Array.isArray(leg.directions)||leg.directions.length>4096)||
       !Number.isFinite(value.day?.todayHours)||value.day.todayHours<0||
       value.day.todayHours>24||
@@ -81,7 +99,8 @@ export function validateJourneyRecord(value){
 }
 
 export function checkpointJourneyRecord(record,{schedule,progress,status,
-  worldTravelSeconds=0,worldRestSeconds=0,now=new Date().toISOString()}={}){
+  worldTravelSeconds=0,worldRestSeconds=0,
+  arrivedWorldTime=null,arrivedTimeLabel=null,now=new Date().toISOString()}={}){
   const next=validateJourneyRecord(record);
   if(!STATUSES.has(status)||!Number.isFinite(progress)||progress<0||progress>100||
       !schedule||!Number.isFinite(schedule.completedHours)||
@@ -98,6 +117,10 @@ export function checkpointJourneyRecord(record,{schedule,progress,status,
     restEvents:schedule.restEvents,
     lastForcedCheck:structuredClone(schedule.lastForcedCheck)};
   next.status=status;next.updatedAt=now;
+  if(status==="completed"){
+    if(Number.isFinite(arrivedWorldTime))next.arrivedWorldTime=arrivedWorldTime;
+    if(arrivedTimeLabel)next.arrivedTimeLabel=String(arrivedTimeLabel);
+  }
   return validateJourneyRecord(next);
 }
 
@@ -138,7 +161,12 @@ export function formatJourneyJournalHTML(raw){
       (step.todayHours!==null?
         ` (${escapeHTML(formatNavigationDuration(step.todayHours,24))} traveled today)`:
         "")+
-      (step.hours?` (+${escapeHTML(formatNavigationDuration(step.hours,24))})`:"")+"</li>":
+      (step.hours?` (+${escapeHTML(formatNavigationDuration(step.hours,24))})`:"")+
+      (step.startedTimeLabel?` — World time: ${escapeHTML(step.startedTimeLabel)}`:"")+
+      (step.endedTimeLabel&&step.endedTimeLabel!==step.startedTimeLabel?
+        ` to ${escapeHTML(step.endedTimeLabel)}`:
+        (step.hours&&step.endedTimeLabel===step.startedTimeLabel?
+          " (World clock unchanged)":""))+"</li>":
       `<li>${escapeHTML(step.instruction)} — ${escapeHTML(Number(step.distance).toFixed(2))} `+
       `${escapeHTML(leg.units)}</li>`).join("");
     return `<section><h2>Leg ${index+1}: ${escapeHTML(leg.sceneName)}</h2>`+
@@ -151,9 +179,13 @@ export function formatJourneyJournalHTML(raw){
       `Only confirmed travel and approved stops appear below.</p>`+
       `<ol>${rows}</ol>`+"</section>";
   }).join("");
-  return `<h1>Atlas Journey — ${escapeHTML(title)}</h1>`+
+  return `<h1>${escapeHTML(record.title??"Atlas Journey")} — ${escapeHTML(title)}</h1>`+
     `<p>Atlas automatically maintains this summary. Add personal notes as a separate Journal page.</p>`+
     `<p><strong>Last updated:</strong> ${escapeHTML(record.updatedAt)}</p>`+
+    (record.startedTimeLabel?`<p><strong>Departed (World time):</strong> `+
+      `${escapeHTML(record.startedTimeLabel)}</p>`:"")+
+    (record.arrivedTimeLabel?`<p><strong>Arrived (World time):</strong> `+
+      `${escapeHTML(record.arrivedTimeLabel)}</p>`:"")+
     `<h2>Journey Overview</h2>`+
     `<p>Confirmed moving: ${escapeHTML(formatNavigationDuration(confirmedMoving,24))}; `+
       `confirmed downtime: ${escapeHTML(formatNavigationDuration(confirmedBreaks,24))}; `+
@@ -212,7 +244,7 @@ export async function saveJourneyJournal(record,{journal=null,create=null,
     const page={name:JOURNEY_JOURNAL_PAGE,type:"text",text:{
       format:globalThis.CONST?.JOURNAL_ENTRY_PAGE_FORMATS?.HTML??1,content:html
     }};
-    const data={name:`Atlas Journey — ${state.legs[0].sceneName}`,
+    const data={name:state.title??`Atlas Journey — ${state.legs[0].sceneName}`,
       folder:folder.id,
       ownership:{default:globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.NONE??0},
       pages:[page],flags:{[MODULE_ID]:{[JOURNEY_JOURNAL_FLAG]:state}}};

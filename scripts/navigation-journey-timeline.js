@@ -43,7 +43,9 @@ export function annotateJourneyDirections(steps,events,{travelHours,speed,terrai
     result.push({kind:"journey-event",action:event.action,
       label:journeyBreakLabel(event.action),hours:event.hours,
       atHours:event.atHours,todayHours:Number.isFinite(event.todayHours)?
-        event.todayHours:null});
+        event.todayHours:null,
+      startedTimeLabel:typeof event.startedTimeLabel==="string"?event.startedTimeLabel:null,
+      endedTimeLabel:typeof event.endedTimeLabel==="string"?event.endedTimeLabel:null});
   };
   for(const step of steps){
     const hours=duration(step);
