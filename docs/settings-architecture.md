@@ -15,7 +15,7 @@ Atlas settings are split into three layers:
 | `createTravelPresetSelect` | Road creation, Road/Region preset assignment, World checkpoint preset terrain | `travelPresetDisplayGroup`, World travel presets |
 | `createCheckpointIconPicker` | Checkpoint Settings, World checkpoint preset editor | `checkpoint-appearance` icon catalog |
 | `createCheckpointPresetSelect` | Checkpoint creation and editing | Full World checkpoint preset catalog, grouped by checkpoint type |
-| `createSettingsActionButton` | World checkpoint preset management (and future compact settings rows) | Accessible label + Font Awesome action icon |
+| `createSettingsIconButton` / `createSettingsActionButton` | World checkpoint presets, Road Settings, Checkpoint Settings and Scene Atlas road/checkpoint/Region actions | Shared icon-only controls, accessible labels, hover tooltips and red destructive actions; delegated handlers preserve existing GM confirmations |
 | `createCheckpointIconGlyph` | Shared icon picker and World preset list | Same bundled Atlas Font Awesome font faces |
 | `checkpoint-field-definitions` | Checkpoint Settings and World preset editor | Canonical marker, label, discovery choices and Region radius constraints |
 | `checkpoint-form-controls` | Checkpoint Settings, World preset editor and Scene Region generator | Identical elevation sliders with optional numeric input, marker-size sliders, colors, checkboxes, discovery selects, reveal-radius inputs and bounded Region width/radius sliders |
@@ -26,6 +26,8 @@ The travel selector preserves stable IDs while grouping Land, Water body and Air
 Built-in checkpoint presets provide category-appropriate Font Awesome glyphs and colors as defaults. The normalized World catalog only fills these into the original built-in templates when appearance is unset; user-customized appearances and custom preset templates are preserved. This is a presentation/defaults evolution, not a new Scene schema.
 
 Checkpoint preset **identity** is persisted separately in Scene metadata (`checkpointPresetAssignments`). This is not inferred from checkpoint category, appearance or matching values: several distinct presets may use the same category, and changing a checkpoint's appearance must not silently select another preset.
+
+Icon-only actions preserve native save/delete dispatch. The Road Settings DialogV2 save control uses the public v14 `icon` and `tooltip` button options. Checkpoint Settings uses the same shared icon control; its Delete action delegates to the existing checkpoint-and-dependent-Region confirmation flow and is unavailable while creating a checkpoint. Scene Atlas icon actions retain explicit tooltips for keyboard and hover discovery.
 
 ## Intended next migrations
 

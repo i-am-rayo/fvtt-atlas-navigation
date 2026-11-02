@@ -5,7 +5,7 @@ import { createCheckpointChoice,createCheckpointRange,createCheckpointMarkerSize
   createCheckpointColor,createCheckpointCheckbox,createCheckpointElevation }
   from "./checkpoint-form-controls.js";
 import { appendSettingsField } from "./settings-layout.js";
-import { createCheckpointPresetSelect } from "./settings-controls.js";
+import { createCheckpointPresetSelect,createSettingsIconButton } from "./settings-controls.js";
 import { readAtlas } from "./atlas-storage.js";
 import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
   validJournalUuid } from "./atlas-journal-links.js";
@@ -45,7 +45,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     position: { width: 630, height: 540 }
   };
 
-  constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null, onTerrainAction = null }) {
+  constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null, onTerrainAction = null, onDelete = null }) {
     super({ position: {
       width: Math.min(630, Math.max(360, window.innerWidth - 60)),
       height: Math.min(710, Math.max(440, window.innerHeight - 70))
@@ -57,6 +57,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     this.createDraft = createDraft;
     this.onCreate = onCreate;
     this.onTerrainAction = onTerrainAction;
+    this.onDelete = onDelete;
     this.activePage = "General";
     this.createResolved = false;
   }
@@ -350,9 +351,21 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     reset.addEventListener("click", () => void saveValue(null));
     const cancel = el("button", "Cancel");
     cancel.type = "button"; cancel.addEventListener("click", () => this.close());
-    const save = el("button", "Save Checkpoint Settings");
+    const save = this.createDraft ? el("button", "Create Checkpoint") :
+      createSettingsIconButton({icon:"floppy-disk",label:"Save Checkpoint Settings"});
     save.type = "button";
-    if (this.createDraft) { save.textContent = "Create Checkpoint"; reset.hidden = true; }
+    if (this.createDraft) reset.hidden = true;
+    const remove = !this.createDraft && this.onDelete ?
+      createSettingsIconButton({icon:"trash",label:"Delete checkpoint",danger:true}):null;
+    remove?.addEventListener("click",async()=>{
+      if(remove.disabled)return;
+      remove.disabled=true;
+      try{
+        const deleted=await this.onDelete();
+        if(deleted===true)await this.close();
+      }catch(error){ui.notifications.error(error.message??String(error));}
+      finally{remove.disabled=false;}
+    });
     const saveAsPreset=el("button","Save as Preset");saveAsPreset.type="button";
     saveAsPreset.addEventListener("click",async()=>{
       try{
@@ -476,7 +489,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       }
     };
     save.addEventListener("click", () => void saveValue(undefined));
-    controls.append(saveAsPreset,reset,cancel,save);
+    controls.append(saveAsPreset,reset);
+    if(remove)controls.appendChild(remove);
+    controls.append(cancel,save);
     root.appendChild(controls);
     return root;
   }

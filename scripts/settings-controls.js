@@ -64,16 +64,24 @@ export function createCheckpointPresetSelect(presets,{selectedId=null,
   return select;
 }
 
-/** Consistent accessible icon-only action for compact settings rows. */
-export function createSettingsActionButton({icon,label,onClick,danger=false}){
-  if(!/^[a-z-]+$/.test(icon)||!label?.trim()||typeof onClick!=="function")
+/** Accessible glyph-only control; can be wired by a delegated editor handler. */
+export function createSettingsIconButton({icon,label,onClick=null,danger=false}){
+  if(!/^[a-z-]+$/.test(icon)||!label?.trim()||
+      (onClick!==null&&typeof onClick!=="function"))
     throw Error("Invalid Atlas settings action.");
   const button=node("button");button.type="button";
   button.title=label;button.setAttribute("aria-label",label);
-  button.style.cssText="min-width:2.1rem;min-height:2.1rem;display:grid;place-items:center;";
+  button.style.cssText="flex:0 0 2.5rem;width:2.5rem;min-width:2.5rem;"+
+    "min-height:2.25rem;display:inline-grid;place-items:center;";
   if(danger)button.style.color="var(--color-level-error, #d56859)";
   const glyph=node("i");glyph.className="fa-solid fa-"+icon;
   glyph.setAttribute("aria-hidden","true");button.appendChild(glyph);
-  button.addEventListener("click",onClick);
+  if(onClick)button.addEventListener("click",onClick);
   return button;
+}
+
+/** Consistent, directly-handled settings actions. */
+export function createSettingsActionButton({icon,label,onClick,danger=false}){
+  if(typeof onClick!=="function")throw Error("Invalid Atlas settings action.");
+  return createSettingsIconButton({icon,label,onClick,danger});
 }

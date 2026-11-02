@@ -300,7 +300,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     elevation.value = "640";
     playerVisible.checked = true;
     const save = all(root).find(node => node.tag === "button" &&
-      node.textContent === "Save Checkpoint Settings");
+      node.title === "Save Checkpoint Settings");
     assert.ok(save);
     save.listeners.get("click")();
     await new Promise(resolve => setImmediate(resolve));

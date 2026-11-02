@@ -13,6 +13,7 @@ import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { checkpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
 import { createCheckpointRegionWidth } from "./checkpoint-form-controls.js";
 import { appendSettingsField } from "./settings-layout.js";
+import { createSettingsActionButton } from "./settings-controls.js";
 import { presetCostSummary } from "./travel-preset-model.js";
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
@@ -107,6 +108,14 @@ function button(text, title, onClick) {
     catch (error) { ui.notifications.error(error.message); }
   });
   return element;
+}
+
+function iconAction(icon,title,onClick,{danger=false}={}){
+  return createSettingsActionButton({icon,label:title,danger,onClick:async event=>{
+    event.preventDefault();event.stopPropagation?.();
+    try{await onClick();}
+    catch(error){ui.notifications.error(error.message??String(error));}
+  }});
 }
 
 function format(value) {
@@ -257,28 +266,28 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       panel.appendChild(node("legend", name));
       const controls = node("div");
       controls.style.cssText = "display:flex;flex-wrap:wrap;gap:.35rem;";
-      for (const [caption, title, action] of items)
-        controls.appendChild(button(caption,title,action));
+      for (const [caption, title, action, icon, danger] of items)
+        controls.appendChild(icon ? iconAction(icon,title,action,{danger}) : button(caption,title,action));
       panel.appendChild(controls);
       body.appendChild(panel);
       return panel;
     }
     const roadActions = [
-      ["Settings", "Road name, style and journal", () => actions.editRoadAppearance(scene,road,refresh)],
+      ["Settings", "Road name, style and journal", () => actions.editRoadAppearance(scene,road,refresh),"gear"],
       [road.playerVisible === true ? "Hide" : "Show", "Toggle player visibility",
-        () => actions.toggleRoadPlayerVisibility(scene,road,refresh)],
-      ["Find on map", "Highlight road", () => actions.select(scene,road.id)],
-      ["Edit path", "Move road points", () => actions.beginPointEdit(scene,road.id,refresh)],
-      ["Add connection", "Connect roads on the map", () => actions.beginJunction(scene,refresh)],
-      ["Add checkpoint", "Place a checkpoint on this road", () => actions.beginCheckpoint(scene,refresh)]
+        () => actions.toggleRoadPlayerVisibility(scene,road,refresh),road.playerVisible?"eye-slash":"eye"],
+      ["Find on map", "Highlight road", () => actions.select(scene,road.id),"location-dot"],
+      ["Edit path", "Move road points", () => actions.beginPointEdit(scene,road.id,refresh),"pen-to-square"],
+      ["Add connection", "Connect roads on the map", () => actions.beginJunction(scene,refresh),"link"],
+      ["Add checkpoint", "Place a checkpoint on this road", () => actions.beginCheckpoint(scene,refresh),"map-pin"]
     ];
     if (getRoadMergeCandidates(atlas,road.id).length)
-      roadActions.push(["Merge", "Merge connected roads", () => actions.merge(scene,road,refresh)]);
+      roadActions.push(["Merge", "Merge connected roads", () => actions.merge(scene,road,refresh),"code-merge"]);
     const preset = presetById.get(road.travelPresetId);
     roadActions.push(["Travel preset: " + (preset?.name ?? "None"),
-      "Road travel preset", () => actions.assignRoadTravelPreset(scene,road,refresh)]);
+      "Road travel preset: "+(preset?.name??"None"), () => actions.assignRoadTravelPreset(scene,road,refresh),"route"]);
     roadActions.push(["Delete road", "Delete this road (confirmation required)",
-      () => actions.remove(scene,road,refresh)]);
+      () => actions.remove(scene,road,refresh),"trash",true]);
     group("Road", roadActions);
     const folder = (title) => {
       const details = node("details");
@@ -300,24 +309,24 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     const miniActions = (parent,items) => {
       const row = node("div");
       row.style.cssText = "display:flex;flex-wrap:wrap;gap:.3rem;padding:.25rem .4rem;";
-      for (const [caption,title,action] of items) {
-        const control=button(caption,title,action);
-        control.style.cssText="flex:0 0 auto;width:auto;min-width:max-content;white-space:nowrap;";
+      for (const [caption,title,action,icon,danger] of items) {
+        const control=icon?iconAction(icon,title,action,{danger}):button(caption,title,action);
+        if(!icon)control.style.cssText="flex:0 0 auto;width:auto;min-width:max-content;white-space:nowrap;";
         row.appendChild(control);
       }
       parent.appendChild(row);
     };
     const checkpoints = (atlas.checkpoints ?? []).filter(item => item.roadId === road.id);
     const checkpointFolder = folder("Checkpoints (" + checkpoints.length + ")");
-    miniActions(checkpointFolder,[["＋ Add checkpoint","Place checkpoint",()=>actions.beginCheckpoint(scene,refresh)]]);
+    miniActions(checkpointFolder,[["＋ Add checkpoint","Place checkpoint",()=>actions.beginCheckpoint(scene,refresh),"plus"]]);
     for (const checkpoint of checkpoints) {
       const child=node("details");
       child.style.cssText="margin:.2rem .4rem;padding:.2rem .4rem;";
       child.appendChild(node("summary",checkpoint.name || "Checkpoint"));
       miniActions(child,[
-        ["Settings","All checkpoint settings",()=>actions.editCheckpointAppearance(scene,checkpoint,refresh)],
-        ["Find on map","Center checkpoint",()=>actions.selectCheckpoint(scene,checkpoint.id)],
-        ["Delete","Delete checkpoint",()=>actions.removeCheckpoint(scene,checkpoint,refresh)]
+        ["Settings","All checkpoint settings",()=>actions.editCheckpointAppearance(scene,checkpoint,refresh),"gear"],
+        ["Find on map","Center checkpoint",()=>actions.selectCheckpoint(scene,checkpoint.id),"location-dot"],
+        ["Delete","Delete checkpoint",()=>actions.removeCheckpoint(scene,checkpoint,refresh),"trash",true]
       ]);
       checkpointFolder.appendChild(child);
     }
@@ -325,7 +334,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     const regionFolder=folder("Terrain Regions (" + generated.length + ")");
     regionFolder.dataset.atlasRegionFolder = road.id;
     miniActions(regionFolder,[["＋ Generate Region","Create native Region along this road",
-      () => openAtlasRegionGenerator(scene,road.id,actions,refresh)]]);
+      () => openAtlasRegionGenerator(scene,road.id,actions,refresh),"plus"]]);
     for (const region of generated) {
       const child=node("details");
       child.style.cssText="margin:.2rem .4rem;padding:.2rem .4rem;";
@@ -339,10 +348,10 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
         else expandedDetails.delete(key);
       });
       miniActions(child,[
-        ["Region settings","Open native Region configuration",()=>actions.configureRegion(scene,region.id)],
+        ["Region settings","Open native Region configuration",()=>actions.configureRegion(scene,region.id),"gear"],
         ["Travel preset" + (presetById.get(region.presetId)?.name ? ": " + presetById.get(region.presetId).name : ": None"),
-          "Change Region travel preset",()=>actions.assignGeneratedRegionTravelPreset(scene,region,refresh)],
-        ["Regenerate","Rebuild region after changes",()=>actions.regenerateRegion(scene,region,refresh)]
+          "Change Region travel preset",()=>actions.assignGeneratedRegionTravelPreset(scene,region,refresh),"route"],
+        ["Regenerate","Rebuild region after changes",()=>actions.regenerateRegion(scene,region,refresh),"rotate"]
       ]);
       regionFolder.appendChild(child);
     }

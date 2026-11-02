@@ -236,11 +236,12 @@ test("v3 named roads render once and expanded road tools target the selected roa
     primary.open = true;
     primary.listeners.get("toggle")();
     const controls = buttons(primary);
-    for (const label of ["Settings", "Edit path", "Add connection", "Merge", "Delete road"])
-      assert.ok(controls.some(b => b.textContent === label), label + " is available when expanded");
-    await controls.find(b => b.textContent === "Edit path").listeners.get("click")({ preventDefault() {} });
-    await controls.find(b => b.textContent === "Merge").listeners.get("click")({ preventDefault() {} });
-    await controls.find(b => b.textContent === "Add connection").listeners.get("click")({ preventDefault() {} });
+    for (const title of ["Road name, style and journal", "Move road points", "Connect roads on the map",
+      "Merge connected roads", "Delete this road (confirmation required)"])
+      assert.ok(controls.some(b => b.title === title), title + " is available when expanded");
+    await controls.find(b => b.title === "Move road points").listeners.get("click")({ preventDefault() {} });
+    await controls.find(b => b.title === "Merge connected roads").listeners.get("click")({ preventDefault() {} });
+    await controls.find(b => b.title === "Connect roads on the map").listeners.get("click")({ preventDefault() {} });
     assert.deepEqual([editedId, mergedId], ["old", "old"]);
     assert.equal(connectionScene, scene);
     assert.equal(rows().length, 2, "opening tools does not duplicate road entries");
@@ -441,9 +442,9 @@ test("native Region creation is offered from a road without legacy inline cost c
    const road=visit(mounted,e=>e.attributes?.get("data-atlas-road-id")==="bridge");
     assert.ok(road,"the configured road is listed");
     road.open=true;road.listeners.get("toggle")();
-    assert.ok(visit(road,e=>e.tag==="button"&&e.textContent==="Settings"),
+   assert.ok(visit(road,e=>e.tag==="button"&&e.title==="Road name, style and journal"),
       "current road settings remain available");
-    assert.ok(visit(road,e=>e.tag==="button"&&e.textContent==="＋ Generate Region"),
+   assert.ok(visit(road,e=>e.tag==="button"&&e.title==="Create native Region along this road"),
       "native Region generation is reached from the road, not an embedded Scene form");
     assert.doesNotMatch(textContents(mounted),/perMode is not defined/);
   } finally {
@@ -517,9 +518,9 @@ test("native Region generation stays separate from Atlas line styling",async()=>
     const road=visit(mounted,e=>e.attributes?.get("data-atlas-road-id")==="bridge");
     assert.ok(road);
     road.open=true;road.listeners.get("toggle")();
-    assert.ok(visit(road,e=>e.tag==="button"&&e.textContent==="Settings"),
+    assert.ok(visit(road,e=>e.tag==="button"&&e.title==="Road name, style and journal"),
       "Atlas line appearance is edited through Road Settings");
-    assert.ok(visit(road,e=>e.tag==="button"&&e.textContent==="＋ Generate Region"),
+    assert.ok(visit(road,e=>e.tag==="button"&&e.title==="Create native Region along this road"),
       "native Region generation remains a per-road action");
     assert.doesNotMatch(textContents(mounted),/REGION SETTINGS/,
       "the native-cost form is no longer embedded in Scene Atlas");

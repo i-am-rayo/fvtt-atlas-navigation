@@ -34,7 +34,7 @@ import { availableMovementActions, readPreset, previewNativeMovementCost }
 import { presetCostSummary } from "./travel-preset-model.js";
 import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
-import { createTravelPresetSelect } from "./settings-controls.js";
+import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
 import { registerWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance }
@@ -469,20 +469,22 @@ function actions() {
         panels[key].dataset.atlasRoadPanel=key;
         panels[key].hidden=key!=="general";
       }
-      panels.general.append(nameRow,visibilityRow,journalControls);
-      const roadTools=document.createElement("fieldset");
-      const toolsLegend=document.createElement("legend");toolsLegend.textContent="Road tools";
-      roadTools.appendChild(toolsLegend);
-      roadTools.style.cssText="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.6rem;min-width:0;";
+      const roadTools=document.createElement("div");
+      roadTools.style.cssText="display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;min-width:0;margin:.45rem 0;";
       const assignedPreset=readWorldTravelPresets().presets.find(p=>p.id===actual.travelPresetId);
-      for (const [title,kind] of [["Edit path","edit"],["Add connection","connection"],
-        ["Travel preset: "+(assignedPreset?.name??"None"),"travel"],["Delete road","delete"]]) {
-        const btn=document.createElement("button");btn.type="button";
-        btn.textContent=title;btn.dataset.atlasRoadTool=kind;
-        btn.style.cssText="flex:0 0 auto;width:auto;min-width:0;";
+      for (const [title,kind,icon] of [["Edit path","edit","pen-to-square"],
+        ["Add connection","connection","link"],
+        ["Travel preset: "+(assignedPreset?.name??"None"),"travel",null],
+        ["Delete road","delete","trash"]]) {
+        const btn=icon?createSettingsIconButton({icon,label:title,danger:kind==="delete"}):
+          document.createElement("button");
+        if(!icon){btn.type="button";btn.textContent=title;
+          btn.title="Choose road travel preset";btn.setAttribute("aria-label",title);
+          btn.style.cssText="flex:0 1 auto;width:auto;min-width:0;";}
+        btn.dataset.atlasRoadTool=kind;
         roadTools.appendChild(btn);
       }
-      panels.general.appendChild(roadTools);
+      panels.general.append(nameRow,visibilityRow,roadTools,journalControls);
       panels.style.appendChild(roadAppearanceForm(baseline));
       const addCheckpoint=document.createElement("button");addCheckpoint.type="button";
       addCheckpoint.textContent="+ Add checkpoint";addCheckpoint.dataset.atlasRoadTool="newCheckpoint";
@@ -519,14 +521,10 @@ function actions() {
           name.style.cssText="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;";
           const controls=document.createElement("div");
           controls.style.cssText="display:flex;gap:.3rem;flex:0 0 auto;";
-          const btn=document.createElement("button");btn.type="button";
-          btn.textContent="⚙";btn.dataset.atlasCheckpointEdit=checkpoint.id;
-          btn.title="Checkpoint settings";btn.setAttribute("aria-label","Checkpoint settings");
-          const remove=document.createElement("button");remove.type="button";
-          remove.textContent="×";remove.dataset.atlasCheckpointDelete=checkpoint.id;
-          remove.title="Delete checkpoint";remove.setAttribute("aria-label","Delete checkpoint");
-          for(const action of [btn,remove])
-            action.style.cssText="flex:0 0 2.5rem;width:2.5rem;min-width:2.5rem;";
+          const btn=createSettingsIconButton({icon:"gear",label:"Checkpoint settings"});
+          btn.dataset.atlasCheckpointEdit=checkpoint.id;
+          const remove=createSettingsIconButton({icon:"trash",label:"Delete checkpoint",danger:true});
+          remove.dataset.atlasCheckpointDelete=checkpoint.id;
           controls.append(btn,remove);row.append(name,controls);checkpointTarget.appendChild(row);
         }
         const regions=new Map();
@@ -547,31 +545,23 @@ function actions() {
           row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;min-width:0;";
           const label=document.createElement("span");label.textContent=regionName;
           label.style.cssText="flex:1 1 0;min-width:0;overflow-wrap:anywhere;";
-          const btn=document.createElement("button");btn.type="button";
-          btn.textContent="⚙";btn.dataset.atlasRegionEdit=id;
-          btn.title="Region settings";btn.setAttribute("aria-label","Region settings");
-          btn.style.cssText="flex:0 0 2.5rem;width:2.5rem;min-width:2.5rem;";
+          const btn=createSettingsIconButton({icon:"gear",label:"Region settings"});
+          btn.dataset.atlasRegionEdit=id;
           const managed=listGeneratedRegions(scene).find(entry=>entry.id===id);
           const buttons=document.createElement("div");
           buttons.style.cssText="display:flex;flex:0 0 auto;flex-wrap:nowrap;gap:.3rem;align-items:center;";
           buttons.appendChild(btn);
           if(managed?.metadata){
-            const regenerate=document.createElement("button");
-            regenerate.type="button";regenerate.textContent="↻";
+            const regenerate=createSettingsIconButton({icon:"rotate",label:"Regenerate Region"});
             regenerate.dataset.atlasRegionRegenerate=id;
-            regenerate.setAttribute("aria-label","Regenerate Region");
-            regenerate.style.cssText="flex:0 0 2.5rem;width:2.5rem;min-width:2.5rem;";
             regenerate.disabled=!!managed.modified;
             regenerate.title=managed.modified?
               "Native Region geometry was edited; regeneration is blocked.":
               "Preview then confirm regeneration; preserves existing Region Behaviors and appearance.";
             buttons.appendChild(regenerate);
-            const remove=document.createElement("button");
-            remove.type="button";remove.textContent="×";
+            const remove=createSettingsIconButton({icon:"trash",label:"Delete Region",danger:true});
             remove.dataset.atlasRegionDelete=id;
-            remove.setAttribute("aria-label","Delete Region");
             remove.title="Delete this native Region after confirmation";
-            remove.style.cssText="flex:0 0 2.5rem;width:2.5rem;min-width:2.5rem;";
             buttons.appendChild(remove);
             const handle=document.createElement("span");
             handle.textContent="☰";handle.title="Drag to reorder routing priority (top wins)";
@@ -743,7 +733,7 @@ function actions() {
         result = await DialogV2.input({
           window: { title: "Road Settings — " + actual.name, resizable: true },
           position: { width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(740, Math.max(440, window.innerHeight - 70)) },
-          content, ok: { label: "Save Road Settings" },
+          content, ok: {label:"",icon:"fa-solid fa-floppy-disk",tooltip:"Save Road Settings"},
           rejectClose: false, modal: false
         });
       } finally {
@@ -1111,6 +1101,7 @@ function actions() {
       new AtlasCheckpointAppearanceEditor({
         scene, checkpointId: checkpoint.id, expectedRevision: atlas.revision,
         onSaved: () => { roadCanvas.refresh(); refresh(); },
+        onDelete:()=>actions().deleteCheckpointWithDependents(scene,checkpoint.id,refresh),
         onTerrainAction:async (action,regionId)=>{
           if(action==="clearPreview")return roadCanvas.clearRegionPreview();
           const api=actions();

@@ -83,3 +83,20 @@ test("preset list glyph uses the same bundled font configuration as the icon bro
     assert.equal(anchor.attributes.get("aria-hidden"),"true");
   }finally{globalThis.document=previous;}
 });
+
+test("shared icon actions display tooltip, accessible title and red destructive state",async()=>{
+  const previous=globalThis.document;
+  try{
+    globalThis.document={createElement:tag=>new FakeElement(tag)};
+    const {createSettingsIconButton}=await import("../scripts/settings-controls.js");
+    const deleteButton=createSettingsIconButton({icon:"trash",label:"Delete checkpoint",danger:true});
+    assert.equal(deleteButton.title,"Delete checkpoint");
+    assert.equal(deleteButton.attributes.get("aria-label"),"Delete checkpoint");
+    assert.match(deleteButton.style.color,/color-level-error/);
+    assert.equal(deleteButton.children[0].className,"fa-solid fa-trash");
+    assert.equal(deleteButton.listeners.has("click"),false,
+      "delegated handlers own checkpoint deletion and its confirmation");
+    const save=createSettingsIconButton({icon:"floppy-disk",label:"Save checkpoint"});
+    assert.equal(save.children[0].className,"fa-solid fa-floppy-disk");
+  }finally{globalThis.document=previous;}
+});
