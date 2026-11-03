@@ -154,5 +154,12 @@ test("checkpoint offers expose edit/delete actions and shared coin-aware slider 
     assert.ok(fields.some(el=>el.type==="range"),"numeric fields have sliders");
     assert.ok(fields.some(el=>el.textContent==="Available for purchase"));
     assert.ok(fields.some(el=>el.textContent==="Purchase price"));
+    const amount=fields.find(el=>el.name==="hireCostCpAmount");
+    const denom=fields.find(el=>el.name==="hireCostCpDenom");
+    assert.equal(denom.value,"gp");
+    assert.equal(Number(amount.value),60);
+    denom.value="sp";denom.listeners.get("change")();
+    assert.equal(Number(amount.value),600,"changing denominations converts the same fare");
+    assert.equal(editor.getOffers().find(el=>el.methodId==="sailing").overrides.hireCostCp,6000);
   }finally{Object.assign(globalThis,before);}
 });

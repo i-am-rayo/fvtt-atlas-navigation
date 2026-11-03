@@ -62,7 +62,21 @@ export function createTransportPriceSlider(name,copper,{
       try{onChange?.(copperFromCoin(n,select.value));}catch{/* Validate at Save. */}
     }
   };
-  select.addEventListener("change",emit);
+  // Changing the displayed denomination is a conversion, not a new quote.
+  // Preserve the underlying copper value across PP/GP/EP/SP/CP switches.
+  let priorCoin=coin;
+  select.addEventListener("change",()=>{
+    if(!amount)return;
+    if(amount.value===""&&allowNull){priorCoin=select.value;emit();return;}
+    const originalCp=copperFromCoin(Number(amount.value||0),priorCoin);
+    const converted=coinFromCopper(originalCp,select.value);
+    amount.value=String(converted);
+    const range=numeric.querySelector?.('[data-atlas-range-for="'+name+'Amount"]')??
+      numeric.children?.[0];
+    if(range)range.value=String(Math.max(Number(range.min),Math.min(Number(range.max),converted)));
+    priorCoin=select.value;
+    emit();
+  });
   coins.append(numeric,select);
   const hint=el("small","PP · GP · EP · SP · CP");hint.style.opacity=".66";
   wrap.append(coins,hint);
