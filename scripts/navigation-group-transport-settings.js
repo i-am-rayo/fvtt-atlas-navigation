@@ -121,8 +121,8 @@ export class AtlasGroupTransportationSettings extends base {
     if(!group||group.type!=="group")
       throw new Error("The Group Actor is no longer available.");
     const assignments=readGroupTransportation(game.settings);
-    const roster=projectGroupTransportation(group,assignments);
     const methods=listTransportationPresets(game.settings,game.system.id);
+    const roster=projectGroupTransportation(group,assignments,methods);
     const methodSnapshot=JSON.stringify(methods);
     const lookup=new Map(methods.map(method=>[method.id,method]));
     const root=node("section");
@@ -294,7 +294,7 @@ export class AtlasGroupTransportationSettings extends base {
       const currentGroup=game.actors?.get?.(this.groupId);
       if(!currentGroup||currentGroup.type!=="group")
         throw new Error("The Group Actor is no longer available.");
-      const currentRoster=projectGroupTransportation(currentGroup,assignments);
+      const currentRoster=projectGroupTransportation(currentGroup,assignments,methods);
       if(JSON.stringify(currentRoster.members.map(m=>m.actorId))!==
           JSON.stringify(roster.members.map(m=>m.actorId)))
         throw new Error("Group membership changed. Reopen the editor.");
