@@ -86,7 +86,7 @@ test("legacy v1 Group assignments are normalized without writing or losing quant
   const changes=[];
   const settings={get:()=>old,set:(...args)=>changes.push(args)};
   const migrated=readGroupTransportation(settings);
-  assert.equal(migrated.version,2);
+  assert.equal(migrated.version,3);
   assert.equal(migrated.groups.group1.members.camel1.quantity,3);
   assert.equal(migrated.groups.group1.members.camel1.profileId,null);
   assert.deepEqual(changes,[],"read must not persist migration");
@@ -108,4 +108,35 @@ test("v2 profile IDs are validated and remain optional for unassigned NPCs",()=>
     .groups.group1.members.camel1.profileId,null);
   assert.throws(()=>setGroupTransportationMember(defaultGroupTransportation(),"group1","camel1",
     {...good,profileId:"../../bad"}),/Invalid/);
+});
+
+test("legacy v2 Group settings upgrade in memory and preserve stable profiles",()=>{
+  const previous={version:2,groups:{group1:{members:{
+    camel1:{role:"mount",quantity:2,capacity:1,surface:"land",profileId:"camel"}
+  }}}};
+  const migrated=validateGroupTransportation(previous);
+  assert.equal(migrated.version,3);
+  assert.equal(migrated.groups.group1.members.camel1.profileId,"camel");
+  assert.equal(migrated.groups.group1.members.camel1.speedMphOverride,null);
+  assert.equal(previous.version,2,"migrating is read-only");
+});
+
+test("Group-only speed overrides are validated and use slowest matching mount",()=>{
+  const original={id:"camel",name:"Camel",surface:"land",speedMph:3};
+  let saved=defaultGroupTransportation();
+  saved=setGroupTransportationMember(saved,"group1","camel1",
+    {role:"mount",quantity:2,capacity:1,surface:"land",profileId:"camel",speedMphOverride:3.8});
+  saved=setGroupTransportationMember(saved,"group1","camel2",
+    {role:"mount",quantity:1,capacity:1,surface:"land",profileId:"camel",speedMphOverride:2.6});
+  const roster=projectGroupTransportation(group([pc,camel,camel2]),saved);
+  const matching=groupMethodCapacityStatus(roster,original);
+  assert.equal(matching.seats,3);
+  assert.equal(matching.effectiveSpeedMph,2.6);
+  assert.equal(original.speedMph,3,"World profile remains untouched");
+  const one=projectGroupTransportation(group([pc,camel]),saved);
+  assert.equal(groupMethodCapacityStatus(one,original).effectiveSpeedMph,3.8);
+  for(const bad of [-1,0,601,Number.NaN,Infinity,"3.5"])
+    assert.throws(()=>setGroupTransportationMember(saved,"group1","camel1",
+      {role:"mount",quantity:1,capacity:1,surface:"land",profileId:"camel",
+        speedMphOverride:bad}),/Invalid/i);
 });
