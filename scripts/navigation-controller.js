@@ -28,6 +28,8 @@ import { readPartyExploration } from "./party-exploration-storage.js";
 import { resolveNavigationTravelSpeed,convertGroupSpeed } from "./navigation-party-speed.js";
 import { availableNavigationTravelMethods,resolveNavigationMethodTravel,
   assessNavigationMethodRoute } from "./navigation-travel-method.js";
+import { projectTransportationRouteLegs,transportationLegSelection,
+  describeTransportationLeg } from "./navigation-transport-transitions.js";
 import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
   from "./navigation-measure-units.js";
 import { readGroupTransportation,projectGroupTransportation,
@@ -83,6 +85,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
     this.transportJourneyOverrides=null;
+    this.transferSelections={};
     this.start = null;
     this.end = null;
     this.result = null;
@@ -128,6 +131,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
     this.transportJourneyOverrides=null;
+    this.transferSelections={};
     // Favor the manually assigned Atlas party explorer when it can actually
     // provide a valid Scene-to-Atlas origin. Otherwise retain map-point mode.
     try{
@@ -156,6 +160,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** Use one route calculation for both map-point and live party departures. */
   calculateRoute(view,atlas) {
     this.routeRevision=atlas.revision;
+    this.transferSelections={};
     this.result=null;
     this.itinerary=null;
     this.travelProgress=0;
@@ -270,6 +275,121 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       {...baseline,...this.transportJourneyOverrides}:baseline;
   }
 
+  /**
+   * Read-only multi-surface journey plan. Authored road surfaces and checkpoint
+   * offers are authoritative; assignments are transient Navigation choices.
+   * No implicit purchase, hiring, boarding, Actor write or guided movement.
+   */
+  transportationTransitionPlan(){
+    if(this.result?.status!=="ok"||!this.scene)return null;
+    const atlas=this.atlasProvider(this.scene);
+    const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
+    const projected=projectTransportationRouteLegs(this.result,atlas,presets.presets);
+    const catalog=availableNavigationTravelMethods(game.settings,game.system?.id);
+    const actor=this.getPartyToken()?.actor;
+    let roster=null;
+    if(game.system?.id==="dnd5e"&&actor?.type==="group")
+      roster=projectGroupTransportation(actor,readGroupTransportation(game.settings),catalog);
+    const owned=new Set(catalog.filter(method=>method.id!=="walking"&&roster&&
+      groupMethodCapacityStatus(roster,method).matched>0).map(method=>method.id));
+    const sceneUnit=this.scene?.grid?.units?.trim()||"";
+    const configured=Number(game.settings.get(MODULE_ID,NAVIGATION_SPEED_SETTING)
+      ??DEFAULT_NAVIGATION_SPEED);
+    let walking;
+    try{
+      walking=resolveNavigationTravelSpeed({token:this.getPartyToken(),
+        sceneUnits:sceneUnit,systemId:game.system?.id,worldSpeed:configured});
+    }catch{
+      walking=resolveNavigationTravelSpeed({token:null,sceneUnits:sceneUnit,
+        systemId:null,worldSpeed:DEFAULT_NAVIGATION_SPEED});
+    }
+    let totalHours=0,totalElapsedHours=0,totalCp=0,complete=true;
+    const legs=projected.legs.map((leg,index)=>{
+      const errors=[];
+      const offers=offersAtOrigin(atlas,this.scene,leg.start);
+      const options=[...(leg.surface==="land"?[{
+        value:"owned|walking",label:"Walking (party pace)",method:catalog.find(m=>m.id==="walking"),
+        arrangement:"owned"
+      }]:[])];
+      for(const method of catalog.filter(m=>m.id!=="walking"&&m.surface===leg.surface)){
+        if(owned.has(method.id))options.push({
+          value:"owned|"+method.id,label:method.name+" (party-owned)",
+          arrangement:"owned",method
+        });
+        const offer=offers.find(item=>item.methodId===method.id);
+        if(offer){
+          try{
+            const offered=checkpointOfferMethod(offer,method);
+            if(offered.hireEnabled)options.push({
+              value:"hire|"+method.id,label:method.name+" · "+offer.checkpointName,
+              arrangement:"hire",method:offered,offer
+            });
+          }catch(error){atlasWarn("navigation","Invalid transfer checkpoint offer",error);}
+        }
+      }
+      let selected=null;
+      try{selected=transportationLegSelection(leg,this.transferSelections[index]);}
+      catch(error){errors.push(error.message);}
+      const option=selected&&options.find(item=>
+        item.value===selected.arrangement+"|"+selected.methodId);
+      if(index>0&&!projected.legs[index-1].transferValid)
+        errors.push("A surface change requires an authored checkpoint at the connecting road node.");
+      if(!option)errors.push(leg.surface==="land"?
+        "Choose an available method for this route leg.":
+        "Select an available "+leg.surface+" method at the departure checkpoint.");
+      let hours=null,costCp=null;
+      if(option){
+        let speed=null;
+        if(option.method?.id==="walking")speed=walking.speed;
+        else if(option.arrangement==="owned"&&roster){
+          const capacity=groupMethodCapacityStatus(roster,option.method);
+          if(!capacity.sufficient)errors.push("Not enough party-owned seats for this leg.");
+          const mph=capacity.effectiveSpeedMph??option.method.speedMph;
+          speed=convertGroupSpeed(mph,"mph",sceneUnit);
+        }else speed=convertGroupSpeed(option.method.speedMph,"mph",sceneUnit);
+        if(!Number.isFinite(speed)||speed<=0)
+          errors.push("This method needs compatible Scene distance units and a valid speed.");
+        else{
+          const weighted=option.method?.id==="walking"?
+            leg.weightedDistance:leg.distance;
+          hours=navigationHours(weighted,speed);
+          if(option.method?.id==="walking")costCp=0;
+          else{
+            try{
+              const distanceMi=convertGroupSpeed(leg.distance,sceneUnit,"mi");
+              if(!Number.isFinite(distanceMi))
+                throw Error("Transport pricing requires a Scene in miles or kilometers.");
+              const ownedQuote=option.arrangement==="owned"&&roster?
+                groupMethodFareEstimate(roster,option.method,{
+                  hours,distanceMi,dayHours:8}):null;
+              const quote=quoteTransportationService(option.method,{
+                arrangement:option.arrangement,operation:"normal",
+                movingHours:hours,distanceMi,travelers:roster?.travelers??1,
+                ownedQuote,regularHours:8});
+              costCp=quote.totalCp;
+            }catch(error){errors.push(error.message??String(error));}
+          }
+        }
+      }
+      if(errors.length)complete=false;
+      if(!errors.length){
+        totalHours+=hours??0;
+        const days=hours>0?Math.ceil(Math.max(0,hours-1e-7)/8):0;
+        totalElapsedHours+=(hours??0)+Math.max(0,days-1)*16;
+        totalCp+=costCp??0;
+      }
+      return {...leg,options,selectedValue:option?.value??"",
+        methodName:option?.method?.name??null,
+        narration:describeTransportationLeg(leg,option?{
+          name:option.method.name,kind:option.method.kind,
+          surface:leg.surface,arrangement:option.arrangement
+        }:{}),errors,hours,costCp};
+    });
+    return {...projected,legs,complete,totalHours:complete?totalHours:null,
+      totalElapsedHours:complete?totalElapsedHours:null,
+      totalCp:complete?totalCp:null};
+  }
+
   /** One shared preset editor, with changes scoped to the current Journey. */
   async editJourneyTravelMethod(){
     if(!globalThis.game?.user?.isGM||this.travelSession||this.journalStarting)
@@ -344,6 +464,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   assessTravelMethod(){
+    // A global method cannot silently traverse several road surfaces.
+    // Beta.6 validates each transfer independently; beta.7 owns movement.
+    if(this.result?.status==="ok"){
+      try{
+        const atlas=this.atlasProvider(this.scene);
+        const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
+        const projection=projectTransportationRouteLegs(this.result,atlas,presets.presets);
+        if(projection.hasTransitions||this.travelMethod==="walking"&&
+            projection.legs.some(leg=>leg.surface!=="land"))
+          return {compatible:false,guided:false,
+            reason:"This route crosses different travel surfaces. Use the transportation leg planner below; guided transfers are reserved for beta.7."};
+      }catch(error){return {compatible:false,guided:false,
+        reason:"Road surface verification failed: "+(error.message??String(error))};}
+    }
     if(this.travelMethod==="walking")return {compatible:true,guided:true,reason:null};
     try{
       const atlas=this.atlasProvider(this.scene);
@@ -679,6 +813,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   /** Execute the already-previewed curve through Foundry's native movement pipeline. */
   async startGuidedTravel(){
+    if(!this.assessTravelMethod().guided)
+      throw Error("Guided travel is not available for mixed-surface journeys. Plan each checkpoint transfer first; token movement arrives in beta.7.");
     if(this.travelMethod!=="walking")
       throw Error("Guided mounted/sailing journeys require checkpoint transfers in a later v0.3.8 beta. Select Walking to travel now.");
     const view=this.canvasProvider();
@@ -1433,7 +1569,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       `${travel.actorName} · ${travel.pace} pace · ${showSpeed(speed)}` :
       `Atlas default · ${showSpeed(speed)}`;
     const methodAssessment=this.assessTravelMethod();
-    if(this.travelMethod!=="walking"){
+    let transferPlan=null;
+    if(this.result?.status==="ok"){
+      try{transferPlan=this.transportationTransitionPlan();}
+      catch(error){atlasWarn("navigation","Transportation leg planning unavailable",error);}
+    }
+    if(this.travelMethod!=="walking"||transferPlan?.hasTransitions){
       const advisory=el("p",methodAssessment.reason??"Transport planning only.");
       advisory.style.cssText="margin:0;padding:.5rem;border:1px solid #b18b54;border-radius:6px;font-size:.83em;";
       body.appendChild(advisory);
@@ -1572,6 +1713,71 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       "After choosing A and B, ordinary map clicks leave the route unchanged. Shift+click sets Point A; Alt/Option+click sets Point B.");
     help.style.cssText="margin:0;font-size:.8em;opacity:.75;line-height:1.35;";
     body.appendChild(help);
+    if(transferPlan?.hasTransitions){
+      const section=el("section");
+      section.style.cssText="display:grid;gap:.6rem;border:1px solid var(--color-border-light-tertiary,#777);border-radius:8px;padding:.8rem;";
+      section.append(el("h3","Journey legs & checkpoint transfers"));
+      const note=el("small","Plan each surface separately. Hiring, boarding, purchases, time advancement and token movement are NOT performed here. Transfers require a checkpoint at the connecting road node.");
+      note.style.cssText="opacity:.78;line-height:1.4;";
+      section.append(note);
+      const formatMoney=cp=>dndCurrencyBreakdown(cp,
+        globalThis.CONFIG?.DND5E?.currencies).label;
+      transferPlan.legs.forEach((leg,index)=>{
+        const card=el("article");
+        card.style.cssText="border:1px solid var(--color-border-light-tertiary,#666);border-radius:7px;padding:.7rem;display:grid;gap:.4rem;";
+        const locations=[leg.departureCheckpoint?.name??"Starting point",
+          leg.arrivalCheckpoint?.name??"Next stop"];
+        const heading=el("strong","Leg "+(index+1)+" · "+leg.surface.toUpperCase()+
+          " · "+locations.join(" → "));
+        card.append(heading);
+        const road=el("small",leg.roadNames.join(", ")||"Off-road connection");
+        road.style.opacity=".75";card.append(road);
+        const methodLabel=el("label","Transportation for this leg");
+        methodLabel.style.cssText="display:grid;gap:.25rem;";
+        const select=el("select");
+        select.disabled=Boolean(this.travelSession||this.journalStarting);
+        select.setAttribute("aria-label","Travel method for leg "+(index+1));
+        const placeholder=el("option","Select a transport method");
+        placeholder.value="";select.append(placeholder);
+        for(const option of leg.options){
+          const entry=el("option",option.label);
+          entry.value=option.value;select.append(entry);
+        }
+        select.value=leg.selectedValue;
+        select.addEventListener("change",()=>{
+          if(this.travelSession||this.journalStarting)return;
+          this.transferSelections[index]=select.value;
+          void this.render(true);
+        });
+        methodLabel.append(select);card.append(methodLabel);
+        if(leg.hours!==null&&leg.costCp!==null){
+          const amounts=el("small",showDistance(leg.distance)+" · "+
+            formatNavigationDuration(leg.hours,24)+" moving · "+
+            formatMoney(leg.costCp)+" estimated cost");
+          amounts.style.opacity=".85";card.append(amounts);
+        }
+        for(const line of leg.narration){
+          const event=el("div",line);
+          event.style.cssText="font-size:.86em;line-height:1.35;";
+          card.append(event);
+        }
+        for(const error of leg.errors){
+          const warning=el("small",error);
+          warning.style.cssText="color:#e1a763;line-height:1.4;";
+          card.append(warning);
+        }
+        section.append(card);
+      });
+      const summaryText=transferPlan.complete?
+        "Planned journey: "+formatNavigationDuration(transferPlan.totalHours,24)+
+          " moving · "+formatNavigationDuration(transferPlan.totalElapsedHours,24)+
+          " including overnight downtime · "+formatMoney(transferPlan.totalCp)+" estimated total.":
+        "Complete each transportation choice and resolve checkpoint transfer warnings to calculate a total.";
+      const total=el("strong",summaryText);
+      total.style.cssText="line-height:1.45;";
+      section.append(total);
+      body.append(section);
+    }
     if (this.result?.status === "ok") {
       const summary=el("div");
       summary.style.cssText="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;";
@@ -1585,18 +1791,27 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       let tripExplanation=null;
       try{
         const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
-        const hours=navigationHours(weighted,speed);
-        metric("Travel Time",formatGuidedWorldTime(Math.round(hours*3600)));
+        const hours=transferPlan?.hasTransitions&&transferPlan.complete?
+          transferPlan.totalHours:navigationHours(weighted,speed);
+        metric(transferPlan?.hasTransitions?"Leg Travel Time":"Travel Time",
+          transferPlan?.hasTransitions&&!transferPlan.complete?"Pending choices":
+            formatGuidedWorldTime(Math.round(hours*3600)));
         const rules=this.resolveTravelRules(travel);
         const schedule=this.travelMethod==="walking"&&this.journeySchedule&&
           Math.abs(this.journeySchedule.travelHours-hours)<1e-5?
           this.journeySchedule:null;
         const plan=schedule?.estimate??estimateNavigationTotalTrip(hours,rules);
-        metric("Total Trip",formatNavigationDuration(plan.totalHours,24));
+        metric("Total Trip",transferPlan?.hasTransitions?
+          (transferPlan.complete?formatNavigationDuration(transferPlan.totalElapsedHours,24):"Pending choices"):
+          formatNavigationDuration(plan.totalHours,24));
         const activeMethod=methods.find(method=>method.id===this.travelMethod);
         const transportPreview=this.travelMethod!=="walking"&&
           ["mount","vehicle"].includes(activeMethod?.kind)&&rules.dailyHours!==null;
-        const explanation=transportPreview?
+        const explanation=transferPlan?.hasTransitions?
+          "Multi-leg travel times and prices are shown in the checkpoint transfer planner. "+
+          "Each leg starts a fresh 8-hour operating-day cost preview; overnight downtime and real transfers remain GM decisions. "+
+          "Guided transport movement awaits beta.7.":
+          transportPreview?
           "Transport service preview ("+this.transportOperation+"): "+
           rules.dailyHours+"h travel/day, "+rules.overnightHours+
           "h overnight downtime; "+plan.overnights+
@@ -1712,6 +1927,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       summaryText.style.cursor="pointer";
       details.appendChild(summaryText);
       const calculation=el("p",this.result.terrainWarning ||
+        (transferPlan?.hasTransitions?
+          "Every leg uses its selected method's speed, checkpoint offer, crew and upkeep settings. The route uses authored surfaces; transfers require checkpoints. No automatic payments or movement.":
         (this.travelMethod!=="walking"?
           "Transport planning uses physical route distance and the GM's method speed. " +
           "Native Walk/Swim cost Behaviors are not transport costs; transfer points and mode-specific rests are upcoming betas.":
@@ -1720,7 +1937,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "then the road's travel preset where no Region applies. " +
           "Overlapping Regions follow GM priority; short checkpoint Regions are included. " +
           "Travel time is an estimate and never changes native Token movement.":
-          "No compatible terrain cost was available, so travel time uses physical distance."));
+          "No compatible terrain cost was available, so travel time uses physical distance.")));
       calculation.style.cssText="font-size:.85em;opacity:.85;line-height:1.4;margin:.4rem 0;";
       details.appendChild(calculation);
       body.appendChild(details);
@@ -1771,8 +1988,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         marker.title=step.direction||"Route";
         const text=el("div");text.style.minWidth="0";
         const instruction=el("strong",step.instruction);instruction.style.display="block";
-        const info=el("div",`${showDistance(step.distance)} · `+
-          `${formatGuidedWorldTime(Math.round(navigationHours(this.result.terrainAware?step.cost:step.distance,speed)*3600))}`);
+        const info=el("div",showDistance(step.distance)+
+          (transferPlan?.hasTransitions?" · See per-leg time above":" · "+
+            formatGuidedWorldTime(Math.round(navigationHours(
+              this.result.terrainAware?step.cost:step.distance,speed)*3600))));
         info.style.cssText="opacity:.75;font-size:.85em;margin-top:.3rem;";
         const surface=el("div",[step.terrain === "Unspecified terrain" ? null : step.terrain,
           step.regionName && step.regionName!==step.terrain?step.regionName:null]
