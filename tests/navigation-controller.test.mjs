@@ -239,39 +239,23 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.equal(nav.transportArrangement,"hire",
       "a carriage offered at the departure checkpoint defaults to hired service");
     const hired=await nav._renderHTML();
-    assert.ok(find(hired,item=>item.textContent==="GM pricing for this journey only"));
     assert.ok(find(hired,item=>item.textContent?.startsWith?.("World preset estimate:")));
-    assert.ok(find(hired,item=>item.textContent?.startsWith?.("World preset fare:")));
-    const rateField=find(hired,item=>item.tag==="label"&&
-      item.children[0]?.textContent==="Hired fare");
-    assert.ok(rateField,"a GM can enter a journey-specific hire fare");
-    const rate=rateField.children[1].children[0];
-    rate.value="5";rate.listeners.get("change")();
-    assert.equal(nav.transportHireTerms.hireCostCp,500);
-    const coin=rateField.children[1].children[1];
-    coin.value="cp";coin.listeners.get("change")();
-    assert.equal(nav.transportHireDenomination,"cp");
-    assert.equal(nav.transportHireTerms.hireCostCp,500,
-      "switching denomination cannot change the CP-equivalent fare");
+    const pencil=find(hired,item=>item.tag==="button"&&
+      item.title?.startsWith?.("Edit this journey's travel method"));
+    assert.ok(pencil,"Journey uses the shared method editor pencil");
+    assert.equal(find(hired,item=>item.textContent==="GM pricing for this journey only"),undefined,
+      "the duplicate inline pricing form was removed");
+    assert.equal(nav.transportJourneyOverrides,null);
+    nav.transportJourneyOverrides={hireCostCp:500,hireBasis:"trip",
+      hireApplies:"passenger"};
     const repriced=await nav._renderHTML();
-    const repricedField=find(repriced,item=>item.tag==="label"&&
-      item.children[0]?.textContent==="Hired fare");
-    assert.equal(repricedField.children[1].children[0].value,"500",
-      "5 GP is displayed as 500 CP without changing the estimate");
-    const frequencyField=find(hired,item=>item.tag==="label"&&
-      item.children[0]?.textContent==="Fare frequency");
-    frequencyField.children[1].value="trip";
-    frequencyField.children[1].listeners.get("change")();
-    assert.equal(nav.transportHireTerms.hireBasis,"trip");
-    const perField=find(hired,item=>item.tag==="label"&&
-      item.children[0]?.textContent==="Charge for each");
-    perField.children[1].value="passenger";
-    perField.children[1].listeners.get("change")();
-    assert.equal(nav.transportHireTerms.hireApplies,"passenger");
-    const reset=find(hired,item=>item.tag==="button"&&
-      item.textContent==="Reset to checkpoint offer");
+    assert.ok(find(repriced,item=>item.textContent?.startsWith?.(
+      "Current hired service estimate:")));
+    const reset=find(repriced,item=>item.tag==="button"&&
+      item.textContent==="Reset journey overrides");
+    assert.ok(reset,"journey-only pricing can be reset");
     reset.listeners.get("click")();
-    assert.equal(nav.transportHireTerms,null);
+    assert.equal(nav.transportJourneyOverrides,null);
     assert.equal(nav.transportQuoteAdjustmentCp,undefined);
     assert.equal(find(hired,item=>item.textContent==="Additional negotiated adjustment (CP)"),undefined);
     nav.assessTravelMethod=methodAssessment;
