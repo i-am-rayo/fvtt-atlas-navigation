@@ -116,7 +116,9 @@ export function checkpointIconPath(value) {
 /** Screen-clamped zoom behavior; never changes saved sizes or coordinates. */
 export function checkpointCanvasSize(size, zoom = 1) {
   const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-  const screenSize = Math.max(12, Math.min(56, size * Math.sqrt(scale)));
+  // Keep small checkpoints legible while zoomed into a highly detailed map.
+  // Screen pixels are bounded; Scene coordinates and stored marker sizes stay unchanged.
+  const screenSize = Math.max(16, Math.min(96, size * Math.pow(scale, .82)));
   return screenSize / scale;
 }
 

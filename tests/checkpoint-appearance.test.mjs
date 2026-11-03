@@ -54,13 +54,17 @@ test("v0.2.22 checkpoint zoom changes screen size and vertical offset only", () 
   assert.equal(normal.y, 410);
   for (const zoom of [0.25, 0.5, 1, 2, 4]) {
     const pixels = checkpointCanvasSize(32, zoom) * zoom;
-    assert.ok(pixels >= 12 && pixels <= 56);
+    assert.ok(pixels >= 16 && pixels <= 96);
     const raised = checkpointMarkerPosition(point, fancy, zoom);
     assert.equal(raised.x, point.x);
     assert.ok(raised.y < point.y);
     assert.deepEqual(point, { x: 300, y: 440 });
   }
   assert.deepEqual(checkpointMarkerPosition(point, DEFAULT_CHECKPOINT_APPEARANCE, 4), point);
+  assert.ok(checkpointCanvasSize(12, 4)*4 > 30,
+    "12px markers must remain legible at close zoom");
+  assert.ok(checkpointCanvasSize(24, 4)*4 >
+    checkpointCanvasSize(12, 4)*4,"major checkpoints remain more prominent");
 });
 
 test("v8 checkpoint appearance is an explicit lossless GM-authored migration", () => {

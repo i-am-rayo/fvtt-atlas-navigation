@@ -1360,8 +1360,7 @@ export class RoadCanvasController {
     const selected = checkpoint.id === this.selectedCheckpointId;
     const color = selected ? 0x8ef6c5 : Number.parseInt(appearance.color.slice(1), 16);
     const marker = checkpointMarkerPosition(position, appearance, zoom);
-    const size = appearance.type === "dot"
-      ? appearance.size : checkpointCanvasSize(appearance.size, zoom);
+    const size = checkpointCanvasSize(appearance.size, zoom);
     const src = checkpointIconPath(appearance);
     const texture = this.#iconTexture(src);
     const font = appearance.type === "fa" ? checkpointFontIcon(appearance.icon) : null;
@@ -1404,7 +1403,7 @@ export class RoadCanvasController {
       graphics.addChild(glyph);
       this.labels.push(glyph);
     } else {
-      const radius = selected ? 10 : 6;
+      const radius = appearance.type==="dot"?size/2:(selected?10:6)/zoom;
       drawDot(graphics, marker, color, radius);
       drawCheckpointBorder(graphics, marker, radius,
         Number.parseInt(appearance.borderColor.slice(1),16), zoom);
@@ -1842,8 +1841,7 @@ export class RoadCanvasController {
         : checkpoint.playerVisible !== true;
       if (hatchHidden && hidden) {
         const marker = checkpointMarkerPosition(position, appearance, zoom);
-        const radius = Math.max((appearance.type === "dot" ? appearance.size :
-          checkpointCanvasSize(appearance.size, zoom)) / 2 + 2 / zoom, 8 / zoom);
+        const radius = Math.max(checkpointCanvasSize(appearance.size, zoom) / 2 + 2 / zoom, 8 / zoom);
         const texture = this.#iconTexture(checkpointIconPath(appearance));
         const font = appearance.type === "fa" ? checkpointFontIcon(appearance.icon) : null;
         const shape = appearance.type === "dot" ? null :
@@ -1855,8 +1853,7 @@ export class RoadCanvasController {
       if (this.focusTarget?.sceneId === canvas.scene.id &&
           this.focusTarget.kind === "checkpoint" && this.focusTarget.id === checkpoint.id) {
         const marker=checkpointMarkerPosition(position,appearance,zoom);
-        const radius=Math.max(appearance.type === "dot" ? appearance.size/2 :
-          checkpointCanvasSize(appearance.size,zoom)/2,9/zoom)+8/zoom;
+        const radius=Math.max(checkpointCanvasSize(appearance.size,zoom)/2,9/zoom)+8/zoom;
         const alpha=focusPulse(this.focusTarget);
         if (alpha>0) {
           const pulse=new PIXI.Graphics();

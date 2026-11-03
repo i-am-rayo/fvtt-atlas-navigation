@@ -123,3 +123,33 @@ test("bulk apply is opt-in, field selective and leaves graph/discovery untouched
   assert.equal(data.atlas.checkpoints[0].appearance.size,24);
   assert.ok(data.checkpointTransportOffers.entries.cpA.length>0);
 });
+
+test("checkpoint offers expose edit/delete actions and shared coin-aware slider controls",async()=>{
+  const before={game:globalThis.game,document:globalThis.document};
+  class Element{
+    constructor(tag){this.tag=tag;this.children=[];this.style={};this.listeners=new Map();
+      this.textContent="";this.value="";this.checked=false;}
+    append(...elements){this.children.push(...elements);}
+    replaceChildren(...elements){this.children=[...elements];}
+    setAttribute(){}
+    addEventListener(event,fn){this.listeners.set(event,fn);}
+  }
+  const flatten=node=>[node,...node.children.flatMap(flatten)];
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={system:{id:"dnd5e"},settings:{get:()=>undefined}};
+    const {createCheckpointTransportationEditor}=await import("../scripts/checkpoint-transportation-editor.js");
+    const editor=createCheckpointTransportationEditor({offers:defaultCheckpointTransportOffers("port")});
+    const edits=flatten(editor.element).filter(el=>el.title?.startsWith("Edit "));
+    const removes=flatten(editor.element).filter(el=>el.title?.startsWith("Remove "));
+    assert.ok(edits.length>=2);
+    assert.equal(removes.length,edits.length);
+    edits.find(el=>el.title.includes("Sailing Ship")).listeners.get("click")();
+    const fields=flatten(editor.element);
+    assert.ok(fields.some(el=>el.name==="hireCostCpDenom"),"fare uses native denominations");
+    assert.ok(fields.some(el=>el.name==="hireCostCpAmount"),"fare has direct number entry");
+    assert.ok(fields.some(el=>el.type==="range"),"numeric fields have sliders");
+    assert.ok(fields.some(el=>el.textContent==="Available for purchase"));
+    assert.ok(fields.some(el=>el.textContent==="Purchase price"));
+  }finally{Object.assign(globalThis,before);}
+});

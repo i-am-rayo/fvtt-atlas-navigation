@@ -21,6 +21,8 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
   from "./navigation-travel-method.js";
 import { createSettingsSelect } from "./settings-select.js";
+import {createTransportNumberSlider,createTransportPriceSlider}
+ from "./navigation-transport-form-controls.js";
 import { atlasCurrencyChoices,coinFromCopper,copperFromCoin,dndCurrencyBreakdown }
   from "./navigation-currency.js";
 import { atlasDisplayPresetSpeed,atlasPresetSpeedFromDisplay,
@@ -78,23 +80,7 @@ const checkbox=(name,checked)=>{
   input.checked=Boolean(checked);input.defaultChecked=Boolean(checked);
   return input;
 };
-const slider=(name,value,{min=0.1,max=100,step=0.1,
-  numericMax=max,numericStep=step,label="Adjust value"}={})=>{
-  const wrapper=element("div");
-  wrapper.style.cssText="display:flex;gap:.65rem;align-items:center;min-width:0;";
-  const range=element("input");range.type="range";range.min=String(min);
-  range.setAttribute("data-atlas-range-for",name);
-  range.max=String(max);range.step=String(step);range.value=String(Math.min(max,Math.max(min,value)));
-  range.style.cssText="flex:1;min-width:5rem;";
-  const numeric=numberInput(name,value,{min,max:numericMax,step:numericStep});
-  numeric.style.width="6.5rem";
-  range.setAttribute("aria-label",label);
-  range.addEventListener("input",()=>{numeric.value=range.value;numeric.defaultValue=range.value;});
-  numeric.addEventListener("input",()=>{
-    if(Number.isFinite(Number(numeric.value)))range.value=String(Math.max(min,Math.min(max,Number(numeric.value))));
-  });
-  wrapper.append(range,numeric);return wrapper;
-};
+const slider=(name,value,options={})=>createTransportNumberSlider(name,value,options);
 const heading=(text,description)=>{
   const section=element("div");
   const h=element("h3",text);h.style.margin="0 0 .3rem";
@@ -198,19 +184,8 @@ const costLabel=p=>p.costBasis==="none"?"No recurring cost":
     (p.costApplies==="passenger"?" per passenger":" per transport unit");
 const snapshot=()=>JSON.stringify(readTransportationCatalog(game.settings));
 const nativeCoins=()=>atlasCurrencyChoices(game.system?.id,globalThis.CONFIG?.DND5E?.currencies);
-const priceInput=(name,copper,initialCoin)=>{
-  const wrap=element("div");
-  wrap.style.cssText="display:flex;gap:.5rem;align-items:center;min-width:0;";
-  const coinOptions=nativeCoins();
-  const chosen=coinOptions.some(c=>c.id===initialCoin)?initialCoin:coinOptions[0]?.id??initialCoin;
-  const amount=numberInput(name+"Amount",copper===null?"":coinFromCopper(copper,chosen),
-    {min:0,max:100000000,step:"any"});
-  if(copper===null){amount.value="";amount.defaultValue="";amount.placeholder="Not specified";}
-  const options=coinOptions.map(c=>[c.id,c.label]);
-  const unit=selected(options,chosen,name+"Denom");
-  amount.style.cssText="min-width:0;flex:1;";unit.style.cssText="width:6.5rem;flex-shrink:0;";
-  wrap.append(amount,unit);return wrap;
-};
+const priceInput=(name,copper,initialCoin)=>
+  createTransportPriceSlider(name,copper,{initialCoin,allowNull:name==="purchase"}).element;
 const coinLabel=(copper,denomination="cp")=>{
   const value=coinFromCopper(copper,denomination);
   return value.toLocaleString(undefined,{maximumFractionDigits:2})+" "+denomination;
@@ -378,15 +353,18 @@ export class AtlasTransportationSettings extends ApplicationBase {
           step:.1,label:"Transportation travel speed",numericStep:.01}),
         "Sustained overland planning speed, not a creature's tactical speed."));
     }
-    const capacity=numberInput("capacity",value.capacity??"",{min:1,max:1000,step:1});
-    if(value.capacity===null||value.capacity===undefined){
-      capacity.value="";capacity.defaultValue="";capacity.placeholder="Unspecified";
+    const capacity=slider("capacity",value.capacity??"",{min:1,max:1000,step:1,numericStep:1,label:"Passenger capacity"});
+    const capNumber=capacity.querySelector?.('[name="capacity"]')??capacity.children?.[1];
+    if(value.capacity==null)capNumber.placeholder="Unspecified";
+    if(preset?.id==="walking"){
+      for(const input of capacity.querySelectorAll?.("input")??capacity.children??[])
+        input.disabled=true;
+      capNumber.placeholder="Not applicable";
     }
-    if(preset?.id==="walking"){capacity.disabled=true;capacity.placeholder="Not applicable";}
     panels.general.append(field("Passenger capacity per unit",capacity,
       "Seats per transport unit, excluding crew. Unknown seats may be left blank."));
     panels.general.append(field("Crew required (#)",
-      numberInput("crewCount",value.crewCount??0,{min:0,max:1000,step:1}),
+      slider("crewCount",value.crewCount??0,{min:0,max:1000,step:1,numericStep:1,label:"Crew count"}),
       "Operating crew, excluding paying passengers. Defaults follow published vessel entries when available."));
     const note=element("textarea");note.name="note";note.maxLength=240;
     note.rows=2;note.value=value.note??"";note.defaultValue=value.note??"";
@@ -396,7 +374,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "Optional travel and availability details."));
 
     const costs=element("div");
-    costs.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;";
+    costs.style.cssText="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;";
     costs.append(field("Recurring cost",
       priceInput("cost",value.costBasis==="mile"?
         atlasDisplayCostPerDistance(value.costCp):value.costCp,"cp"),
@@ -409,12 +387,19 @@ export class AtlasTransportationSettings extends ApplicationBase {
       ["unit","Transport unit (mount or vehicle)"],["passenger","Passenger"]
     ],value.costApplies??"unit","costApplies"),
     "Per passenger for passage; per unit for feed and upkeep."));
+    const purchaseEnabled=checkbox("purchaseEnabled",value.purchaseGp!==null);
+    if(purchaseEnabled.checked)purchaseEnabled.setAttribute("checked","checked");
+    if(["ship-passage","coach-hire"].includes(preset?.id))purchaseEnabled.disabled=true;
+    costs.append(field("Available for purchase",purchaseEnabled,
+      "Purchases are GM planning only; hired passage is not a vehicle for sale."));
     costs.append(field("Purchase price",
       priceInput("purchase",value.purchaseGp===null?null:value.purchaseGp*100,"gp"),
-      "One-time acquisition, excluded from the recurring trip quote."));
+      "Only applies when offered for sale; never deducted from a character."));
+    panels.cost.append(heading("Ownership and upkeep",
+      "Purchase, recurring operating costs and staff wages for party-owned transport."));
     panels.cost.append(costs);
     const wages=element("div");
-    wages.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;";
+    wages.style.cssText="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;";
     wages.append(field("Crew wage per person per day",
       priceInput("crewWage",value.crewWageCpPerDay??200,"gp"),
       "Default example: 2 GP/day (skilled hireling); edit to match your crew and setting."));
@@ -425,6 +410,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
     wageLabel.append(wageToggle,element("span","Include crew wages in estimated trip costs"));
     wages.append(wageLabel);
     panels.cost.append(wages);
+    if(["ship-passage","coach-hire"].includes(value.id)){
+      costs.style.display="none";wages.style.display="none";
+      panels.cost.append(heading("Hired-only service",
+        "Purchase and independent upkeep are not offered for this passage; crew is included in the hired fare by default."));
+    }
     panels.cost.append(heading("Example journey costs",
       "Illustrative quotes for ONE transport unit and ONE passenger, using an 8h reference travel day. "+
       "The real navigation schedule may differ; purchase price, drivers, overtime and special services are excluded."));
@@ -464,7 +454,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "GM may preview a hired service in Navigation; no actual hire or payment occurs."));
     else panels.services.append(element("small","For-hire quotes currently apply to vehicles and paid passage. Mount hire remains a future service."));
     const hireFields=element("div");
-    hireFields.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;";
+    hireFields.style.cssText="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;";
     const hireAmount=value.hireCostCp??0;
     hireFields.append(field("Hired service fare",
       priceInput("hire",value.hireBasis==="mile"?
@@ -486,9 +476,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const overtime=element("div");
     overtime.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;";
     overtime.append(field("Extra hours per day (1–8)",
-      numberInput("overtimeExtraHours",value.overtimeExtraHours??8,{min:1,max:8,step:1})));
+      slider("overtimeExtraHours",value.overtimeExtraHours??8,{min:1,max:8,step:1,numericStep:1,label:"Overtime hours"})));
     overtime.append(field("Overtime multiplier (1–5)",
-      numberInput("overtimeMultiplier",value.overtimeMultiplier??1.5,{min:1,max:5,step:.1}),
+      slider("overtimeMultiplier",value.overtimeMultiplier??1.5,{min:1,max:5,step:.1,numericStep:.1,label:"Overtime multiplier"}),
       "Premium applies to overtime hours, not all travel."));
     panels.services.append(overtime);
     const continuous=serviceToggle("continuousEnabled",
@@ -504,6 +494,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const shell=element("div");shell.appendChild(body);
     const response=await foundry.applications.api.DialogV2.input({
       window:{title:existing?"Edit "+preset.name:"Add "+names[surface]+" transportation"},
+      position:{width:Math.max(360,Math.min(860,(globalThis.window?.innerWidth??980)-60)),
+        height:Math.max(460,Math.min(730,(globalThis.window?.innerHeight??850)-80))},
       content:shell,ok:{label:"Save preset"},rejectClose:false,modal:true,
       render:(app,html)=>{wireSliders(html??app?.element);wirePresetDialog(html??app?.element);}
     });
@@ -532,10 +524,13 @@ export class AtlasTransportationSettings extends ApplicationBase {
       response.includeCrewWages==="on"||response.includeCrewWages==="true";
     const costAmount=Number(response.costAmount);
     const enteredCost=copperFromCoin(costAmount,String(response.costDenom??"cp"));
-    const purchaseGp=response.purchaseAmount===""||response.purchaseAmount==null?
-      null:copperFromCoin(Number(response.purchaseAmount),
-        String(response.purchaseDenom??"gp"))/100;
     const bool=name=>response[name]===true||response[name]==="on"||response[name]==="true";
+    const canBuy=bool("purchaseEnabled")&&
+      !["ship-passage","coach-hire"].includes(preset?.id);
+    if(canBuy&&(response.purchaseAmount===""||response.purchaseAmount==null))
+      throw Error("Enter a purchase price or turn off Available for purchase.");
+    const purchaseGp=!canBuy?null:copperFromCoin(Number(response.purchaseAmount),
+      String(response.purchaseDenom??"gp"))/100;
     const hireEntered=copperFromCoin(Number(response.hireAmount),String(response.hireDenom??"cp"));
     const hireCostCp=String(response.hireBasis)==="mile"?
       atlasCostPerMileFromDisplay(hireEntered):hireEntered;

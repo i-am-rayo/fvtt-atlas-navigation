@@ -6,16 +6,17 @@ import { listTransportationPresets } from "./navigation-transport-catalog.js";
 import { checkpointOfferMethod,validateCheckpointTransportOffers }
   from "./checkpoint-transportation.js";
 import { createSettingsIconButton } from "./settings-controls.js";
+import {createTransportNumberSlider,createTransportPriceSlider}
+  from "./navigation-transport-form-controls.js";
 
 const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 const GROUPS=[["land","Land Travel","land"],["water","Water Travel (rivers & lakes)","water"],
   ["sea","Sea Travel (coastal & ocean)","water"],["air","Air Travel","air"]];
 const GENERAL_NUMBERS=[["speedMph","Travel speed (mph)"],["capacity","Passengers per unit"]];
-const COST_NUMBERS=[["costCp","Recurring upkeep (CP)"],
-  ["hireCostCp","Hired service fare (CP)"],["purchaseGp","Purchase price (GP)"]];
-const OPERATIONS_NUMBERS=[["crewCount","Crew count"],
-  ["crewWageCpPerDay","Daily wage per crew member (CP)"],
-  ["overtimeExtraHours","Overtime hours/day"],
+const COST_NUMBERS=[["costCp","Recurring upkeep"]];
+const HIRE_COST=["hireCostCp","Hired service fare"];
+const PURCHASE_COST=["purchaseGp","Purchase price"];
+const OPERATIONS_NUMBERS=[["overtimeExtraHours","Overtime hours/day"],
   ["overtimeMultiplier","Overtime multiplier"]];
 const COST_CHOICES=[["costBasis","Upkeep frequency",
     [["none","No upkeep"],["day","Per day"],["mile","Per mile"]]],
@@ -23,17 +24,14 @@ const COST_CHOICES=[["costBasis","Upkeep frequency",
   ["hireBasis","Hire fare frequency",
     [["trip","Per trip"],["day","Per operating day"],["mile","Per mile"]]],
   ["hireApplies","Hire charge per",[["unit","Transport unit"],["passenger","Passenger"]]]];
-const SERVICE_TOGGLES=[["hireEnabled","Offer for hire / passage"],
-  ["hireCrewIncluded","Hire includes driver / crew"],
-  ["includeCrewWages","Include estimated crew wages"],
-  ["overtimeEnabled","Allow overtime travel"],
+const SERVICE_TOGGLES=[["overtimeEnabled","Allow overtime travel"],
   ["continuousEnabled","Allow continuous travel"]];
 const label=(title,control)=>{
   const l=node("label");l.style.cssText="display:grid;gap:.3rem;min-width:0;align-content:start;";
   l.append(node("span",title),control);return l;
 };
 const grid=()=>{
-  const e=node("div");e.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.7rem;align-items:start;";
+  const e=node("div");e.style.cssText="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;align-items:start;";
   return e;
 };
 const fareSummary=method=>{
@@ -79,15 +77,41 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
       buttons.get(name).style.background=active?"rgba(156,123,240,.22)":"";
     }};
     const numeric=(page,key,title)=>{
-      const input=node("input");input.type="number";input.min="0";
-      input.step=["capacity","crewCount","overtimeExtraHours"].includes(key)?"1":"any";
-      input.placeholder="World: "+String(method?.[key]??"not set");
-      input.value=offer.overrides[key]??"";
-      input.addEventListener("change",()=>{
-        if(input.value.trim()==="")delete offer.overrides[key];
-        else offer.overrides[key]=Number(input.value);
-      });
-      pages.get(page).append(label(title,input));
+      const bounds=key==="speedMph"?{min:.1,max:100,step:.1,numericMax:600}:
+        key==="capacity"?{min:1,max:40,step:1,numericMax:1000,numericStep:1}:
+        key==="crewCount"?{min:0,max:50,step:1,numericMax:1000,numericStep:1}:
+        key==="overtimeExtraHours"?{min:1,max:8,step:1,numericMax:8,numericStep:1}:
+        key==="overtimeMultiplier"?{min:1,max:5,step:.1,numericMax:5}: 
+        {min:0,max:100,step:1,numericMax:100000000};
+      const control=createTransportNumberSlider(key,offer.overrides[key]??"",{
+        ...bounds,label:title,onChange:value=>{
+          if(value==="")delete offer.overrides[key];
+          else offer.overrides[key]=Number(value);
+        }});
+      const number=control.querySelector?.('[name="'+key+'"]')??control.children?.[1];
+      if(number)number.placeholder="World: "+String(method?.[key]??"not set");
+      pages.get(page).append(label(title,control));
+    };
+    const money=(page,key,title,unit="cp")=>{
+      const isPurchase=key==="purchaseGp";
+      const worldCp=isPurchase?(method?.purchaseGp??0)*100:method?.[key]??0;
+      const valueCp=Object.hasOwn(offer.overrides,key)?
+        (isPurchase?offer.overrides[key]===null?null:offer.overrides[key]*100:
+          offer.overrides[key]):(isPurchase&&method?.purchaseGp==null?null:worldCp);
+      const coin=unit;
+      const control=createTransportPriceSlider(key,valueCp,{
+        initialCoin:coin,allowNull:isPurchase,
+        onChange:cp=>{
+          if(isPurchase)offer.overrides[key]=cp===null?null:cp/100;
+          else offer.overrides[key]=cp;
+        }});
+      pages.get(page).append(label(title,control.element));
+    };
+    const heading=(page,title,help)=>{
+      const line=node("div");line.style.cssText="grid-column:1/-1;border-bottom:1px solid #555;padding:.35rem 0;";
+      line.append(node("strong",title));
+      if(help){const hint=node("small",help);hint.style.cssText="display:block;opacity:.7;margin-top:.2rem;";line.append(hint);}
+      pages.get(page).append(line);
     };
     const choice=(page,key,title,choices)=>{
       const select=node("select");
@@ -126,13 +150,40 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
     });
     pages.get("General").append(label("World transportation method",select));
     for(const [key,title] of GENERAL_NUMBERS)numeric("General",key,title);
+    numeric("General","crewCount","Crew count");
     const notes=node("textarea");notes.rows=2;notes.maxLength=240;
     notes.placeholder="Optional location-specific notes";notes.value=offer.overrides.note??"";
     notes.addEventListener("change",()=>{if(notes.value)offer.overrides.note=notes.value;
       else delete offer.overrides.note;});
     pages.get("General").append(label("GM notes",notes));
-    for(const [key,title] of COST_NUMBERS)numeric("Cost",key,title);
-    for(const [key,title,choices] of COST_CHOICES)choice("Cost",key,title,choices);
+    heading("Cost","For hire / passage","The quoted fare includes its driver or crew unless the GM changes that assumption.");
+    toggle("Cost","hireEnabled","Available for hire");
+    toggle("Cost","hireCrewIncluded","Driver / crew included in hired fare");
+    money("Cost",HIRE_COST[0],HIRE_COST[1],
+      (effective?.hireCostCp??0)>=100?"gp":"cp");
+    for(const [key,title,choices] of COST_CHOICES.filter(([key])=>key.startsWith("hire")))
+      choice("Cost",key,title,choices);
+    if(["ship-passage","coach-hire"].includes(offer.methodId)){
+      heading("Cost","Hired-only service","No separate vehicle purchase or owner operating costs; crew is assumed included in the fare.");
+    }else{
+      heading("Cost","Purchase & upkeep","Only owned transport needs purchase, recurring upkeep, and optional crew wages.");
+    const purchaseLabel=node("label");purchaseLabel.style.cssText="display:flex;gap:.45rem;align-items:center;";
+    const buy=node("input");buy.type="checkbox";buy.checked=effective?.purchaseGp!=null;
+    if(["ship-passage","coach-hire"].includes(offer.methodId))buy.disabled=true;
+    buy.addEventListener("change",()=>{
+      offer.overrides.purchaseGp=buy.checked?(method?.purchaseGp??0):null;
+      selectedTabs.set(offer.methodId,"Cost");render();
+    });
+    purchaseLabel.append(buy,node("span","Available for purchase"));
+    pages.get("Cost").append(purchaseLabel);
+    if(effective?.purchaseGp!=null)money("Cost",PURCHASE_COST[0],PURCHASE_COST[1],"gp");
+    for(const [key,title] of COST_NUMBERS)money("Cost",key,title,"cp");
+    for(const [key,title,choices] of COST_CHOICES.filter(([key])=>key.startsWith("cost")))
+      choice("Cost",key,title,choices);
+    money("Cost","crewWageCpPerDay","Daily wage per crew member","gp");
+    toggle("Cost","includeCrewWages","Include crew wages when operating owned transport");
+    }
+    heading("Services","Operating schedule","GM estimates only; real movement and rest remain explicit.");
     for(const [key,title] of OPERATIONS_NUMBERS)numeric("Services",key,title);
     for(const [key,title] of SERVICE_TOGGLES){
       if(key==="continuousEnabled"&&(offer.mode==="land"||method?.kind!=="vehicle"))continue;
@@ -141,10 +192,7 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
     const footer=node("div");footer.style.cssText="display:flex;gap:.5rem;justify-content:space-between;flex-wrap:wrap;";
     const reset=node("button","Clear local overrides");reset.type="button";
     reset.addEventListener("click",()=>{offer.overrides={};openOfferId=offer.methodId;render();});
-    const remove=node("button","Remove offer");remove.type="button";
-    remove.addEventListener("click",()=>{draft=draft.filter(x=>x!==offer);
-      selectedTabs.delete(offer.methodId);render();});
-    footer.append(reset,remove);
+    footer.append(reset);
     container.append(tabs,area,footer);show();
   };
   const render=()=>{
@@ -184,16 +232,25 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
       for(const offer of matches){
         const world=catalog.get(offer.methodId);
         const current=world?checkpointOfferMethod(offer,world):null;
-        const card=node("details");card.style.cssText="border-bottom:1px solid var(--color-border-light-tertiary,#666);padding:.4rem 0;min-width:0;";
-        card.open=openOfferId===offer.methodId;
-        const summary=node("summary");
-        summary.style.cssText="cursor:pointer;display:grid;gap:.15rem;";
-        const heading=node("strong",world?.name??"Missing World method");
+        const card=node("div");
+        card.style.cssText="border-bottom:1px solid var(--color-border-light-tertiary,#666);padding:.4rem 0;min-width:0;";
+        const row=node("div");row.style.cssText="display:flex;align-items:center;gap:.4rem;min-width:0;";
+        const info=node("div");info.style.cssText="flex:1 1 auto;min-width:0;display:grid;gap:.18rem;";
+        info.append(node("strong",world?.name??"Missing World method"));
         const subtitle=node("small",fareSummary(current));subtitle.style.opacity=".8";
-        summary.append(heading,subtitle);card.append(summary);
-        card.addEventListener("toggle",()=>{if(card.open)openOfferId=offer.methodId;
-          else if(openOfferId===offer.methodId)openOfferId=null;});
-        drawFields(offer,world,card);
+        info.append(subtitle);
+        const edit=createSettingsIconButton({icon:"pen-to-square",
+          label:"Edit "+(world?.name??offer.methodId)+" at this checkpoint",
+          onClick:()=>{openOfferId=openOfferId===offer.methodId?null:offer.methodId;render();}});
+        const remove=createSettingsIconButton({icon:"trash",danger:true,
+          label:"Remove "+(world?.name??offer.methodId)+" from checkpoint",
+          onClick:()=>{draft=draft.filter(x=>x!==offer);
+            selectedTabs.delete(offer.methodId);if(openOfferId===offer.methodId)openOfferId=null;render();}});
+        row.append(info,edit,remove);card.append(row);
+        if(openOfferId===offer.methodId){
+          const pane=node("div");pane.style.cssText="margin-top:.5rem;";
+          drawFields(offer,world,pane);card.append(pane);
+        }
         section.append(card);
       }
       host.append(section);

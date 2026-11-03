@@ -33,8 +33,7 @@ export function atlasShortcutTarget(atlas, point, toCanvas, zoom = 1, curvature 
     const position = toCanvas(node);
     const appearance = resolveCheckpointAppearance(checkpoint.appearance);
     const marker = checkpointMarkerPosition(position, appearance, scale);
-    const radius = appearance.type === "dot" ? 12 / scale :
-      checkpointCanvasSize(appearance.size, scale) / 2 + 6 / scale;
+    const radius = checkpointCanvasSize(appearance.size, scale) / 2 + 6 / scale;
     const distance = Math.min(Math.hypot(point.x - position.x, point.y - position.y),
       Math.hypot(point.x - marker.x, point.y - marker.y));
     if (distance <= Math.max(12 / scale, radius) &&

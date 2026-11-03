@@ -89,8 +89,11 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
     const scene=globalThis.canvas?.scene;
     if(!scene?.canUserModify?.(game.user,"update"))
       throw Error("Open an editable Scene canvas first.");
+    // Foundry v14 DialogV2.input requires a plain outer DIV without attributes.
+    const shell=node("div");
     const root=node("div");
     root.style.cssText="display:grid;gap:.55rem;max-height:65vh;overflow:auto;";
+    shell.append(root);
     const warning=node("p","WARNING: This changes selected fields on EXISTING checkpoints in the open Scene. You cannot undo this as one operation. Coordinates, names, visited/lore discovery history, roads and native Regions are preserved.");
     warning.style.cssText="color:#e6ad6e;font-weight:700;";root.append(warning);
     root.append(node("strong","Preset: "+preset.name+" · Scene: "+scene.name));
@@ -108,7 +111,7 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
       line.append(input,node("span",label));root.append(line);
     }
     const values=await foundry.applications.api.DialogV2.input({
-      window:{title:"Apply checkpoint preset to open Scene"},content:root,
+      window:{title:"Apply checkpoint preset to open Scene"},content:shell,
       ok:{label:"Review changes"},rejectClose:false,modal:true
     });
     if(!values)return;

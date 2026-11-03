@@ -231,9 +231,25 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           groupMethodCapacityStatus(roster,method).matched>0)owned.add(method.id);
       }
     }catch(error){atlasWarn("navigation","Could not list owned transport",error);}
-    const methods=all.filter(method=>method.id==="walking"||
-      owned.has(method.id)||offers.has(method.id)||
-      Boolean(this.travelSession&&method.id===this.travelMethod));
+    let compatible=null;
+    if(this.result?.status==="ok"){
+      try{
+        const atlas=this.atlasProvider(this.scene);
+        const catalog=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
+        compatible=new Set(all.filter(method=>
+          assessNavigationMethodRoute(method.id,this.result,atlas,catalog.presets,
+            {settings:game.settings,systemId:game.system?.id}).compatible)
+          .map(method=>method.id));
+      }catch(error){
+        atlasWarn("navigation","Route transportation surfaces could not be verified",error);
+        compatible=new Set(["walking"]);
+      }
+    }
+    const methods=all.filter(method=>
+      (method.id==="walking"||owned.has(method.id)||offers.has(method.id)||
+        Boolean(this.travelSession&&method.id===this.travelMethod))&&
+      (!compatible||compatible.has(method.id)||
+        Boolean(this.travelSession&&method.id===this.travelMethod)));
     return {methods,all,owned,offers};
   }
   effectiveTransportMethod(method,availability=null){
@@ -244,8 +260,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   /** Method changes recalculate the estimate, never move a token or save data. */
-  setTravelMethod(method){
-    if(this.travelSession||this.journalStarting||!this.scene||method===this.travelMethod)return;
+  setTravelMethod(method,arrangement=null){
+    if(this.travelSession||this.journalStarting||!this.scene||
+      (method===this.travelMethod&&
+        (!arrangement||arrangement===this.transportArrangement)))return;
     let methods;
     try{methods=this.transportAvailability().methods;}
     catch(error){ui.notifications.warn(error.message||String(error));return;}
@@ -257,7 +275,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(method!=="walking")resolveNavigationMethodTravel(method,{speed:1},game.settings,
         this.scene?.grid?.units?.trim()||"");
     }catch(error){ui.notifications.warn(error.message||String(error));return;}
-    this.travelMethod=method;
     // Prefer a matching owned Group resource; otherwise use a checkpoint hire.
     let ownsSelected=false;
     try{
@@ -269,7 +286,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
     }catch(error){atlasWarn("navigation","Could not infer owned transport",error);}
     const offer=this.transportAvailability().offers.get(method);
-    this.transportArrangement=ownsSelected?"owned":offer?"hire":"owned";
+    const preferred=arrangement==="hire"?"hire":arrangement==="owned"?"owned":
+      ownsSelected?"owned":offer?"hire":"owned";
+    if(preferred==="hire"&&!offer||preferred==="owned"&&method!=="walking"&&!ownsSelected)return;
+    this.travelMethod=method;
+    this.transportArrangement=method==="walking"?"owned":preferred;
     this.transportOperation="normal";
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
@@ -1207,11 +1228,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     body.appendChild(departure);
     const methodRow=el("div");
     methodRow.style.cssText="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;";
-    const methodLabel=el("label","Travel by");
+    const methodLabel=el("label","Travel method");
     methodLabel.htmlFor="atlas-navigation-travel-method";
     const methodSelect=el("select");
     methodSelect.id="atlas-navigation-travel-method";
-    methodSelect.title="Select overland transport for the estimate; checkpoint transfers come later";
+    methodSelect.title="Party transport or services offered at the departure checkpoint";
     methodSelect.disabled=Boolean(this.travelSession||this.journalStarting);
     methodSelect.style.cssText="flex:1;min-width:12rem;";
     const availability=this.transportAvailability();
@@ -1221,15 +1242,30 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.transportHireTerms=null;this.transportHireDenomination=null;
       this.transportOperation="normal";
     }
-    for(const method of methods){
-      const offered=availability.offers.get(method.id);
-      const suffix=availability.owned.has(method.id)?" · owned":
-        offered?" · "+offered.checkpointName:"";
-      const option=el("option",method.name+suffix);option.value=method.id;
-      methodSelect.appendChild(option);
+    const party=el("optgroup");party.label="Party";
+    for(const method of methods.filter(item=>item.id==="walking"||
+      availability.owned.has(item.id))){
+      const option=el("option",method.name);option.value="owned|"+method.id;
+      party.append(option);
     }
-    methodSelect.value=this.travelMethod;
-    methodSelect.addEventListener("change",()=>this.setTravelMethod(methodSelect.value));
+    methodSelect.append(party);
+    const checkpoints=new Map();
+    for(const method of methods){
+      const offer=availability.offers.get(method.id);
+      if(!offer)continue;
+      const name=offer.checkpointName||"Nearby checkpoint";
+      if(!checkpoints.has(name)){
+        const group=el("optgroup");group.label=name;
+        checkpoints.set(name,group);methodSelect.append(group);
+      }
+      const option=el("option",method.name);option.value="hire|"+method.id;
+      checkpoints.get(name).append(option);
+    }
+    methodSelect.value=this.transportArrangement+"|"+this.travelMethod;
+    methodSelect.addEventListener("change",()=>{
+      const [arrangement,method]=methodSelect.value.split("|",2);
+      this.setTravelMethod(method,arrangement);
+    });
     methodRow.append(methodLabel,methodSelect);
     body.appendChild(methodRow);
     if(this.travelMethod!=="walking"){

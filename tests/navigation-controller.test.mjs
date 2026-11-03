@@ -114,7 +114,7 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     PIXI:globalThis.PIXI,ui:globalThis.ui,document:globalThis.document};
   try{
     globalThis.foundry={applications:{api:{ApplicationV2:class {}}}};
-    globalThis.game={user:{isGM:true},system:{id:"test"},settings:{get:(_module,key)=>key==="guidedTransportationCatalog"?undefined:5}};
+    globalThis.game={user:{isGM:true},system:{id:"test"},settings:{get:(_module,key)=>["guidedTransportationCatalog","corridorTravelPresets"].includes(key)?undefined:5}};
     globalThis.window={innerWidth:1200,innerHeight:850};
     globalThis.PIXI=undefined;
     globalThis.ui={notifications:{error(message){throw Error(message);}}};
@@ -126,7 +126,8 @@ test("navigation locks the completed route until deliberate endpoint gestures or
       getFlag:(_module,key)=>key==="checkpointTransportOffers"?
         {schemaVersion:1,entries:{"stop-a":[
           {methodId:"mounted",mode:"land",overrides:{hireEnabled:true,hireCostCp:50}},
-          {methodId:"carriage",mode:"land",overrides:{hireEnabled:true}}
+          {methodId:"carriage",mode:"land",overrides:{hireEnabled:true}},
+          {methodId:"rowboat",mode:"water",overrides:{hireEnabled:true}}
         ]}}:null,
       tokens:{get:()=>null},canUserModify:()=>true,
       setFlag(){throw Error("Navigation must not write Scene flags.");}};
@@ -221,7 +222,12 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     const transportPanel=await nav._renderHTML();
     const methodSelect=find(transportPanel,item=>item.tag==="select"&&
       item.id==="atlas-navigation-travel-method");
-    assert.equal(methodSelect.value,"mounted");
+    assert.equal(methodSelect.value,"hire|mounted");
+    assert.equal(find(transportPanel,item=>item.tag==="option"&&
+      item.value==="hire|rowboat"),undefined,
+      "water offers must not appear for an all-land route");
+    assert.ok(find(transportPanel,item=>item.tag==="optgroup"&&item.label==="Party"));
+    assert.ok(find(transportPanel,item=>item.tag==="optgroup"&&item.label==="Starting Town"));
     const transportButton=find(transportPanel,item=>item.tag==="button"&&
       item.textContent==="Travel Route");
     assert.equal(transportButton.disabled,true,
