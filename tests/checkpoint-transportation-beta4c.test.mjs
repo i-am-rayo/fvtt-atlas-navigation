@@ -125,7 +125,8 @@ test("bulk apply is opt-in, field selective and leaves graph/discovery untouched
 });
 
 test("checkpoint offers expose edit/delete actions and shared coin-aware slider controls",async()=>{
-  const before={game:globalThis.game,document:globalThis.document};
+  const before={game:globalThis.game,document:globalThis.document,
+    foundry:globalThis.foundry};
   class Element{
     constructor(tag){this.tag=tag;this.children=[];this.style={};this.listeners=new Map();
       this.textContent="";this.value="";this.checked=false;}
@@ -138,6 +139,7 @@ test("checkpoint offers expose edit/delete actions and shared coin-aware slider 
   try{
     globalThis.document={createElement:tag=>new Element(tag)};
     globalThis.game={system:{id:"dnd5e"},settings:{get:()=>undefined}};
+    globalThis.foundry={applications:{api:{ApplicationV2:class {}}}};
     const {createCheckpointTransportationEditor}=await import("../scripts/checkpoint-transportation-editor.js");
     const editor=createCheckpointTransportationEditor({offers:defaultCheckpointTransportOffers("port")});
     const edits=flatten(editor.element).filter(el=>el.title?.startsWith("Edit "));
