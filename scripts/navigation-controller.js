@@ -1314,7 +1314,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(this.travelMethod!=="walking"){
       const edit=el("button");edit.type="button";
       edit.title="Edit this journey's travel method using the World preset fields";
-      edit.setAttribute("aria-label","Edit selected travel method for this journey");
+      edit.setAttribute?.("aria-label","Edit selected travel method for this journey");
       edit.innerHTML='<i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>';
       edit.disabled=Boolean(this.travelSession||this.journalStarting);
       edit.style.cssText="min-width:2.5rem;min-height:2.5rem;";

@@ -36,7 +36,7 @@ test("legacy v1 World checkpoint catalog is projected without overwriting custom
     .map(({transportation,...rest})=>rest)};
   const snapshot=structuredClone(legacy);
   const upgraded=validateCheckpointPresets(legacy);
-  assert.equal(upgraded.schemaVersion,3);
+  assert.equal(upgraded.schemaVersion,4);
   assert.deepEqual(legacy,snapshot);
   assert.ok(upgraded.presets.some(p=>p.category==="mines"));
   assert.ok(upgraded.presets.find(p=>p.category==="stables").transportation.length);
