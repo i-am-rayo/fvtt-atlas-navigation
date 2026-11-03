@@ -30,7 +30,8 @@ import { availableNavigationTravelMethods,resolveNavigationMethodTravel,
   assessNavigationMethodRoute } from "./navigation-travel-method.js";
 import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
   from "./navigation-measure-units.js";
-import { readGroupTransportation,projectGroupTransportation,groupMethodCapacityStatus }
+import { readGroupTransportation,projectGroupTransportation,
+  groupMethodCapacityStatus,groupMethodFareEstimate }
   from "./navigation-group-transport.js";
 import { projectedGroupFare,dndCurrencyBreakdown } from "./navigation-currency.js";
 import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
@@ -448,11 +449,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** All rule interpretations flow through one pure World settings adapter. */
   resolveTravelRules(travel){
     if(travel?.methodId&&travel.methodId!=="walking"){
-      // Apply normal overland travel-day scheduling to mount *estimates*.
+      // Both mounts and LAND vehicles follow overland day/rest scheduling.
+      // Water/air crew policies remain separate planning-only previews.
       // Non-walking movement still cannot start without checkpoint transfers.
       const preset=availableNavigationTravelMethods(game.settings,game.system?.id)
         .find(method=>method.id===travel.methodId);
-      if(preset?.kind==="mount"&&preset.surface==="land")
+      if(preset?.surface==="land"&&["mount","vehicle"].includes(preset.kind))
         return resolveNavigationTravelRules({settings:game.settings,
           systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
       return {
@@ -1236,32 +1238,29 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               "then Save assignments. Refresh seats after saving."));
           }
           body.appendChild(capacityBox);
-          if(this.result?.status==="ok"&&capacity.matched&&selectedMethod.costBasis!=="none"){
+          if(this.result?.status==="ok"&&capacity.matched&&capacity.sufficient){
             const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
             if(distanceMi!==null){
               const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
               const movingHours=navigationHours(weighted,speed);
               const previewRules=this.resolveTravelRules(travel);
-              const billableDayHours=selectedMethod.kind==="mount"&&
-                selectedMethod.surface==="land"&&previewRules.dailyHours!==null?
-                previewRules.dailyHours:24;
-              const cost=projectedGroupFare(selectedMethod,{quantity:capacity.quantity,
-                passengers:roster.travelers,distanceMi,hours:movingHours,
-                dayHours:billableDayHours});
-              const estimate=dndCurrencyBreakdown(cost,globalThis.CONFIG?.DND5E?.currencies);
-              const units=selectedMethod.costApplies==="passenger"?
-                roster.travelers:capacity.quantity;
-              const basisDetail=selectedMethod.costBasis==="day"?
-                units+" "+(selectedMethod.costApplies==="passenger"?"passenger(s)":"transport unit(s)")+
-                " × "+Math.ceil(Math.max(0,movingHours-1e-7)/billableDayHours)+
-                " travel day(s) at "+billableDayHours+"h/day × "+
-                selectedMethod.costCp+" CP per "+(selectedMethod.costApplies==="passenger"?
-                  "passenger":"unit")+" per day":
-                (selectedMethod.costApplies==="passenger"?"per passenger":"per transport unit");
+              const billableDayHours=selectedMethod.surface==="land"&&
+                previewRules.dailyHours!==null?previewRules.dailyHours:24;
+              const quote=groupMethodFareEstimate(roster,selectedMethod,{
+                hours:movingHours,distanceMi,dayHours:billableDayHours});
+              const estimate=dndCurrencyBreakdown(quote.amount,
+                globalThis.CONFIG?.DND5E?.currencies);
+              const basisDetail=quote.breakdown.map(entry=>
+                entry.name+": "+entry.quantity+" unit(s) · "+
+                entry.costCp+" CP/"+(entry.costBasis==="none"?"no recurring cost":
+                  entry.costBasis==="day"?"travel day":"mile")+
+                " per "+entry.costApplies).join("; ");
               const note=el("p","Illustrative Group transport cost: "+estimate.label+
                 (estimate.roundedUp?" (coin-rounded up from "+
-                  cost.toLocaleString(undefined,{maximumFractionDigits:2})+" CP)":"")+
-                " ("+basisDetail+"). No currency will be deducted.");
+                  quote.amount.toLocaleString(undefined,{maximumFractionDigits:2})+" CP)":"")+
+                " ("+basisDetail+"; "+billableDayHours+
+                " travel hours/day). Assumes matching assigned resources participate. "+
+                "No currency will be deducted.");
               note.style.cssText="font-size:.83em;margin:0;opacity:.85;";
               body.appendChild(note);
             }
@@ -1320,11 +1319,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const plan=schedule?.estimate??estimateNavigationTotalTrip(hours,rules);
         metric("Total Trip",formatNavigationDuration(plan.totalHours,24));
         const activeMethod=methods.find(method=>method.id===this.travelMethod);
-        const mountedPreview=this.travelMethod!=="walking"&&
-          activeMethod?.kind==="mount"&&activeMethod.surface==="land"&&
-          rules.dailyHours!==null;
-        const explanation=mountedPreview?
-          `Mounted travel preview: ${rules.dailyHours}h travel/day, ${rules.overnightHours}h overnight downtime; ${plan.overnights} overnight stop${plan.overnights===1?"":"s"} planned. Feed costs use those travel days. Guided mount travel, forced marches and one-hour bursts are not yet automated; costs are estimates only.`:
+        const overlandPreview=this.travelMethod!=="walking"&&
+          activeMethod?.surface==="land"&&
+          ["mount","vehicle"].includes(activeMethod?.kind)&&rules.dailyHours!==null;
+        const explanation=overlandPreview?
+          `Land transport preview: ${rules.dailyHours}h travel/day, ${rules.overnightHours}h overnight downtime; ${plan.overnights} overnight stop${plan.overnights===1?"":"s"} planned. Per-day costs use those travel days. Guided land transport and forced marches are not yet automated; costs are estimates only.`:
           this.travelMethod!=="walking"?
           "Transport preview: Total Trip currently includes moving time only. Ships and other " +
           "vehicles may operate on different schedules depending on crew. Method-specific " +
