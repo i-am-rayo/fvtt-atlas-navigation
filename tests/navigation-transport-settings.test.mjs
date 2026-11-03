@@ -36,7 +36,12 @@ test("Transportation World window renders three discoverable tabs without writin
     assert.match(text,/Mounted/);
     assert.match(text,/Sailing Ship/);
     assert.match(text,/Airship/);
-    assert.match(text,/Add custom transport/);
+    assert.match(text,/Land travel/);
+    assert.match(text,/Water travel/);
+    assert.match(text,/Air travel/);
+    assert.match(text,/Import optional workbook examples/);
+    assert.ok(flatten(defaults).some(e=>e.attributes?.get("role")==="tab"),
+      "tabs use accessible tab roles");
     app.activeTab="rules";
     const rules=flatten(await app._renderHTML()).map(e=>e.textContent??"").join(" ");
     assert.match(rules,/Rules Profile/);
@@ -55,5 +60,43 @@ test("Transportation editing refuses non-GMs at the action boundary",async()=>{
     const app=new AtlasTransportationSettings();
     await assert.rejects(()=>app._edit(null),/Only a GM/);
     await assert.rejects(()=>app._importExamples(),/Only a GM/);
+  }finally{ctx.restore();}
+});
+
+
+test("Add/Edit dialog gives Foundry v14 a plain outer content element",async()=>{
+  const ctx=setup();
+  const original=globalThis.foundry;
+  let seen=0;
+  globalThis.foundry={applications:{api:{DialogV2:{
+    input:async ({content})=>{
+      seen++;
+      assert.equal(content.tagName,"DIV");
+      assert.equal(content.attributes.size,0,"DialogV2 rejects any root attributes");
+      assert.ok(content.children.length,"styles belong on a child");
+      return null;
+    }
+  }}}};
+  try{
+    const app=new AtlasTransportationSettings();
+    await app._edit(null,"water");
+    await app._edit(null,"air");
+    assert.equal(seen,2,"add surface buttons share the repaired dialog");
+    assert.equal(ctx.changes.length,0,"cancel leaves World settings untouched");
+  }finally{globalThis.foundry=original;ctx.restore();}
+});
+
+test("Travel rules and Journey playback expose synchronized range + numeric inputs",async()=>{
+  const ctx=setup();
+  try{
+    const app=new AtlasTransportationSettings();
+    app.activeTab="rules";
+    const rules=flatten(await app._renderHTML());
+    assert.equal(rules.filter(node=>node.type==="range").length,4);
+    assert.equal(rules.filter(node=>node.type==="number").length,4);
+    app.activeTab="journey";
+    const journey=flatten(await app._renderHTML());
+    assert.equal(journey.filter(node=>node.type==="range").length,1);
+    assert.equal(journey.filter(node=>node.type==="number").length,1);
   }finally{ctx.restore();}
 });

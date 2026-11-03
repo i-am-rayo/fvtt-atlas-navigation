@@ -1,4 +1,5 @@
 import { MODULE_ID } from "./atlas-storage.js";
+import { resolveAtlasMeasuringUnits } from "./navigation-measure-units.js";
 import { CHECKPOINT_TYPE_GROUPS } from "./checkpoint-types.js";
 import { CHECKPOINT_PRESET_SETTING,upsertCheckpointPreset,
   checkpointPresetAppearance } from "./checkpoint-preset-model.js";
@@ -80,7 +81,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
       ([heading,types])=>({label:heading,options:types})),
       {selectedId:preset?.category??"custom"});
     field(general,"Checkpoint type",category);
-    const imperial=game.settings.get(MODULE_ID,"elevationUnits")==="imperial";
+    const imperial=resolveAtlasMeasuringUnits()==="imperial";
     const elevationControl=createCheckpointElevation(preset?.elevationMeters??null,{imperial});
     field(general,imperial?"Default elevation (ft)":"Default elevation (m)",elevationControl.element);
     const elevation=elevationControl.number;

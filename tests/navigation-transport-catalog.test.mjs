@@ -115,3 +115,38 @@ test("cost projections are informational and use declared CP basis",()=>{
   assert.equal(transportationCostPreview({costBasis:"day",costCp:5},10,25),10);
   assert.equal(transportationCostPreview({costBasis:"none",costCp:5},10,25),0);
 });
+
+
+test("the workbook import includes previously missing magical and campaign methods",()=>{
+  const catalog=addOptionalTirelessExamples(defaultTransportationCatalog());
+  const ids=new Set(catalog.customs.map(p=>p.id));
+  for(const id of ["custom-pegasus","custom-griffon","custom-phantom-steed",
+    "custom-carpet-of-flying-3x5","custom-broom-of-flying","custom-wind-walk",
+    "custom-lyrandar-airship","custom-lyrandar-galleon",
+    "custom-orien-lightning-rail","custom-battle-balloon",
+    "custom-mechanical-beholder"])
+    assert.ok(ids.has(id),id);
+  assert.ok(catalog.customs.length>=40);
+  assert.ok(OPTIONAL_TIRELESS_EXAMPLES.every(p=>p.note.includes("Not the D&D 2024")));
+});
+
+test("2014 rowboats/warships retain workbook-era speed without changing 2024 values",()=>{
+  const values={guidedTravelRulesProfile:"dnd5e2014"};
+  assert.equal(findTransportationPreset("rowboat",settings(values),"dnd5e").speedMph,2);
+  assert.equal(findTransportationPreset("warship",settings(values),"dnd5e").speedMph,3);
+  values.guidedTravelRulesProfile="dnd5e2024";
+  assert.equal(findTransportationPreset("rowboat",settings(values),"dnd5e").speedMph,1.5);
+  assert.equal(findTransportationPreset("warship",settings(values),"dnd5e").speedMph,2.5);
+});
+
+test("already imported optional creature labels are clarified without modifying stored catalogs",()=>{
+  const catalog=defaultTransportationCatalog();
+  catalog.customs.push({id:"custom-giant-eagle",name:"Giant Eagle (optional tireless)",
+    kind:"mount",surface:"air",speedMph:8,costCp:0,costBasis:"none",
+    purchaseGp:null,note:"Optional workbook example: tireless movement-speed conversion, not the 2024 sustained mount rule."});
+  const values={guidedTransportationCatalog:catalog,guidedTravelRulesProfile:"dnd5e2024"};
+  const displayed=findTransportationPreset("custom-giant-eagle",settings(values),"dnd5e");
+  assert.equal(displayed.name,"Giant Eagle");
+  assert.match(displayed.note,/Optional workbook planning/);
+  assert.match(catalog.customs[0].name,/optional tireless/,"saved World data is unchanged");
+});

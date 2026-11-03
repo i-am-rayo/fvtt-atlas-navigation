@@ -3,6 +3,8 @@ import { readPartyExploration, savePartyExplorationConfig }
 import { revealAssignedExplorer } from "./atlas-token-exploration.js";
 import { resolveNavigationTravelSpeed } from "./navigation-party-speed.js";
 import { createSettingsInput } from "./settings-input.js";
+import { atlasDisplayDistance,atlasSceneDistanceFromDisplay,atlasDisplaySpeed,atlasFormatMeasure }
+  from "./navigation-measure-units.js";
 
 /**
  * GM entry point on the native placed Token configuration. Atlas's per-Scene
@@ -62,9 +64,11 @@ export function addAtlasExplorerToTokenConfig(app, element) {
   const discoverySection=section("2. Discovery radius",
     "How far the party reveals map cells while moving. This is not the checkpoint reveal radius.");
   const radiusLabel = document.createElement("label");
-  radiusLabel.textContent = "Survey distance (" + (scene.grid?.units || "Scene units") + ")";
+  const sceneUnit=scene.grid?.units||"Scene units";
+  const survey=atlasDisplayDistance(expected.radius,sceneUnit);
+  radiusLabel.textContent = "Survey distance (" + survey.unit + ")";
   radiusLabel.style.cssText = "display:grid;gap:.35rem;";
-  const radius = createSettingsInput("number",expected.radius,
+  const radius = createSettingsInput("number",survey.value,
     {min:0.01,step:"any",ariaLabel:"Party survey distance"});
   radius.style.width = "100%";
   radiusLabel.append(radius);
@@ -88,8 +92,9 @@ export function addAtlasExplorerToTokenConfig(app, element) {
       const speed=resolveNavigationTravelSpeed({token,sceneUnits:scene.grid?.units||"",
         systemId:game.system?.id,worldSpeed:1});
       movementHint.textContent=speed.source==="party"?
-        "Group movement available: "+speed.pace+" pace · "+speed.speed.toLocaleString()+
-        " "+(scene.grid?.units||"units")+"/hour. Speed is read from the Actor, not saved here.":
+        "Group movement available: "+speed.pace+" pace · "+
+        atlasFormatMeasure(atlasDisplaySpeed(speed.speed,sceneUnit))+
+        ". Speed is read from the Actor, not saved here.":
         "Group speed is unavailable; Atlas will use its World navigation default.";
     }catch{movementHint.textContent="Group speed is unavailable; Atlas will use its World navigation default.";}
   };
@@ -110,7 +115,7 @@ export function addAtlasExplorerToTokenConfig(app, element) {
       expected = await savePartyExplorationConfig(scene, {
         enabled: assigning,
         tokenId: assigning ? token.id : null,
-        radius: Number(radius.value),
+        radius: atlasSceneDistanceFromDisplay(Number(radius.value),sceneUnit),
         defaultRevealRadiusCells: expected.defaultRevealRadiusCells,
         expected
       });

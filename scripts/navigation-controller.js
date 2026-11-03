@@ -28,6 +28,8 @@ import { readPartyExploration } from "./party-exploration-storage.js";
 import { resolveNavigationTravelSpeed } from "./navigation-party-speed.js";
 import { availableNavigationTravelMethods,resolveNavigationMethodTravel,
   assessNavigationMethodRoute } from "./navigation-travel-method.js";
+import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
+  from "./navigation-measure-units.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
@@ -1136,11 +1138,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const {sceneUnit,travel}=this.resolveTravel();
     const speed=travel.speed;
+    // Native Scene units remain authoritative for routing, timing and movement.
+    // Only presentation is converted to the World Atlas measuring preference.
+    const showDistance=amount=>atlasFormatMeasure(atlasDisplayDistance(amount,sceneUnit));
+    const showSpeed=amount=>atlasFormatMeasure(atlasDisplaySpeed(amount,sceneUnit));
     const travelSource=travel.source==="atlas-method"?
-      `${travel.methodLabel} (World transportation preset) · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour`:
+      `${travel.methodLabel} (World transportation preset) · ${showSpeed(speed)}`:
       travel.source==="party" ?
-      `${travel.actorName} · ${travel.pace} pace · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour` :
-      `Atlas default · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour`;
+      `${travel.actorName} · ${travel.pace} pace · ${showSpeed(speed)}` :
+      `Atlas default · ${showSpeed(speed)}`;
     const methodAssessment=this.assessTravelMethod();
     if(this.travelMethod!=="walking"){
       const advisory=el("p",methodAssessment.reason??"Transport planning only.");
@@ -1153,7 +1159,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     help.style.cssText="margin:0;font-size:.8em;opacity:.75;line-height:1.35;";
     body.appendChild(help);
     if (this.result?.status === "ok") {
-      const unit=this.scene?.grid?.units?.trim() || "units";
       const summary=el("div");
       summary.style.cssText="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;";
       const metric=(label,value)=>{
@@ -1162,7 +1167,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const big=el("strong",value);big.style.cssText="font-size:1.15em;";
         card.append(small,big);summary.appendChild(card);
       };
-      metric("Distance",`${this.result.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}`);
+      metric("Distance",showDistance(this.result.distance));
       let tripExplanation=null;
       try{
         const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
@@ -1236,7 +1241,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           `Overnight Camp: +${rules.overnightHours}h downtime; resets travel allowance to ${rules.dailyHours}h.`,
           `Long Rest: +${rules.longRestHours}h downtime; resets travel allowance to ${rules.dailyHours}h.`,
           `Short Rest: +${rules.shortRestHours}h downtime; does not restore daily travel hours.`,
-          `Continue March: +1h moving (roughly ${routeAverage.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit} on this route).`+
+          `Continue March: +1h moving (roughly ${showDistance(routeAverage)} on this route).`+
             (rules.forcedMarch!=="custom"?` DC ${10+upcomingExtra} Constitution save afterward (GM adjudicates).`:"")
         ];
         const prompt=el("div");
@@ -1274,7 +1279,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         // Invalid/missing canvas geometry must not conceal the route summary.
       }
       if (this.result.terrainAware) {
-        const cost=el("p",`Terrain-weighted distance: ${this.result.cost.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit}-equivalent`);
+        const cost=el("p",`Terrain-weighted distance: ${showDistance(this.result.cost)}-equivalent`);
         cost.style.cssText="margin:0;font-size:.85em;";body.appendChild(cost);
       }
       const details=el("details");
@@ -1341,7 +1346,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         marker.title=step.direction||"Route";
         const text=el("div");text.style.minWidth="0";
         const instruction=el("strong",step.instruction);instruction.style.display="block";
-        const info=el("div",`${step.distance.toLocaleString(undefined,{maximumFractionDigits:2})} ${unit} · `+
+        const info=el("div",`${showDistance(step.distance)} · `+
           `${formatGuidedWorldTime(Math.round(navigationHours(this.result.terrainAware?step.cost:step.distance,speed)*3600))}`);
         info.style.cssText="opacity:.75;font-size:.85em;margin-top:.3rem;";
         const surface=el("div",[step.terrain === "Unspecified terrain" ? null : step.terrain,

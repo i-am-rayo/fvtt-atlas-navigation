@@ -54,16 +54,19 @@ const dnd2024 = Object.freeze([
   entry("ship-passage", "Ship passage (hired)", "vehicle", "water", 2, 10, "mile",
     null, "2024 ship passage is 1 SP per mile; speed uses Sailing Ship as an editable example.")
 ]);
-const dnd2014 = Object.freeze(dnd2024.map(p => Object.freeze({...p})));
+// 2014 source speeds vary for some vessels; rules profiles never share edits.
+const dnd2014 = Object.freeze(dnd2024.map(p => Object.freeze({...p,
+  speedMph:p.id==="rowboat"?2:p.id==="warship"?3:p.speedMph})));
 export const TRANSPORT_REFERENCE_PRESETS = Object.freeze({
   dnd5e2024:dnd2024, dnd5e2014:dnd2014, custom:dnd2024, neutral:dnd2024
 });
 
-/** Optional GM-imported, homebrew/tireless examples from the supplied workbook.
- * Their tactical-foot-speed conversion is intentionally not a 2024 RAW rule.
- * They are added only on request, never silently to existing Worlds.
+/** Optional GM-imported *planning examples* from the supplied 5e workbook.
+ * The workbook mixes creature tactical-speed extrapolations, 2014 vehicles,
+ * campaign-specific vehicles, magic items and spells. None of these are
+ * D&D 2024 RAW sustained mount speeds. Never import without a GM click.
  */
-export const OPTIONAL_TIRELESS_EXAMPLES = Object.freeze([
+export const OPTIONAL_WORKBOOK_EXAMPLES = Object.freeze([
   ["dire-wolf","Dire Wolf","land",5],["elk","Elk","land",5],
   ["giant-elk","Giant Elk","land",6],["giant-pig","Giant Pig","land",4],
   ["giant-goat","Giant Goat","land",5],["giant-cow","Giant Cow","land",4],
@@ -74,12 +77,39 @@ export const OPTIONAL_TIRELESS_EXAMPLES = Object.freeze([
   ["displacer-beast","Displacer Beast","land",4],
   ["giant-snapping-turtle","Giant Snapping Turtle","water",4],
   ["sperm-whale","Sperm Whale","water",6],["giant-octopus","Giant Octopus","water",6],
-  ["giant-eagle","Giant Eagle","air",8],["giant-owl","Giant Owl","air",6]
-].map(([id,name,surface,speedMph])=>Object.freeze({
-  id:"custom-"+id,name:name+" (optional tireless)",kind:"mount",surface,speedMph,
+  ["giant-eagle","Giant Eagle","air",8],["giant-owl","Giant Owl","air",6],
+  // Additional flying creatures in the workbook.
+  ["pegasus","Pegasus","air",9,"mount"],
+  ["griffon","Griffon","air",8,"mount"],
+  // Spells, special mounts, and magic-item examples.
+  ["phantom-steed","Phantom Steed","land",10,"mount"],
+  ["carpet-of-flying-3x5","Carpet of Flying (3×5 ft)","air",8,"vehicle"],
+  ["carpet-of-flying-4x6","Carpet of Flying (4×6 ft)","air",6,"vehicle"],
+  ["carpet-of-flying-5x7","Carpet of Flying (5×7 ft)","air",4,"vehicle"],
+  ["carpet-of-flying-6x9","Carpet of Flying (6×9 ft)","air",3,"vehicle"],
+  ["broom-of-flying","Broom of Flying","air",5,"vehicle"],
+  ["clay-statue-of-flying","Clay Statue of Flying","air",5,"vehicle"],
+  ["huge-woven-basket-of-flying","Huge Woven Basket of Flying","air",5,"vehicle"],
+  ["cauldron-of-flying","Cauldron of Flying","air",5,"vehicle"],
+  ["butter-churn-of-flying","Butter Churn of Flying","air",5,"vehicle"],
+  ["birds-nest-of-flying","Bird's Nest of Flying","air",5,"vehicle"],
+  ["tombstone-of-flying","Tombstone of Flying","air",5,"vehicle"],
+  ["mortar-and-pestle-of-flying","Mortar and Pestle of Flying","air",5,"vehicle"],
+  ["wind-walk","Wind Walk","air",30,"vehicle"],
+  // Eberron and Acquisitions Incorporated examples supplied by the GM.
+  ["lyrandar-airship","Eberron: Lyrandar Airship","air",20,"vehicle"],
+  ["lyrandar-galleon","Eberron: Lyrandar Galleon","water",10,"vehicle"],
+  ["orien-lightning-rail","Eberron: Orien Lightning Rail","land",30,"vehicle"],
+  ["battle-balloon","Acquisitions Inc.: Battle Balloon","air",9,"vehicle"],
+  ["mechanical-beholder","Acquisitions Inc.: Mechanical Beholder","air",3,"vehicle"]
+].map(([id,name,surface,speedMph,kind="mount"])=>Object.freeze({
+  id:"custom-"+id,name,kind,surface,speedMph,
   costCp:0,costBasis:"none",purchaseGp:null,
-  note:"Optional workbook example: tireless movement-speed conversion, not the 2024 sustained mount rule."
+  note:"Optional workbook estimate, based on an alternate travel scenario. "+
+    "Not the D&D 2024 sustained mount rule; GM sets rest and movement conditions."
 })));
+/** Compatibility alias used by earlier beta tests and imported World catalogs. */
+export const OPTIONAL_TIRELESS_EXAMPLES=OPTIONAL_WORKBOOK_EXAMPLES;
 
 export function defaultTransportationCatalog(){
   return {version:TRANSPORT_CATALOG_VERSION, overrides:{}, customs:[]};
@@ -169,7 +199,15 @@ export function listTransportationPresets(settings,systemId){
     return immutable({...stored,speedMph,builtIn:true,
       referenceProfile:profile,customized:Boolean(change)||(Boolean(fallback)&&speedMph!==p.speedMph)});
   });
-  return [...records,...catalog.customs.map(p=>immutable({...p,builtIn:false,customized:true}))];
+  return [...records,...catalog.customs.map(p=>{
+    // Older beta.2 imports include confusing "(optional tireless)" names. Do
+    // not mutate the saved World catalog, merely improve the visible label.
+    const imported=OPTIONAL_WORKBOOK_EXAMPLES.some(example=>example.id===p.id);
+    const name=imported?p.name.replace(/ \(optional tireless\)$/,""):p.name;
+    const note=imported&&p.note.startsWith("Optional workbook example:")?
+      "Optional workbook planning example. Not a D&D 2024 sustained mount speed.":p.note;
+    return immutable({...p,name,note,builtIn:false,customized:true});
+  })];
 }
 export function findTransportationPreset(id,settings,systemId){
   return listTransportationPresets(settings,systemId).find(item=>item.id===id)??null;
@@ -213,7 +251,7 @@ export function resetTransportationPreset(catalog,profile,id){
 }
 export function addOptionalTirelessExamples(catalog){
   let result=validateTransportationCatalog(catalog);
-  for(const example of OPTIONAL_TIRELESS_EXAMPLES)
+  for(const example of OPTIONAL_WORKBOOK_EXAMPLES)
     if(!result.customs.some(item=>item.id===example.id))
       result=setTransportationPreset(result,"custom",example);
   return result;

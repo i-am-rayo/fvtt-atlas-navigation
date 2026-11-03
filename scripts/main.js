@@ -56,6 +56,8 @@ import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.j
 import { AtlasRoadEditorDock, activeRoadDockForSceneConfig } from "./road-editor-dock.js";
 import { AtlasNavigationController } from "./navigation-controller.js";
 import { registerNavigationWorldSettings } from "./navigation-world-settings.js";
+import { ATLAS_MEASURING_UNITS_SETTING,ATLAS_MEASURING_UNITS_CHOICES,
+  resolveAtlasMeasuringUnits,atlasDisplayElevation } from "./navigation-measure-units.js";
 import { registerAtlasDebugSettings,atlasDebug,atlasWarn } from "./atlas-debug.js";
 
 const roadCanvas = new RoadCanvasController();
@@ -1616,11 +1618,22 @@ Hooks.once("init", () => {
     scope: "world", config: true, type: Boolean, default: true,
     onChange: () => roadCanvas.refresh()
   });
+  game.settings.register(MODULE_ID, ATLAS_MEASURING_UNITS_SETTING, {
+    name: "Atlas Measuring Units",
+    hint: "Use the game system's distance setting (D&D 5e: Use Metric Length Units), "+
+      "or override Atlas measurements across travel, navigation, exploration and elevations. "+
+      "Only presentation changes: saved Scene coordinates, routes and elevations keep their native units.",
+    scope: "world", config: true, type: String,
+    choices: {...ATLAS_MEASURING_UNITS_CHOICES},default:"system",
+    onChange: () => {roadCanvas.refresh();if(navigation.active)void navigation.render(true);}
+  });
+  // Keep the historical World setting registered for backwards compatibility.
+  // New views consult Atlas Measuring Units; the old value is never deleted.
   game.settings.register(MODULE_ID, "elevationUnits", {
-    name: "Atlas Elevation Units",
-    hint: "Choose how checkpoint elevations appear while editing. Stored elevations remain in meters.",
-    scope: "world", config: true, type: String, choices: { metric: "Meters (metric)", imperial: "Feet (imperial)" },
-    default: "metric"
+    name: "Atlas Elevation Units (legacy)",
+    hint: "Retained for existing Worlds; Atlas Measuring Units now controls display.",
+    scope: "world", config: false, type: String,
+    choices: { metric: "Meters (metric)", imperial: "Feet (imperial)" },default:"metric"
   });
   registerManualBrushSettings();
   registerWorldTravelPresets();

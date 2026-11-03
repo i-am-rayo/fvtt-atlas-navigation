@@ -20,6 +20,11 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
   from "./navigation-travel-method.js";
 import { createSettingsSelect } from "./settings-select.js";
+import { atlasDisplayPresetSpeed,atlasPresetSpeedFromDisplay,
+  atlasDisplayCostPerDistance,atlasCostPerMileFromDisplay,
+  resolveAtlasMeasuringUnits,atlasDisplaySpeed,atlasFormatMeasure,
+  atlasSceneDistanceFromDisplay }
+  from "./navigation-measure-units.js";
 const MODULE_ID="fvtt-atlas-navigation";
 const names={land:"Land",water:"Water",air:"Air",foot:"On foot",mount:"Mount",vehicle:"Vehicle"};
 const element=(tag,label)=>{
@@ -36,6 +41,15 @@ const button=(label,action)=>{
       globalThis.ui?.notifications?.error?.(error.message||String(error));
     }finally{control.disabled=false;}
   });
+  return control;
+};
+const iconButton=(icon,label,action)=>{
+  const control=button("",action);
+  const glyph=element("i");glyph.className="fa-solid fa-"+icon;
+  glyph.setAttribute("aria-hidden","true");control.appendChild(glyph);
+  control.setAttribute("aria-label",label);control.title=label;
+  control.style.cssText="min-width:2.3rem;min-height:2.3rem;display:inline-grid;"+
+    "place-items:center;padding:.4rem;flex-shrink:0;";
   return control;
 };
 const current=(key,fallback)=>{
@@ -61,18 +75,20 @@ const checkbox=(name,checked)=>{
   input.checked=Boolean(checked);input.defaultChecked=Boolean(checked);
   return input;
 };
-const slider=(name,value,{min=0.1,max=100,step=0.1}={})=>{
+const slider=(name,value,{min=0.1,max=100,step=0.1,
+  numericMax=max,numericStep=step,label="Adjust value"}={})=>{
   const wrapper=element("div");
   wrapper.style.cssText="display:flex;gap:.65rem;align-items:center;min-width:0;";
   const range=element("input");range.type="range";range.min=String(min);
+  range.setAttribute("data-atlas-range-for",name);
   range.max=String(max);range.step=String(step);range.value=String(Math.min(max,Math.max(min,value)));
   range.style.cssText="flex:1;min-width:5rem;";
-  const numeric=numberInput(name,value,{min:0.1,max:600,step});
+  const numeric=numberInput(name,value,{min,max:numericMax,step:numericStep});
   numeric.style.width="6.5rem";
-  range.setAttribute("aria-label","Speed slider");
+  range.setAttribute("aria-label",label);
   range.addEventListener("input",()=>{numeric.value=range.value;numeric.defaultValue=range.value;});
   numeric.addEventListener("input",()=>{
-    if(Number.isFinite(Number(numeric.value)))range.value=String(Math.min(max,Number(numeric.value)));
+    if(Number.isFinite(Number(numeric.value)))range.value=String(Math.max(min,Math.min(max,Number(numeric.value))));
   });
   wrapper.append(range,numeric);return wrapper;
 };
@@ -87,8 +103,27 @@ const selected=(choices,value,name)=>{
   const control=createSettingsSelect(choices,{selectedId:value,name});
   control.style.cssText="width:100%;min-width:0;";return control;
 };
+/** Forms serialize DOM content in DialogV2. Listeners attached before opening do
+ * not survive Foundry's markup serialization; reconnect them after rendering.
+ */
+const wireSliders=container=>{
+  const root=container?.querySelectorAll?container:container?.element;
+  for(const range of root?.querySelectorAll?.("[data-atlas-range-for]")??[]){
+    const name=range.getAttribute("data-atlas-range-for");
+    const numeric=root.querySelector('[name="'+name+'"]');
+    if(!numeric||range.dataset.atlasWired==="true")continue;
+    range.dataset.atlasWired="true";
+    range.addEventListener("input",()=>{numeric.value=range.value;});
+    numeric.addEventListener("input",()=>{
+      if(numeric.value!==""&&Number.isFinite(Number(numeric.value)))
+        range.value=String(Math.max(Number(range.min),Math.min(Number(range.max),Number(numeric.value))));
+    });
+  }
+};
 const costLabel=p=>p.costBasis==="none"?"No recurring cost":
-  p.costCp+" CP / "+(p.costBasis==="day"?"day":"mile");
+  (p.costBasis==="mile"?atlasDisplayCostPerDistance(p.costCp):p.costCp)
+    .toLocaleString(undefined,{maximumFractionDigits:2})+" CP / "+
+      (p.costBasis==="day"?"day":resolveAtlasMeasuringUnits()==="metric"?"km":"mi");
 const snapshot=()=>JSON.stringify(readTransportationCatalog(game.settings));
 
 // Tests import the registration module before Foundry globals exist.
@@ -109,13 +144,22 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "Manage travel speeds, transport costs and journey rules for this Foundry World. "+
       "Changes affect future estimates; no Actor resources or currency are changed.");
     root.appendChild(top);
-    const tabs=element("nav");tabs.style.cssText="display:flex;gap:.5rem;flex-wrap:wrap;";
+    const tabs=element("nav");tabs.setAttribute("role","tablist");
+    tabs.setAttribute("aria-label","Atlas transportation settings sections");
+    tabs.style.cssText="display:flex;gap:.25rem;flex-wrap:wrap;"+
+      "border-bottom:2px solid var(--color-border-light-tertiary,#555);padding:.25rem .25rem 0;";
     for(const [id,label] of [["methods","Transportation"],["rules","Travel rules"],
       ["journey","Journey & playback"]]){
       const control=button(label,async()=>{this.activeTab=id;await this.render();});
-      control.setAttribute("aria-pressed",String(id===this.activeTab));
-      control.style.cssText="padding:.5rem .75rem;"+(id===this.activeTab?
-        "border:2px solid var(--color-border-highlight, #a78bfa);font-weight:bold;":"");
+      control.setAttribute("role","tab");
+      control.setAttribute("aria-selected",String(id===this.activeTab));
+      control.setAttribute("tabindex",id===this.activeTab?"0":"-1");
+      control.style.cssText="padding:.65rem .9rem;border-radius:8px 8px 0 0;"+
+        "border:1px solid var(--color-border-light-primary,#666);border-bottom:3px solid "+
+        (id===this.activeTab?"var(--color-border-highlight,#a78bfa)":"transparent")+";"+
+        (id===this.activeTab?
+          "background:var(--color-bg-option,#30283d);font-weight:750;"+
+          "color:var(--color-text-primary,#f8f2e9);":"opacity:.75;");
       tabs.appendChild(control);
     }
     root.appendChild(tabs);
@@ -134,16 +178,19 @@ export class AtlasTransportationSettings extends ApplicationBase {
       profile==="custom"?"Custom (2024 starting values)":"System-neutral (2024 examples)")+
       ". Changing the Rules Profile changes built-in reference values. GM edits are saved separately for each profile."));
     const toolbar=element("div");toolbar.style.cssText="display:flex;gap:.5rem;flex-wrap:wrap;";
-    toolbar.append(button("＋ Add custom transport",()=>this._edit(null)));
-    toolbar.append(button("＋ Add optional tireless creatures",()=>this._importExamples()));
+    toolbar.append(button("＋ Import optional workbook examples",()=>this._importExamples()));
     root.appendChild(toolbar);
     const methods=listTransportationPresets(game.settings,game.system?.id);
     for(const surface of TRANSPORT_SURFACES){
       const group=methods.filter(p=>p.surface===surface);
-      if(!group.length)continue;
       const section=element("fieldset");
       section.style.cssText="display:grid;gap:.65rem;min-width:0;border-radius:.5rem;";
       section.appendChild(element("legend",names[surface]+" travel"));
+      const add=button("＋ "+names[surface]+" travel",()=>this._edit(null,surface));
+      add.title="Create a custom "+names[surface].toLowerCase()+" mount or vehicle";
+      add.style.cssText="justify-self:start;padding:.5rem .75rem;";
+      section.appendChild(add);
+      if(!group.length)section.appendChild(element("p","No presets yet for this route surface."));
       for(const preset of group){
         const row=element("div");
         row.style.cssText="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;"+
@@ -151,16 +198,23 @@ export class AtlasTransportationSettings extends ApplicationBase {
         const details=element("div");details.style.cssText="flex:1 1 16rem;min-width:0;";
         const name=element("strong",preset.name);
         details.append(name);
+        const travelSpeed=atlasDisplayPresetSpeed(preset.speedMph);
+        const currentSceneUnit=globalThis.canvas?.scene?.grid?.units??
+          game.scenes?.current?.grid?.units??"";
+        const fallback=current(NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED);
+        const walkingLabel=currentSceneUnit?
+          atlasFormatMeasure(atlasDisplaySpeed(fallback,currentSceneUnit)):
+          fallback+" Scene units/hour";
         const rate=element("div",preset.id==="walking"?
-          "Party pace · World fallback "+current(NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED)+" Scene units/hour":
-          preset.speedMph+" mph · "+costLabel(preset));
+          "Party pace · World fallback "+walkingLabel:
+          atlasFormatMeasure(travelSpeed)+" · "+costLabel(preset));
         rate.style.cssText="font-size:.9em;opacity:.8";details.append(rate);
         if(preset.note){const note=element("small",preset.note);note.style.cssText="display:block;opacity:.65";details.append(note);}
         row.appendChild(details);
-        row.appendChild(button("Edit",()=>this._edit(preset)));
+        row.appendChild(iconButton("pen-to-square","Edit "+preset.name,()=>this._edit(preset)));
         if(preset.builtIn&&preset.customized)
-          row.appendChild(button("Reset",()=>this._reset(preset,profile)));
-        if(!preset.builtIn)row.appendChild(button("Delete",()=>this._delete(preset)));
+          row.appendChild(iconButton("rotate-left","Reset "+preset.name,()=>this._reset(preset,profile)));
+        if(!preset.builtIn)row.appendChild(iconButton("trash","Delete "+preset.name,()=>this._delete(preset)));
         section.appendChild(row);
       }
       root.appendChild(section);
@@ -171,13 +225,15 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "not yet authorize guided movement. Costs are reference estimates only."));
   }
 
-  async _edit(preset){
+  async _edit(preset,surface="land"){
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
     const existing=Boolean(preset),profile=selectedTransportationProfile(game.settings,game.system?.id);
     const before=snapshot();
+    const sceneUnit=globalThis.canvas?.scene?.grid?.units??
+      game.scenes?.current?.grid?.units??"";
     const body=element("div");
     body.style.cssText="display:grid;gap:.8rem;padding:.5rem;max-height:65vh;overflow-y:auto;";
-    const value=preset??{name:"",kind:"vehicle",surface:"land",speedMph:3,costCp:0,
+    const value=preset??{name:"",kind:"vehicle",surface,speedMph:3,costCp:0,
       costBasis:"none",purchaseGp:null,note:""};
     if(!existing||!preset.builtIn){
       const name=element("input");name.name="name";name.type="text";
@@ -192,19 +248,32 @@ export class AtlasTransportationSettings extends ApplicationBase {
       preset.builtIn?"Built-in rules preset; changes are saved only for the active Rules Profile.":
         "Custom World preset; changes keep its stable ID."));
     if(preset?.id==="walking"){
-      body.appendChild(field("Fallback walking speed (Scene units/hour)",
-        numberInput("worldSpeed",current(NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED),
-          {min:.1,max:1000,step:.1}),
-        "When no compatible Group Actor pace is available. Actual walking uses the party's speed."));
-    }else body.appendChild(field("Sustained travel speed (miles/hour)",
-      slider("speedMph",value.speedMph),
-      "0.1 to 600 mph. This is travel pace, not tactical feet-per-round movement."));
+      const fallbackSpeed=current(NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED);
+      const display=sceneUnit?atlasDisplaySpeed(fallbackSpeed,sceneUnit):
+        {value:fallbackSpeed,unit:"Scene units/hour"};
+      body.appendChild(field("Fallback walking speed ("+display.unit+")",
+        numberInput("worldSpeed",display.value,{min:.001,max:1000,step:"any"}),
+        "Fallback applies when no compatible Group Actor pace is available. "+
+        "Saved in Scene grid units/hour; displayed for the current Scene if available."));
+    }else {
+      const display=atlasDisplayPresetSpeed(value.speedMph);
+      body.appendChild(field("Planning speed ("+display.unit+")",
+        slider("speedDisplay",display.value,{min:.1,
+          max:resolveAtlasMeasuringUnits()==="metric"?600*1.609344:600,
+          step:.1,label:"Transportation travel speed",numericStep:"any"}),
+        "This is a customizable planning pace. Creature and spell workbook "+
+        "examples are not automatically D&D 2024 sustained-travel rules."));
+    }
     const costs=element("div");costs.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;";
     costs.appendChild(field("Recurring cost (copper pieces)",
-      numberInput("costCp",value.costCp,{min:0,max:100000000,step:1}),
-      "Shown for planning only; no currency deducted."));
+      numberInput("costCp",value.costBasis==="mile"?
+        atlasDisplayCostPerDistance(value.costCp):value.costCp,
+        {min:0,max:100000000,step:"any"}),
+      "Shown for planning only; no currency deducted. Per-distance prices use the "+
+      "selected Atlas measuring units."));
     costs.appendChild(field("Cost applies",selected(TRANSPORT_COST_BASES.map(k=>[
-      k,k==="none"?"No automatic cost":k==="day"?"Per calendar day":"Per traveled mile"
+      k,k==="none"?"No automatic cost":k==="day"?"Per calendar day":
+        "Per traveled "+(resolveAtlasMeasuringUnits()==="metric"?"kilometer":"mile")
     ]),value.costBasis,"costBasis")));
     costs.appendChild(field("Purchase price (gold pieces)",
       (()=>{const n=numberInput("purchaseGp",value.purchaseGp??0,{min:0,max:100000000,step:1});
@@ -215,16 +284,22 @@ export class AtlasTransportationSettings extends ApplicationBase {
       note.rows=2;note.value=value.note??"";note.defaultValue=value.note??"";
       body.appendChild(field("GM note (optional)",note));
     }
+    // Foundry v14 requires the DialogV2.content root to have *zero attributes*.
+    // Keep visual styles on its child, and reattach range listeners after
+    // DialogV2 serializes the supplied HTMLElement.
+    const shell=element("div");shell.appendChild(body);
     const response=await foundry.applications.api.DialogV2.input({
-      window:{title:existing?"Edit "+preset.name:"Add custom transportation"},
-      content:body,ok:{label:"Save preset"},rejectClose:false,modal:true
+      window:{title:existing?"Edit "+preset.name:"Add "+names[surface]+" transportation"},
+      content:shell,ok:{label:"Save preset"},rejectClose:false,modal:true,
+      render:(app,html)=>wireSliders(html??app?.element)
     });
     if(!response)return;
     if(before!==snapshot())throw new Error("Transportation presets changed while you were editing. Reopen and review.");
     if(preset?.id==="walking"){
-      const numeric=Number(response.worldSpeed);
+      const shown=Number(response.worldSpeed);
+      const numeric=sceneUnit?atlasSceneDistanceFromDisplay(shown,sceneUnit):shown;
       if(!Number.isFinite(numeric)||numeric<.1||numeric>1000)
-        throw new Error("Walking fallback speed must be between 0.1 and 1000.");
+        throw new Error("Walking fallback speed must be between 0.1 and 1000 Scene units/hour.");
       await game.settings.set(MODULE_ID,NAVIGATION_SPEED_SETTING,numeric);
     }
     const id=preset?.id??"custom-"+(
@@ -234,8 +309,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
       name:preset?.builtIn?value.name:String(response.name??"").trim(),
       kind:preset?.builtIn?value.kind:String(response.kind??""),
       surface:preset?.builtIn?value.surface:String(response.surface??""),
-      speedMph:id==="walking"?null:Number(response.speedMph),
-      costCp:Number(response.costCp),costBasis:String(response.costBasis),
+      speedMph:id==="walking"?null:atlasPresetSpeedFromDisplay(Number(response.speedDisplay)),
+      costCp:String(response.costBasis)==="mile"?
+        atlasCostPerMileFromDisplay(Number(response.costCp)):Number(response.costCp),
+      costBasis:String(response.costBasis),
       purchaseGp:response.purchaseGp===""||response.purchaseGp==null?
         null:Number(response.purchaseGp),
       note:preset?.builtIn?value.note:String(response.note??"")};
@@ -277,9 +354,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(!game.user?.isGM)throw new Error("Only a GM may import presets.");
     const yes=await foundry.applications.api.DialogV2.confirm({
       window:{title:"Import optional creatures"},modal:true,rejectClose:false,
-      content:"<p>Add the missing tireless creature examples from the supplied 5e travel-speed workbook? "+
-        "These are optional homebrew pace conversions, NOT the D&D 2024 sustained mount rule. "+
-        "Existing presets and overrides will not be replaced.</p>"
+      content:"<p>Import all additional creature, spell, magical-item and campaign vehicle "+
+        "examples from the supplied 5e workbook? These are optional planning references, "+
+        "not the D&D 2024 sustained mount rules. Atlas will preserve any examples already "+
+        "imported or edited, and will never replace a built-in preset.</p>"
     });
     if(!yes)return;
     const next=addOptionalTirelessExamples(readTransportationCatalog(game.settings));
@@ -300,8 +378,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
       ["long",CUSTOM_LONG_REST_HOURS_SETTING,"Long rest (hours)",8,1,24,1]
     ];
     for(const [name,key,label,fallback,min,max,step] of fields)
-      panel.appendChild(field(label,numberInput(name,current(key,fallback),{min,max,step}),
-        "Applies when Rules Profile is Custom."));
+      panel.appendChild(field(label,slider(name,current(key,fallback),
+        {min,max,step,label:label}),
+        "Applies when Rules Profile is Custom. Drag the slider or type a precise value."));
     panel.appendChild(button("Save travel rules",async()=>{
       if(!game.user?.isGM)throw new Error("GM access required.");
       const profile=panel.querySelector("[name=profile]").value;
@@ -322,8 +401,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "World time and visual playback are independent. Atlas never applies Actor rests, exhaustion or transport fares."));
     const panel=element("div");panel.style.cssText="display:grid;gap:.85rem;max-width:35rem;";
     panel.appendChild(field("Animation speed (real seconds per in-game travel hour)",
-      numberInput("playback",current(NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT),
-        {min:NAVIGATION_PLAYBACK_MIN,max:NAVIGATION_PLAYBACK_MAX,step:.5}),
+      slider("playback",current(NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT),
+        {min:NAVIGATION_PLAYBACK_MIN,max:NAVIGATION_PLAYBACK_MAX,step:.5,
+          label:"Animation speed"}),
       "Only changes visual playback; never travel hours or World time."));
     const clock=checkbox("clock",current(NAVIGATION_WORLD_CLOCK_SETTING,false));
     const clockRow=element("label");clockRow.style.cssText="display:flex;gap:.6rem;align-items:center;";

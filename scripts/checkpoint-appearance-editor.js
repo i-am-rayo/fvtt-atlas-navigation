@@ -1,3 +1,4 @@
+import { resolveAtlasMeasuringUnits } from "./navigation-measure-units.js";
 import { CHECKPOINT_FREE_ICONS, resolveCheckpointAppearance,
   validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { createCheckpointIconPicker } from "./checkpoint-icon-control.js";
@@ -130,7 +131,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const draftRoad = this.createDraft
       ? field("Named road", select(this.createDraft.roads.map(road => [road.id, road.name]),
           this.createDraft.roads[0]?.id ?? "")) : null;
-    const imperial = game.settings.get("fvtt-atlas-navigation","elevationUnits") === "imperial";
+    const imperial = resolveAtlasMeasuringUnits() === "imperial";
     const elevationFactor = imperial ? 3.280839895 : 1;
     const elevationControl=createCheckpointElevation(current.elevationMeters,{imperial});
     const elevation=elevationControl.number;

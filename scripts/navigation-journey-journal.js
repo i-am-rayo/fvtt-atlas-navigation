@@ -1,5 +1,6 @@
 import { MODULE_ID } from "./atlas-storage.js";
 import { formatNavigationDuration } from "./navigation-time.js";
+import { atlasDisplayDistance } from "./navigation-measure-units.js";
 import { confirmedJourneyDirections } from "./navigation-journey-timeline.js";
 
 /** A Journal Entry owns the recoverable record and a generated human-readable page.
@@ -141,7 +142,8 @@ export function eligibleJourneyRecord(record,{sceneId,tokenId,atlasRevision}={})
   }catch{return false;}
 }
 
-export function formatJourneyJournalHTML(raw){
+export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings,
+  systemId=globalThis.game?.system?.id}={}){
   const record=validateJourneyRecord(raw);
   const title=record.status==="completed"?"Completed":record.status==="ended"?"Ended":
     record.status==="interrupted"?"Interrupted — may resume":
@@ -152,6 +154,11 @@ export function formatJourneyJournalHTML(raw){
   const clockMoving=record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0);
   const clockBreaks=record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0);
   const legs=record.legs.map((leg,index)=>{
+    // Render from retained native Scene units; never rewrite historical Journal flags.
+    const displayDistance=amount=>{
+      const display=atlasDisplayDistance(amount,leg.units,settings,systemId);
+      return Number(display.value).toFixed(2)+" "+display.unit;
+    };
     const timeline=confirmedJourneyDirections(leg.directions,leg.events,{
       travelHours:leg.movingHours,speed:leg.speedPerHour,
       terrainAware:leg.terrainAware,confirmedHours:leg.completedMovingHours});
@@ -167,10 +174,9 @@ export function formatJourneyJournalHTML(raw){
         ` to ${escapeHTML(step.endedTimeLabel)}`:
         (step.hours&&step.endedTimeLabel===step.startedTimeLabel?
           " (World clock unchanged)":""))+"</li>":
-      `<li>${escapeHTML(step.instruction)} — ${escapeHTML(Number(step.distance).toFixed(2))} `+
-      `${escapeHTML(leg.units)}</li>`).join("");
+      `<li>${escapeHTML(step.instruction)} — ${escapeHTML(displayDistance(Number(step.distance)))}</li>`).join("");
     return `<section><h2>Leg ${index+1}: ${escapeHTML(leg.sceneName)}</h2>`+
-      `<p>Distance: ${escapeHTML(Number(leg.distance).toFixed(2))} ${escapeHTML(leg.units)}; `+
+      `<p>Distance: ${escapeHTML(displayDistance(Number(leg.distance)))}; `+
       `Moving time: ${escapeHTML(formatNavigationDuration(leg.movingHours,24))}; `+
       `Confirmed progress: ${Math.floor(leg.completedPercent)}% `+
       `(${escapeHTML(formatNavigationDuration(leg.completedMovingHours,24))} moving).</p>`+
