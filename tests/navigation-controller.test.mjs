@@ -660,7 +660,7 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
   }finally{nav?.stop();Object.assign(globalThis,previous);}
 });
 
-test("mounted method previews use the active overland travel-day profile without enabling ship rests",()=>{
+test("mounts and land vehicles share overland travel days without forcing ship rests",()=>{
   const priorGame=globalThis.game;
   try{
     let profile="dnd5e2024";
@@ -678,6 +678,11 @@ test("mounted method previews use the active overland travel-day profile without
     const plan=estimateNavigationTotalTrip(31+34/60,mounted);
     assert.equal(plan.overnights,3);
     assert.ok(Math.abs(plan.totalHours-(79+34/60))<1e-8);
+    const wagon=nav.resolveTravelRules({methodId:"wagon"});
+    assert.equal(wagon.dailyHours,8,"a land vehicle is not an always-moving ship");
+    const wagonPlan=estimateNavigationTotalTrip(30+5/60,wagon);
+    assert.equal(wagonPlan.overnights,3);
+    assert.ok(Math.abs(wagonPlan.totalHours-(78+5/60))<1e-8);
     const ship=nav.resolveTravelRules({methodId:"warship"});
     assert.equal(ship.dailyHours,null,"ship operating-day rules remain explicitly unimplemented");
     assert.equal(estimateNavigationTotalTrip(31+34/60,ship).overnights,0);
