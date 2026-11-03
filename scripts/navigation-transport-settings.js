@@ -6,7 +6,7 @@
 import { TRANSPORT_CATALOG_SETTING,TRANSPORT_SURFACES,TRANSPORT_KINDS,
   TRANSPORT_COST_BASES,readTransportationCatalog,listTransportationPresets,
   selectedTransportationProfile,setTransportationPreset,resetTransportationPreset,
-  deleteCustomTransportationPreset,addOptionalTirelessExamples }
+  deleteCustomTransportationPreset,addOptionalTirelessExamples,estimateTransportationTrip }
   from "./navigation-transport-catalog.js";
 import { NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED } from "./navigation-time.js";
 import { NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT,
@@ -21,7 +21,7 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
   from "./navigation-travel-method.js";
 import { createSettingsSelect } from "./settings-select.js";
-import { atlasCurrencyChoices,coinFromCopper,copperFromCoin }
+import { atlasCurrencyChoices,coinFromCopper,copperFromCoin,dndCurrencyBreakdown }
   from "./navigation-currency.js";
 import { atlasDisplayPresetSpeed,atlasPresetSpeedFromDisplay,
   atlasDisplayCostPerDistance,atlasCostPerMileFromDisplay,
@@ -122,6 +122,72 @@ const wireSliders=container=>{
         range.value=String(Math.max(Number(range.min),Math.min(Number(range.max),Number(numeric.value))));
     });
   }
+};
+/** Reconnect preset tabs/preview after DialogV2 serializes and rehydrates its HTML. */
+const wirePresetDialog=container=>{
+  const root=container?.querySelectorAll?container:container?.element;
+  if(!root?.querySelectorAll)return;
+  const tabs=[...root.querySelectorAll("[data-atlas-preset-tab]")];
+  if(!tabs.length)return;
+  const panels=[...root.querySelectorAll("[data-atlas-preset-panel]")];
+  const activate=id=>{
+    for(const tab of tabs)tab.setAttribute("aria-selected",String(tab.dataset.atlasPresetTab===id));
+    for(const panel of panels)panel.style.display=panel.dataset.atlasPresetPanel===id?"grid":"none";
+  };
+  for(const tab of tabs){
+    if(tab.dataset.atlasWired==="true")continue;
+    tab.dataset.atlasWired="true";
+    tab.addEventListener("click",()=>activate(tab.dataset.atlasPresetTab));
+  }
+  activate("general");
+  const quoteRoot=root.querySelector("[data-atlas-preset-cost-preview]");
+  if(!quoteRoot)return;
+  const fieldValue=name=>root.querySelector('[name="'+name+'"]');
+  const number=name=>Number(fieldValue(name)?.value??0);
+  const costOf=name=>copperFromCoin(number(name+"Amount"),String(fieldValue(name+"Denom")?.value??"cp"));
+  const formatCost=cp=>dndCurrencyBreakdown(cp,globalThis.CONFIG?.DND5E?.currencies).label;
+  const update=()=>{
+    try{
+      const displaySpeed=number("speedDisplay")||number("worldSpeed");
+      const speedMph=fieldValue("speedDisplay")?
+        atlasPresetSpeedFromDisplay(displaySpeed):null;
+      if(!speedMph||speedMph<=0){
+        quoteRoot.textContent="Walking estimates use the Group Actor's pace; no transport cost applies.";
+        return;
+      }
+      const basis=fieldValue("costBasis")?.value??"none";
+      const costCp=basis==="mile"?atlasCostPerMileFromDisplay(costOf("cost")):costOf("cost");
+      const item={speedMph,costCp,costBasis:basis,
+        costApplies:fieldValue("costApplies")?.value??"unit",
+        crewCount:number("crewCount"),crewWageCpPerDay:costOf("crewWage"),
+        includeCrewWages:Boolean(fieldValue("includeCrewWages")?.checked)};
+      const examples=[
+        {label:"100-mile route",distanceMi:100},
+        {label:"1 travel day (8h)",distanceMi:8*speedMph}
+      ];
+      const rows=examples.map(ex=>{
+        const q=estimateTransportationTrip(item,{distanceMi:ex.distanceMi,dayHours:8});
+        return {label:ex.label,distance:ex.distanceMi.toFixed(1)+" mi",
+          hours:q.movingHours.toFixed(1)+"h",days:String(q.travelDays),
+          recurring:formatCost(q.recurringCp),
+          wages:formatCost(q.crewWagesCp),total:formatCost(q.totalCp)};
+      });
+      const cells=[...quoteRoot.querySelectorAll("[data-atlas-quote-cell]")];
+      const keys=["label","distance","hours","days","recurring","wages","total"];
+      for(let i=0;i<rows.length;i++)
+        for(let j=0;j<keys.length;j++)
+          if(cells[i*keys.length+j])cells[i*keys.length+j].textContent=rows[i][keys[j]];
+    }catch(error){
+      const info=root.querySelector("[data-atlas-quote-error]");
+      if(info)info.textContent="Enter valid, nonnegative values to preview costs.";
+    }
+  };
+  if(root.dataset.atlasPreviewWired!=="true"){
+    root.dataset.atlasPreviewWired="true";
+    root.addEventListener("input",update);
+    root.addEventListener("change",update);
+  }
+  update();
 };
 const costLabel=p=>p.costBasis==="none"?"No recurring cost":
   coinLabel(p.costBasis==="mile"?atlasDisplayCostPerDistance(p.costCp):p.costCp)+
@@ -258,36 +324,52 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const sceneUnit=globalThis.canvas?.scene?.grid?.units??
       game.scenes?.current?.grid?.units??"";
     const body=element("div");
-    body.style.cssText="display:grid;gap:.9rem;padding:.5rem;max-height:65vh;overflow-y:auto;";
+    body.style.cssText="display:grid;gap:.7rem;padding:.5rem;max-height:65vh;overflow-y:auto;";
     const value=preset??{name:"",kind:"vehicle",surface,speedMph:3,costCp:0,
-      costBasis:"none",costApplies:"unit",capacity:null,purchaseGp:null,note:""};
+      costBasis:"none",costApplies:"unit",capacity:null,purchaseGp:null,note:"",
+      crewCount:0,crewWageCpPerDay:200,includeCrewWages:false};
     body.appendChild(heading(existing?"Edit "+value.name:"New "+names[surface]+" transportation",
-      "All transport methods share the same fields. Only the GM changes these planning values."));
+      "Edit reference values for your World. Nothing is charged automatically."));
+    const nav=element("nav");nav.setAttribute("role","tablist");
+    nav.setAttribute("aria-label","Transportation preset editor sections");
+    nav.style.cssText="display:flex;gap:.3rem;border-bottom:2px solid var(--color-border-light-tertiary,#555);";
+    const panels={};
+    for(const [id,label] of [["general","General"],["cost","Cost"]]){
+      const tab=element("button",label);tab.type="button";
+      tab.setAttribute("role","tab");tab.setAttribute("data-atlas-preset-tab",id);
+      tab.setAttribute("aria-selected",String(id==="general"));
+      tab.style.cssText="padding:.6rem 1rem;border-radius:.45rem .45rem 0 0;";
+      nav.append(tab);
+      const panel=element("section");panel.setAttribute("role","tabpanel");
+      panel.setAttribute("data-atlas-preset-panel",id);
+      panel.style.cssText="display:"+(id==="general"?"grid":"none")+";gap:.75rem;min-width:0;";
+      panels[id]=panel;
+    }
+    body.append(nav,panels.general,panels.cost);
     const name=element("input");name.name="name";name.type="text";
     name.maxLength=80;name.required=true;name.placeholder="e.g. Wind-powered skiff";
     name.value=value.name;name.defaultValue=value.name;
     if(preset?.builtIn){name.readOnly=true;name.title="A built-in reference name cannot be renamed.";}
-    body.appendChild(field("Name",name));
+    panels.general.append(field("Name",name));
     const kind=selected(TRANSPORT_KINDS.map(k=>[k,names[k]]),value.kind,"kind");
     const route=selected(TRANSPORT_SURFACES.map(k=>[k,names[k]]),value.surface,"surface");
     if(preset?.builtIn){kind.disabled=true;route.disabled=true;}
     const identity=element("div");
     identity.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;";
-    identity.append(field("Type",kind),field("Route surface",route));body.append(identity);
+    identity.append(field("Type",kind),field("Route surface",route));
+    panels.general.append(identity);
     if(preset?.id==="walking"){
       const fallbackSpeed=current(NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED);
       const display=sceneUnit?atlasDisplaySpeed(fallbackSpeed,sceneUnit):
         {value:fallbackSpeed,unit:"Scene units/hour"};
       const shown=Number(display.value.toFixed(2));
-      body.appendChild(field("Fallback walking speed ("+display.unit+")",
+      panels.general.append(field("Fallback walking speed ("+display.unit+")",
         slider("worldSpeed",shown,{min:.1,max:resolveAtlasMeasuringUnits()==="metric"?32:20,
           step:.1,numericStep:.01,label:"Fallback walking pace"}),
-        "Atlas uses the assigned Group Actor's walking pace first. This slider sets "+
-        "a backup pace only when the Group pace is unavailable. Use familiar travel units, "+
-        "not Scene grid-unit conversions."));
+        "Uses the Group Actor's pace first; this is a fallback, not a vehicle speed."));
     }else{
       const display=atlasDisplayPresetSpeed(value.speedMph);
-      body.appendChild(field("Planning speed ("+display.unit+")",
+      panels.general.append(field("Planning speed ("+display.unit+")",
         slider("speedDisplay",Number(display.value.toFixed(2)),{min:.1,
           max:resolveAtlasMeasuringUnits()==="metric"?600*1.609344:600,
           step:.1,label:"Transportation travel speed",numericStep:.01}),
@@ -298,41 +380,78 @@ export class AtlasTransportationSettings extends ApplicationBase {
       capacity.value="";capacity.defaultValue="";capacity.placeholder="Unspecified";
     }
     if(preset?.id==="walking"){capacity.disabled=true;capacity.placeholder="Not applicable";}
-    body.appendChild(field("Passenger capacity per transport unit",capacity,
-      "Seats per mount or vehicle. Leave blank if unknown; the Group roster "+
-      "sets how many physical mounts or vehicles are owned. Walking needs no seats."));
-    const costs=element("div");
-    costs.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;";
-    costs.appendChild(field("Recurring cost",
-      priceInput("cost",value.costBasis==="mile"?
-        atlasDisplayCostPerDistance(value.costCp):value.costCp,"cp"),
-      "Choose a D&D 5e denomination. Atlas stores the exact CP-equivalent "+
-      "for future inventory integration; no money is deducted."));
-    costs.appendChild(field("Cost frequency",selected(TRANSPORT_COST_BASES.map(k=>[
-      k,k==="none"?"No recurring cost":k==="day"?"Per calendar day":
-        "Per traveled "+(resolveAtlasMeasuringUnits()==="metric"?"kilometer":"mile")
-    ]),value.costBasis,"costBasis")));
-    costs.appendChild(field("Charge for each",selected([
-      ["unit","Transport unit (mount or vehicle)"],["passenger","Passenger"]
-    ],value.costApplies??"unit","costApplies"),
-    "Feed and vehicle upkeep generally apply per transport unit; hired fares "+
-    "usually apply per passenger."));
-    costs.appendChild(field("Purchase price",
-      priceInput("purchase",value.purchaseGp===null?null:value.purchaseGp*100,"gp"),
-      "Upfront reference price per transport unit. This is never charged automatically."));
-    body.append(costs);
+    panels.general.append(field("Passenger capacity per unit",capacity,
+      "Seats per transport unit, excluding crew. Unknown seats may be left blank."));
+    panels.general.append(field("Crew required (#)",
+      numberInput("crewCount",value.crewCount??0,{min:0,max:1000,step:1}),
+      "Operating crew, excluding paying passengers. Defaults follow published vessel entries when available."));
     const note=element("textarea");note.name="note";note.maxLength=240;
     note.rows=2;note.value=value.note??"";note.defaultValue=value.note??"";
-    if(preset?.builtIn){note.readOnly=true;note.title="Official/reference notes are read-only.";}
-    body.appendChild(field("GM note",note,preset?.builtIn?
-      "Built-in reference note. Create a custom transport for your own descriptions.":
-      "Optional context about rest rules, crew, or availability."));
+    if(preset?.builtIn){note.readOnly=true;note.title="Reference notes are read-only.";}
+    panels.general.append(field("GM note",note,preset?.builtIn?
+      "Reference note is read-only; create a custom transport for your own notes.":
+      "Optional travel and availability details."));
+
+    const costs=element("div");
+    costs.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;";
+    costs.append(field("Recurring cost",
+      priceInput("cost",value.costBasis==="mile"?
+        atlasDisplayCostPerDistance(value.costCp):value.costCp,"cp"),
+      "Feed, upkeep or fare. No currency is ever deducted."));
+    costs.append(field("Cost frequency",selected(TRANSPORT_COST_BASES.map(k=>[
+      k,k==="none"?"No recurring cost":k==="day"?"Per travel day":
+        "Per traveled "+(resolveAtlasMeasuringUnits()==="metric"?"kilometer":"mile")
+    ]),value.costBasis,"costBasis")));
+    costs.append(field("Charge for each",selected([
+      ["unit","Transport unit (mount or vehicle)"],["passenger","Passenger"]
+    ],value.costApplies??"unit","costApplies"),
+    "Per passenger for passage; per unit for feed and upkeep."));
+    costs.append(field("Purchase price",
+      priceInput("purchase",value.purchaseGp===null?null:value.purchaseGp*100,"gp"),
+      "One-time acquisition, excluded from the recurring trip quote."));
+    panels.cost.append(costs);
+    const wages=element("div");
+    wages.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;";
+    wages.append(field("Crew wage per person per day",
+      priceInput("crewWage",value.crewWageCpPerDay??200,"gp"),
+      "Default example: 2 GP/day (skilled hireling); edit to match your crew and setting."));
+    const wageToggle=checkbox("includeCrewWages",value.includeCrewWages??false);
+    if(wageToggle.checked)wageToggle.setAttribute("checked","checked");
+    const wageLabel=element("label");
+    wageLabel.style.cssText="display:flex;gap:.6rem;align-items:center;align-self:center;";
+    wageLabel.append(wageToggle,element("span","Include crew wages in estimated trip costs"));
+    wages.append(wageLabel);
+    panels.cost.append(wages);
+    panels.cost.append(heading("Example journey costs",
+      "Illustrative quotes for ONE transport unit and ONE passenger, using an 8h reference travel day. "+
+      "The real navigation schedule may differ; purchase price, drivers, overtime and special services are excluded."));
+    const table=element("table");table.style.cssText="width:100%;border-collapse:collapse;font-size:.88em;";
+    const headers=["Scenario","Distance","Moving","Travel days","Recurring","Crew wages","Total"];
+    const thead=element("thead");const titleRow=element("tr");
+    for(const label of headers){const th=element("th",label);th.style.cssText="text-align:left;padding:.35rem;border-bottom:1px solid #777";titleRow.append(th);}
+    thead.append(titleRow);table.append(thead);
+    const tbody=element("tbody");
+    for(let i=0;i<2;i++){
+      const tr=element("tr");
+      for(let col=0;col<headers.length;col++){
+        const td=element("td","—");td.setAttribute("data-atlas-quote-cell",String(i)+"-"+col);
+        td.style.cssText="padding:.35rem;border-bottom:1px solid #555;";
+        tr.append(td);
+      }
+      tbody.append(tr);
+    }
+    table.append(tbody);
+    const quote=element("div");quote.setAttribute("data-atlas-preset-cost-preview","");
+    quote.style.cssText="overflow-x:auto;";quote.append(table);
+    panels.cost.append(quote);
+    const error=element("small","");error.setAttribute("data-atlas-quote-error","");
+    panels.cost.append(error);
     // DialogV2 requires a plain outer HTMLDivElement with no attributes.
     const shell=element("div");shell.appendChild(body);
     const response=await foundry.applications.api.DialogV2.input({
       window:{title:existing?"Edit "+preset.name:"Add "+names[surface]+" transportation"},
       content:shell,ok:{label:"Save preset"},rejectClose:false,modal:true,
-      render:(app,html)=>wireSliders(html??app?.element)
+      render:(app,html)=>{wireSliders(html??app?.element);wirePresetDialog(html??app?.element);}
     });
     if(!response)return;
     if(before!==snapshot())throw new Error("Transportation presets changed while you were editing. Reopen and review.");
@@ -350,6 +469,13 @@ export class AtlasTransportationSettings extends ApplicationBase {
       response.capacity===""?null:Number(response.capacity);
     if(rawCapacity!==null&&(!Number.isInteger(rawCapacity)||rawCapacity<1||rawCapacity>1000))
       throw new Error("Passenger capacity must be a positive whole number.");
+    const crewCount=Number(response.crewCount??0);
+    if(!Number.isInteger(crewCount)||crewCount<0||crewCount>1000)
+      throw new Error("Crew count must be a whole number between 0 and 1000.");
+    const crewWageCpPerDay=copperFromCoin(Number(response.crewWageAmount),
+      String(response.crewWageDenom??"gp"));
+    const includeCrewWages=response.includeCrewWages===true||
+      response.includeCrewWages==="on"||response.includeCrewWages==="true";
     const costAmount=Number(response.costAmount);
     const enteredCost=copperFromCoin(costAmount,String(response.costDenom??"cp"));
     const purchaseGp=response.purchaseAmount===""||response.purchaseAmount==null?
@@ -365,7 +491,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
         atlasCostPerMileFromDisplay(enteredCost):enteredCost,
       costBasis:String(response.costBasis),
       costApplies:String(response.costApplies),
-      purchaseGp,
+      purchaseGp,crewCount,crewWageCpPerDay,includeCrewWages,
       note:preset?.builtIn?value.note:String(response.note??"")};
     const updated=setTransportationPreset(readTransportationCatalog(game.settings),profile,next);
     await game.settings.set(MODULE_ID,TRANSPORT_CATALOG_SETTING,updated);
