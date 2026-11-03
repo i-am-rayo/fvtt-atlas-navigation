@@ -116,28 +116,6 @@ test("Journey controls put World-clock checkbox first and show three live speed 
   }finally{ctx.restore();}
 });
 
-test("one Group Actor can contain a Camel NPC and Warship without editing native members",async()=>{
-  const ctx=setup();
-  try{
-    const pc={id:"pcA",name:"Dr. Cassian",type:"character",system:{}};
-    const camel={id:"camelA",name:"Camel",type:"npc",system:{}};
-    const ship={id:"shipA",name:"Warship",type:"vehicle",
-      system:{passengers:{max:30},details:{type:"water"}}};
-    const group={id:"groupA",name:"The Party",type:"group",
-      system:{members:[{actor:pc},{actor:camel},{actor:ship}],primaryVehicle:ship}};
-    game.actors={contents:[group],get:id=>id===group.id?group:null};
-    const app=new AtlasTransportationSettings();
-    const nodes=flatten(await app._renderHTML());
-    const content=nodes.map(node=>node.textContent??"").join(" ");
-    assert.match(content,/Group transportation resources/);
-    assert.match(content,/1 traveler/);
-    assert.match(content,/Camel/);
-    assert.match(content,/Warship/);
-    assert.match(content,/30/);
-    assert.deepEqual(ctx.changes,[],"rendering a roster never mutates Group or World");
-  }finally{ctx.restore();}
-});
-
 test("all transport methods show consistent capacity and native currency editor fields",async()=>{
   const ctx=setup();
   const oldFoundry=globalThis.foundry;
@@ -161,19 +139,12 @@ test("all transport methods show consistent capacity and native currency editor 
   }finally{globalThis.foundry=oldFoundry;ctx.restore();}
 });
 
-test("Group mount assignment instructions appear before the long surface preset lists",async()=>{
+test("World Transportation Presets no longer embeds Group-specific assignments",async()=>{
   const ctx=setup();
   try{
-    const pc={id:"pcA",name:"Cassian",type:"character",system:{}};
-    const camel={id:"camelA",name:"Camel",type:"npc",system:{}};
-    const group={id:"groupA",name:"The Party",type:"group",
-      system:{members:[{actor:pc},{actor:camel}]}};
-    game.actors={contents:[group],get:id=>id===group.id?group:null};
-    const nodes=flatten(await new AtlasTransportationSettings()._renderHTML());
-    const labels=nodes.map(n=>n.textContent??"");
-    const roles=labels.findIndex(str=>str.includes("Group transportation resources"));
-    const land=labels.findIndex(str=>str==="Land travel");
-    assert.ok(roles>=0&&roles<land,"Group resources precede Land travel presets");
-    assert.ok(labels.some(str=>str.includes("set its NPC Role to Mount")));
+    const root=await new AtlasTransportationSettings()._renderHTML();
+    const content=flatten(root).map(node=>node.textContent??"").join(" ");
+    assert.doesNotMatch(content,/Group transportation resources|Group Actor|Save Group transportation/);
+    assert.match(content,/Land travel/);
   }finally{ctx.restore();}
 });

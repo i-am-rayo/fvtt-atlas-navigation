@@ -21,11 +21,7 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
   from "./navigation-travel-method.js";
 import { createSettingsSelect } from "./settings-select.js";
-import { readPartyExploration } from "./party-exploration-storage.js";
-import { GROUP_TRANSPORT_SETTING,defaultGroupTransportation,readGroupTransportation,
-  projectGroupTransportation,setGroupTransportationMember,groupTravelCapacityStatus }
-  from "./navigation-group-transport.js";
-import { atlasCurrencyChoices,coinFromCopper,copperFromCoin,projectedGroupFare }
+import { atlasCurrencyChoices,coinFromCopper,copperFromCoin }
   from "./navigation-currency.js";
 import { atlasDisplayPresetSpeed,atlasPresetSpeedFromDisplay,
   atlasDisplayCostPerDistance,atlasCostPerMileFromDisplay,
@@ -160,7 +156,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
     position:{width:810,height:690}
   };
   constructor(...args){
-    super(...args);this.activeTab="methods";this.activeGroupId=null;
+    super(...args);this.activeTab="methods";
     // Stable random sample trips; speed changes update times, not distances.
     this.exampleDistancesMi=Array.from({length:3},()=>Math.floor(5+Math.random()*120));
   }
@@ -210,8 +206,6 @@ export class AtlasTransportationSettings extends ApplicationBase {
     toolbar.append(button("＋ Import optional workbook examples",()=>this._importExamples()));
     root.appendChild(toolbar);
     const methods=listTransportationPresets(game.settings,game.system?.id);
-    // Group role assignments are the first planning step; keep them visible.
-    this._renderGroupRoster(root,methods);
     for(const surface of TRANSPORT_SURFACES){
       const group=methods.filter(p=>p.surface===surface);
       const section=element("fieldset");
@@ -419,131 +413,6 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(!yes)return;
     const next=addOptionalTirelessExamples(readTransportationCatalog(game.settings));
     await game.settings.set(MODULE_ID,TRANSPORT_CATALOG_SETTING,next);await this.render();
-  }
-  _renderGroupRoster(root,methods){
-    if(game.system?.id!=="dnd5e")return;
-    const section=element("fieldset");
-    section.style.cssText="display:grid;gap:.8rem;min-width:0;border-radius:.5rem;";
-    section.appendChild(element("legend","Group transportation resources — assign mounts & vehicles"));
-    section.appendChild(element("p","Atlas reads the D&D 5e Group Actor without changing its members. "+
-      "Use Quantity when one Camel or Vehicle Actor represents several identical resources. "+
-      "To use a Camel for travel, set its NPC Role to Mount, choose the number of animals "+
-      "and riders per animal, then click Save Group transportation assignments. "+
-      "NPCs are never automatically treated as mounts or extra passengers."));
-    const groups=(game.actors?.contents??[]).filter(actor=>actor.type==="group");
-    if(!groups.length){
-      section.appendChild(element("p","No D&D 5e Group Actors found. Add a Group Actor "+
-        "and assign it to your Atlas party token to configure its transport resources."));
-      root.appendChild(section);return;
-    }
-    let assigned=null;
-    const scene=globalThis.canvas?.scene??game.scenes?.current;
-    try{
-      const explorer=readPartyExploration(scene);
-      const token=explorer.tokenId?scene.tokens?.get?.(explorer.tokenId):null;
-      if(token?.actor?.type==="group")assigned=token.actor;
-    }catch{/* An unassigned Scene is valid; use the explicit Group selector. */}
-    const chosen=groups.find(g=>g.id===this.activeGroupId)??assigned??groups[0];
-    const picker=selected(groups.map(g=>[g.id,g.name]),chosen.id,"atlasGroupSelection");
-    picker.addEventListener("change",async()=>{
-      this.activeGroupId=picker.value;
-      await this.render();
-    });
-    section.appendChild(field("Group Actor",picker,
-      "Defaults to the Scene's assigned Atlas party token when available."));
-    let projection;
-    const config=readGroupTransportation(game.settings);
-    try{projection=projectGroupTransportation(chosen,config);}catch(error){
-      section.appendChild(element("p",error.message));root.appendChild(section);return;
-    }
-    const totals=element("div");
-    totals.style.cssText="display:flex;gap:.8rem;flex-wrap:wrap;font-weight:650;";
-    totals.appendChild(element("span",projection.travelers+" traveler(s)"));
-    for(const surface of TRANSPORT_SURFACES){
-      const status=groupTravelCapacityStatus(projection,surface);
-      totals.appendChild(element("span",names[surface]+" seats: "+status.seats));
-    }
-    section.appendChild(totals);
-    if(projection.unclassified){
-      const caution=element("p",projection.unclassified+" NPC(s) still unclassified. "+
-        "Classify a creature as a mount, companion/passenger, crew or pack animal "+
-        "before relying on capacity estimates.");
-      caution.style.cssText="border-left:3px solid #d6a332;padding:.45rem .7rem;margin:0;";
-      section.appendChild(caution);
-    }
-    const editable=[];
-    for(const member of projection.members){
-      const row=element("div");
-      row.style.cssText="border:1px solid var(--color-border-light-primary,#666);"+
-        "border-radius:.5rem;padding:.65rem;display:grid;gap:.5rem;";
-      const title=element("strong",member.actorName+
-        " · "+(member.actorType==="vehicle"?"Vehicle":member.actorType==="character"?"Character":"NPC")+
-        (member.primaryVehicle?" ★ Primary vehicle":""));
-      row.appendChild(title);
-      if(member.actorType==="character"){
-        row.appendChild(element("small","Counts as one party member; no mount quantity override."));
-        section.appendChild(row);continue;
-      }
-      const role=selected(member.actorType==="vehicle"?[
-        ["vehicle","Vehicle"]
-      ]:[
-        ["unassigned","Choose NPC role"],["mount","Mount"],["passenger","Companion / passenger"],
-        ["crew","Crew"],["pack","Pack animal"],["ignore","Not traveling"]
-      ],member.role,"role-"+member.actorId);
-      if(member.actorType==="vehicle")role.disabled=true;
-      const qty=numberInput("quantity-"+member.actorId,member.quantity,
-        {min:1,max:100,step:1});
-      const cap=numberInput("capacity-"+member.actorId,member.capacity??"",
-        {min:1,max:1000,step:1});
-      if(member.capacity===null){cap.value="";cap.defaultValue="";cap.placeholder="Unknown";}
-      const surface=selected(TRANSPORT_SURFACES.map(k=>[k,names[k]]),
-        member.surface,"surface-"+member.actorId);
-      const controls=element("div");
-      controls.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.6rem;";
-      controls.append(field("Role",role),field("Number available",qty),
-        field("Riders per unit",cap),field("Travel surface",surface));
-      row.appendChild(controls);
-      const match=methods.find(p=>p.name.toLowerCase()===member.actorName.toLowerCase()&&
-        p.surface===member.surface);
-      if(match?.costBasis==="day"){
-        const count=projectedGroupFare(match,
-          {quantity:member.quantity,passengers:projection.travelers,hours:24});
-        row.appendChild(element("small","Reference recurring cost: "+coinLabel(count)+
-          "/day ("+(match.costApplies==="passenger"?"per passenger":"per unit")+
-          "). Planning only; never deducted."));
-      }
-      if(member.primaryVehicle)
-        row.appendChild(element("small","Primary vehicle is a Foundry Group preference, "+
-          "not proof that the party has embarked."));
-      editable.push({actorId:member.actorId,role,qty,cap,surface,vehicle:member.actorType==="vehicle"});
-      section.appendChild(row);
-    }
-    section.appendChild(button("Save Group transportation assignments",async()=>{
-      if(!game.user?.isGM)throw new Error("Only the GM may assign transport resources.");
-      if(JSON.stringify(config)!==JSON.stringify(readGroupTransportation(game.settings)))
-        throw new Error("Group transportation assignments changed. Reopen this window.");
-      const live=game.actors?.get?.(chosen.id);
-      if(!live)throw new Error("The Group Actor is no longer available.");
-      const liveMembers=projectGroupTransportation(live,config).members.map(m=>m.actorId);
-      if(JSON.stringify(liveMembers)!==JSON.stringify(projection.members.map(m=>m.actorId)))
-        throw new Error("Group membership changed. Reopen the assignments and review.");
-      let result=config;
-      for(const member of editable){
-        const quantity=Number(member.qty.value);
-        const capacity=member.cap.value===""?null:Number(member.cap.value);
-        result=setGroupTransportationMember(result,chosen.id,member.actorId,{
-          role:member.vehicle?"unassigned":member.role.value,
-          quantity,capacity,surface:member.surface.value
-        });
-      }
-      await game.settings.set(MODULE_ID,GROUP_TRANSPORT_SETTING,result);
-      ui.notifications.info("Atlas Group transportation assignments saved.");
-      await this.render();
-    }));
-    section.appendChild(element("small","These are read-only projections of native Group members, "+
-      "plus explicit Atlas-owned quantities and roles. No boarding, token movement, "+
-      "Actor currency or native Group data changes occur here."));
-    root.appendChild(section);
   }
   _renderRules(root){
     root.appendChild(heading("Travel rules",

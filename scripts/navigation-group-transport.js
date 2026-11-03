@@ -1,10 +1,10 @@
 /**
  * Pure read-only D&D5e Group transportation projection plus versioned Atlas
- * World-only assignments. Native Group members, currencies and Actor documents
+ * World-only assignments (read-only v1 to v2 normalization). Native Group members, currencies and Actor documents
  * are never modified. NPCs are intentionally unclassified until a GM chooses.
  */
 export const GROUP_TRANSPORT_SETTING="guidedGroupTransportation";
-export const GROUP_TRANSPORT_VERSION=1;
+export const GROUP_TRANSPORT_VERSION=2;
 export const GROUP_TRANSPORT_ROLES=Object.freeze([
   "unassigned","mount","passenger","crew","pack","ignore"
 ]);
@@ -12,13 +12,13 @@ export const GROUP_TRANSPORT_SURFACES=Object.freeze(["land","water","air"]);
 const MAX_GROUPS=100,MAX_MEMBERS=150;
 const safeId=id=>typeof id==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(id);
 const integer=(v,min,max)=>Number.isInteger(v)&&v>=min&&v<=max;
-const own=(o,k)=>Object.prototype.hasOwnProperty.call(o,k);
+const validProfileId=id=>id===null||(typeof id==="string"&&/^[a-z0-9-]{1,64}$/.test(id));
 
 export function defaultGroupTransportation(){return {version:GROUP_TRANSPORT_VERSION,groups:{}};}
 
 export function validateGroupTransportation(input){
   if(!input||typeof input!=="object"||Array.isArray(input)||
-      input.version!==GROUP_TRANSPORT_VERSION||
+      ![1,GROUP_TRANSPORT_VERSION].includes(input.version)||
       !input.groups||typeof input.groups!=="object"||Array.isArray(input.groups)||
       Object.keys(input.groups).length>MAX_GROUPS)
     throw new Error("Invalid Atlas Group transportation configuration.");
@@ -34,10 +34,11 @@ export function validateGroupTransportation(input){
           !GROUP_TRANSPORT_ROLES.includes(entry.role)||
           !integer(entry.quantity,1,100)||
           !(entry.capacity===null||integer(entry.capacity,1,1000))||
-          !GROUP_TRANSPORT_SURFACES.includes(entry.surface))
+          !GROUP_TRANSPORT_SURFACES.includes(entry.surface)||
+          !validProfileId(entry.profileId??null))
         throw new Error("Invalid Atlas Group member transportation assignment.");
       members[actorId]={role:entry.role,quantity:entry.quantity,
-        capacity:entry.capacity,surface:entry.surface};
+        capacity:entry.capacity,surface:entry.surface,profileId:entry.profileId??null};
     }
     output.groups[groupId]={members};
   }
@@ -93,8 +94,9 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
     const capacity=vehicle?saved?.capacity??passengerMaximum(actor):
       role==="mount"?(saved?.capacity??1):null;
     const surface=saved?.surface??actorSurface(actor);
+    const profileId=saved?.profileId??null;
     members.push({actorId:actor.id,actorName:actor.name??"Unnamed Actor",
-      actorType:actor.type,role,quantity,capacity,surface,
+      actorType:actor.type,role,quantity,capacity,surface,profileId,
       primaryVehicle:Boolean(vehicle&&group.system?.primaryVehicle?.id===actor.id),
       configured:Boolean(saved)});
   }
@@ -129,7 +131,8 @@ export function groupMethodCapacityStatus(projection,method){
     if(m.surface!==method.surface)return false;
     if(method.id==="mounted")return m.role==="mount";
     return (m.role==="mount"||m.role==="vehicle")&&
-      m.actorName.toLowerCase()===String(method.name??"").toLowerCase();
+      (m.profileId!==null?m.profileId===method.id:
+        m.actorName.toLowerCase()===String(method.name??"").toLowerCase());
   });
   const seats=relevant.reduce((sum,m)=>sum+(m.capacity??0)*m.quantity,0);
   const quantity=relevant.reduce((sum,m)=>sum+m.quantity,0);

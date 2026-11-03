@@ -33,7 +33,7 @@ import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
 import { readGroupTransportation,projectGroupTransportation,groupMethodCapacityStatus }
   from "./navigation-group-transport.js";
 import { projectedGroupFare,dndCurrencyBreakdown } from "./navigation-currency.js";
-import { AtlasTransportationSettings } from "./navigation-transport-settings.js";
+import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
@@ -1184,7 +1184,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             (capacity.unknown?"Some transport capacities are not specified. ":"")+
             (roster.unclassified?roster.unclassified+" NPC role(s) still need GM review. ":"")+
             (capacity.matched?"Availability does not mean the party has boarded.":
-              "No matching Group resource. Add a matching mount or vehicle and assign its role."));
+              "No matching Group resource. Assign an owned mount or vehicle to this method."));
           capacityNote.style.cssText="margin:0;padding:.5rem;border:1px solid "+
             (capacity.missing?"#b18b54":"var(--color-border-light-tertiary,#666)")+
             ";border-radius:6px;font-size:.83em;";
@@ -1198,15 +1198,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             const review=el("button","Review mounts & NPC roles");
             review.type="button";
             review.addEventListener("click",()=>{
-              const editor=new AtlasTransportationSettings();
-              editor.activeTab="methods";
-              void editor.render({force:true});
+              try{openAtlasGroupTransportation(group.id);}catch(error){
+                globalThis.ui?.notifications?.error?.(error.message??String(error));
+              }
             });
             const refresh=el("button","Refresh seats");
             refresh.type="button";
             refresh.addEventListener("click",()=>void this.render());
             controls.append(review,refresh);capacityBox.appendChild(controls);
-            capacityBox.appendChild(el("small","In Group transportation resources, "+
+            capacityBox.appendChild(el("small","In the Group sheet\u0027s Travel Pace header, open Manage Party Transportation, "+
               "set a mount NPC's Role to Mount, specify its quantity and rider capacity, "+
               "then Save assignments. Refresh seats after saving."));
           }

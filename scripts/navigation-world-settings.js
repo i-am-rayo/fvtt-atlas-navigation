@@ -27,8 +27,8 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
   });
   settings.register(MODULE_ID,GROUP_TRANSPORT_SETTING,{
     name:"Atlas Group Transportation Assignments",
-    hint:"Versioned Atlas-only NPC roles and quantities for D&D 5e Group Actors. "+
-      "Native Group membership and Actor data stay unchanged.",
+    hint:"Versioned Atlas-only NPC roles, quantities and stable transport profile IDs for D&D5e Groups. "+
+      "Manage them from the Group sheet Travel Pace header; native Actor data stays unchanged.",
     scope:"world",config:false,type:Object,default:defaultGroupTransportation()
   });
   settings.registerMenu?.(MODULE_ID,"atlasTransportationPresetsMenu",{

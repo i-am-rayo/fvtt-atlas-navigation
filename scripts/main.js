@@ -56,6 +56,7 @@ import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.j
 import { AtlasRoadEditorDock, activeRoadDockForSceneConfig } from "./road-editor-dock.js";
 import { AtlasNavigationController } from "./navigation-controller.js";
 import { registerNavigationWorldSettings } from "./navigation-world-settings.js";
+import { addAtlasGroupTransportationControl } from "./navigation-group-transport-settings.js";
 import { ATLAS_MEASURING_UNITS_SETTING,ATLAS_MEASURING_UNITS_CHOICES,
   resolveAtlasMeasuringUnits,atlasDisplayElevation } from "./navigation-measure-units.js";
 import { registerAtlasDebugSettings,atlasDebug,atlasWarn } from "./atlas-debug.js";
@@ -1715,6 +1716,8 @@ Hooks.once("init", () => {
   });
   Hooks.on("preUpdateScene", atlasGridChangeNotice);
   Hooks.on("renderTokenConfig", addAtlasExplorerToTokenConfig);
+  // Foundry v14 public ApplicationV2 render hook; only GM D&D5e Group sheets match.
+  Hooks.on("renderApplicationV2", addAtlasGroupTransportationControl);
   Hooks.on("renderSceneConfig", (app, element) => {
     addAtlasRoadsToSceneConfig(app, element, roadActions);
   });

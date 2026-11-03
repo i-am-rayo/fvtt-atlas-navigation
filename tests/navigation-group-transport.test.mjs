@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   defaultGroupTransportation,validateGroupTransportation,
   setGroupTransportationMember,projectGroupTransportation,groupTravelCapacityStatus,
-  groupMethodCapacityStatus
+  groupMethodCapacityStatus,readGroupTransportation
 } from "../scripts/navigation-group-transport.js";
 
 const actor=(id,name,type,system={})=>({id,name,type,system});
@@ -77,4 +77,35 @@ test("specific Camel route does not borrow available Warship passenger seats",()
   assert.equal(groupMethodCapacityStatus(p,{id:"warship",name:"Warship",surface:"water"}).seats,30);
   assert.equal(groupMethodCapacityStatus(p,{id:"sailing",name:"Sailing Ship",surface:"water"}).seats,0);
   assert.equal(groupMethodCapacityStatus(p,{id:"mounted",name:"Mounted (general)",surface:"land"}).seats,2);
+});
+
+test("legacy v1 Group assignments are normalized without writing or losing quantities",()=>{
+  const old={version:1,groups:{group1:{members:{
+    camel1:{role:"mount",quantity:3,capacity:1,surface:"land"}
+  }}}};
+  const changes=[];
+  const settings={get:()=>old,set:(...args)=>changes.push(args)};
+  const migrated=readGroupTransportation(settings);
+  assert.equal(migrated.version,2);
+  assert.equal(migrated.groups.group1.members.camel1.quantity,3);
+  assert.equal(migrated.groups.group1.members.camel1.profileId,null);
+  assert.deepEqual(changes,[],"read must not persist migration");
+});
+test("stable transportation profile survives an NPC rename",()=>{
+  const linked=setGroupTransportationMember(defaultGroupTransportation(),"group1","camel1",{
+    role:"mount",quantity:3,capacity:1,surface:"land",profileId:"camel"
+  });
+  const renamed=actor("camel1","Biscuit","npc");
+  const p=projectGroupTransportation(group([pc,renamed,warship]),linked);
+  const capacity=groupMethodCapacityStatus(p,{id:"camel",name:"Camel",surface:"land"});
+  assert.equal(capacity.seats,3);
+  assert.equal(capacity.quantity,3);
+  assert.equal(groupMethodCapacityStatus(p,{id:"riding-horse",name:"Riding Horse",surface:"land"}).seats,0);
+});
+test("v2 profile IDs are validated and remain optional for unassigned NPCs",()=>{
+  const good={role:"mount",quantity:1,capacity:1,surface:"land"};
+  assert.equal(setGroupTransportationMember(defaultGroupTransportation(),"group1","camel1",good)
+    .groups.group1.members.camel1.profileId,null);
+  assert.throws(()=>setGroupTransportationMember(defaultGroupTransportation(),"group1","camel1",
+    {...good,profileId:"../../bad"}),/Invalid/);
 });
