@@ -214,10 +214,16 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
     remaining-=passengers;
     const cost=projectedGroupFare(effective,{quantity:member.quantity,
       passengers,distanceMi,hours,dayHours});
-    amount+=cost;
+    const crewDays=hours===0?0:Math.ceil(Math.max(0,hours-1e-7)/dayHours);
+    const wages=effective.includeCrewWages?
+      crewDays*(effective.crewCount??0)*(effective.crewWageCpPerDay??200)*member.quantity:0;
+    if(!Number.isFinite(wages)||wages<0||!Number.isSafeInteger(Math.ceil(amount+cost+wages)))
+      throw new Error("Invalid projected crew wage total.");
+    amount+=cost+wages;
     breakdown.push({actorId:member.actorId,name:member.actorName,
       quantity:member.quantity,passengers,costCp:effective.costCp,
-      costBasis:effective.costBasis,costApplies:effective.costApplies,amount:cost});
+      costBasis:effective.costBasis,costApplies:effective.costApplies,
+      recurringCp:cost,crewWagesCp:wages,crewDays,amount:cost+wages});
   }
   return {amount,breakdown,unseated:remaining,quantity:resources.reduce((n,m)=>n+m.quantity,0)};
 }
