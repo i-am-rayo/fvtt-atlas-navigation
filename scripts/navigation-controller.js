@@ -319,7 +319,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const offer=offers.find(item=>item.methodId===method.id);
         if(offer){
           try{
-            const offered=checkpointOfferMethod(offer,method);
+            const offered=checkpointOfferMethod({methodId:offer.methodId,
+              mode:offer.mode,overrides:offer.overrides},method);
             if(offered.hireEnabled)options.push({
               value:"hire|"+method.id,label:method.name+" · "+offer.checkpointName,
               arrangement:"hire",method:offered,offer
@@ -470,9 +471,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       try{
         const atlas=this.atlasProvider(this.scene);
         const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
-        const projection=projectTransportationRouteLegs(this.result,atlas,presets.presets);
-        if(projection.hasTransitions||this.travelMethod==="walking"&&
-            projection.legs.some(leg=>leg.surface!=="land"))
+        const projection=Array.isArray(atlas.roads)&&Array.isArray(atlas.nodes)?
+          projectTransportationRouteLegs(this.result,atlas,presets.presets):null;
+        if(projection&&(projection.hasTransitions||this.travelMethod==="walking"&&
+            projection.legs.some(leg=>leg.surface!=="land")))
           return {compatible:false,guided:false,
             reason:"This route crosses different travel surfaces. Use the transportation leg planner below; guided transfers are reserved for beta.7."};
       }catch(error){return {compatible:false,guided:false,
@@ -813,8 +815,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   /** Execute the already-previewed curve through Foundry's native movement pipeline. */
   async startGuidedTravel(){
-    if(!this.assessTravelMethod().guided)
-      throw Error("Guided travel is not available for mixed-surface journeys. Plan each checkpoint transfer first; token movement arrives in beta.7.");
     if(this.travelMethod!=="walking")
       throw Error("Guided mounted/sailing journeys require checkpoint transfers in a later v0.3.8 beta. Select Walking to travel now.");
     const view=this.canvasProvider();
@@ -832,6 +832,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const atlas=this.atlasProvider(this.scene);
     if(atlas.revision!==this.routeRevision)
       throw Error("The road network changed. Calculate a fresh route before traveling.");
+    // Native guided walking may not traverse an authored water or air road.
+    // Older test doubles and pre-checkpoint Scene schemas remain readable.
+    if(Array.isArray(atlas.roads)&&Array.isArray(atlas.nodes)&&
+        this.result.legs.every(leg=>Array.isArray(leg.points)&&leg.points.length>=2)){
+      const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
+      const projected=projectTransportationRouteLegs(this.result,atlas,presets.presets);
+      if(projected.legs.some(leg=>leg.surface!=="land"))
+        throw Error("Guided travel cannot cross a water or air route. "+
+          "Plan checkpoint transfers first; vehicle movement is reserved for beta.7.");
+    }
     if(this.sourceMode==="party" && this.syncPartyDeparture(view,atlas)){
       // Re-read live token position before movement, never follow an outdated route.
       this.calculateRoute(view,atlas);

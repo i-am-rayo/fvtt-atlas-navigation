@@ -19,12 +19,13 @@ const routeSurface=(road,presets)=>{
 export function projectTransportationRouteLegs(route,atlas,travelPresets=[]){
   if(route?.status!=="ok"||!Array.isArray(route.legs)||route.legs.length>4096||
       !Array.isArray(atlas?.roads)||!Array.isArray(atlas?.nodes)||
-      !Array.isArray(atlas?.checkpoints)||!Array.isArray(travelPresets))
+      !(atlas?.checkpoints==null||Array.isArray(atlas.checkpoints))||
+      !Array.isArray(travelPresets))
     throw Error("A valid Atlas road route and checkpoint graph are required.");
   const roads=new Map(atlas.roads.map(road=>[road.id,road]));
   const presets=new Map(travelPresets.map(preset=>[preset.id,preset]));
   const nodes=new Map(atlas.nodes.map(node=>[node.id,node]));
-  const checkpoints=atlas.checkpoints.map(cp=>({
+  const checkpoints=(atlas.checkpoints??[]).map(cp=>({
     id:cp.id,name:cp.name,roadId:cp.roadId,
     position:nodes.get(cp.nodeId)
   })).filter(cp=>point(cp.position));
