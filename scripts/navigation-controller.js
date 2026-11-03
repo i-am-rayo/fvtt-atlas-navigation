@@ -1254,7 +1254,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 entry.name+": "+entry.quantity+" unit(s) · "+
                 entry.costCp+" CP/"+(entry.costBasis==="none"?"no recurring cost":
                   entry.costBasis==="day"?"travel day":"mile")+
-                " per "+entry.costApplies).join("; ");
+                " per "+entry.costApplies+
+                (entry.crewWagesCp>0?" + optional crew wages "+
+                  dndCurrencyBreakdown(entry.crewWagesCp,
+                    globalThis.CONFIG?.DND5E?.currencies).label+
+                  " ("+entry.crewDays+" wage day(s))":"")).join("; ");
               const note=el("p","Illustrative Group transport cost: "+estimate.label+
                 (estimate.roundedUp?" (coin-rounded up from "+
                   quote.amount.toLocaleString(undefined,{maximumFractionDigits:2})+" CP)":"")+
