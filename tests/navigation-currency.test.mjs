@@ -54,3 +54,17 @@ test("active native denominations and conversion rates shape the breakdown",()=>
   assert.throws(()=>dndCurrencyBreakdown(-1),/currency/i);
   assert.throws(()=>dndCurrencyBreakdown(Number.POSITIVE_INFINITY),/currency/i);
 });
+
+test("D&D overland mount feed bills by eight-hour travel days, not 24 moving hours",()=>{
+  const horse={costCp:5,costBasis:"day",costApplies:"unit"};
+  const movingHours=31+34/60;
+  assert.equal(projectedGroupFare(horse,{quantity:3,hours:movingHours}),30,
+    "legacy 24-hour rate is retained for methods without a daily travel policy");
+  assert.equal(projectedGroupFare(horse,{quantity:3,hours:movingHours,dayHours:8}),60,
+    "four eight-hour travel days at five CP for each of three horses");
+  assert.equal(projectedGroupFare(horse,{quantity:3,hours:8,dayHours:8}),15);
+  assert.equal(projectedGroupFare(horse,{quantity:3,hours:8.01,dayHours:8}),30);
+  assert.equal(projectedGroupFare(horse,{quantity:3,hours:0,dayHours:8}),0);
+  assert.throws(()=>projectedGroupFare(horse,{quantity:1,hours:10,dayHours:0}),/factors/);
+  assert.throws(()=>projectedGroupFare(horse,{quantity:1,hours:10,dayHours:25}),/factors/);
+});

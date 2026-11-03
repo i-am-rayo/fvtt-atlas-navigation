@@ -25,13 +25,19 @@ export function coinFromCopper(copper,denomination){
   return Math.round((copper/rate+Number.EPSILON)*10000)/10000;
 }
 /** Repeated unit cost and passenger fare use separate multiplicities. */
-export function projectedGroupFare(preset,{quantity=1,passengers=1,distanceMi=0,hours=0}={}){
+export function projectedGroupFare(preset,{quantity=1,passengers=1,distanceMi=0,hours=0,
+  dayHours=24}={}){
   if(!Number.isInteger(quantity)||quantity<0||
       !Number.isInteger(passengers)||passengers<0||
       !Number.isFinite(distanceMi)||distanceMi<0||
-      !Number.isFinite(hours)||hours<0)throw Error("Invalid transportation cost factors.");
+      !Number.isFinite(hours)||hours<0||
+      !Number.isFinite(dayHours)||dayHours<=0||dayHours>24)
+    throw Error("Invalid transportation cost factors.");
   const count=preset.costApplies==="passenger"?passengers:quantity;
-  const basis=preset.costBasis==="day"?Math.ceil(hours/24):
+  // "Per day" means one billable travel day, not necessarily 24 moving hours.
+  // A method-specific schedule supplies dayHours; legacy callers retain 24.
+  const basis=preset.costBasis==="day"&&hours>0?
+      Math.ceil(Math.max(0,hours-1e-7)/dayHours):
     preset.costBasis==="mile"?distanceMi:0;
   const amount=Number(preset.costCp)*basis*count;
   if(!Number.isFinite(amount)||amount<0)throw Error("Invalid transportation cost.");

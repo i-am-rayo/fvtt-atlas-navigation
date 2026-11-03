@@ -447,10 +447,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   /** All rule interpretations flow through one pure World settings adapter. */
   resolveTravelRules(travel){
-    if(travel?.methodId&&travel.methodId!=="walking")return {
-      profile:"transport-preview",label:"Transport movement-only preview",dailyHours:null,
-      overnightHours:0,shortRestHours:1,longRestHours:8,forcedMarch:"custom"
-    };
+    if(travel?.methodId&&travel.methodId!=="walking"){
+      // Apply normal overland travel-day scheduling to mount *estimates*.
+      // Non-walking movement still cannot start without checkpoint transfers.
+      const preset=availableNavigationTravelMethods(game.settings,game.system?.id)
+        .find(method=>method.id===travel.methodId);
+      if(preset?.kind==="mount"&&preset.surface==="land")
+        return resolveNavigationTravelRules({settings:game.settings,
+          systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
+      return {
+        profile:"transport-preview",label:"Transport movement-only preview",dailyHours:null,
+        overnightHours:0,shortRestHours:1,longRestHours:8,forcedMarch:"custom"
+      };
+    }
     return resolveNavigationTravelRules({settings:game.settings,
       systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
   }
@@ -1198,7 +1207,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             refresh.addEventListener("click",()=>void this.render());
             controls.append(review,refresh);capacityBox.appendChild(controls);
             capacityBox.appendChild(el("small","In Group transportation resources, "+
-              "set each Camel's Role to Mount, specify its quantity and rider capacity, "+
+              "set a mount NPC's Role to Mount, specify its quantity and rider capacity, "+
               "then Save assignments. Refresh seats after saving."));
           }
           body.appendChild(capacityBox);
@@ -1207,14 +1216,27 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             if(distanceMi!==null){
               const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
               const movingHours=navigationHours(weighted,speed);
+              const previewRules=this.resolveTravelRules(travel);
+              const billableDayHours=selectedMethod.kind==="mount"&&
+                selectedMethod.surface==="land"&&previewRules.dailyHours!==null?
+                previewRules.dailyHours:24;
               const cost=projectedGroupFare(selectedMethod,{quantity:capacity.quantity,
-                passengers:roster.travelers,distanceMi,hours:movingHours});
+                passengers:roster.travelers,distanceMi,hours:movingHours,
+                dayHours:billableDayHours});
               const estimate=dndCurrencyBreakdown(cost,globalThis.CONFIG?.DND5E?.currencies);
+              const units=selectedMethod.costApplies==="passenger"?
+                roster.travelers:capacity.quantity;
+              const basisDetail=selectedMethod.costBasis==="day"?
+                units+" "+(selectedMethod.costApplies==="passenger"?"passenger(s)":"transport unit(s)")+
+                " × "+Math.ceil(Math.max(0,movingHours-1e-7)/billableDayHours)+
+                " travel day(s) at "+billableDayHours+"h/day × "+
+                selectedMethod.costCp+" CP per "+(selectedMethod.costApplies==="passenger"?
+                  "passenger":"unit")+" per day":
+                (selectedMethod.costApplies==="passenger"?"per passenger":"per transport unit");
               const note=el("p","Illustrative Group transport cost: "+estimate.label+
                 (estimate.roundedUp?" (coin-rounded up from "+
                   cost.toLocaleString(undefined,{maximumFractionDigits:2})+" CP)":"")+
-                " ("+(selectedMethod.costApplies==="passenger"?"per passenger":"per transport unit")+
-                "). No currency will be deducted.");
+                " ("+basisDetail+"). No currency will be deducted.");
               note.style.cssText="font-size:.83em;margin:0;opacity:.85;";
               body.appendChild(note);
             }
@@ -1272,11 +1294,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           this.journeySchedule:null;
         const plan=schedule?.estimate??estimateNavigationTotalTrip(hours,rules);
         metric("Total Trip",formatNavigationDuration(plan.totalHours,24));
-        const explanation=this.travelMethod!=="walking"?
-          "Transport preview: Total Trip currently includes moving time only. D&D 2024 mounts can double " +
-          "their distance for one hour before needing a rest; ships may travel longer depending on crew. " +
-          "Neither rule is automatically simulated until method-specific travel/rest policies are added. " +
-          "Configured transportation costs are planning references only.":
+        const activeMethod=methods.find(method=>method.id===this.travelMethod);
+        const mountedPreview=this.travelMethod!=="walking"&&
+          activeMethod?.kind==="mount"&&activeMethod.surface==="land"&&
+          rules.dailyHours!==null;
+        const explanation=mountedPreview?
+          `Mounted travel preview: ${rules.dailyHours}h travel/day, ${rules.overnightHours}h overnight downtime; ${plan.overnights} overnight stop${plan.overnights===1?"":"s"} planned. Feed costs use those travel days. Guided mount travel, forced marches and one-hour bursts are not yet automated; costs are estimates only.`:
+          this.travelMethod!=="walking"?
+          "Transport preview: Total Trip currently includes moving time only. Ships and other " +
+          "vehicles may operate on different schedules depending on crew. Method-specific " +
+          "travel/rest policies are not yet automated. Costs are planning references only.":
           rules.dailyHours===null?
           "Total Trip currently counts movement only; select D&D or Custom rules in Module Settings to plan rests.":
           `Plan: ${rules.dailyHours}h travel/day, ${rules.overnightHours}h overnight downtime `+

@@ -3,6 +3,7 @@ import test from "node:test";
 import { createNavigationItinerary } from "../scripts/navigation-itinerary.js";
 import { createJourneyRecord,checkpointJourneyRecord,findRecoverableJourney,
   JOURNEY_JOURNAL_FLAG } from "../scripts/navigation-journey-journal.js";
+import { estimateNavigationTotalTrip } from "../scripts/navigation-travel-day.js";
 
 const journalStore={save:async(_record,{journal}={})=>journal??{id:"test-journey"},
   find:()=>null};
@@ -657,4 +658,31 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     const travelDays=find(durationPanel,node=>node.textContent?.startsWith?.("Plan:"));
     assert.match(travelDays.textContent,/8h travel\/day.*2 overnight stops/);
   }finally{nav?.stop();Object.assign(globalThis,previous);}
+});
+
+test("mounted method previews use the active overland travel-day profile without enabling ship rests",()=>{
+  const priorGame=globalThis.game;
+  try{
+    let profile="dnd5e2024";
+    globalThis.game={system:{id:"dnd5e"},settings:{
+      get(_module,key){
+        if(key==="guidedTravelRulesProfile")return profile;
+        if(key==="guidedTravelCustomDayHours")return 6;
+        return undefined;
+      }
+    }};
+    const nav=new AtlasNavigationController();
+    const mounted=nav.resolveTravelRules({methodId:"riding-horse",hoursPerDay:null});
+    assert.equal(mounted.dailyHours,8);
+    assert.equal(mounted.overnightHours,16);
+    const plan=estimateNavigationTotalTrip(31+34/60,mounted);
+    assert.equal(plan.overnights,3);
+    assert.ok(Math.abs(plan.totalHours-(79+34/60))<1e-8);
+    const ship=nav.resolveTravelRules({methodId:"warship"});
+    assert.equal(ship.dailyHours,null,"ship operating-day rules remain explicitly unimplemented");
+    assert.equal(estimateNavigationTotalTrip(31+34/60,ship).overnights,0);
+    profile="custom";
+    assert.equal(nav.resolveTravelRules({methodId:"camel"}).dailyHours,6,
+      "custom World travel-day hours also apply to overland mount estimates");
+  }finally{globalThis.game=priorGame;}
 });
