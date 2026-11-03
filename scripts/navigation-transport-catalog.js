@@ -106,7 +106,7 @@ export const OPTIONAL_WORKBOOK_EXAMPLES = Object.freeze([
   id:"custom-"+id,name,kind,surface,speedMph,
   costCp:0,costBasis:"none",purchaseGp:null,
   note:"Optional workbook estimate, based on an alternate travel scenario. "+
-    "Not the D&D 2024 sustained mount rule; GM sets rest and movement conditions."
+    "Not the 2024 sustained mount rule; GM sets rest and movement conditions."
 })));
 /** Compatibility alias used by earlier beta tests and imported World catalogs. */
 export const OPTIONAL_TIRELESS_EXAMPLES=OPTIONAL_WORKBOOK_EXAMPLES;

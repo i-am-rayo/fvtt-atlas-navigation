@@ -22,7 +22,8 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     globalThis.document={createElement:tag=>new Element(tag)};
     globalThis.window={innerWidth:1280,innerHeight:900};
     globalThis.game={user:{isGM:true},settings:{get:(_module,key)=>
-      key==="checkpointPresets"?defaultCheckpointPresets():null}};
+      key==="checkpointPresets"?defaultCheckpointPresets():
+      key==="measuringUnits"?"metric":null}};
     globalThis.ui={notifications:{error(message){throw Error(message);},info(){}}};
     const {AtlasCheckpointPresetEditor}=await import("../scripts/checkpoint-preset-editor.js");
     const editor=new AtlasCheckpointPresetEditor({preset:defaultCheckpointPresets().presets[0]});

@@ -127,7 +127,7 @@ test("the workbook import includes previously missing magical and campaign metho
     "custom-mechanical-beholder"])
     assert.ok(ids.has(id),id);
   assert.ok(catalog.customs.length>=40);
-  assert.ok(OPTIONAL_TIRELESS_EXAMPLES.every(p=>p.note.includes("Not the D&D 2024")));
+  assert.ok(OPTIONAL_TIRELESS_EXAMPLES.every(p=>p.note.includes("Not the 2024")));
 });
 
 test("2014 rowboats/warships retain workbook-era speed without changing 2024 values",()=>{
