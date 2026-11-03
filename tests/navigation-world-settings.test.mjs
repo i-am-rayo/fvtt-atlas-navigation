@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { registerNavigationWorldSettings } from "../scripts/navigation-world-settings.js";
 import { NAVIGATION_PLAYBACK_SETTING } from "../scripts/navigation-playback.js";
+import { GROUP_TRANSPORT_SETTING } from "../scripts/navigation-group-transport.js";
 import { NAVIGATION_RULES_PROFILE_SETTING } from "../scripts/navigation-rules-profile.js";
 import { CUSTOM_DAY_HOURS_SETTING,CUSTOM_OVERNIGHT_HOURS_SETTING,
   CUSTOM_SHORT_REST_HOURS_SETTING,CUSTOM_LONG_REST_HOURS_SETTING }
@@ -21,9 +22,14 @@ test("navigation World Settings register once in a reusable module with bounded 
   }};
   let updates=0;
   registerNavigationWorldSettings({settings,onPlaybackChange:()=>updates++});
-  assert.equal(catalog.size,11);
+  assert.equal(catalog.size,12);
   assert.equal(menus.get("atlasTransportationPresetsMenu").restricted,true);
   assert.equal(catalog.get("guidedTransportationCatalog").config,false);
+  const groupConfig=catalog.get(GROUP_TRANSPORT_SETTING);
+  assert.equal(groupConfig.scope,"world");
+  assert.equal(groupConfig.config,false);
+  assert.deepEqual(groupConfig.default,{version:1,groups:{}});
+
   assert.ok(typeof menus.get("atlasTransportationPresetsMenu").type==="function");
   assert.equal(catalog.get(NAVIGATION_MOUNTED_SPEED_SETTING).default,3);
   assert.equal(catalog.get(NAVIGATION_SAILING_SPEED_SETTING).default,2);
