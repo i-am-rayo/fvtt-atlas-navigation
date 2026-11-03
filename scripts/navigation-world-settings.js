@@ -13,6 +13,8 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
 import { TRANSPORT_CATALOG_SETTING,defaultTransportationCatalog }
   from "./navigation-transport-catalog.js";
 import { AtlasTransportationSettings } from "./navigation-transport-settings.js";
+import { GROUP_TRANSPORT_SETTING,defaultGroupTransportation }
+  from "./navigation-group-transport.js";
 
 const MODULE_ID="fvtt-atlas-navigation";
 
@@ -22,6 +24,12 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
     name:"Atlas Transportation Catalog",
     hint:"Versioned World transportation preset overrides and custom mounts/vehicles.",
     scope:"world",config:false,type:Object,default:defaultTransportationCatalog()
+  });
+  settings.register(MODULE_ID,GROUP_TRANSPORT_SETTING,{
+    name:"Atlas Group Transportation Assignments",
+    hint:"Versioned Atlas-only NPC roles and quantities for D&D 5e Group Actors. "+
+      "Native Group membership and Actor data stay unchanged.",
+    scope:"world",config:false,type:Object,default:defaultGroupTransportation()
   });
   settings.registerMenu?.(MODULE_ID,"atlasTransportationPresetsMenu",{
     name:"Atlas — Transportation Presets",

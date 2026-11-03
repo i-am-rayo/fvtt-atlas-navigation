@@ -150,3 +150,23 @@ test("already imported optional creature labels are clarified without modifying 
   assert.match(displayed.note,/Optional workbook planning/);
   assert.match(catalog.customs[0].name,/optional tireless/,"saved World data is unchanged");
 });
+
+test("optional seat capacity and cost-per-passenger settings preserve legacy catalogs",()=>{
+  const legacy=defaultTransportationCatalog();
+  const legacySample={...sample};
+  const saved=setTransportationPreset(legacy,"dnd5e2024",legacySample);
+  assert.deepEqual(saved.customs[0],legacySample,"v1 records remain readable without forced fields");
+  const updated=setTransportationPreset(saved,"dnd5e2024",
+    {...sample,capacity:4,costApplies:"passenger"});
+  const projected=findTransportationPreset("custom-skiff",
+    settings({[TRANSPORT_CATALOG_SETTING]:updated}),"dnd5e");
+  assert.equal(projected.capacity,4);
+  assert.equal(projected.costApplies,"passenger");
+  const horse=findTransportationPreset("camel",settings(),"dnd5e");
+  assert.equal(horse.capacity,1);
+  assert.equal(horse.costApplies,"unit");
+  const hire=findTransportationPreset("coach-hire",settings(),"dnd5e");
+  assert.equal(hire.costApplies,"passenger");
+  const invalid={...sample,capacity:0};
+  assert.throws(()=>setTransportationPreset(legacy,"dnd5e2024",invalid),/Invalid/);
+});

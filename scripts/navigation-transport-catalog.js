@@ -121,6 +121,10 @@ const speed = value => Number.isFinite(value) && value>=0.1 && value<=600;
 const own = (obj,key)=>Object.prototype.hasOwnProperty.call(obj,key);
 const validCost = value => TRANSPORT_COST_BASES.includes(value);
 const validProfile = value=>TRANSPORT_REFERENCE_PROFILES.includes(value);
+const validCapacity=value=>value===null||(Number.isInteger(value)&&value>=1&&value<=1000);
+const validCostApplies=value=>value==="unit"||value==="passenger";
+const defaultCapacity=kind=>kind==="mount"?1:null;
+const defaultCostApplies=id=>id==="coach-hire"||id==="ship-passage"?"passenger":"unit";
 const immutable = value=>Object.freeze({...value});
 
 /** Strong validation at every write boundary; bad Worlds are never rewritten on load. */
@@ -142,11 +146,15 @@ export function validateTransportationCatalog(input){
           (id!=="walking" && !speed(patch.speedMph))||
           (id==="walking" && patch.speedMph!==null)||
           !money(patch.costCp)||!validCost(patch.costBasis)||
-          !(patch.purchaseGp===null||money(patch.purchaseGp)))
+          !(patch.purchaseGp===null||money(patch.purchaseGp))||
+          (patch.capacity!==undefined&&!validCapacity(patch.capacity))||
+          (patch.costApplies!==undefined&&!validCostApplies(patch.costApplies)))
         throw new Error("Invalid transportation override for "+id+".");
       result.overrides[profile][id]={
         speedMph:patch.speedMph,costCp:patch.costCp,
-        costBasis:patch.costBasis,purchaseGp:patch.purchaseGp
+        costBasis:patch.costBasis,purchaseGp:patch.purchaseGp,
+        ...(patch.capacity===undefined?{}:{capacity:patch.capacity}),
+        ...(patch.costApplies===undefined?{}:{costApplies:patch.costApplies})
       };
     }
   }
@@ -158,6 +166,8 @@ export function validateTransportationCatalog(input){
         !TRANSPORT_SURFACES.includes(item.surface)||!speed(item.speedMph)||
         !money(item.costCp)||!validCost(item.costBasis)||
         !(item.purchaseGp===null||money(item.purchaseGp))||
+        (item.capacity!==undefined&&!validCapacity(item.capacity))||
+        (item.costApplies!==undefined&&!validCostApplies(item.costApplies))||
         (item.note!==undefined && typeof item.note!=="string")||
         (item.note?.length??0)>240||ids.has(item.id))
       throw new Error("Invalid or duplicate custom transportation preset.");
@@ -196,7 +206,9 @@ export function listTransportationPresets(settings,systemId){
     const fallback=p.id==="mounted"?"guidedMountedSpeed":
       p.id==="sailing"?"guidedSailingSpeed":null;
     const speedMph=!change&&fallback?legacySpeed(settings,fallback,p.speedMph):stored.speedMph;
-    return immutable({...stored,speedMph,builtIn:true,
+    return immutable({...stored,speedMph,
+      capacity:stored.capacity??defaultCapacity(p.kind),
+      costApplies:stored.costApplies??defaultCostApplies(p.id),builtIn:true,
       referenceProfile:profile,customized:Boolean(change)||(Boolean(fallback)&&speedMph!==p.speedMph)});
   });
   return [...records,...catalog.customs.map(p=>{
@@ -206,7 +218,10 @@ export function listTransportationPresets(settings,systemId){
     const name=imported?p.name.replace(/ \(optional tireless\)$/,""):p.name;
     const note=imported&&p.note.startsWith("Optional workbook example:")?
       "Optional workbook planning example. Not a D&D 2024 sustained mount speed.":p.note;
-    return immutable({...p,name,note,builtIn:false,customized:true});
+    return immutable({...p,name,note,
+      capacity:p.capacity??defaultCapacity(p.kind),
+      costApplies:p.costApplies??defaultCostApplies(p.id),
+      builtIn:false,customized:true});
   })];
 }
 export function findTransportationPreset(id,settings,systemId){
@@ -218,12 +233,18 @@ export function setTransportationPreset(catalog,profile,preset){
       !TRANSPORT_KINDS.includes(preset.kind)||!TRANSPORT_SURFACES.includes(preset.surface)||
       !(preset.speedMph===null&&preset.id==="walking")&& !speed(preset.speedMph) ||
       !money(preset.costCp)||!validCost(preset.costBasis)||
-      !(preset.purchaseGp===null||money(preset.purchaseGp)))throw new Error("Invalid transportation preset.");
+      !(preset.purchaseGp===null||money(preset.purchaseGp))||
+       (preset.capacity!==undefined&&!validCapacity(preset.capacity))||
+       (preset.costApplies!==undefined&&!validCostApplies(preset.costApplies)))
+    throw new Error("Invalid transportation preset.");
   if(preset.id.startsWith("custom-")){
     const index=valid.customs.findIndex(p=>p.id===preset.id);
     const clean={id:preset.id,name:preset.name.trim(),kind:preset.kind,surface:preset.surface,
       speedMph:preset.speedMph,costCp:preset.costCp,costBasis:preset.costBasis,
-      purchaseGp:preset.purchaseGp,note:String(preset.note??"").slice(0,240)};
+      purchaseGp:preset.purchaseGp,
+      ...(preset.capacity===undefined?{}:{capacity:preset.capacity}),
+      ...(preset.costApplies===undefined?{}:{costApplies:preset.costApplies}),
+      note:String(preset.note??"").slice(0,240)};
     if(index===-1)valid.customs.push(clean);else valid.customs[index]=clean;
   }else{
     if(!validProfile(profile)||!dnd2024.some(p=>p.id===preset.id))
@@ -231,7 +252,9 @@ export function setTransportationPreset(catalog,profile,preset){
     valid.overrides[profile]??={};
     valid.overrides[profile][preset.id]={
       speedMph:preset.speedMph,costCp:preset.costCp,costBasis:preset.costBasis,
-      purchaseGp:preset.purchaseGp
+      purchaseGp:preset.purchaseGp,
+      ...(preset.capacity===undefined?{}:{capacity:preset.capacity}),
+      ...(preset.costApplies===undefined?{}:{costApplies:preset.costApplies})
     };
   }
   return validateTransportationCatalog(valid);

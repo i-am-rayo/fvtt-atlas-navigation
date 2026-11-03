@@ -61,6 +61,19 @@ export function calculateGuidedPlayback({route,travel,paths,gridSize,secondsPerH
   return {travelHours,durationSeconds,movementSpeed,visualDistance,secondsPerHour:compression};
 }
 
+/** Illustrative estimate for settings only: never a substitute for route terrain or
+ * Group Actor speeds. Applies the same 2s..10m playback cap as live travel. */
+export function exampleTripPlayback(distanceMi,secondsPerHour,speedMph=3){
+  validatePlaybackSetting(secondsPerHour);
+  if(!Number.isFinite(distanceMi)||distanceMi<=0||
+      !Number.isFinite(speedMph)||speedMph<=0)
+    throw Error("Invalid illustrative trip distance or speed.");
+  const travelHours=distanceMi/speedMph;
+  return {distanceMi,travelHours,
+    durationSeconds:Math.max(MIN_PLAYBACK_SECONDS,
+      Math.min(MAX_PLAYBACK_SECONDS,travelHours*secondsPerHour))};
+}
+
 export function formatPlaybackDuration(seconds){
   if(!Number.isFinite(seconds)||seconds<0)throw Error("Invalid playback duration.");
   const rounded=Math.round(seconds);

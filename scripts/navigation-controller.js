@@ -25,11 +25,14 @@ import { navigationPointIntent } from "./navigation-selection.js";
 import { createNavigationItinerary } from "./navigation-itinerary.js";
 import { REGION_ROUTING_ORDER_FLAG } from "./navigation-terrain.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
-import { resolveNavigationTravelSpeed } from "./navigation-party-speed.js";
+import { resolveNavigationTravelSpeed,convertGroupSpeed } from "./navigation-party-speed.js";
 import { availableNavigationTravelMethods,resolveNavigationMethodTravel,
   assessNavigationMethodRoute } from "./navigation-travel-method.js";
 import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
   from "./navigation-measure-units.js";
+import { readGroupTransportation,projectGroupTransportation,groupMethodCapacityStatus }
+  from "./navigation-group-transport.js";
+import { projectedGroupFare } from "./navigation-currency.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
@@ -1152,6 +1155,69 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const advisory=el("p",methodAssessment.reason??"Transport planning only.");
       advisory.style.cssText="margin:0;padding:.5rem;border:1px solid #b18b54;border-radius:6px;font-size:.83em;";
       body.appendChild(advisory);
+    }
+    if(this.travelMethod!=="walking" && game.system?.id==="dnd5e" &&
+        !["coach-hire","ship-passage"].includes(this.travelMethod)){
+      // Show capacity as a read-only advisory; non-walking guided movement is
+      // still forbidden until a GM authorizes checkpoint boarding.
+      const selectedMethod=methods.find(item=>item.id===this.travelMethod);
+      try{
+        const party=readPartyExploration(this.scene);
+        const group=party.enabled?this.scene?.tokens?.get?.(party.tokenId)?.actor:null;
+        if(group?.type==="group"&&selectedMethod?.surface){
+          const roster=projectGroupTransportation(group,readGroupTransportation(game.settings));
+          const capacity=groupMethodCapacityStatus(roster,selectedMethod);
+          const capacityNote=el("p",roster.travelers+" traveler(s); "+
+            capacity.seats+" available "+selectedMethod.surface+" seat(s). "+
+            (capacity.missing?capacity.missing+" additional seat(s) needed. ":
+              capacity.sufficient?"Capacity meets party size. ":"")+
+            (capacity.unknown?"Some transport capacities are not specified. ":"")+
+            (roster.unclassified?roster.unclassified+" NPC role(s) still need GM review. ":"")+
+            (capacity.matched?"Availability does not mean the party has boarded.":
+              "No matching Group resource. Add a matching mount or vehicle and assign its role."));
+          capacityNote.style.cssText="margin:0;padding:.5rem;border:1px solid "+
+            (capacity.missing?"#b18b54":"var(--color-border-light-tertiary,#666)")+
+            ";border-radius:6px;font-size:.83em;";
+          body.appendChild(capacityNote);
+          if(this.result?.status==="ok"&&capacity.matched&&selectedMethod.costBasis!=="none"){
+            const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
+            if(distanceMi!==null){
+              const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
+              const movingHours=navigationHours(weighted,speed);
+              const cost=projectedGroupFare(selectedMethod,{quantity:capacity.quantity,
+                passengers:roster.travelers,distanceMi,hours:movingHours});
+              const note=el("p","Illustrative Group transport cost: "+
+                cost.toLocaleString(undefined,{maximumFractionDigits:2})+
+                " CP ("+(selectedMethod.costApplies==="passenger"?"per passenger":"per transport unit")+
+                "). No currency will be deducted.");
+              note.style.cssText="font-size:.83em;margin:0;opacity:.85;";
+              body.appendChild(note);
+            }
+          }
+        }
+      }catch(error){atlasWarn("navigation","Group capacity preview unavailable",error);}
+    }
+    if(["coach-hire","ship-passage"].includes(this.travelMethod)&&
+        this.result?.status==="ok"&&game.system?.id==="dnd5e"){
+      try{
+        const assignment=readPartyExploration(this.scene);
+        const actor=assignment.enabled?this.scene?.tokens?.get?.(assignment.tokenId)?.actor:null;
+        if(actor?.type==="group"){
+          const roster=projectGroupTransportation(actor,readGroupTransportation(game.settings));
+          const method=methods.find(item=>item.id===this.travelMethod);
+          const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
+          if(method&&distanceMi!==null){
+            const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
+            const amount=projectedGroupFare(method,{quantity:1,passengers:roster.travelers,
+              distanceMi,hours:navigationHours(weighted,speed)});
+            const note=el("p",roster.travelers+" passenger(s): illustrative hired "+
+              "transport fare "+amount.toLocaleString(undefined,{maximumFractionDigits:2})+
+              " CP. No currency is deducted.");
+            note.style.cssText="margin:0;font-size:.83em;opacity:.85;";
+            body.appendChild(note);
+          }
+        }
+      }catch(error){atlasWarn("navigation","Group fare preview unavailable",error);}
     }
     const help=el("p",partyMode?
       "Atlas reads Point A from the assigned party token's Scene location. Click the map for B; Alt/Option+click changes B. Refresh location after moving the token.":
