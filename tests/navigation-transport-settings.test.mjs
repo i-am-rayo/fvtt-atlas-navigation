@@ -144,7 +144,7 @@ test("World Transportation Presets no longer embeds Group-specific assignments",
   try{
     const root=await new AtlasTransportationSettings()._renderHTML();
     const content=flatten(root).map(node=>node.textContent??"").join(" ");
-    assert.doesNotMatch(content,/Group transportation resources|Group Actor|Save Group transportation/);
+    assert.doesNotMatch(content,/Group transportation resources|Save Group transportation|atlasGroupSelection/);
     assert.match(content,/Land travel/);
   }finally{ctx.restore();}
 });
