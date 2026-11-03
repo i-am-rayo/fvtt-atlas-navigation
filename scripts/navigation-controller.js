@@ -224,7 +224,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const preset=all.find(method=>method.id===offer.methodId);
       if(!preset||offers.has(offer.methodId))continue;
       try{
-        if(checkpointOfferMethod(offer,preset).hireEnabled)offers.set(offer.methodId,offer);
+        if(checkpointOfferMethod({methodId:offer.methodId,mode:offer.mode,
+          overrides:offer.overrides},preset).hireEnabled)offers.set(offer.methodId,offer);
       }catch(error){atlasWarn("navigation","Invalid checkpoint transportation offer",error);}
     }
     const owned=new Set();
