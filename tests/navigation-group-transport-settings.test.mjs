@@ -92,7 +92,7 @@ test("Group editor separates PCs, NPCs and Vehicles without a Group dropdown",as
   try{
     const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
     const elements=flatten(root),labels=elements.map(e=>e.textContent??"").join(" ");
-    for(const name of ["Player Characters","Non-player Characters","Vehicles",
+    for(const name of ["Player Characters","NPC","Vehicles",
       "Camel","Warship","Transportation profile","Save Party Transportation Assignments"])
       assert.match(labels,new RegExp(name));
     assert.equal(elements.some(e=>e.name==="atlasGroupSelection"),false);
@@ -111,12 +111,59 @@ test("saving matching profile ID preserves mount capacity across Actor rename",a
     const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
     assert.ok(save.events.click?.length);
     await save.events.click[0]();
-    assert.equal(ctx.saved.version,2);
+    assert.equal(ctx.saved.version,3);
     assert.equal(ctx.saved.groups.group1.members.camel1.profileId,"camel");
     assert.equal(ctx.changes.length,1);
     ctx.camel.name="Biscuit";
     const projection=projectGroupTransportation(ctx.group,ctx.saved);
     assert.equal(groupMethodCapacityStatus(projection,
       {id:"camel",name:"Camel",surface:"land"}).seats,3);
+  }finally{ctx.restore();}
+});
+
+test("Group editor shows Vehicles / NPC / Player Characters tabs and preserves drafts on switch",async()=>{
+  const ctx=setup();
+  try{
+    const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
+    const elements=flatten(root);
+    const tabs=elements.filter(e=>e.attributes.get("role")==="tab");
+    assert.deepEqual(tabs.map(t=>t.textContent),["Vehicles","NPC","Player Characters"]);
+    const panels=elements.filter(e=>e.attributes.get("role")==="tabpanel");
+    assert.deepEqual(panels.map(p=>p.attributes.get("id")),
+      ["atlas-transport-panel-vehicle","atlas-transport-panel-npc",
+        "atlas-transport-panel-character"]);
+    assert.equal(panels[0].hidden,false,"Vehicles shown initially");
+    assert.equal(panels[1].hidden,true);
+    assert.equal(elements.some(e=>e.name==="surface-camel1"||e.name==="surface-ship1"),false,
+      "Profile derives travel surface without a duplicate selector");
+    const draft=elements.find(e=>e.name==="quantity-camel1");draft.value="5";
+    tabs[1].events.click[0]();
+    assert.equal(panels[1].hidden,false);
+    tabs[2].events.click[0]();
+    tabs[1].events.click[0]();
+    assert.equal(draft.value,"5","tab changes do not rebuild controls or discard edits");
+    assert.deepEqual(ctx.changes,[],"tab changes do not mutate Group or World flags");
+  }finally{ctx.restore();}
+});
+
+test("saving a custom mount speed overrides only Group metadata and derives surface",async()=>{
+  const ctx=setup();
+  try{
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const field=name=>elements.find(e=>e.name===name);
+    const speed=field("speed-camel1");
+    assert.equal(speed.disabled,false);
+    speed.value="3.75";
+    const profile=field("profile-camel1");
+    assert.equal(profile.value,"camel");
+    const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
+    await save.events.click[0]();
+    const entry=ctx.saved.groups.group1.members.camel1;
+    assert.equal(entry.speedMphOverride,3.75);
+    assert.equal(entry.surface,"land");
+    assert.equal(entry.profileId,"camel");
+    assert.equal(ctx.changes.length,1);
   }finally{ctx.restore();}
 });
