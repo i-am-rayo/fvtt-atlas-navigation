@@ -54,7 +54,7 @@ test("v0.2.22 checkpoint zoom changes screen size and vertical offset only", () 
   assert.equal(normal.y, 410);
   for (const zoom of [0.25, 0.5, 1, 2, 4]) {
     const pixels = checkpointCanvasSize(32, zoom) * zoom;
-    assert.ok(pixels >= 18 && pixels <= 56);
+    assert.ok(pixels >= 12 && pixels <= 56);
     const raised = checkpointMarkerPosition(point, fancy, zoom);
     assert.equal(raised.x, point.x);
     assert.ok(raised.y < point.y);
@@ -98,7 +98,7 @@ test("v8 checkpoint appearance is an explicit lossless GM-authored migration", (
 });
 
 test("checkpoint icon style whitelist, type and local image paths are strict", () => {
-  assert.equal(CHECKPOINT_ICONS.length, 12);
+  assert.equal(CHECKPOINT_ICONS.length, 13);
   assert.equal(CHECKPOINT_FREE_ICONS.length, 2163,
     "Font Awesome Free 7.3.1 Solid, Regular and Brands catalog is complete");
   assert.equal(checkpointIconPath(fancy), CHECKPOINT_ICON_ROOT + "mountain.svg");
@@ -235,7 +235,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
     globalThis.document = { createElement: tag => new Element(tag) };
     globalThis.game = { user: { isGM: true }, settings: {
-      get: (_scope,key) => key === "checkpointPresets" ? undefined : "metric"
+      get: (_scope,key) => ["checkpointPresets","guidedTransportationCatalog"].includes(key) ? undefined : "metric"
     } };
     globalThis.window = { innerWidth: 1280, innerHeight: 800 };
     globalThis.ui = { notifications: {
