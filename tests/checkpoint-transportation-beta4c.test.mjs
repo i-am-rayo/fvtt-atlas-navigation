@@ -167,3 +167,9 @@ test("checkpoint offers expose edit/delete actions and shared coin-aware slider 
       "coin boxes combine denominations into one canonical copper fare");
   }finally{Object.assign(globalThis,before);}
 });
+
+test("stables list purchasable mounts without silently enabling hired mount travel",()=>{
+  const mounts=defaultCheckpointTransportOffers("stables");
+  assert.ok(mounts.length>=3);
+  assert.ok(mounts.every(offer=>offer.overrides.hireEnabled===false));
+});

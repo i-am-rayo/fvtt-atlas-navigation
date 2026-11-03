@@ -60,6 +60,9 @@ export function validateCheckpointTransportOffers(value){
 }
 
 /** Estimates are named planning examples, not guaranteed services or RAW prices. */
+const RENT_ONLY_WHEN_GM_OPTED_IN=new Set([
+  "riding-horse","pony","mule","draft-horse","warhorse","camel","elephant","mastiff"
+]);
 const DEFAULT_SUPPLY={
   stables:[["riding-horse","land",40],["pony","land",20],
     ["mule","land",15],["draft-horse","land",30]],
@@ -78,7 +81,7 @@ const DEFAULT_SUPPLY={
 export function defaultCheckpointTransportOffers(category){
   return validateCheckpointTransportOffers((DEFAULT_SUPPLY[category]??[])
     .map(([methodId,mode,hireCostCp])=>({
-      methodId,mode,overrides:{hireEnabled:true,hireCostCp,
+      methodId,mode,overrides:{hireEnabled:!RENT_ONLY_WHEN_GM_OPTED_IN.has(methodId),hireCostCp,
         hireBasis:methodId==="ship-passage"||methodId==="coach-hire"?"mile":"day",
         hireApplies:methodId==="ship-passage"||methodId==="coach-hire"?
           "passenger":"unit"}

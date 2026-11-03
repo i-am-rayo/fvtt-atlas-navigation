@@ -220,7 +220,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const offered=this.scene&&this.start?offersAtOrigin(
       this.atlasProvider(this.scene),this.scene,this.start):[];
     const offers=new Map();
-    for(const offer of offered)if(!offers.has(offer.methodId))offers.set(offer.methodId,offer);
+    for(const offer of offered){
+      const preset=all.find(method=>method.id===offer.methodId);
+      if(!preset||offers.has(offer.methodId))continue;
+      try{
+        if(checkpointOfferMethod(offer,preset).hireEnabled)offers.set(offer.methodId,offer);
+      }catch(error){atlasWarn("navigation","Invalid checkpoint transportation offer",error);}
+    }
     const owned=new Set();
     try{
       const group=this.getPartyToken()?.actor;
