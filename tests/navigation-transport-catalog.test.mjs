@@ -3,7 +3,7 @@ import test from "node:test";
 import { defaultTransportationCatalog,validateTransportationCatalog,
   selectedTransportationProfile,listTransportationPresets,findTransportationPreset,
   setTransportationPreset,deleteCustomTransportationPreset,resetTransportationPreset,
-  addOptionalTirelessExamples,transportationCostPreview,TRANSPORT_CATALOG_SETTING,
+  addOptionalTirelessExamples,transportationCostPreview,estimateTransportationTrip,TRANSPORT_CATALOG_SETTING,
   OPTIONAL_TIRELESS_EXAMPLES } from "../scripts/navigation-transport-catalog.js";
 
 const settings=(values={})=>({get(_module,key){return values[key];}});
@@ -82,7 +82,7 @@ test("custom presets use stable IDs, validated boundaries, and never change exis
 });
 
 test("catalog validation refuses malformed, duplicate and future-version records",()=>{
-  assert.throws(()=>validateTransportationCatalog({version:2,overrides:{},customs:[]}),/version/i);
+  assert.throws(()=>validateTransportationCatalog({version:3,overrides:{},customs:[]}),/version/i);
   const cat=defaultTransportationCatalog();
   cat.customs=[sample,{...sample}];
   assert.throws(()=>validateTransportationCatalog(cat),/duplicate/i);
@@ -169,4 +169,71 @@ test("optional seat capacity and cost-per-passenger settings preserve legacy cat
   assert.equal(hire.costApplies,"passenger");
   const invalid={...sample,capacity:0};
   assert.throws(()=>setTransportationPreset(legacy,"dnd5e2024",invalid),/Invalid/);
+});
+
+test("v1 transportation catalogs migrate only in memory; crew reference values are projected",()=>{
+  const legacy={version:1,overrides:{dnd5e2024:{
+    warship:{speedMph:2.7,costCp:0,costBasis:"none",purchaseGp:25000}
+  }},customs:[sample]};
+  const source=JSON.stringify(legacy);
+  const projected=validateTransportationCatalog(legacy);
+  assert.equal(projected.version,2);
+  assert.equal(JSON.stringify(legacy),source,"no mutation of World flags");
+  const values={[TRANSPORT_CATALOG_SETTING]:legacy};
+  assert.equal(findTransportationPreset("warship",settings(values),"dnd5e").speedMph,2.7);
+  assert.equal(findTransportationPreset("warship",settings(values),"dnd5e").crewCount,60);
+  assert.equal(findTransportationPreset("warship",settings(values),"dnd5e").capacity,60);
+  assert.equal(findTransportationPreset("galley",settings(values),"dnd5e").crewCount,80);
+  assert.equal(findTransportationPreset("galley",settings(values),"dnd5e").capacity,null);
+  assert.equal(findTransportationPreset("airship",settings(values),"dnd5e").capacity,20);
+  assert.equal(findTransportationPreset("carriage",settings(values),"dnd5e").capacity,4);
+  assert.equal(findTransportationPreset("custom-skiff",settings(values),"dnd5e").crewCount,0);
+  assert.equal(findTransportationPreset("warship",settings(values),"dnd5e").includeCrewWages,false);
+});
+
+test("World crew and wage options are stored independently for each rules profile",()=>{
+  const original=findTransportationPreset("warship",settings(),"dnd5e");
+  const revised=setTransportationPreset(defaultTransportationCatalog(),"dnd5e2024",
+    {...original,crewCount:18,crewWageCpPerDay:350,includeCrewWages:true});
+  assert.equal(revised.version,2);
+  const current=findTransportationPreset("warship",
+    settings({[TRANSPORT_CATALOG_SETTING]:revised}),"dnd5e");
+  assert.equal(current.crewCount,18);
+  assert.equal(current.crewWageCpPerDay,350);
+  assert.equal(current.includeCrewWages,true);
+  const other=findTransportationPreset("warship",
+    settings({[TRANSPORT_CATALOG_SETTING]:revised,guidedTravelRulesProfile:"dnd5e2014"}),"dnd5e");
+  assert.equal(other.crewCount,60);
+  assert.equal(other.includeCrewWages,false);
+  for(const invalid of [{crewCount:-1},{crewCount:1.5},
+    {crewWageCpPerDay:-1},{crewWageCpPerDay:Infinity},{includeCrewWages:"yes"}]){
+    assert.throws(()=>setTransportationPreset(revised,"dnd5e2024",
+      {...original,...invalid}),/Invalid/);
+  }
+});
+
+test("100-mile and one-day examples use one unit, 8-hour days and optional crew wages",()=>{
+  const horse=findTransportationPreset("riding-horse",settings(),"dnd5e");
+  const hundred=estimateTransportationTrip(horse,{distanceMi:100});
+  assert.equal(hundred.travelDays,5);
+  assert.equal(hundred.movingHours,100/3);
+  assert.equal(hundred.recurringCp,25);
+  assert.equal(hundred.crewWagesCp,0);
+  assert.equal(hundred.totalCp,25);
+  const oneDay=estimateTransportationTrip(horse,{distanceMi:24});
+  assert.equal(oneDay.travelDays,1);
+  assert.equal(oneDay.recurringCp,5);
+  const ship=findTransportationPreset("warship",settings(),"dnd5e");
+  assert.equal(estimateTransportationTrip(ship,{distanceMi:100}).crewWagesCp,0);
+  const hired=estimateTransportationTrip({...ship,includeCrewWages:true},
+    {distanceMi:100,units:1});
+  assert.equal(hired.travelDays,5);
+  assert.equal(hired.crewWagesCp,60*200*5);
+  assert.equal(hired.totalCp,60000);
+  const passage=findTransportationPreset("ship-passage",settings(),"dnd5e");
+  assert.equal(estimateTransportationTrip(passage,{distanceMi:100,passengers:3}).recurringCp,3000);
+  const disabled=estimateTransportationTrip({...ship,includeCrewWages:false,crewCount:60},
+    {distanceMi:100});
+  assert.equal(disabled.totalCp,0);
+  assert.throws(()=>estimateTransportationTrip({...horse,speedMph:0},{distanceMi:100}),/Invalid/);
 });
