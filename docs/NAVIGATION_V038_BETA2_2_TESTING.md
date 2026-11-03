@@ -30,7 +30,8 @@ Stacked on draft v0.3.8-beta.2.1. Do **not** merge before owner GM/non-GM Foundr
 
 - Confirm transportation World editing stays GM-restricted.
 - Existing player-visible roads/checkpoints and Atlas Fog should behave unchanged.
-- No new player-visible Group data or Atlas flags are broadcast by this change.
+- Confirm the Group roster editor is not accessible to non-GMs. Atlas sends no custom sockets.
+- Inspect the new World setting with a non-GM client: World-setting values may be synchronized by Foundry. Treat Actor IDs and role assignments as **not secret**, and do not put GM-only lore in these fields.
 
 ## Compatibility and limitations
 
