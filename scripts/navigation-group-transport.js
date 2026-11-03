@@ -76,8 +76,9 @@ const actorSurface=actor=>{
   return "land";
 };
 /** The same Actor may represent multiple physical units; never group by name. */
-export function projectGroupTransportation(group,settings=defaultGroupTransportation()){
+export function projectGroupTransportation(group,settings=defaultGroupTransportation(),methods=[]){
   const data=validateGroupTransportation(settings);
+  const profileLookup=new Map(methods.map(method=>[method.id,method]));
   const groupId=group?.parent?.actorId??group?.id;
   if(!group||group.type!=="group"||!safeId(groupId))
     throw new Error("A D&D 5e Group Actor is required.");
@@ -96,8 +97,10 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
     const quantity=character?1:saved?.quantity??1;
     const capacity=vehicle?saved?.capacity??passengerMaximum(actor):
       role==="mount"?(saved?.capacity??1):null;
-    const surface=saved?.surface??actorSurface(actor);
     const profileId=saved?.profileId??null;
+    // The World profile is authoritative when available. Stored surface is
+    // retained for legacy/unlinked resources and when a profile was deleted.
+    const surface=profileLookup.get(profileId)?.surface??saved?.surface??actorSurface(actor);
     const speedMphOverride=saved?.speedMphOverride??null;
     members.push({actorId:actor.id,actorName:actor.name??"Unnamed Actor",
       actorType:actor.type,role,quantity,capacity,surface,profileId,speedMphOverride,
@@ -132,11 +135,12 @@ export function groupMethodCapacityStatus(projection,method){
   if(!method||!GROUP_TRANSPORT_SURFACES.includes(method.surface))
     throw new Error("A valid transport method is required.");
   const relevant=projection.members.filter(m=>{
-    if(m.surface!==method.surface)return false;
-    if(method.id==="mounted")return m.role==="mount";
-    return (m.role==="mount"||m.role==="vehicle")&&
-      (m.profileId!==null?m.profileId===method.id:
-        m.actorName.toLowerCase()===String(method.name??"").toLowerCase());
+    if(method.id==="mounted")return m.role==="mount"&&m.surface===method.surface;
+    if(m.profileId!==null)return (m.role==="mount"||m.role==="vehicle")&&
+      m.profileId===method.id;
+    return m.surface===method.surface&&
+      (m.role==="mount"||m.role==="vehicle")&&
+      m.actorName.toLowerCase()===String(method.name??"").toLowerCase();
   });
   const seats=relevant.reduce((sum,m)=>sum+(m.capacity??0)*m.quantity,0);
   const quantity=relevant.reduce((sum,m)=>sum+m.quantity,0);
