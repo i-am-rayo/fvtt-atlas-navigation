@@ -18,7 +18,7 @@ test("beta.4c seeds lore-friendly city, stables, inland and ocean offers",()=>{
   const all=defaultCheckpointPresets();
   const types=new Set(all.presets.map(p=>p.category));
   for(const type of ["stables","mines","lighthouse","sea-storm","reef",
-    "whirlpool","pirates","sea-monster"])assert.ok(types.has(type),type);
+    "whirlpool","pirates","sea-monster","air-dock"])assert.ok(types.has(type),type);
   assert.equal(presetForCheckpointType(all,"mines").appearance.icon,"pickaxe");
   assert.equal(presetForCheckpointType(all,"stables").appearance.size,12);
   assert.equal(presetForCheckpointType(all,"city").appearance.size,24);
@@ -26,6 +26,8 @@ test("beta.4c seeds lore-friendly city, stables, inland and ocean offers",()=>{
   assert.ok(defaultCheckpointTransportOffers("stables").some(x=>x.methodId==="riding-horse"));
   assert.ok(defaultCheckpointTransportOffers("port").some(x=>x.mode==="sea"));
   assert.ok(defaultCheckpointTransportOffers("dock").some(x=>x.mode==="water"));
+  assert.ok(defaultCheckpointTransportOffers("air-dock").some(x=>x.mode==="air"));
+  assert.equal(presetForCheckpointType(all,"air-dock").appearance.size,12);
   assert.deepEqual(validateCheckpointPresets(all),all);
 });
 test("legacy v1 World checkpoint catalog is projected without overwriting custom values",()=>{
@@ -34,11 +36,14 @@ test("legacy v1 World checkpoint catalog is projected without overwriting custom
     .map(({transportation,...rest})=>rest)};
   const snapshot=structuredClone(legacy);
   const upgraded=validateCheckpointPresets(legacy);
-  assert.equal(upgraded.schemaVersion,2);
+  assert.equal(upgraded.schemaVersion,3);
   assert.deepEqual(legacy,snapshot);
   assert.ok(upgraded.presets.some(p=>p.category==="mines"));
   assert.ok(upgraded.presets.find(p=>p.category==="stables").transportation.length);
   assert.deepEqual(validateCheckpointPresets(upgraded),upgraded);
+  const previous={schemaVersion:2,presets:original.presets.filter(p=>p.category!=="air-dock")};
+  assert.ok(validateCheckpointPresets(previous).presets.some(p=>p.category==="air-dock"));
+  assert.deepEqual(previous.presets,original.presets.filter(p=>p.category!=="air-dock"));
 });
 test("checkpoint offers reject duplicates, invalid fares, and surface mismatches",()=>{
   const offers=defaultCheckpointTransportOffers("dock");
@@ -53,6 +58,11 @@ test("checkpoint offers reject duplicates, invalid fares, and surface mismatches
     methodId:"carriage",mode:"land",
     overrides:{hireEnabled:true,hireCostCp:900,capacity:3}
   },world("carriage"));
+  const airship=checkpointOfferMethod({methodId:"airship",mode:"air",
+    overrides:{hireCostCp:2500,hireEnabled:true}},world("airship"));
+  assert.equal(airship.hireCostCp,2500);
+  assert.throws(()=>checkpointOfferMethod({methodId:"airship",mode:"sea",
+    overrides:{}},world("airship")) ,/surface/);
   assert.equal(carriage.hireCostCp,900);
   assert.equal(carriage.capacity,3);
   assert.equal(world("carriage").hireCostCp,400,"World rate is unmodified");

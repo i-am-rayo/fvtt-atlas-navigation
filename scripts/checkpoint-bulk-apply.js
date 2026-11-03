@@ -45,7 +45,7 @@ export function buildCheckpointBulkUpdate(scene,preset,{scope="category",fields=
   const nextCheckpoints=styledAtlas.checkpoints.map(checkpoint=>{
     if(!targetIds.has(checkpoint.id)||!appearanceKeys.some(k=>chosen.has(k))&&
       !chosen.has("icon"))return checkpoint;
-    const style=resolveCheckpointAppearance(checkpoint.appearance);
+    const style={...resolveCheckpointAppearance(checkpoint.appearance)};
     if(chosen.has("icon")){style.type=appearance.type;style.icon=appearance.icon;style.image=appearance.image;}
     for(const key of appearanceKeys){
       if(key!=="type"&&key!=="icon"&&key!=="image"&&chosen.has(key))style[key]=appearance[key];

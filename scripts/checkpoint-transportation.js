@@ -7,7 +7,7 @@ import { MODULE_ID } from "./atlas-storage.js";
 
 export const CHECKPOINT_TRANSPORT_FLAG="checkpointTransportOffers";
 export const CHECKPOINT_TRANSPORT_VERSION=1;
-export const CHECKPOINT_TRANSPORT_MODES=Object.freeze(["land","water","sea"]);
+export const CHECKPOINT_TRANSPORT_MODES=Object.freeze(["land","water","sea","air"]);
 const ID=/^[A-Za-z0-9_-]{1,128}$/;
 const KEYS=["speedMph","capacity","costCp","costBasis","costApplies",
   "purchaseGp","crewCount","crewWageCpPerDay","includeCrewWages",
@@ -53,7 +53,7 @@ export function validateCheckpointTransportOffers(value){
       overrides[key]=value;
     }
     if(overrides.continuousEnabled&&offer.mode==="land")
-      throw Error("Continuous travel needs a water or sea transport.");
+      throw Error("Continuous travel needs a water, sea or air transport.");
     return {methodId:offer.methodId,mode:offer.mode,overrides};
   });
 }
@@ -71,7 +71,8 @@ const DEFAULT_SUPPLY={
   inn:[["coach-hire","land",3]],
   port:[["ship-passage","sea",10],["sailing","sea",6000]],
   dock:[["rowboat","water",100],["keelboat","water",600],
-    ["ship-passage","sea",10]]
+    ["ship-passage","sea",10]],
+  "air-dock":[["airship","air",5000]]
 };
 export function defaultCheckpointTransportOffers(category){
   return validateCheckpointTransportOffers((DEFAULT_SUPPLY[category]??[])
@@ -85,8 +86,9 @@ export function defaultCheckpointTransportOffers(category){
 export function checkpointOfferMethod(offer,worldMethod){
   const checked=validateCheckpointTransportOffers([offer])[0];
   if(!worldMethod||worldMethod.id!==checked.methodId)throw Error("Missing linked World method.");
-  if(checked.mode==="land"&&worldMethod.surface!=="land"||
-    checked.mode!=="land"&&worldMethod.surface!=="water")
+  if((checked.mode==="land"&&worldMethod.surface!=="land")||
+    (checked.mode==="air"&&worldMethod.surface!=="air")||
+    ((checked.mode==="water"||checked.mode==="sea")&&worldMethod.surface!=="water"))
     throw Error("Checkpoint offer surface differs from its World method.");
   if(checked.overrides.continuousEnabled&&worldMethod.kind!=="vehicle")
     throw Error("Continuous travel needs a vehicle.");

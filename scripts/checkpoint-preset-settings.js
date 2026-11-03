@@ -65,9 +65,9 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
           onClick:()=>void this._run(()=>this._edit(preset))});
         const remove=createSettingsActionButton({icon:"trash",label:"Delete "+preset.name,
           onClick:()=>void this._run(()=>this._delete(preset)),danger:true});
-        const apply=node("button","Apply to open Scene…");apply.type="button";
-        apply.title="Select which fields to copy to placed checkpoints, with confirmation";
-        apply.addEventListener("click",()=>void this._run(()=>this._apply(preset)));
+        const apply=createSettingsActionButton({icon:"layer-group",
+          label:"Apply "+preset.name+" to open Scene",
+          onClick:()=>void this._run(()=>this._apply(preset))});
         row.append(edit,apply,remove);fieldset.appendChild(row);
       }
       root.appendChild(fieldset);
