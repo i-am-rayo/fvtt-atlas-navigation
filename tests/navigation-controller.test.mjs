@@ -235,6 +235,16 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     const rate=rateField.children[1].children[0];
     rate.value="5";rate.listeners.get("change")();
     assert.equal(nav.transportHireTerms.hireCostCp,500);
+    const coin=rateField.children[1].children[1];
+    coin.value="cp";coin.listeners.get("change")();
+    assert.equal(nav.transportHireDenomination,"cp");
+    assert.equal(nav.transportHireTerms.hireCostCp,500,
+      "switching denomination cannot change the CP-equivalent fare");
+    const repriced=await nav._renderHTML();
+    const repricedField=find(repriced,item=>item.tag==="label"&&
+      item.children[0]?.textContent==="Hired fare");
+    assert.equal(repricedField.children[1].children[0].value,"500",
+      "5 GP is displayed as 500 CP without changing the estimate");
     const frequencyField=find(hired,item=>item.tag==="label"&&
       item.children[0]?.textContent==="Fare frequency");
     frequencyField.children[1].value="trip";
