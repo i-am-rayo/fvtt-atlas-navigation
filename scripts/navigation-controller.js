@@ -33,8 +33,9 @@ import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
 import { readGroupTransportation,projectGroupTransportation,
   groupMethodCapacityStatus,groupMethodFareEstimate }
   from "./navigation-group-transport.js";
-import { dndCurrencyBreakdown } from "./navigation-currency.js";
-import { resolveTransportationOperation,quoteTransportationService }
+import { dndCurrencyBreakdown,atlasCurrencyChoices,copperFromCoin,coinFromCopper }
+  from "./navigation-currency.js";
+import { resolveTransportationOperation,quoteTransportationService,resolveTransportationHireFare }
   from "./navigation-transport-service.js";
 import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
@@ -79,6 +80,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportArrangement="owned";
     this.transportOperation="normal";
     this.transportQuoteAdjustmentCp=0;
+    this.transportHireTerms=null;
+    this.transportHireDenomination=null;
     this.start = null;
     this.end = null;
     this.result = null;
@@ -122,6 +125,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportArrangement="owned";
     this.transportOperation="normal";
     this.transportQuoteAdjustmentCp=0;
+    this.transportHireTerms=null;
+    this.transportHireDenomination=null;
     // Favor the manually assigned Atlas party explorer when it can actually
     // provide a valid Scene-to-Atlas origin. Otherwise retain map-point mode.
     try{
@@ -216,7 +221,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     let methods;
     try{methods=availableNavigationTravelMethods(game.settings,game.system?.id);}
     catch(error){ui.notifications.warn(error.message||String(error));return;}
-    if(!methods.some(item=>item.id===method))return;
+    const selectedMethod=methods.find(item=>item.id===method);
+    if(!selectedMethod)return;
     const view=this.canvasProvider();
     if(!game.user?.isGM||!view?.ready||view.scene?.id!==this.scene.id)return;
     try{
@@ -224,9 +230,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.scene?.grid?.units?.trim()||"");
     }catch(error){ui.notifications.warn(error.message||String(error));return;}
     this.travelMethod=method;
-    this.transportArrangement=["coach-hire","ship-passage"].includes(method)?"hire":"owned";
+    // Until checkpoint offers arrive, matching Group-owned transport is
+    // preferred; otherwise choose the provisional hired quote if available.
+    let ownsSelected=false;
+    try{
+      const partyActor=this.getPartyToken()?.actor;
+      if(game.system?.id==="dnd5e"&&partyActor?.type==="group"){
+        const roster=projectGroupTransportation(partyActor,
+          readGroupTransportation(game.settings),methods);
+        ownsSelected=groupMethodCapacityStatus(roster,selectedMethod).matched>0;
+      }
+    }catch(error){atlasWarn("navigation","Could not infer owned transport",error);}
+    this.transportArrangement=ownsSelected?"owned":
+      selectedMethod.hireEnabled?"hire":"owned";
     this.transportOperation="normal";
     this.transportQuoteAdjustmentCp=0;
+    this.transportHireTerms=null;
+    this.transportHireDenomination=null;
     this.travelNotice="";
     this.calculateRoute(view,this.atlasProvider(this.scene));
     this.draw();
@@ -889,6 +909,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.worldRestAdvancedSeconds=0;
     this.journeySchedule=null;
     this.journeyTimeUI=null;
+    this.transportHireTerms=null;
+    this.transportHireDenomination=null;
+    this.transportQuoteAdjustmentCp=0;
     this.recoveryJournal=null;
     this.recoveryRecord=null;
     this.recoverableJourney=null;
@@ -1341,51 +1364,136 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             const normalRules=resolveNavigationTravelRules({settings:game.settings,
               systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
             const normalHours=method.surface==="land"?(normalRules.dailyHours??8):8;
-            const quote=quoteTransportationService(method,{
-              arrangement:this.transportArrangement,
+            const quoteArgs={arrangement:this.transportArrangement,
               operation:this.transportOperation,movingHours,distanceMi,
-              travelers:roster?.travelers??1,ownedQuote,
-              adjustmentCp:this.transportQuoteAdjustmentCp,regularHours:normalHours
-            });
+              travelers:roster?.travelers??1,ownedQuote,regularHours:normalHours};
+            const quote=quoteTransportationService(method,{...quoteArgs,
+              hireTerms:this.transportHireTerms,
+              adjustmentCp:this.transportQuoteAdjustmentCp});
+            const original=this.transportArrangement==="hire"?
+              quoteTransportationService(method,{...quoteArgs,hireTerms:null,adjustmentCp:0}):null;
             const formatMoney=cp=>dndCurrencyBreakdown(cp,
               globalThis.CONFIG?.DND5E?.currencies).label;
             const block=el("section");
-            block.style.cssText="display:grid;gap:.4rem;border:1px solid var(--color-border-light-tertiary,#777);border-radius:8px;padding:.65rem;";
-            block.append(el("strong","Estimated "+(quote.arrangement==="hire"?
-              "hired service":"party-owned transport")+" cost: "+formatMoney(quote.totalCp)));
-            const details=[
+            block.style.cssText="display:grid;gap:.55rem;border:1px solid var(--color-border-light-tertiary,#777);border-radius:8px;padding:.65rem;";
+            if(original){
+              const initial=el("div","World preset estimate: "+formatMoney(original.totalCp));
+              initial.style.cssText="opacity:.78;font-size:.9em;";block.append(initial);
+            }
+            block.append(el("strong","Current "+(quote.arrangement==="hire"?
+              "hired service":"party-owned transport")+" estimate: "+formatMoney(quote.totalCp)));
+            block.append(el("small",[
               quote.baseLabel+": "+formatMoney(quote.baseCp),
               "Paid crew: "+formatMoney(quote.crewWagesCp),
-              "Overtime fare premium: "+formatMoney(quote.overtimeFareCp),
-              "Overtime labor premium: "+formatMoney(quote.overtimeCrewCp)
-            ];
-            block.append(el("small",details.join(" · ")));
+              "Overtime fare: "+formatMoney(quote.overtimeFareCp),
+              "Overtime labor: "+formatMoney(quote.overtimeCrewCp),
+              this.transportQuoteAdjustmentCp?"Negotiated adjustment: "+this.transportQuoteAdjustmentCp+" CP":""
+            ].filter(Boolean).join(" · ")));
             const timetable=el("small",quote.travelDays+" operating day(s) at "+
               quote.dailyHours+"h/day, "+quote.extraHours.toFixed(1)+" overtime hour(s), "+
               quote.units+" transport unit(s). "+
               (quote.provisionalAvailability?"Hire availability is not verified. ":"")+
               "No currency is deducted.");
-            timetable.style.cssText="opacity:.8;";
-            block.append(timetable);
+            timetable.style.cssText="opacity:.8;";block.append(timetable);
+            const disabled=Boolean(this.travelSession||this.journalStarting);
+            const field=(caption,control)=>{
+              const wrapper=el("label");wrapper.style.cssText="display:grid;gap:.25rem;min-width:0;align-content:start;";
+              const title=el("span",caption);title.style.cssText="font-weight:600;font-size:.85em;";
+              wrapper.append(title,control);return wrapper;
+            };
+            const makeSelect=(items,current)=>{
+              const select=el("select");select.style.cssText="width:100%;min-width:0;";
+              for(const [id,label] of items){const option=el("option",label);option.value=id;
+                option.selected=id===current;select.append(option);}
+              select.value=current;select.disabled=disabled;return select;
+            };
+            if(this.transportArrangement==="hire"){
+              const presetFare=resolveTransportationHireFare(method);
+              const fare=resolveTransportationHireFare(method,this.transportHireTerms);
+              const frequency=fare.hireBasis==="trip"?"trip":
+                fare.hireBasis==="mile"?"mile":"operating day";
+              const per=fare.hireApplies==="passenger"?"passenger":"transport unit";
+              const defaultDenom=method.hireCostCp>=100?"gp":"cp";
+              const initialCoin=this.transportHireDenomination??defaultDenom;
+              const choices=atlasCurrencyChoices(game.system?.id,
+                globalThis.CONFIG?.DND5E?.currencies);
+              const denom=choices.some(choice=>choice.id===initialCoin)?initialCoin:
+                choices[0]?.id??"cp";
+              const presetPrice=el("small","World preset fare: "+formatMoney(presetFare.hireCostCp)+
+                " per "+(presetFare.hireBasis==="day"?"operating day":presetFare.hireBasis)+
+                " per "+(presetFare.hireApplies==="passenger"?"passenger":"transport unit")+".");
+              presetPrice.style.cssText="opacity:.78;";block.append(presetPrice);
+              const editor=el("div");
+              editor.style.cssText="display:grid;gap:.5rem;border-top:1px solid var(--color-border-light-tertiary,#555);padding-top:.55rem;";
+              editor.append(el("strong","GM pricing for this journey only"));
+              const controls=el("div");
+              controls.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;align-items:start;";
+              const priceControls=el("div");priceControls.style.cssText="display:flex;gap:.35rem;min-width:0;";
+              const rate=el("input");rate.type="number";rate.step="any";rate.min="0";rate.max="100000000";
+              rate.value=String(coinFromCopper(fare.hireCostCp,denom));
+              rate.style.cssText="width:100%;min-width:0;box-sizing:border-box;flex:1;";rate.disabled=disabled;
+              const denomination=makeSelect(choices.map(choice=>[choice.id,choice.label]),denom);
+              denomination.style.cssText="width:5.6rem;min-width:0;flex:none;";
+              priceControls.append(rate,denomination);
+              controls.append(field("Hired fare",priceControls));
+              rate.addEventListener("change",()=>{
+                if(disabled)return;
+                try{
+                  if(!rate.value.trim())throw Error("Enter a fare amount.");
+                  const cp=copperFromCoin(Number(rate.value),denom);
+                  if(cp>1e8)throw Error("Fare exceeds the maximum amount.");
+                  this.transportHireTerms={...fare,hireCostCp:cp};
+                  void this.render(true);
+                }catch(error){globalThis.ui?.notifications?.warn?.(error.message??String(error));}
+              });
+              denomination.addEventListener("change",()=>{
+                if(disabled)return;
+                // Changing coin display units keeps the same CP-equivalent fare.
+                this.transportHireDenomination=denomination.value;
+                void this.render(true);
+              });
+              const basis=makeSelect([["trip","Flat per trip"],["mile","Per traveled mile"],
+                ["day","Per operating day"]],fare.hireBasis);
+              basis.addEventListener("change",()=>{
+                if(disabled)return;
+                this.transportHireTerms={...fare,hireBasis:basis.value};void this.render(true);
+              });
+              controls.append(field("Fare frequency",basis));
+              const applies=makeSelect([["unit","Per transport unit"],
+                ["passenger","Per passenger"]],fare.hireApplies);
+              applies.addEventListener("change",()=>{
+                if(disabled)return;
+                this.transportHireTerms={...fare,hireApplies:applies.value};void this.render(true);
+              });
+              controls.append(field("Charge for each",applies));
+              editor.append(controls);
+              editor.append(el("small","Using "+formatMoney(fare.hireCostCp)+
+                " per "+frequency+" per "+per+". Changes affect this estimate only, not the World preset."));
+              const reset=el("button","Reset to World preset");reset.type="button";
+              reset.disabled=disabled;reset.style.cssText="justify-self:start;";
+              reset.addEventListener("click",()=>{
+                if(disabled)return;
+                this.transportHireTerms=null;this.transportHireDenomination=null;
+                this.transportQuoteAdjustmentCp=0;void this.render(true);
+              });
+              editor.append(reset);block.append(editor);
+            }
             const adjustment=el("label");
             adjustment.style.cssText="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;";
-            adjustment.append(el("span","GM price adjustment (CP)"));
+            adjustment.append(el("span","Additional negotiated adjustment (CP)"));
             const amount=el("input");amount.type="number";amount.step="1";
             amount.min="-100000000";amount.max="100000000";
             amount.value=String(this.transportQuoteAdjustmentCp);
-            amount.style.cssText="width:9rem;min-width:0;";
-            amount.disabled=Boolean(this.travelSession);
+            amount.style.cssText="width:9rem;min-width:0;";amount.disabled=disabled;
             amount.addEventListener("change",()=>{
               const value=Number(amount.value);
               if(!Number.isFinite(value)||Math.abs(value)>100000000){
                 globalThis.ui?.notifications?.warn?.("Enter an adjustment between -100,000,000 and 100,000,000 CP.");
                 return;
               }
-              this.transportQuoteAdjustmentCp=value;
-              void this.render(true);
+              this.transportQuoteAdjustmentCp=value;void this.render(true);
             });
-            adjustment.append(amount);
-            block.append(adjustment);
+            adjustment.append(amount);block.append(adjustment);
             body.append(block);
           }
         }

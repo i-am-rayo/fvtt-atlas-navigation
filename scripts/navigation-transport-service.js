@@ -28,6 +28,21 @@ export function resolveTransportationOperation(method,operation="normal",regular
     overtimeMultiplier:multiplier});
 }
 
+/** Resolve a trip-local quote without altering the World transportation preset. */
+export function resolveTransportationHireFare(method,overrides=null){
+  if(!method?.hireEnabled)throw Error("This transportation method is not offered for hire.");
+  const fare=Object.freeze({
+    hireCostCp:overrides?.hireCostCp??method.hireCostCp,
+    hireBasis:overrides?.hireBasis??method.hireBasis,
+    hireApplies:overrides?.hireApplies??method.hireApplies
+  });
+  if(!nonnegative(fare.hireCostCp)||fare.hireCostCp>1e8||
+    !TRANSPORT_HIRE_BASES.includes(fare.hireBasis)||
+    !["unit","passenger"].includes(fare.hireApplies))
+    throw Error("Invalid GM travel fare. Enter a valid amount, basis and charging unit.");
+  return fare;
+}
+
 /**
  * Read-only cost preview for a route. Only one operation can be selected:
  * standard 8h, overtime 8h+extra (max 16h), or continuous 24h.
@@ -41,15 +56,14 @@ export function resolveTransportationOperation(method,operation="normal",regular
  */
 export function quoteTransportationService(method,{
   arrangement="owned",operation="normal",movingHours,distanceMi,
-  travelers=1,ownedQuote=null,adjustmentCp=0,regularHours=8
+  travelers=1,ownedQuote=null,hireTerms=null,adjustmentCp=0,regularHours=8
 }={}){
   if(!method||!["owned","hire"].includes(arrangement)||
     !nonnegative(movingHours)||!nonnegative(distanceMi)||
     !Number.isInteger(travelers)||travelers<0||travelers>1000||
     !Number.isFinite(adjustmentCp)||Math.abs(adjustmentCp)>1e8)
     throw Error("Invalid transportation service estimate.");
-  if(arrangement==="hire"&&!method.hireEnabled)
-    throw Error("This transportation method is not offered for hire.");
+  const fare=arrangement==="hire"?resolveTransportationHireFare(method,hireTerms):null;
   const schedule=resolveTransportationOperation(method,operation,regularHours);
   const days=movingHours<=EPS?0:Math.ceil(Math.max(0,movingHours-EPS)/schedule.dailyHours);
   let extraHours=0;
@@ -65,15 +79,12 @@ export function quoteTransportationService(method,{
       throw Error("Set passenger capacity before pricing a hired transport.");
     units=travelers===0?0:Math.ceil(travelers/capacity);
     if(units>1000)throw Error("The hire quote needs too many transport units.");
-    const count=method.hireApplies==="passenger"?travelers:units;
-    if(!TRANSPORT_HIRE_BASES.includes(method.hireBasis)||
-      !nonnegative(method.hireCostCp))
-      throw Error("Invalid hired transport fare.");
-    const basis=method.hireBasis==="day"?days:
-      method.hireBasis==="mile"?distanceMi: (movingHours>EPS?1:0);
-    baseCp=method.hireCostCp*basis*count;
-    baseLabel="Hired "+method.hireBasis+" fare ("+count+" "+
-      (method.hireApplies==="passenger"?"passenger(s)":"unit(s)")+")";
+    const count=fare.hireApplies==="passenger"?travelers:units;
+    const basis=fare.hireBasis==="day"?days:
+      fare.hireBasis==="mile"?distanceMi: (movingHours>EPS?1:0);
+    baseCp=fare.hireCostCp*basis*count;
+    baseLabel="Hired "+fare.hireBasis+" fare ("+count+" "+
+      (fare.hireApplies==="passenger"?"passenger(s)":"unit(s)")+")";
     if(method.includeCrewWages&&!method.hireCrewIncluded)
       crewWagesCp=(method.crewCount??0)*(method.crewWageCpPerDay??200)*days*units;
   }else{
@@ -90,9 +101,9 @@ export function quoteTransportationService(method,{
   if(operation==="overtime"&&extraHours>EPS){
     const multiplier=schedule.overtimeMultiplier;
     if(arrangement==="hire"){
-      const count=method.hireApplies==="passenger"?travelers:units;
-      overtimeFareCp=method.hireBasis==="day"?
-        method.hireCostCp*count*(extraHours/8)*multiplier:
+      const count=fare.hireApplies==="passenger"?travelers:units;
+      overtimeFareCp=fare.hireBasis==="day"?
+        fare.hireCostCp*count*(extraHours/8)*multiplier:
         baseCp*(extraHours/Math.max(EPS,movingHours))*(multiplier-1);
       if(crewWagesCp>0)
         overtimeCrewCp=(method.crewCount??0)*(method.crewWageCpPerDay??200)*
@@ -114,6 +125,6 @@ export function quoteTransportationService(method,{
     movingHours,distanceMi,travelDays:days,extraHours,
     dailyHours:schedule.dailyHours,overnightHours:schedule.overnightHours,
     baseLabel,baseCp,crewWagesCp,overtimeFareCp,overtimeCrewCp,adjustmentCp,
-    totalCp,driverIncluded:arrangement==="hire"&&Boolean(method.hireCrewIncluded),
+    totalCp,hireTerms:fare,driverIncluded:arrangement==="hire"&&Boolean(method.hireCrewIncluded),
     provisionalAvailability:arrangement==="hire"});
 }

@@ -220,6 +220,37 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.equal(transportButton.disabled,true,
       "transport planning never silently starts native walking token movement");
     await assert.rejects(nav.startGuidedTravel(),/checkpoint transfers/);
+    const methodAssessment=nav.assessTravelMethod;
+    nav.assessTravelMethod=()=>({compatible:true,guided:false,reason:null});
+    nav.setTravelMethod("carriage");
+    assert.equal(nav.transportArrangement,"hire",
+      "an unowned carriage with a for-hire fare defaults to provisional hiring");
+    const hired=await nav._renderHTML();
+    assert.ok(find(hired,item=>item.textContent==="GM pricing for this journey only"));
+    assert.ok(find(hired,item=>item.textContent?.startsWith?.("World preset estimate:")));
+    assert.ok(find(hired,item=>item.textContent?.startsWith?.("World preset fare:")));
+    const rateField=find(hired,item=>item.tag==="label"&&
+      item.children[0]?.textContent==="Hired fare");
+    assert.ok(rateField,"a GM can enter a journey-specific hire fare");
+    const rate=rateField.children[1].children[0];
+    rate.value="5";rate.listeners.get("change")();
+    assert.equal(nav.transportHireTerms.hireCostCp,500);
+    const frequencyField=find(hired,item=>item.tag==="label"&&
+      item.children[0]?.textContent==="Fare frequency");
+    frequencyField.children[1].value="trip";
+    frequencyField.children[1].listeners.get("change")();
+    assert.equal(nav.transportHireTerms.hireBasis,"trip");
+    const perField=find(hired,item=>item.tag==="label"&&
+      item.children[0]?.textContent==="Charge for each");
+    perField.children[1].value="passenger";
+    perField.children[1].listeners.get("change")();
+    assert.equal(nav.transportHireTerms.hireApplies,"passenger");
+    const reset=find(hired,item=>item.tag==="button"&&
+      item.textContent==="Reset to World preset");
+    reset.listeners.get("click")();
+    assert.equal(nav.transportHireTerms,null);
+    assert.equal(nav.transportQuoteAdjustmentCp,0);
+    nav.assessTravelMethod=methodAssessment;
     nav.setTravelMethod("walking");
     assert.equal(nav.travelMethod,"walking");
     const walkingPanel=await nav._renderHTML();

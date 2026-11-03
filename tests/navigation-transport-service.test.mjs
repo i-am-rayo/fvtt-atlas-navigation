@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {resolveTransportationOperation,quoteTransportationService}
+import {resolveTransportationOperation,quoteTransportationService,resolveTransportationHireFare}
   from "../scripts/navigation-transport-service.js";
 import {estimateNavigationTotalTrip} from "../scripts/navigation-travel-day.js";
 
@@ -126,4 +126,34 @@ test("24-hour operation has no overnight stop, while nonzero nightly rest does",
   const standard=estimateNavigationTotalTrip(49,resolveTransportationOperation(wagon));
   assert.equal(standard.overnights,6);
   assert.equal(standard.totalHours,49+6*16);
+});
+
+
+test("one-journey hired fare overrides amount, frequency and charging unit without changing the catalog",()=>{
+  const world=Object.freeze({...wagon});
+  const original=quoteTransportationService(world,{arrangement:"hire",movingHours:12,
+    distanceMi:36,travelers:3});
+  assert.equal(original.totalCp,800);
+  const fare={hireCostCp:300,hireBasis:"mile",hireApplies:"passenger"};
+  const edited=quoteTransportationService(world,{arrangement:"hire",movingHours:12,
+    distanceMi:36,travelers:3,hireTerms:fare});
+  assert.equal(edited.baseCp,300*36*3);
+  assert.equal(edited.totalCp,32400);
+  assert.equal(edited.hireTerms.hireBasis,"mile");
+  assert.equal(world.hireBasis,"day","World fare is immutable");
+  assert.equal(world.hireCostCp,400);
+  const reset=quoteTransportationService(world,{arrangement:"hire",movingHours:12,
+    distanceMi:36,travelers:3,hireTerms:null});
+  assert.equal(reset.totalCp,original.totalCp);
+  assert.deepEqual(resolveTransportationHireFare(world),{
+    hireCostCp:400,hireBasis:"day",hireApplies:"unit"
+  });
+});
+
+test("trip-local hire quotes validate bad GM terms without touching world prices",()=>{
+  assert.throws(()=>resolveTransportationHireFare(wagon,{hireCostCp:-1}),/Invalid GM/);
+  assert.throws(()=>resolveTransportationHireFare(wagon,{hireBasis:"calendar"}),/Invalid GM/);
+  assert.throws(()=>resolveTransportationHireFare(wagon,{hireApplies:"crew"}),/Invalid GM/);
+  assert.throws(()=>quoteTransportationService(wagon,{arrangement:"hire",
+    movingHours:8,distanceMi:24,hireTerms:{hireCostCp:Infinity}}),/Invalid GM/);
 });

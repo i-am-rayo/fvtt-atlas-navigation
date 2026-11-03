@@ -19,7 +19,7 @@ const node=(tag,label)=>{
 };
 const field=(label,control,help)=>{
   const container=node("label");
-  container.style.cssText="display:grid;gap:.3rem;min-width:0;";
+  container.style.cssText="display:grid;gap:.3rem;min-width:0;align-content:start;";
   const name=node("span",label);name.style.fontWeight="600";
   container.append(name,control);
   if(help){const detail=node("small",help);detail.style.opacity=".75";container.append(detail);}
@@ -263,7 +263,7 @@ export class AtlasGroupTransportationSettings extends base {
           member.purchaseGpOverride!==null||member.noteOverride!==null);
         const overrideFields=node("div");
         overrideFields.style.cssText="display:grid;grid-template-columns:"+
-          "repeat(auto-fit,minmax(11rem,1fr));gap:.65rem;margin-top:.7rem;";
+          "repeat(auto-fit,minmax(11rem,1fr));gap:.65rem;margin-top:.7rem;align-items:start;";
         overrideFields.append(field("Recurring cost override (CP)",costOverride,
             "Blank uses the World profile's recurring cost."),
           field("Cost frequency override",costBasisOverride),

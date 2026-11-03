@@ -205,3 +205,22 @@ test("Group editor can explicitly clear a vehicle's purchase price",async()=>{
     assert.equal(ctx.saved.groups.group1.members.ship1.purchaseGpOverride,"none");
   }finally{ctx.restore();}
 });
+
+
+test("individual recurring-cost and frequency overrides share the same top alignment",async()=>{
+  const ctx=setup();
+  try{
+    const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
+    const elements=flatten(root);
+    const recurring=elements.find(e=>e.tagName==="LABEL"&&
+      e.children[0]?.textContent==="Recurring cost override (CP)");
+    const frequency=elements.find(e=>e.tagName==="LABEL"&&
+      e.children[0]?.textContent==="Cost frequency override");
+    assert.ok(recurring&&frequency);
+    assert.match(recurring.style.cssText,/align-content:start/);
+    assert.match(frequency.style.cssText,/align-content:start/);
+    const grid=elements.find(e=>e.children.includes(recurring)&&e.children.includes(frequency));
+    assert.match(grid.style.cssText,/align-items:start/);
+    assert.deepEqual(ctx.changes,[]);
+  }finally{ctx.restore();}
+});
