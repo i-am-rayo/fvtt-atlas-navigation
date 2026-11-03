@@ -152,7 +152,8 @@ const wirePresetDialog=container=>{
       const speedMph=fieldValue("speedDisplay")?
         atlasPresetSpeedFromDisplay(displaySpeed):null;
       if(!speedMph||speedMph<=0){
-        quoteRoot.textContent="Walking estimates use the Group Actor's pace; no transport cost applies.";
+        const info=root.querySelector("[data-atlas-quote-error]");
+        if(info)info.textContent="Enter a positive travel speed to preview costs. Walking uses the Group Actor's pace.";
         return;
       }
       const basis=fieldValue("costBasis")?.value??"none";
@@ -172,6 +173,8 @@ const wirePresetDialog=container=>{
           recurring:formatCost(q.recurringCp),
           wages:formatCost(q.crewWagesCp),total:formatCost(q.totalCp)};
       });
+      const info=root.querySelector("[data-atlas-quote-error]");
+      if(info)info.textContent="";
       const cells=[...quoteRoot.querySelectorAll("[data-atlas-quote-cell]")];
       const keys=["label","distance","hours","days","recurring","wages","total"];
       for(let i=0;i<rows.length;i++)
