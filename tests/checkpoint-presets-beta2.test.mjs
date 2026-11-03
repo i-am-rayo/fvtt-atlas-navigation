@@ -8,7 +8,7 @@ import {checkpointTerrainSuggestion} from "../scripts/checkpoint-preset-snapshot
 
 test("expanded checkpoint category catalog preserves existing stable type IDs",()=>{
   const types=new Set(CHECKPOINT_TYPES.map(([id])=>id));
-  for(const type of ["bridge","toll","settlement","crossing","landmark","event",
+  for(const type of ["bridge","toll","settlement","town","crossing","landmark","event",
     "port","security","temple","safehouse","rest","watchtower",
     "falling-rocks","moving-sand","monster","thieves"])assert.ok(types.has(type),type);
   assert.deepEqual(validateCheckpointCategories({a:"bridge",b:"moving-sand"}),
@@ -91,4 +91,24 @@ test("checkpoint terrain suggestion reads only valid opt-in Scene snapshots",()=
   assert.equal(checkpointTerrainSuggestion({getFlag:()=>({schemaVersion:9,entries:{}})},"a"),null);
   assert.equal(checkpointTerrainSuggestion({getFlag:()=>({schemaVersion:1,
     entries:{a:{presetId:"bad id",radiusCells:99}}})},"a"),null);
+});
+
+test("Town appears in new and existing Worlds without resetting custom presets",()=>{
+  const source=defaultCheckpointPresets();
+  const town=presetForCheckpointType(source,"town");
+  assert.equal(town.name,"Town");
+  assert.equal(town.id,"checkpoint-town");
+  assert.ok(town.appearance?.icon?.startsWith("solid:"));
+  const previous={schemaVersion:3,presets:source.presets
+    .filter(p=>p.category!=="town").map(p=>p.category==="city"?
+      {...p,name:"Custom City",appearance:{...p.appearance,color:"#998877"}}:p)};
+  const upgraded=validateCheckpointPresets(previous);
+  assert.equal(upgraded.presets.find(p=>p.category==="town")?.name,"Town");
+  assert.equal(upgraded.presets.find(p=>p.category==="city")?.name,"Custom City");
+  assert.equal(upgraded.presets.find(p=>p.category==="city")?.appearance.color,"#998877");
+  assert.equal(previous.presets.some(p=>p.category==="town"),false,
+    "validation does not write into legacy catalogs");
+  const removed=removeCheckpointPreset(upgraded,"checkpoint-town");
+  assert.equal(removed.presets.some(p=>p.category==="town"),false,
+    "version 4 respects intentional removal");
 });

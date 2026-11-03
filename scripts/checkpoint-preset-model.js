@@ -3,7 +3,7 @@ import { validateCheckpointAppearance,resolveCheckpointAppearance,checkpointFont
 import { defaultCheckpointTransportOffers,validateCheckpointTransportOffers } from "./checkpoint-transportation.js";
 
 export const CHECKPOINT_PRESET_SETTING="checkpointPresets";
-export const CHECKPOINT_PRESET_VERSION=3;
+export const CHECKPOINT_PRESET_VERSION=4;
 export const MAX_CHECKPOINT_PRESETS=160;
 const CATEGORIES=new Set(CHECKPOINT_TYPES.map(([id])=>id));
 const ID=/^[A-Za-z0-9_-]{1,128}$/;
@@ -14,7 +14,7 @@ const ENCOUNTERS=new Set(["event","monster","bandits","thieves","npc","pirates",
 /** Display defaults only; existing customized appearance objects always win. */
 const BUILTIN_ICONS=Object.freeze({
   bridge:"bridge",port:"anchor",dock:"ship",lighthouse:"tower-observation","air-dock":"wind",toll:"coins",security:"shield-halved",
-  crossing:"route",settlement:"house",city:"city",village:"house-chimney",stables:"horse",
+  crossing:"route",settlement:"house",city:"city",town:"building",village:"house-chimney",stables:"horse",
   inn:"hotel",tavern:"beer-mug-empty",rest:"bed",safehouse:"house-lock",
   trading:"store",watchtower:"tower-observation",fort:"shield",
   guard:"shield",outpost:"campground",temple:"place-of-worship",
@@ -29,7 +29,7 @@ const BUILTIN_ICONS=Object.freeze({
 const COLOR_BY_CATEGORY=Object.freeze({
   bridge:"#B2A49A",port:"#46AFC8",dock:"#529DCA",lighthouse:"#E4D29C","air-dock":"#A7B7E8",toll:"#E2B75E",
   security:"#C78C62",crossing:"#D5BA7C",settlement:"#E0B879",
-  city:"#D8B49C",village:"#C6C89B",stables:"#C6A879",inn:"#DBA56E",tavern:"#D38E69",
+  city:"#D8B49C",town:"#D3BA9D",village:"#C6C89B",stables:"#C6A879",inn:"#DBA56E",tavern:"#D38E69",
   rest:"#7DBD88",safehouse:"#6CB79B",trading:"#DAAF6A",
   watchtower:"#B69C83",fort:"#9A94AB",guard:"#AC98A4",outpost:"#C5AA7C",
   temple:"#B9A0E6",shrine:"#C7ACE8",monument:"#B9B4C9",ruins:"#9C9C9C",
@@ -45,7 +45,7 @@ export function checkpointPresetAppearance(category,appearance=null){
   const icon=slug&&"solid:"+slug;
   return icon&&(icon==="solid:pickaxe"||checkpointFontIcon(icon))
     ?{...resolveCheckpointAppearance(null),type:"fa",icon:icon==="solid:pickaxe"?"pickaxe":icon,
-      size:["city","village","settlement","port"].includes(category)?24:12,
+      size:["city","town","village","settlement","port"].includes(category)?24:12,
       color:COLOR_BY_CATEGORY[category]??"#9c7bf0"}
     :null;
 }
@@ -67,7 +67,7 @@ export function defaultCheckpointPresets(){
 export function validateCheckpointPresets(value){
   if(value==null)return defaultCheckpointPresets();
   if(!value||typeof value!=="object"||Array.isArray(value)||
-      ![1,2,CHECKPOINT_PRESET_VERSION].includes(value.schemaVersion)||
+      ![1,2,3,CHECKPOINT_PRESET_VERSION].includes(value.schemaVersion)||
       Object.keys(value).some(k=>!["schemaVersion","presets"].includes(k))||
       !Array.isArray(value.presets)||value.presets.length>MAX_CHECKPOINT_PRESETS)
     throw Error("Unsupported Atlas checkpoint preset catalog.");
@@ -116,12 +116,13 @@ export function validateCheckpointPresets(value){
         defaultCheckpointTransportOffers(p.category)),
       event:{kind:event.kind,enabled:false}};
   });
-  // Project version-1 Worlds into the new schema without writing on read.
-  // Introduce only new built-in categories, preserving older intentional removals.
-  if(value.schemaVersion===1||value.schemaVersion===2){
+  // Project older Worlds without writes. Town was introduced in v4;
+  // once saved as v4, intentional removals remain respected.
+  if(value.schemaVersion<CHECKPOINT_PRESET_VERSION){
     const added=value.schemaVersion===1?
       ["stables","mines","lighthouse","sea-storm","reef",
-        "whirlpool","pirates","sea-monster","air-dock"]:["air-dock"];
+        "whirlpool","pirates","sea-monster","air-dock","town"]:
+      value.schemaVersion===2?["air-dock","town"]:["town"];
     const fresh=defaultCheckpointPresets().presets;
     for(const category of added){
       if(!presets.some(p=>p.category===category))

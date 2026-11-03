@@ -124,7 +124,7 @@ test("bulk apply is opt-in, field selective and leaves graph/discovery untouched
   assert.ok(data.checkpointTransportOffers.entries.cpA.length>0);
 });
 
-test("checkpoint offers expose edit/delete actions and shared coin-aware slider controls",async()=>{
+test("checkpoint pencil opens the same World preset dialog and keeps drafts isolated",async()=>{
   const before={game:globalThis.game,document:globalThis.document,
     foundry:globalThis.foundry};
   class Element{
@@ -137,41 +137,39 @@ test("checkpoint offers expose edit/delete actions and shared coin-aware slider 
     addEventListener(event,fn){this.listeners.set(event,fn);}
   }
   const flatten=node=>[node,...node.children.flatMap(flatten)];
+  let modal=null;
   try{
     globalThis.document={createElement:tag=>new Element(tag)};
-    globalThis.game={system:{id:"dnd5e"},settings:{get:()=>undefined}};
-    globalThis.foundry={applications:{api:{ApplicationV2:class {}}}};
+    globalThis.game={system:{id:"dnd5e"},user:{isGM:true},
+      settings:{get:()=>undefined,set:async()=>{throw Error("checkpoint must not write World settings");}}};
+    globalThis.foundry={applications:{api:{ApplicationV2:class {},
+      DialogV2:{input:async data=>{modal=data;return null;}}}}};
     const {createCheckpointTransportationEditor}=await import("../scripts/checkpoint-transportation-editor.js");
     const editor=createCheckpointTransportationEditor({offers:defaultCheckpointTransportOffers("port")});
+    const beforeOffers=editor.getOffers();
     const edits=flatten(editor.element).filter(el=>el.title?.startsWith("Edit "));
     const removes=flatten(editor.element).filter(el=>el.title?.startsWith("Remove "));
     assert.ok(edits.length>=2);
     assert.equal(removes.length,edits.length);
     edits.find(el=>el.title.includes("Sailing Ship")).listeners.get("click")();
-    const fields=flatten(editor.element);
-    for(const denom of ["pp","gp","ep","sp","cp"]){
-      const coin=fields.find(el=>el.name==="hireCostCp_"+denom);
-      assert.ok(coin,"fare uses an editable "+denom.toUpperCase()+" coin box");
-      assert.equal(coin.type,"text","five-coin layout mirrors native text inputs");
-      assert.match(coin.className,/uninput always-interactive/);
-    }
-    assert.ok(!fields.some(el=>el.tag==="details"),
-      "checkpoint upkeep is visible without expanding a disclosure");
-    assert.ok(fields.some(el=>el.className==="atlas-transport-upkeep-section"),
-      "checkpoint uses the same upkeep section as World presets");
-    assert.ok(fields.some(el=>el.type==="range"),
-      "non-currency numeric fields have sliders");
-    assert.ok(fields.some(el=>el.textContent==="Available for purchase"));
-    assert.ok(fields.some(el=>el.textContent==="Purchase price"));
-    const gp=fields.find(el=>el.name==="hireCostCp_gp");
-    const sp=fields.find(el=>el.name==="hireCostCp_sp");
-    const pp=fields.find(el=>el.name==="hireCostCp_pp");
-    assert.equal(Number(pp.value),6,"6,000 CP defaults to six platinum coins");
-    pp.value="0";pp.listeners.get("change")();
-    gp.value="2";gp.listeners.get("change")();
-    sp.value="5";sp.listeners.get("change")();
-    assert.equal(editor.getOffers().find(el=>el.methodId==="sailing").overrides.hireCostCp,250,
-      "coin boxes combine denominations into one canonical copper fare");
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.ok(modal?.content,"checkpoint pencil opens a separate shared preset dialog");
+    assert.equal(modal.ok.label,"Apply checkpoint overrides");
+    const fields=flatten(modal.content);
+    const names=fields.map(el=>el.name);
+    for(const field of ["name","kind","speedDisplay","capacity","crewCount",
+      "hireEnabled","hireBasis","hireApplies","purchaseEnabled","costBasis"])
+      assert.ok(names.includes(field),"shared editor is missing "+field);
+    for(const prefix of ["hire","purchase","crewWage","cost"])
+      for(const denomination of ["pp","gp","ep","sp","cp"]){
+        const coin=fields.find(el=>el.name===prefix+"_"+denomination);
+        assert.ok(coin,"shared five-coin editor is missing "+prefix+"_"+denomination);
+        assert.equal(coin.type,"text");
+        assert.match(coin.className,/uninput always-interactive/);
+      }
+    assert.ok(!fields.some(el=>el.tag==="details"),"upkeep is not collapsed");
+    assert.ok(fields.some(el=>el.className==="atlas-transport-upkeep-section"));
+    assert.deepEqual(editor.getOffers(),beforeOffers,"cancel does not change checkpoint draft");
   }finally{Object.assign(globalThis,before);}
 });
 

@@ -96,7 +96,7 @@
 .atlas-transport-checkpoint-editor .atlas-transport-toggle {
   min-width: 0;
   align-content: start;
-  padding-top: 2.3rem;
+  padding-top: .25rem;
 }
 .atlas-transport-edit-dialog .atlas-transport-upkeep-section,
 .atlas-transport-checkpoint-editor .atlas-transport-upkeep-section {

@@ -5,7 +5,7 @@ export const CHECKPOINT_TYPE_GROUPS=Object.freeze([
   ["General",[["generic","General / Unspecified"]]],
   ["Infrastructure",[["bridge","Bridge"],["port","Port"],["dock","Dock"],
     ["lighthouse","Lighthouse"],["air-dock","Air Dock / Skyport"],["toll","Toll Gate"],["security","Security Checkpoint"],["crossing","Road Crossing"]]],
-  ["Settlements & Services",[["settlement","Settlement"],["city","City"],
+  ["Settlements & Services",[["settlement","Settlement"],["city","City"],["town","Town"],
     ["village","Village"],["stables","Stables"],["inn","Inn"],["tavern","Tavern"],
     ["rest","Resting Area"],["safehouse","Safehouse"],["trading","Trading Post"]]],
   ["Military & Defense",[["watchtower","Watchtower"],["fort","Fort"],

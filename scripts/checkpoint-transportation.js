@@ -68,6 +68,8 @@ const DEFAULT_SUPPLY={
     ["mule","land",15],["draft-horse","land",30]],
   city:[["carriage","land",400],["cart","land",250],
     ["wagon","land",400],["coach-hire","land",3]],
+  town:[["carriage","land",400],["cart","land",250],
+    ["wagon","land",400],["coach-hire","land",3]],
   settlement:[["cart","land",250],["wagon","land",400],
     ["coach-hire","land",3]],
   village:[["cart","land",250],["wagon","land",400]],
@@ -87,6 +89,22 @@ export function defaultCheckpointTransportOffers(category){
           "passenger":"unit"}
     })));
 }
+/** Only explicit departures from the live World preset become local overrides.
+ * This keeps future World edits visible at checkpoints and in journey estimates.
+ */
+export function transportationMethodOverrideDelta(base,edited){
+  if(!base||!edited||base.id!==edited.id)
+    throw Error("Cannot compare different transportation methods.");
+  const overrides={};
+  for(const key of KEYS){
+    const value=edited[key];
+    if(value===undefined||value===base[key]||
+        (key==="capacity"&&value===null))continue;
+    overrides[key]=value;
+  }
+  return overrides;
+}
+
 export function checkpointOfferMethod(offer,worldMethod){
   const checked=validateCheckpointTransportOffers([offer])[0];
   if(!worldMethod||worldMethod.id!==checked.methodId)throw Error("Missing linked World method.");

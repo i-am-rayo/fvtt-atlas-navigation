@@ -339,7 +339,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "not yet authorize guided movement. Costs are reference estimates only."));
   }
 
-  async _edit(preset,surface="land"){
+  async _edit(preset,surface="land",{scope="world",onSave=null}={}){
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
     const existing=Boolean(preset),profile=selectedTransportationProfile(game.settings,game.system?.id);
     const before=snapshot();
@@ -354,6 +354,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const travelers=currentTravelers();
     body.setAttribute("data-atlas-travelers",String(travelers.count));
     body.appendChild(heading(existing?"Edit "+value.name:"New "+names[surface]+" transportation",
+      scope==="checkpoint"?"Change local checkpoint settings; unchanged values continue to inherit World presets. Nothing is charged.":
+      scope==="journey"?"Change this journey estimate only. World, checkpoint and Actor data will not change.":
       "Edit reference values for your World. Nothing is charged automatically."));
     const nav=element("nav");nav.setAttribute("role","tablist");
     nav.setAttribute("aria-label","Transportation preset editor sections");
@@ -413,9 +415,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const name=element("input");name.name="name";name.type="text";
     name.maxLength=80;name.required=true;name.placeholder="e.g. Wind-powered skiff";
     name.value=value.name;name.defaultValue=value.name;
-    if(preset?.builtIn){name.readOnly=true;name.title="Built-in reference names cannot be renamed.";}
+    if(preset&&(preset.builtIn||scope!=="world")){
+      name.readOnly=true;name.title="Transportation method identity is World-owned.";}
     const kind=selected(TRANSPORT_KINDS.map(k=>[k,names[k]]),value.kind,"kind");
-    if(preset?.builtIn)kind.disabled=true;
+    if(preset&&(preset.builtIn||scope!=="world"))kind.disabled=true;
     const speedControl=preset?.id==="walking"?
       slider("worldSpeed",Number((sceneUnit?
         atlasDisplaySpeed(current(NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED),sceneUnit).value:
@@ -447,8 +450,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
     panels.general.append(operations);
     const note=element("textarea");note.name="note";note.maxLength=240;
     note.rows=2;note.value=value.note??"";note.defaultValue=value.note??"";
-    if(preset?.builtIn){note.readOnly=true;note.title="Reference note is read-only.";}
-    panels.general.append(field("GM note",note,preset?.builtIn?
+    if(preset?.builtIn&&scope==="world"){note.readOnly=true;note.title="Reference note is read-only.";}
+    panels.general.append(field("GM note",note,preset?.builtIn&&scope==="world"?
       "Reference note is read-only; use a custom transport for your own notes.":
       "Optional setting and world-building details."));
 
@@ -517,7 +520,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "Hired-only passage is not a vehicle for sale. Crew and operating costs are part of the service."));
     else{
       const purchaseToggle=purchase.children?.[0];
-      const buyRow=row("16rem",2);
+      const buyRow=row("14rem",3);
       buyRow.append(purchaseToggle,priceWrap);panels.cost.append(buyRow);
       const wageRow=row("14rem",3);
       wageRow.append(field("Crew wage per person",priceInput("crewWage",
@@ -558,12 +561,13 @@ export class AtlasTransportationSettings extends ApplicationBase {
       window:{title:existing?"Edit "+preset.name:"Add "+names[surface]+" transportation"},
       position:{width:Math.max(360,Math.min(860,(globalThis.window?.innerWidth??980)-60)),
         height:Math.max(460,Math.min(730,(globalThis.window?.innerHeight??850)-80))},
-      content:shell,ok:{label:"Save preset"},rejectClose:false,modal:true,
+      content:shell,ok:{label:scope==="checkpoint"?"Apply checkpoint overrides":
+        scope==="journey"?"Apply journey estimate":"Save preset"},rejectClose:false,modal:true,
       render:(app,html)=>{wireSliders(html??app?.element);wirePresetDialog(html??app?.element);}
     });
     if(!response)return;
     if(before!==snapshot())throw new Error("Transportation presets changed while you were editing. Reopen and review.");
-    if(preset?.id==="walking"){
+    if(scope==="world"&&preset?.id==="walking"){
       const shown=Number(response.worldSpeed);
       const numeric=sceneUnit?atlasSceneDistanceFromDisplay(shown,sceneUnit):shown;
       if(!Number.isFinite(numeric)||numeric<.1||numeric>1000)
@@ -595,9 +599,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const hireCostCp=String(response.hireBasis)==="mile"?
       atlasCostPerMileFromDisplay(hireEntered):hireEntered;
     const next={...value,id,
-      name:preset?.builtIn?value.name:String(response.name??"").trim(),
-      kind:preset?.builtIn?value.kind:String(response.kind??""),
-      surface:preset?.builtIn?value.surface:String(response.surface??""),
+      name:preset&&(preset.builtIn||scope!=="world")?value.name:String(response.name??"").trim(),
+      kind:preset&&(preset.builtIn||scope!=="world")?value.kind:String(response.kind??""),
+      surface:preset&&(preset.builtIn||scope!=="world")?value.surface:String(response.surface??""),
       speedMph:id==="walking"?null:atlasPresetSpeedFromDisplay(Number(response.speedDisplay)),
       capacity:id==="walking"?null:rawCapacity,
       costCp:!hiredOnlyChoice&&String(response.costBasis)==="mile"?
@@ -612,7 +616,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
       overtimeExtraHours:Number(response.overtimeExtraHours),
       overtimeMultiplier:Number(response.overtimeMultiplier),
       continuousEnabled:bool("continuousEnabled"),
-      note:preset?.builtIn?value.note:String(response.note??"")};
+      note:scope==="world"&&preset?.builtIn?value.note:String(response.note??"")};
+    if(onSave){
+      await onSave(next);
+      return next;
+    }
     const updated=setTransportationPreset(readTransportationCatalog(game.settings),profile,next);
     await game.settings.set(MODULE_ID,TRANSPORT_CATALOG_SETTING,updated);
     ui.notifications.info("Transportation preset saved.");
@@ -763,3 +771,14 @@ export class AtlasTransportationSettings extends ApplicationBase {
   }
 
 }
+
+/** Opens the one World transportation editor for a non-World scope.
+ * Callers own the Save callback; this helper never changes World settings.
+ */
+export async function openTransportationMethodEditor({method,scope,onSave}={}){
+  if(!method||!["checkpoint","journey"].includes(scope)||
+      typeof onSave!=="function")throw Error("Invalid transportation editor context.");
+  const app=new AtlasTransportationSettings();
+  return app._edit(method,method.surface,{scope,onSave});
+}
+

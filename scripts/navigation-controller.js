@@ -33,12 +33,12 @@ import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
 import { readGroupTransportation,projectGroupTransportation,
   groupMethodCapacityStatus,groupMethodFareEstimate }
   from "./navigation-group-transport.js";
-import { dndCurrencyBreakdown,atlasCurrencyChoices,copperFromCoin,coinFromCopper }
-  from "./navigation-currency.js";
-import { resolveTransportationOperation,quoteTransportationService,resolveTransportationHireFare }
+import { dndCurrencyBreakdown } from "./navigation-currency.js";
+import { resolveTransportationOperation,quoteTransportationService }
   from "./navigation-transport-service.js";
 import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
-import { offersAtOrigin,checkpointOfferMethod } from "./checkpoint-transportation.js";
+import { offersAtOrigin,checkpointOfferMethod,transportationMethodOverrideDelta }
+  from "./checkpoint-transportation.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
@@ -82,6 +82,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportOperation="normal";
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
+    this.transportJourneyOverrides=null;
     this.start = null;
     this.end = null;
     this.result = null;
@@ -126,6 +127,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportOperation="normal";
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
+    this.transportJourneyOverrides=null;
     // Favor the manually assigned Atlas party explorer when it can actually
     // provide a valid Scene-to-Atlas origin. Otherwise retain map-point mode.
     try{
@@ -260,10 +262,38 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     return {methods,all,owned,offers};
   }
   effectiveTransportMethod(method,availability=null){
-    if(this.transportArrangement!=="hire")return method;
-    const offer=(availability??this.transportAvailability()).offers.get(method.id);
-    return offer?checkpointOfferMethod({methodId:offer.methodId,mode:offer.mode,
+    const offer=this.transportArrangement==="hire"?
+      (availability??this.transportAvailability()).offers.get(method.id):null;
+    const baseline=offer?checkpointOfferMethod({methodId:offer.methodId,mode:offer.mode,
       overrides:offer.overrides},method):method;
+    return method.id===this.travelMethod&&this.transportJourneyOverrides?
+      {...baseline,...this.transportJourneyOverrides}:baseline;
+  }
+
+  /** One shared preset editor, with changes scoped to the current Journey. */
+  async editJourneyTravelMethod(){
+    if(!globalThis.game?.user?.isGM||this.travelSession||this.journalStarting)
+      throw Error("Journey methods can only be edited before starting travel.");
+    const availability=this.transportAvailability();
+    const world=availability.methods.find(item=>item.id===this.travelMethod);
+    if(!world||world.id==="walking")return;
+    const id=this.travelMethod,arrangement=this.transportArrangement;
+    const baseline=this.effectiveTransportMethod(world,availability);
+    const original=arrangement==="hire"&&availability.offers.has(id)?
+      checkpointOfferMethod({methodId:id,mode:availability.offers.get(id).mode,
+        overrides:availability.offers.get(id).overrides},world):world;
+    const {openTransportationMethodEditor}=await import("./navigation-transport-settings.js");
+    await openTransportationMethodEditor({
+      method:baseline,scope:"journey",
+      onSave:async edited=>{
+        if(this.travelMethod!==id||this.transportArrangement!==arrangement)
+          throw Error("The selected travel method changed. Reopen its settings.");
+        this.transportJourneyOverrides=transportationMethodOverrideDelta(original,edited);
+        this.transportHireTerms=null;this.transportHireDenomination=null;
+        this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
+        this.draw();await this.render(true);
+      }
+    });
   }
 
   /** Method changes recalculate the estimate, never move a token or save data. */
@@ -301,6 +331,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportOperation="normal";
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
+    this.transportJourneyOverrides=null;
     this.travelNotice="";
     this.calculateRoute(view,this.atlasProvider(this.scene));
     this.draw();
@@ -965,6 +996,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.journeyTimeUI=null;
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
+    this.transportJourneyOverrides=null;
     this.recoveryJournal=null;
     this.recoveryRecord=null;
     this.recoverableJourney=null;
@@ -1158,17 +1190,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     let methodTravel=resolveNavigationMethodTravel(this.travelMethod,travel,game.settings,sceneUnit,
       {systemId:game.system?.id});
-    if(this.travelMethod!=="walking"&&this.transportArrangement==="hire"){
+    if(this.travelMethod!=="walking"&&(this.transportArrangement==="hire"||
+        this.transportJourneyOverrides?.speedMph!==undefined)){
       try{
         const world=this.transportAvailability().all.find(m=>m.id===this.travelMethod);
         const local=world&&this.effectiveTransportMethod(world);
         if(local?.speedMph!==world?.speedMph){
           const speed=convertGroupSpeed(local.speedMph,"mph",sceneUnit);
           if(speed>0)methodTravel={...methodTravel,speed,speedMph:local.speedMph,
-            source:"checkpoint-method"};
+            source:this.transportJourneyOverrides?"journey-method":"checkpoint-method"};
         }
       }catch(error){atlasWarn("navigation","Checkpoint travel speed unavailable",error);}
     }
+    // Explicit journey speed edits take precedence over Group pace suggestions.
+    if(this.transportJourneyOverrides?.speedMph!==undefined&&
+        this.travelMethod!=="walking")return {sceneUnit,travel:methodTravel};
     // An owned mount/vehicle may have Group-only travel-speed overrides.
     // Hired transport and unowned World reference methods retain catalog speeds.
     if(this.travelMethod!=="walking"&&this.transportArrangement!=="hire"&&
@@ -1247,6 +1283,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(!methods.some(item=>item.id===this.travelMethod)){
       this.travelMethod="walking";this.transportArrangement="owned";
       this.transportHireTerms=null;this.transportHireDenomination=null;
+      this.transportJourneyOverrides=null;
       this.transportOperation="normal";
     }
     const party=el("optgroup");party.label="Party";
@@ -1274,6 +1311,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.setTravelMethod(method,arrangement);
     });
     methodRow.append(methodLabel,methodSelect);
+    if(this.travelMethod!=="walking"){
+      const edit=el("button");edit.type="button";
+      edit.title="Edit this journey's travel method using the World preset fields";
+      edit.setAttribute("aria-label","Edit selected travel method for this journey");
+      edit.innerHTML='<i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>';
+      edit.disabled=Boolean(this.travelSession||this.journalStarting);
+      edit.style.cssText="min-width:2.5rem;min-height:2.5rem;";
+      edit.addEventListener("click",()=>void this.editJourneyTravelMethod().catch(error=>
+        globalThis.ui?.notifications?.error?.(error?.message??String(error))));
+      methodRow.append(edit);
+    }
     body.appendChild(methodRow);
     if(this.travelMethod!=="walking"){
       const worldMethod=methods.find(item=>item.id===this.travelMethod);
@@ -1489,87 +1537,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               "No currency is deducted.");
             timetable.style.cssText="opacity:.8;";block.append(timetable);
             const disabled=Boolean(this.travelSession||this.journalStarting);
-            const field=(caption,control)=>{
-              const wrapper=el("label");wrapper.style.cssText="display:grid;gap:.25rem;min-width:0;align-content:start;";
-              const title=el("span",caption);title.style.cssText="font-weight:600;font-size:.85em;";
-              wrapper.append(title,control);return wrapper;
-            };
-            const makeSelect=(items,current)=>{
-              const select=el("select");select.style.cssText="width:100%;min-width:0;";
-              for(const [id,label] of items){const option=el("option",label);option.value=id;
-                option.selected=id===current;select.append(option);}
-              select.value=current;select.disabled=disabled;return select;
-            };
-            if(this.transportArrangement==="hire"){
-              const presetFare=resolveTransportationHireFare(method);
-              const fare=resolveTransportationHireFare(method,this.transportHireTerms);
-              const frequency=fare.hireBasis==="trip"?"trip":
-                fare.hireBasis==="mile"?"mile":"operating day";
-              const per=fare.hireApplies==="passenger"?"passenger":"transport unit";
-              const defaultDenom=method.hireCostCp>=100?"gp":"cp";
-              const initialCoin=this.transportHireDenomination??defaultDenom;
-              const choices=atlasCurrencyChoices(game.system?.id,
-                globalThis.CONFIG?.DND5E?.currencies);
-              const denom=choices.some(choice=>choice.id===initialCoin)?initialCoin:
-                choices[0]?.id??"cp";
-              const presetPrice=el("small","World preset fare: "+formatMoney(presetFare.hireCostCp)+
-                " per "+(presetFare.hireBasis==="day"?"operating day":presetFare.hireBasis)+
-                " per "+(presetFare.hireApplies==="passenger"?"passenger":"transport unit")+".");
-              presetPrice.style.cssText="opacity:.78;";block.append(presetPrice);
-              const editor=el("div");
-              editor.style.cssText="display:grid;gap:.5rem;border-top:1px solid var(--color-border-light-tertiary,#555);padding-top:.55rem;";
-              editor.append(el("strong","GM pricing for this journey only"));
-              const controls=el("div");
-              controls.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;align-items:start;";
-              const priceControls=el("div");priceControls.style.cssText="display:flex;gap:.35rem;min-width:0;";
-              const rate=el("input");rate.type="number";rate.step="any";rate.min="0";rate.max="100000000";
-              rate.value=String(coinFromCopper(fare.hireCostCp,denom));
-              rate.style.cssText="width:100%;min-width:0;box-sizing:border-box;flex:1;";rate.disabled=disabled;
-              const denomination=makeSelect(choices.map(choice=>[choice.id,choice.label]),denom);
-              denomination.style.cssText="width:5.6rem;min-width:0;flex:none;";
-              priceControls.append(rate,denomination);
-              controls.append(field("Hired fare",priceControls));
-              rate.addEventListener("change",()=>{
-                if(disabled)return;
-                try{
-                  if(!rate.value.trim())throw Error("Enter a fare amount.");
-                  const cp=copperFromCoin(Number(rate.value),denom);
-                  if(cp>1e8)throw Error("Fare exceeds the maximum amount.");
-                  this.transportHireTerms={...fare,hireCostCp:cp};
-                  void this.render(true);
-                }catch(error){globalThis.ui?.notifications?.warn?.(error.message??String(error));}
-              });
-              denomination.addEventListener("change",()=>{
-                if(disabled)return;
-                // Changing coin display units keeps the same CP-equivalent fare.
-                this.transportHireDenomination=denomination.value;
-                void this.render(true);
-              });
-              const basis=makeSelect([["trip","Flat per trip"],["mile","Per traveled mile"],
-                ["day","Per operating day"]],fare.hireBasis);
-              basis.addEventListener("change",()=>{
-                if(disabled)return;
-                this.transportHireTerms={...fare,hireBasis:basis.value};void this.render(true);
-              });
-              controls.append(field("Fare frequency",basis));
-              const applies=makeSelect([["unit","Per transport unit"],
-                ["passenger","Per passenger"]],fare.hireApplies);
-              applies.addEventListener("change",()=>{
-                if(disabled)return;
-                this.transportHireTerms={...fare,hireApplies:applies.value};void this.render(true);
-              });
-              controls.append(field("Charge for each",applies));
-              editor.append(controls);
-              editor.append(el("small","Using "+formatMoney(fare.hireCostCp)+
-                " per "+frequency+" per "+per+". Changes affect this estimate only, not the World preset."));
-              const reset=el("button","Reset to checkpoint offer");reset.type="button";
+            if(this.transportJourneyOverrides&&
+                Object.keys(this.transportJourneyOverrides).length){
+              const helper=el("small","Journey-only settings are active. "+
+                "Use the pencil beside Travel method to edit them.");
+              helper.style.opacity=".85";block.append(helper);
+              const reset=el("button","Reset journey overrides");reset.type="button";
               reset.disabled=disabled;reset.style.cssText="justify-self:start;";
               reset.addEventListener("click",()=>{
                 if(disabled)return;
-                this.transportHireTerms=null;this.transportHireDenomination=null;
-                void this.render(true);
+                this.transportJourneyOverrides=null;
+                this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
+                this.draw();void this.render(true);
               });
-              editor.append(reset);block.append(editor);
+              block.append(reset);
             }
             body.append(block);
           }
