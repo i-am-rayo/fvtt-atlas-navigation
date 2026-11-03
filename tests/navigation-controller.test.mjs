@@ -4,6 +4,8 @@ import { createNavigationItinerary } from "../scripts/navigation-itinerary.js";
 import { createJourneyRecord,checkpointJourneyRecord,findRecoverableJourney,
   JOURNEY_JOURNAL_FLAG } from "../scripts/navigation-journey-journal.js";
 import { estimateNavigationTotalTrip } from "../scripts/navigation-travel-day.js";
+import { defaultTransportationCatalog,findTransportationPreset,setTransportationPreset }
+  from "../scripts/navigation-transport-catalog.js";
 
 const journalStore={save:async(_record,{journal}={})=>journal??{id:"test-journey"},
   find:()=>null};
@@ -660,14 +662,15 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
   }finally{nav?.stop();Object.assign(globalThis,previous);}
 });
 
-test("mounts and land vehicles share overland travel days without forcing ship rests",()=>{
+test("mounts, wagons, and ships use explicit daily operating policies",()=>{
   const priorGame=globalThis.game;
   try{
-    let profile="dnd5e2024";
+    let profile="dnd5e2024",catalog=defaultTransportationCatalog();
     globalThis.game={system:{id:"dnd5e"},settings:{
       get(_module,key){
         if(key==="guidedTravelRulesProfile")return profile;
         if(key==="guidedTravelCustomDayHours")return 6;
+        if(key==="guidedTransportationCatalog")return catalog;
         return undefined;
       }
     }};
@@ -684,8 +687,15 @@ test("mounts and land vehicles share overland travel days without forcing ship r
     assert.equal(wagonPlan.overnights,3);
     assert.ok(Math.abs(wagonPlan.totalHours-(78+5/60))<1e-8);
     const ship=nav.resolveTravelRules({methodId:"warship"});
-    assert.equal(ship.dailyHours,null,"ship operating-day rules remain explicitly unimplemented");
-    assert.equal(estimateNavigationTotalTrip(31+34/60,ship).overnights,0);
+    assert.equal(ship.dailyHours,8,"ships no longer operate 24h without an explicit GM policy");
+    assert.equal(estimateNavigationTotalTrip(31+34/60,ship).overnights,3);
+    const warship=findTransportationPreset("warship",globalThis.game.settings,"dnd5e");
+    catalog=setTransportationPreset(catalog,"dnd5e2024",
+      {...warship,continuousEnabled:true});
+    nav.transportOperation="continuous";
+    const sailing=nav.resolveTravelRules({methodId:"warship"});
+    assert.equal(sailing.dailyHours,24);
+    assert.equal(estimateNavigationTotalTrip(31+34/60,sailing).overnights,0);
     profile="custom";
     assert.equal(nav.resolveTravelRules({methodId:"camel"}).dailyHours,6,
       "custom World travel-day hours also apply to overland mount estimates");

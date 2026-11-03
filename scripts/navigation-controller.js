@@ -33,7 +33,9 @@ import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
 import { readGroupTransportation,projectGroupTransportation,
   groupMethodCapacityStatus,groupMethodFareEstimate }
   from "./navigation-group-transport.js";
-import { projectedGroupFare,dndCurrencyBreakdown } from "./navigation-currency.js";
+import { dndCurrencyBreakdown } from "./navigation-currency.js";
+import { resolveTransportationOperation,quoteTransportationService }
+  from "./navigation-transport-service.js";
 import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
@@ -74,6 +76,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.scene = null;
     this.sourceMode = "map";
     this.travelMethod = "walking";
+    this.transportArrangement="owned";
+    this.transportOperation="normal";
+    this.transportQuoteAdjustmentCp=0;
     this.start = null;
     this.end = null;
     this.result = null;
@@ -114,6 +119,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.stop();
     this.scene = view.scene;
     this.travelMethod="walking";
+    this.transportArrangement="owned";
+    this.transportOperation="normal";
+    this.transportQuoteAdjustmentCp=0;
     // Favor the manually assigned Atlas party explorer when it can actually
     // provide a valid Scene-to-Atlas origin. Otherwise retain map-point mode.
     try{
@@ -216,6 +224,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.scene?.grid?.units?.trim()||"");
     }catch(error){ui.notifications.warn(error.message||String(error));return;}
     this.travelMethod=method;
+    this.transportArrangement=["coach-hire","ship-passage"].includes(method)?"hire":"owned";
+    this.transportOperation="normal";
+    this.transportQuoteAdjustmentCp=0;
     this.travelNotice="";
     this.calculateRoute(view,this.atlasProvider(this.scene));
     this.draw();
@@ -448,22 +459,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   /** All rule interpretations flow through one pure World settings adapter. */
   resolveTravelRules(travel){
-    if(travel?.methodId&&travel.methodId!=="walking"){
-      // Both mounts and LAND vehicles follow overland day/rest scheduling.
-      // Water/air crew policies remain separate planning-only previews.
-      // Non-walking movement still cannot start without checkpoint transfers.
-      const preset=availableNavigationTravelMethods(game.settings,game.system?.id)
-        .find(method=>method.id===travel.methodId);
-      if(preset?.surface==="land"&&["mount","vehicle"].includes(preset.kind))
-        return resolveNavigationTravelRules({settings:game.settings,
-          systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
-      return {
-        profile:"transport-preview",label:"Transport movement-only preview",dailyHours:null,
-        overnightHours:0,shortRestHours:1,longRestHours:8,forcedMarch:"custom"
-      };
-    }
-    return resolveNavigationTravelRules({settings:game.settings,
+    const rules=resolveNavigationTravelRules({settings:game.settings,
       systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
+    if(!travel?.methodId||travel.methodId==="walking")return rules;
+    // Preview-only; actual guided token movement is still Walking-only.
+    const preset=availableNavigationTravelMethods(game.settings,game.system?.id)
+      .find(method=>method.id===travel.methodId);
+    if(!preset)return rules;
+    const normalHours=preset.surface==="land"?
+      (rules.dailyHours??8):8;
+    let operation=this.transportOperation??"normal";
+    let selected;
+    try{selected=resolveTransportationOperation(preset,operation,normalHours);}
+    catch{operation="normal";this.transportOperation="normal";
+      selected=resolveTransportationOperation(preset,"normal",normalHours);}
+    return {...rules,profile:"transport-preview",label:"Transport service preview",
+      dailyHours:selected.dailyHours,overnightHours:selected.overnightHours,
+      forcedMarch:"custom"};
   }
 
   /** The GM's choice is explicit; it cannot originate in a background timer. */
@@ -1069,7 +1081,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       {systemId:game.system?.id});
     // An owned mount/vehicle may have Group-only travel-speed overrides.
     // Hired transport and unowned World reference methods retain catalog speeds.
-    if(this.travelMethod!=="walking"&&game.system?.id==="dnd5e"&&
+    if(this.travelMethod!=="walking"&&this.transportArrangement!=="hire"&&
+        game.system?.id==="dnd5e"&&
         assignedToken?.actor?.type==="group"){
       try{
         const methods=availableNavigationTravelMethods(game.settings,game.system.id);
@@ -1148,6 +1161,68 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     methodSelect.addEventListener("change",()=>this.setTravelMethod(methodSelect.value));
     methodRow.append(methodLabel,methodSelect);
     body.appendChild(methodRow);
+    if(this.travelMethod!=="walking"){
+      const method=methods.find(item=>item.id===this.travelMethod);
+      if(method){
+        if(!method.hireEnabled)this.transportArrangement="owned";
+        if(!method.overtimeEnabled&&this.transportOperation==="overtime"||
+           !method.continuousEnabled&&this.transportOperation==="continuous")
+          this.transportOperation="normal";
+        const services=el("div");
+        services.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.65rem;";
+        const arrangementLabel=el("label","Arrangement");
+        arrangementLabel.style.cssText="display:grid;gap:.25rem;font-size:.87em;";
+        const arrangement=el("select");arrangement.title="Choose whether the party owns or plans to hire this transport";
+        arrangement.disabled=Boolean(this.travelSession||this.journalStarting);
+        for(const [id,label] of [["owned","Party-owned"],["hire","For hire / passage"]]){
+          if(id==="hire"&&!method.hireEnabled)continue;
+          const opt=el("option",label);opt.value=id;arrangement.append(opt);
+        }
+        arrangement.value=this.transportArrangement;
+        arrangement.addEventListener("change",()=>{
+          if(this.travelSession)return;
+          this.transportArrangement=arrangement.value;
+          this.transportQuoteAdjustmentCp=0;
+          try{
+            const view=this.canvasProvider();
+            this.calculateRoute(view,this.atlasProvider(this.scene));this.draw();
+          }catch(error){atlasWarn("navigation","Service arrangement refresh failed",error);}
+          void this.render(true);
+        });
+        arrangementLabel.append(arrangement);
+        const operationLabel=el("label","Operating schedule");
+        operationLabel.style.cssText="display:grid;gap:.25rem;font-size:.87em;";
+        const operation=el("select");operation.title="Select GM-approved daily transport operation";
+        operation.disabled=Boolean(this.travelSession||this.journalStarting);
+        const normalProfile=resolveNavigationTravelRules({settings:game.settings,
+          systemId:game.system?.id,actorHoursPerDay:null});
+        const standardHours=method.surface==="land"?(normalProfile.dailyHours??8):8;
+        const operations=[["normal","Standard — "+standardHours+"h/day"]];
+        if(method.overtimeEnabled)operations.push(["overtime",
+          "Overtime — up to "+(8+(method.overtimeExtraHours??8))+"h/day"]);
+        if(method.continuousEnabled&&method.kind==="vehicle"&&
+            ["water","air"].includes(method.surface))
+          operations.push(["continuous","Continuous — 24h/day"]);
+        for(const [id,label] of operations){
+          const opt=el("option",label);opt.value=id;operation.append(opt);
+        }
+        operation.value=this.transportOperation;
+        operation.addEventListener("change",()=>{
+          if(this.travelSession)return;
+          this.transportOperation=operation.value;
+          this.journeySchedule=null;
+          void this.render(true);
+        });
+        operationLabel.append(operation);
+        services.append(arrangementLabel,operationLabel);
+        body.append(services);
+        if(this.transportArrangement==="hire"){
+          const note=el("small","For-hire prices are GM planning quotes. Atlas has not yet verified that a nearby checkpoint offers this service (beta.4c). No booking or payment occurs.");
+          note.style.cssText="opacity:.8;";
+          body.append(note);
+        }
+      }
+    }
     const statusLabel=el("p",status);
     statusLabel.style.cssText="margin:0;font-weight:600;flex:1;min-width:0;";
     const statusRow=el("div");
@@ -1193,7 +1268,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       advisory.style.cssText="margin:0;padding:.5rem;border:1px solid #b18b54;border-radius:6px;font-size:.83em;";
       body.appendChild(advisory);
     }
-    if(this.travelMethod!=="walking" && game.system?.id==="dnd5e" &&
+    if(this.travelMethod!=="walking" && this.transportArrangement!=="hire" &&
+        game.system?.id==="dnd5e" &&
         !["coach-hire","ship-passage"].includes(this.travelMethod)){
       // Show capacity as a read-only advisory; non-walking guided movement is
       // still forbidden until a GM authorizes checkpoint boarding.
@@ -1238,64 +1314,87 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               "then Save assignments. Refresh seats after saving."));
           }
           body.appendChild(capacityBox);
-          if(this.result?.status==="ok"&&capacity.matched&&capacity.sufficient){
-            const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
-            if(distanceMi!==null){
-              const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
-              const movingHours=navigationHours(weighted,speed);
-              const previewRules=this.resolveTravelRules(travel);
-              const billableDayHours=selectedMethod.surface==="land"&&
-                previewRules.dailyHours!==null?previewRules.dailyHours:24;
-              const quote=groupMethodFareEstimate(roster,selectedMethod,{
-                hours:movingHours,distanceMi,dayHours:billableDayHours});
-              const estimate=dndCurrencyBreakdown(quote.amount,
-                globalThis.CONFIG?.DND5E?.currencies);
-              const basisDetail=quote.breakdown.map(entry=>
-                entry.name+": "+entry.quantity+" unit(s) · "+
-                entry.costCp+" CP/"+(entry.costBasis==="none"?"no recurring cost":
-                  entry.costBasis==="day"?"travel day":"mile")+
-                " per "+entry.costApplies+
-                (entry.crewWagesCp>0?" + optional crew wages "+
-                  dndCurrencyBreakdown(entry.crewWagesCp,
-                    globalThis.CONFIG?.DND5E?.currencies).label+
-                  " ("+entry.crewDays+" wage day(s))":"")).join("; ");
-              const note=el("p","Illustrative Group transport cost: "+estimate.label+
-                (estimate.roundedUp?" (coin-rounded up from "+
-                  quote.amount.toLocaleString(undefined,{maximumFractionDigits:2})+" CP)":"")+
-                " ("+basisDetail+"; "+billableDayHours+
-                " travel hours/day). Assumes matching assigned resources participate. "+
-                "No currency will be deducted.");
-              note.style.cssText="font-size:.83em;margin:0;opacity:.85;";
-              body.appendChild(note);
-            }
-          }
+
         }
       }catch(error){atlasWarn("navigation","Group capacity preview unavailable",error);}
     }
-    if(["coach-hire","ship-passage"].includes(this.travelMethod)&&
-        this.result?.status==="ok"&&game.system?.id==="dnd5e"){
+    if(this.travelMethod!=="walking"&&this.result?.status==="ok"&&
+        methodAssessment.compatible){
       try{
-        const assignment=readPartyExploration(this.scene);
-        const actor=assignment.enabled?this.scene?.tokens?.get?.(assignment.tokenId)?.actor:null;
-        if(actor?.type==="group"){
-          const roster=projectGroupTransportation(actor,readGroupTransportation(game.settings),methods);
-          const method=methods.find(item=>item.id===this.travelMethod);
-          const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
-          if(method&&distanceMi!==null){
-            const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
-            const amount=projectedGroupFare(method,{quantity:1,passengers:roster.travelers,
-              distanceMi,hours:navigationHours(weighted,speed)});
-            const estimate=dndCurrencyBreakdown(amount,globalThis.CONFIG?.DND5E?.currencies);
-            const note=el("p",roster.travelers+" passenger(s): illustrative hired "+
-              "transport fare "+estimate.label+
-              " ("+amount.toLocaleString(undefined,{maximumFractionDigits:2})+
-              " CP exact"+(estimate.roundedUp?"; rounded up to "+estimate.payableCopper+
-                " CP for whole-coin planning":"")+"). No currency is deducted.");
-            note.style.cssText="margin:0;font-size:.83em;opacity:.85;";
-            body.appendChild(note);
+        const method=methods.find(item=>item.id===this.travelMethod);
+        const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
+        if(method&&distanceMi!==null){
+          const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
+          const movingHours=navigationHours(weighted,speed);
+          const assignment=readPartyExploration(this.scene);
+          const actor=assignment.enabled?this.scene?.tokens?.get?.(assignment.tokenId)?.actor:null;
+          const roster=actor?.type==="group"?
+            projectGroupTransportation(actor,readGroupTransportation(game.settings),methods):null;
+          let ownedQuote=null;
+          if(this.transportArrangement==="owned"&&roster){
+            const capacity=groupMethodCapacityStatus(roster,method);
+            if(capacity.sufficient)
+              ownedQuote=groupMethodFareEstimate(roster,method,{hours:movingHours,
+                distanceMi,dayHours:this.resolveTravelRules(travel).dailyHours??8});
+          }
+          if(this.transportArrangement==="hire"||ownedQuote){
+            const normalRules=resolveNavigationTravelRules({settings:game.settings,
+              systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
+            const normalHours=method.surface==="land"?(normalRules.dailyHours??8):8;
+            const quote=quoteTransportationService(method,{
+              arrangement:this.transportArrangement,
+              operation:this.transportOperation,movingHours,distanceMi,
+              travelers:roster?.travelers??1,ownedQuote,
+              adjustmentCp:this.transportQuoteAdjustmentCp,regularHours:normalHours
+            });
+            const formatMoney=cp=>dndCurrencyBreakdown(cp,
+              globalThis.CONFIG?.DND5E?.currencies).label;
+            const block=el("section");
+            block.style.cssText="display:grid;gap:.4rem;border:1px solid var(--color-border-light-tertiary,#777);border-radius:8px;padding:.65rem;";
+            block.append(el("strong","Estimated "+(quote.arrangement==="hire"?
+              "hired service":"party-owned transport")+" cost: "+formatMoney(quote.totalCp)));
+            const details=[
+              quote.baseLabel+": "+formatMoney(quote.baseCp),
+              "Paid crew: "+formatMoney(quote.crewWagesCp),
+              "Overtime fare premium: "+formatMoney(quote.overtimeFareCp),
+              "Overtime labor premium: "+formatMoney(quote.overtimeCrewCp)
+            ];
+            block.append(el("small",details.join(" · ")));
+            const timetable=el("small",quote.travelDays+" operating day(s) at "+
+              quote.dailyHours+"h/day, "+quote.extraHours.toFixed(1)+" overtime hour(s), "+
+              quote.units+" transport unit(s). "+
+              (quote.provisionalAvailability?"Hire availability is not verified. ":"")+
+              "No currency is deducted.");
+            timetable.style.cssText="opacity:.8;";
+            block.append(timetable);
+            const adjustment=el("label");
+            adjustment.style.cssText="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;";
+            adjustment.append(el("span","GM price adjustment (CP)"));
+            const amount=el("input");amount.type="number";amount.step="1";
+            amount.min="-100000000";amount.max="100000000";
+            amount.value=String(this.transportQuoteAdjustmentCp);
+            amount.style.cssText="width:9rem;min-width:0;";
+            amount.disabled=Boolean(this.travelSession);
+            amount.addEventListener("change",()=>{
+              const value=Number(amount.value);
+              if(!Number.isFinite(value)||Math.abs(value)>100000000){
+                globalThis.ui?.notifications?.warn?.("Enter an adjustment between -100,000,000 and 100,000,000 CP.");
+                return;
+              }
+              this.transportQuoteAdjustmentCp=value;
+              void this.render(true);
+            });
+            adjustment.append(amount);
+            block.append(adjustment);
+            body.append(block);
           }
         }
-      }catch(error){atlasWarn("navigation","Group fare preview unavailable",error);}
+      }catch(error){
+        atlasWarn("navigation","Transport service preview unavailable",error);
+        const warning=el("p","Transport cost estimate unavailable: "+(error.message??String(error)));
+        warning.style.cssText="margin:0;padding:.5rem;border:1px solid #b18b54;border-radius:6px;font-size:.83em;";
+        body.append(warning);
+      }
     }
     const help=el("p",partyMode?
       "Atlas reads Point A from the assigned party token's Scene location. Click the map for B; Alt/Option+click changes B. Refresh location after moving the token.":
@@ -1318,25 +1417,31 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const hours=navigationHours(weighted,speed);
         metric("Travel Time",formatGuidedWorldTime(Math.round(hours*3600)));
         const rules=this.resolveTravelRules(travel);
-        const schedule=this.journeySchedule&&Math.abs(this.journeySchedule.travelHours-hours)<1e-5?
+        const schedule=this.travelMethod==="walking"&&this.journeySchedule&&
+          Math.abs(this.journeySchedule.travelHours-hours)<1e-5?
           this.journeySchedule:null;
         const plan=schedule?.estimate??estimateNavigationTotalTrip(hours,rules);
         metric("Total Trip",formatNavigationDuration(plan.totalHours,24));
         const activeMethod=methods.find(method=>method.id===this.travelMethod);
-        const overlandPreview=this.travelMethod!=="walking"&&
-          activeMethod?.surface==="land"&&
+        const transportPreview=this.travelMethod!=="walking"&&
           ["mount","vehicle"].includes(activeMethod?.kind)&&rules.dailyHours!==null;
-        const explanation=overlandPreview?
-          `Land transport preview: ${rules.dailyHours}h travel/day, ${rules.overnightHours}h overnight downtime; ${plan.overnights} overnight stop${plan.overnights===1?"":"s"} planned. Per-day costs use those travel days. Guided land transport and forced marches are not yet automated; costs are estimates only.`:
-          this.travelMethod!=="walking"?
-          "Transport preview: Total Trip currently includes moving time only. Ships and other " +
-          "vehicles may operate on different schedules depending on crew. Method-specific " +
-          "travel/rest policies are not yet automated. Costs are planning references only.":
+        const explanation=transportPreview?
+          "Transport service preview ("+this.transportOperation+"): "+
+          rules.dailyHours+"h travel/day, "+rules.overnightHours+
+          "h overnight downtime; "+plan.overnights+
+          " overnight stop(s) planned. "+
+          (this.transportOperation==="overtime"?
+            "Extra operating hours may call for fatigue checks; Atlas does not apply exhaustion. ":
+            this.transportOperation==="continuous"?
+            "24h operation requires the GM to confirm capable crew or magic. ":"")+
+          "Guided vehicle movement, boarding and payments are not automated.":
           rules.dailyHours===null?
           "Total Trip currently counts movement only; select D&D or Custom rules in Module Settings to plan rests.":
-          `Plan: ${rules.dailyHours}h travel/day, ${rules.overnightHours}h overnight downtime `+
-          `(including rest); ${plan.overnights} overnight stop${plan.overnights===1?"":"s"} remaining.`+
-          (plan.breakHours?` ${formatGuidedWorldTime(Math.round(plan.breakHours*3600))} of confirmed breaks included.`:"")+
+          "Plan: "+rules.dailyHours+"h travel/day, "+rules.overnightHours+
+          "h overnight downtime (including rest); "+plan.overnights+
+          " overnight stop(s) remaining."+
+          (plan.breakHours?" "+formatGuidedWorldTime(Math.round(plan.breakHours*3600))+
+            " of confirmed breaks included.":"")+
           " The GM's rest or forced-travel choices update this estimate.";
         tripExplanation=el("p",explanation);
         tripExplanation.style.cssText="margin:0;font-size:.8em;opacity:.75;";

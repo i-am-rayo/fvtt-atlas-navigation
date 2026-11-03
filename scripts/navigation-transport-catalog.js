@@ -4,7 +4,8 @@
  * overrides and custom methods are independent of the reference tables.
  */
 export const TRANSPORT_CATALOG_SETTING = "guidedTransportationCatalog";
-export const TRANSPORT_CATALOG_VERSION = 2;
+export const TRANSPORT_CATALOG_VERSION = 3;
+export const TRANSPORT_HIRE_BASES = Object.freeze(["trip","mile","day"]);
 export const TRANSPORT_KINDS = Object.freeze(["foot", "mount", "vehicle"]);
 export const TRANSPORT_SURFACES = Object.freeze(["land", "water", "air"]);
 export const TRANSPORT_COST_BASES = Object.freeze(["none", "day", "mile"]);
@@ -64,6 +65,19 @@ const referenceOccupancy = Object.freeze({
   keelboat:{capacity:6,crewCount:1},longship:{capacity:150,crewCount:40},
   rowboat:{capacity:3,crewCount:1},sailing:{capacity:20,crewCount:20},
   warship:{capacity:60,crewCount:60},"ship-passage":{capacity:20,crewCount:20}
+});
+// Optional service quote examples. These do NOT mean a service is available at
+// the current checkpoint. The GM must explicitly choose a hire arrangement;
+// checkpoint supply belongs to beta.4c.
+const referenceHire=Object.freeze({
+  carriage:{hireEnabled:true,hireCostCp:400,hireBasis:"day",hireApplies:"unit"},
+  cart:{hireEnabled:true,hireCostCp:250,hireBasis:"day",hireApplies:"unit"},
+  chariot:{hireEnabled:true,hireCostCp:500,hireBasis:"day",hireApplies:"unit"},
+  sled:{hireEnabled:true,hireCostCp:300,hireBasis:"day",hireApplies:"unit"},
+  wagon:{hireEnabled:true,hireCostCp:400,hireBasis:"day",hireApplies:"unit"},
+  "coach-hire":{hireEnabled:true,hireCostCp:3,hireBasis:"mile",hireApplies:"passenger"},
+  "ship-passage":{hireEnabled:true,hireCostCp:10,hireBasis:"mile",hireApplies:"passenger"},
+  airship:{hireEnabled:true,hireCostCp:5000,hireBasis:"day",hireApplies:"unit"}
 });
 // 2014 source speeds vary for some vessels; rules profiles never share edits.
 const dnd2014 = Object.freeze(dnd2024.map(p => Object.freeze({...p,
@@ -150,6 +164,35 @@ const projectedCrew=p=>({
   crewWageCpPerDay:p.crewWageCpPerDay??200,
   includeCrewWages:p.includeCrewWages??false
 });
+const validServiceFields=(p,kind,surface)=>
+  (p.hireEnabled===undefined||typeof p.hireEnabled==="boolean")&&
+  (p.hireCostCp===undefined||money(p.hireCostCp))&&
+  (p.hireBasis===undefined||TRANSPORT_HIRE_BASES.includes(p.hireBasis))&&
+  (p.hireApplies===undefined||validCostApplies(p.hireApplies))&&
+  (p.hireCrewIncluded===undefined||typeof p.hireCrewIncluded==="boolean")&&
+  (p.overtimeEnabled===undefined||typeof p.overtimeEnabled==="boolean")&&
+  (p.overtimeMultiplier===undefined||
+    (Number.isFinite(p.overtimeMultiplier)&&p.overtimeMultiplier>=1&&p.overtimeMultiplier<=5))&&
+  (p.overtimeExtraHours===undefined||
+    (Number.isInteger(p.overtimeExtraHours)&&p.overtimeExtraHours>=1&&p.overtimeExtraHours<=8))&&
+  (p.continuousEnabled===undefined||typeof p.continuousEnabled==="boolean")&&
+  (!p.hireEnabled||kind==="vehicle")&&
+  (!p.continuousEnabled||(kind==="vehicle"&&["water","air"].includes(surface)));
+const serviceFields=p=>Object.fromEntries([
+  "hireEnabled","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
+  "overtimeEnabled","overtimeMultiplier","overtimeExtraHours","continuousEnabled"
+].filter(key=>p[key]!==undefined).map(key=>[key,p[key]]));
+const projectedServices=p=>({
+  hireEnabled:p.hireEnabled??referenceHire[p.id]?.hireEnabled??false,
+  hireCostCp:p.hireCostCp??referenceHire[p.id]?.hireCostCp??0,
+  hireBasis:p.hireBasis??referenceHire[p.id]?.hireBasis??"day",
+  hireApplies:p.hireApplies??referenceHire[p.id]?.hireApplies??"unit",
+  hireCrewIncluded:p.hireCrewIncluded??true,
+  overtimeEnabled:p.overtimeEnabled??false,
+  overtimeMultiplier:p.overtimeMultiplier??1.5,
+  overtimeExtraHours:p.overtimeExtraHours??8,
+  continuousEnabled:p.continuousEnabled??false
+});
 const defaultCapacity=kind=>kind==="mount"?1:null;
 const defaultCostApplies=id=>id==="coach-hire"||id==="ship-passage"?"passenger":"unit";
 const immutable = value=>Object.freeze({...value});
@@ -157,7 +200,7 @@ const immutable = value=>Object.freeze({...value});
 /** Strong validation at every write boundary; bad Worlds are never rewritten on load. */
 export function validateTransportationCatalog(input){
   if(!input || typeof input!=="object" || Array.isArray(input) ||
-      (input.version!==1&&input.version!==TRANSPORT_CATALOG_VERSION) ||
+      ![1,2,TRANSPORT_CATALOG_VERSION].includes(input.version) ||
       !input.overrides || typeof input.overrides!=="object" ||
       Array.isArray(input.overrides) || !Array.isArray(input.customs) ||
       input.customs.length>150)
@@ -176,14 +219,16 @@ export function validateTransportationCatalog(input){
           !(patch.purchaseGp===null||money(patch.purchaseGp))||
           (patch.capacity!==undefined&&!validCapacity(patch.capacity))||
           (patch.costApplies!==undefined&&!validCostApplies(patch.costApplies))||
-          !validCrewFields(patch))
+          !validCrewFields(patch)||
+          !validServiceFields(patch,dnd2024.find(p=>p.id===id)?.kind,
+            dnd2024.find(p=>p.id===id)?.surface))
         throw new Error("Invalid transportation override for "+id+".");
       result.overrides[profile][id]={
         speedMph:patch.speedMph,costCp:patch.costCp,
         costBasis:patch.costBasis,purchaseGp:patch.purchaseGp,
         ...(patch.capacity===undefined?{}:{capacity:patch.capacity}),
         ...(patch.costApplies===undefined?{}:{costApplies:patch.costApplies}),
-        ...crewFields(patch)
+        ...crewFields(patch),...serviceFields(patch)
       };
     }
   }
@@ -197,7 +242,7 @@ export function validateTransportationCatalog(input){
         !(item.purchaseGp===null||money(item.purchaseGp))||
         (item.capacity!==undefined&&!validCapacity(item.capacity))||
         (item.costApplies!==undefined&&!validCostApplies(item.costApplies))||
-        !validCrewFields(item)||
+        !validCrewFields(item)||!validServiceFields(item,item.kind,item.surface)||
         (item.note!==undefined && typeof item.note!=="string")||
         (item.note?.length??0)>240||ids.has(item.id))
       throw new Error("Invalid or duplicate custom transportation preset.");
@@ -238,7 +283,7 @@ export function listTransportationPresets(settings,systemId){
     const speedMph=!change&&fallback?legacySpeed(settings,fallback,p.speedMph):stored.speedMph;
     return immutable({...stored,speedMph,
       capacity:stored.capacity??referenceOccupancy[p.id]?.capacity??defaultCapacity(p.kind),
-      ...projectedCrew(stored),
+      ...projectedCrew(stored),...projectedServices(stored),
       costApplies:stored.costApplies??defaultCostApplies(p.id),builtIn:true,
       referenceProfile:profile,customized:Boolean(change)||(Boolean(fallback)&&speedMph!==p.speedMph)});
   });
@@ -251,7 +296,7 @@ export function listTransportationPresets(settings,systemId){
       "Optional workbook planning example. Not a D&D 2024 sustained mount speed.":p.note;
     return immutable({...p,name,note,
       capacity:p.capacity??defaultCapacity(p.kind),
-      ...projectedCrew(p),
+      ...projectedCrew(p),...projectedServices(p),
       costApplies:p.costApplies??defaultCostApplies(p.id),
       builtIn:false,customized:true});
   })];
@@ -268,7 +313,8 @@ export function setTransportationPreset(catalog,profile,preset){
       !(preset.purchaseGp===null||money(preset.purchaseGp))||
        (preset.capacity!==undefined&&!validCapacity(preset.capacity))||
        (preset.costApplies!==undefined&&!validCostApplies(preset.costApplies))||
-       !validCrewFields(preset))
+       !validCrewFields(preset)||
+       !validServiceFields(preset,preset.kind,preset.surface))
     throw new Error("Invalid transportation preset.");
   if(preset.id.startsWith("custom-")){
     const index=valid.customs.findIndex(p=>p.id===preset.id);
@@ -277,7 +323,7 @@ export function setTransportationPreset(catalog,profile,preset){
       purchaseGp:preset.purchaseGp,
       ...(preset.capacity===undefined?{}:{capacity:preset.capacity}),
       ...(preset.costApplies===undefined?{}:{costApplies:preset.costApplies}),
-      ...crewFields(preset),
+      ...crewFields(preset),...serviceFields(preset),
       note:String(preset.note??"").slice(0,240)};
     if(index===-1)valid.customs.push(clean);else valid.customs[index]=clean;
   }else{
@@ -289,7 +335,7 @@ export function setTransportationPreset(catalog,profile,preset){
       purchaseGp:preset.purchaseGp,
       ...(preset.capacity===undefined?{}:{capacity:preset.capacity}),
       ...(preset.costApplies===undefined?{}:{costApplies:preset.costApplies}),
-      ...crewFields(preset)
+      ...crewFields(preset),...serviceFields(preset)
     };
   }
   return validateTransportationCatalog(valid);

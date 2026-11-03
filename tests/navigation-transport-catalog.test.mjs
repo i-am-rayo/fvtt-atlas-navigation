@@ -82,7 +82,7 @@ test("custom presets use stable IDs, validated boundaries, and never change exis
 });
 
 test("catalog validation refuses malformed, duplicate and future-version records",()=>{
-  assert.throws(()=>validateTransportationCatalog({version:3,overrides:{},customs:[]}),/version/i);
+  assert.throws(()=>validateTransportationCatalog({version:4,overrides:{},customs:[]}),/version/i);
   const cat=defaultTransportationCatalog();
   cat.customs=[sample,{...sample}];
   assert.throws(()=>validateTransportationCatalog(cat),/duplicate/i);
@@ -177,7 +177,7 @@ test("v1 transportation catalogs migrate only in memory; crew reference values a
   }},customs:[sample]};
   const source=JSON.stringify(legacy);
   const projected=validateTransportationCatalog(legacy);
-  assert.equal(projected.version,2);
+  assert.equal(projected.version,3);
   assert.equal(JSON.stringify(legacy),source,"no mutation of World flags");
   const values={[TRANSPORT_CATALOG_SETTING]:legacy};
   assert.equal(findTransportationPreset("warship",settings(values),"dnd5e").speedMph,2.7);
@@ -195,7 +195,7 @@ test("World crew and wage options are stored independently for each rules profil
   const original=findTransportationPreset("warship",settings(),"dnd5e");
   const revised=setTransportationPreset(defaultTransportationCatalog(),"dnd5e2024",
     {...original,crewCount:18,crewWageCpPerDay:350,includeCrewWages:true});
-  assert.equal(revised.version,2);
+  assert.equal(revised.version,3);
   const current=findTransportationPreset("warship",
     settings({[TRANSPORT_CATALOG_SETTING]:revised}),"dnd5e");
   assert.equal(current.crewCount,18);
@@ -236,4 +236,56 @@ test("100-mile and one-day examples use one unit, 8-hour days and optional crew 
     {distanceMi:100});
   assert.equal(disabled.totalCp,0);
   assert.throws(()=>estimateTransportationTrip({...horse,speedMph:0},{distanceMi:100}),/Invalid/);
+});
+
+test("beta.4b service profiles migrate v2 World data without writes or false availability",()=>{
+  const legacy={version:2,overrides:{},customs:[sample]};
+  const saved=JSON.stringify(legacy);
+  assert.equal(validateTransportationCatalog(legacy).version,3);
+  assert.equal(JSON.stringify(legacy),saved);
+  const values={[TRANSPORT_CATALOG_SETTING]:legacy};
+  const coach=findTransportationPreset("coach-hire",settings(values),"dnd5e");
+  assert.equal(coach.hireEnabled,true);
+  assert.equal(coach.hireCostCp,3);
+  assert.equal(coach.hireBasis,"mile");
+  assert.equal(coach.hireApplies,"passenger");
+  const wagon=findTransportationPreset("wagon",settings(values),"dnd5e");
+  assert.equal(wagon.hireEnabled,true);
+  assert.equal(wagon.hireCostCp,400);
+  assert.equal(wagon.hireCrewIncluded,true);
+  assert.equal(wagon.overtimeEnabled,false);
+  assert.equal(wagon.continuousEnabled,false);
+  const ownedShip=findTransportationPreset("warship",settings(values),"dnd5e");
+  assert.equal(ownedShip.continuousEnabled,false,
+    "continuous sailing requires an explicit GM setting");
+  assert.equal(findTransportationPreset("custom-skiff",settings(values),"dnd5e").hireEnabled,false,
+    "custom imports do not gain hired services implicitly");
+});
+
+test("service rates and capabilities persist per profile and validate eligibility",()=>{
+  const ship=findTransportationPreset("warship",settings(),"dnd5e");
+  const changed=setTransportationPreset(defaultTransportationCatalog(),"dnd5e2024",{
+    ...ship,hireEnabled:true,hireCostCp:2500,hireBasis:"trip",
+    hireApplies:"unit",hireCrewIncluded:false,
+    overtimeEnabled:true,overtimeMultiplier:1.7,overtimeExtraHours:6,
+    continuousEnabled:true});
+  const recorded=findTransportationPreset("warship",
+    settings({[TRANSPORT_CATALOG_SETTING]:changed}),"dnd5e");
+  assert.equal(recorded.hireCostCp,2500);
+  assert.equal(recorded.overtimeExtraHours,6);
+  assert.equal(recorded.continuousEnabled,true);
+  const other=findTransportationPreset("warship",
+    settings({[TRANSPORT_CATALOG_SETTING]:changed,guidedTravelRulesProfile:"dnd5e2014"}),"dnd5e");
+  assert.equal(other.continuousEnabled,false,"rules profile edits remain independent");
+  const horse=findTransportationPreset("riding-horse",settings(),"dnd5e");
+  assert.throws(()=>setTransportationPreset(changed,"dnd5e2024",
+    {...horse,continuousEnabled:true}),/Invalid/);
+  assert.throws(()=>setTransportationPreset(changed,"dnd5e2024",
+    {...horse,hireEnabled:true}),/Invalid/);
+  assert.throws(()=>setTransportationPreset(changed,"dnd5e2024",
+    {...ship,overtimeMultiplier:0.5}),/Invalid/);
+  assert.throws(()=>setTransportationPreset(changed,"dnd5e2024",
+    {...ship,overtimeExtraHours:9}),/Invalid/);
+  assert.throws(()=>setTransportationPreset(changed,"dnd5e2024",
+    {...ship,hireBasis:"week"}),/Invalid/);
 });

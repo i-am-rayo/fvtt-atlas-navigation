@@ -4,7 +4,7 @@
  * No Scene, Region, Token, currency or Actor data is changed by editing.
  */
 import { TRANSPORT_CATALOG_SETTING,TRANSPORT_SURFACES,TRANSPORT_KINDS,
-  TRANSPORT_COST_BASES,readTransportationCatalog,listTransportationPresets,
+  TRANSPORT_COST_BASES,TRANSPORT_HIRE_BASES,readTransportationCatalog,listTransportationPresets,
   selectedTransportationProfile,setTransportationPreset,resetTransportationPreset,
   deleteCustomTransportationPreset,addOptionalTirelessExamples,estimateTransportationTrip }
   from "./navigation-transport-catalog.js";
@@ -337,7 +337,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
     nav.setAttribute("aria-label","Transportation preset editor sections");
     nav.style.cssText="display:flex;gap:.3rem;border-bottom:2px solid var(--color-border-light-tertiary,#555);";
     const panels={};
-    for(const [id,label] of [["general","General"],["cost","Cost"]]){
+    for(const [id,label] of [["general","General"],["cost","Cost"],["services","Services"]]){
       const tab=element("button",label);tab.type="button";
       tab.setAttribute("role","tab");tab.setAttribute("data-atlas-preset-tab",id);
       tab.setAttribute("aria-selected",String(id==="general"));
@@ -348,7 +348,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       panel.style.cssText="display:"+(id==="general"?"grid":"none")+";gap:.75rem;min-width:0;";
       panels[id]=panel;
     }
-    body.append(nav,panels.general,panels.cost);
+    body.append(nav,panels.general,panels.cost,panels.services);
     const name=element("input");name.name="name";name.type="text";
     name.maxLength=80;name.required=true;name.placeholder="e.g. Wind-powered skiff";
     name.value=value.name;name.defaultValue=value.name;
@@ -449,6 +449,57 @@ export class AtlasTransportationSettings extends ApplicationBase {
     panels.cost.append(quote);
     const error=element("small","");error.setAttribute("data-atlas-quote-error","");
     panels.cost.append(error);
+    panels.services.append(heading("Optional transport services",
+      "GM-only planning. Hire previews do not prove a town or checkpoint offers the service; checkpoint supply comes in beta.4c."));
+    const serviceToggle=(name,checked,label,description)=>{
+      const input=checkbox(name,checked);
+      if(input.checked)input.setAttribute("checked","checked");
+      const wrapper=element("label");wrapper.style.cssText="display:flex;gap:.6rem;align-items:center;";
+      wrapper.append(input,element("strong",label));
+      const box=element("div");box.style.cssText="display:grid;gap:.3rem;";
+      box.append(wrapper,element("small",description));return box;
+    };
+    if(value.kind==="vehicle")panels.services.append(serviceToggle("hireEnabled",value.hireEnabled??false,
+      "Offer for-hire / paid passage quote",
+      "GM may preview a hired service in Navigation; no actual hire or payment occurs."));
+    else panels.services.append(element("small","For-hire quotes currently apply to vehicles and paid passage. Mount hire remains a future service."));
+    const hireFields=element("div");
+    hireFields.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;";
+    const hireAmount=value.hireCostCp??0;
+    hireFields.append(field("Hired service fare",
+      priceInput("hire",value.hireBasis==="mile"?
+        atlasDisplayCostPerDistance(hireAmount):hireAmount,hireAmount<100?"cp":"gp")));
+    hireFields.append(field("Fare frequency",selected(TRANSPORT_HIRE_BASES.map(k=>[
+      k,k==="trip"?"Flat per trip":k==="day"?"Per operating day":
+        "Per traveled "+(resolveAtlasMeasuringUnits()==="metric"?"kilometer":"mile")
+    ]),value.hireBasis??"day","hireBasis")));
+    hireFields.append(field("Charge per",selected([
+      ["unit","Transport unit"],["passenger","Passenger"]
+    ],value.hireApplies??"unit","hireApplies")));
+    panels.services.append(hireFields);
+    panels.services.append(serviceToggle("hireCrewIncluded",value.hireCrewIncluded??true,
+      "Driver / crew included in hired fare",
+      "Do not double-count labor already covered by a hired operator."));
+    panels.services.append(serviceToggle("overtimeEnabled",value.overtimeEnabled??false,
+      "Allow overtime travel",
+      "8h regular travel plus up to 8h extra; requires explicit GM selection."));
+    const overtime=element("div");
+    overtime.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;";
+    overtime.append(field("Extra hours per day (1–8)",
+      numberInput("overtimeExtraHours",value.overtimeExtraHours??8,{min:1,max:8,step:1})));
+    overtime.append(field("Overtime multiplier (1–5)",
+      numberInput("overtimeMultiplier",value.overtimeMultiplier??1.5,{min:1,max:5,step:.1}),
+      "Premium applies to overtime hours, not all travel."));
+    panels.services.append(overtime);
+    const continuous=serviceToggle("continuousEnabled",
+      value.kind==="vehicle"&&["water","air"].includes(value.surface)?
+        value.continuousEnabled??false:false,
+      "Allow continuous 24h operation",
+      "Only ships or aircraft with appropriate staff or magic; excludes overtime mode.");
+    if(value.kind==="vehicle"&&["water","air"].includes(value.surface))
+      panels.services.append(continuous);
+    else panels.services.append(element("small",
+      "Continuous travel can only be enabled for water or air vehicles. Save a custom vehicle's surface first."));
     // DialogV2 requires a plain outer HTMLDivElement with no attributes.
     const shell=element("div");shell.appendChild(body);
     const response=await foundry.applications.api.DialogV2.input({
@@ -484,6 +535,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const purchaseGp=response.purchaseAmount===""||response.purchaseAmount==null?
       null:copperFromCoin(Number(response.purchaseAmount),
         String(response.purchaseDenom??"gp"))/100;
+    const bool=name=>response[name]===true||response[name]==="on"||response[name]==="true";
+    const hireEntered=copperFromCoin(Number(response.hireAmount),String(response.hireDenom??"cp"));
+    const hireCostCp=String(response.hireBasis)==="mile"?
+      atlasCostPerMileFromDisplay(hireEntered):hireEntered;
     const next={...value,id,
       name:preset?.builtIn?value.name:String(response.name??"").trim(),
       kind:preset?.builtIn?value.kind:String(response.kind??""),
@@ -495,6 +550,13 @@ export class AtlasTransportationSettings extends ApplicationBase {
       costBasis:String(response.costBasis),
       costApplies:String(response.costApplies),
       purchaseGp,crewCount,crewWageCpPerDay,includeCrewWages,
+      hireEnabled:bool("hireEnabled"),hireCostCp,
+      hireBasis:String(response.hireBasis),hireApplies:String(response.hireApplies),
+      hireCrewIncluded:bool("hireCrewIncluded"),
+      overtimeEnabled:bool("overtimeEnabled"),
+      overtimeExtraHours:Number(response.overtimeExtraHours),
+      overtimeMultiplier:Number(response.overtimeMultiplier),
+      continuousEnabled:bool("continuousEnabled"),
       note:preset?.builtIn?value.note:String(response.note??"")};
     const updated=setTransportationPreset(readTransportationCatalog(game.settings),profile,next);
     await game.settings.set(MODULE_ID,TRANSPORT_CATALOG_SETTING,updated);
