@@ -72,7 +72,7 @@ test("checkpoint presets use stable IDs, snapshots and never permit active event
     appearance:null,discoveryMethod:"gm",revealRadiusCells:2,
     playerVisible:false,elevationMeters:null,discoveryStatus:"unknown",journalUuid:null,
     terrain:{presetId:"land-stone",radiusCells:.5},
-    event:{kind:"none",enabled:false}};
+    transportation:[],event:{kind:"none",enabled:false}};
   const edited=upsertCheckpointPreset(initial,newPreset);
   assert.equal(presetForCheckpointType(edited,"bridge")?.id,"checkpoint-bridge");
   assert.deepEqual(edited.presets.at(-1),newPreset);

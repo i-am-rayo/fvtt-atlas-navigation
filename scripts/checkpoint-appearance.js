@@ -8,7 +8,7 @@ export const CHECKPOINT_ICON_ROOT = "modules/fvtt-atlas-navigation/assets/checkp
 // Preserve old bare IDs: v0.2.21 Scene checkpoints still use the original SVGs.
 export const CHECKPOINT_ICONS = Object.freeze([
   "location-dot", "flag", "house", "mountain", "anchor", "ship",
-  "tree", "campground", "landmark", "water", "skull", "map-pin"
+  "tree", "campground", "landmark", "water", "skull", "map-pin", "pickaxe"
 ]);
 const FREE_ICON_MAP = new Map(CHECKPOINT_FREE_ICONS.map(icon => [icon.id, icon]));
 const FONT_FAMILIES = Object.freeze({
@@ -19,10 +19,10 @@ const FONT_FAMILIES = Object.freeze({
 
 /** Opt-in discoverability filters, not a restriction on saved icon identifiers. */
 export const RPG_ICON_CATEGORIES = Object.freeze({
-  settlements: ["house", "house-chimney", "city", "building", "church", "landmark", "castle", "fort-awesome", "dungeon", "archway", "tower-observation", "tent", "campground", "store", "shop", "hotel", "bridge", "monument", "place-of-worship", "mountain-city", "warehouse"],
-  travel: ["route", "road", "map", "map-location", "map-location-dot", "map-pin", "location-dot", "compass", "signs-post", "person-walking", "person-hiking", "horse", "carriage", "ship", "sailboat", "anchor", "ferry", "boat", "train", "flag", "location-arrow", "footprints", "water", "bridge-water", "bridge", "cart-shopping"],
-  nature: ["tree", "seedling", "leaf", "mountain", "mountain-sun", "hill-rockslide", "volcano", "water", "snowflake", "cloud", "cloud-sun", "sun", "moon", "wind", "tornado", "fire", "fish", "frog", "spider", "paw", "feather", "earth-americas", "earth-europe", "earth-asia", "bacterium", "icicles"],
-  danger: ["skull", "skull-crossbones", "shield", "shield-halved", "swords", "hand-fist", "crosshairs", "bullseye", "bomb", "explosion", "radiation", "biohazard", "fire-flame-curved", "dragon", "ghost", "dice-d20", "person-falling", "triangle-exclamation", "dungeon", "lock", "key", "mask", "crow", "bolt"],
+  settlements: ["house", "house-chimney", "city", "building", "church", "landmark", "castle", "fort-awesome", "dungeon", "archway", "tower-observation", "tent", "campground", "store", "shop", "hotel", "bridge", "monument", "place-of-worship", "mountain-city", "warehouse", "person-digging", "hammer", "gem", "horse"],
+  travel: ["route", "road", "map", "map-location", "map-location-dot", "map-pin", "location-dot", "compass", "signs-post", "person-walking", "person-hiking", "horse", "carriage", "ship", "sailboat", "anchor", "ferry", "boat", "train", "flag", "location-arrow", "footprints", "water", "bridge-water", "bridge", "cart-shopping", "life-ring", "water-ladder", "person-swimming", "ferry", "fish"],
+  nature: ["tree", "seedling", "leaf", "mountain", "mountain-sun", "hill-rockslide", "volcano", "water", "snowflake", "cloud", "cloud-sun", "sun", "moon", "wind", "tornado", "fire", "fish", "frog", "spider", "paw", "feather", "earth-americas", "earth-europe", "earth-asia", "bacterium", "icicles", "cloud-showers-water", "cloud-bolt", "fish-fins", "person-digging"],
+  danger: ["skull", "skull-crossbones", "shield", "shield-halved", "swords", "hand-fist", "crosshairs", "bullseye", "bomb", "explosion", "radiation", "biohazard", "fire-flame-curved", "dragon", "ghost", "dice-d20", "person-falling", "triangle-exclamation", "dungeon", "lock", "key", "mask", "crow", "bolt", "skull-crossbones", "ship", "fish-fins", "water"],
   magic: ["wand-magic", "wand-magic-sparkles", "hat-wizard", "star", "stars", "moon", "sun", "gem", "flask", "vial", "flask-vial", "book", "book-open", "scroll", "eye", "eye-low-vision", "hand-sparkles", "sparkles", "crystal-ball", "ring", "yin-yang", "atom", "meteor", "fire-flame-simple"],
   creatures: ["dragon", "horse", "otter", "cat", "dog", "wolf-pack-battalion", "dove", "crow", "spider", "frog", "fish", "fish-fins", "hippo", "horse-head", "paw", "feather", "locust", "bug", "person", "person-hiking", "user-ninja", "user-astronaut", "mask", "ghost"]
 });
@@ -116,7 +116,7 @@ export function checkpointIconPath(value) {
 /** Screen-clamped zoom behavior; never changes saved sizes or coordinates. */
 export function checkpointCanvasSize(size, zoom = 1) {
   const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-  const screenSize = Math.max(18, Math.min(56, size * Math.sqrt(scale)));
+  const screenSize = Math.max(12, Math.min(56, size * Math.sqrt(scale)));
   return screenSize / scale;
 }
 

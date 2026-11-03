@@ -4,21 +4,23 @@ export const CHECKPOINT_TYPE_FLAG="checkpointCategories";
 export const CHECKPOINT_TYPE_GROUPS=Object.freeze([
   ["General",[["generic","General / Unspecified"]]],
   ["Infrastructure",[["bridge","Bridge"],["port","Port"],["dock","Dock"],
-    ["toll","Toll Gate"],["security","Security Checkpoint"],["crossing","Road Crossing"]]],
+    ["lighthouse","Lighthouse"],["toll","Toll Gate"],["security","Security Checkpoint"],["crossing","Road Crossing"]]],
   ["Settlements & Services",[["settlement","Settlement"],["city","City"],
-    ["village","Village"],["inn","Inn"],["tavern","Tavern"],
+    ["village","Village"],["stables","Stables"],["inn","Inn"],["tavern","Tavern"],
     ["rest","Resting Area"],["safehouse","Safehouse"],["trading","Trading Post"]]],
   ["Military & Defense",[["watchtower","Watchtower"],["fort","Fort"],
     ["guard","Guard Post"],["outpost","Outpost"]]],
   ["Religious & Cultural",[["temple","Temple"],["shrine","Shrine"],
     ["monument","Monument"],["ruins","Ruins"]]],
   ["Exploration",[["landmark","Landmark"],["cave","Cave Entrance"],
-    ["pass","Mountain Pass"],["camp","Campsite"]]],
+    ["pass","Mountain Pass"],["mines","Mines"],["camp","Campsite"]]],
   ["Environmental Hazards",[["falling-rocks","Falling Rocks"],
     ["quicksand","Quicksand"],["moving-sand","Moving Sand"],
-    ["avalanche","Avalanche"],["flood","Flood"]]],
+    ["avalanche","Avalanche"],["flood","Flood"],
+    ["sea-storm","Sea Storm"],["reef","Dangerous Reef"],["whirlpool","Whirlpool"]]],
   ["Encounters",[["event","Event / Encounter"],["monster","Monster Attack"],
-    ["bandits","Bandit Ambush"],["thieves","Thief Attack"],["npc","NPC Encounter"]]],
+    ["bandits","Bandit Ambush"],["pirates","Pirate Attack"],
+    ["sea-monster","Sea Monster"],["thieves","Thief Attack"],["npc","NPC Encounter"]]],
   ["Custom",[["custom","Custom"]]]
 ]);
 export const CHECKPOINT_TYPES=Object.freeze(CHECKPOINT_TYPE_GROUPS.flatMap(([,types])=>types));

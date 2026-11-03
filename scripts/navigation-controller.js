@@ -38,6 +38,7 @@ import { dndCurrencyBreakdown,atlasCurrencyChoices,copperFromCoin,coinFromCopper
 import { resolveTransportationOperation,quoteTransportationService,resolveTransportationHireFare }
   from "./navigation-transport-service.js";
 import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
+import { offersAtOrigin,checkpointOfferMethod } from "./checkpoint-transportation.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
@@ -79,7 +80,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelMethod = "walking";
     this.transportArrangement="owned";
     this.transportOperation="normal";
-    this.transportQuoteAdjustmentCp=0;
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
     this.start = null;
@@ -124,7 +124,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelMethod="walking";
     this.transportArrangement="owned";
     this.transportOperation="normal";
-    this.transportQuoteAdjustmentCp=0;
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
     // Favor the manually assigned Atlas party explorer when it can actually
@@ -215,11 +214,40 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }catch(error){ui.notifications.warn(error.message||String(error));}
   }
 
+  /** Only owned Group resources or explicit offers at departure appear in Travel by. */
+  transportAvailability(){
+    const all=availableNavigationTravelMethods(game.settings,game.system?.id);
+    const offered=this.scene&&this.start?offersAtOrigin(
+      this.atlasProvider(this.scene),this.scene,this.start):[];
+    const offers=new Map();
+    for(const offer of offered)if(!offers.has(offer.methodId))offers.set(offer.methodId,offer);
+    const owned=new Set();
+    try{
+      const group=this.getPartyToken()?.actor;
+      if(game.system?.id==="dnd5e"&&group?.type==="group"){
+        const roster=projectGroupTransportation(group,
+          readGroupTransportation(game.settings),all);
+        for(const method of all)if(method.id!=="walking"&&
+          groupMethodCapacityStatus(roster,method).matched>0)owned.add(method.id);
+      }
+    }catch(error){atlasWarn("navigation","Could not list owned transport",error);}
+    const methods=all.filter(method=>method.id==="walking"||
+      owned.has(method.id)||offers.has(method.id)||
+      Boolean(this.travelSession&&method.id===this.travelMethod));
+    return {methods,all,owned,offers};
+  }
+  effectiveTransportMethod(method,availability=null){
+    if(this.transportArrangement!=="hire")return method;
+    const offer=(availability??this.transportAvailability()).offers.get(method.id);
+    return offer?checkpointOfferMethod({methodId:offer.methodId,mode:offer.mode,
+      overrides:offer.overrides},method):method;
+  }
+
   /** Method changes recalculate the estimate, never move a token or save data. */
   setTravelMethod(method){
     if(this.travelSession||this.journalStarting||!this.scene||method===this.travelMethod)return;
     let methods;
-    try{methods=availableNavigationTravelMethods(game.settings,game.system?.id);}
+    try{methods=this.transportAvailability().methods;}
     catch(error){ui.notifications.warn(error.message||String(error));return;}
     const selectedMethod=methods.find(item=>item.id===method);
     if(!selectedMethod)return;
@@ -230,8 +258,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.scene?.grid?.units?.trim()||"");
     }catch(error){ui.notifications.warn(error.message||String(error));return;}
     this.travelMethod=method;
-    // Until checkpoint offers arrive, matching Group-owned transport is
-    // preferred; otherwise choose the provisional hired quote if available.
+    // Prefer a matching owned Group resource; otherwise use a checkpoint hire.
     let ownsSelected=false;
     try{
       const partyActor=this.getPartyToken()?.actor;
@@ -241,10 +268,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         ownsSelected=groupMethodCapacityStatus(roster,selectedMethod).matched>0;
       }
     }catch(error){atlasWarn("navigation","Could not infer owned transport",error);}
-    this.transportArrangement=ownsSelected?"owned":
-      selectedMethod.hireEnabled?"hire":"owned";
+    const offer=this.transportAvailability().offers.get(method);
+    this.transportArrangement=ownsSelected?"owned":offer?"hire":"owned";
     this.transportOperation="normal";
-    this.transportQuoteAdjustmentCp=0;
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
     this.travelNotice="";
@@ -911,7 +937,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.journeyTimeUI=null;
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
-    this.transportQuoteAdjustmentCp=0;
     this.recoveryJournal=null;
     this.recoveryRecord=null;
     this.recoverableJourney=null;
@@ -939,6 +964,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.atlasProvider(scene).revision!==this.routeRevision){
       this.clear("The road network changed. Select a new route.");return;
     }
+    const changedTransport=Object.keys(changes.flags?.[MODULE_ID]??{})
+      .some(key=>key.replace(/^\-=/,"")==="checkpointTransportOffers");
+    if(changedTransport&&!this.travelSession)void this.render(true);
     this.draw();
   }
 
@@ -1100,8 +1128,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       travel=resolveNavigationTravelSpeed({token:null,sceneUnits:sceneUnit,
         systemId:null,worldSpeed:DEFAULT_NAVIGATION_SPEED});
     }
-    const methodTravel=resolveNavigationMethodTravel(this.travelMethod,travel,game.settings,sceneUnit,
+    let methodTravel=resolveNavigationMethodTravel(this.travelMethod,travel,game.settings,sceneUnit,
       {systemId:game.system?.id});
+    if(this.travelMethod!=="walking"&&this.transportArrangement==="hire"){
+      try{
+        const world=this.transportAvailability().all.find(m=>m.id===this.travelMethod);
+        const local=world&&this.effectiveTransportMethod(world);
+        if(local?.speedMph!==world?.speedMph){
+          const speed=convertGroupSpeed(local.speedMph,"mph",sceneUnit);
+          if(speed>0)methodTravel={...methodTravel,speed,speedMph:local.speedMph,
+            source:"checkpoint-method"};
+        }
+      }catch(error){atlasWarn("navigation","Checkpoint travel speed unavailable",error);}
+    }
     // An owned mount/vehicle may have Group-only travel-speed overrides.
     // Hired transport and unowned World reference methods retain catalog speeds.
     if(this.travelMethod!=="walking"&&this.transportArrangement!=="hire"&&
@@ -1175,19 +1214,30 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     methodSelect.title="Select overland transport for the estimate; checkpoint transfers come later";
     methodSelect.disabled=Boolean(this.travelSession||this.journalStarting);
     methodSelect.style.cssText="flex:1;min-width:12rem;";
-    const methods=availableNavigationTravelMethods(game.settings,game.system?.id);
-    if(!methods.some(item=>item.id===this.travelMethod))this.travelMethod="walking";
+    const availability=this.transportAvailability();
+    const methods=availability.methods;
+    if(!methods.some(item=>item.id===this.travelMethod)){
+      this.travelMethod="walking";this.transportArrangement="owned";
+      this.transportHireTerms=null;this.transportHireDenomination=null;
+      this.transportOperation="normal";
+    }
     for(const method of methods){
-      const option=el("option",method.name);option.value=method.id;methodSelect.appendChild(option);
+      const offered=availability.offers.get(method.id);
+      const suffix=availability.owned.has(method.id)?" · owned":
+        offered?" · "+offered.checkpointName:"";
+      const option=el("option",method.name+suffix);option.value=method.id;
+      methodSelect.appendChild(option);
     }
     methodSelect.value=this.travelMethod;
     methodSelect.addEventListener("change",()=>this.setTravelMethod(methodSelect.value));
     methodRow.append(methodLabel,methodSelect);
     body.appendChild(methodRow);
     if(this.travelMethod!=="walking"){
-      const method=methods.find(item=>item.id===this.travelMethod);
+      const worldMethod=methods.find(item=>item.id===this.travelMethod);
+      const method=worldMethod&&this.effectiveTransportMethod(worldMethod,availability);
       if(method){
-        if(!method.hireEnabled)this.transportArrangement="owned";
+        if(this.transportArrangement==="hire"&&!availability.offers.has(method.id))
+          this.transportArrangement="owned";
         if(!method.overtimeEnabled&&this.transportOperation==="overtime"||
            !method.continuousEnabled&&this.transportOperation==="continuous")
           this.transportOperation="normal";
@@ -1198,15 +1248,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const arrangement=el("select");arrangement.title="Choose whether the party owns or plans to hire this transport";
         arrangement.disabled=Boolean(this.travelSession||this.journalStarting);
         for(const [id,label] of [["owned","Party-owned"],["hire","For hire / passage"]]){
-          if(id==="hire"&&!method.hireEnabled)continue;
+          if(id==="hire"&&!availability.offers.has(method.id))continue;
+          if(id==="owned"&&!availability.owned.has(method.id))continue;
           const opt=el("option",label);opt.value=id;arrangement.append(opt);
         }
         arrangement.value=this.transportArrangement;
         arrangement.addEventListener("change",()=>{
           if(this.travelSession)return;
           this.transportArrangement=arrangement.value;
-          this.transportQuoteAdjustmentCp=0;
-          try{
+                try{
             const view=this.canvasProvider();
             this.calculateRoute(view,this.atlasProvider(this.scene));this.draw();
           }catch(error){atlasWarn("navigation","Service arrangement refresh failed",error);}
@@ -1240,7 +1290,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         services.append(arrangementLabel,operationLabel);
         body.append(services);
         if(this.transportArrangement==="hire"){
-          const note=el("small","For-hire prices are GM planning quotes. Atlas has not yet verified that a nearby checkpoint offers this service (beta.4c). No booking or payment occurs.");
+          const offer=availability.offers.get(method.id);
+          const note=el("small","Service offered at "+(offer?.checkpointName??"the departure checkpoint")+". Planning estimate only; no booking or payment occurs.");
           note.style.cssText="opacity:.8;";
           body.append(note);
         }
@@ -1344,7 +1395,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(this.travelMethod!=="walking"&&this.result?.status==="ok"&&
         methodAssessment.compatible){
       try{
-        const method=methods.find(item=>item.id===this.travelMethod);
+        const baseMethod=methods.find(item=>item.id===this.travelMethod);
+        const method=baseMethod&&this.effectiveTransportMethod(baseMethod,availability);
         const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
         if(method&&distanceMi!==null){
           const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
@@ -1368,10 +1420,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               operation:this.transportOperation,movingHours,distanceMi,
               travelers:roster?.travelers??1,ownedQuote,regularHours:normalHours};
             const quote=quoteTransportationService(method,{...quoteArgs,
-              hireTerms:this.transportHireTerms,
-              adjustmentCp:this.transportQuoteAdjustmentCp});
-            const original=this.transportArrangement==="hire"?
-              quoteTransportationService(method,{...quoteArgs,hireTerms:null,adjustmentCp:0}):null;
+              hireTerms:this.transportHireTerms});
+            const original=this.transportArrangement==="hire"&&baseMethod?.hireEnabled?
+              quoteTransportationService(baseMethod,{...quoteArgs,hireTerms:null}):null;
             const formatMoney=cp=>dndCurrencyBreakdown(cp,
               globalThis.CONFIG?.DND5E?.currencies).label;
             const block=el("section");
@@ -1386,13 +1437,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               quote.baseLabel+": "+formatMoney(quote.baseCp),
               "Paid crew: "+formatMoney(quote.crewWagesCp),
               "Overtime fare: "+formatMoney(quote.overtimeFareCp),
-              "Overtime labor: "+formatMoney(quote.overtimeCrewCp),
-              this.transportQuoteAdjustmentCp?"Negotiated adjustment: "+this.transportQuoteAdjustmentCp+" CP":""
+              "Overtime labor: "+formatMoney(quote.overtimeCrewCp)
             ].filter(Boolean).join(" · ")));
             const timetable=el("small",quote.travelDays+" operating day(s) at "+
               quote.dailyHours+"h/day, "+quote.extraHours.toFixed(1)+" overtime hour(s), "+
               quote.units+" transport unit(s). "+
-              (quote.provisionalAvailability?"Hire availability is not verified. ":"")+
+              (this.transportArrangement==="hire"?"Checkpoint availability listed; booking not confirmed. ":"")+
               "No currency is deducted.");
             timetable.style.cssText="opacity:.8;";block.append(timetable);
             const disabled=Boolean(this.travelSession||this.journalStarting);
@@ -1469,31 +1519,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               editor.append(controls);
               editor.append(el("small","Using "+formatMoney(fare.hireCostCp)+
                 " per "+frequency+" per "+per+". Changes affect this estimate only, not the World preset."));
-              const reset=el("button","Reset to World preset");reset.type="button";
+              const reset=el("button","Reset to checkpoint offer");reset.type="button";
               reset.disabled=disabled;reset.style.cssText="justify-self:start;";
               reset.addEventListener("click",()=>{
                 if(disabled)return;
                 this.transportHireTerms=null;this.transportHireDenomination=null;
-                this.transportQuoteAdjustmentCp=0;void this.render(true);
+                void this.render(true);
               });
               editor.append(reset);block.append(editor);
             }
-            const adjustment=el("label");
-            adjustment.style.cssText="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;";
-            adjustment.append(el("span","Additional negotiated adjustment (CP)"));
-            const amount=el("input");amount.type="number";amount.step="1";
-            amount.min="-100000000";amount.max="100000000";
-            amount.value=String(this.transportQuoteAdjustmentCp);
-            amount.style.cssText="width:9rem;min-width:0;";amount.disabled=disabled;
-            amount.addEventListener("change",()=>{
-              const value=Number(amount.value);
-              if(!Number.isFinite(value)||Math.abs(value)>100000000){
-                globalThis.ui?.notifications?.warn?.("Enter an adjustment between -100,000,000 and 100,000,000 CP.");
-                return;
-              }
-              this.transportQuoteAdjustmentCp=value;void this.render(true);
-            });
-            adjustment.append(amount);block.append(adjustment);
             body.append(block);
           }
         }

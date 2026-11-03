@@ -2,6 +2,8 @@ import { resolveAtlasMeasuringUnits } from "./navigation-measure-units.js";
 import { CHECKPOINT_FREE_ICONS, resolveCheckpointAppearance,
   validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { createCheckpointIconPicker } from "./checkpoint-icon-control.js";
+import { createCheckpointTransportationEditor } from "./checkpoint-transportation-editor.js";
+import { checkpointOffers,saveCheckpointOffers } from "./checkpoint-transportation.js";
 import { createCheckpointChoice,createCheckpointRange,createCheckpointMarkerSize,
   createCheckpointColor,createCheckpointCheckbox,createCheckpointElevation }
   from "./checkpoint-form-controls.js";
@@ -163,6 +165,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       onChange:id=>{selected=id;}});
     const iconSection = iconPicker.element;
     const pageGeneral = el("section"), pageMarker = el("section"), pageTerrain = el("section");
+    const pageTransport=el("section");
+    const transportEditor=createCheckpointTransportationEditor({offers:this.createDraft?[]:
+      checkpointOffers(this.scene,this.checkpointId)});
+    pageTransport.append(transportEditor.element);
     pageGeneral.appendChild(fields);
 
     const imageSection = el("div");
@@ -234,6 +240,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       if(preset.journalUuid)journalInput.value=preset.journalUuid;
       playerVisibility.checked=preset.playerVisible===true;
       terrainSuggestion={...preset.terrain};
+      transportEditor.setOffers(preset.transportation??[]);
       iconPicker.value=selected;updateType();
       presetHint.textContent="Applied ‘"+preset.name+"’ to editable fields. Suggested Region: "+
         (preset.terrain.presetId??"None")+" · radius "+preset.terrain.radiusCells+
@@ -319,7 +326,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     }
     const editorTabs = el("nav");
     editorTabs.style.cssText = "display:flex;gap:.4rem;flex-wrap:wrap;padding-bottom:.65rem;border-bottom:1px solid var(--color-border-light-tertiary,#655);";
-    const pages = [["General",pageGeneral],["Marker & labels",pageMarker],["Terrain Region",pageTerrain]];
+    const pages = [["General",pageGeneral],["Marker & labels",pageMarker],["Terrain Region",pageTerrain],
+      ["Transportation",pageTransport]];
     for (const [name,page] of pages) {
       const item=el("button",name);
       item.type="button"; item.style.cssText="flex:1;min-width:8rem;border:1px solid var(--color-border-light-tertiary,#655);";
@@ -348,7 +356,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     pages.forEach(([name,page])=>{page.hidden=name!==this.activePage;});
 
     root.prepend(editorTabs);
-    root.append(pageGeneral,pageMarker,pageTerrain);
+    root.append(pageGeneral,pageMarker,pageTerrain,pageTransport);
     const journalInput = journalControls.querySelector('input[name="atlasJournalUuid"]');
     const controls = el("div");
     controls.style.cssText = "position:sticky;bottom:0;z-index:2;display:flex;gap:0.5rem;justify-content:flex-end;background:#100f17;padding:.4rem 0;";
@@ -391,6 +399,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           playerVisible:playerVisibility.checked,
           revealRadiusCells:Number(revealRadius?.value??3),
           terrain:suggested?{...suggested}:{presetId:null,radiusCells:.25},
+          transportation:transportEditor.getOffers(),
           event:{kind:"none",enabled:false}};
         const next=upsertCheckpointPreset(world,preset);
         await game.settings.set(MODULE_ID,CHECKPOINT_PRESET_SETTING,next);
@@ -435,6 +444,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
             ,checkpointType:category.value
             ,checkpointPresetId:presetPicker.value||null
             ,terrainSuggestion
+            ,transportationOffers:transportEditor.getOffers()
           };
           this.createResolved = true;
           this.onCreate?.(config);
@@ -475,6 +485,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
             method: discoveryMethod.value, expectedMethods: discoveryMethods
           });
         }
+        const offers=transportEditor.getOffers();
+        if(JSON.stringify(offers)!==JSON.stringify(checkpointOffers(this.scene,this.checkpointId)))
+          await saveCheckpointOffers(this.scene,this.checkpointId,offers);
         if (nextJournal !== journalUuidFor(journalLinks,"checkpoint",this.checkpointId)) {
           await saveAtlasJournalLink(this.scene,{
             kind:"checkpoint",id:this.checkpointId,uuid:nextJournal,expected:journalLinks
@@ -496,7 +509,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     controls.appendChild(save);
     root.appendChild(controls);
     this._saveDraft=()=>saveValue(undefined);
-    this._isDirty=trackSettingsChanges(root,()=>({selected,terrainSuggestion}));
+    this._isDirty=trackSettingsChanges(root,()=>({selected,terrainSuggestion,
+      transportation:transportEditor.getOffers()}));
     return root;
   }
 

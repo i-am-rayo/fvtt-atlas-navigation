@@ -8,6 +8,7 @@ import { createTravelPresetSelect,createSettingsIconButton } from "./settings-co
 import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
 import { approveSettingsClose,trackSettingsChanges } from "./settings-close-guard.js";
 import { createCheckpointIconPicker } from "./checkpoint-icon-control.js";
+import { createCheckpointTransportationEditor } from "./checkpoint-transportation-editor.js";
 import { createCheckpointChoice,createCheckpointNumber,createCheckpointRange,
   createCheckpointRegionWidth,createCheckpointMarkerSize,createCheckpointColor,
   createCheckpointCheckbox,createCheckpointElevation }
@@ -54,7 +55,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     root.style.cssText="padding:.8rem 1rem;display:flex;flex-direction:column;gap:.75rem;height:100%;overflow:auto;box-sizing:border-box;";
     const tabs=el("div");tabs.style.cssText="display:flex;gap:.35rem;flex-wrap:wrap;";
     const sections=new Map(),buttons=new Map();
-    for(const name of ["General","Marker & labels","Terrain Region"]){
+    for(const name of ["General","Marker & labels","Terrain Region","Transportation"]){
       const button=el("button",name);button.type="button";
       button.style.cssText="flex:1 1 9rem;min-height:2.25rem;";
       const panel=el("section");panel.style.cssText="display:grid;gap:.6rem;align-content:start;";
@@ -162,6 +163,8 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
       preset?.event?.kind??"none"));
     terrain.appendChild(el("small","No automatic event triggers, random rolls or encounter spawning are enabled by this preset."));
 
+    const transportEditor=createCheckpointTransportationEditor({offers:preset?.transportation??[]});
+    sections.get("Transportation").append(transportEditor.element);
     for(const panel of sections.values())root.appendChild(panel);
     const footer=el("div");
     footer.style.cssText="display:flex;justify-content:flex-end;gap:.5rem;position:sticky;bottom:0;background:#100f17;padding:.5rem 0;";
@@ -182,6 +185,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
           revealRadiusCells:Number(reveal.value),journalUuid:journal.value.trim()||null,
           playerVisible:playerVisible.checked,
           terrain:{presetId:terrainId.value||null,radiusCells:Number(radius.value)},
+          transportation:transportEditor.getOffers(),
           event:{kind:eventKind.value,enabled:false}};
         await game.settings.set(MODULE_ID,CHECKPOINT_PRESET_SETTING,
           upsertCheckpointPreset(readWorldCheckpointPresets(),next));

@@ -1,48 +1,51 @@
 import { CHECKPOINT_TYPES } from "./checkpoint-types.js";
 import { validateCheckpointAppearance,resolveCheckpointAppearance,checkpointFontIcon } from "./checkpoint-appearance.js";
+import { defaultCheckpointTransportOffers,validateCheckpointTransportOffers } from "./checkpoint-transportation.js";
 
 export const CHECKPOINT_PRESET_SETTING="checkpointPresets";
-export const CHECKPOINT_PRESET_VERSION=1;
+export const CHECKPOINT_PRESET_VERSION=2;
 export const MAX_CHECKPOINT_PRESETS=160;
 const CATEGORIES=new Set(CHECKPOINT_TYPES.map(([id])=>id));
 const ID=/^[A-Za-z0-9_-]{1,128}$/;
 const METHODS=new Set(["automatic","gm","lore"]);
-const HAZARDS=new Set(["falling-rocks","quicksand","moving-sand","avalanche","flood"]);
-const ENCOUNTERS=new Set(["event","monster","bandits","thieves","npc"]);
+const HAZARDS=new Set(["falling-rocks","quicksand","moving-sand","avalanche","flood","sea-storm","reef","whirlpool"]);
+const ENCOUNTERS=new Set(["event","monster","bandits","thieves","npc","pirates","sea-monster"]);
 
 /** Display defaults only; existing customized appearance objects always win. */
 const BUILTIN_ICONS=Object.freeze({
-  bridge:"bridge",port:"anchor",dock:"ship",toll:"coins",security:"shield-halved",
-  crossing:"route",settlement:"house",city:"city",village:"house-chimney",
+  bridge:"bridge",port:"anchor",dock:"ship",lighthouse:"tower-observation",toll:"coins",security:"shield-halved",
+  crossing:"route",settlement:"house",city:"city",village:"house-chimney",stables:"horse",
   inn:"hotel",tavern:"beer-mug-empty",rest:"bed",safehouse:"house-lock",
   trading:"store",watchtower:"tower-observation",fort:"shield",
   guard:"shield",outpost:"campground",temple:"place-of-worship",
   shrine:"church",monument:"monument",ruins:"landmark",landmark:"map-pin",
-  cave:"dungeon",pass:"mountain",camp:"tent",
+  cave:"dungeon",pass:"mountain",mines:"pickaxe",camp:"tent",
   "falling-rocks":"hill-rockslide",quicksand:"person-falling",
   "moving-sand":"wind",avalanche:"mountain-sun",flood:"water",
+  "sea-storm":"cloud-bolt",reef:"water",whirlpool:"water",
   event:"dice-d20",monster:"dragon",bandits:"skull-crossbones",
-  thieves:"user-ninja",npc:"user"
+  thieves:"user-ninja",npc:"user",pirates:"skull-crossbones","sea-monster":"fish-fins"
 });
 const COLOR_BY_CATEGORY=Object.freeze({
-  bridge:"#B2A49A",port:"#46AFC8",dock:"#529DCA",toll:"#E2B75E",
+  bridge:"#B2A49A",port:"#46AFC8",dock:"#529DCA",lighthouse:"#E4D29C",toll:"#E2B75E",
   security:"#C78C62",crossing:"#D5BA7C",settlement:"#E0B879",
-  city:"#D8B49C",village:"#C6C89B",inn:"#DBA56E",tavern:"#D38E69",
+  city:"#D8B49C",village:"#C6C89B",stables:"#C6A879",inn:"#DBA56E",tavern:"#D38E69",
   rest:"#7DBD88",safehouse:"#6CB79B",trading:"#DAAF6A",
   watchtower:"#B69C83",fort:"#9A94AB",guard:"#AC98A4",outpost:"#C5AA7C",
   temple:"#B9A0E6",shrine:"#C7ACE8",monument:"#B9B4C9",ruins:"#9C9C9C",
-  landmark:"#D7B873",cave:"#A69A82",pass:"#AAB9C8",camp:"#89B985",
+  landmark:"#D7B873",cave:"#A69A82",pass:"#AAB9C8",mines:"#D0AD7B",camp:"#89B985",
   "falling-rocks":"#D4834B",quicksand:"#D6B45E","moving-sand":"#CEAD64",
-  avalanche:"#93B9D2",flood:"#5A9CCC",event:"#BD95D8",
-  monster:"#D86A68",bandits:"#CF665F",thieves:"#B98466",npc:"#8CA4C0"
+  avalanche:"#93B9D2",flood:"#5A9CCC","sea-storm":"#587BB3",reef:"#69ADBC",whirlpool:"#5B88C4",event:"#BD95D8",
+  monster:"#D86A68",bandits:"#CF665F",pirates:"#B94F4B","sea-monster":"#6C9AA8",thieves:"#B98466",npc:"#8CA4C0"
 });
 
 export function checkpointPresetAppearance(category,appearance=null){
   if(appearance!==null)return validateCheckpointAppearance(appearance);
   const slug=BUILTIN_ICONS[category];
   const icon=slug&&"solid:"+slug;
-  return icon&&checkpointFontIcon(icon)
-    ?{...resolveCheckpointAppearance(null),type:"fa",icon,
+  return icon&&(icon==="solid:pickaxe"||checkpointFontIcon(icon))
+    ?{...resolveCheckpointAppearance(null),type:"fa",icon:icon==="solid:pickaxe"?"pickaxe":icon,
+      size:["city","village","settlement","port"].includes(category)?24:12,
       color:COLOR_BY_CATEGORY[category]??"#9c7bf0"}
     :null;
 }
@@ -56,6 +59,7 @@ export function defaultCheckpointPresets(){
       playerVisible:false,
       discoveryMethod:"automatic",revealRadiusCells:3,
       terrain:{presetId:null,radiusCells:.25},
+      transportation:defaultCheckpointTransportOffers(id),
       event:{kind:HAZARDS.has(id)?"hazard":ENCOUNTERS.has(id)?"encounter":"none",enabled:false}}))};
 }
 
@@ -63,7 +67,7 @@ export function defaultCheckpointPresets(){
 export function validateCheckpointPresets(value){
   if(value==null)return defaultCheckpointPresets();
   if(!value||typeof value!=="object"||Array.isArray(value)||
-      value.schemaVersion!==CHECKPOINT_PRESET_VERSION||
+      ![1,CHECKPOINT_PRESET_VERSION].includes(value.schemaVersion)||
       Object.keys(value).some(k=>!["schemaVersion","presets"].includes(k))||
       !Array.isArray(value.presets)||value.presets.length>MAX_CHECKPOINT_PRESETS)
     throw Error("Unsupported Atlas checkpoint preset catalog.");
@@ -72,7 +76,7 @@ export function validateCheckpointPresets(value){
     if(!p||typeof p!=="object"||Array.isArray(p)||
         Object.keys(p).some(k=>!["id","name","category","appearance","elevationMeters",
           "discoveryStatus","journalUuid","playerVisible",
-          "discoveryMethod","revealRadiusCells","terrain","event"].includes(k))||
+          "discoveryMethod","revealRadiusCells","terrain","transportation","event"].includes(k))||
         typeof p.id!=="string"||!ID.test(p.id)||ids.has(p.id)||
         typeof p.name!=="string"||!p.name.trim()||p.name.length>120||
         !CATEGORIES.has(p.category)||!METHODS.has(p.discoveryMethod)||
@@ -108,8 +112,21 @@ export function validateCheckpointPresets(value){
       playerVisible:p.playerVisible??false,
       discoveryMethod:p.discoveryMethod,revealRadiusCells:p.revealRadiusCells,
       terrain:{presetId:terrain.presetId,radiusCells:terrain.radiusCells},
+      transportation:validateCheckpointTransportOffers(p.transportation??
+        defaultCheckpointTransportOffers(p.category)),
       event:{kind:event.kind,enabled:false}};
   });
+  // Project version-1 Worlds into the new schema without writing on read.
+  // Introduce only new built-in categories, preserving older intentional removals.
+  if(value.schemaVersion===1){
+    const added=["stables","mines","lighthouse","sea-storm","reef",
+      "whirlpool","pirates","sea-monster"];
+    const fresh=defaultCheckpointPresets().presets;
+    for(const category of added){
+      if(!presets.some(p=>p.category===category))
+        presets.push(fresh.find(p=>p.category===category));
+    }
+  }
   return {schemaVersion:CHECKPOINT_PRESET_VERSION,presets};
 }
 

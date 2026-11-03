@@ -1,0 +1,115 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {defaultCheckpointPresets,validateCheckpointPresets,
+  presetForCheckpointType} from "../scripts/checkpoint-preset-model.js";
+import {createEmptyAtlas,upgradeAtlasPlayerVisibility} from "../scripts/atlas-model.js";
+import {addRoadCheckpoint} from "../scripts/checkpoint-model.js";
+import {CHECKPOINT_BULK_FIELDS,buildCheckpointBulkUpdate,
+  applyCheckpointPresetBulk} from "../scripts/checkpoint-bulk-apply.js";
+import {defaultCheckpointTransportOffers,validateCheckpointTransportOffers,
+  validateCheckpointTransportStore,checkpointOfferMethod,offersAtOrigin,
+  checkpointOffers} from "../scripts/checkpoint-transportation.js";
+import {listTransportationPresets} from "../scripts/navigation-transport-catalog.js";
+
+const settings={get:()=>undefined};
+const methods=listTransportationPresets(settings,"dnd5e");
+const world=id=>methods.find(m=>m.id===id);
+test("beta.4c seeds lore-friendly city, stables, inland and ocean offers",()=>{
+  const all=defaultCheckpointPresets();
+  const types=new Set(all.presets.map(p=>p.category));
+  for(const type of ["stables","mines","lighthouse","sea-storm","reef",
+    "whirlpool","pirates","sea-monster"])assert.ok(types.has(type),type);
+  assert.equal(presetForCheckpointType(all,"mines").appearance.icon,"pickaxe");
+  assert.equal(presetForCheckpointType(all,"stables").appearance.size,12);
+  assert.equal(presetForCheckpointType(all,"city").appearance.size,24);
+  assert.deepEqual(presetForCheckpointType(all,"lighthouse").transportation,[]);
+  assert.ok(defaultCheckpointTransportOffers("stables").some(x=>x.methodId==="riding-horse"));
+  assert.ok(defaultCheckpointTransportOffers("port").some(x=>x.mode==="sea"));
+  assert.ok(defaultCheckpointTransportOffers("dock").some(x=>x.mode==="water"));
+  assert.deepEqual(validateCheckpointPresets(all),all);
+});
+test("legacy v1 World checkpoint catalog is projected without overwriting custom values",()=>{
+  const original=defaultCheckpointPresets();
+  const legacy={schemaVersion:1,presets:original.presets.filter(p=>p.category!=="mines")
+    .map(({transportation,...rest})=>rest)};
+  const snapshot=structuredClone(legacy);
+  const upgraded=validateCheckpointPresets(legacy);
+  assert.equal(upgraded.schemaVersion,2);
+  assert.deepEqual(legacy,snapshot);
+  assert.ok(upgraded.presets.some(p=>p.category==="mines"));
+  assert.ok(upgraded.presets.find(p=>p.category==="stables").transportation.length);
+  assert.deepEqual(validateCheckpointPresets(upgraded),upgraded);
+});
+test("checkpoint offers reject duplicates, invalid fares, and surface mismatches",()=>{
+  const offers=defaultCheckpointTransportOffers("dock");
+  assert.deepEqual(validateCheckpointTransportOffers(offers),offers);
+  assert.throws(()=>validateCheckpointTransportOffers([...offers,offers[0]]),/duplicated/);
+  assert.throws(()=>validateCheckpointTransportOffers([{
+    methodId:"cart",mode:"land",overrides:{hireCostCp:-1}
+  }]),/hireCostCp/);
+  assert.throws(()=>checkpointOfferMethod({
+    methodId:"rowboat",mode:"land",overrides:{}},world("rowboat")) ,/surface/);
+  const carriage=checkpointOfferMethod({
+    methodId:"carriage",mode:"land",
+    overrides:{hireEnabled:true,hireCostCp:900,capacity:3}
+  },world("carriage"));
+  assert.equal(carriage.hireCostCp,900);
+  assert.equal(carriage.capacity,3);
+  assert.equal(world("carriage").hireCostCp,400,"World rate is unmodified");
+  assert.throws(()=>validateCheckpointTransportStore({schemaVersion:19,entries:{}}),/Unsupported/);
+});
+const fixture=()=>{
+  const base={...createEmptyAtlas(),enabled:true,
+    nodes:[{id:"a",x:0,y:0},{id:"b",x:100,y:0}],
+    roads:[{id:"road",name:"Road"}],
+    segments:[{id:"seg",roadId:"road",from:"a",to:"b",via:[],bidirectional:true}]};
+  const withCheckpoint=addRoadCheckpoint(base,{roadId:"road",
+    candidate:{kind:"node",nodeId:"a"},name:"Harbor",idFactory:()=> "cpA"});
+  const atlas=upgradeAtlasPlayerVisibility(withCheckpoint);
+  const data={
+    atlas,checkpointCategories:{cpA:"port"},
+    checkpointTransportOffers:{schemaVersion:1,entries:{cpA:[]}},
+    checkpointDiscoveryMethods:{},
+    checkpointPresetAssignments:{schemaVersion:1,assignments:{cpA:"checkpoint-port"}}
+  };
+  const scene={name:"Test",grid:{size:40},getFlag:(_module,key)=>data[key]??null,
+    canUserModify:()=>true,
+    async update(patch){for(const [key,value] of Object.entries(patch)){
+      data[key.split(".").at(-1)]=value;
+    }}};
+  return {scene,atlas,data};
+};
+test("checkpoint offers are only visible near authored checkpoint positions",()=>{
+  const {scene,atlas,data}=fixture();
+  data.checkpointTransportOffers.entries.cpA=defaultCheckpointTransportOffers("port");
+  assert.ok(offersAtOrigin(atlas,scene,{x:0,y:0}).length>0);
+  assert.deepEqual(offersAtOrigin(atlas,scene,{x:500,y:500}),[]);
+  assert.ok(checkpointOffers(scene,"cpA").length>0);
+});
+test("bulk apply is opt-in, field selective and leaves graph/discovery untouched",async()=>{
+  const {scene,atlas,data}=fixture();
+  const preset=defaultCheckpointPresets().presets.find(p=>p.category==="port");
+  assert.equal(CHECKPOINT_BULK_FIELDS.length,9);
+  assert.throws(()=>buildCheckpointBulkUpdate(scene,preset,{fields:[]}),/Choose/);
+  assert.throws(()=>buildCheckpointBulkUpdate(scene,preset,{scope:"assigned",
+    fields:["size"],expectedRevision:atlas.revision+1}),/changed/);
+  const plan=buildCheckpointBulkUpdate(scene,preset,{scope:"category",
+    fields:["size","discoveryMethod","transportation"],expectedRevision:atlas.revision});
+  assert.deepEqual(plan.targets.map(x=>x.id),["cpA"]);
+  assert.deepEqual(data.atlas,atlas,"dry run never writes");
+  assert.ok(!Object.keys(plan.updates).some(k=>/partyExploration/.test(k)));
+  const previousNodes=structuredClone(atlas.nodes);
+  const previousSegments=structuredClone(atlas.segments);
+  const previousName=atlas.checkpoints[0].name;
+  const prior=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    assert.equal(await applyCheckpointPresetBulk(scene,preset,{scope:"category",
+      fields:["size","discoveryMethod","transportation"],expectedRevision:atlas.revision}),1);
+  }finally{globalThis.game=prior;}
+  assert.deepEqual(data.atlas.nodes,previousNodes);
+  assert.deepEqual(data.atlas.segments,previousSegments);
+  assert.equal(data.atlas.checkpoints[0].name,previousName);
+  assert.equal(data.atlas.checkpoints[0].appearance.size,24);
+  assert.ok(data.checkpointTransportOffers.entries.cpA.length>0);
+});

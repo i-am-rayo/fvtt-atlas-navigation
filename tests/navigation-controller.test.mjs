@@ -123,7 +123,12 @@ test("navigation locks the completed route until deliberate endpoint gestures or
       appendChild(node){this.children.push(node);},
       addEventListener(name,handler){this.listeners.set(name,handler);}})};
     const scene={id:"scene-1",name:"Paedor",grid:{units:"km",size:100},
-      getFlag:()=>null,tokens:{get:()=>null},canUserModify:()=>true,
+      getFlag:(_module,key)=>key==="checkpointTransportOffers"?
+        {schemaVersion:1,entries:{"stop-a":[
+          {methodId:"mounted",mode:"land",overrides:{hireEnabled:true,hireCostCp:50}},
+          {methodId:"carriage",mode:"land",overrides:{hireEnabled:true}}
+        ]}}:null,
+      tokens:{get:()=>null},canUserModify:()=>true,
       setFlag(){throw Error("Navigation must not write Scene flags.");}};
     const listeners=new Map();
     const target={addEventListener(name,handler){listeners.set(name,handler);},
@@ -131,7 +136,9 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     const view={ready:true,scene,app:{canvas:target},
       canvasCoordinatesFromClient:({x,y})=>point(x,y),
       dimensions:{sceneRect:{contains:()=>true}}};
-    const atlas={revision:7,roads:[{id:"road-a",name:"Road A"}],nodes:[],segments:[]};
+    const atlas={revision:7,roads:[{id:"road-a",name:"Road A"}],
+      checkpoints:[{id:"stop-a",nodeId:"n1",name:"Starting Town"}],
+      nodes:[{id:"n1",x:10,y:10}],segments:[]};
     let calculations=0;
     const nav=new AtlasNavigationController({canvasProvider:()=>view,atlasProvider:()=>atlas,
       atlasPoint:(_view,_atlas,location)=>location,
@@ -224,7 +231,7 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     nav.assessTravelMethod=()=>({compatible:true,guided:false,reason:null});
     nav.setTravelMethod("carriage");
     assert.equal(nav.transportArrangement,"hire",
-      "an unowned carriage with a for-hire fare defaults to provisional hiring");
+      "a carriage offered at the departure checkpoint defaults to hired service");
     const hired=await nav._renderHTML();
     assert.ok(find(hired,item=>item.textContent==="GM pricing for this journey only"));
     assert.ok(find(hired,item=>item.textContent?.startsWith?.("World preset estimate:")));
@@ -256,10 +263,11 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     perField.children[1].listeners.get("change")();
     assert.equal(nav.transportHireTerms.hireApplies,"passenger");
     const reset=find(hired,item=>item.tag==="button"&&
-      item.textContent==="Reset to World preset");
+      item.textContent==="Reset to checkpoint offer");
     reset.listeners.get("click")();
     assert.equal(nav.transportHireTerms,null);
-    assert.equal(nav.transportQuoteAdjustmentCp,0);
+    assert.equal(nav.transportQuoteAdjustmentCp,undefined);
+    assert.equal(find(hired,item=>item.textContent==="Additional negotiated adjustment (CP)"),undefined);
     nav.assessTravelMethod=methodAssessment;
     nav.setTravelMethod("walking");
     assert.equal(nav.travelMethod,"walking");
