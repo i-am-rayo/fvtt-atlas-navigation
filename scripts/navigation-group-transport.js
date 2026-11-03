@@ -1,10 +1,10 @@
 /**
  * Pure read-only D&D5e Group transportation projection plus versioned Atlas
- * World-only assignments (read-only v1 to v2 normalization). Native Group members, currencies and Actor documents
+ * World-only assignments (read-only v1/v2 to v3 normalization). Native Group members, currencies and Actor documents
  * are never modified. NPCs are intentionally unclassified until a GM chooses.
  */
 export const GROUP_TRANSPORT_SETTING="guidedGroupTransportation";
-export const GROUP_TRANSPORT_VERSION=2;
+export const GROUP_TRANSPORT_VERSION=3;
 export const GROUP_TRANSPORT_ROLES=Object.freeze([
   "unassigned","mount","passenger","crew","pack","ignore"
 ]);
@@ -13,12 +13,13 @@ const MAX_GROUPS=100,MAX_MEMBERS=150;
 const safeId=id=>typeof id==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(id);
 const integer=(v,min,max)=>Number.isInteger(v)&&v>=min&&v<=max;
 const validProfileId=id=>id===null||(typeof id==="string"&&/^[a-z0-9-]{1,64}$/.test(id));
+const validTravelSpeedOverride=v=>v===null||(typeof v==="number"&&Number.isFinite(v)&&v>=0.1&&v<=600);
 
 export function defaultGroupTransportation(){return {version:GROUP_TRANSPORT_VERSION,groups:{}};}
 
 export function validateGroupTransportation(input){
   if(!input||typeof input!=="object"||Array.isArray(input)||
-      ![1,GROUP_TRANSPORT_VERSION].includes(input.version)||
+      ![1,2,GROUP_TRANSPORT_VERSION].includes(input.version)||
       !input.groups||typeof input.groups!=="object"||Array.isArray(input.groups)||
       Object.keys(input.groups).length>MAX_GROUPS)
     throw new Error("Invalid Atlas Group transportation configuration.");
@@ -35,10 +36,12 @@ export function validateGroupTransportation(input){
           !integer(entry.quantity,1,100)||
           !(entry.capacity===null||integer(entry.capacity,1,1000))||
           !GROUP_TRANSPORT_SURFACES.includes(entry.surface)||
-          !validProfileId(entry.profileId??null))
+          !validProfileId(entry.profileId??null)||
+          !validTravelSpeedOverride(entry.speedMphOverride??null))
         throw new Error("Invalid Atlas Group member transportation assignment.");
       members[actorId]={role:entry.role,quantity:entry.quantity,
-        capacity:entry.capacity,surface:entry.surface,profileId:entry.profileId??null};
+        capacity:entry.capacity,surface:entry.surface,profileId:entry.profileId??null,
+        speedMphOverride:entry.speedMphOverride??null};
     }
     output.groups[groupId]={members};
   }
@@ -95,8 +98,9 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
       role==="mount"?(saved?.capacity??1):null;
     const surface=saved?.surface??actorSurface(actor);
     const profileId=saved?.profileId??null;
+    const speedMphOverride=saved?.speedMphOverride??null;
     members.push({actorId:actor.id,actorName:actor.name??"Unnamed Actor",
-      actorType:actor.type,role,quantity,capacity,surface,profileId,
+      actorType:actor.type,role,quantity,capacity,surface,profileId,speedMphOverride,
       primaryVehicle:Boolean(vehicle&&group.system?.primaryVehicle?.id===actor.id),
       configured:Boolean(saved)});
   }
@@ -137,7 +141,13 @@ export function groupMethodCapacityStatus(projection,method){
   const seats=relevant.reduce((sum,m)=>sum+(m.capacity??0)*m.quantity,0);
   const quantity=relevant.reduce((sum,m)=>sum+m.quantity,0);
   const unknown=relevant.filter(m=>m.capacity===null).length;
+  // With no individual boarding assignments, assume every matching resource joins
+  // the convoy. The slowest participating resource determines its estimated pace.
+  const speeds=relevant.map(m=>m.speedMphOverride??method.speedMph)
+    .filter(speed=>typeof speed==="number"&&Number.isFinite(speed)&&speed>0);
+  const effectiveSpeedMph=speeds.length?Math.min(...speeds):null;
   return {travelers:projection.travelers,seats,
     missing:Math.max(0,projection.travelers-seats),unknown,
-    matched:relevant.length,quantity,sufficient:projection.travelers>0&&projection.travelers<=seats};
+    matched:relevant.length,quantity,effectiveSpeedMph,
+    sufficient:projection.travelers>0&&projection.travelers<=seats};
 }
