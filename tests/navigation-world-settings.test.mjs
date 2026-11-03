@@ -28,7 +28,7 @@ test("navigation World Settings register once in a reusable module with bounded 
   const groupConfig=catalog.get(GROUP_TRANSPORT_SETTING);
   assert.equal(groupConfig.scope,"world");
   assert.equal(groupConfig.config,false);
-  assert.deepEqual(groupConfig.default,{version:3,groups:{}});
+  assert.deepEqual(groupConfig.default,{version:4,groups:{}});
 
   assert.ok(typeof menus.get("atlasTransportationPresetsMenu").type==="function");
   assert.equal(catalog.get(NAVIGATION_MOUNTED_SPEED_SETTING).default,3);
