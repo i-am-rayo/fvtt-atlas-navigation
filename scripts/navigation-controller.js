@@ -1070,11 +1070,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(this.travelMethod!=="walking"&&game.system?.id==="dnd5e"&&
         assignedToken?.actor?.type==="group"){
       try{
-        const method=availableNavigationTravelMethods(game.settings,game.system.id)
-          .find(candidate=>candidate.id===this.travelMethod);
-        if(method&&method.kind!=="foot"){
+        const methods=availableNavigationTravelMethods(game.settings,game.system.id);
+        const method=methods.find(candidate=>candidate.id===this.travelMethod);
+        if(method&&method.kind!=="foot"&&
+            !["coach-hire","ship-passage"].includes(method.id)){
           const roster=projectGroupTransportation(assignedToken.actor,
-            readGroupTransportation(game.settings));
+            readGroupTransportation(game.settings),methods);
           const capacity=groupMethodCapacityStatus(roster,method);
           if(capacity.sufficient&&capacity.effectiveSpeedMph!==null){
             const speed=convertGroupSpeed(capacity.effectiveSpeedMph,"mph",sceneUnit);
@@ -1199,7 +1200,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const party=readPartyExploration(this.scene);
         const group=party.enabled?this.scene?.tokens?.get?.(party.tokenId)?.actor:null;
         if(group?.type==="group"&&selectedMethod?.surface){
-          const roster=projectGroupTransportation(group,readGroupTransportation(game.settings));
+          const roster=projectGroupTransportation(group,readGroupTransportation(game.settings),methods);
           const capacity=groupMethodCapacityStatus(roster,selectedMethod);
           const capacityNote=el("p",roster.travelers+" traveler(s); "+
             capacity.seats+" available "+selectedMethod.surface+" seat(s). "+
@@ -1274,7 +1275,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const assignment=readPartyExploration(this.scene);
         const actor=assignment.enabled?this.scene?.tokens?.get?.(assignment.tokenId)?.actor:null;
         if(actor?.type==="group"){
-          const roster=projectGroupTransportation(actor,readGroupTransportation(game.settings));
+          const roster=projectGroupTransportation(actor,readGroupTransportation(game.settings),methods);
           const method=methods.find(item=>item.id===this.travelMethod);
           const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
           if(method&&distanceMi!==null){
