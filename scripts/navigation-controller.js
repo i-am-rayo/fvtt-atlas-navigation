@@ -835,6 +835,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // Native guided walking may not traverse an authored water or air road.
     // Older test doubles and pre-checkpoint Scene schemas remain readable.
     if(Array.isArray(atlas.roads)&&Array.isArray(atlas.nodes)&&
+        atlas.roads.some(road=>road.travelPresetId)&&
         this.result.legs.every(leg=>Array.isArray(leg.points)&&leg.points.length>=2)){
       const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
       const projected=projectTransportationRouteLegs(this.result,atlas,presets.presets);
