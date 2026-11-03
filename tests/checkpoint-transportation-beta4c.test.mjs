@@ -131,6 +131,7 @@ test("checkpoint offers expose edit/delete actions and shared coin-aware slider 
     constructor(tag){this.tag=tag;this.children=[];this.style={};this.listeners=new Map();
       this.textContent="";this.value="";this.checked=false;}
     append(...elements){this.children.push(...elements);}
+    appendChild(element){this.children.push(element);return element;}
     replaceChildren(...elements){this.children=[...elements];}
     setAttribute(){}
     addEventListener(event,fn){this.listeners.set(event,fn);}
