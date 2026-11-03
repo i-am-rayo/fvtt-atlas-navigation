@@ -280,8 +280,11 @@ test("service rates and capabilities persist per profile and validate eligibilit
   const horse=findTransportationPreset("riding-horse",settings(),"dnd5e");
   assert.throws(()=>setTransportationPreset(changed,"dnd5e2024",
     {...horse,continuousEnabled:true}),/Invalid/);
-  assert.throws(()=>setTransportationPreset(changed,"dnd5e2024",
-    {...horse,hireEnabled:true}),/Invalid/);
+  const rentableHorse=setTransportationPreset(changed,"dnd5e2024",
+    {...horse,hireEnabled:true});
+  assert.equal(findTransportationPreset("riding-horse",settings({
+    [TRANSPORT_CATALOG_SETTING]:rentableHorse}),"dnd5e").hireEnabled,true,
+    "mount hire is possible only when the GM opts in");
   assert.throws(()=>setTransportationPreset(changed,"dnd5e2024",
     {...ship,overtimeMultiplier:0.5}),/Invalid/);
   assert.throws(()=>setTransportationPreset(changed,"dnd5e2024",

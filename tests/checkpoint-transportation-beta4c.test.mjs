@@ -158,7 +158,9 @@ test("checkpoint offers expose edit/delete actions and shared coin-aware slider 
     assert.ok(fields.some(el=>el.textContent==="Purchase price"));
     const gp=fields.find(el=>el.name==="hireCostCp_gp");
     const sp=fields.find(el=>el.name==="hireCostCp_sp");
-    assert.equal(Number(gp.value),60);
+    const pp=fields.find(el=>el.name==="hireCostCp_pp");
+    assert.equal(Number(pp.value),6,"6,000 CP defaults to six platinum coins");
+    pp.value="0";pp.listeners.get("change")();
     gp.value="2";gp.listeners.get("change")();
     sp.value="5";sp.listeners.get("change")();
     assert.equal(editor.getOffers().find(el=>el.methodId==="sailing").overrides.hireCostCp,250,
