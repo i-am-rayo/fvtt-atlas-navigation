@@ -49,6 +49,11 @@ export function createCheckpointTransportationEditor({offers=[],
     if(!offer||!world)throw Error("The checkpoint method is no longer available.");
     await openTransportationMethodEditor({
       method:checkpointOfferMethod(offer,world),scope:"checkpoint",
+      onReset:async()=>{
+        draft=validateCheckpointTransportOffers(draft.map(item=>
+          item.methodId===methodId?{...item,overrides:{}}:item));
+        render();
+      },
       onSave:async edited=>{
         const live=currentCatalog().find(method=>method.id===methodId);
         if(!live||JSON.stringify(live)!==JSON.stringify(world))

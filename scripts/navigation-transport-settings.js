@@ -339,7 +339,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "not yet authorize guided movement. Costs are reference estimates only."));
   }
 
-  async _edit(preset,surface="land",{scope="world",onSave=null}={}){
+  async _edit(preset,surface="land",{scope="world",onSave=null,onReset=null}={}){
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
     const existing=Boolean(preset),profile=selectedTransportationProfile(game.settings,game.system?.id);
     const before=snapshot();
@@ -555,6 +555,13 @@ export class AtlasTransportationSettings extends ApplicationBase {
     }
     const error=element("small","");error.setAttribute("data-atlas-quote-error","");
     panels.cost.append(error);
+    if(scope!=="world"&&onReset){
+      const reset=element("button",scope==="checkpoint"?
+        "Clear checkpoint overrides (inherit World)":"Reset journey overrides");
+      reset.type="button";reset.setAttribute("data-atlas-scope-reset","");
+      reset.style.cssText="justify-self:start;";
+      body.append(reset);
+    }
     // DialogV2 requires a plain outer HTMLDivElement with no attributes.
     const shell=element("div");shell.appendChild(body);
     const response=await foundry.applications.api.DialogV2.input({
@@ -563,7 +570,20 @@ export class AtlasTransportationSettings extends ApplicationBase {
         height:Math.max(460,Math.min(730,(globalThis.window?.innerHeight??850)-80))},
       content:shell,ok:{label:scope==="checkpoint"?"Apply checkpoint overrides":
         scope==="journey"?"Apply journey estimate":"Save preset"},rejectClose:false,modal:true,
-      render:(app,html)=>{wireSliders(html??app?.element);wirePresetDialog(html??app?.element);}
+      render:(app,html)=>{
+        const root=html??app?.element;
+        wireSliders(root);wirePresetDialog(root);
+        const reset=root?.querySelector?.("[data-atlas-scope-reset]");
+        if(reset&&onReset&&!reset.dataset?.atlasResetWired){
+          if(reset.dataset)reset.dataset.atlasResetWired="true";
+          reset.addEventListener("click",async()=>{
+            reset.disabled=true;
+            try{await onReset();await app.close();}
+            catch(error){reset.disabled=false;
+              globalThis.ui?.notifications?.error?.(error.message??String(error));}
+          });
+        }
+      }
     });
     if(!response)return;
     if(before!==snapshot())throw new Error("Transportation presets changed while you were editing. Reopen and review.");
@@ -775,10 +795,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
 /** Opens the one World transportation editor for a non-World scope.
  * Callers own the Save callback; this helper never changes World settings.
  */
-export async function openTransportationMethodEditor({method,scope,onSave}={}){
+export async function openTransportationMethodEditor({method,scope,onSave,onReset=null}={}){
   if(!method||!["checkpoint","journey"].includes(scope)||
       typeof onSave!=="function")throw Error("Invalid transportation editor context.");
   const app=new AtlasTransportationSettings();
-  return app._edit(method,method.surface,{scope,onSave});
+  return app._edit(method,method.surface,{scope,onSave,onReset});
 }
 

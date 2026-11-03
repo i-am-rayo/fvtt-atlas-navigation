@@ -285,6 +285,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const {openTransportationMethodEditor}=await import("./navigation-transport-settings.js");
     await openTransportationMethodEditor({
       method:baseline,scope:"journey",
+      onReset:async()=>{
+        this.transportJourneyOverrides=null;
+        this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
+        this.draw();await this.render(true);
+      },
       onSave:async edited=>{
         if(this.travelMethod!==id||this.transportArrangement!==arrangement)
           throw Error("The selected travel method changed. Reopen its settings.");
