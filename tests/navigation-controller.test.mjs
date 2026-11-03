@@ -33,7 +33,7 @@ test("unexpected canvas redraw reports and safely ends the active journey",()=>{
   const old={ui:globalThis.ui,game:globalThis.game};
   const messages=[];
   try{
-    globalThis.game={user:{isGM:true},settings:{get:()=>false}};
+    globalThis.game={user:{isGM:true},settings:{get:(_module,key)=>key==="guidedTransportationCatalog"?undefined:false}};
     globalThis.ui={notifications:{warn:message=>messages.push(message)}};
     const nav=new AtlasNavigationController();
     nav.scene={id:"scene-reloaded"};
@@ -111,7 +111,7 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     PIXI:globalThis.PIXI,ui:globalThis.ui,document:globalThis.document};
   try{
     globalThis.foundry={applications:{api:{ApplicationV2:class {}}}};
-    globalThis.game={user:{isGM:true},system:{id:"test"},settings:{get:()=>5}};
+    globalThis.game={user:{isGM:true},system:{id:"test"},settings:{get:(_module,key)=>key==="guidedTransportationCatalog"?undefined:5}};
     globalThis.window={innerWidth:1200,innerHeight:850};
     globalThis.PIXI=undefined;
     globalThis.ui={notifications:{error(message){throw Error(message);}}};
@@ -231,7 +231,7 @@ test("party departure chooses B with one click, tracks live token center, and pr
   const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
     ui:globalThis.ui,document:globalThis.document};
   try{
-    globalThis.game={user:{isGM:true},system:{id:"test"},settings:{get:()=>5}};
+    globalThis.game={user:{isGM:true},system:{id:"test"},settings:{get:(_module,key)=>key==="guidedTransportationCatalog"?undefined:5}};
     globalThis.window={innerWidth:1200,innerHeight:850};
     globalThis.PIXI=undefined;
     const warnings=[];
@@ -320,7 +320,7 @@ test("a saved Journal offers deliberate recovery from the actual token without r
     const journal={id:"recover-1",getFlag:(scope,key)=>
       scope==="fvtt-atlas-navigation"&&key===JOURNEY_JOURNAL_FLAG?record:null};
     globalThis.game={user:{isGM:true},journal:{contents:[journal]},
-      settings:{get:()=>5},system:{id:"test"}};
+      settings:{get:(_module,key)=>key==="guidedTransportationCatalog"?undefined:5},system:{id:"test"}};
     const target={addEventListener(){},removeEventListener(){}};
     const view={ready:true,scene,app:{canvas:target},
       canvasCoordinatesFromClient:({x,y})=>point(x,y)};
@@ -364,6 +364,7 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
   let nav;
   try{
     globalThis.game={user:{isGM:true},settings:{get:(_module,key)=>
+      key==="guidedTransportationCatalog"?undefined:
       key==="guidedTravelSecondsPerHour"?2:5}};
     globalThis.window={innerWidth:1200,innerHeight:800};
     globalThis.PIXI=undefined;
@@ -524,7 +525,8 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     const seconds=[];
     let failClock=false,moveCount=0,worldEnabled=true;
     globalThis.game={user:{id:"gm-1",isGM:true},users:{activeGM:{id:"gm-1"}},
-      settings:{get:(_module,key)=>key==="guidedTravelAdvanceWorldTime"?worldEnabled:
+      settings:{get:(_module,key)=>key==="guidedTransportationCatalog"?undefined:
+        key==="guidedTravelAdvanceWorldTime"?worldEnabled:
         key==="guidedTravelSecondsPerHour"?2:5},
       time:{advance:async amount=>{
         if(failClock)throw Error("Clock is unavailable");
