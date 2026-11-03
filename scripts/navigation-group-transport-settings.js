@@ -36,11 +36,11 @@ const select=(name,choices,value)=>{
   control.value=value;
   return control;
 };
-const number=(name,value,min,max)=>{
+const number=(name,value,min,max,{step=1,placeholder="Unknown"}={})=>{
   const control=node("input");control.type="number";control.name=name;
-  control.min=String(min);control.max=String(max);control.step="1";
+  control.min=String(min);control.max=String(max);control.step=String(step);
   control.value=value===null?"":String(value);control.defaultValue=control.value;
-  control.placeholder=value===null?"Unknown":"";
+  control.placeholder=value===null?placeholder:"";
   control.style.cssText="width:100%;min-width:0;box-sizing:border-box;";
   return control;
 };
@@ -110,7 +110,7 @@ export class AtlasGroupTransportationSettings extends base {
     window:{title:"Atlas — Party-owned Transportation",resizable:true},
     position:{width:790,height:700}
   };
-  constructor(groupId,...args){super(...args);this.groupId=groupId;}
+  constructor(groupId,...args){super(...args);this.groupId=groupId;this.activeTab="vehicle";}
   _replaceHTML(result,content){content.replaceChildren(result);}
   async _renderHTML(){
     if(!globalThis.game?.user?.isGM)
@@ -126,8 +126,8 @@ export class AtlasGroupTransportationSettings extends base {
     const methodSnapshot=JSON.stringify(methods);
     const lookup=new Map(methods.map(method=>[method.id,method]));
     const root=node("section");
-    root.style.cssText="padding:1rem;display:flex;flex-direction:column;gap:1rem;"+
-      "height:100%;overflow:auto;box-sizing:border-box;";
+    root.style.cssText="padding:1rem;display:flex;flex-direction:column;gap:.75rem;"+
+      "height:100%;min-height:0;overflow:hidden;box-sizing:border-box;";
     const title=node("h2","Party-owned Transportation — "+roster.groupName);
     title.style.cssText="margin:0;";root.appendChild(title);
     root.appendChild(node("p","GM-only settings for this Group Actor. "+
@@ -148,12 +148,44 @@ export class AtlasGroupTransportationSettings extends base {
     }
     const editable=[];
     const categories=[
-      ["character","Player Characters","Native character members are counted as travelers."],
-      ["npc","Non-player Characters","Assign a role; select a mount profile only when applicable."],
-      ["vehicle","Vehicles","Choose the actual transportation profile, quantity and passenger capacity."]
+      ["vehicle","Vehicles","Choose the actual transportation profile, quantity and passenger capacity."],
+      ["npc","NPC","Assign a role; select a mount profile only when applicable."],
+      ["character","Player Characters","Native character members are counted as travelers."]
     ];
+    const tabBar=node("div");
+    tabBar.setAttribute("role","tablist");
+    tabBar.setAttribute("aria-label","Party transportation categories");
+    tabBar.style.cssText="display:flex;gap:.35rem;flex-wrap:wrap;border-bottom:1px solid #666;padding-bottom:.35rem;";
+    const panels=new Map();
+    const tabs=new Map();
+    const panelHost=node("div");
+    panelHost.style.cssText="flex:1;min-height:0;overflow-y:auto;";
+    const activate=type=>{
+      this.activeTab=type;
+      for(const [id,panel] of panels){
+        const active=id===type;
+        panel.hidden=!active;
+        panel.style.display=active?"grid":"none";
+        panel.setAttribute("aria-hidden",String(!active));
+        const tab=tabs.get(id);
+        tab?.setAttribute("aria-selected",String(active));
+        if(tab)tab.style.cssText="padding:.4rem .8rem;border-radius:.45rem .45rem 0 0;"+
+          (active?"font-weight:700;border-bottom:3px solid #ba93ec;":"opacity:.75;");
+      }
+    };
     for(const [type,label,description] of categories){
+      const tab=node("button",label);
+      tab.type="button";
+      tab.setAttribute("role","tab");
+      tab.setAttribute("id","atlas-transport-tab-"+type);
+      tab.setAttribute("aria-controls","atlas-transport-panel-"+type);
+      tab.addEventListener("click",()=>activate(type));
+      tabs.set(type,tab);
+      tabBar.appendChild(tab);
       const section=node("fieldset");
+      section.setAttribute("role","tabpanel");
+      section.setAttribute("id","atlas-transport-panel-"+type);
+      section.setAttribute("aria-labelledby","atlas-transport-tab-"+type);
       section.style.cssText="border:1px solid var(--color-border-light-primary,#666);"+
         "border-radius:.5rem;padding:.75rem;display:grid;gap:.75rem;min-width:0;";
       section.appendChild(node("legend",label));
@@ -179,8 +211,6 @@ export class AtlasGroupTransportationSettings extends base {
         if(type==="vehicle")role.disabled=true;
         const quantity=number("quantity-"+member.actorId,member.quantity,1,100);
         const capacity=number("capacity-"+member.actorId,member.capacity,1,1000);
-        const surface=select("surface-"+member.actorId,
-          SURFACES.map(s=>[s,displaySurface(s)]),member.surface);
         const compatible=methods.filter(method=>
           method.kind===(type==="vehicle"?"vehicle":"mount"));
         const suggested=compatible.find(method=>
@@ -190,11 +220,18 @@ export class AtlasGroupTransportationSettings extends base {
         const options=[["","No linked profile"],...compatible.map(method=>
           [method.id,method.name+" ("+displaySurface(method.surface)+")"])];
         const profile=select("profile-"+member.actorId,options,initial);
+        const speedOverride=number("speed-"+member.actorId,
+          member.speedMphOverride,0.1,600,{step:0.01,placeholder:"Use World speed"});
         const profileDetails=node("small");
         const updateDetails=()=>{
           const method=lookup.get(profile.value);
+          const effectiveSpeed=method?(speedOverride.value===""?method.speedMph:
+            Number(speedOverride.value)):null;
           profileDetails.textContent=method?
-            "Travel: "+(method.speedMph??"party pace")+" mph · "+
+            "Surface: "+displaySurface(method.surface)+" · Travel: "+
+            (Number.isFinite(effectiveSpeed)?effectiveSpeed:"—")+" mph "+
+            (speedOverride.value===""?"(World profile)":"(Group override; World "+method.speedMph+" mph)")+
+            " · "+
             (method.costBasis==="none"?"No recurring cost":
               method.costCp+" CP / "+(method.costBasis==="day"?"day":"mile")+
               " per "+(method.costApplies==="passenger"?"passenger":"unit"))+
@@ -204,23 +241,28 @@ export class AtlasGroupTransportationSettings extends base {
         updateDetails();
         if(type==="npc"&&member.role!=="mount")profile.disabled=true;
         profile.addEventListener("change",()=>{
-          updateDetails();
           const method=lookup.get(profile.value);
-          if(!method)return;
-          surface.value=method.surface;
-          if(capacity.value===""&&method.capacity!==null)
+          speedOverride.disabled=!method||(type==="npc"&&role.value!=="mount");
+          if(!method)speedOverride.value="";
+          if(method&&capacity.value===""&&method.capacity!==null)
             capacity.value=String(method.capacity);
+          updateDetails();
         });
         if(type==="npc")role.addEventListener("change",()=>{
           profile.disabled=role.value!=="mount";
+          speedOverride.disabled=role.value!=="mount"||!profile.value;
         });
+        speedOverride.disabled=!profile.value||(type==="npc"&&member.role!=="mount");
+        speedOverride.addEventListener("input",updateDetails);
         const controls=node("div");
         controls.style.cssText="display:grid;grid-template-columns:"+
           "repeat(auto-fit,minmax(9rem,1fr));gap:.65rem;";
         controls.append(field("Role",role),field("Number available",quantity),
-          field("Riders per unit",capacity),field("Travel surface",surface),
+          field("Riders per unit",capacity),
           field("Transportation profile",profile,
-            "Stable profile ID; renaming the Actor will not change its speed or cost."));
+            "The profile supplies the travel surface, speed and default costs."),
+          field("Speed override (mph)",speedOverride,
+            "Optional for this Group only; leave blank for the World profile's travel speed."));
         row.appendChild(controls);
         row.appendChild(profileDetails);
         if(member.profileId&&!lookup.has(member.profileId)){
@@ -235,12 +277,16 @@ export class AtlasGroupTransportationSettings extends base {
         }
         if(member.primaryVehicle)row.appendChild(node("small",
           "Foundry's primary-vehicle flag does not mean the party is aboard."));
-        editable.push({member,role,quantity,capacity,surface,profile});
+        editable.push({member,role,quantity,capacity,profile,speedOverride});
         section.appendChild(row);
       }
-      root.appendChild(section);
+      panels.set(type,section);
+      panelHost.appendChild(section);
     }
-    const footer=node("div");footer.style.cssText="display:flex;flex-wrap:wrap;gap:.6rem;";
+    root.appendChild(tabBar);
+    root.appendChild(panelHost);
+    activate(panels.has(this.activeTab)?this.activeTab:"vehicle");
+    const footer=node("div");footer.style.cssText="display:flex;flex-wrap:wrap;gap:.6rem;flex:0 0 auto;";
     footer.appendChild(action("Save Party Transportation Assignments",async()=>{
       if(!game.user?.isGM)throw new Error("Only a GM may assign transportation.");
       if(JSON.stringify(readGroupTransportation(game.settings))!==JSON.stringify(assignments))
@@ -257,19 +303,24 @@ export class AtlasGroupTransportationSettings extends base {
         throw new Error("Transportation profiles changed. Reopen the editor.");
       let next=assignments;
       for(const entry of editable){
-        const {member,role,quantity,capacity,surface,profile}=entry;
+        const {member,role,quantity,capacity,profile,speedOverride}=entry;
         const isTransport=member.actorType==="vehicle"||role.value==="mount";
         const profileId=isTransport?(profile.value||null):null;
         const method=profileId?lookup.get(profileId):null;
         const expectedKind=member.actorType==="vehicle"?"vehicle":"mount";
-        if(profileId&&(!method||method.kind!==expectedKind||
-            method.surface!==surface.value))
+        if(profileId&&(!method||method.kind!==expectedKind))
           throw new Error("Choose a compatible transportation profile for "+member.actorName+".");
+        const override=!isTransport||speedOverride.value.trim()===""?
+          null:Number(speedOverride.value);
+        if(override!==null&&(!profileId||!Number.isFinite(override)||
+            override<0.1||override>600))
+          throw new Error("Enter a valid speed override between 0.1 and 600 mph for "+member.actorName+".");
         next=setGroupTransportationMember(next,this.groupId,member.actorId,{
           role:member.actorType==="vehicle"?"unassigned":role.value,
           quantity:Number(quantity.value),
           capacity:capacity.value===""?null:Number(capacity.value),
-          surface:surface.value,profileId
+          surface:method?.surface??member.surface,profileId,
+          speedMphOverride:isTransport?override:null
         });
       }
       await game.settings.set(MODULE_ID,GROUP_TRANSPORT_SETTING,next);
@@ -284,8 +335,9 @@ export class AtlasGroupTransportationSettings extends base {
     }));
     footer.appendChild(action("Refresh",()=>this.render()));
     root.appendChild(footer);
-    root.appendChild(node("small","Atlas only saves transport roles, quantities, capacities, surfaces "+
-      "and stable profile links. No native Actor changes, boarding, movement or currency deductions."));
+    root.appendChild(node("small","Atlas saves Group-only roles, quantities, capacities, stable profile "+
+      "links and optional speed overrides. Surface comes from the linked profile. No native Actor "+
+      "changes, boarding, movement or currency deductions."));
     return root;
   }
 }
