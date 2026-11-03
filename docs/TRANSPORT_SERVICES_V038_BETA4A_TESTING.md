@@ -24,7 +24,7 @@ Do not merge until live Foundry v14 GM and player testing is accepted.
 ## Navigation / compatibility gates
 
 - Travel-time comparison stays at same daily pace for land **wagon and riding horse**; both 90.23 mi at 3 mph require 30h5 moving and 3d6h5 total with an 8h day.
-- Example-cost table **does not** change Navigation duration or apply ship continuous service. That is reserved for beta.4b.
+- Example-cost table **does not** change Navigation duration or apply ship continuous service. That is reserved for beta.4b. For an eligible owned transport, Navigation's illustrative Group fare *does* include opt-in crew wages; existing water/air wage days currently use the 24h moving-time reference until service policies are added.
 - No Actor, Group member, Scene, Token, currency, or native Region/Behavior writes occur from quote previews.
 - Check GM editor access; players cannot mutate World presets.
 - Check player scene, fog, roads, route conditions, journey clock, notes and Journal for regressions.
