@@ -222,7 +222,7 @@ test("optional per-unit crew wages appear in the owned Group navigation quote",(
     capacity:60,speedMph:2.5,costCp:0,costBasis:"none",costApplies:"unit",
     crewCount:60,crewWageCpPerDay:200,includeCrewWages:true};
   const saved=setGroupTransportationMember(defaultGroupTransportation(),
-    "group1","ship1",{role:"vehicle",quantity:1,capacity:60,
+    "group1","ship1",{role:"unassigned",quantity:1,capacity:60,
       surface:"water",profileId:"warship"});
   const projected=projectGroupTransportation(group([pc,warship]),saved,[method]);
   const quote=groupMethodFareEstimate(projected,method,
