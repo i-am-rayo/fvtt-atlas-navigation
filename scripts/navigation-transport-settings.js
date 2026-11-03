@@ -142,6 +142,9 @@ const wirePresetDialog=container=>{
   const update=()=>{
     try{
       const hireOn=Boolean(fieldValue("hireEnabled")?.checked);
+      const crewOption=root.querySelector("[data-atlas-hire-crew-option]");
+      if(crewOption){crewOption.style.opacity=hireOn?"1":".42";
+        crewOption.style.pointerEvents=hireOn?"auto":"none";}
       const hireControls=root.querySelector("[data-atlas-hire-controls]");
       if(hireControls){hireControls.style.opacity=hireOn?"1":".42";
         hireControls.style.pointerEvents=hireOn?"auto":"none";
@@ -449,10 +452,12 @@ export class AtlasTransportationSettings extends ApplicationBase {
     panels.services.append(heading("Hired transportation",
       "Rates are GM estimates unless noted as published D&D references. No booking or payment occurs."));
     const toggles=row("16rem");
-    toggles.append(serviceToggle("hireEnabled",value.hireEnabled??false,
-      "Available for hire / passage","Single-rider mounts are not offered for hire by default."),
-      serviceToggle("hireCrewIncluded",value.hireCrewIncluded??true,
-      "Driver / crew included in fare","Included by default; never charge the same crew twice."));
+    const hireControl=serviceToggle("hireEnabled",value.hireEnabled??false,
+      "Available for hire / passage","Single-rider mounts are not offered for hire by default.");
+    const crewOption=serviceToggle("hireCrewIncluded",value.hireCrewIncluded??true,
+      "Driver / crew included in fare","Included by default; never charge the same crew twice.");
+    crewOption.setAttribute("data-atlas-hire-crew-option","");
+    toggles.append(hireControl,crewOption);
     if(value.kind==="foot")toggles.style.opacity=".5";
     panels.services.append(toggles);
     const hireControls=element("div");hireControls.setAttribute("data-atlas-hire-controls","");

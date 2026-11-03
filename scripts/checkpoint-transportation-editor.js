@@ -11,6 +11,8 @@ import {createTransportNumberSlider,createTransportCurrencyPool}
 import {dndCurrencyBreakdown} from "./navigation-currency.js";
 import {readPartyExploration} from "./party-exploration-storage.js";
 import {projectGroupTransportation,readGroupTransportation} from "./navigation-group-transport.js";
+import {atlasDisplayCostPerDistance,atlasCostPerMileFromDisplay,
+  resolveAtlasMeasuringUnits} from "./navigation-measure-units.js";
 
 const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 const GROUPS=[["land","Land Travel","land"],["water","Water Travel (rivers & lakes)","water"],
@@ -22,7 +24,7 @@ const PURCHASE_COST=["purchaseGp","Purchase price"];
 const OPERATIONS_NUMBERS=[["overtimeExtraHours","Overtime hours/day"],
   ["overtimeMultiplier","Overtime multiplier"]];
 const COST_CHOICES=[["costBasis","Upkeep frequency",
-    [["none","No upkeep"],["day","Per day"],["mile","Per mile"]]],
+    [["none","No upkeep"],["day","Per day"],["mile","Per "+(resolveAtlasMeasuringUnits()==="metric"?"kilometer":"mile")]]],
   ["costApplies","Upkeep charge per",[["unit","Transport unit"],["passenger","Passenger"]]],
   ["hireBasis","Hire fare frequency",
     [["trip","Per trip"],["day","Per operating day"],["mile","Per mile"]]],
@@ -125,10 +127,14 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
     };
     const money=(key,title,group,isPurchase=false)=>{
       const initial=Object.hasOwn(offer.overrides,key)?offer.overrides[key]:method?.[key];
-      const cp=isPurchase?(initial==null?0:initial*100):initial??0;
-      const control=createTransportCurrencyPool(key,cp,{
+      const canonicalCp=isPurchase?(initial==null?0:initial*100):initial??0;
+      const basisKey=key==="hireCostCp"?"hireBasis":key==="costCp"?"costBasis":null;
+      const perDistance=basisKey&&(offer.overrides[basisKey]??method?.[basisKey])==="mile";
+      const displayedCp=perDistance?atlasDisplayCostPerDistance(canonicalCp):canonicalCp;
+      const control=createTransportCurrencyPool(key,displayedCp,{
         onChange:amount=>{
-          offer.overrides[key]=isPurchase?amount/100:amount;
+          const stored=perDistance?atlasCostPerMileFromDisplay(amount):amount;
+          offer.overrides[key]=isPurchase?stored/100:stored;
           update();
         }});
       group.append(label(title,control.element));
@@ -162,7 +168,7 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
       ["scenario","count","fare","total"]);
     const wageSummary=preview(["Example journey","Crew","Wage each","Total"],
       ["scenario","crew","wage","total"]);
-    let hireDependents=null,purchaseDependents=null;
+    let hireDependents=null,purchaseDependents=null,hireCrewOption=null;
     const currency=cp=>dndCurrencyBreakdown(Math.max(0,cp??0),
       globalThis.CONFIG?.DND5E?.currencies).label;
     const fill=(cells,values)=>{for(const [k,cell] of cells)cell.textContent=String(values[k]??"—");};
@@ -171,6 +177,8 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
       try{
         const value=checkpointOfferMethod(offer,method);
         const hireOn=Boolean(value.hireEnabled);
+        if(hireCrewOption){hireCrewOption.style.opacity=hireOn?"1":".42";
+          hireCrewOption.style.pointerEvents=hireOn?"auto":"none";}
         if(hireDependents){
           hireDependents.style.opacity=hireOn?"1":".42";
           hireDependents.style.pointerEvents=hireOn?"auto":"none";
@@ -241,13 +249,15 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
     const top=two();
     toggle("hireEnabled","Available for hire / passage",top);
     toggle("hireCrewIncluded","Driver / crew included in the fare",top);
+    hireCrewOption=top.children?.[1];
     services.append(top);
     hireDependents=node("div");hireDependents.style.cssText="display:grid;gap:.7rem;";
     const hireRow=two();
     money("hireCostCp","Hired service fare",hireRow);
     for(const [key,title,choices] of COST_CHOICES.filter(([key])=>key.startsWith("hire")))
       choice(key,key==="hireBasis"?"Fare frequency":"Charge per",choices.map(([id,name])=>[
-        id,id==="unit"?"Whole mount or vehicle":name]),hireRow);
+        id,id==="unit"?"Whole mount or vehicle":id==="mile"?
+          "Per "+(resolveAtlasMeasuringUnits()==="metric"?"kilometer":"mile"):name]),hireRow);
     hireDependents.append(hireRow,
       help("Frequency: once per trip, every operating day, or each mile/km traveled. "+
         "Charge per: one fare for each whole vehicle/mount or for each passenger."));
@@ -292,7 +302,8 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
       money("costCp","Recurring upkeep",upkeep);
       for(const [key,title,choices] of COST_CHOICES.filter(([key])=>key.startsWith("cost")))
         choice(key,title,choices.map(([id,name])=>[
-          id,id==="unit"?"Whole mount or vehicle":name]),upkeep);
+          id,id==="unit"?"Whole mount or vehicle":id==="mile"?
+          "Per "+(resolveAtlasMeasuringUnits()==="metric"?"kilometer":"mile"):name]),upkeep);
       details.append(upkeep);ownership.append(details);
     }
     const footer=node("div");footer.style.cssText="display:flex;gap:.5rem;justify-content:flex-start;";
