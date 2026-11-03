@@ -11,15 +11,20 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING }
   from "../scripts/navigation-travel-method.js";
 
 test("navigation World Settings register once in a reusable module with bounded slider",()=>{
-  const catalog=new Map();
-  const settings={register(namespace,name,options){
+  const catalog=new Map(),menus=new Map();
+  const settings={registerMenu(namespace,name,options){
+    assert.equal(namespace,"fvtt-atlas-navigation");menus.set(name,options);
+  },register(namespace,name,options){
     assert.equal(namespace,"fvtt-atlas-navigation");
     assert.equal(catalog.has(name),false,`duplicate ${name}`);
     catalog.set(name,options);
   }};
   let updates=0;
   registerNavigationWorldSettings({settings,onPlaybackChange:()=>updates++});
-  assert.equal(catalog.size,10);
+  assert.equal(catalog.size,11);
+  assert.equal(menus.get("atlasTransportationPresetsMenu").restricted,true);
+  assert.equal(catalog.get("guidedTransportationCatalog").config,false);
+  assert.ok(typeof menus.get("atlasTransportationPresetsMenu").type==="function");
   assert.equal(catalog.get(NAVIGATION_MOUNTED_SPEED_SETTING).default,3);
   assert.equal(catalog.get(NAVIGATION_SAILING_SPEED_SETTING).default,2);
   for(const key of [NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING]){
@@ -30,10 +35,11 @@ test("navigation World Settings register once in a reusable module with bounded 
   assert.deepEqual(slider.range,{min:0.5,max:8,step:0.5});
   assert.equal(slider.default,2);
   assert.equal(slider.scope,"world");
-  assert.equal(slider.config,true);
+  assert.equal(slider.config,false);
   slider.onChange(4);
   assert.equal(updates,1);
   const rules=catalog.get(NAVIGATION_RULES_PROFILE_SETTING);
+  assert.equal(rules.config,false);
   assert.deepEqual(Object.keys(rules.choices),["system","dnd5e2014","dnd5e2024","custom"]);
   assert.equal(rules.default,"system");
   assert.match(rules.hint,/GM-confirmed rests/);
@@ -46,7 +52,7 @@ test("navigation World Settings register once in a reusable module with bounded 
   const worldClock=catalog.get(NAVIGATION_WORLD_CLOCK_SETTING);
   assert.equal(worldClock.default,false,"World time advancement is off for existing Worlds");
   assert.equal(worldClock.scope,"world");
-  assert.equal(worldClock.config,true);
+  assert.equal(worldClock.config,false);
   assert.equal(worldClock.type,Boolean);
   assert.match(worldClock.hint,/active GM advances Foundry World time/);
   assert.match(worldClock.hint,/confirmed token movement/);

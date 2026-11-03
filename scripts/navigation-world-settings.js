@@ -10,15 +10,29 @@ import { NAVIGATION_WORLD_CLOCK_SETTING,NAVIGATION_WORLD_CLOCK_DEFAULT }
 import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
   from "./navigation-travel-method.js";
+import { TRANSPORT_CATALOG_SETTING,defaultTransportationCatalog }
+  from "./navigation-transport-catalog.js";
+import { AtlasTransportationSettings } from "./navigation-transport-settings.js";
 
 const MODULE_ID="fvtt-atlas-navigation";
 
 /** One centralized registration point for World navigation/travel preferences. */
 export function registerNavigationWorldSettings({settings=game.settings,onPlaybackChange=()=>{}}={}){
+  settings.register(MODULE_ID,TRANSPORT_CATALOG_SETTING,{
+    name:"Atlas Transportation Catalog",
+    hint:"Versioned World transportation preset overrides and custom mounts/vehicles.",
+    scope:"world",config:false,type:Object,default:defaultTransportationCatalog()
+  });
+  settings.registerMenu?.(MODULE_ID,"atlasTransportationPresetsMenu",{
+    name:"Atlas — Transportation Presets",
+    label:"Configure Transportation and Travel Rules",
+    hint:"Walking, mounts, vehicles, speeds, costs, rest rules and journey options in one GM-only window.",
+    icon:"fa-solid fa-horse",type:AtlasTransportationSettings,restricted:true
+  });
   settings.register(MODULE_ID,NAVIGATION_SPEED_SETTING,{
     name:"Atlas Default Overland Speed",
     hint:"Default GM navigation speed in the active Scene's grid distance units per hour (e.g. km/hour for a km Scene). Can be overridden in Navigation. Does not alter token speeds.",
-    scope:"world",config:true,type:Number,default:DEFAULT_NAVIGATION_SPEED,
+    scope:"world",config:false,type:Number,default:DEFAULT_NAVIGATION_SPEED,
     range:{min:0.1,max:1000,step:0.1}
   });
   for(const [key,name,initial] of [
@@ -29,9 +43,9 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
     hint:`GM-configured ${name.toLowerCase()} speed in miles per hour, converted to the active Scene's `+
       "mile/km Grid units for estimates. Defaults reference D&D 2024: a mount's Normal pace " +
       "(3 mph sustained; one-hour double-speed burst needs rest) or a Sailing Ship (2 mph). " +
-      "Used for transport planning only in v0.3.8-beta.1. " +
+      "Used for transport planning only until checkpoint transfers are implemented. " +
       "Does not change Group Actor speeds, native Token movement or Region Behaviors.",
-    scope:"world",config:true,type:Number,default:initial,
+    scope:"world",config:false,type:Number,default:initial,
     range:{min:0.1,max:1000,step:0.1}
   });
   settings.register(MODULE_ID,NAVIGATION_PLAYBACK_SETTING,{
@@ -39,7 +53,7 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
     hint:"Real seconds per in-game travel hour. Smaller values animate faster. " +
       "Atlas derives token movement from the Group Actor's travel pace and the curved road path. " +
       "This only changes playback; it never advances World time or changes Actor movement.",
-    scope:"world",config:true,type:Number,default:NAVIGATION_PLAYBACK_DEFAULT,
+    scope:"world",config:false,type:Number,default:NAVIGATION_PLAYBACK_DEFAULT,
     range:{min:NAVIGATION_PLAYBACK_MIN,max:NAVIGATION_PLAYBACK_MAX,step:0.5},
     onChange:onPlaybackChange
   });
@@ -48,11 +62,11 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
     hint:"Choose D&D 2014, D&D 2024/5.5e, Custom, or system defaults for daily travel " +
       "and GM-confirmed rests. An unknown game system has no automatic daily limit. " +
       "Atlas never automatically changes Actor resources or exhaustion.",
-    scope:"world",config:true,type:String,default:NAVIGATION_RULES_PROFILE_DEFAULT,
+    scope:"world",config:false,type:String,default:NAVIGATION_RULES_PROFILE_DEFAULT,
     choices:{...NAVIGATION_RULES_PROFILES}
   });
   const custom=(key,name,hint,defaultValue,range)=>settings.register(MODULE_ID,key,{
-    name,hint,scope:"world",config:true,type:Number,default:defaultValue,range
+    name,hint,scope:"world",config:false,type:Number,default:defaultValue,range
   });
   custom(CUSTOM_DAY_HOURS_SETTING,"Atlas Custom — Travel Hours Per Day",
     "Maximum moving hours before the GM chooses a rest or continued travel. Used only with Custom rules.",
@@ -71,6 +85,6 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
     hint:"Disabled by default. When enabled, the active GM advances Foundry World time " +
       "after confirmed token movement and after an explicitly selected short rest, long rest, " +
       "or overnight camp. No Actor, exhaustion, or currency changes are applied.",
-    scope:"world",config:true,type:Boolean,default:NAVIGATION_WORLD_CLOCK_DEFAULT
+    scope:"world",config:false,type:Boolean,default:NAVIGATION_WORLD_CLOCK_DEFAULT
   });
 }

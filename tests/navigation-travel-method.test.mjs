@@ -41,7 +41,7 @@ test("mounted and sailing use GM-set speeds, independent of Group Actor pace",()
   assert.equal(resolveNavigationMethodTravel("sailing",walking,{},"mi").speed,2);
   assert.equal(resolveNavigationMethodTravel("mounted",walking,{},"km").speed,3*1.609344);
   assert.throws(()=>resolveNavigationMethodTravel("mounted",walking,
-    {get:()=>0},"mi"),/speed/i);
+    {get:(_module,key)=>key===NAVIGATION_MOUNTED_SPEED_SETTING?0:undefined},"mi"),/speed/i);
   assert.throws(()=>resolveNavigationMethodTravel("mounted",walking,settings,"leagues"),/miles or kilometers/);
   assert.throws(()=>resolveNavigationMethodTravel("flying",walking,settings,"mi"),/Unknown/);
 });
@@ -57,4 +57,23 @@ test("surface checks fail closed on cross-category and dangling-preset routes",(
   assert.equal(assessNavigationMethodRoute("walking",route("land","water"),atlas,presets).guided,true,
     "legacy walking routes stay navigable");
   assert.equal(assessNavigationMethodRoute("sailing",null,atlas,presets).compatible,false);
+});
+
+test("custom transport methods join Travel by, keep water surface and never guide movement",()=>{
+  const catalog={version:1,overrides:{},customs:[{
+    id:"custom-skiff",name:"Wind Skiff",kind:"vehicle",surface:"water",
+    speedMph:6.5,costCp:10,costBasis:"mile",purchaseGp:null,note:""
+  }]};
+  const customSettings={get(_module,key){if(key==="guidedTransportationCatalog")return catalog;}};
+  const method=resolveNavigationMethodTravel("custom-skiff",walking,customSettings,"km");
+  assert.equal(method.speed,6.5*1.609344);
+  assert.equal(method.methodLabel,"Wind Skiff");
+  assert.equal(method.costCp,10);
+  assert.equal(method.costBasis,"mile");
+  assert.equal(assessNavigationMethodRoute("custom-skiff",route("water"),atlas,presets,
+    {settings:customSettings,systemId:"dnd5e"}).compatible,true);
+  assert.equal(assessNavigationMethodRoute("custom-skiff",route("water"),atlas,presets,
+    {settings:customSettings,systemId:"dnd5e"}).guided,false);
+  assert.equal(assessNavigationMethodRoute("custom-skiff",route("land"),atlas,presets,
+    {settings:customSettings,systemId:"dnd5e"}).compatible,false);
 });

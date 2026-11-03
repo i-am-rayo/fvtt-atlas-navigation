@@ -26,7 +26,7 @@ import { createNavigationItinerary } from "./navigation-itinerary.js";
 import { REGION_ROUTING_ORDER_FLAG } from "./navigation-terrain.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { resolveNavigationTravelSpeed } from "./navigation-party-speed.js";
-import { NAVIGATION_TRAVEL_METHODS,resolveNavigationMethodTravel,
+import { availableNavigationTravelMethods,resolveNavigationMethodTravel,
   assessNavigationMethodRoute } from "./navigation-travel-method.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
@@ -197,8 +197,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   /** Method changes recalculate the estimate, never move a token or save data. */
   setTravelMethod(method){
-    if(!Object.hasOwn(NAVIGATION_TRAVEL_METHODS,method)||this.travelSession||
-        this.journalStarting||!this.scene||method===this.travelMethod)return;
+    if(this.travelSession||this.journalStarting||!this.scene||method===this.travelMethod)return;
+    let methods;
+    try{methods=availableNavigationTravelMethods(game.settings,game.system?.id);}
+    catch(error){ui.notifications.warn(error.message||String(error));return;}
+    if(!methods.some(item=>item.id===method))return;
     const view=this.canvasProvider();
     if(!game.user?.isGM||!view?.ready||view.scene?.id!==this.scene.id)return;
     try{
@@ -217,7 +220,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     try{
       const atlas=this.atlasProvider(this.scene);
       const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
-      return assessNavigationMethodRoute(this.travelMethod,this.result,atlas,presets.presets);
+      return assessNavigationMethodRoute(this.travelMethod,this.result,atlas,presets.presets,
+        {settings:game.settings,systemId:game.system?.id});
     }catch{return {compatible:false,guided:false,
       reason:"Atlas could not verify the road travel surfaces. Check World presets."};}
   }
@@ -1044,7 +1048,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       travel=resolveNavigationTravelSpeed({token:null,sceneUnits:sceneUnit,
         systemId:null,worldSpeed:DEFAULT_NAVIGATION_SPEED});
     }
-    return {sceneUnit,travel:resolveNavigationMethodTravel(this.travelMethod,travel,game.settings,sceneUnit)};
+    return {sceneUnit,travel:resolveNavigationMethodTravel(this.travelMethod,travel,game.settings,sceneUnit,
+      {systemId:game.system?.id})};
   }
 
   async _renderHTML() {
@@ -1094,8 +1099,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     methodSelect.title="Select overland transport for the estimate; checkpoint transfers come later";
     methodSelect.disabled=Boolean(this.travelSession||this.journalStarting);
     methodSelect.style.cssText="flex:1;min-width:12rem;";
-    for(const [id,method] of Object.entries(NAVIGATION_TRAVEL_METHODS)){
-      const option=el("option",method.label);option.value=id;methodSelect.appendChild(option);
+    const methods=availableNavigationTravelMethods(game.settings,game.system?.id);
+    if(!methods.some(item=>item.id===this.travelMethod))this.travelMethod="walking";
+    for(const method of methods){
+      const option=el("option",method.name);option.value=method.id;methodSelect.appendChild(option);
     }
     methodSelect.value=this.travelMethod;
     methodSelect.addEventListener("change",()=>this.setTravelMethod(methodSelect.value));
@@ -1130,7 +1137,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const {sceneUnit,travel}=this.resolveTravel();
     const speed=travel.speed;
     const travelSource=travel.source==="atlas-method"?
-      `${travel.methodLabel} (GM World setting) · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour`:
+      `${travel.methodLabel} (World transportation preset) · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour`:
       travel.source==="party" ?
       `${travel.actorName} · ${travel.pace} pace · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour` :
       `Atlas default · ${speed.toLocaleString(undefined,{maximumFractionDigits:2})} ${sceneUnit}/hour`;
@@ -1169,7 +1176,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const explanation=this.travelMethod!=="walking"?
           "Transport preview: Total Trip currently includes moving time only. D&D 2024 mounts can double " +
           "their distance for one hour before needing a rest; ships may travel longer depending on crew. " +
-          "Neither rule is automatically simulated until method-specific travel/rest policies are added.":
+          "Neither rule is automatically simulated until method-specific travel/rest policies are added. " +
+          "Configured transportation costs are planning references only.":
           rules.dailyHours===null?
           "Total Trip currently counts movement only; select D&D or Custom rules in Module Settings to plan rests.":
           `Plan: ${rules.dailyHours}h travel/day, ${rules.overnightHours}h overnight downtime `+

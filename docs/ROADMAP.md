@@ -1,4 +1,7 @@
-# Active v0.3.x roadmap — updated November 2, 2026
+# Active v0.3.x roadmap — updated November 3, 2026
+
+**v0.3.8-beta.2 draft — Transportation Presets:** Add a modular, versioned, GM-editable World catalog of overland methods and D&D 2024 reference speeds/costs. Move existing travel rules, fallback walking speed, animation and World clock controls into the same restricted Transportation settings window, retaining their original saved keys and beta.1 Mounted/Sailing values. Rules profiles project independent built-in overrides; user-made mounts/vehicles and optional tireless examples remain explicit. Navigation lists methods as planning previews, while walking alone retains guided travel. Checkpoint transfers, currency transactions and automatic vehicle/rest simulation remain later phases. See [beta.2 checklist](NAVIGATION_V038_BETA2_TESTING.md).
+
 
 This section is the **current delivery order**. Older Phase 0–6 notes below remain historical design and safety references; their former release gates do not override the owner's subsequent v0.3.x approvals. Each new feature still requires its own draft/test build and live Foundry v14 sign-off before merging. The owner confirmed v0.3.7-beta.2.3's safe pause/resume/end controls and complete progress bar; **v0.3.7-beta.4 adds daily travel-limit prompts, GM-approved breaks and a separate Total Trip estimate** atop beta.3.1's global World-clock setting. Beta.4.2 adds targeted diagnostics and guarded canvas interruption handling; **beta.4.2.2 adds GM-only Journey Journals as recovery records**. Later milestones remain planned.
 
