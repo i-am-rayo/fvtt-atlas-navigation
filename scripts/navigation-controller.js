@@ -1439,7 +1439,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Total Trip currently counts movement only; select D&D or Custom rules in Module Settings to plan rests.":
           "Plan: "+rules.dailyHours+"h travel/day, "+rules.overnightHours+
           "h overnight downtime (including rest); "+plan.overnights+
-          " overnight stop(s) remaining."+
+          " overnight stops remaining."+
           (plan.breakHours?" "+formatGuidedWorldTime(Math.round(plan.breakHours*3600))+
             " of confirmed breaks included.":"")+
           " The GM's rest or forced-travel choices update this estimate.";

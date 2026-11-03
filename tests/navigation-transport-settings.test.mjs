@@ -126,9 +126,11 @@ test("all transport methods show consistent capacity and native currency editor 
       for(const name of ["name","kind","surface","capacity","crewCount",
         "costAmount","costDenom","costBasis","costApplies","purchaseAmount","purchaseDenom",
         "crewWageAmount","crewWageDenom","includeCrewWages","note",
-        "hireEnabled","hireAmount","hireDenom","hireBasis","hireApplies","hireCrewIncluded",
+        "hireAmount","hireDenom","hireBasis","hireApplies","hireCrewIncluded",
         "overtimeEnabled","overtimeExtraHours","overtimeMultiplier"])
         assert.ok(names.includes(name),"missing field "+name);
+      if(names.includes("continuousEnabled"))
+        assert.ok(names.includes("hireEnabled"),"water vehicles may offer hire");
       const tabs=nodes.filter(n=>n.attributes?.get("role")==="tab");
       assert.deepEqual(tabs.map(n=>n.textContent),["General","Cost","Services"]);
       assert.equal(nodes.filter(n=>n.attributes?.get("role")==="tabpanel").length,3);

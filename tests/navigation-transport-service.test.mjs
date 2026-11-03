@@ -116,3 +116,14 @@ test("custom worlds retain a shorter normal travel day without enabling overtime
   const premium=resolveTransportationOperation(wagon,"overtime",6);
   assert.equal(premium.dailyHours,16);
 });
+
+test("24-hour operation has no overnight stop, while nonzero nightly rest does",()=>{
+  const continuous=resolveTransportationOperation(warship,"continuous");
+  const passage=estimateNavigationTotalTrip(49,continuous);
+  assert.equal(passage.overnights,0);
+  assert.equal(passage.plannedBreakHours,0);
+  assert.equal(passage.totalHours,49);
+  const standard=estimateNavigationTotalTrip(49,resolveTransportationOperation(wagon));
+  assert.equal(standard.overnights,6);
+  assert.equal(standard.totalHours,49+6*16);
+});

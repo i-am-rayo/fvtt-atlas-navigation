@@ -23,7 +23,7 @@ export function estimateNavigationTotalTrip(travelHours,rules,{
     throw Error("Invalid overnight downtime.");
   const remaining=Math.max(0,travelHours-completedHours);
   let overnights=0;
-  if(daily!==null&&remaining>EPSILON){
+  if(daily!==null&&remaining>EPSILON&&overnight>EPSILON){
     const first=Math.max(0,todayHours<daily-EPSILON?
       daily-todayHours:permittedExtraHours);
     if(remaining>first+EPSILON){
