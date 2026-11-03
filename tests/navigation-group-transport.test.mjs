@@ -216,3 +216,22 @@ test("malformed Group economy overrides fail validation closed",()=>{
       "group1","camel1",{...good,...patch}),/Invalid/i);
   }
 });
+
+test("optional per-unit crew wages appear in the owned Group navigation quote",()=>{
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",
+    capacity:60,speedMph:2.5,costCp:0,costBasis:"none",costApplies:"unit",
+    crewCount:60,crewWageCpPerDay:200,includeCrewWages:true};
+  const saved=setGroupTransportationMember(defaultGroupTransportation(),
+    "group1","ship1",{role:"vehicle",quantity:1,capacity:60,
+      surface:"water",profileId:"warship"});
+  const projected=projectGroupTransportation(group([pc,warship]),saved,[method]);
+  const quote=groupMethodFareEstimate(projected,method,
+    {distanceMi:100,hours:40,dayHours:24});
+  assert.equal(quote.amount,24000,"60 crew × 2GP × two 24h wage days");
+  assert.equal(quote.breakdown[0].recurringCp,0);
+  assert.equal(quote.breakdown[0].crewWagesCp,24000);
+  assert.equal(quote.breakdown[0].crewDays,2);
+  const noWages=groupMethodFareEstimate(projected,{...method,includeCrewWages:false},
+    {distanceMi:100,hours:40,dayHours:24});
+  assert.equal(noWages.amount,0,"crew costs remain off by default");
+});
