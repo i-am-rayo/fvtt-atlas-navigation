@@ -3,7 +3,8 @@ import test from "node:test";
 import {
   defaultGroupTransportation,validateGroupTransportation,
   setGroupTransportationMember,projectGroupTransportation,groupTravelCapacityStatus,
-  groupMethodCapacityStatus,readGroupTransportation
+  groupMethodCapacityStatus,groupMethodFareEstimate,effectiveGroupResourceMethod,
+  readGroupTransportation
 } from "../scripts/navigation-group-transport.js";
 
 const actor=(id,name,type,system={})=>({id,name,type,system});
@@ -86,7 +87,7 @@ test("legacy v1 Group assignments are normalized without writing or losing quant
   const changes=[];
   const settings={get:()=>old,set:(...args)=>changes.push(args)};
   const migrated=readGroupTransportation(settings);
-  assert.equal(migrated.version,3);
+  assert.equal(migrated.version,4);
   assert.equal(migrated.groups.group1.members.camel1.quantity,3);
   assert.equal(migrated.groups.group1.members.camel1.profileId,null);
   assert.deepEqual(changes,[],"read must not persist migration");
@@ -115,7 +116,7 @@ test("legacy v2 Group settings upgrade in memory and preserve stable profiles",(
     camel1:{role:"mount",quantity:2,capacity:1,surface:"land",profileId:"camel"}
   }}}};
   const migrated=validateGroupTransportation(previous);
-  assert.equal(migrated.version,3);
+  assert.equal(migrated.version,4);
   assert.equal(migrated.groups.group1.members.camel1.profileId,"camel");
   assert.equal(migrated.groups.group1.members.camel1.speedMphOverride,null);
   assert.equal(previous.version,2,"migrating is read-only");
@@ -153,4 +154,65 @@ test("profile surface wins when a World profile changes after Group assignment",
   assert.equal(groupMethodCapacityStatus(after,profile).seats,30);
   assert.equal(saved.groups.group1.members.ship1.surface,"water",
     "read-only projection does not rewrite existing Group settings");
+});
+
+test("v3 speed overrides migrate read-only into v4 with World prices inherited",()=>{
+  const previous={version:3,groups:{group1:{members:{
+    camel1:{role:"mount",quantity:1,capacity:1,surface:"land",
+      profileId:"camel",speedMphOverride:3.75}
+  }}}};
+  const migrated=validateGroupTransportation(previous);
+  const item=migrated.groups.group1.members.camel1;
+  assert.equal(migrated.version,4);
+  assert.equal(item.speedMphOverride,3.75);
+  assert.equal(item.costCpOverride,null);
+  assert.equal(item.purchaseGpOverride,null);
+  assert.equal(previous.version,3,"legacy flag is not silently rewritten");
+});
+test("all Group cost and purchase overrides are independent of the World profile",()=>{
+  const world={id:"camel",name:"Camel",kind:"mount",surface:"land",
+    speedMph:3,costCp:5,costBasis:"day",costApplies:"unit",purchaseGp:50,
+    note:"World reference",capacity:1};
+  const entry={role:"mount",quantity:3,capacity:1,surface:"land",
+    profileId:"camel",speedMphOverride:3.2,
+    costCpOverride:7,costBasisOverride:"mile",
+    costAppliesOverride:"unit",purchaseGpOverride:"none",
+    noteOverride:"Special hardy camels"};
+  const saved=setGroupTransportationMember(defaultGroupTransportation(),
+    "group1","camel1",entry);
+  const roster=projectGroupTransportation(group([pc,camel]),saved,[world]);
+  const own=effectiveGroupResourceMethod(roster.members.find(m=>m.actorId==="camel1"),world);
+  assert.equal(own.speedMph,3.2);
+  assert.equal(own.costCp,7);
+  assert.equal(own.costBasis,"mile");
+  assert.equal(own.costApplies,"unit");
+  assert.equal(own.purchaseGp,null);
+  assert.equal(own.note,"Special hardy camels");
+  assert.equal(world.costCp,5);
+  assert.equal(world.purchaseGp,50);
+  const quote=groupMethodFareEstimate(roster,world,{hours:30,distanceMi:10,dayHours:8});
+  assert.equal(quote.amount,210,"3 units × 10 miles × 7 CP");
+  assert.equal(quote.unseated,0);
+});
+test("Group passenger charging and daily cost use linked resource overrides",()=>{
+  const world={id:"camel",name:"Camel",kind:"mount",surface:"land",
+    speedMph:3,costCp:5,costBasis:"day",costApplies:"unit"};
+  const addedPc=actor("pc2","Lucious","character");
+  const saved=setGroupTransportationMember(defaultGroupTransportation(),"group1","camel1",{
+    role:"mount",quantity:2,capacity:1,surface:"land",profileId:"camel",
+    costCpOverride:9,costBasisOverride:"day",costAppliesOverride:"passenger"
+  });
+  const roster=projectGroupTransportation(group([pc,addedPc,camel]),saved,[world]);
+  const quote=groupMethodFareEstimate(roster,world,{hours:30+5/60,distanceMi:90.23,dayHours:8});
+  assert.equal(quote.amount,72,"2 passengers × 4 travel days × 9 CP");
+});
+test("malformed Group economy overrides fail validation closed",()=>{
+  const good={role:"mount",quantity:1,capacity:1,surface:"land",profileId:"camel"};
+  for(const patch of [{costCpOverride:-1},{costCpOverride:Infinity},
+    {costBasisOverride:"week"},{costAppliesOverride:"crew"},
+    {purchaseGpOverride:"1500"},{purchaseGpOverride:-4},
+    {noteOverride:"x".repeat(241)}]){
+    assert.throws(()=>setGroupTransportationMember(defaultGroupTransportation(),
+      "group1","camel1",{...good,...patch}),/Invalid/i);
+  }
 });
