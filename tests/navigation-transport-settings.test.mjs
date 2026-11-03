@@ -123,9 +123,17 @@ test("all transport methods show consistent capacity and native currency editor 
     input:async ({content})=>{
       const nodes=flatten(content);
       const names=nodes.filter(n=>n.name).map(n=>n.name);
-      for(const name of ["name","kind","surface","capacity","costAmount","costDenom",
-        "costBasis","costApplies","purchaseAmount","purchaseDenom","note"])
+      for(const name of ["name","kind","surface","capacity","crewCount",
+        "costAmount","costDenom","costBasis","costApplies","purchaseAmount","purchaseDenom",
+        "crewWageAmount","crewWageDenom","includeCrewWages","note"])
         assert.ok(names.includes(name),"missing field "+name);
+      const tabs=nodes.filter(n=>n.attributes?.get("role")==="tab");
+      assert.deepEqual(tabs.map(n=>n.textContent),["General","Cost"]);
+      assert.equal(nodes.filter(n=>n.attributes?.get("role")==="tabpanel").length,2);
+      assert.equal(nodes.filter(n=>n.tagName==="TBODY").length,1,
+        "cost tab includes the projected journey comparison table");
+      assert.equal(nodes.filter(n=>n.tagName==="TR").length,3,
+        "100-mile and one-day cost rows are present");
       return null;
     }
   }}}};
