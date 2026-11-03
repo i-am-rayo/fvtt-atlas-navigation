@@ -111,7 +111,7 @@ test("saving matching profile ID preserves mount capacity across Actor rename",a
     const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
     assert.ok(save.events.click?.length);
     await save.events.click[0]();
-    assert.equal(ctx.saved.version,3);
+    assert.equal(ctx.saved.version,4);
     assert.equal(ctx.saved.groups.group1.members.camel1.profileId,"camel");
     assert.equal(ctx.changes.length,1);
     ctx.camel.name="Biscuit";
@@ -165,5 +165,43 @@ test("saving a custom mount speed overrides only Group metadata and derives surf
     assert.equal(entry.surface,"land");
     assert.equal(entry.profileId,"camel");
     assert.equal(ctx.changes.length,1);
+  }finally{ctx.restore();}
+});
+
+test("Group editor saves all resource-specific economy and note overrides",async()=>{
+  const ctx=setup();
+  try{
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const input=name=>elements.find(e=>e.name===name);
+    input("cost-camel1").value="12.5";
+    input("cost-basis-camel1").value="day";
+    input("cost-applies-camel1").value="unit";
+    input("purchase-mode-camel1").value="custom";
+    input("purchase-camel1").value="67";
+    input("note-camel1").value="Special pack-trained breed";
+    const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
+    await save.events.click[0]();
+    const actual=ctx.saved.groups.group1.members.camel1;
+    assert.equal(actual.costCpOverride,12.5);
+    assert.equal(actual.costBasisOverride,"day");
+    assert.equal(actual.costAppliesOverride,"unit");
+    assert.equal(actual.purchaseGpOverride,67);
+    assert.equal(actual.noteOverride,"Special pack-trained breed");
+    assert.equal(ctx.changes.length,1,"only Atlas Group settings are updated");
+  }finally{ctx.restore();}
+});
+test("Group editor can explicitly clear a vehicle's purchase price",async()=>{
+  const ctx=setup();
+  try{
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const input=name=>elements.find(e=>e.name===name);
+    input("purchase-mode-ship1").value="none";
+    const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
+    await save.events.click[0]();
+    assert.equal(ctx.saved.groups.group1.members.ship1.purchaseGpOverride,"none");
   }finally{ctx.restore();}
 });
