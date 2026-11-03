@@ -235,7 +235,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
     globalThis.document = { createElement: tag => new Element(tag) };
     globalThis.game = { user: { isGM: true }, settings: {
-      get: (_scope,key) => ["checkpointPresets","guidedTransportationCatalog"].includes(key) ? undefined : "metric"
+      get: (_scope,key) => key === "measuringUnits" ? "metric" : undefined
     } };
     globalThis.window = { innerWidth: 1280, innerHeight: 800 };
     globalThis.ui = { notifications: {
