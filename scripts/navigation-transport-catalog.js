@@ -190,7 +190,8 @@ const crewFields=p=>({
 });
 const projectedCrew=p=>({
   crewCount:p.crewCount??referenceOccupancy[p.id]?.crewCount??0,
-  crewWageCpPerDay:p.crewWageCpPerDay??200,
+  crewWageCpPerDay:p.crewWageCpPerDay??
+    ((p.crewCount??referenceOccupancy[p.id]?.crewCount??0)>0?200:0),
   crewWageBasis:p.crewWageBasis??"day",
   includeCrewWages:p.includeCrewWages??false
 });

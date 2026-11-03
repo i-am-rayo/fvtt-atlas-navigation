@@ -314,3 +314,14 @@ test("beta.4c.3 uses published transport references and backward-compatible crew
   assert.throws(()=>setTransportationPreset(modified,"dnd5e2024",
     {...reread,crewWageBasis:"hour"}),/Invalid/i);
 });
+
+test("owned mounts with no required crew default to zero wage",()=>{
+  const horse=findTransportationPreset("riding-horse",settings(),"dnd5e");
+  const camel=findTransportationPreset("camel",settings(),"dnd5e");
+  const ship=findTransportationPreset("sailing",settings(),"dnd5e");
+  assert.equal(horse.crewCount,0);
+  assert.equal(horse.crewWageCpPerDay,0);
+  assert.equal(camel.crewWageCpPerDay,0);
+  assert.equal(ship.crewCount,20);
+  assert.equal(ship.crewWageCpPerDay,200,"crewed vessels retain the skilled-hireling default");
+});

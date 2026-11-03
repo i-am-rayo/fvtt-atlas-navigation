@@ -149,9 +149,16 @@ test("checkpoint offers expose edit/delete actions and shared coin-aware slider 
     assert.equal(removes.length,edits.length);
     edits.find(el=>el.title.includes("Sailing Ship")).listeners.get("click")();
     const fields=flatten(editor.element);
-    for(const denom of ["pp","gp","ep","sp","cp"])
-      assert.ok(fields.some(el=>el.name==="hireCostCp_"+denom),
-        "fare uses an editable "+denom.toUpperCase()+" coin box");
+    for(const denom of ["pp","gp","ep","sp","cp"]){
+      const coin=fields.find(el=>el.name==="hireCostCp_"+denom);
+      assert.ok(coin,"fare uses an editable "+denom.toUpperCase()+" coin box");
+      assert.equal(coin.type,"text","five-coin layout mirrors native text inputs");
+      assert.match(coin.className,/uninput always-interactive/);
+    }
+    assert.ok(!fields.some(el=>el.tag==="details"),
+      "checkpoint upkeep is visible without expanding a disclosure");
+    assert.ok(fields.some(el=>el.className==="atlas-transport-upkeep-section"),
+      "checkpoint uses the same upkeep section as World presets");
     assert.ok(fields.some(el=>el.type==="range"),
       "non-currency numeric fields have sliders");
     assert.ok(fields.some(el=>el.textContent==="Available for purchase"));

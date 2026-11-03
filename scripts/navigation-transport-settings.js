@@ -63,6 +63,7 @@ const current=(key,fallback)=>{
 };
 const field=(label,input,help=null)=>{
   const row=element("label");
+  row.className="atlas-transport-field";
   row.style.cssText="display:grid;gap:.3rem;min-width:0;";
   const heading=element("span",label);heading.style.fontWeight="600";
   row.append(heading,input);
@@ -180,7 +181,7 @@ const wirePresetDialog=container=>{
       setCells("[data-atlas-wage-preview]",{
         scenario:wageBasis==="day"?"3 operating days":wageBasis==="mile"?
           "10 miles (distance)":"1 trip",
-        count:String(crew),wage:formatCost(wage),
+        count:String(crew),wage:formatCost(crew>0?wage:0),
         total:formatCost(wage*crew*wagePeriod)
       });
       const upkeep=currency("cost");
@@ -345,10 +346,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const sceneUnit=globalThis.canvas?.scene?.grid?.units??
       game.scenes?.current?.grid?.units??"";
     const body=element("div");
+    body.className="atlas-transport-edit-dialog";
     body.style.cssText="display:grid;gap:.7rem;padding:.5rem;max-height:65vh;overflow-y:auto;";
     const value=preset??{name:"",kind:"vehicle",surface,speedMph:3,costCp:0,
       costBasis:"none",costApplies:"unit",capacity:null,purchaseGp:null,note:"",
-      crewCount:0,crewWageCpPerDay:200,crewWageBasis:"day",includeCrewWages:false};
+      crewCount:0,crewWageCpPerDay:0,crewWageBasis:"day",includeCrewWages:false};
     const travelers=currentTravelers();
     body.setAttribute("data-atlas-travelers",String(travelers.count));
     body.appendChild(heading(existing?"Edit "+value.name:"New "+names[surface]+" transportation",
@@ -369,8 +371,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
       panels[id]=panel;
     }
     body.append(nav,panels.general,panels.services,panels.cost);
-    const row=(minimum="14rem")=>{
+    const row=(minimum="14rem",columns=null)=>{
       const section=element("div");
+      section.className="atlas-transport-row"+(columns?" atlas-transport-row-"+columns:"");
       section.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax("+minimum+",1fr));gap:.75rem;align-items:start;min-width:0;";
       return section;
     };
@@ -400,7 +403,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
       const wrapper=element("label");
       wrapper.style.cssText="display:flex;gap:.55rem;align-items:center;";
       wrapper.append(input,element("strong",label));
-      const box=element("div");box.style.cssText="display:grid;gap:.25rem;";
+      const box=element("div");box.className="atlas-transport-toggle";
+      box.style.cssText="display:grid;gap:.25rem;";
       box.append(wrapper);
       if(description){const small=element("small",description);small.style.opacity=".75";box.append(small);}
       return box;
@@ -513,9 +517,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "Hired-only passage is not a vehicle for sale. Crew and operating costs are part of the service."));
     else{
       const purchaseToggle=purchase.children?.[0];
-      const buyRow=row("16rem");
+      const buyRow=row("16rem",2);
       buyRow.append(purchaseToggle,priceWrap);panels.cost.append(buyRow);
-      const wageRow=row("14rem");
+      const wageRow=row("14rem",3);
       wageRow.append(field("Crew wage per person",priceInput("crewWage",
           value.crewWageCpPerDay??200),
         "D&D 2024 skilled hireling reference: 2 GP per operating day."),
@@ -529,10 +533,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
       panels.cost.append(wageRow);
       panels.cost.append(preview(["Example journey","Crew","Wage each","Total crew pay"],
         ["scenario","count","wage","total"],"data-atlas-wage-preview"));
-      const details=element("details");
-      const summary=element("summary","Additional upkeep: feed, supplies and maintenance");
-      details.append(summary);
-      const upkeep=row("13rem");upkeep.style.marginTop=".75rem";
+      const upkeepSection=element("section");
+      upkeepSection.className="atlas-transport-upkeep-section";
+      upkeepSection.append(heading("Feed, supplies and maintenance",
+        "Recurring costs for owned transport. These estimates never deduct currency."));
+      const upkeep=row("13rem",3);
       upkeep.append(field("Recurring upkeep",priceInput("cost",
           value.costBasis==="mile"?atlasDisplayCostPerDistance(value.costCp):value.costCp)),
         field("Upkeep frequency",selected(TRANSPORT_COST_BASES.map(k=>[
@@ -541,9 +546,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
         ]),value.costBasis??"none","costBasis")),
         field("Charge upkeep per",selected([["unit","Whole mount or vehicle"],
           ["passenger","Each passenger"]],value.costApplies??"unit","costApplies")));
-      details.append(upkeep,preview(["Example journey","Total upkeep"],
+      upkeepSection.append(upkeep,preview(["Example journey","Total upkeep"],
         ["scenario","total"],"data-atlas-upkeep-preview"));
-      panels.cost.append(details);
+      panels.cost.append(upkeepSection);
     }
     const error=element("small","");error.setAttribute("data-atlas-quote-error","");
     panels.cost.append(error);

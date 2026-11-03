@@ -130,8 +130,16 @@ test("all transport methods show consistent capacity and native currency editor 
         assert.ok(names.includes(name),"missing field "+name);
       assert.ok(!names.includes("surface"),"the surface comes from the creation category");
       for(const prefix of ["hire","purchase","crewWage","cost"])
-        for(const coin of ["pp","gp","ep","sp","cp"])
-          assert.ok(names.includes(prefix+"_"+coin),"missing five-coin field "+prefix+"_"+coin);
+        for(const coin of ["pp","gp","ep","sp","cp"]){
+          const input=nodes.find(n=>n.name===prefix+"_"+coin);
+          assert.ok(input,"missing five-coin field "+prefix+"_"+coin);
+          assert.equal(input.type,"text","currency uses a native-style uninput, not a number spinner");
+          assert.match(input.className,/uninput always-interactive/);
+        }
+      assert.ok(!nodes.some(n=>n.tagName==="DETAILS"),
+        "ownership upkeep is a permanently visible section");
+      assert.ok(nodes.some(n=>n.className==="atlas-transport-upkeep-section"),
+        "ownership upkeep has a consistent section layout");
       if(names.includes("continuousEnabled"))
         assert.ok(names.includes("hireEnabled"),"water vehicles may offer hire");
       const tabs=nodes.filter(n=>n.attributes?.get("role")==="tab");

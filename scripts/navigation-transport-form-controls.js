@@ -105,9 +105,9 @@ export function createTransportCurrencyPool(name,copper,{
     globalThis.CONFIG?.DND5E?.currencies)
     .sort((a,b)=>(DND5E_COIN_COPPER[b.id]??0)-(DND5E_COIN_COPPER[a.id]??0));
   const root=el("section");
-  root.className="atlas-transport-currency";
-  root.style.cssText="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));"+
-    "gap:.35rem;min-width:0;align-items:start;";
+  root.className="atlas-transport-currency dnd5e2";
+  root.setAttribute("role","group");
+  root.setAttribute("aria-label","Currency in platinum, gold, electrum, silver and copper");
   const fields=new Map();
   let remainder=Number(copper??0);
   if(!Number.isFinite(remainder)||remainder<0)remainder=0;
@@ -117,17 +117,21 @@ export function createTransportCurrencyPool(name,copper,{
       Math.round(remainder*100)/100:Math.floor((remainder+1e-9)/rate);
     remainder=Math.max(0,remainder-count*rate);
     const wrap=el("label");
-    wrap.title=option.label+" currency amount";
-    wrap.style.cssText="display:grid;gap:.15rem;min-width:0;text-align:center;";
-    const icon=el("span");icon.style.cssText="display:flex;gap:.2rem;"+
-      "align-items:center;justify-content:center;font-size:.78rem;";
-    const glyph=el("i");glyph.className="currency "+option.id;
+    wrap.className="atlas-transport-coin";
+    wrap.setAttribute("aria-label",option.label);
+    wrap.title=option.label;
+    const glyph=el("i");
+    glyph.className="currency "+option.id;
+    glyph.setAttribute("data-tooltip",option.label);
     glyph.setAttribute("aria-hidden","true");
-    icon.append(glyph,el("abbr",option.label));
-    const input=el("input");input.type="number";input.inputMode="decimal";
-    input.min="0";input.step="any";input.name=name+"_"+option.id;
+    const input=el("input");
+    input.type="text";
+    input.className="uninput always-interactive";
+    input.inputMode="decimal";
+    input.pattern="^[+=\\-]?\\d*(?:\\.\\d*)?$";
+    input.setAttribute("data-dtype","Number");
+    input.name=name+"_"+option.id;
     input.value=String(count);input.defaultValue=input.value;
-    input.style.cssText="width:100%;min-width:0;box-sizing:border-box;text-align:center;";
     input.setAttribute("aria-label",option.label+" in "+name);
     fields.set(option.id,input);
     const emit=()=>{
@@ -137,7 +141,7 @@ export function createTransportCurrencyPool(name,copper,{
       }catch{/* Invalid drafts are rejected at Save. */}
     };
     input.addEventListener("change",emit);
-    wrap.append(icon,input);root.append(wrap);
+    wrap.append(glyph,input);root.append(wrap);
   }
   if(allowNull&&copper===null){
     root.setAttribute("data-atlas-currency-unspecified","true");

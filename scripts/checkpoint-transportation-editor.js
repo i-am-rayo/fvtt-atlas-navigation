@@ -32,7 +32,8 @@ const COST_CHOICES=[["costBasis","Upkeep frequency",
 const SERVICE_TOGGLES=[["overtimeEnabled","Allow overtime travel"],
   ["continuousEnabled","Allow continuous travel"]];
 const label=(title,control)=>{
-  const l=node("label");l.style.cssText="display:grid;gap:.3rem;min-width:0;align-content:start;";
+  const l=node("label");l.className="atlas-transport-field";
+  l.style.cssText="display:grid;gap:.3rem;min-width:0;align-content:start;";
   l.append(node("span",title),control);return l;
 };
 const grid=()=>{
@@ -68,7 +69,8 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
   let draft=validateCheckpointTransportOffers(offers);
   let openOfferId=null;
   const selectedTabs=new Map(),adding=new Set();
-  const root=node("div");root.style.cssText="display:grid;gap:.8rem;min-width:0;";
+  const root=node("div");root.className="atlas-transport-checkpoint-editor";
+  root.style.cssText="display:grid;gap:.8rem;min-width:0;";
   const help=node("p","Choose transport available at this checkpoint. Each offer inherits World values unless overridden here; no booking or payment occurs.");
   help.style.cssText="margin:.2rem 0 .4rem;opacity:.8;";
   root.append(help);
@@ -94,9 +96,10 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
       buttons.get(name).setAttribute("aria-pressed",String(active));
       buttons.get(name).style.background=active?"rgba(156,123,240,.22)":"";
     }};
-    const two=()=>{
+    const two=(columns=2)=>{
       const e=node("div");
-      e.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));"+
+      e.className="atlas-transport-row atlas-transport-row-"+columns;
+      e.style.cssText="display:grid;grid-template-columns:repeat("+columns+",minmax(0,1fr));"+
         "gap:.65rem;min-width:0;align-items:start;";
       return e;
     };
@@ -104,7 +107,8 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
       const n=node("small",text);n.style.opacity=".75";return n;
     };
     const toggle=(key,title,group)=>{
-      const wrapper=node("label");wrapper.style.cssText="display:flex;gap:.45rem;align-items:center;";
+      const wrapper=node("label");wrapper.className="atlas-transport-toggle";
+      wrapper.style.cssText="display:flex;gap:.45rem;align-items:center;";
       const checkbox=node("input");checkbox.type="checkbox";
       checkbox.checked=(checkpointOfferMethod(offer,method)?.[key]??false)===true;
       checkbox.addEventListener("change",()=>{
@@ -168,6 +172,8 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
       ["scenario","count","fare","total"]);
     const wageSummary=preview(["Example journey","Crew","Wage each","Total"],
       ["scenario","crew","wage","total"]);
+    const upkeepSummary=preview(["Example journey","Total upkeep"],
+      ["scenario","total"]);
     let hireDependents=null,purchaseDependents=null,hireCrewOption=null;
     const currency=cp=>dndCurrencyBreakdown(Math.max(0,cp??0),
       globalThis.CONFIG?.DND5E?.currencies).label;
@@ -206,8 +212,17 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
         fill(wageSummary.cells,{
           scenario:value.crewWageBasis==="trip"?"1 trip":
             value.crewWageBasis==="mile"?"10 miles":"3 operating days",
-          crew:String(value.crewCount??0),wage:currency(value.crewWageCpPerDay??200),
-          total:currency(wagePeriods*(value.crewCount??0)*(value.crewWageCpPerDay??200))
+          crew:String(value.crewCount??0),wage:currency((value.crewCount??0)>0?
+            (value.crewWageCpPerDay??0):0),
+          total:currency(wagePeriods*(value.crewCount??0)*(value.crewWageCpPerDay??0))
+        });
+        const upkeepBasis=value.costBasis??"none";
+        const upkeepPeriods=upkeepBasis==="day"?3:upkeepBasis==="mile"?10:0;
+        const upkeepCount=value.costApplies==="passenger"?traveler.count:units;
+        fill(upkeepSummary.cells,{
+          scenario:upkeepBasis==="day"?"3 operating days":upkeepBasis==="mile"?
+            "10 miles":"No recurring upkeep",
+          total:currency((value.costCp??0)*upkeepPeriods*upkeepCount)
         });
       }catch{/* Preserve the prior preview while a GM is mid-edit. */}
     };
@@ -252,7 +267,7 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
     hireCrewOption=top.children?.[1];
     services.append(top);
     hireDependents=node("div");hireDependents.style.cssText="display:grid;gap:.7rem;";
-    const hireRow=two();
+    const hireRow=two(3);
     money("hireCostCp","Hired service fare",hireRow);
     for(const [key,title,choices] of COST_CHOICES.filter(([key])=>key.startsWith("hire")))
       choice(key,key==="hireBasis"?"Fare frequency":"Charge per",choices.map(([id,name])=>[
@@ -261,7 +276,7 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
     hireDependents.append(hireRow,
       help("Frequency: once per trip, every operating day, or each mile/km traveled. "+
         "Charge per: one fare for each whole vehicle/mount or for each passenger."));
-    const overtime=two();
+    const overtime=two(3);
     toggle("overtimeEnabled","Allow overtime travel",overtime);
     numeric("overtimeExtraHours","Extra hours/day",overtime,{min:1,max:8,numericMax:8});
     numeric("overtimeMultiplier","Overtime multiplier",overtime,
@@ -286,25 +301,27 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
         selectedTabs.set(offer.methodId,"Ownership");render();
       });
       buy.append(check,node("span","Available for purchase"));purchase.append(buy);
-      purchaseDependents=two();
+      purchaseDependents=node("div");
+      purchaseDependents.className="atlas-transport-purchase-controls";
       money("purchaseGp","Purchase price",purchaseDependents,true);
       purchase.append(purchaseDependents);ownership.append(purchase);
-      const staff=two();
+      const staff=two(3);
       money("crewWageCpPerDay","Crew wage per person",staff);
       choice("crewWageBasis","Wage frequency",
         [["day","Per operating day"],["trip","Per trip"],["mile","Per mile"]],staff);
       toggle("includeCrewWages","Include crew wages in owned-trip estimate",staff);
       ownership.append(staff,wageSummary.table);
-      const details=node("details");
-      const summary=node("summary","Additional upkeep: feed, supplies and maintenance");
-      details.append(summary);
-      const upkeep=two();upkeep.style.marginTop=".5rem";
+      const upkeepSection=node("section");
+      upkeepSection.className="atlas-transport-upkeep-section";
+      upkeepSection.append(node("h3","Feed, supplies and maintenance"),
+        help("Recurring costs of owned transport. No currency is deducted."));
+      const upkeep=two(3);
       money("costCp","Recurring upkeep",upkeep);
       for(const [key,title,choices] of COST_CHOICES.filter(([key])=>key.startsWith("cost")))
         choice(key,title,choices.map(([id,name])=>[
           id,id==="unit"?"Whole mount or vehicle":id==="mile"?
           "Per "+(resolveAtlasMeasuringUnits()==="metric"?"kilometer":"mile"):name]),upkeep);
-      details.append(upkeep);ownership.append(details);
+      upkeepSection.append(upkeep,upkeepSummary.table);ownership.append(upkeepSection);
     }
     const footer=node("div");footer.style.cssText="display:flex;gap:.5rem;justify-content:flex-start;";
     const reset=node("button","Clear local overrides");reset.type="button";
