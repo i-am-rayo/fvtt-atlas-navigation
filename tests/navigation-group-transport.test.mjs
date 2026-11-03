@@ -140,3 +140,17 @@ test("Group-only speed overrides are validated and use slowest matching mount",(
       {role:"mount",quantity:1,capacity:1,surface:"land",profileId:"camel",
         speedMphOverride:bad}),/Invalid/i);
 });
+
+test("profile surface wins when a World profile changes after Group assignment",()=>{
+  const saved=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship1",
+    {role:"unassigned",quantity:1,capacity:30,surface:"water",profileId:"warship"});
+  const before=projectGroupTransportation(group([pc,warship]),saved);
+  assert.equal(before.capacityBySurface.water,30);
+  const profile={id:"warship",name:"Warship",kind:"vehicle",surface:"air",speedMph:4};
+  const after=projectGroupTransportation(group([pc,warship]),saved,[profile]);
+  assert.equal(after.capacityBySurface.water,0);
+  assert.equal(after.capacityBySurface.air,30);
+  assert.equal(groupMethodCapacityStatus(after,profile).seats,30);
+  assert.equal(saved.groups.group1.members.ship1.surface,"water",
+    "read-only projection does not rewrite existing Group settings");
+});
