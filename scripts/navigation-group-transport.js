@@ -215,15 +215,17 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
     const cost=projectedGroupFare(effective,{quantity:member.quantity,
       passengers,distanceMi,hours,dayHours});
     const crewDays=hours===0?0:Math.ceil(Math.max(0,hours-1e-7)/dayHours);
+    const wagePeriods=effective.crewWageBasis==="trip"?(hours>0?1:0):
+      effective.crewWageBasis==="mile"?distanceMi:crewDays;
     const wages=effective.includeCrewWages?
-      crewDays*(effective.crewCount??0)*(effective.crewWageCpPerDay??200)*member.quantity:0;
+      wagePeriods*(effective.crewCount??0)*(effective.crewWageCpPerDay??200)*member.quantity:0;
     if(!Number.isFinite(wages)||wages<0||!Number.isSafeInteger(Math.ceil(amount+cost+wages)))
       throw new Error("Invalid projected crew wage total.");
     amount+=cost+wages;
     breakdown.push({actorId:member.actorId,name:member.actorName,
       quantity:member.quantity,passengers,costCp:effective.costCp,
       costBasis:effective.costBasis,costApplies:effective.costApplies,
-      recurringCp:cost,crewWagesCp:wages,crewDays,amount:cost+wages});
+      recurringCp:cost,crewWagesCp:wages,crewDays,crewWageBasis:effective.crewWageBasis??"day",amount:cost+wages});
   }
   return {amount,breakdown,unseated:remaining,quantity:resources.reduce((n,m)=>n+m.quantity,0)};
 }

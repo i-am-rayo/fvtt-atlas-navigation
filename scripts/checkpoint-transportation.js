@@ -10,13 +10,14 @@ export const CHECKPOINT_TRANSPORT_VERSION=1;
 export const CHECKPOINT_TRANSPORT_MODES=Object.freeze(["land","water","sea","air"]);
 const ID=/^[A-Za-z0-9_-]{1,128}$/;
 const KEYS=["speedMph","capacity","costCp","costBasis","costApplies",
-  "purchaseGp","crewCount","crewWageCpPerDay","includeCrewWages",
+  "purchaseGp","crewCount","crewWageCpPerDay","crewWageBasis","includeCrewWages",
   "hireEnabled","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
   "overtimeEnabled","overtimeExtraHours","overtimeMultiplier",
   "continuousEnabled","note"];
 const ENUM={
   costBasis:["none","day","mile"],costApplies:["unit","passenger"],
-  hireBasis:["trip","mile","day"],hireApplies:["unit","passenger"]
+  hireBasis:["trip","mile","day"],hireApplies:["unit","passenger"],
+  crewWageBasis:["day","trip","mile"]
 };
 const BOOL=new Set(["includeCrewWages","hireEnabled","hireCrewIncluded",
   "overtimeEnabled","continuousEnabled"]);

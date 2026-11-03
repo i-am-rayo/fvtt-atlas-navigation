@@ -123,21 +123,22 @@ test("all transport methods show consistent capacity and native currency editor 
     input:async ({content})=>{
       const nodes=flatten(content);
       const names=nodes.filter(n=>n.name).map(n=>n.name);
-      for(const name of ["name","kind","surface","capacity","crewCount",
-        "costAmount","costDenom","costBasis","costApplies","purchaseAmount","purchaseDenom",
-        "crewWageAmount","crewWageDenom","includeCrewWages","note",
-        "hireAmount","hireDenom","hireBasis","hireApplies","hireCrewIncluded",
-        "overtimeEnabled","overtimeExtraHours","overtimeMultiplier"])
+      for(const name of ["name","kind","capacity","crewCount",
+        "costBasis","costApplies","purchaseEnabled","crewWageBasis",
+        "includeCrewWages","note","hireEnabled","hireBasis","hireApplies",
+        "hireCrewIncluded","overtimeEnabled","overtimeExtraHours","overtimeMultiplier"])
         assert.ok(names.includes(name),"missing field "+name);
+      assert.ok(!names.includes("surface"),"the surface comes from the creation category");
+      for(const prefix of ["hire","purchase","crewWage","cost"])
+        for(const coin of ["pp","gp","ep","sp","cp"])
+          assert.ok(names.includes(prefix+"_"+coin),"missing five-coin field "+prefix+"_"+coin);
       if(names.includes("continuousEnabled"))
         assert.ok(names.includes("hireEnabled"),"water vehicles may offer hire");
       const tabs=nodes.filter(n=>n.attributes?.get("role")==="tab");
-      assert.deepEqual(tabs.map(n=>n.textContent),["General","Cost","Services"]);
+      assert.deepEqual(tabs.map(n=>n.textContent),["General","Services","Ownership"]);
       assert.equal(nodes.filter(n=>n.attributes?.get("role")==="tabpanel").length,3);
-      assert.equal(nodes.filter(n=>n.tagName==="TBODY").length,1,
-        "cost tab includes the projected journey comparison table");
-      assert.equal(nodes.filter(n=>n.tagName==="TR").length,3,
-        "100-mile and one-day cost rows are present");
+      assert.equal(nodes.filter(n=>n.tagName==="TBODY").length,3,
+        "services and ownership have dynamic quote and wage/upkeep preview tables");
       return null;
     }
   }}}};

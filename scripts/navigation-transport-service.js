@@ -5,6 +5,9 @@
 export const TRANSPORT_HIRE_BASES=Object.freeze(["trip","mile","day"]);
 export const TRANSPORT_OPERATIONS=Object.freeze(["normal","overtime","continuous"]);
 const EPS=1e-7;
+const wagePeriods=(method,days,distanceMi,movingHours)=>
+  method.crewWageBasis==="trip"?(movingHours>EPS?1:0):
+  method.crewWageBasis==="mile"?distanceMi:days;
 const nonnegative=n=>Number.isFinite(n)&&n>=0;
 
 export function resolveTransportationOperation(method,operation="normal",regularHours=8){
@@ -86,7 +89,8 @@ export function quoteTransportationService(method,{
     baseLabel="Hired "+fare.hireBasis+" fare ("+count+" "+
       (fare.hireApplies==="passenger"?"passenger(s)":"unit(s)")+")";
     if(method.includeCrewWages&&!method.hireCrewIncluded)
-      crewWagesCp=(method.crewCount??0)*(method.crewWageCpPerDay??200)*days*units;
+      crewWagesCp=(method.crewCount??0)*(method.crewWageCpPerDay??200)*
+        wagePeriods(method,days,distanceMi,movingHours)*units;
   }else{
     if(!ownedQuote||!nonnegative(ownedQuote.amount)||
       !Array.isArray(ownedQuote.breakdown))
@@ -105,13 +109,13 @@ export function quoteTransportationService(method,{
       overtimeFareCp=fare.hireBasis==="day"?
         fare.hireCostCp*count*(extraHours/8)*multiplier:
         baseCp*(extraHours/Math.max(EPS,movingHours))*(multiplier-1);
-      if(crewWagesCp>0)
+      if(crewWagesCp>0&&(method.crewWageBasis??"day")==="day")
         overtimeCrewCp=(method.crewCount??0)*(method.crewWageCpPerDay??200)*
           units*(extraHours/8)*multiplier;
     }else{
       // Each resource may have a distinct quantity and inherited wage.
       for(const item of ownedQuote.breakdown){
-        if(item.crewWagesCp<=0||days===0)continue;
+        if(item.crewWagesCp<=0||days===0||(item.crewWageBasis??"day")!=="day")continue;
         const dailyWages=item.crewWagesCp/days;
         overtimeCrewCp+=dailyWages*(extraHours/8)*multiplier;
       }

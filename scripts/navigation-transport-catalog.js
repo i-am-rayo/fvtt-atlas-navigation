@@ -6,6 +6,7 @@
 export const TRANSPORT_CATALOG_SETTING = "guidedTransportationCatalog";
 export const TRANSPORT_CATALOG_VERSION = 3;
 export const TRANSPORT_HIRE_BASES = Object.freeze(["trip","mile","day"]);
+export const TRANSPORT_CREW_WAGE_BASES = Object.freeze(["day","trip","mile"]);
 export const TRANSPORT_KINDS = Object.freeze(["foot", "mount", "vehicle"]);
 export const TRANSPORT_SURFACES = Object.freeze(["land", "water", "air"]);
 export const TRANSPORT_COST_BASES = Object.freeze(["none", "day", "mile"]);
@@ -78,6 +79,32 @@ const referenceHire=Object.freeze({
   "coach-hire":{hireEnabled:true,hireCostCp:3,hireBasis:"mile",hireApplies:"passenger"},
   "ship-passage":{hireEnabled:true,hireCostCp:10,hireBasis:"mile",hireApplies:"passenger"},
   airship:{hireEnabled:true,hireCostCp:5000,hireBasis:"day",hireApplies:"unit"}
+});
+// Reference rules provide purchase prices, feed, crew and vessel statistics.
+ // Local hire rates are optional GM planning examples, NOT published prices.
+const referenceNotes=Object.freeze({
+  camel:"50 GP purchase; feed 5 CP/day. A single-rider mount; hire is off by default.",
+  elephant:"200 GP purchase; feed 5 CP/day is a simplified supply estimate. GM may increase fodder.",
+  "draft-horse":"50 GP purchase; feed 5 CP/day. A cart or wagon requires a draft animal separately.",
+  "riding-horse":"75 GP purchase; feed 5 CP/day; one rider. Renting is a GM option.",
+  "warhorse":"400 GP purchase; feed 5 CP/day; one rider.",
+  pony:"30 GP purchase; feed 5 CP/day; one rider.",
+  mule:"8 GP purchase; feed 5 CP/day; pack animal or single rider.",
+  mastiff:"25 GP purchase; feed 5 CP/day is a simplified estimate.",
+  cart:"15 GP purchase. Requires a draft animal; its feed is separate from the cart.",
+  carriage:"100 GP purchase. Hired fare is a GM estimate; draft animals and staff are separate when owned.",
+  wagon:"35 GP purchase. GM estimates seating; supply animals separately.",
+  chariot:"250 GP purchase; draft animals and driver are separate when owned.",
+  sled:"20 GP purchase; draft animal and feed are separate.",
+  "coach-hire":"D&D 2024 reference: 3 CP per mile for a coach between towns, charged per passenger.",
+  "ship-passage":"D&D 2024 reference: 1 SP per mile per passenger. Hired-only; crew included.",
+  airship:"D&D 2024: 40,000 GP, 8 mph, 10 crew, 20 passengers. Hire fare is a GM estimate.",
+  galley:"D&D 2024: 30,000 GP, 4 mph, 80 crew; passenger capacity unspecified.",
+  keelboat:"D&D 2024: 3,000 GP, 1 mph, 1 crew, 6 passengers.",
+  longship:"D&D 2024: 10,000 GP, 3 mph, 40 crew, 150 passengers.",
+  rowboat:"D&D 2024: 50 GP, 1.5 mph, 1 crew, 3 passengers.",
+  sailing:"D&D 2024: 10,000 GP, 2 mph, 20 crew, 20 passengers.",
+  warship:"D&D 2024: 25,000 GP, 2.5 mph, 60 crew, 60 passengers."
 });
 // 2014 source speeds vary for some vessels; rules profiles never share edits.
 const dnd2014 = Object.freeze(dnd2024.map(p => Object.freeze({...p,
@@ -153,15 +180,18 @@ const validCrewWage=value=>money(value);
 const validCrewFields=p=>
   (p.crewCount===undefined||validCrewCount(p.crewCount))&&
   (p.crewWageCpPerDay===undefined||validCrewWage(p.crewWageCpPerDay))&&
+  (p.crewWageBasis===undefined||TRANSPORT_CREW_WAGE_BASES.includes(p.crewWageBasis))&&
   (p.includeCrewWages===undefined||typeof p.includeCrewWages==="boolean");
 const crewFields=p=>({
   ...(p.crewCount===undefined?{}:{crewCount:p.crewCount}),
   ...(p.crewWageCpPerDay===undefined?{}:{crewWageCpPerDay:p.crewWageCpPerDay}),
+  ...(p.crewWageBasis===undefined?{}:{crewWageBasis:p.crewWageBasis}),
   ...(p.includeCrewWages===undefined?{}:{includeCrewWages:p.includeCrewWages})
 });
 const projectedCrew=p=>({
   crewCount:p.crewCount??referenceOccupancy[p.id]?.crewCount??0,
   crewWageCpPerDay:p.crewWageCpPerDay??200,
+  crewWageBasis:p.crewWageBasis??"day",
   includeCrewWages:p.includeCrewWages??false
 });
 const validServiceFields=(p,kind,surface)=>
@@ -176,7 +206,7 @@ const validServiceFields=(p,kind,surface)=>
   (p.overtimeExtraHours===undefined||
     (Number.isInteger(p.overtimeExtraHours)&&p.overtimeExtraHours>=1&&p.overtimeExtraHours<=8))&&
   (p.continuousEnabled===undefined||typeof p.continuousEnabled==="boolean")&&
-  (!p.hireEnabled||kind==="vehicle")&&
+  (!p.hireEnabled||kind==="vehicle"||kind==="mount")&&
   (!p.continuousEnabled||(kind==="vehicle"&&["water","air"].includes(surface)));
 const serviceFields=p=>Object.fromEntries([
   "hireEnabled","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
@@ -282,6 +312,7 @@ export function listTransportationPresets(settings,systemId){
       p.id==="sailing"?"guidedSailingSpeed":null;
     const speedMph=!change&&fallback?legacySpeed(settings,fallback,p.speedMph):stored.speedMph;
     return immutable({...stored,speedMph,
+      note:stored.note||referenceNotes[p.id]||"",
       capacity:stored.capacity??referenceOccupancy[p.id]?.capacity??defaultCapacity(p.kind),
       ...projectedCrew(stored),...projectedServices(stored),
       costApplies:stored.costApplies??defaultCostApplies(p.id),builtIn:true,
@@ -386,8 +417,10 @@ export function estimateTransportationTrip(preset,{
   const multiplier=preset.costApplies==="passenger"?passengers:units;
   const recurringCp=preset.costBasis==="day"?travelDays*preset.costCp*multiplier:
     preset.costBasis==="mile"?distanceMi*preset.costCp*multiplier:0;
+  const wagePeriods=preset.crewWageBasis==="trip"?(distanceMi>0?1:0):
+    preset.crewWageBasis==="mile"?distanceMi:travelDays;
   const crewWagesCp=preset.includeCrewWages?
-    (preset.crewCount??0)*(preset.crewWageCpPerDay??200)*travelDays*units:0;
+    (preset.crewCount??0)*(preset.crewWageCpPerDay??200)*wagePeriods*units:0;
   const totalCp=recurringCp+crewWagesCp;
   if(!Number.isFinite(totalCp)||totalCp<0||totalCp>Number.MAX_SAFE_INTEGER)
     throw Error("Transportation quote exceeds the supported range.");

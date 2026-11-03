@@ -289,3 +289,25 @@ test("service rates and capabilities persist per profile and validate eligibilit
   assert.throws(()=>setTransportationPreset(changed,"dnd5e2024",
     {...ship,hireBasis:"week"}),/Invalid/);
 });
+
+test("beta.4c.3 uses published transport references and backward-compatible crew wage frequencies",()=>{
+  const baseline=listTransportationPresets(settings(),"dnd5e");
+  const item=id=>baseline.find(p=>p.id===id);
+  assert.equal(item("cart").purchaseGp,15);
+  assert.equal(item("riding-horse").purchaseGp,75);
+  assert.equal(item("sailing").purchaseGp,10000);
+  assert.equal(item("sailing").crewCount,20);
+  assert.equal(item("sailing").crewWageBasis,"day");
+  assert.equal(item("warhorse").hireEnabled,false,"one-seat mounts are not hired by default");
+  assert.match(item("cart").note,/draft animal/i);
+  const modified=setTransportationPreset(defaultTransportationCatalog(),"dnd5e2024",
+    {...item("sailing"),crewWageBasis:"mile",crewWageCpPerDay:300,
+      includeCrewWages:true});
+  const reread=findTransportationPreset("sailing",settings({
+    [TRANSPORT_CATALOG_SETTING]:modified}),"dnd5e");
+  assert.equal(reread.crewWageBasis,"mile");
+  const cost=estimateTransportationTrip(reread,{distanceMi:10,dayHours:8,units:1});
+  assert.equal(cost.crewWagesCp,20*300*10,"distance wages multiply crew and mileage");
+  assert.throws(()=>setTransportationPreset(modified,"dnd5e2024",
+    {...reread,crewWageBasis:"hour"}),/Invalid/i);
+});

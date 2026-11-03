@@ -2,7 +2,7 @@
  * All monetary values are displayed in a chosen 5e coin denomination but
  * persisted in Atlas's canonical CP-equivalent; no Actor currency is touched.
  */
-import {atlasCurrencyChoices,coinFromCopper,copperFromCoin} from "./navigation-currency.js";
+import {atlasCurrencyChoices,coinFromCopper,copperFromCoin,DND5E_COIN_COPPER} from "./navigation-currency.js";
 const el=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 export function createTransportNumberSlider(name,value,{
   min=0,max=1000,step=.1,numericMax=max,numericStep=step,label="Adjust value",onChange=null
@@ -82,4 +82,66 @@ export function createTransportPriceSlider(name,copper,{
   wrap.append(coins,hint);
   return {element:wrap,getCopper:()=>amount?.value===""&&allowNull?null:
     copperFromCoin(Number(amount?.value??0),select.value)};
+}
+
+/** Five-field currency editor like a D&D 5e Actor coin pool.
+ * Forms use Atlas-specific names; native Actor currency is never modified.
+ * A fractional CP remains representable for custom mileage rates.
+ */
+export function transportCurrencyAmount(source,name,options=atlasCurrencyChoices(
+  globalThis.game?.system?.id,globalThis.CONFIG?.DND5E?.currencies)){
+  return options.reduce((sum,coin)=>{
+    const raw=source?.[name+"_"+coin.id]??0;
+    const amount=Number(raw);
+    if(!Number.isFinite(amount)||amount<0||amount>1e8)
+      throw Error("Invalid "+coin.label+" amount.");
+    return sum+copperFromCoin(amount,coin.id);
+  },0);
+}
+export function createTransportCurrencyPool(name,copper,{
+  onChange=null,allowNull=false
+}={}){
+  const options=atlasCurrencyChoices(globalThis.game?.system?.id,
+    globalThis.CONFIG?.DND5E?.currencies)
+    .sort((a,b)=>(DND5E_COIN_COPPER[b.id]??0)-(DND5E_COIN_COPPER[a.id]??0));
+  const root=el("section");
+  root.className="atlas-transport-currency";
+  root.style.cssText="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));"+
+    "gap:.35rem;min-width:0;align-items:start;";
+  const fields=new Map();
+  let remainder=Number(copper??0);
+  if(!Number.isFinite(remainder)||remainder<0)remainder=0;
+  for(let i=0;i<options.length;i++){
+    const option=options[i],rate=DND5E_COIN_COPPER[option.id]??1;
+    const count=i===options.length-1?
+      Math.round(remainder*100)/100:Math.floor((remainder+1e-9)/rate);
+    remainder=Math.max(0,remainder-count*rate);
+    const wrap=el("label");
+    wrap.title=option.label+" currency amount";
+    wrap.style.cssText="display:grid;gap:.15rem;min-width:0;text-align:center;";
+    const icon=el("span");icon.style.cssText="display:flex;gap:.2rem;"+
+      "align-items:center;justify-content:center;font-size:.78rem;";
+    const glyph=el("i");glyph.className="currency "+option.id;
+    glyph.setAttribute("aria-hidden","true");
+    icon.append(glyph,el("abbr",option.label));
+    const input=el("input");input.type="number";input.inputMode="decimal";
+    input.min="0";input.step="any";input.name=name+"_"+option.id;
+    input.value=String(count);input.defaultValue=input.value;
+    input.style.cssText="width:100%;min-width:0;box-sizing:border-box;text-align:center;";
+    input.setAttribute("aria-label",option.label+" in "+name);
+    fields.set(option.id,input);
+    const emit=()=>{
+      try{
+        onChange?.(transportCurrencyAmount(Object.fromEntries([...fields].map(
+          ([id,field])=>[name+"_"+id,field.value])),name,options));
+      }catch{/* Invalid drafts are rejected at Save. */}
+    };
+    input.addEventListener("change",emit);
+    wrap.append(icon,input);root.append(wrap);
+  }
+  if(allowNull&&copper===null){
+    root.setAttribute("data-atlas-currency-unspecified","true");
+  }
+  return {element:root,getCopper:()=>transportCurrencyAmount(
+    Object.fromEntries([...fields].map(([id,input])=>[name+"_"+id,input.value])),name,options)};
 }

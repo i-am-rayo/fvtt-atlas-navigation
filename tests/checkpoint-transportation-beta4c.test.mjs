@@ -149,17 +149,19 @@ test("checkpoint offers expose edit/delete actions and shared coin-aware slider 
     assert.equal(removes.length,edits.length);
     edits.find(el=>el.title.includes("Sailing Ship")).listeners.get("click")();
     const fields=flatten(editor.element);
-    assert.ok(fields.some(el=>el.name==="hireCostCpDenom"),"fare uses native denominations");
-    assert.ok(fields.some(el=>el.name==="hireCostCpAmount"),"fare has direct number entry");
-    assert.ok(fields.some(el=>el.type==="range"),"numeric fields have sliders");
+    for(const denom of ["pp","gp","ep","sp","cp"])
+      assert.ok(fields.some(el=>el.name==="hireCostCp_"+denom),
+        "fare uses an editable "+denom.toUpperCase()+" coin box");
+    assert.ok(fields.some(el=>el.type==="range"),
+      "non-currency numeric fields have sliders");
     assert.ok(fields.some(el=>el.textContent==="Available for purchase"));
     assert.ok(fields.some(el=>el.textContent==="Purchase price"));
-    const amount=fields.find(el=>el.name==="hireCostCpAmount");
-    const denom=fields.find(el=>el.name==="hireCostCpDenom");
-    assert.equal(denom.value,"gp");
-    assert.equal(Number(amount.value),60);
-    denom.value="sp";denom.listeners.get("change")();
-    assert.equal(Number(amount.value),600,"changing denominations converts the same fare");
-    assert.equal(editor.getOffers().find(el=>el.methodId==="sailing").overrides.hireCostCp,6000);
+    const gp=fields.find(el=>el.name==="hireCostCp_gp");
+    const sp=fields.find(el=>el.name==="hireCostCp_sp");
+    assert.equal(Number(gp.value),60);
+    gp.value="2";gp.listeners.get("change")();
+    sp.value="5";sp.listeners.get("change")();
+    assert.equal(editor.getOffers().find(el=>el.methodId==="sailing").overrides.hireCostCp,250,
+      "coin boxes combine denominations into one canonical copper fare");
   }finally{Object.assign(globalThis,before);}
 });

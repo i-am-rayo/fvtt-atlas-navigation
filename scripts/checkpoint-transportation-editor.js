@@ -6,8 +6,11 @@ import { listTransportationPresets } from "./navigation-transport-catalog.js";
 import { checkpointOfferMethod,validateCheckpointTransportOffers }
   from "./checkpoint-transportation.js";
 import { createSettingsIconButton } from "./settings-controls.js";
-import {createTransportNumberSlider,createTransportPriceSlider}
+import {createTransportNumberSlider,createTransportCurrencyPool}
   from "./navigation-transport-form-controls.js";
+import {dndCurrencyBreakdown} from "./navigation-currency.js";
+import {readPartyExploration} from "./party-exploration-storage.js";
+import {projectGroupTransportation,readGroupTransportation} from "./navigation-group-transport.js";
 
 const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 const GROUPS=[["land","Land Travel","land"],["water","Water Travel (rivers & lakes)","water"],
@@ -41,9 +44,21 @@ const fareSummary=method=>{
   const unit=method.hireApplies==="passenger"?"passenger":"unit";
   const frequency=method.hireBasis==="day"?"day":method.hireBasis;
   return method.speedMph+" mph · "+seats+" · "+(method.hireEnabled?
-    "Hire "+amount+" CP / "+frequency+" / "+unit:"Not offered for hire");
+    "Hire "+dndCurrencyBreakdown(amount,globalThis.CONFIG?.DND5E?.currencies).label+" / "+frequency+" / "+unit:"Not offered for hire");
 };
 
+const currentTravelers=()=>{
+  try{
+    const scene=globalThis.game?.scenes?.current;
+    const assignment=readPartyExploration(scene);
+    const token=scene?.tokens?.get?.(assignment.tokenId);
+    const group=token?.actor;
+    if(group?.type!=="group")return {count:1,note:"1 example passenger; no assigned Group Actor"};
+    const roster=projectGroupTransportation(group,readGroupTransportation(game.settings),[]);
+    return {count:Math.max(1,roster.travelers),
+      note:roster.travelers+" player character(s) in the assigned Group Actor"};
+  }catch{return {count:1,note:"1 example passenger; no assigned Group Actor"};}
+};
 export function createCheckpointTransportationEditor({offers=[],settings=game.settings,
   systemId=game.system?.id}={}){
   const methods=listTransportationPresets(settings,systemId).filter(m=>m.kind!=="foot");
@@ -58,15 +73,16 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
   const host=node("div");host.style.cssText="display:grid;gap:.8rem;";root.append(host);
 
   const drawFields=(offer,method,container)=>{
-    const effective=method?checkpointOfferMethod(offer,method):null;
-    const area=node("div");area.style.cssText="display:grid;gap:.7rem;margin-top:.65rem;";
+    if(!method){container.append(node("small","World transportation preset is missing."));return;}
+    const effective=checkpointOfferMethod(offer,method);
+    const area=node("div");area.style.cssText="display:grid;gap:.65rem;margin-top:.6rem;";
     const tabs=node("div");tabs.style.cssText="display:flex;gap:.35rem;flex-wrap:wrap;";
     const pages=new Map(),buttons=new Map();
     const current=selectedTabs.get(offer.methodId)??"General";
-    for(const name of ["General","Cost","Services"]){
+    for(const name of ["General","Services","Ownership"]){
       const tab=node("button",name);tab.type="button";
       tab.style.cssText="flex:1 1 7rem;min-height:2rem;";
-      const panel=grid();
+      const panel=node("div");panel.style.cssText="display:grid;gap:.7rem;min-width:0;";
       tabs.append(tab);area.append(panel);pages.set(name,panel);buttons.set(name,tab);
       tab.addEventListener("click",()=>{selectedTabs.set(offer.methodId,name);show();});
     }
@@ -76,62 +92,119 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
       buttons.get(name).setAttribute("aria-pressed",String(active));
       buttons.get(name).style.background=active?"rgba(156,123,240,.22)":"";
     }};
-    const numeric=(page,key,title)=>{
-      const bounds=key==="speedMph"?{min:.1,max:100,step:.1,numericMax:600}:
-        key==="capacity"?{min:1,max:40,step:1,numericMax:1000,numericStep:1}:
-        key==="crewCount"?{min:0,max:50,step:1,numericMax:1000,numericStep:1}:
-        key==="overtimeExtraHours"?{min:1,max:8,step:1,numericMax:8,numericStep:1}:
-        key==="overtimeMultiplier"?{min:1,max:5,step:.1,numericMax:5}: 
-        {min:0,max:100,step:1,numericMax:100000000};
+    const two=()=>{
+      const e=node("div");
+      e.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));"+
+        "gap:.65rem;min-width:0;align-items:start;";
+      return e;
+    };
+    const help=(text)=>{
+      const n=node("small",text);n.style.opacity=".75";return n;
+    };
+    const toggle=(key,title,group)=>{
+      const wrapper=node("label");wrapper.style.cssText="display:flex;gap:.45rem;align-items:center;";
+      const checkbox=node("input");checkbox.type="checkbox";
+      checkbox.checked=(checkpointOfferMethod(offer,method)?.[key]??false)===true;
+      checkbox.addEventListener("change",()=>{
+        offer.overrides[key]=checkbox.checked;update();
+      });
+      wrapper.append(checkbox,node("span",title));(group??pages.get("Services")).append(wrapper);
+      return checkbox;
+    };
+    const numeric=(key,title,group,bounds={})=>{
       const control=createTransportNumberSlider(key,offer.overrides[key]??"",{
-        ...bounds,label:title,onChange:value=>{
+        min:0,max:100,step:1,numericMax:1000,...bounds,label:title,
+        onChange:value=>{
           if(value==="")delete offer.overrides[key];
           else offer.overrides[key]=Number(value);
+          update();
         }});
       const number=control.querySelector?.('[name="'+key+'"]')??control.children?.[1];
       if(number)number.placeholder="World: "+String(method?.[key]??"not set");
-      pages.get(page).append(label(title,control));
+      group.append(label(title,control));return control;
     };
-    const money=(page,key,title,unit="cp")=>{
-      const isPurchase=key==="purchaseGp";
-      const worldCp=isPurchase?(method?.purchaseGp??0)*100:method?.[key]??0;
-      const valueCp=Object.hasOwn(offer.overrides,key)?
-        (isPurchase?offer.overrides[key]===null?null:offer.overrides[key]*100:
-          offer.overrides[key]):(isPurchase&&method?.purchaseGp==null?null:worldCp);
-      const coin=unit;
-      const control=createTransportPriceSlider(key,valueCp,{
-        initialCoin:coin,allowNull:isPurchase,
-        onChange:cp=>{
-          if(isPurchase)offer.overrides[key]=cp===null?null:cp/100;
-          else offer.overrides[key]=cp;
+    const money=(key,title,group,isPurchase=false)=>{
+      const initial=Object.hasOwn(offer.overrides,key)?offer.overrides[key]:method?.[key];
+      const cp=isPurchase?(initial==null?0:initial*100):initial??0;
+      const control=createTransportCurrencyPool(key,cp,{
+        onChange:amount=>{
+          offer.overrides[key]=isPurchase?amount/100:amount;
+          update();
         }});
-      pages.get(page).append(label(title,control.element));
+      group.append(label(title,control.element));
     };
-    const heading=(page,title,help)=>{
-      const line=node("div");line.style.cssText="grid-column:1/-1;border-bottom:1px solid #555;padding:.35rem 0;";
-      line.append(node("strong",title));
-      if(help){const hint=node("small",help);hint.style.cssText="display:block;opacity:.7;margin-top:.2rem;";line.append(hint);}
-      pages.get(page).append(line);
-    };
-    const choice=(page,key,title,choices)=>{
+    const choice=(key,title,choices,group)=>{
       const select=node("select");
       const base=node("option","Use World: "+String(method?.[key]??"default"));
       base.value="";select.append(base);
       for(const [id,name] of choices){const option=node("option",name);option.value=id;select.append(option);}
       select.value=offer.overrides[key]??"";
       select.addEventListener("change",()=>{
-        if(select.value==="")delete offer.overrides[key];else offer.overrides[key]=select.value;
+        if(select.value==="")delete offer.overrides[key];
+        else offer.overrides[key]=select.value;
+        update();
       });
-      pages.get(page).append(label(title,select));
+      group.append(label(title,select));return select;
     };
-    const toggle=(page,key,title)=>{
-      const wrapper=node("label");wrapper.style.cssText="display:flex;gap:.45rem;align-items:center;min-width:0;";
-      const checkbox=node("input");checkbox.type="checkbox";
-      checkbox.checked=effective?.[key]===true;
-      checkbox.addEventListener("change",()=>{offer.overrides[key]=checkbox.checked;});
-      wrapper.append(checkbox,node("span",title));pages.get(page).append(wrapper);
+    const preview=(headers,keys)=>{
+      const table=node("table");table.style.cssText="width:100%;font-size:.85em;border-collapse:collapse;";
+      const head=node("tr");
+      for(const title of headers){const th=node("th",title);th.style.cssText="text-align:left;padding:.3rem;border-bottom:1px solid #777";head.append(th);}
+      const thead=node("thead");thead.append(head);table.append(thead);
+      const tr=node("tr"),cells=new Map();
+      for(const key of keys){const cell=node("td","—");cell.style.cssText="padding:.35rem;border-bottom:1px solid #555";
+        tr.append(cell);cells.set(key,cell);}
+      const tbody=node("tbody");tbody.append(tr);table.append(tbody);
+      return {table,cells};
     };
-    // General: one clear method selector and the most frequently adjusted values.
+    const traveler=currentTravelers();
+    const hireSummary=preview(["Scenario","Charged to","Fare","Estimated cost"],
+      ["scenario","count","fare","total"]);
+    const wageSummary=preview(["Example journey","Crew","Wage each","Total"],
+      ["scenario","crew","wage","total"]);
+    let hireDependents=null,purchaseDependents=null;
+    const currency=cp=>dndCurrencyBreakdown(Math.max(0,cp??0),
+      globalThis.CONFIG?.DND5E?.currencies).label;
+    const fill=(cells,values)=>{for(const [k,cell] of cells)cell.textContent=String(values[k]??"—");};
+    const update=()=>{
+      if(!method)return;
+      try{
+        const value=checkpointOfferMethod(offer,method);
+        const hireOn=Boolean(value.hireEnabled);
+        if(hireDependents){
+          hireDependents.style.opacity=hireOn?"1":".42";
+          hireDependents.style.pointerEvents=hireOn?"auto":"none";
+          hireDependents.setAttribute("aria-disabled",String(!hireOn));
+        }
+        if(purchaseDependents){
+          const enabled=value.purchaseGp!==null&&value.purchaseGp!==undefined;
+          purchaseDependents.style.opacity=enabled?"1":".42";
+          purchaseDependents.style.pointerEvents=enabled?"auto":"none";
+        }
+        const capacity=Math.max(1,value.capacity??1);
+        const units=Math.ceil(traveler.count/capacity);
+        const charge=value.hireApplies==="passenger"?traveler.count:units;
+        const distance=8*Math.max(.1,value.speedMph??3);
+        const periods=value.hireBasis==="mile"?distance:1;
+        const fare=Number(value.hireCostCp??0);
+        fill(hireSummary.cells,{
+          scenario:value.hireBasis==="mile"?distance.toFixed(1)+" mi (8h)":
+            value.hireBasis==="trip"?"1 trip (8h)":"8h × 1 operating day",
+          count:charge+" "+(value.hireApplies==="passenger"?"passenger(s)":"mount(s)/vehicle(s)"),
+          fare:currency(fare),
+          total:hireOn?currency(fare*periods*charge):"Hire unavailable"
+        });
+        const wagePeriods=value.crewWageBasis==="trip"?1:value.crewWageBasis==="mile"?10:3;
+        fill(wageSummary.cells,{
+          scenario:value.crewWageBasis==="trip"?"1 trip":
+            value.crewWageBasis==="mile"?"10 miles":"3 operating days",
+          crew:String(value.crewCount??0),wage:currency(value.crewWageCpPerDay??200),
+          total:currency(wagePeriods*(value.crewCount??0)*(value.crewWageCpPerDay??200))
+        });
+      }catch{/* Preserve the prior preview while a GM is mid-edit. */}
+    };
+    // General
+    const general=pages.get("General");
     const select=node("select");
     for(const item of methods.filter(m=>m.surface===(offer.mode==="land"?"land":
       offer.mode==="air"?"air":"water"))){
@@ -144,56 +217,88 @@ export function createCheckpointTransportationEditor({offers=[],settings=game.se
     }
     select.value=offer.methodId;
     select.addEventListener("change",()=>{
-      const wasOpen=offer.methodId;
-      offer.methodId=select.value;offer.overrides={};
-      selectedTabs.delete(wasOpen);openOfferId=offer.methodId;render();
+      const previous=offer.methodId;offer.methodId=select.value;offer.overrides={};
+      selectedTabs.delete(previous);openOfferId=offer.methodId;render();
     });
-    pages.get("General").append(label("World transportation method",select));
-    for(const [key,title] of GENERAL_NUMBERS)numeric("General",key,title);
-    numeric("General","crewCount","Crew count");
+    const first=two();
+    first.append(label("World transportation method",select),
+      label("Type",node("strong",method?.kind??"unknown")));
+    general.append(first);
+    const counts=two();
+    numeric("speedMph","Planning speed (mph)",counts,{min:.1,max:100,step:.1,numericMax:600,numericStep:.1});
+    numeric("capacity","Passenger capacity",counts,{min:1,max:40,step:1,numericMax:1000});
+    numeric("crewCount","Required crew",counts,{min:0,max:50,step:1,numericMax:1000});
+    general.append(counts);
     const notes=node("textarea");notes.rows=2;notes.maxLength=240;
     notes.placeholder="Optional location-specific notes";notes.value=offer.overrides.note??"";
-    notes.addEventListener("change",()=>{if(notes.value)offer.overrides.note=notes.value;
-      else delete offer.overrides.note;});
-    pages.get("General").append(label("GM notes",notes));
-    heading("Cost","For hire / passage","The quoted fare includes its driver or crew unless the GM changes that assumption.");
-    toggle("Cost","hireEnabled","Available for hire");
-    toggle("Cost","hireCrewIncluded","Driver / crew included in hired fare");
-    money("Cost",HIRE_COST[0],HIRE_COST[1],
-      (effective?.hireCostCp??0)>=100?"gp":"cp");
-    for(const [key,title,choices] of COST_CHOICES.filter(([key])=>key.startsWith("hire")))
-      choice("Cost",key,title,choices);
-    if(["ship-passage","coach-hire"].includes(offer.methodId)){
-      heading("Cost","Hired-only service","No separate vehicle purchase or owner operating costs; crew is assumed included in the fare.");
-    }else{
-      heading("Cost","Purchase & upkeep","Only owned transport needs purchase, recurring upkeep, and optional crew wages.");
-    const purchaseLabel=node("label");purchaseLabel.style.cssText="display:flex;gap:.45rem;align-items:center;";
-    const buy=node("input");buy.type="checkbox";buy.checked=effective?.purchaseGp!=null;
-    if(["ship-passage","coach-hire"].includes(offer.methodId))buy.disabled=true;
-    buy.addEventListener("change",()=>{
-      offer.overrides.purchaseGp=buy.checked?(method?.purchaseGp??0):null;
-      selectedTabs.set(offer.methodId,"Cost");render();
+    notes.addEventListener("change",()=>{
+      if(notes.value)offer.overrides.note=notes.value;else delete offer.overrides.note;
     });
-    purchaseLabel.append(buy,node("span","Available for purchase"));
-    pages.get("Cost").append(purchaseLabel);
-    if(effective?.purchaseGp!=null)money("Cost",PURCHASE_COST[0],PURCHASE_COST[1],"gp");
-    for(const [key,title] of COST_NUMBERS)money("Cost",key,title,"cp");
-    for(const [key,title,choices] of COST_CHOICES.filter(([key])=>key.startsWith("cost")))
-      choice("Cost",key,title,choices);
-    money("Cost","crewWageCpPerDay","Daily wage per crew member","gp");
-    toggle("Cost","includeCrewWages","Include crew wages when operating owned transport");
+    general.append(label("GM note",notes));
+
+    // Services: hire quote
+    const services=pages.get("Services");
+    const top=two();
+    toggle("hireEnabled","Available for hire / passage",top);
+    toggle("hireCrewIncluded","Driver / crew included in the fare",top);
+    services.append(top);
+    hireDependents=node("div");hireDependents.style.cssText="display:grid;gap:.7rem;";
+    const hireRow=two();
+    money("hireCostCp","Hired service fare",hireRow);
+    for(const [key,title,choices] of COST_CHOICES.filter(([key])=>key.startsWith("hire")))
+      choice(key,key==="hireBasis"?"Fare frequency":"Charge per",choices.map(([id,name])=>[
+        id,id==="unit"?"Whole mount or vehicle":name]),hireRow);
+    hireDependents.append(hireRow,
+      help("Frequency: once per trip, every operating day, or each mile/km traveled. "+
+        "Charge per: one fare for each whole vehicle/mount or for each passenger."));
+    const overtime=two();
+    toggle("overtimeEnabled","Allow overtime travel",overtime);
+    numeric("overtimeExtraHours","Extra hours/day",overtime,{min:1,max:8,numericMax:8});
+    numeric("overtimeMultiplier","Overtime multiplier",overtime,
+      {min:1,max:5,step:.1,numericMax:5,numericStep:.1});
+    hireDependents.append(overtime);
+    if(offer.mode!=="land"&&method?.kind==="vehicle")
+      toggle("continuousEnabled","Allow continuous travel",hireDependents);
+    hireDependents.append(help(traveler.note+"; 8h reference day. Nothing is charged."),
+      hireSummary.table);
+    services.append(hireDependents);
+
+    // Ownership: separate purchase, wages and operating upkeep.
+    const ownership=pages.get("Ownership");
+    if(["ship-passage","coach-hire"].includes(offer.methodId)){
+      ownership.append(help("Hired-only service: no sale price or separately owned crew/upkeep."));
+    }else{
+      const purchase=two();
+      const buy=node("label");buy.style.cssText="display:flex;gap:.45rem;align-items:center;";
+      const check=node("input");check.type="checkbox";check.checked=effective?.purchaseGp!=null;
+      check.addEventListener("change",()=>{
+        offer.overrides.purchaseGp=check.checked?(method?.purchaseGp??0):null;
+        selectedTabs.set(offer.methodId,"Ownership");render();
+      });
+      buy.append(check,node("span","Available for purchase"));purchase.append(buy);
+      purchaseDependents=two();
+      money("purchaseGp","Purchase price",purchaseDependents,true);
+      purchase.append(purchaseDependents);ownership.append(purchase);
+      const staff=two();
+      money("crewWageCpPerDay","Crew wage per person",staff);
+      choice("crewWageBasis","Wage frequency",
+        [["day","Per operating day"],["trip","Per trip"],["mile","Per mile"]],staff);
+      toggle("includeCrewWages","Include crew wages in owned-trip estimate",staff);
+      ownership.append(staff,wageSummary.table);
+      const details=node("details");
+      const summary=node("summary","Additional upkeep: feed, supplies and maintenance");
+      details.append(summary);
+      const upkeep=two();upkeep.style.marginTop=".5rem";
+      money("costCp","Recurring upkeep",upkeep);
+      for(const [key,title,choices] of COST_CHOICES.filter(([key])=>key.startsWith("cost")))
+        choice(key,title,choices.map(([id,name])=>[
+          id,id==="unit"?"Whole mount or vehicle":name]),upkeep);
+      details.append(upkeep);ownership.append(details);
     }
-    heading("Services","Operating schedule","GM estimates only; real movement and rest remain explicit.");
-    for(const [key,title] of OPERATIONS_NUMBERS)numeric("Services",key,title);
-    for(const [key,title] of SERVICE_TOGGLES){
-      if(key==="continuousEnabled"&&(offer.mode==="land"||method?.kind!=="vehicle"))continue;
-      toggle("Services",key,title);
-    }
-    const footer=node("div");footer.style.cssText="display:flex;gap:.5rem;justify-content:space-between;flex-wrap:wrap;";
+    const footer=node("div");footer.style.cssText="display:flex;gap:.5rem;justify-content:flex-start;";
     const reset=node("button","Clear local overrides");reset.type="button";
     reset.addEventListener("click",()=>{offer.overrides={};openOfferId=offer.methodId;render();});
-    footer.append(reset);
-    container.append(tabs,area,footer);show();
+    footer.append(reset);container.append(tabs,area,footer);show();update();
   };
   const render=()=>{
     host.replaceChildren();
