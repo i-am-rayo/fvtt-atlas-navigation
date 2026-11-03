@@ -4,7 +4,7 @@
  * overrides and custom methods are independent of the reference tables.
  */
 export const TRANSPORT_CATALOG_SETTING = "guidedTransportationCatalog";
-export const TRANSPORT_CATALOG_VERSION = 1;
+export const TRANSPORT_CATALOG_VERSION = 2;
 export const TRANSPORT_KINDS = Object.freeze(["foot", "mount", "vehicle"]);
 export const TRANSPORT_SURFACES = Object.freeze(["land", "water", "air"]);
 export const TRANSPORT_COST_BASES = Object.freeze(["none", "day", "mile"]);
@@ -54,6 +54,17 @@ const dnd2024 = Object.freeze([
   entry("ship-passage", "Ship passage (hired)", "vehicle", "water", 2, 10, "mile",
     null, "2024 ship passage is 1 SP per mile; speed uses Sailing Ship as an editable example.")
 ]);
+// 2024 Basic Rules vessel tables list crew and passenger counts separately.
+// Land vehicle seating is an editable GM estimate, not a Rules-as-Written limit.
+// Missing capacity (notably galley) remains unknown rather than inventing a value.
+const referenceOccupancy = Object.freeze({
+  carriage:{capacity:4},cart:{capacity:2},chariot:{capacity:2},
+  sled:{capacity:2},wagon:{capacity:6},"coach-hire":{capacity:4},
+  airship:{capacity:20,crewCount:10},galley:{crewCount:80},
+  keelboat:{capacity:6,crewCount:1},longship:{capacity:150,crewCount:40},
+  rowboat:{capacity:3,crewCount:1},sailing:{capacity:20,crewCount:20},
+  warship:{capacity:60,crewCount:60},"ship-passage":{capacity:20,crewCount:20}
+});
 // 2014 source speeds vary for some vessels; rules profiles never share edits.
 const dnd2014 = Object.freeze(dnd2024.map(p => Object.freeze({...p,
   speedMph:p.id==="rowboat"?2:p.id==="warship"?3:p.speedMph})));
@@ -123,6 +134,22 @@ const validCost = value => TRANSPORT_COST_BASES.includes(value);
 const validProfile = value=>TRANSPORT_REFERENCE_PROFILES.includes(value);
 const validCapacity=value=>value===null||(Number.isInteger(value)&&value>=1&&value<=1000);
 const validCostApplies=value=>value==="unit"||value==="passenger";
+const validCrewCount=value=>Number.isInteger(value)&&value>=0&&value<=1000;
+const validCrewWage=value=>money(value);
+const validCrewFields=p=>
+  (p.crewCount===undefined||validCrewCount(p.crewCount))&&
+  (p.crewWageCpPerDay===undefined||validCrewWage(p.crewWageCpPerDay))&&
+  (p.includeCrewWages===undefined||typeof p.includeCrewWages==="boolean");
+const crewFields=p=>({
+  ...(p.crewCount===undefined?{}:{crewCount:p.crewCount}),
+  ...(p.crewWageCpPerDay===undefined?{}:{crewWageCpPerDay:p.crewWageCpPerDay}),
+  ...(p.includeCrewWages===undefined?{}:{includeCrewWages:p.includeCrewWages})
+});
+const projectedCrew=p=>({
+  crewCount:p.crewCount??referenceOccupancy[p.id]?.crewCount??0,
+  crewWageCpPerDay:p.crewWageCpPerDay??200,
+  includeCrewWages:p.includeCrewWages??false
+});
 const defaultCapacity=kind=>kind==="mount"?1:null;
 const defaultCostApplies=id=>id==="coach-hire"||id==="ship-passage"?"passenger":"unit";
 const immutable = value=>Object.freeze({...value});
@@ -130,7 +157,7 @@ const immutable = value=>Object.freeze({...value});
 /** Strong validation at every write boundary; bad Worlds are never rewritten on load. */
 export function validateTransportationCatalog(input){
   if(!input || typeof input!=="object" || Array.isArray(input) ||
-      input.version!==TRANSPORT_CATALOG_VERSION ||
+      (input.version!==1&&input.version!==TRANSPORT_CATALOG_VERSION) ||
       !input.overrides || typeof input.overrides!=="object" ||
       Array.isArray(input.overrides) || !Array.isArray(input.customs) ||
       input.customs.length>150)
@@ -148,13 +175,15 @@ export function validateTransportationCatalog(input){
           !money(patch.costCp)||!validCost(patch.costBasis)||
           !(patch.purchaseGp===null||money(patch.purchaseGp))||
           (patch.capacity!==undefined&&!validCapacity(patch.capacity))||
-          (patch.costApplies!==undefined&&!validCostApplies(patch.costApplies)))
+          (patch.costApplies!==undefined&&!validCostApplies(patch.costApplies))||
+          !validCrewFields(patch))
         throw new Error("Invalid transportation override for "+id+".");
       result.overrides[profile][id]={
         speedMph:patch.speedMph,costCp:patch.costCp,
         costBasis:patch.costBasis,purchaseGp:patch.purchaseGp,
         ...(patch.capacity===undefined?{}:{capacity:patch.capacity}),
-        ...(patch.costApplies===undefined?{}:{costApplies:patch.costApplies})
+        ...(patch.costApplies===undefined?{}:{costApplies:patch.costApplies}),
+        ...crewFields(patch)
       };
     }
   }
@@ -168,6 +197,7 @@ export function validateTransportationCatalog(input){
         !(item.purchaseGp===null||money(item.purchaseGp))||
         (item.capacity!==undefined&&!validCapacity(item.capacity))||
         (item.costApplies!==undefined&&!validCostApplies(item.costApplies))||
+        !validCrewFields(item)||
         (item.note!==undefined && typeof item.note!=="string")||
         (item.note?.length??0)>240||ids.has(item.id))
       throw new Error("Invalid or duplicate custom transportation preset.");
@@ -207,7 +237,8 @@ export function listTransportationPresets(settings,systemId){
       p.id==="sailing"?"guidedSailingSpeed":null;
     const speedMph=!change&&fallback?legacySpeed(settings,fallback,p.speedMph):stored.speedMph;
     return immutable({...stored,speedMph,
-      capacity:stored.capacity??defaultCapacity(p.kind),
+      capacity:stored.capacity??referenceOccupancy[p.id]?.capacity??defaultCapacity(p.kind),
+      ...projectedCrew(stored),
       costApplies:stored.costApplies??defaultCostApplies(p.id),builtIn:true,
       referenceProfile:profile,customized:Boolean(change)||(Boolean(fallback)&&speedMph!==p.speedMph)});
   });
@@ -220,6 +251,7 @@ export function listTransportationPresets(settings,systemId){
       "Optional workbook planning example. Not a D&D 2024 sustained mount speed.":p.note;
     return immutable({...p,name,note,
       capacity:p.capacity??defaultCapacity(p.kind),
+      ...projectedCrew(p),
       costApplies:p.costApplies??defaultCostApplies(p.id),
       builtIn:false,customized:true});
   })];
@@ -235,7 +267,8 @@ export function setTransportationPreset(catalog,profile,preset){
       !money(preset.costCp)||!validCost(preset.costBasis)||
       !(preset.purchaseGp===null||money(preset.purchaseGp))||
        (preset.capacity!==undefined&&!validCapacity(preset.capacity))||
-       (preset.costApplies!==undefined&&!validCostApplies(preset.costApplies)))
+       (preset.costApplies!==undefined&&!validCostApplies(preset.costApplies))||
+       !validCrewFields(preset))
     throw new Error("Invalid transportation preset.");
   if(preset.id.startsWith("custom-")){
     const index=valid.customs.findIndex(p=>p.id===preset.id);
@@ -244,6 +277,7 @@ export function setTransportationPreset(catalog,profile,preset){
       purchaseGp:preset.purchaseGp,
       ...(preset.capacity===undefined?{}:{capacity:preset.capacity}),
       ...(preset.costApplies===undefined?{}:{costApplies:preset.costApplies}),
+      ...crewFields(preset),
       note:String(preset.note??"").slice(0,240)};
     if(index===-1)valid.customs.push(clean);else valid.customs[index]=clean;
   }else{
@@ -254,7 +288,8 @@ export function setTransportationPreset(catalog,profile,preset){
       speedMph:preset.speedMph,costCp:preset.costCp,costBasis:preset.costBasis,
       purchaseGp:preset.purchaseGp,
       ...(preset.capacity===undefined?{}:{capacity:preset.capacity}),
-      ...(preset.costApplies===undefined?{}:{costApplies:preset.costApplies})
+      ...(preset.costApplies===undefined?{}:{costApplies:preset.costApplies}),
+      ...crewFields(preset)
     };
   }
   return validateTransportationCatalog(valid);
@@ -284,4 +319,32 @@ export function transportationCostPreview(preset,distanceMi,hours){
     Math.ceil(Math.max(0,hours)/24)*preset.costCp:
     preset.costBasis==="mile"?Math.max(0,distanceMi)*preset.costCp:0;
   return Number.isFinite(amount)?amount:null;
+}
+
+/**
+ * Read-only quote for one transport unit and a stated number of passengers.
+ * The 8h reference day is an illustration, NOT a new travel-day policy.
+ * Crew wages only enter a quote when the GM explicitly opts in.
+ */
+export function estimateTransportationTrip(preset,{
+  distanceMi=0,dayHours=8,units=1,passengers=1
+}={}){
+  if(!preset||!Number.isFinite(preset.speedMph)||preset.speedMph<=0||
+    !Number.isFinite(distanceMi)||distanceMi<0||
+    !Number.isFinite(dayHours)||dayHours<=0||dayHours>24||
+    !Number.isInteger(units)||units<0||
+    !Number.isInteger(passengers)||passengers<0)
+    throw Error("Invalid transportation trip example.");
+  const movingHours=distanceMi/preset.speedMph;
+  const travelDays=distanceMi===0?0:Math.ceil(Math.max(0,movingHours-1e-7)/dayHours);
+  const multiplier=preset.costApplies==="passenger"?passengers:units;
+  const recurringCp=preset.costBasis==="day"?travelDays*preset.costCp*multiplier:
+    preset.costBasis==="mile"?distanceMi*preset.costCp*multiplier:0;
+  const crewWagesCp=preset.includeCrewWages?
+    (preset.crewCount??0)*(preset.crewWageCpPerDay??200)*travelDays*units:0;
+  const totalCp=recurringCp+crewWagesCp;
+  if(!Number.isFinite(totalCp)||totalCp<0||totalCp>Number.MAX_SAFE_INTEGER)
+    throw Error("Transportation quote exceeds the supported range.");
+  return {distanceMi,movingHours,travelDays,recurringCp,crewWagesCp,totalCp,
+    assumption:"8h reference travel day; ignores method-specific rest, overtime and continuous service."};
 }
