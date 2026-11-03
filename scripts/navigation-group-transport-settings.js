@@ -222,20 +222,75 @@ export class AtlasGroupTransportationSettings extends base {
         const profile=select("profile-"+member.actorId,options,initial);
         const speedOverride=number("speed-"+member.actorId,
           member.speedMphOverride,0.1,600,{step:0.01,placeholder:"Use World speed"});
+        const costOverride=number("cost-"+member.actorId,
+          member.costCpOverride,0,100000000,{step:0.01,placeholder:"Use World cost"});
+        const costBasisOverride=select("cost-basis-"+member.actorId,[
+          ["","Use World frequency"],["none","No recurring cost"],
+          ["day","Per travel day"],["mile","Per traveled mile"]
+        ],member.costBasisOverride??"");
+        const costAppliesOverride=select("cost-applies-"+member.actorId,[
+          ["","Use World charging unit"],["unit","Per transport unit"],
+          ["passenger","Per passenger"]
+        ],member.costAppliesOverride??"");
+        const purchaseMode=select("purchase-mode-"+member.actorId,[
+          ["inherit","Use World purchase price"],["none","Not for sale / no price"],
+          ["custom","Custom purchase price"]
+        ],member.purchaseGpOverride==="none"?"none":
+          member.purchaseGpOverride===null?"inherit":"custom");
+        const purchaseOverride=number("purchase-"+member.actorId,
+          typeof member.purchaseGpOverride==="number"?member.purchaseGpOverride:null,
+          0,100000000,{step:0.01,placeholder:"Price in GP"});
+        purchaseOverride.disabled=purchaseMode.value!=="custom";
+        purchaseMode.addEventListener("change",()=>{
+          purchaseOverride.disabled=purchaseMode.value!=="custom";
+          updateDetails();
+        });
+        const noteOverride=node("textarea");
+        noteOverride.name="note-"+member.actorId;
+        noteOverride.rows=2;noteOverride.maxLength=240;
+        noteOverride.value=member.noteOverride??"";
+        noteOverride.defaultValue=noteOverride.value;
+        noteOverride.placeholder="Use World profile note";
+        noteOverride.style.cssText="width:100%;box-sizing:border-box;resize:vertical;";
+        const overrides=node("details");
+        overrides.style.cssText="border:1px solid var(--color-border-light-tertiary,#555);"+
+          "border-radius:.4rem;padding:.55rem;";
+        const overrideSummary=node("summary","Individual cost, purchase and GM note overrides");
+        overrideSummary.style.cssText="cursor:pointer;font-weight:600;";
+        overrides.appendChild(overrideSummary);
+        overrides.open=Boolean(member.costCpOverride!==null||
+          member.costBasisOverride!==null||member.costAppliesOverride!==null||
+          member.purchaseGpOverride!==null||member.noteOverride!==null);
+        const overrideFields=node("div");
+        overrideFields.style.cssText="display:grid;grid-template-columns:"+
+          "repeat(auto-fit,minmax(11rem,1fr));gap:.65rem;margin-top:.7rem;";
+        overrideFields.append(field("Recurring cost override (CP)",costOverride,
+            "Blank uses the World profile's recurring cost."),
+          field("Cost frequency override",costBasisOverride),
+          field("Charge for each override",costAppliesOverride),
+          field("Purchase price option",purchaseMode),
+          field("Custom purchase price (GP)",purchaseOverride));
+        overrides.appendChild(overrideFields);
+        overrides.appendChild(field("GM note override",noteOverride,
+          "Optional campaign-specific note; blank inherits the World profile."));
         const profileDetails=node("small");
         const updateDetails=()=>{
           const method=lookup.get(profile.value);
           const effectiveSpeed=method?(speedOverride.value===""?method.speedMph:
             Number(speedOverride.value)):null;
+          const effectiveCost=costOverride.value===""?method?.costCp:Number(costOverride.value);
+          const effectiveBasis=costBasisOverride.value||method?.costBasis;
+          const effectiveApplies=costAppliesOverride.value||method?.costApplies;
+          const effectivePurchase=purchaseMode.value==="inherit"?method?.purchaseGp:
+            purchaseMode.value==="none"?null:Number(purchaseOverride.value);
           profileDetails.textContent=method?
             "Surface: "+displaySurface(method.surface)+" · Travel: "+
             (Number.isFinite(effectiveSpeed)?effectiveSpeed:"—")+" mph "+
             (speedOverride.value===""?"(World profile)":"(Group override; World "+method.speedMph+" mph)")+
-            " · "+
-            (method.costBasis==="none"?"No recurring cost":
-              method.costCp+" CP / "+(method.costBasis==="day"?"day":"mile")+
-              " per "+(method.costApplies==="passenger"?"passenger":"unit"))+
-            " · Purchase: "+(method.purchaseGp===null?"not specified":method.purchaseGp+" GP"):
+            " · "+(effectiveBasis==="none"?"No recurring cost":
+              effectiveCost+" CP / "+(effectiveBasis==="day"?"day":"mile")+
+              " per "+(effectiveApplies==="passenger"?"passenger":"unit"))+
+            " · Purchase: "+(effectivePurchase===null?"not specified":effectivePurchase+" GP"):
             "Choose a World profile or create a custom one.";
         };
         updateDetails();
@@ -254,6 +309,22 @@ export class AtlasGroupTransportationSettings extends base {
         });
         speedOverride.disabled=!profile.value||(type==="npc"&&member.role!=="mount");
         speedOverride.addEventListener("input",updateDetails);
+        for(const input of [costOverride,costBasisOverride,costAppliesOverride,
+          purchaseOverride,noteOverride]){
+          input.addEventListener("input",updateDetails);
+          input.addEventListener("change",updateDetails);
+        }
+        const resetOverrides=node("button","Clear individual overrides");
+        resetOverrides.type="button";
+        resetOverrides.addEventListener("click",()=>{
+          speedOverride.value="";
+          costOverride.value="";costBasisOverride.value="";
+          costAppliesOverride.value="";purchaseMode.value="inherit";
+          purchaseOverride.value="";purchaseOverride.disabled=true;
+          noteOverride.value="";
+          updateDetails();
+        });
+        overrides.appendChild(resetOverrides);
         const controls=node("div");
         controls.style.cssText="display:grid;grid-template-columns:"+
           "repeat(auto-fit,minmax(9rem,1fr));gap:.65rem;";
@@ -264,6 +335,7 @@ export class AtlasGroupTransportationSettings extends base {
           field("Speed override (mph)",speedOverride,
             "Optional for this Group only; leave blank for the World profile's travel speed."));
         row.appendChild(controls);
+        row.appendChild(overrides);
         row.appendChild(profileDetails);
         if(member.profileId&&!lookup.has(member.profileId)){
           const missing=node("p","Previously selected profile '"+member.profileId+
@@ -277,7 +349,9 @@ export class AtlasGroupTransportationSettings extends base {
         }
         if(member.primaryVehicle)row.appendChild(node("small",
           "Foundry's primary-vehicle flag does not mean the party is aboard."));
-        editable.push({member,role,quantity,capacity,profile,speedOverride});
+        editable.push({member,role,quantity,capacity,profile,speedOverride,
+          costOverride,costBasisOverride,costAppliesOverride,
+          purchaseMode,purchaseOverride,noteOverride});
         section.appendChild(row);
       }
       panels.set(type,section);
@@ -303,7 +377,9 @@ export class AtlasGroupTransportationSettings extends base {
         throw new Error("Transportation profiles changed. Reopen the editor.");
       let next=assignments;
       for(const entry of editable){
-        const {member,role,quantity,capacity,profile,speedOverride}=entry;
+        const {member,role,quantity,capacity,profile,speedOverride,
+          costOverride,costBasisOverride,costAppliesOverride,
+          purchaseMode,purchaseOverride,noteOverride}=entry;
         const isTransport=member.actorType==="vehicle"||role.value==="mount";
         const profileId=isTransport?(profile.value||null):null;
         const method=profileId?lookup.get(profileId):null;
@@ -315,12 +391,32 @@ export class AtlasGroupTransportationSettings extends base {
         if(override!==null&&(!profileId||!Number.isFinite(override)||
             override<0.1||override>600))
           throw new Error("Enter a valid speed override between 0.1 and 600 mph for "+member.actorName+".");
+        const readMoney=control=>{
+          if(!isTransport||control.value.trim()==="")return null;
+          const n=Number(control.value);
+          if(!profileId||!Number.isFinite(n)||n<0||n>100000000)
+            throw new Error("Enter a valid nonnegative currency override for "+member.actorName+".");
+          return n;
+        };
+        const purchase=isTransport&&purchaseMode.value==="none"?"none":
+          isTransport&&purchaseMode.value==="custom"?
+            (()=>{const n=readMoney(purchaseOverride);
+              if(n===null)throw new Error("Enter a purchase price for "+member.actorName+".");
+              return n;})():null;
+        const note=isTransport?noteOverride.value.trim():null;
+        if(note!==null&&note.length>240)
+          throw new Error("GM note must be no longer than 240 characters.");
         next=setGroupTransportationMember(next,this.groupId,member.actorId,{
           role:member.actorType==="vehicle"?"unassigned":role.value,
           quantity:Number(quantity.value),
           capacity:capacity.value===""?null:Number(capacity.value),
           surface:method?.surface??member.surface,profileId,
-          speedMphOverride:isTransport?override:null
+          speedMphOverride:isTransport?override:null,
+          costCpOverride:readMoney(costOverride),
+          costBasisOverride:isTransport?(costBasisOverride.value||null):null,
+          costAppliesOverride:isTransport?(costAppliesOverride.value||null):null,
+          purchaseGpOverride:purchase,
+          noteOverride:note||null
         });
       }
       await game.settings.set(MODULE_ID,GROUP_TRANSPORT_SETTING,next);
@@ -335,9 +431,9 @@ export class AtlasGroupTransportationSettings extends base {
     }));
     footer.appendChild(action("Refresh",()=>this.render()));
     root.appendChild(footer);
-    root.appendChild(node("small","Atlas saves Group-only roles, quantities, capacities, stable profile "+
-      "links and optional speed overrides. Surface comes from the linked profile. No native Actor "+
-      "changes, boarding, movement or currency deductions."));
+    root.appendChild(node("small","Atlas saves Group-only quantities, capacities, profile links, "+
+      "speed, upkeep, purchase and note overrides. Transport surface and kind come from the "+
+      "World profile. No native Actor edits, boarding, movement or currency deductions."));
     return root;
   }
 }
