@@ -160,3 +160,20 @@ test("all transport methods show consistent capacity and native currency editor 
     assert.deepEqual(ctx.changes,[]);
   }finally{globalThis.foundry=oldFoundry;ctx.restore();}
 });
+
+test("Group mount assignment instructions appear before the long surface preset lists",async()=>{
+  const ctx=setup();
+  try{
+    const pc={id:"pcA",name:"Cassian",type:"character",system:{}};
+    const camel={id:"camelA",name:"Camel",type:"npc",system:{}};
+    const group={id:"groupA",name:"The Party",type:"group",
+      system:{members:[{actor:pc},{actor:camel}]}};
+    game.actors={contents:[group],get:id=>id===group.id?group:null};
+    const nodes=flatten(await new AtlasTransportationSettings()._renderHTML());
+    const labels=nodes.map(n=>n.textContent??"");
+    const roles=labels.findIndex(str=>str.includes("Group transportation resources"));
+    const land=labels.findIndex(str=>str==="Land travel");
+    assert.ok(roles>=0&&roles<land,"Group resources precede Land travel presets");
+    assert.ok(labels.some(str=>str.includes("set its NPC Role to Mount")));
+  }finally{ctx.restore();}
+});

@@ -32,7 +32,8 @@ import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
   from "./navigation-measure-units.js";
 import { readGroupTransportation,projectGroupTransportation,groupMethodCapacityStatus }
   from "./navigation-group-transport.js";
-import { projectedGroupFare } from "./navigation-currency.js";
+import { projectedGroupFare,dndCurrencyBreakdown } from "./navigation-currency.js";
+import { AtlasTransportationSettings } from "./navigation-transport-settings.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
@@ -1178,7 +1179,29 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           capacityNote.style.cssText="margin:0;padding:.5rem;border:1px solid "+
             (capacity.missing?"#b18b54":"var(--color-border-light-tertiary,#666)")+
             ";border-radius:6px;font-size:.83em;";
-          body.appendChild(capacityNote);
+
+          const capacityBox=el("div");
+          capacityBox.style.cssText="display:grid;gap:.4rem;";
+          capacityBox.appendChild(capacityNote);
+          if(capacity.missing||roster.unclassified){
+            const controls=el("div");
+            controls.style.cssText="display:flex;gap:.5rem;flex-wrap:wrap;";
+            const review=el("button","Review mounts & NPC roles");
+            review.type="button";
+            review.addEventListener("click",()=>{
+              const editor=new AtlasTransportationSettings();
+              editor.activeTab="methods";
+              void editor.render({force:true});
+            });
+            const refresh=el("button","Refresh seats");
+            refresh.type="button";
+            refresh.addEventListener("click",()=>void this.render());
+            controls.append(review,refresh);capacityBox.appendChild(controls);
+            capacityBox.appendChild(el("small","In Group transportation resources, "+
+              "set each Camel's Role to Mount, specify its quantity and rider capacity, "+
+              "then Save assignments. Refresh seats after saving."));
+          }
+          body.appendChild(capacityBox);
           if(this.result?.status==="ok"&&capacity.matched&&selectedMethod.costBasis!=="none"){
             const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
             if(distanceMi!==null){
@@ -1186,9 +1209,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               const movingHours=navigationHours(weighted,speed);
               const cost=projectedGroupFare(selectedMethod,{quantity:capacity.quantity,
                 passengers:roster.travelers,distanceMi,hours:movingHours});
-              const note=el("p","Illustrative Group transport cost: "+
-                cost.toLocaleString(undefined,{maximumFractionDigits:2})+
-                " CP ("+(selectedMethod.costApplies==="passenger"?"per passenger":"per transport unit")+
+              const estimate=dndCurrencyBreakdown(cost,globalThis.CONFIG?.DND5E?.currencies);
+              const note=el("p","Illustrative Group transport cost: "+estimate.label+
+                (estimate.roundedUp?" (coin-rounded up from "+
+                  cost.toLocaleString(undefined,{maximumFractionDigits:2})+" CP)":"")+
+                " ("+(selectedMethod.costApplies==="passenger"?"per passenger":"per transport unit")+
                 "). No currency will be deducted.");
               note.style.cssText="font-size:.83em;margin:0;opacity:.85;";
               body.appendChild(note);
@@ -1210,9 +1235,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
             const amount=projectedGroupFare(method,{quantity:1,passengers:roster.travelers,
               distanceMi,hours:navigationHours(weighted,speed)});
+            const estimate=dndCurrencyBreakdown(amount,globalThis.CONFIG?.DND5E?.currencies);
             const note=el("p",roster.travelers+" passenger(s): illustrative hired "+
-              "transport fare "+amount.toLocaleString(undefined,{maximumFractionDigits:2})+
-              " CP. No currency is deducted.");
+              "transport fare "+estimate.label+
+              " ("+amount.toLocaleString(undefined,{maximumFractionDigits:2})+
+              " CP exact"+(estimate.roundedUp?"; rounded up to "+estimate.payableCopper+
+                " CP for whole-coin planning":"")+"). No currency is deducted.");
             note.style.cssText="margin:0;font-size:.83em;opacity:.85;";
             body.appendChild(note);
           }

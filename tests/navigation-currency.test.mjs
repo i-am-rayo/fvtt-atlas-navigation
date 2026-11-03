@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { atlasCurrencyChoices,coinFromCopper,copperFromCoin,projectedGroupFare }
+import { atlasCurrencyChoices,coinFromCopper,copperFromCoin,projectedGroupFare,dndCurrencyBreakdown }
   from "../scripts/navigation-currency.js";
 
 test("currency adapter exposes native D&D5e denomination options",()=>{
@@ -27,4 +27,30 @@ test("upkeep multiplies by physical units; fares by travelers",()=>{
   assert.equal(projectedGroupFare(coach,{quantity:1,passengers:5,distanceMi:10}),150);
   assert.equal(projectedGroupFare({...feed,costBasis:"none"},{quantity:10,hours:12}),0);
   assert.throws(()=>projectedGroupFare(feed,{quantity:-1}),/factors/i);
+});
+
+test("display-only fare converts to highest denominations using integer copper",()=>{
+  const fare=dndCurrencyBreakdown(4305);
+  assert.equal(fare.label,"4 PP · 3 GP · 5 CP");
+  assert.equal(fare.payableCopper,4305);
+  assert.equal(fare.roundedUp,false);
+  assert.deepEqual(fare.coins,[{id:"pp",quantity:4},{id:"gp",quantity:3},
+    {id:"cp",quantity:5}]);
+});
+test("fractional copper quote is rounded upward only for payable coin preview",()=>{
+  const fare=dndCurrencyBreakdown(1335.88);
+  assert.equal(fare.exactCopper,1335.88);
+  assert.equal(fare.payableCopper,1336);
+  assert.equal(fare.label,"1 PP · 3 GP · 3 SP · 6 CP");
+  assert.equal(fare.roundedUp,true);
+});
+test("active native denominations and conversion rates shape the breakdown",()=>{
+  const config={gp:{conversion:1},sp:{conversion:10},cp:{conversion:100}};
+  assert.equal(dndCurrencyBreakdown(1335.88,config).label,"13 GP · 3 SP · 6 CP");
+  const noCopper={gp:{conversion:1},sp:{conversion:10}};
+  const estimate=dndCurrencyBreakdown(1335.88,noCopper);
+  assert.equal(estimate.payableCopper,1340);
+  assert.equal(estimate.label,"13 GP · 4 SP");
+  assert.throws(()=>dndCurrencyBreakdown(-1),/currency/i);
+  assert.throws(()=>dndCurrencyBreakdown(Number.POSITIVE_INFINITY),/currency/i);
 });

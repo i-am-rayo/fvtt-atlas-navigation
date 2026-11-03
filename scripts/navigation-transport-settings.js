@@ -210,6 +210,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
     toolbar.append(button("＋ Import optional workbook examples",()=>this._importExamples()));
     root.appendChild(toolbar);
     const methods=listTransportationPresets(game.settings,game.system?.id);
+    // Group role assignments are the first planning step; keep them visible.
+    this._renderGroupRoster(root,methods);
     for(const surface of TRANSPORT_SURFACES){
       const group=methods.filter(p=>p.surface===surface);
       const section=element("fieldset");
@@ -249,7 +251,6 @@ export class AtlasTransportationSettings extends ApplicationBase {
       }
       root.appendChild(section);
     }
-    this._renderGroupRoster(root,methods);
     root.appendChild(element("p",
       "All non-walking methods are distance/time previews until checkpoint embark/disembark "+
       "transfers and method-specific travel-day rules are implemented. A compatible road does "+
@@ -423,9 +424,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(game.system?.id!=="dnd5e")return;
     const section=element("fieldset");
     section.style.cssText="display:grid;gap:.8rem;min-width:0;border-radius:.5rem;";
-    section.appendChild(element("legend","Group transportation resources"));
+    section.appendChild(element("legend","Group transportation resources — assign mounts & vehicles"));
     section.appendChild(element("p","Atlas reads the D&D 5e Group Actor without changing its members. "+
       "Use Quantity when one Camel or Vehicle Actor represents several identical resources. "+
+      "To use a Camel for travel, set its NPC Role to Mount, choose the number of animals "+
+      "and riders per animal, then click Save Group transportation assignments. "+
       "NPCs are never automatically treated as mounts or extra passengers."));
     const groups=(game.actors?.contents??[]).filter(actor=>actor.type==="group");
     if(!groups.length){
