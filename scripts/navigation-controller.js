@@ -1063,8 +1063,30 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       travel=resolveNavigationTravelSpeed({token:null,sceneUnits:sceneUnit,
         systemId:null,worldSpeed:DEFAULT_NAVIGATION_SPEED});
     }
-    return {sceneUnit,travel:resolveNavigationMethodTravel(this.travelMethod,travel,game.settings,sceneUnit,
-      {systemId:game.system?.id})};
+    const methodTravel=resolveNavigationMethodTravel(this.travelMethod,travel,game.settings,sceneUnit,
+      {systemId:game.system?.id});
+    // An owned mount/vehicle may have Group-only travel-speed overrides.
+    // Hired transport and unowned World reference methods retain catalog speeds.
+    if(this.travelMethod!=="walking"&&game.system?.id==="dnd5e"&&
+        assignedToken?.actor?.type==="group"){
+      try{
+        const method=availableNavigationTravelMethods(game.settings,game.system.id)
+          .find(candidate=>candidate.id===this.travelMethod);
+        if(method&&method.kind!=="foot"){
+          const roster=projectGroupTransportation(assignedToken.actor,
+            readGroupTransportation(game.settings));
+          const capacity=groupMethodCapacityStatus(roster,method);
+          if(capacity.sufficient&&capacity.effectiveSpeedMph!==null){
+            const speed=convertGroupSpeed(capacity.effectiveSpeedMph,"mph",sceneUnit);
+            if(speed!==null&&speed>0){
+              return {sceneUnit,travel:{...methodTravel,speed,
+                speedMph:capacity.effectiveSpeedMph,source:"group-method"}};
+            }
+          }
+        }
+      }catch(error){atlasWarn("navigation","Group speed override preview unavailable",error);}
+    }
+    return {sceneUnit,travel:methodTravel};
   }
 
   async _renderHTML() {
@@ -1155,7 +1177,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // Only presentation is converted to the World Atlas measuring preference.
     const showDistance=amount=>atlasFormatMeasure(atlasDisplayDistance(amount,sceneUnit));
     const showSpeed=amount=>atlasFormatMeasure(atlasDisplaySpeed(amount,sceneUnit));
-    const travelSource=travel.source==="atlas-method"?
+    const travelSource=travel.source==="group-method"?
+      `${travel.methodLabel} (party-owned convoy; slowest matching resource) · ${showSpeed(speed)}`:
+      travel.source==="atlas-method"?
       `${travel.methodLabel} (World transportation preset) · ${showSpeed(speed)}`:
       travel.source==="party" ?
       `${travel.actorName} · ${travel.pace} pace · ${showSpeed(speed)}` :
