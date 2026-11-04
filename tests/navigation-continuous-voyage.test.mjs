@@ -11,7 +11,8 @@ import {restoreApprovedTransportPlan}
 import {prepareGuidedTransportLeg}
   from "../scripts/navigation-guided-transport-leg.js";
 import {createJourneyRecord,checkpointJourneyRecord,formatJourneyJournalHTML,
-  resumeJourneyRecord} from "../scripts/navigation-journey-journal.js";
+  resumeJourneyRecord,isUnfinishedJourneyLeg,journeyRecoveryRouteDestination}
+  from "../scripts/navigation-journey-journal.js";
 
 const p=(x,y)=>({x,y});
 const rules={dailyHours:null,overnightHours:0,shortRestHours:1,longRestHours:8,
@@ -217,3 +218,64 @@ test("destination checkpoint guard stops repeated 0.07-mi legs",()=>{
     ...record,legs:[{...record.legs.at(-1),completedPercent:99}]},
     destination,100),false);
 });
+
+
+test("interrupted multi-surface voyage recovers current ship checkpoint, not final Point B",()=>{
+  const day=schedule(),original=voyage();
+  // The final Point B is inland beyond the approved water-leg checkpoint.
+  original.destination=p(155,0);
+  day.recordMovement(14);
+  const passengerRest=requestPassengerRest(day,"long");
+  original.passengerRest=beginPassengerRestMetadata(original,day,passengerRest);
+  day.recordMovement(1);
+  const saved=checkpointJourneyRecord(original,{schedule:day,
+    status:"interrupted",progress:31,worldTravelSeconds:15*3600,
+    worldRestSeconds:0});
+  assert.equal(isUnfinishedJourneyLeg(saved),true);
+  assert.deepEqual(journeyRecoveryRouteDestination(saved),p(100,0));
+  assert.deepEqual(saved.destination,p(155,0));
+  assert.equal(saved.passengerRest.startedAtMovingHours,14);
+  assert.match(formatJourneyJournalHTML(saved),/7h of sailing time remaining/);
+
+  // The old behavior routed to 155 and failed the one-checkpoint guard.
+  const unsafeRoute={...route(),end:p(155,0)};
+  assert.throws(()=>restoreApprovedTransportPlan(unsafeRoute,projected(),
+    saved,[method]),/approved checkpoint/);
+  const approved=restoreApprovedTransportPlan(route(),projected(),saved,[method]);
+  assert.equal(approved.legs[0].selectedOption.method.id,"ship-passage");
+  assert.equal(approved.legs[0].selectedOption.arrangement,"hire");
+  assert.equal(approved.legs[0].operation,"continuous");
+  assert.equal(approved.legs[0].costCp,0);
+  const resumedLeg=prepareGuidedTransportLeg(route(),approved.legs[0]);
+  const resumed=resumeJourneyRecord(saved,{
+    itinerary:itinerary(resumedLeg.transport),atlasRevision:3,
+    journeyDestination:isUnfinishedJourneyLeg(saved)?null:
+      journeyRecoveryRouteDestination(saved)});
+  assert.deepEqual(resumed.destination,p(155,0),
+    "resuming the approved ship leg must retain the original Point B");
+  assert.equal(resumed.legs.length,2);
+  assert.equal(resumed.legs[1].transport.estimatedFareCp,0);
+  assert.deepEqual(resumed.passengerRest,saved.passengerRest);
+  const recoverySchedule=schedule();
+  const pending=recoverPassengerRestRequest(resumed,recoverySchedule);
+  assert.equal(pending.hours,8);
+  assert.equal(pending.startHours,-1);
+  assert.equal(confirmPassengerRest(recoverySchedule,pending),null);
+  assert.equal(resumed.legs[0].worldTravelSeconds,15*3600);
+  assert.equal(resumed.legs[0].worldRestSeconds,0);
+});
+
+test("completed checkpoint legs return original Point B for onward planning",()=>{
+  const record=voyage();
+  record.destination=p(155,0);
+  record.status="paused";
+  record.legs[0].completedPercent=100;
+  record.legs[0].completedMovingHours=record.legs[0].movingHours;
+  assert.equal(isUnfinishedJourneyLeg(record),false);
+  assert.deepEqual(journeyRecoveryRouteDestination(record),p(155,0));
+  assert.deepEqual(journeyRecoveryRouteDestination(voyage()),p(100,0),
+    "legacy single-destination voyages retain their existing behavior");
+  assert.throws(()=>journeyRecoveryRouteDestination({
+    ...record,sceneId:""}),/invalid recovery metadata/);
+});
+

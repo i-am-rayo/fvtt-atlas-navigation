@@ -151,6 +151,20 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
   return validateJourneyRecord(next);
 }
 
+/** A canvas interruption must finish the approved leg before proceeding to Point B. */
+export function isUnfinishedJourneyLeg(record){
+  const leg=record?.legs?.at(-1);
+  return Boolean(leg&&Number.isFinite(leg.completedPercent)&&
+    leg.completedPercent<99.999);
+}
+
+/** Resolve the safe re-entry target without mutating saved Journal metadata. */
+export function journeyRecoveryRouteDestination(record){
+  const saved=validateJourneyRecord(record);
+  const current=isUnfinishedJourneyLeg(saved)?saved.legs.at(-1):saved;
+  return point(current.destination);
+}
+
 export function eligibleJourneyRecord(record,{sceneId,tokenId,atlasRevision}={}){
   try{
     const saved=validateJourneyRecord(record);

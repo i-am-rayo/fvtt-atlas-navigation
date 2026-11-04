@@ -53,7 +53,8 @@ import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-mod
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
 import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
-  validateJourneyRecord,eligibleJourneyRecord,findRecoverableJourney,saveJourneyJournal,
+  validateJourneyRecord,eligibleJourneyRecord,isUnfinishedJourneyLeg,
+  journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
   JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
 
 const el = (tag, content) => {
@@ -789,15 +790,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "or stop and replan.";
       this.draw();void this.render(true);return true;
     }
-    this.end={...saved.destination};
+    // During a partially confirmed checkpoint leg, only reroute to the approved
+    // leg endpoint. The Journal's destination is the later, original Point B.
+    // Restoring a multi-surface route directly to Point B would discard the
+    // approved vessel selection and fail the checkpoint recovery guard.
+    this.end=journeyRecoveryRouteDestination(saved);
     this.calculateRoute(view,atlas);
     if(this.result?.status!=="ok")
       throw Error("The remaining journey cannot be routed safely. Review the road network.");
     this.recoveryJournal=journal;
     this.recoveryRecord=saved;
     this.journeyJournal=journal;
-    this.travelNotice="Saved journey loaded. Review the remaining route, then select Travel Route. "+
-      "Atlas will not replay prior movement or World time.";
+    this.travelNotice=isUnfinishedJourneyLeg(saved)&&recent.transport?
+      "Saved "+recent.transport.methodName+" voyage loaded toward "+
+        recent.transport.arrivalCheckpointName+". Continue this approved leg; "+
+        "the original destination and passenger rest are preserved.":
+      "Saved journey loaded. Review the remaining route, then select Travel Route. "+
+        "Atlas will not replay prior movement or World time.";
     atlasDebug("journey","Saved journey prepared for GM recovery",{
       sceneId:this.scene.id,journalId:journal.id
     });
@@ -1138,7 +1147,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const departureStamp=recovered?null:journeyWorldStamp(game.time);
       const record=recovered?
         resumeJourneyRecord(recovered,{itinerary,atlasRevision:atlas.revision,
-          journeyDestination:this.end}):
+          // The recovery target is the current leg checkpoint, not a GM edit
+          // to the original Point B. Preserve the final destination on resume.
+          journeyDestination:isUnfinishedJourneyLeg(recovered)?null:this.end}):
         createJourneyRecord({sceneId:this.scene.id,tokenId:token.id,
           atlasRevision:atlas.revision,itinerary,journeyDestination:this.end,
           startedWorldTime:departureStamp?.seconds??null,
