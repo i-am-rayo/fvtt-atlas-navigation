@@ -7,6 +7,7 @@ import { readWorldTravelPresets, travelPresetDisplayGroup } from "./travel-prese
 import { presetCostSummary } from "./travel-preset-model.js";
 import { CHECKPOINT_TYPE_GROUPS } from "./checkpoint-types.js";
 import { createSettingsGroupedSelect } from "./settings-select.js";
+import { createAtlasIconButton } from "./ui-action-button.js";
 
 const node=(tag,text)=>{
   const element=document.createElement(tag);
@@ -59,18 +60,7 @@ export function createCheckpointPresetSelect(presets,{selectedId=null,
 
 /** Accessible glyph-only control; can be wired by a delegated editor handler. */
 export function createSettingsIconButton({icon,label,onClick=null,danger=false}){
-  if(!/^[a-z-]+$/.test(icon)||!label?.trim()||
-      (onClick!==null&&typeof onClick!=="function"))
-    throw Error("Invalid Atlas settings action.");
-  const button=node("button");button.type="button";
-  button.title=label;button.setAttribute("aria-label",label);
-  button.style.cssText="flex:0 0 2.5rem;width:2.5rem;min-width:2.5rem;"+
-    "height:2.5rem;min-height:2.5rem;display:inline-grid;place-items:center;";
-  if(danger)button.style.color="var(--color-level-error, #d56859)";
-  const glyph=node("i");glyph.className="fa-solid fa-"+icon;
-  glyph.setAttribute("aria-hidden","true");button.appendChild(glyph);
-  if(onClick)button.addEventListener("click",onClick);
-  return button;
+  return createAtlasIconButton({icon,label,onClick,danger,size:"compact"});
 }
 
 /** Consistent, directly-handled settings actions. */

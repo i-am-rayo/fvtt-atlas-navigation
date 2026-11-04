@@ -57,6 +57,7 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   validateJourneyRecord,eligibleJourneyRecord,isUnfinishedJourneyLeg,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
   JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
+import { createAtlasIconButton } from "./ui-action-button.js";
 
 const el = (tag, content) => {
   const node = document.createElement(tag);
@@ -66,15 +67,7 @@ const el = (tag, content) => {
 
 /** Keep footer controls compact without sacrificing keyboard or screen-reader labels. */
 const navigationFooterIconButton=(label,icon)=>{
-  const button=el("button");
-  button.type="button";
-  button.title=label;
-  button.ariaLabel=label;
-  button.setAttribute?.("aria-label",label);
-  button.innerHTML=`<i class="fa-solid fa-${icon}" aria-hidden="true"></i>`;
-  button.style.cssText="display:inline-flex;align-items:center;justify-content:center;"+
-    "flex:0 0 auto;min-width:2.75rem;height:2.75rem;padding:.4rem;font-size:1.1rem;";
-  return button;
+  return createAtlasIconButton({icon,label,size:"footer"});
 };
 
 /** GM-only navigation. Travel uses an explicit, native v14 TokenDocument.move action. */

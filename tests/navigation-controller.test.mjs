@@ -187,7 +187,7 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.ok(newRoute,"New Route is always visible in the non-scrolling footer");
     const footer=content.children.at(-1);
     assert.equal(footer.children.includes(newRoute),true);
-    assert.match(newRoute.innerHTML,/fa-route/);
+    assert.equal(newRoute.children[0].className,"fa-solid fa-route");
     assert.equal(newRoute.ariaLabel,"New Route","icon-only controls retain accessible labels");
     assert.equal(find(content,item=>item.tag==="button"&&
       item.ariaLabel==="Exit Navigation"),undefined,

@@ -17,6 +17,7 @@
     "scripts/main.js"
   ],
   "styles": [
+    "styles/atlas-ui.css",
     "styles/checkpoint-icons.css",
     "styles/atlas-manual-fog.css",
     "styles/road-settings-dialog.css",
