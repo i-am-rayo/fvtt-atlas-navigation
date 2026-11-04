@@ -939,6 +939,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("A GM must calculate a route on the active Scene before guided travel.");
     if(!this.result.legs?.some(leg=>leg.kind==="road"))
       throw Error("Guided travel requires a route containing an Atlas road.");
+    if(this.travelMethod!=="walking"&&this.sourceMode!=="party")
+      throw Error("Guided mounted/sailing journeys require checkpoint transfers from the assigned party token.");
     const token=this.getPartyToken();
     if(!token||typeof token.move!=="function"||
         !token.canUserModify?.(game.user,"update"))
