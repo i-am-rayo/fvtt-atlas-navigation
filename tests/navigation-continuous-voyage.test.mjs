@@ -4,7 +4,7 @@ import {GuidedTravelDayTracker} from "../scripts/navigation-travel-day.js";
 import {requestPassengerRest,canRequestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
   recoverPassengerRestRequest,validatePassengerRestMetadata}
   from "../scripts/navigation-passenger-rest.js";
-import {isJourneyDestinationCheckpoint}
+import {isJourneyDestinationCheckpoint,isRepeatedArrivalCheckpoint}
   from "../scripts/navigation-checkpoint-terminal.js";
 import {restoreApprovedTransportPlan}
   from "../scripts/navigation-transport-recovery.js";
@@ -266,6 +266,23 @@ test("destination checkpoint guard stops repeated 0.07-mi legs",()=>{
   assert.equal(isJourneyDestinationCheckpoint({
     ...record,destination:p(108,0)},destination,100),true,
     "small marker-click offsets should still count as the dock itself");
+});
+
+test("completed water arrivals cannot be booked as the next arrival again",()=>{
+  const saved=voyage();
+  saved.status="paused";
+  saved.legs.at(-1).completedPercent=100;
+  const dock={id:"hearth-dock",name:"Hearth's Heart Dock",point:p(100,0)};
+  assert.equal(isRepeatedArrivalCheckpoint(saved,dock),true);
+  assert.equal(isRepeatedArrivalCheckpoint({...saved,
+    destination:p(120,0)},dock),true,
+  "even a separate nearby Point B cannot justify rebooking the same dock");
+  assert.equal(isRepeatedArrivalCheckpoint(saved,{id:"next-port"}),false,
+  "travel to a different named checkpoint is still permitted");
+  assert.equal(isRepeatedArrivalCheckpoint({...saved,status:"interrupted"},dock),false);
+  assert.equal(isRepeatedArrivalCheckpoint({...saved,legs:[{
+    ...saved.legs.at(-1),completedPercent:60}]},dock),false);
+  assert.equal(isRepeatedArrivalCheckpoint(null,dock),false);
 });
 
 test("checkpoint arrival restores original Point B after recovered ship leg",()=>{

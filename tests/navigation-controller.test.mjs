@@ -412,6 +412,56 @@ test("a saved Journal offers deliberate recovery from the actual token without r
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("an interrupted Riding Horse journey never renders or resumes as Walking",async()=>{
+  const previous={game:globalThis.game,window:globalThis.window,ui:globalThis.ui,
+    document:globalThis.document};
+  try{
+    globalThis.game={user:{isGM:true},system:{id:"dnd5e"},
+      settings:{get:()=>undefined}};
+    globalThis.window={innerWidth:1200,innerHeight:900};
+    globalThis.ui={notifications:{warn(){},error(){}}};
+    globalThis.document={createElement:tag=>({tag,style:{},children:[],
+      listeners:new Map(),textContent:"",append(...nodes){this.children.push(...nodes);},
+      appendChild(node){this.children.push(node);},
+      addEventListener(name,handler){this.listeners.set(name,handler);}})};
+    const scene={id:"horse-scene",name:"Paedor",grid:{size:100,units:"mi"},
+      canUserModify:()=>true,getFlag:()=>null};
+    const token={id:"horse-party",x:0,y:0,width:1,height:1,
+      canUserModify:()=>true,move(){throw Error("No movement is authorized");}};
+    const atlas={revision:7,roads:[],nodes:[],segments:[]};
+    const route={status:"ok",start:point(0,0),end:point(100,0),
+      distance:10,cost:10,terrainAware:false,legs:[{kind:"road",roadId:"road",
+        segmentId:"s",points:[point(0,0),point(100,0)],distance:10,cost:10}]};
+    const itinerary=createNavigationItinerary({sceneId:scene.id,route,
+      travel:{speed:5}});
+    const record=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:7,itinerary:{...itinerary,travel:{...itinerary.travel,
+        methodId:"riding-horse",methodName:"Riding Horse",
+        arrangement:"owned",operation:"normal"}}});
+    record.status="interrupted";record.legs[0].completedPercent=56;
+    const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token});
+    nav.scene=scene;nav.sourceMode="party";nav.travelMethod="riding-horse";
+    nav.transportArrangement="owned";nav.recoveryRecord=record;
+    nav.routeRevision=atlas.revision;nav.result=route;
+    assert.equal(nav.transportAvailability().owned.has("riding-horse"),false,
+      "a recovered approval must not invent Group ownership");
+    assert.ok(nav.transportAvailability().methods.some(method=>method.id==="riding-horse"),
+      "the saved method must remain visible during recovery");
+    const panel=await nav._renderHTML();
+    const find=(item,predicate)=>predicate(item)?item:
+      item.children?.map(child=>find(child,predicate)).find(Boolean);
+    const selector=find(panel,node=>node.id==="atlas-navigation-travel-method");
+    assert.equal(selector.value,"owned|riding-horse");
+    assert.equal(nav.travelMethod,"riding-horse",
+      "rendering may not silently downgrade the approved Journey to Walking");
+    nav.syncPartyDeparture=()=>false;
+    nav.travelMethod="walking";
+    await assert.rejects(nav.startGuidedTravel(),/cannot silently resume/,
+      "even a stale UI choice cannot resume an approved horse journey on foot");
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("GM guided travel pauses and ends at native chunk boundaries with honest progress",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
     ui:globalThis.ui,document:globalThis.document};
@@ -945,6 +995,54 @@ test("the original destination checkpoint completes the Journey without another 
     assert.equal(cleared,1);
     assert.equal(nav.pendingTransfer,null);
   }finally{globalThis.game=oldGame;}
+});
+
+test("guided boarding refuses a repeated arrival at the just-reached dock",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry};
+  try{
+    let moved=0,confirmed=0;
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
+      settings:{get:()=>undefined}};
+    globalThis.foundry={applications:{api:{DialogV2:{
+      confirm:async()=>{confirmed++;return true;}
+    }}}};
+    const at=point(100,100),end=point(110,100),onward=point(200,100);
+    const scene={id:"scene",grid:{size:100,units:"mi"},canUserModify:()=>true};
+    const atlas={revision:7,roads:[{id:"sea",name:"Sea Route",travelPresetId:"water-sea"},
+      {id:"land",name:"Coastal Road"}],
+      nodes:[{id:"a",...at},{id:"b",...end},{id:"c",...onward}],segments:[]};
+    const token={id:"party",canUserModify:()=>true,move:async()=>{moved++;}};
+    const route={status:"ok",start:at,end:onward,distance:20,cost:20,
+      legs:[{kind:"road",roadId:"sea",segmentId:"segment",
+        points:[at,end],distance:10,cost:10},
+      {kind:"road",roadId:"land",segmentId:"other-segment",
+        points:[end,onward],distance:10,cost:10}]};
+    const itinerary={...createNavigationItinerary({sceneId:"scene",route,
+      travel:{speed:2},roadName:()=>"Sea Route"}),transport:{
+      methodId:"ship-passage",methodName:"Ship passage (hired)",kind:"vehicle",
+      arrangement:"hire",surface:"water",departureCheckpointName:"Old Harbor",
+      arrivalCheckpointId:"port",
+      arrivalCheckpointName:"Port Barthos",roadNames:["Sea Route"],
+      estimatedFareCp:2,operation:"continuous"}};
+    const record=createJourneyRecord({sceneId:"scene",tokenId:"party",
+      atlasRevision:7,itinerary});
+    record.status="paused";
+    record.legs.at(-1).completedPercent=100;
+    const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token});
+    nav.scene=scene;nav.sourceMode="party";nav.routeRevision=7;nav.result=route;
+    nav.recoveryRecord=record;nav.syncPartyDeparture=()=>false;
+    nav.transportationTransitionPlan=()=>({hasTransitions:true,legs:[{
+      index:0,firstRouteLeg:0,lastRouteLeg:0,start:at,end,distance:10,
+      hours:5,surface:"water",roadNames:["Sea Route"],costCp:2,errors:[],
+      transferValid:true,arrivalCheckpoint:{id:"port",name:"Port Barthos"},
+      selectedOption:{method:{id:"ship-passage",name:"Ship passage (hired)",
+        kind:"vehicle"},arrangement:"hire"}
+    }]});
+    await assert.rejects(nav.startGuidedTravel(),/Already arrived at Port Barthos/);
+    assert.equal(moved,0,"no native token move may start for a duplicate port");
+    assert.equal(confirmed,0,"no repeat transport booking is presented");
+  }finally{globalThis.game=previous.game;globalThis.foundry=previous.foundry;}
 });
 
 test("legacy final-checkpoint metadata permits onward choice but never routes back to the same point",async()=>{

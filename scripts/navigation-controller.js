@@ -33,7 +33,8 @@ import { projectTransportationRouteLegs,transportationLegSelection,
 import {appendGroupedTransportationOptions} from "./navigation-transport-choices.js";
 import {prepareGuidedTransportLeg,confirmGuidedCheckpointArrival}
   from "./navigation-guided-transport-leg.js";
-import {isJourneyDestinationCheckpoint} from "./navigation-checkpoint-terminal.js";
+import {isJourneyDestinationCheckpoint,isRepeatedArrivalCheckpoint}
+  from "./navigation-checkpoint-terminal.js";
 import {restoreApprovedTransportPlan,hasUnfinishedApprovedTransport}
   from "./navigation-transport-recovery.js";
 import {requestPassengerRest,canRequestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
@@ -283,11 +284,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         compatible=new Set(["walking"]);
       }
     }
+    const approved=this.recoveryRecord&&isUnfinishedJourneyLeg(this.recoveryRecord)&&
+      !this.recoveryRecord.legs.at(-1)?.transport?
+      this.recoveryRecord.legs.at(-1)?.travelMethod:null;
+    const preservingApprovedMethod=method=>Boolean(approved?.id===method.id&&
+      this.travelMethod===method.id);
     const methods=all.filter(method=>
       (method.id==="walking"||owned.has(method.id)||offers.has(method.id)||
-        Boolean(this.travelSession&&method.id===this.travelMethod))&&
+        Boolean(this.travelSession&&method.id===this.travelMethod)||
+        preservingApprovedMethod(method))&&
       (!compatible||compatible.has(method.id)||
-        Boolean(this.travelSession&&method.id===this.travelMethod)));
+        Boolean(this.travelSession&&method.id===this.travelMethod)||
+        preservingApprovedMethod(method)));
     return {methods,all,owned,offers};
   }
   effectiveTransportMethod(method,availability=null){
@@ -1076,6 +1084,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const atlas=this.atlasProvider(this.scene);
     if(atlas.revision!==this.routeRevision)
       throw Error("The road network changed. Calculate a fresh route before traveling.");
+    const approvedLandMethod=isUnfinishedJourneyLeg(this.recoveryRecord)&&
+      !this.recoveryRecord.legs.at(-1)?.transport?
+      this.recoveryRecord.legs.at(-1)?.travelMethod:null;
+    if(approvedLandMethod&&this.travelMethod!==approvedLandMethod.id)
+      throw Error("The saved "+approvedLandMethod.name+
+        " journey cannot silently resume using another travel method. Recover or replan with the GM.");
     if(this.sourceMode==="party"&&this.syncPartyDeparture(view,atlas)){
       // A moved token invalidates the old route AND selected checkpoint offer.
       this.calculateRoute(view,atlas);this.draw();void this.render(true);
@@ -1095,6 +1109,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           throw Error("Checkpoint-assisted movement requires the assigned party token as Point A.");
         const plan=this.transportationTransitionPlan();
         guidedLeg=prepareGuidedTransportLeg(this.result,plan?.legs[0]);
+        if(isRepeatedArrivalCheckpoint(this.recoveryRecord,
+          plan?.legs[0]?.arrivalCheckpoint))
+          throw Error("Already arrived at "+plan.legs[0].arrivalCheckpoint.name+
+            ". Atlas will not book another trip to the same checkpoint. "+
+            "Choose an onward destination on land, or complete/stop the "+
+            "Journey at the checkpoint.");
       }else if(projected.legs.some(leg=>leg.surface!=="land"))
         throw Error("Native guided movement for this water/air-only route needs a supported checkpoint leg.");
     }
@@ -2011,12 +2031,22 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       `${travel.actorName} · ${travel.pace} pace · ${showSpeed(speed)}` :
       `Atlas default · ${showSpeed(speed)}`;
     const methodAssessment=this.assessTravelMethod();
+    const repeatingCheckpoint=isRepeatedArrivalCheckpoint(this.recoveryRecord,
+      transferPlan?.legs[0]?.arrivalCheckpoint);
     const assistedLegReady=Boolean(transferPlan?.hasTransitions&&
       !this.pendingTransfer&&this.sourceMode==="party"&&
       transferPlan.legs[0]?.selectedOption&&
       !transferPlan.legs[0]?.errors?.length&&
       transferPlan.legs[0]?.arrivalCheckpoint&&
-      transferPlan.legs[0]?.transferValid);
+      transferPlan.legs[0]?.transferValid&&!repeatingCheckpoint);
+    if(repeatingCheckpoint&&!this.travelSession){
+      const advisory=el("p","Already at "+transferPlan.legs[0].arrivalCheckpoint.name+
+        ". A second voyage to that same checkpoint is blocked. " +
+        "Choose a different onward destination or finish the Journey at the port.");
+      advisory.style.cssText="padding:.5rem;border:1px solid #b18b54;"+
+        "border-radius:6px;font-size:.83em;";
+      body.appendChild(advisory);
+    }
     if(this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
       const advisory=el("p",methodAssessment.reason??"Transport planning only.");
       advisory.style.cssText="margin:0;padding:.5rem;border:1px solid #b18b54;border-radius:6px;font-size:.83em;";
@@ -2625,7 +2655,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           phase==="ending"||phase==="rest-applying"?"hourglass-half":"play";
         const move=navigationFooterIconButton(moveLabel,moveIcon);
         move.disabled=this.journalStarting||(!this.travelSession&&
-          !methodAssessment.guided&&!assistedLegReady)||phase==="ending"||
+          (!methodAssessment.guided&&!assistedLegReady||repeatingCheckpoint))||phase==="ending"||
           phase==="pausing"||phase==="rest-applying";
         move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
           "Pause after the current short road stretch":moveLabel;

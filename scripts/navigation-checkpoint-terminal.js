@@ -18,3 +18,17 @@ export function isJourneyDestinationCheckpoint(record,checkpoint,gridSize){
   return Math.hypot(record.destination.x-checkpoint.point.x,
     record.destination.y-checkpoint.point.y)<=Math.max(.01,Math.min(gridSize*.15,16));
 }
+
+/**
+ * Never approve another guided leg whose arrival is the checkpoint recorded
+ * as the most recently completed leg's arrival. The chosen Point B might be
+ * slightly offshore, so destination-distance tolerance alone cannot prevent
+ * repeated booking at the same port. A different checkpoint (or an actual
+ * land continuation) remains a valid onward destination.
+ */
+export function isRepeatedArrivalCheckpoint(record,checkpoint){
+  if(!record||record.status!=="paused"||!checkpoint?.id)return false;
+  const last=record.legs?.at(-1);
+  return Boolean(last&&last.completedPercent>=99.999&&
+    last.transport?.arrivalCheckpointId===checkpoint.id);
+}
