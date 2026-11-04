@@ -25,7 +25,7 @@ export function activeRoadDockForSceneConfig(app, dock, controller) {
 export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-road-editor-dock",
-    window: { title: "Atlas — Road Editor", resizable: true },
+    window: { title: "Atlas — Road Editor", resizable: true, minimizable: true },
     position: { width: 340, height: 270, left: 80, top: 115 }
   };
 

@@ -150,13 +150,18 @@ test("Focus Map uses native window minimization without losing an unsaved road d
     globalThis.game={user:{isGM:true}};
     globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
     const {AtlasRoadEditorDock}=await import("../scripts/road-editor-dock.js");
+    assert.equal(AtlasRoadEditorDock.DEFAULT_OPTIONS.window.minimizable,true,
+      "Foundry only offers native minimize/restore on minimizable windows");
     const scene={id:"map-focus-scene",canUserModify:()=>true};
     const draft={mode:"points",points:8,dirty:true,canUndo:false};
     let saves=0,cancels=0,minimizes=0,reads=0;
     const controller={getDraft:()=>{reads++;return draft;}};
     const dock=new AtlasRoadEditorDock({scene,controller,
       onFinish:()=>{saves++;},onCancel:()=>{cancels++;},onClosed() {}});
-    dock.minimize=async()=>{minimizes++;};
+    dock.minimize=async()=>{
+      if(!dock.constructor.DEFAULT_OPTIONS.window.minimizable)return;
+      minimizes++;
+    };
     const root=await dock._renderHTML();
     const readsAfterRender=reads;
     const focus=button(root,"Focus Map");

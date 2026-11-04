@@ -42,3 +42,10 @@ may generate unrelated warnings; do not assume they belong to Atlas.
 **Stop condition:** If a window loses unsaved edits, a Journey advances time
 twice, or fog/road/visited history disappears, stop and report before saving
 more data. Do not merge the stacked architecture drafts until accepted.
+
+## Focus Map follow-up: beta.7.5.1
+
+After the owner found that **Focus Map** produced no visible window change in
+`beta.7.5`, the Road Editor explicitly enables Foundry v14's
+`window.minimizable` option. Verify that the button now collapses the editor
+to its native title bar, which can restore the same unfinished editing session.
