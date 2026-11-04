@@ -930,7 +930,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** Execute the already-previewed curve through Foundry's native movement pipeline. */
   async startGuidedTravel(){
     const view=this.canvasProvider();
-    if(this.travelSession||this.journalStarting||this.pendingTransfer)
+    if(this.travelSession||this.journalStarting)
+      throw Error("Guided travel is already in progress or being prepared.");
+    if(this.pendingTransfer)
       throw Error("Finish the current checkpoint decision before starting another leg.");
     if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
         !view?.ready||view.scene?.id!==this.scene?.id||this.result?.status!=="ok")
