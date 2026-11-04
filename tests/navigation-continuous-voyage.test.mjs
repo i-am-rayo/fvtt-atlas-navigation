@@ -161,11 +161,11 @@ test("recovery rejects altered checkpoints, surfaces or retired methods",()=>{
   const invalid=projected();
   invalid.legs[0].arrivalCheckpoint={id:"different-port",name:"Other"};
   assert.throws(()=>restoreApprovedTransportPlan(route(),invalid,saved,[method]),
-    /approved checkpoint/);
+    /approved checkpoint \(arrival checkpoint changed\)/);
   const wrong=projected();
   wrong.legs[0].surface="land";
   assert.throws(()=>restoreApprovedTransportPlan(route(),wrong,saved,[method]),
-    /approved checkpoint/);
+    /approved checkpoint \(travel surface changed\)/);
   assert.throws(()=>restoreApprovedTransportPlan(route(),projected(),saved,[]),
     /no longer compatible/);
   assert.equal(restoreApprovedTransportPlan(route(),projected(),

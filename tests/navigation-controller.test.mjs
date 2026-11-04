@@ -94,6 +94,73 @@ test("canvas recovery restarts only the matching GM-approved Journey after its w
   }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
 });
 
+test("a refreshed checkpoint-bound Riding Horse journey recovers its physical route and original destination",()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui};
+  try{
+    const scene={id:"paedor",name:"Paedor",grid:{size:100,units:"mi"}};
+    const atlas={revision:7,roads:[{id:"road",name:"Hearth's Heart"}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:48,y:0}],
+      checkpoints:[{id:"hearth-dock",name:"Hearth's Heart Dock",
+        nodeId:"b",roadId:"road"}]};
+    const token={id:"party",x:-26,y:-50,width:1,height:1,
+      canUserModify:()=>true};
+    const initial={status:"ok",start:point(0,0),end:point(48,0),
+      distance:48,cost:48,terrainAware:false,legs:[{
+        kind:"road",roadId:"road",segmentId:"segment",
+        distance:48,cost:48,points:[point(0,0),point(48,0)]}]};
+    const itinerary=createNavigationItinerary({sceneId:scene.id,
+      sceneName:scene.name,sceneUnits:"mi",atlasRevision:7,
+      route:initial,travel:{speed:3}});
+    itinerary.transport={methodId:"riding-horse",methodName:"Riding Horse",
+      kind:"mount",arrangement:"owned",surface:"land",
+      departureCheckpointName:null,arrivalCheckpointId:"hearth-dock",
+      arrivalCheckpointName:"Hearth's Heart Dock",
+      roadNames:["Hearth's Heart"],estimatedFareCp:0,operation:"normal"};
+    const saved=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:7,itinerary,journeyDestination:point(60,0)});
+    saved.status="interrupted";
+    saved.legs[0].completedPercent=50;
+    saved.legs[0].completedMovingHours=8;
+    saved.legs[0].worldTravelSeconds=8*3600;
+    saved.legs[0].worldRestSeconds=8*3600;
+    const seen=[];
+    const routeCalculator=(_view,_scene,_atlas,start,end,options)=>{
+      seen.push(options);
+      // Walking's terrain-aware route may choose a different attachment.
+      // Recovery must select the saved mount before this calculation.
+      const destination=options.terrainAware===false?end:point(end.x,end.y+10);
+      return {status:"ok",start,end:destination,distance:24,cost:24,
+        terrainAware:options.terrainAware!==false,legs:[{
+          kind:"road",roadId:"road",segmentId:"segment",
+          distance:24,cost:24,points:[start,destination]}]};
+    };
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
+      settings:{get:()=>undefined}};
+    globalThis.ui={notifications:{warn(message){throw Error(message);},
+      error(message){throw Error(message);}}};
+    const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      atlasPoint:(_view,_atlas,center)=>center,routeCalculator});
+    nav.scene=scene;nav.draw=()=>{};nav.render=async()=>{};
+    nav.resolveTravel=()=>({sceneUnit:"mi",travel:{speed:3,hoursPerDay:8,
+      source:"group-method",methodId:"riding-horse"}});
+    nav.recoverableJourney={id:"journal",getFlag:()=>saved};
+    assert.equal(nav.recoverSavedJourney(),true);
+    assert.equal(nav.travelMethod,"riding-horse");
+    assert.equal(nav.transportArrangement,"owned");
+    assert.deepEqual(seen,[{terrainAware:false}]);
+    assert.deepEqual(nav.end,point(48,0),"recovery targets the approved checkpoint");
+    assert.deepEqual(nav.recoveryRecord.destination,point(60,0),
+      "the original final Point B survives an interrupted checkpoint leg");
+    const plan=nav.transportationTransitionPlan();
+    assert.equal(plan.legs[0].recovered,true);
+    assert.equal(plan.legs[0].selectedOption.method.id,"riding-horse");
+    assert.equal(plan.legs[0].costCp,0,"recovery never books a second fare");
+    assert.equal(nav.recoveryRecord.legs[0].worldTravelSeconds,8*3600);
+    assert.equal(nav.recoveryRecord.legs[0].worldRestSeconds,8*3600);
+  }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
 test("manual pauses never arm automatic journey continuation",()=>{
   const previous={game:globalThis.game,ui:globalThis.ui};
   try{

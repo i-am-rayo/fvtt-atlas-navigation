@@ -36,7 +36,8 @@ import {prepareGuidedTransportLeg,confirmGuidedCheckpointArrival}
   from "./navigation-guided-transport-leg.js";
 import {isJourneyDestinationCheckpoint,isRepeatedArrivalCheckpoint}
   from "./navigation-checkpoint-terminal.js";
-import {restoreApprovedTransportPlan,hasUnfinishedApprovedTransport}
+import {restoreApprovedTransportPlan,hasUnfinishedApprovedTransport,
+  approvedTransportRecoverySelection}
   from "./navigation-transport-recovery.js";
 import {requestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
   recoverPassengerRestRequest} from "./navigation-passenger-rest.js";
@@ -796,16 +797,25 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.sourceMode="party";
     this.syncPartyDeparture(view,atlas);
     const recent=saved.legs.at(-1),arrival=recent.transport;
-    // A newly approved overland method is leg-owned Journal metadata. Restore
-    // it before computing the remainder so a redraw cannot silently walk.
-    if(isUnfinishedJourneyLeg(saved)&&!arrival&&recent.travelMethod){
-      const selected=availableNavigationTravelMethods(game.settings,game.system?.id)
-        .find(method=>method.id===recent.travelMethod.id);
-      if(!selected||selected.surface!=="land")
-        throw Error("The saved land transportation method is unavailable. Ask the GM to replan.");
-      this.travelMethod=selected.id;
-      this.transportArrangement=recent.travelMethod.arrangement;
-      this.transportOperation=recent.travelMethod.operation;
+    // Both checkpoint-bound transport and ordinary land travel must restore
+    // their approved method BEFORE calculating the remaining road route.
+    // A default Walking calculation may choose a different terrain-aware
+    // path, which would then fail the original checkpoint safety guard.
+    if(isUnfinishedJourneyLeg(saved)){
+      const catalog=availableNavigationTravelMethods(game.settings,game.system?.id);
+      const approved=approvedTransportRecoverySelection(saved,catalog);
+      if(approved){
+        this.travelMethod=approved.methodId;
+        this.transportArrangement=approved.arrangement;
+        this.transportOperation=approved.operation??"normal";
+      }else if(recent.travelMethod){
+        const selected=catalog.find(method=>method.id===recent.travelMethod.id);
+        if(!selected||selected.surface!=="land")
+          throw Error("The saved land transportation method is unavailable. Ask the GM to replan.");
+        this.travelMethod=selected.id;
+        this.transportArrangement=recent.travelMethod.arrangement;
+        this.transportOperation=recent.travelMethod.operation;
+      }
     }
     if(saved.status==="paused"&&recent.completedPercent>=99.999&&
         arrival?.arrivalCheckpointId){

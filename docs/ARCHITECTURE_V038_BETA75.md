@@ -151,6 +151,22 @@ time, board transport, move a token, create a new leg, charge currency or
 write Journal state. Preserve exact order and visible copy. This is a separate
 stacked draft with no gameplay, permissions or persisted-schema changes.
 
+**Beta.7.11.1 recovery hotfix after beta.7.11 owner redraw failure:** The
+Journal already records a checkpoint-bound authorized transportation method,
+arrangement, operation, speed, movement progress, rests and ultimate Point B.
+On Canvas redraw, a fresh Navigation controller defaults to Walking; routing
+before restoring that saved method can apply terrain weighting to a previously
+mounted physical route and fail the approved endpoint guard. Extract a pure,
+read-only saved-transport selection validator and apply it before rerouting
+the interrupted leg. Continue to reject changed routes, checkpoints, surfaces
+and missing methods; provide distinct guard failure reasons. Do not silently
+select Walking, overwrite Journey authority, replay approved World-time or
+rest events, rebook transport, patch native Canvas, or write on read. This
+remains an adapter/application boundary correction, not a wholesale rewrite.
+R-01 investigation of *why* Foundry redraws the Canvas is independent and
+does not justify suppressing native teardown. Live GM/player v14 redraw and
+recovery verification remains mandatory.
+
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.
