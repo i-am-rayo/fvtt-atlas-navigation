@@ -13,6 +13,8 @@ export function validateTransportJourneyInfo(raw){
       !validText(raw.methodName)||!raw.methodName.trim()||
       !validText(raw.methodId,128)||!validText(raw.kind,24)||
       !optionalText(raw.departureCheckpointName)||
+      !(raw.operation==null||["normal","continuous","overtime"].includes(raw.operation))||
+      !(raw.continuation==null||typeof raw.continuation==="boolean")||
       !validText(raw.arrivalCheckpointId,128)||
       !validText(raw.arrivalCheckpointName)||
       !Array.isArray(raw.roadNames)||raw.roadNames.length>40||
@@ -26,7 +28,8 @@ export function validateTransportJourneyInfo(raw){
     departureCheckpointName:raw.departureCheckpointName,
     arrivalCheckpointId:raw.arrivalCheckpointId,
     arrivalCheckpointName:raw.arrivalCheckpointName,
-    roadNames:[...raw.roadNames],estimatedFareCp:raw.estimatedFareCp
+    roadNames:[...raw.roadNames],estimatedFareCp:raw.estimatedFareCp,
+    operation:raw.operation??null,continuation:raw.continuation===true
   };
 }
 
@@ -40,6 +43,9 @@ export function confirmedTransportJourneyLines(info,{movingHours=0,complete=fals
     arrivalCheckpoint:complete?{name:t.arrivalCheckpointName}:null,
     roadNames:t.roadNames
   };
+  if(t.continuation)return ["The party continued aboard "+t.methodName+
+    " toward "+t.arrivalCheckpointName+".",
+    ...(complete?["Disembarked at "+t.arrivalCheckpointName+"."]:[])];
   return describeTransportationLeg(leg,{
     name:t.methodName,kind:t.kind,surface:t.surface,arrangement:t.arrangement
   });

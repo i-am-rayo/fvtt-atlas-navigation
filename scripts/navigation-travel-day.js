@@ -76,9 +76,11 @@ export class GuidedTravelDayTracker {
         hours>this.availableHours+1e-4)
       throw Error("Movement exceeds the approved daily travel allowance.");
     const previous=this.todayHours;
-    this.todayHours+=hours;
-    this.completedHours=Math.min(this.travelHours,this.completedHours+hours);
     const daily=this.rules.dailyHours;
+    // A continuous vessel has no party travel-day limit. Keep its display
+    // clock in the Journal's existing 0–24h range even on multi-day voyages.
+    this.todayHours=daily===null?(this.todayHours+hours)%24:this.todayHours+hours;
+    this.completedHours=Math.min(this.travelHours,this.completedHours+hours);
     if(daily===null||this.rules.forcedMarch==="custom")return null;
     const oldExtra=Math.floor(Math.max(0,previous-daily)+EPSILON);
     const newExtra=Math.floor(Math.max(0,this.todayHours-daily)+EPSILON);

@@ -8,7 +8,9 @@ const EPS=1e-7;
 
 export function journeyBreakLabel(action){
   return ({overnight:"Overnight Camp",long:"Long Rest",short:"Short Rest",
-    continue:"Continue March"})[action]??"Travel Break";
+    continue:"Continue March",
+    "short-underway":"Short Rest Aboard",
+    "long-underway":"Long Rest Aboard"})[action]??"Travel Break";
 }
 
 /** Display estimates may follow the visible 100ms playback, but World-clock

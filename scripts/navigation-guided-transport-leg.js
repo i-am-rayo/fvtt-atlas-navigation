@@ -47,7 +47,8 @@ export function prepareGuidedTransportLeg(route,leg){
       arrivalCheckpointId:leg.arrivalCheckpoint.id,
       arrivalCheckpointName:leg.arrivalCheckpoint.name,
       roadNames:[...leg.roadNames],
-      estimatedFareCp:leg.costCp??null}
+      estimatedFareCp:leg.costCp??null,
+      operation:leg.operation??"normal",continuation:Boolean(leg.recovered)}
   };
 }
 

@@ -33,6 +33,8 @@ import { projectTransportationRouteLegs,transportationLegSelection,
 import {appendGroupedTransportationOptions} from "./navigation-transport-choices.js";
 import {prepareGuidedTransportLeg,confirmGuidedCheckpointArrival}
   from "./navigation-guided-transport-leg.js";
+import {restoreApprovedTransportPlan} from "./navigation-transport-recovery.js";
+import {requestPassengerRest,confirmPassengerRest} from "./navigation-passenger-rest.js";
 import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
   from "./navigation-measure-units.js";
 import { readGroupTransportation,projectGroupTransportation,
@@ -110,6 +112,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.journeySchedule=null;
     this.pointerTarget = null;
     this.overlay = null;
+    this.routePulseTicker=null;
+    this.routePulseOwner=null;
     this.pointerDown = this.onPointerDown.bind(this);
     this.closedByController = false;
     this.recoverableJourney=null;
@@ -295,6 +299,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
     const projected=projectTransportationRouteLegs(this.result,atlas,presets.presets);
     const catalog=availableNavigationTravelMethods(game.settings,game.system?.id);
+    const restored=restoreApprovedTransportPlan(this.result,projected,
+      this.recoveryRecord,catalog);
+    if(restored)return restored;
     const actor=this.getPartyToken()?.actor;
     let roster=null;
     if(game.system?.id==="dnd5e"&&actor?.type==="group")
@@ -356,6 +363,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "Choose an available method for this route leg.":
         allSurfaces?"Select a method after confirming the unclassified terrain and landing.":
         "Select an available "+leg.surface+" method at the departure checkpoint.");
+      const operation=option?.method?.continuousEnabled&&
+        ["water","air"].includes(option.method.surface)&&
+        option.method.kind==="vehicle"?"continuous":"normal";
       let hours=null,costCp=null;
       if(option){
         let speed=null;
@@ -382,7 +392,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 groupMethodFareEstimate(roster,option.method,{
                   hours,distanceMi,dayHours:8}):null;
               const quote=quoteTransportationService(option.method,{
-                arrangement:option.arrangement,operation:"normal",
+                arrangement:option.arrangement,operation,
                 movingHours:hours,distanceMi,travelers:roster?.travelers??1,
                 ownedQuote,regularHours:8});
               costCp=quote.totalCp;
@@ -393,11 +403,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(errors.length)complete=false;
       if(!errors.length){
         totalHours+=hours??0;
-        const days=hours>0?Math.ceil(Math.max(0,hours-1e-7)/8):0;
-        totalElapsedHours+=(hours??0)+Math.max(0,days-1)*16;
+        const days=hours>0?Math.ceil(Math.max(0,hours-1e-7)/
+          (operation==="continuous"?24:8)):0;
+        totalElapsedHours+=(hours??0)+(operation==="continuous"?0:
+          Math.max(0,days-1)*16);
         totalCp+=costCp??0;
       }
-      return {...leg,options,selectedOption:option??null,
+      return {...leg,options,selectedOption:option??null,operation,
         selectedValue:option?.value??"",
         methodName:option?.method?.name??null,
         narration:describeTransportationLeg(leg,option?{
@@ -660,10 +672,29 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const canvasPoint = p => toCanvasPoint(view, atlas, p);
     const paths=navigationCanvasLegPaths(view,atlas,this.result);
     for (const {kind,points} of paths) {
-      const spans = kind === "road" ? [points] : roadStrokeSpans(points, "dashed", 4);
-      drawNavigationLine(graphics, spans, {
-        color:0xffa51f, width:kind==="road"?6:3.5, alpha:0.95
+      const spans=kind==="road"?[points]:roadStrokeSpans(points,"dashed",4);
+      // A dark halo separates the active route from the underlying road art.
+      // The cyan highlight stays legible against land and sea backgrounds.
+      drawNavigationLine(graphics,spans,{
+        color:0x071a2b,width:kind==="road"?15:12,alpha:0.95
       });
+      drawNavigationLine(graphics,spans,{
+        color:0x00edff,width:kind==="road"?9:7,alpha:1
+      });
+    }
+    // Alpha-only pulsation does not rebuild or redraw the Foundry canvas.
+    // Keep exactly one ticker callback and release it on Navigation teardown.
+    if(this.routePulseOwner!==view.app&&this.routePulseTicker){
+      this.routePulseOwner?.ticker?.remove?.(this.routePulseTicker);
+      this.routePulseTicker=null;this.routePulseOwner=null;
+    }
+    if(!this.routePulseTicker&&view.app?.ticker?.add){
+      const callback=()=>{
+        if(this.overlay&&!this.overlay.destroyed)
+          this.overlay.alpha=.82+.18*(.5+.5*Math.sin(Date.now()/380));
+      };
+      view.app.ticker.add(callback);
+      this.routePulseTicker=callback;this.routePulseOwner=view.app;
     }
     for (const [point,color] of [[this.start,0x16b9a1],[this.end,0xf34c4c]]) {
       if (!point) continue;
@@ -818,24 +849,42 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   /** All rule interpretations flow through one pure World settings adapter. */
-  resolveTravelRules(travel){
+  resolveTravelRules(travel,approvedMethod=null,approvedOperation=null){
     const rules=resolveNavigationTravelRules({settings:game.settings,
       systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
     if(!travel?.methodId||travel.methodId==="walking")return rules;
-    // Preview-only; actual guided token movement is still Walking-only.
-    const preset=availableNavigationTravelMethods(game.settings,game.system?.id)
+    const preset=approvedMethod??availableNavigationTravelMethods(game.settings,game.system?.id)
       .find(method=>method.id===travel.methodId);
     if(!preset)return rules;
     const normalHours=preset.surface==="land"?
       (rules.dailyHours??8):8;
-    let operation=this.transportOperation??"normal";
+    let operation=approvedOperation??this.transportOperation??"normal";
     let selected;
     try{selected=resolveTransportationOperation(preset,operation,normalHours);}
     catch{operation="normal";this.transportOperation="normal";
       selected=resolveTransportationOperation(preset,"normal",normalHours);}
-    return {...rules,profile:"transport-preview",label:"Transport service preview",
-      dailyHours:selected.dailyHours,overnightHours:selected.overnightHours,
+    return {...rules,profile:"transport-service",label:"Transport service",
+      // Crewed vessels may operate 24h by shifts; passengers choose their own
+      // rest times without stopping the ship or triggering forced march.
+      dailyHours:operation==="continuous"?null:selected.dailyHours,
+      overnightHours:operation==="continuous"?0:selected.overnightHours,
       forcedMarch:"custom"};
+  }
+
+  /** A passenger can rest aboard a continuously operating vessel without
+   * stopping its native movement or adding duplicate World-clock hours. */
+  choosePassengerRest(action){
+    const session=this.travelSession;
+    if(!session||session.phase!=="moving"||
+        session.transportLeg?.transport?.operation!=="continuous"||
+        session.pendingPassengerRest)return false;
+    const request=requestPassengerRest(session.schedule,action);
+    session.pendingPassengerRest=request;
+    this.travelNotice=(action==="long"?"Long":"Short")+" rest underway aboard "+
+      session.transportLeg.transport.methodName+". The vessel keeps moving; "+
+      "the rest is confirmed only after the required travel time elapses.";
+    if(this.active)void this.render(true);
+    return true;
   }
 
   /** The GM's choice is explicit; it cannot originate in a background timer. */
@@ -953,7 +1002,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.calculateRoute(view,atlas);this.draw();void this.render(true);
       throw Error("The party moved since the preview. Select transportation on the refreshed route.");
     }
-    let guidedLeg=null;
+    let guidedLeg=null,guidedOption=null;
     // Preserve the proven walking lifecycle. Other movement is permitted ONLY
     // to the next authored checkpoint, never across a guessed surface change.
     if(Array.isArray(atlas.roads)&&Array.isArray(atlas.nodes)&&
@@ -961,7 +1010,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.result.legs.every(leg=>Array.isArray(leg.points)&&leg.points.length>=2)){
       const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
       const projected=projectTransportationRouteLegs(this.result,atlas,presets.presets);
-      if(projected.hasTransitions){
+      const savedTransport=this.recoveryRecord?.legs?.at(-1)?.transport;
+      if(projected.hasTransitions||savedTransport){
         if(this.sourceMode!=="party")
           throw Error("Checkpoint-assisted movement requires the assigned party token as Point A.");
         const plan=this.transportationTransitionPlan();
@@ -975,6 +1025,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     let travel=this.resolveTravel().travel;
     if(guidedLeg){
       const option=this.transportationTransitionPlan()?.legs[0]?.selectedOption;
+      guidedOption=option;
       const info=guidedLeg.transport;
       const speedDistance=info.methodId==="walking"&&route.terrainAware?
         route.cost:route.distance;
@@ -1022,7 +1073,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     });
     const totalDistance=chunks.reduce((sum,chunk)=>sum+chunk.distance,0);
     const schedule=new GuidedTravelDayTracker({travelHours:playback.travelHours,
-      rules:this.resolveTravelRules(travel)});
+      rules:this.resolveTravelRules(travel,guidedOption?.method,
+        guidedLeg?.transport?.operation)});
     const advanceWorldTime=readNavigationWorldClockSetting(game.settings);
     if(advanceWorldTime){
       if(game.users?.activeGM?.id!==game.user?.id||!game.user?.isGM)
@@ -1032,7 +1084,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
-      transportLeg:guidedLeg,
+      transportLeg:guidedLeg,pendingPassengerRest:null,
       completedDistance:0,totalDistance,currentChunk:null,timer:null,clock:null,
       confirmedSegments:0,restCheckpointed:false};
     session.finished=new Promise(resolve=>{session.resolveFinished=resolve;});
@@ -1174,6 +1226,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           completedPercent:Math.round(100*session.completedDistance/totalDistance)
         },{level:"verbose"});
         schedule.recordMovement(chunk.distance/totalDistance*playback.travelHours);
+        if(session.pendingPassengerRest&&
+            confirmPassengerRest(schedule,session.pendingPassengerRest)){
+          atlasDebug("journey","Passenger rest completed while voyage continued",{
+            sceneId:session.sceneId,action:session.pendingPassengerRest.action,
+            hours:session.pendingPassengerRest.hours});
+          this.travelNotice="Passenger rest completed aboard "+
+            guidedLeg.transport.methodName+" while the vessel kept moving.";
+          session.pendingPassengerRest=null;
+        }
         session.confirmedSegments++;
         this.setTravelProgress(Math.min(99,100*session.completedDistance/totalDistance));
         try{await this.commitGuidedWorldTime(session);}
@@ -1443,6 +1504,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelSession=null;
     this.pointerTarget?.removeEventListener?.("pointerdown",this.pointerDown,true);
     this.pointerTarget = null;
+    if(this.routePulseTicker)this.routePulseOwner?.ticker?.remove?.(this.routePulseTicker);
+    this.routePulseTicker=null;this.routePulseOwner=null;
     this.overlay?.parent?.removeChild?.(this.overlay);
     this.overlay?.destroy?.();
     this.overlay = null;
@@ -1974,7 +2037,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const section=el("section");
       section.style.cssText="display:grid;gap:.65rem;border:1px solid var(--color-border-light-tertiary,#777);border-radius:8px;padding:.8rem;";
       section.append(el("h3","Current journey leg"));
-      const note=el("small","Choose transportation for the stretch ahead. At the next checkpoint the party may stop, reconsider its destination, or choose a new method. Future legs are only a GM preview; no booking, payment or movement occurs here.");
+      const note=el("small",transferPlan.legs[0]?.recovered?
+        "Recovered voyage: the previously approved transportation remains assigned. No second fare or boarding is applied. Atlas will continue from the last confirmed token position to the saved checkpoint.":
+        "Choose transportation for the stretch ahead. At the next checkpoint the party may stop, reconsider its destination, or choose a new method. Future legs are only a GM preview; no booking, payment or movement occurs here.");
       note.style.cssText="opacity:.8;line-height:1.45;";
       section.append(note);
       const formatMoney=cp=>dndCurrencyBreakdown(cp,
@@ -1996,7 +2061,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         methodRow.style.cssText="display:flex;gap:.5rem;align-items:center;min-width:0;";
         const select=el("select");
         select.style.cssText="flex:1;min-width:0;";
-        select.disabled=Boolean(this.travelSession||this.journalStarting);
+        select.disabled=Boolean(this.travelSession||this.journalStarting||leg.recovered);
         select.setAttribute("aria-label","Transportation method for current leg");
         const placeholder=el("option","Select a transport method");
         placeholder.value="";select.append(placeholder);
@@ -2009,7 +2074,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           void this.render(true);
         });
         methodRow.append(select);
-        if(leg.selectedOption&&leg.selectedOption.method?.id!=="walking"){
+        if(!leg.recovered&&leg.selectedOption&&leg.selectedOption.method?.id!=="walking"){
           const edit=el("button");
           edit.type="button";edit.title="Edit this leg's transportation and save for trip or checkpoint";
           edit.setAttribute("aria-label","Edit current leg transportation");
@@ -2098,8 +2163,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           this.journeySchedule:null;
         const plan=hours===null?null:schedule?.estimate??
           estimateNavigationTotalTrip(hours,rules);
+        const activeContinuous=activeLeg?.operation==="continuous";
         const activeDays=hours>0?Math.ceil(Math.max(0,hours-1e-7)/8):0;
-        const activeElapsed=hours===null?null:hours+Math.max(0,activeDays-1)*16;
+        const activeElapsed=hours===null?null:hours+
+          (activeContinuous?0:Math.max(0,activeDays-1)*16);
         metric(activeLeg?"Current Leg Total":"Total Trip",
           activeLeg?(activeElapsed===null?"Choose method":
             formatNavigationDuration(activeElapsed,24)):
@@ -2108,9 +2175,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const transportPreview=this.travelMethod!=="walking"&&
           ["mount","vehicle"].includes(activeMethod?.kind)&&rules.dailyHours!==null;
         const explanation=transferPlan?.hasTransitions?
-          "Only the current stretch is estimated. Later changes of transport remain decisions at checkpoints. "+
-          "An 8-hour operating day and 16-hour overnight downtime are used for this preview; real rests remain GM decisions. "+
-          "Guided transport movement awaits beta.7.":
+          "Only the current stretch is estimated. Later transport decisions are made at checkpoints. "+
+          (activeLeg?.operation==="continuous"?
+            "This vessel operates continuously. Passenger rests may overlap sailing time without stopping the vessel or adding duplicate World time.":
+            "Standard travel estimates allow 8 hours/day with 16 hours overnight downtime; actual stops remain GM decisions."):
           transportPreview?
           "Transport service preview ("+this.transportOperation+"): "+
           rules.dailyHours+"h travel/day, "+rules.overnightHours+
@@ -2300,7 +2368,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             (step.todayHours!==null?
               ` · ${formatNavigationDuration(step.todayHours,24)} traveled today`:"");
           const detail=el("div",step.hours?
-            `${formatNavigationDuration(step.hours,24)} downtime · ${timeContext}`:
+            `${formatNavigationDuration(step.hours,24)} ${step.action?.endsWith("-underway")?"rest aboard while underway":"downtime"} · ${timeContext}`:
             `One extra travel hour approved · ${timeContext}`);
           detail.style.cssText="opacity:.75;font-size:.85em;margin-top:.2rem;";
           content.append(name,detail);item.append(badge,content);list.appendChild(item);
@@ -2403,6 +2471,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           });
         });
         row.appendChild(move);
+      }
+      if(this.travelSession?.transportLeg?.transport?.operation==="continuous"&&
+          this.travelSession.phase==="moving"){
+        const session=this.travelSession;
+        for(const [action,title,hours] of [
+          ["short","Short Rest Aboard",session.schedule.rules.shortRestHours],
+          ["long","Long Rest Aboard",session.schedule.rules.longRestHours]
+        ]){
+          const underway=el("button",title+" ("+hours+"h)");
+          underway.type="button";
+          underway.title="Rest while the vessel continues traveling; World time advances with confirmed movement only.";
+          underway.disabled=Boolean(session.pendingPassengerRest)||
+            hours>session.schedule.remainingHours+1e-7;
+          underway.addEventListener("click",()=>{
+            try{if(!this.choosePassengerRest(action))
+              ui.notifications.warn("A passenger rest is already underway.");}
+            catch(error){ui.notifications.warn(error.message??String(error));}
+          });
+          row.appendChild(underway);
+        }
       }
       if(this.travelSession){
         const end=el("button","End Journey");

@@ -156,7 +156,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     record.status==="paused"?"Paused — may resume":"In progress";
   const confirmedMoving=record.legs.reduce((sum,leg)=>sum+leg.completedMovingHours,0);
   const confirmedBreaks=record.legs.reduce((sum,leg)=>sum+
-    leg.events.reduce((hours,event)=>hours+(Number(event.hours)||0),0),0);
+    leg.events.reduce((hours,event)=>hours+(isRestUnderway(event.action)?0:(Number(event.hours)||0)),0),0);
   const clockMoving=record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0);
   const clockBreaks=record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0);
   const legs=record.legs.map((leg,index)=>{
@@ -178,11 +178,13 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       (step.todayHours!==null?
         ` (${escapeHTML(formatNavigationDuration(step.todayHours,24))} traveled today)`:
         "")+
-      (step.hours?` (+${escapeHTML(formatNavigationDuration(step.hours,24))})`:"")+
+      (step.hours?(isRestUnderway(step.action)?
+        ` — ${escapeHTML(formatNavigationDuration(step.hours,24))} resting while underway`:
+        ` (+${escapeHTML(formatNavigationDuration(step.hours,24))})`):"")+
       (step.startedTimeLabel?` — World time: ${escapeHTML(step.startedTimeLabel)}`:"")+
       (step.endedTimeLabel&&step.endedTimeLabel!==step.startedTimeLabel?
         ` to ${escapeHTML(step.endedTimeLabel)}`:
-        (step.hours&&step.endedTimeLabel===step.startedTimeLabel?
+        (step.hours&&!isRestUnderway(step.action)&&step.endedTimeLabel===step.startedTimeLabel?
           " (World clock unchanged)":""))+"</li>":
       `<li>${escapeHTML(step.instruction)} — ${escapeHTML(displayDistance(Number(step.distance)))}</li>`).join("");
     return `<section><h2>Leg ${index+1}: ${escapeHTML(leg.sceneName)}</h2>`+
