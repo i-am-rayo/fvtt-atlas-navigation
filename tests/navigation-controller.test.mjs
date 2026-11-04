@@ -152,6 +152,10 @@ test("navigation locks the completed route until deliberate endpoint gestures or
       }});
     nav.activate();
     assert.equal(nav.sourceMode,"map","Scenes without an assigned explorer keep map-point mode");
+    const find=(item,match)=>match(item)?item:item.children.map(child=>find(child,match)).find(Boolean);
+    const beforeRoute=await nav._renderHTML();
+    assert.equal(find(beforeRoute,item=>item.id==="atlas-navigation-travel-method"),undefined,
+      "Travel method is hidden until a route has been calculated");
     assert.equal(listeners.has("pointerdown"),true);
     const first=pointer(10,20);listeners.get("pointerdown")(first);
     assert.deepEqual(nav.start,point(10,20));assert.equal(nav.end,null);
@@ -179,7 +183,6 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     const copy=nav.getItinerarySnapshot();copy.legs[0].points[0].x=999;
     assert.equal(nav.getItinerarySnapshot().legs[0].points[0].x,20);
     const content=await nav._renderHTML();
-    const find=(item,match)=>match(item)?item:item.children.map(child=>find(child,match)).find(Boolean);
     const newRoute=find(content,item=>item.tag==="button"&&item.textContent==="New Route");
     assert.ok(newRoute,"New Route is always visible in the non-scrolling footer");
     const footer=content.children.at(-1);
@@ -796,7 +799,11 @@ test("multi-surface guided travel stops at the first actual port and checkpoints
     document:globalThis.document};
   try{
     globalThis.document={createElement:tag=>({tag,style:{},children:[],
-      textContent:"",appendChild(node){this.children.push(node);}})};
+      listeners:new Map(),textContent:"",
+      append(...nodes){this.children.push(...nodes);},
+      appendChild(node){this.children.push(node);},
+      addEventListener(name,handler){this.listeners.set(name,handler);},
+      setAttribute(){}})};
     let confirmed=0;
     globalThis.foundry={applications:{api:{DialogV2:{
       confirm:async()=>{confirmed++;return true;}
@@ -845,8 +852,16 @@ test("multi-surface guided travel stops at the first actual port and checkpoints
     nav.start=full.start;nav.end=full.end;nav.result=full;
     nav.syncPartyDeparture=()=>false;
     nav.draw=()=>{};
-    nav.render=async()=>{};
-    nav.resolveTravel=()=>({travel:{speed:3}});
+    nav.render=async()=>{
+      // Reproduce Foundry's immediate render after GM approval. This must use
+      // the current checkpoint leg, not the full land-water itinerary.
+      await nav._renderHTML();
+      if(nav.travelSession?.transportLeg){
+        assert.ok(Math.abs(nav.journeyTimeUI.travelHours-10/3)<1e-6);
+        assert.ok(Math.abs(nav.journeyTimeUI.plan.movingHours-10/3)<1e-6);
+      }
+    };
+    nav.resolveTravel=()=>({sceneUnit:"mi",travel:{speed:3}});
     nav.itinerary=createNavigationItinerary({sceneId:scene.id,route:full,
       travel:{speed:3},roadName:id=>id});
     const leg={index:0,firstRouteLeg:0,lastRouteLeg:0,

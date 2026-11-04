@@ -1710,7 +1710,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         globalThis.ui?.notifications?.error?.(error?.message??String(error))));
       methodRow.append(edit);
     }
-    if(!transferPlan?.hasTransitions)body.appendChild(methodRow);
+    if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)body.appendChild(methodRow);
     if(this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
       const worldMethod=methods.find(item=>item.id===this.travelMethod);
       const method=worldMethod&&this.effectiveTransportMethod(worldMethod,availability);
@@ -2160,11 +2160,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           section.append(heading,value);status.appendChild(section);
           return value;
         };
-        this.journeyTimeUI={travelHours:navigationHours(
-          this.result.terrainAware?this.result.cost:this.result.distance,speed),
-          plan:estimateNavigationTotalTrip(navigationHours(
-            this.result.terrainAware?this.result.cost:this.result.distance,speed),
-            this.resolveTravelRules(travel)),
+        // The full multi-surface route is only a preview. Its distance must not
+        // replace the checkpoint-clipped native journey's timing projection.
+        const activeGuidedLeg=this.travelSession?.transportLeg;
+        const progressHours=activeGuidedLeg?this.travelSession.schedule.travelHours:
+          navigationHours(this.result.terrainAware?this.result.cost:
+            this.result.distance,speed);
+        this.journeyTimeUI={travelHours:progressHours,
+          plan:estimateNavigationTotalTrip(progressHours,
+            activeGuidedLeg?this.travelSession.schedule.rules:this.resolveTravelRules(travel)),
           moving:timePart("Travelled (moving)"),
           elapsed:timePart("Elapsed (with rests)"),
           eta:timePart("ETA remaining (in-game)")};
@@ -2273,11 +2277,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           id=>this.atlasProvider(this.scene).roads.find(road=>road.id===id)?.name??"Road"):
         this.itinerary?.directions??buildNavigationSteps(this.result.legs,
           id=>this.atlasProvider(this.scene).roads.find(road=>road.id===id)?.name??"Road");
+      const guidedTimeline=this.travelSession?.transportLeg;
+      const journeyHours=guidedTimeline?this.travelSession.schedule.travelHours:
+        navigationHours(this.result.terrainAware?this.result.cost:
+          this.result.distance,speed);
+      const journeySpeed=guidedTimeline?
+        (guidedTimeline.terrainAware?guidedTimeline.cost:guidedTimeline.distance)/journeyHours:
+        speed;
       const steps=this.journeySchedule?.events?.length?
         annotateJourneyDirections(baseSteps,this.journeySchedule.events,{
-          travelHours:navigationHours(this.result.terrainAware?this.result.cost:
-            this.result.distance,speed),speed,
-          terrainAware:Boolean(this.result.terrainAware)}):baseSteps;
+          travelHours:journeyHours,speed:journeySpeed,
+          terrainAware:Boolean(guidedTimeline?.terrainAware??this.result.terrainAware)}):baseSteps;
       for (const step of steps) {
         if(step.kind==="journey-event"){
           const item=el("div");
@@ -2318,7 +2328,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       list.appendChild(endpoint(false));
       body.appendChild(list);
     } else {
-      const hint=el("p",`Travel estimates will use ${travelSource}.`);
+      const hint=el("p",this.result?.status==="ok"?
+        `Travel estimates will use ${travelSource}.`:
+        "Choose Point B to see available transportation and journey estimates.");
       hint.style.cssText="margin:0;opacity:.8;font-size:.9em;";body.appendChild(hint);
     }
     const row=el("div");
