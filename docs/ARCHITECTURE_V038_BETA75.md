@@ -50,6 +50,12 @@ At this baseline: **111 JavaScript source files; 358 file relationships; zero un
 
 The CI architecture job fails on *new* cyclic groups or broken relative imports without treating these existing groups as newly introduced regressions. The existing cycles are architectural debt to remove in separate tested slices, not permission to expand them.
 
+**Beta.7.5 boundary slice:** Checkpoint Preset World reads have moved into
+`checkpoint-preset-store.js`, which has no ApplicationV2 dependency. This removes
+the second cycle above; only the fog/exploration storage cycle remains on the
+current baseline. `checkpoint-preset-settings.js` re-exports the reader for
+compatibility. No World setting or document schema changes.
+
 ## 3. UI responsibility boundaries
 
 | Layer | Owns | Must not own |

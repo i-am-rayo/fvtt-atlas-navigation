@@ -2,8 +2,9 @@
 import { MODULE_ID,readAtlas } from "./atlas-storage.js";
 import { CHECKPOINT_TYPE_GROUPS, CHECKPOINT_TYPES } from "./checkpoint-types.js";
 import { CHECKPOINT_PRESET_SETTING, defaultCheckpointPresets,
-  validateCheckpointPresets, removeCheckpointPreset }
+  removeCheckpointPreset }
   from "./checkpoint-preset-model.js";
+import { readWorldCheckpointPresets } from "./checkpoint-preset-store.js";
 import { resolveCheckpointAppearance }
   from "./checkpoint-appearance.js";
 import { createCheckpointIconGlyph } from "./checkpoint-icon-control.js";
@@ -12,9 +13,9 @@ import { CHECKPOINT_BULK_FIELDS,buildCheckpointBulkUpdate,
   applyCheckpointPresetBulk } from "./checkpoint-bulk-apply.js";
 
 const node=(tag,label)=>{const n=document.createElement(tag);if(label!==undefined)n.textContent=label;return n;};
-export function readWorldCheckpointPresets(){
-  return validateCheckpointPresets(game.settings.get(MODULE_ID,CHECKPOINT_PRESET_SETTING));
-}
+// Keep the public import stable for existing callers while the data read lives
+// outside of the ApplicationV2 module.
+export { readWorldCheckpointPresets };
 export function registerWorldCheckpointPresets(){
   game.settings.register(MODULE_ID,CHECKPOINT_PRESET_SETTING,{
     name:"Atlas Checkpoint Presets",scope:"world",config:false,type:Object,

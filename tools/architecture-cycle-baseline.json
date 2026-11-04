@@ -1,14 +1,10 @@
 {
-  "notes": "Pre-existing cycles at the unchanged v0.3.8-beta.7.4.4 head. New cycles fail architecture:check; remove groups only after their imports are decoupled.",
+  "notes": "Remaining pre-existing cycles after decoupling checkpoint preset World reads from UI. New cycles fail architecture:check; remove groups only after their imports are decoupled.",
   "cycles": [
     [
       "scripts/atlas-manual-fog-storage.js",
       "scripts/atlas-map-fog-storage.js",
       "scripts/party-exploration-storage.js"
-    ],
-    [
-      "scripts/checkpoint-preset-editor.js",
-      "scripts/checkpoint-preset-settings.js"
     ]
   ]
 }

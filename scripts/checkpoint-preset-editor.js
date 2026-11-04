@@ -3,7 +3,7 @@ import { resolveAtlasMeasuringUnits } from "./navigation-measure-units.js";
 import { CHECKPOINT_TYPE_GROUPS } from "./checkpoint-types.js";
 import { CHECKPOINT_PRESET_SETTING,upsertCheckpointPreset,
   checkpointPresetAppearance } from "./checkpoint-preset-model.js";
-import { readWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
+import { readWorldCheckpointPresets } from "./checkpoint-preset-store.js";
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
 import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
 import { approveSettingsClose,trackSettingsChanges } from "./settings-close-guard.js";
