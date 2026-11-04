@@ -194,6 +194,18 @@ Journey leg. This prepares a reusable, read-only transfer summary for the
 future player pamphlet without exposing GM actions or changing future-leg
 approval semantics. Preserve exact copy, ordering and Foundry v14 behavior.
 
+**Beta.7.12.1 completed-route action correction:** The owner confirmed a
+multi-surface beta.7.12 Journey ended with a completed Journal and 100% progress,
+but the saved final-leg route preview still rendered an actionable Play button.
+The controller now records a transient `completedRoute` lock only after the
+completed Journal checkpoint succeeds. The Footer hides movement/rest actions
+for that finished preview, while New Route and Open Journey Journal remain
+available. The guarded travel action independently refuses an old completed
+preview. A deliberate new route calculation or Clear resets this UI lock.
+No persisted schema, token movement, World-clock calculation or recovery
+checkpoint logic changes. Owner GM/player v14 acceptance is still required;
+the next decomposition slice must not depend on this hotfix before acceptance.
+
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.

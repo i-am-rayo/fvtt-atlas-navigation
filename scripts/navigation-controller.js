@@ -119,6 +119,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelSession=null;
     this.travelNotice="";
     this.travelProgress=0;
+    // Ephemeral control state: only a durably completed Journey locks its
+    // finished route. A deliberate new route calculation releases the lock.
+    this.completedRoute=false;
     this.travelProgressUI=null;
     this.journeyTimeUI=null;
     this.worldTimeAdvancedSeconds=0;
@@ -194,6 +197,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.result=null;
     this.itinerary=null;
     this.travelProgress=0;
+    this.completedRoute=false;
     this.worldTimeAdvancedSeconds=0;
     this.worldTravelAdvancedSeconds=0;
     this.worldRestAdvancedSeconds=0;
@@ -1134,6 +1138,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const view=this.canvasProvider();
     if(this.travelSession||this.journalStarting)
       throw Error("Guided travel is already in progress or being prepared.");
+    if(this.completedRoute)
+      throw Error("This Journey is completed. Choose New Route before traveling again.");
     if(this.pendingTransfer)
       throw Error("Finish the current checkpoint decision before starting another leg.");
     if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
@@ -1506,6 +1512,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             (error.message||String(error));
           arrived=false;atlasWarn("journey",interruptedReason);
         }
+        if(arrived&&!guidedLeg&&session.journeyRecord?.status==="completed")
+          this.completedRoute=true;
         if(arrived&&guidedLeg){
           this.pendingTransfer={sceneId:session.sceneId,atlasRevision:atlas.revision,
             tokenId:token.id,checkpoint:guidedLeg.checkpoint,
@@ -1712,6 +1720,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.notice=reason;
     this.travelNotice="";
     this.travelProgress=0;
+    this.completedRoute=false;
     this.worldTimeAdvancedSeconds=0;
     this.worldTravelAdvancedSeconds=0;
     this.worldRestAdvancedSeconds=0;
@@ -1792,6 +1801,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.notice="";
     this.travelNotice="";
     this.travelProgress=0;
+    this.completedRoute=false;
     this.travelProgressUI=null;
     this.worldTimeAdvancedSeconds=0;
     this.worldTravelAdvancedSeconds=0;

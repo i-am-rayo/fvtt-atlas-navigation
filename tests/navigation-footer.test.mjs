@@ -67,6 +67,28 @@ test("footer is presentation-only until an explicit action is clicked",async()=>
   }finally{restore();}
 });
 
+test("completed route hides Play but keeps Journal and New Route available",()=>{
+  const restore=mockDOM();
+  try{
+    const {nav,calls}=fixture();
+    nav.completedRoute=true;
+    nav.journeyJournal={sheet:{render(){calls.push("journal");}}};
+    const finished=renderNavigationFooter(nav,{methodAssessment:{guided:true}});
+    assert.equal(button(finished,"Travel Route"),undefined,
+      "a 100% completed Journey cannot offer to replay its route");
+    assert.ok(button(finished,"New Route"));
+    assert.ok(button(finished,"Open Journey Journal"));
+    assert.deepEqual(calls,[],"the finished footer remains read-only");
+    button(finished,"Open Journey Journal").listeners.click();
+    assert.deepEqual(calls,["journal"]);
+
+    // A fresh destination/route calculation explicitly releases the lock.
+    nav.completedRoute=false;
+    const next=renderNavigationFooter(nav,{methodAssessment:{guided:true}});
+    assert.equal(button(next,"Travel Route").disabled,false);
+  }finally{restore();}
+});
+
 test("paused Journey footer retains rest, resume, and end accessibility",async()=>{
   const restore=mockDOM();
   try{

@@ -721,6 +721,7 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.equal(nav.travelSession,null);
     assert.match(nav.travelNotice,/Journey ended/);
     assert.ok(nav.travelProgress>0&&nav.travelProgress<100);
+    assert.equal(nav.completedRoute,false,"ending early must not lock future travel");
 
     // A complete journey progresses through its chunks and reaches 100%.
     autoResolve=true;
@@ -729,6 +730,21 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.equal(await again,true);
     assert.equal(nav.travelProgress,100);
     assert.match(nav.travelNotice,/Arrived/);
+    assert.equal(nav.completedRoute,true,"only a confirmed completed Journey locks its preview");
+    const completedPanel=await nav._renderHTML();
+    assert.equal(find(completedPanel,node=>node.tag==="button"&&
+      node.ariaLabel==="Travel Route"),undefined);
+    assert.ok(find(completedPanel,node=>node.tag==="button"&&
+      node.ariaLabel==="New Route"));
+    await assert.rejects(nav.startGuidedTravel(),/Journey is completed/,
+      "stale UI actions cannot restart a completed Journey");
+
+    // An explicit recalculation represents a fresh GM-selected route.
+    const previousRoute=nav.result;
+    nav.routeCalculator=()=>previousRoute;
+    nav.calculateRoute(view,atlas);
+    assert.equal(nav.completedRoute,false);
+    assert.equal(nav.travelProgress,0);
 
     // Native Document movement may finish while the Canvas animation remains active.
     // The in-progress lock and Pause/End controls must persist until it ends.
@@ -844,6 +860,14 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
       sceneUnits:scene.grid.units,atlasRevision:atlas.revision,route:nav.result,
       travel:{speed:5}});
 
+    // Each later call in this test represents a fresh, explicitly planned
+    // Journey. A completed route may no longer be replayed as-is.
+    const newRoute=()=>{
+      const preview=nav.result;
+      nav.routeCalculator=()=>preview;
+      nav.calculateRoute(view,atlas);
+    };
+
     const find=(node,match)=>match(node)?node:
       node.children.map(child=>find(child,match)).find(Boolean);
     const prepared=await nav._renderHTML();
@@ -860,18 +884,21 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     token.x=50;token.y=50;
     const count=seconds.length;
     worldEnabled=false;
+    newRoute();
     assert.equal(await nav.startGuidedTravel(),true);
     assert.equal(seconds.length,count,"disabled World setting prevents time writes");
 
     token.x=50;token.y=50;
     worldEnabled=true;
     game.users.activeGM={id:"another-gm"};
+    newRoute();
     await assert.rejects(nav.startGuidedTravel(),/active GM/);
     assert.equal(seconds.length,count);
     game.users.activeGM={id:"gm-1"};
 
     // If the GM interrupts after one completed chunk, only that part is paid.
     autoResolve=false;
+    newRoute();
     const interrupted=nav.startGuidedTravel();
     for(let i=0;i<5;i++)await Promise.resolve();
     nav.pauseGuidedTravel();
@@ -892,6 +919,7 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     autoResolve=true;
     failClock=true;
     const previousMoves=moveCount;
+    newRoute();
     assert.equal(await nav.startGuidedTravel(),false);
     assert.equal(moveCount,previousMoves+1,"time failure prevents further movement chunks");
     assert.equal(nav.worldTimeAdvancedSeconds,0);
@@ -901,6 +929,7 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     // Navigation window rather than silently dropping the in-flight session.
     failClock=false;failMovement=true;
     token.x=50;token.y=50;
+    newRoute();
     await assert.rejects(nav.startGuidedTravel(),/Native animation failed/);
     assert.match(nav.travelNotice,/Journey interrupted: Native animation failed/);
     assert.equal(nav.travelSession,null);
@@ -911,6 +940,7 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     misplaceNext=true;
     token.x=50;token.y=50;
     const beforeMismatch=seconds.reduce((a,b)=>a+b,0);
+    newRoute();
     assert.equal(await nav.startGuidedTravel(),false);
     assert.equal(nav.worldTimeAdvancedSeconds,0);
     assert.equal(nav.travelProgress,0);
