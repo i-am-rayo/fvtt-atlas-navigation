@@ -169,3 +169,35 @@ test("World Transportation Presets no longer embeds Group-specific assignments",
     assert.match(content,/Land travel/);
   }finally{ctx.restore();}
 });
+
+test("Journey editor exposes explicit Save for this trip and Save to checkpoint controls",async()=>{
+  const ctx=setup();
+  const old=globalThis.foundry;
+  const seen=[];
+  globalThis.foundry={applications:{api:{DialogV2:{
+    input:async config=>{
+      seen.push(config);
+      assert.equal(config.ok.label,"Save for this trip");
+      assert.ok(config.position.height<=680,"dialog stays within the viewport");
+      assert.ok(config.content.children[0].style.cssText.includes("overflow-y:auto"),
+        "edit contents scroll instead of hiding the save buttons");
+      assert.equal(config.buttons.length,1);
+      assert.equal(config.buttons[0].label,"Save to Port Barthos");
+      return null;
+    }
+  }},ux:{FormDataExtended:class {
+    constructor(form){assert.equal(form,"mock-form");this.object={hireBasis:"mile"};}
+  }}}};
+  try{
+    const app=new AtlasTransportationSettings();
+    const method={id:"ship-passage",name:"Ship passage",kind:"vehicle",surface:"water",
+      speedMph:2,capacity:8,costCp:0,costBasis:"none",costApplies:"unit",purchaseGp:null,
+      crewCount:1,hireEnabled:true,hireCostCp:10,hireBasis:"mile",hireApplies:"passenger"};
+    await app._edit(method,"water",{scope:"journey",onSave:async()=>{},
+      onSaveCheckpoint:async()=>{},checkpointName:"Port Barthos"});
+    assert.equal(seen.length,1);
+    const result=seen[0].buttons[0].callback(null,{form:"mock-form"});
+    assert.deepEqual(result,{hireBasis:"mile",__atlasSaveScope:"checkpoint"});
+    assert.deepEqual(ctx.changes,[],"opening scoped editor makes no settings writes");
+  }finally{globalThis.foundry=old;ctx.restore();}
+});

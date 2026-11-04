@@ -48,7 +48,12 @@ export function projectTransportationRouteLegs(route,atlas,travelPresets=[]){
       !Number.isFinite(leg.distance)||leg.distance<0)
       throw Error("Invalid road geometry in transportation itinerary.");
     const previous=result.at(-1);
-    const surface=leg.kind==="road"?
+    // The final off-road attachment has no authored road surface. Treat it
+    // as a distinct, explicitly chosen segment instead of silently carrying
+    // a ship/aircraft across unknown terrain.
+    const trailingUnclassified=leg.kind==="off-road"&&index===legs.length-1&&
+      index>0&&leg.distance>0.005;
+    const surface=trailingUnclassified?"unspecified":leg.kind==="road"?
       routeSurface(roads.get(leg.roadId),presets):
       (previous?.surface??nextSurface(index+1));
     if(!surface)throw Error("One of the roads has an unknown travel surface preset.");
@@ -111,7 +116,7 @@ export function describeTransportationLeg(leg,{name,kind,surface,arrangement}={}
   const label=String(name??"transport");
   const place=leg.departureCheckpoint?.name??"the departure point";
   const dest=leg.arrivalCheckpoint?.name??"the destination";
-  const road=leg.roadNames.join(", ")||"the route";
+  const road=leg.roadNames.join(", ")||"the unclassified stretch";
   if(!name)return ["Select transportation for "+road+"."];
   if(kind==="foot"||surface==="land"&&label.toLowerCase().startsWith("walk"))
     return ["The party continues on foot along "+road+".",

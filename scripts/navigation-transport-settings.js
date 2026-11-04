@@ -339,7 +339,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "not yet authorize guided movement. Costs are reference estimates only."));
   }
 
-  async _edit(preset,surface="land",{scope="world",onSave=null,onReset=null}={}){
+  async _edit(preset,surface="land",{scope="world",onSave=null,onReset=null,
+    onSaveCheckpoint=null,checkpointName=null}={}){
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
     const existing=Boolean(preset),profile=selectedTransportationProfile(game.settings,game.system?.id);
     const before=snapshot();
@@ -347,7 +348,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       game.scenes?.current?.grid?.units??"";
     const body=element("div");
     body.className="atlas-transport-edit-dialog";
-    body.style.cssText="display:grid;gap:.7rem;padding:.5rem;max-height:65vh;overflow-y:auto;";
+    body.style.cssText="display:grid;gap:.7rem;padding:.5rem;max-height:min(54vh,540px);overflow-y:auto;";
     const value=preset??{name:"",kind:"vehicle",surface,speedMph:3,costCp:0,
       costBasis:"none",costApplies:"unit",capacity:null,purchaseGp:null,note:"",
       crewCount:0,crewWageCpPerDay:0,crewWageBasis:"day",includeCrewWages:false};
@@ -355,7 +356,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
     body.setAttribute("data-atlas-travelers",String(travelers.count));
     body.appendChild(heading(existing?"Edit "+value.name:"New "+names[surface]+" transportation",
       scope==="checkpoint"?"Change local checkpoint settings; unchanged values continue to inherit World presets. Nothing is charged.":
-      scope==="journey"?"Change this journey estimate only. World, checkpoint and Actor data will not change.":
+      scope==="journey"?(onSaveCheckpoint?"Save explicitly for this trip or to this checkpoint. World and Actor data will not change.":"Save this journey estimate only. World, checkpoint and Actor data will not change."):
       "Edit reference values for your World. Nothing is charged automatically."));
     const nav=element("nav");nav.setAttribute("role","tablist");
     nav.setAttribute("aria-label","Transportation preset editor sections");
@@ -567,9 +568,16 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const response=await foundry.applications.api.DialogV2.input({
       window:{title:existing?"Edit "+preset.name:"Add "+names[surface]+" transportation"},
       position:{width:Math.max(360,Math.min(860,(globalThis.window?.innerWidth??980)-60)),
-        height:Math.max(460,Math.min(730,(globalThis.window?.innerHeight??850)-80))},
+        height:Math.max(400,Math.min(680,(globalThis.window?.innerHeight??850)-110))},
       content:shell,ok:{label:scope==="checkpoint"?"Apply checkpoint overrides":
-        scope==="journey"?"Apply journey estimate":"Save preset"},rejectClose:false,modal:true,
+        scope==="journey"?"Save for this trip":"Save preset"},
+      buttons:scope==="journey"&&onSaveCheckpoint?[{
+        action:"checkpoint",label:"Save to "+(checkpointName??"checkpoint"),
+        callback:(_event,button)=>({
+          ...new foundry.applications.ux.FormDataExtended(button.form).object,
+          __atlasSaveScope:"checkpoint"
+        })
+      }]:[],rejectClose:false,modal:true,
       render:(app,html)=>{
         const root=html??app?.element;
         wireSliders(root);wirePresetDialog(root);
@@ -638,7 +646,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
       continuousEnabled:bool("continuousEnabled"),
       note:scope==="world"&&preset?.builtIn?value.note:String(response.note??"")};
     if(onSave){
-      await onSave(next);
+      if(response.__atlasSaveScope==="checkpoint"){
+        if(typeof onSaveCheckpoint!=="function")
+          throw Error("Checkpoint saving is not available for this method.");
+        await onSaveCheckpoint(next);
+      }else await onSave(next);
       return next;
     }
     const updated=setTransportationPreset(readTransportationCatalog(game.settings),profile,next);
@@ -795,10 +807,14 @@ export class AtlasTransportationSettings extends ApplicationBase {
 /** Opens the one World transportation editor for a non-World scope.
  * Callers own the Save callback; this helper never changes World settings.
  */
-export async function openTransportationMethodEditor({method,scope,onSave,onReset=null}={}){
+export async function openTransportationMethodEditor({method,scope,onSave,onReset=null,
+  onSaveCheckpoint=null,checkpointName=null}={}){
   if(!method||!["checkpoint","journey"].includes(scope)||
-      typeof onSave!=="function")throw Error("Invalid transportation editor context.");
+      typeof onSave!=="function"||
+      (onSaveCheckpoint!==null&&typeof onSaveCheckpoint!=="function"))
+    throw Error("Invalid transportation editor context.");
   const app=new AtlasTransportationSettings();
-  return app._edit(method,method.surface,{scope,onSave,onReset});
+  return app._edit(method,method.surface,{scope,onSave,onReset,
+    onSaveCheckpoint,checkpointName});
 }
 
