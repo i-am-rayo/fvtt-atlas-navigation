@@ -484,7 +484,9 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.equal(nav.pauseGuidedTravel(),true);
     assert.equal(nav.travelSession.phase,"pausing");
     const pausingPanel=await nav._renderHTML();
-    assert.ok(find(pausingPanel,node=>node.tag==="button"&&node.textContent==="Pausing…"));
+    assert.ok(find(pausingPanel,node=>node.tag==="button"&&
+      node.ariaLabel==="Pausing…"&&node.disabled===true),
+      "the icon-only Pause action exposes its busy state without accepting a second pause");
     resolveTravel(true);
     await tickUntil(()=>nav.travelSession?.phase==="paused");
     assert.equal(nav.travelSession.phase,"paused");
@@ -801,7 +803,8 @@ test("continuing from checkpoint never moves the token and requires a new route 
   assert.deepEqual(actions,["sync","calculate","draw","render"]);
   assert.equal(nav.pendingTransfer,null);
   assert.equal(nav.sourceMode,"party");
-  assert.match(nav.travelNotice,/Select the next transport method/);
+  assert.match(nav.travelNotice,/Choose the next destination/);
+  assert.match(nav.travelNotice,/without replaying past travel/);
 });
 
 test("multi-surface guided travel stops at the first actual port and checkpoints its Journal",async()=>{
@@ -973,7 +976,8 @@ test("legacy final-checkpoint metadata permits onward choice but never routes ba
   assert.equal(await nav.continueFromCheckpoint(),true);
   assert.equal(calculations,1);
   assert.equal(nav.pendingTransfer,null);
-  assert.match(nav.travelNotice,/Choose an onward Point B/);
+  assert.match(nav.travelNotice,/Choose the next destination/);
+  assert.match(nav.travelNotice,/without replaying past travel/);
   assert.equal(nav.recoveryRecord.status,"paused",
     "choosing onward travel does not erase confirmed Journey history");
 });
@@ -1007,5 +1011,5 @@ test("a recovered intermediate checkpoint resumes the saved final destination",a
   assert.equal(await nav.continueFromCheckpoint(),true);
   assert.deepEqual(confirmedEnd,point(200,0));
   assert.equal(nav.pendingTransfer,null);
-  assert.match(nav.travelNotice,/saved Point B/);
+  assert.match(nav.travelNotice,/saved destination/);
 });

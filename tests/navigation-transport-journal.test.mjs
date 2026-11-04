@@ -48,11 +48,18 @@ test("journal preserves method and arrival without exposing unconfirmed future l
   assert.equal(arrived.status,"paused");
   const onward=resumeJourneyRecord(arrived,{atlasRevision:4,
     itinerary:itinerary({x:25,y:0})});
-  assert.deepEqual(onward.destination,{x:25,y:0},"new leg owns recovery destination");
+  assert.deepEqual(onward.destination,{x:12,y:0},
+    "a new checkpoint-bound leg cannot silently replace the original Journey destination");
   assert.equal(onward.legs.length,2);
+  assert.deepEqual(onward.legs[1].destination,{x:25,y:0},
+    "the planned leg retains its own independent arrival point");
   assert.equal(onward.legs[1].transport,undefined);
   assert.doesNotMatch(formatJourneyJournalHTML(onward),/Disembarked at.*<li>.*Disembarked/);
   assert.deepEqual(validateJourneyRecord(onward),onward);
+  const deliberateOnward=resumeJourneyRecord(arrived,{atlasRevision:4,
+    itinerary:itinerary({x:25,y:0}),journeyDestination:{x:25,y:0}});
+  assert.deepEqual(deliberateOnward.destination,{x:25,y:0},
+    "an explicitly approved change to Point B updates Journey recovery metadata");
 });
 
 test("invalid untrusted transport journal metadata fails closed",()=>{

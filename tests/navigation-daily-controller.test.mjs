@@ -93,7 +93,8 @@ test("guided travel waits at 8h and confirms 16h overnight before moving again",
     assert.ok(Math.abs(f.nav.travelSession.schedule.todayHours-8)<1e-7);
     assert.equal(f.calls.reduce((a,b)=>a+b,0),8*3600);
     const panel=await f.nav._renderHTML();
-    const overnight=find(panel,node=>node.tag==="button"&&node.textContent==="Overnight Camp (16h)");
+    const overnight=find(panel,node=>node.tag==="button"&&
+      node.ariaLabel==="Overnight Camp (16h)");
     assert.ok(overnight,"daily break buttons remain accessible in the fixed footer");
     overnight.listeners.get("click")();
     assert.equal(await running,true);
