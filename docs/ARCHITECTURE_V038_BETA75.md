@@ -134,6 +134,8 @@ Before changing Journey presentation or map authoring lifecycle, require targete
 
 **Explicit exclusions:** No new transportation services, automatic Actor rests, feature milestones, Scene/Journal/Actor schema migrations, currency changes, or intercepting native Canvas teardown.
 
+**Future-feature architecture boundary (November 4):** New owner requests and their cross-chat [milestone plan](FUTURE_FEATURE_MILESTONES.md) do not expand this beta.7.x stabilization scope. Prepare role-filtered read-only Journey projections, retain GM-authoritative action boundaries, and investigate the reported player-view travel stall when the GM window is inactive **before** player progress, camera follow or faster playback. No future-feature code or stored-data migration is authorized by this documentation.
+
 ## Technical references
 
 - [Foundry v14 applications](https://foundryvtt.com/api/modules/foundry.applications.html)
