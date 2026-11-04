@@ -146,3 +146,25 @@ test("a new Journey keeps its trip-start title across recovery and checkpoints",
     assert.equal(name,title);
   }finally{globalThis.game=previous;}
 });
+
+test("the saved Journey destination is the original Point B, not the current checkpoint",()=>{
+  const first=itinerary();
+  first.endpoints.destination={x:40,y:20};
+  const originalB={x:120,y:30};
+  const record=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:first,journeyDestination:originalB});
+  assert.deepEqual(record.destination,originalB,
+    "Port Barthos is only the first-leg endpoint");
+  assert.deepEqual(record.legs[0].destination,{x:40,y:20});
+  const resumed=resumeJourneyRecord({...record,status:"paused"},
+    {itinerary:itinerary(),atlasRevision:12});
+  assert.deepEqual(resumed.destination,originalB,
+    "a resumed leg must not silently replace the full Journey destination");
+  const deliberateChange=resumeJourneyRecord({...record,status:"paused"},
+    {itinerary:itinerary(),atlasRevision:12,journeyDestination:{x:180,y:90}});
+  assert.deepEqual(deliberateChange.destination,{x:180,y:90},
+    "an explicitly selected new Point B may replace the final destination");
+  assert.throws(()=>createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:first,journeyDestination:{x:NaN,y:1}}),
+    /valid Point B/);
+});

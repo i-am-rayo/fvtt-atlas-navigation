@@ -62,6 +62,19 @@ const el = (tag, content) => {
   return node;
 };
 
+/** Keep footer controls compact without sacrificing keyboard or screen-reader labels. */
+const navigationFooterIconButton=(label,icon)=>{
+  const button=el("button");
+  button.type="button";
+  button.title=label;
+  button.ariaLabel=label;
+  button.setAttribute?.("aria-label",label);
+  button.innerHTML=`<i class="fa-solid fa-${icon}" aria-hidden="true"></i>`;
+  button.style.cssText="display:inline-flex;align-items:center;justify-content:center;"+
+    "flex:0 0 auto;min-width:2.75rem;height:2.75rem;padding:.4rem;font-size:1.1rem;";
+  return button;
+};
+
 /** GM-only navigation. Travel uses an explicit, native v14 TokenDocument.move action. */
 export class AtlasNavigationController extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
@@ -728,6 +741,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }catch(error){atlasWarn("journey","Could not locate saved journey",error);}
   }
 
+  /** A live, explicitly selected Point B wins over legacy checkpoint-only metadata. */
+  isAtJourneyDestination(checkpoint=this.pendingTransfer?.checkpoint){
+    if(!this.recoveryRecord)return false;
+    const destination=this.end&&Number.isFinite(this.end.x)&&Number.isFinite(this.end.y)?
+      this.end:this.recoveryRecord.destination;
+    return isJourneyDestinationCheckpoint({...this.recoveryRecord,destination},
+      checkpoint,this.scene?.grid?.size);
+  }
+
   /** Load a saved destination, but never start a token movement automatically. */
   recoverSavedJourney(){
     if(this.travelSession||this.journalStarting||!this.scene)return false;
@@ -758,13 +780,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           point:{x:node.x,y:node.y}},journalId:journal.id};
       this.recoveryJournal=journal;this.recoveryRecord=saved;
       this.journeyJournal=journal;this.recoverableJourney=null;
-      this.end=null;this.result=null;this.itinerary=null;
-      this.travelNotice=isJourneyDestinationCheckpoint(saved,
-        this.pendingTransfer.checkpoint,this.scene.grid.size)?
-        "Recovered at the original destination, "+checkpoint.name+
-          ". Complete Journey to close the Journal without another token move.":
-        "Recovered at "+checkpoint.name+
-          ". Choose Stop and replan or Continue from checkpoint.";
+      // Retain the final Point B across a checkpoint recovery; no replay occurs.
+      this.end={...saved.destination};this.result=null;this.itinerary=null;
+      this.travelNotice=this.isAtJourneyDestination(this.pendingTransfer.checkpoint)?
+        "Reached "+checkpoint.name+". Complete the Journey here, or Continue "+
+          "with an onward Point B if this was an intermediate checkpoint.":
+        "Recovered at "+checkpoint.name+". Continue toward the saved destination "+
+          "or stop and replan.";
       this.draw();void this.render(true);return true;
     }
     this.end={...saved.destination};
@@ -1115,14 +1137,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("Restore continuous vessel operation before resuming a passenger rest.");
       const departureStamp=recovered?null:journeyWorldStamp(game.time);
       const record=recovered?
-        resumeJourneyRecord(recovered,{itinerary,atlasRevision:atlas.revision}):
+        resumeJourneyRecord(recovered,{itinerary,atlasRevision:atlas.revision,
+          journeyDestination:this.end}):
         createJourneyRecord({sceneId:this.scene.id,tokenId:token.id,
-          atlasRevision:atlas.revision,itinerary,
+          atlasRevision:atlas.revision,itinerary,journeyDestination:this.end,
           startedWorldTime:departureStamp?.seconds??null,
           startedTimeLabel:departureStamp?.label??null,
           title:navigationJourneyTitle({atlas,
-            departure:itinerary.endpoints.departure,
-            destination:itinerary.endpoints.destination,
+            departure:this.itinerary?.endpoints?.departure??itinerary.endpoints.departure,
+            destination:this.end??itinerary.endpoints.destination,
             dateLabel:departureStamp?.label??null,time:game.time})});
       if(recovered){
         schedule.todayHours=recovered.day.todayHours;
@@ -1326,12 +1349,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           this.result=null;this.itinerary=null;
           try{this.syncPartyDeparture(view,atlas);this.draw();}
           catch(error){atlasWarn("journey","Checkpoint arrived but preview origin did not refresh",error);}
-          this.travelNotice=isJourneyDestinationCheckpoint(
-            this.recoveryRecord,this.pendingTransfer.checkpoint,this.scene.grid.size)?
+          this.travelNotice=this.isAtJourneyDestination(this.pendingTransfer.checkpoint)?
             "Destination reached at "+guidedLeg.checkpoint.name+
-              ". Complete Journey to finalize the Journal; no further token movement is needed.":
+              ". Complete the Journey here, or choose Continue for a new onward destination.":
             "Reached "+guidedLeg.checkpoint.name+
-              ". Choose Stop and replan or Continue from checkpoint. "+
+              ". Continue toward the saved Point B or stop and replan. "+
               "No onward transport has been selected or paid for.";
         }else this.travelNotice=arrived?"Arrived at destination."+
           (schedule.lastForcedCheck?` Resolve the latest forced-march DC `+
@@ -1413,8 +1435,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   async completeJourneyAtCheckpoint(){
     const {pending}=this.verifyPendingTransfer();
     if(this.recoveryJournal?.id!==pending.journalId||!this.recoveryRecord||
-        !isJourneyDestinationCheckpoint(this.recoveryRecord,pending.checkpoint,
-          this.scene.grid.size))
+        !this.isAtJourneyDestination(pending.checkpoint))
       throw Error("This is not the Journey's confirmed destination checkpoint.");
     const next=validateJourneyRecord(this.recoveryRecord);
     const arrived=journeyWorldStamp(game.time);
@@ -1430,19 +1451,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     return true;
   }
 
-  /** Continue is deliberately two actions: confirm arrival, then choose mode. */
+  /** Resume toward original Point B, or explicitly choose a new one for legacy Journals. */
   async continueFromCheckpoint(){
     const {pending,view}=this.verifyPendingTransfer();
-    if(isJourneyDestinationCheckpoint(this.recoveryRecord,pending.checkpoint,
-        this.scene.grid.size))
-      throw Error("The original destination is already reached. Complete the Journey or replan.");
+    const atDestination=this.isAtJourneyDestination(pending.checkpoint);
+    const selectedEnd=this.end??this.recoveryRecord?.destination;
+    // Never create another tiny leg back to the checkpoint already occupied.
+    this.end=atDestination?null:(selectedEnd?{...selectedEnd}:null);
     this.pendingTransfer=null;
     this.sourceMode="party";
     const atlas=this.atlasProvider(this.scene);
     this.syncPartyDeparture(view,atlas);
     this.calculateRoute(view,atlas);
-    this.travelNotice="Confirmed arrival at "+pending.checkpoint.name+
-      ". Select the next transport method and approve Travel to the next checkpoint.";
+    this.travelNotice=this.end?
+      "Continuing from "+pending.checkpoint.name+" toward the saved Point B. "+
+        "Select transportation for the next leg.":
+      "Checkpoint confirmed at "+pending.checkpoint.name+". "+
+        "Choose an onward Point B to continue this Journey without replaying past travel.";
     this.draw();await this.render(true);
     return true;
   }
@@ -1749,9 +1774,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const body=el("div");
     body.style.cssText="display:flex;flex-direction:column;gap:.85rem;padding:1rem;flex:1;min-height:0;overflow-y:auto;";
     const partyMode=this.sourceMode==="party";
-    const status=!this.start ? (this.notice||(partyMode?
-      "Party token location unavailable. Refresh its location before choosing B.":
-      "Click the map to select Point A.")) :
+    const status=this.pendingTransfer?
+      "Checkpoint reached at "+this.pendingTransfer.checkpoint.name+
+        ". Choose Continue, Complete Journey (if final), or Stop and replan.":
+      !this.start ? (this.notice||(partyMode?
+        "Party token location unavailable. Refresh its location before choosing B.":
+        "Click the map to select Point A.")) :
       !this.end ? (partyMode?"Party token is Point A. Click the map to select Point B.":
         "Point A selected. Click the map to select Point B.") :
       this.result?.status==="ok" ? (partyMode?
@@ -2480,41 +2508,45 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       list.appendChild(endpoint(false));
       body.appendChild(list);
     } else {
-      const hint=el("p",this.result?.status==="ok"?
-        `Travel estimates will use ${travelSource}.`:
-        "Choose Point B to see available transportation and journey estimates.");
+      const hint=el("p",this.pendingTransfer?
+        (this.isAtJourneyDestination()?
+          "Complete the saved Journey here, or Continue to choose a new onward Point B.":
+          "Continue from this checkpoint to resume the saved route toward Point B.") :
+        this.result?.status==="ok"?
+          `Travel estimates will use ${travelSource}.`:
+          "Choose Point B to see available transportation and journey estimates.");
       hint.style.cssText="margin:0;opacity:.8;font-size:.9em;";body.appendChild(hint);
     }
     const row=el("div");
     row.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;padding:.65rem 1rem;border-top:1px solid var(--color-border-light-tertiary,#555);background:var(--color-bg,#100e18);flex:none;";
-    const newRoute=el("button","New Route");
-    newRoute.type="button";
+    const newRoute=navigationFooterIconButton("New Route","route");
     newRoute.disabled=Boolean(this.travelSession||this.journalStarting||this.pendingTransfer);
-    newRoute.title=partyMode?"Choose a new destination from the party token":"Clear route and choose a new Point A";
+    newRoute.title=partyMode?"Choose a new destination from the party token":
+      "Clear route and choose a new Point A";
     newRoute.addEventListener("click",()=>{
       this.clear();
       if(partyMode)this.refreshPartyDeparture();
     });
     row.appendChild(newRoute);
     if(this.pendingTransfer){
-      const atDestination=isJourneyDestinationCheckpoint(this.recoveryRecord,
-        this.pendingTransfer.checkpoint,this.scene.grid.size);
-      for(const [label,action] of [
-        ["Stop and replan",()=>this.stopAndReplanAtCheckpoint()],
-        atDestination?["Complete Journey",()=>this.completeJourneyAtCheckpoint()]:
-          ["Continue from checkpoint",()=>this.continueFromCheckpoint()]
-      ]){
-        const choice=el("button",label);choice.type="button";
+      const atDestination=this.isAtJourneyDestination();
+      const actions=[
+        ["Stop and replan","code-branch",()=>this.stopAndReplanAtCheckpoint()],
+        ["Continue from checkpoint","forward-step",()=>this.continueFromCheckpoint()],
+        ...(atDestination?[["Complete Journey","flag-checkered",
+          ()=>this.completeJourneyAtCheckpoint()]]:[])
+      ];
+      for(const [label,icon,action] of actions){
+        const choice=navigationFooterIconButton(label,icon);
         choice.disabled=Boolean(this.journalStarting||this.travelSession);
         choice.addEventListener("click",()=>void action().catch(error=>
           globalThis.ui?.notifications?.error?.(error.message??String(error))));
-        row.append(choice);
+        row.appendChild(choice);
       }
     }
     if(this.journeyJournal){
-      const open=el("button","Open Journey Journal");
-      open.type="button";
-      open.title="Open the saved journey log and recovery record";
+      const open=navigationFooterIconButton("Open Journey Journal","book-open");
+      open.title="Open the saved Journey Journal and recovery record";
       open.addEventListener("click",()=>void this.journeyJournal.sheet?.render(true));
       row.appendChild(open);
     }
@@ -2522,28 +2554,34 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const phase=this.travelSession?.phase;
       if(phase==="rest-choice"){
         const rules=this.travelSession.schedule.rules;
-        for(const [action,label,title] of [
-          ["overnight",`Overnight Camp (${rules.overnightHours}h)`,"Camp overnight and reset the daily travel allowance"],
-          ["long",`Long Rest (${rules.longRestHours}h)`,"Record a long rest; Actor resources remain unchanged"],
-          ["short",`Short Rest (${rules.shortRestHours}h)`,"Add a short rest without resetting daily travel hours"],
-          ["continue","Continue March","Continue one more travel hour; adjudicate any Constitution saves manually"]]){
-          const button=el("button",label);
-          button.type="button";button.title=title;
+        for(const [action,label,icon,title] of [
+          ["overnight","Overnight Camp ("+rules.overnightHours+"h)","campground",
+            "Camp overnight and reset the daily travel allowance"],
+          ["long","Long Rest ("+rules.longRestHours+"h)","bed",
+            "Record a long rest; Actor resources remain unchanged"],
+          ["short","Short Rest ("+rules.shortRestHours+"h)","mug-hot",
+            "Add a short rest without resetting daily travel hours"],
+          ["continue","Continue March","person-walking",
+            "Continue one more travel hour; adjudicate any Constitution saves manually"]]){
+          const button=navigationFooterIconButton(label,icon);
+          button.title=title;
           button.disabled=action==="continue"&&this.travelSession.schedule.todayHours>=24-1e-7;
           button.addEventListener("click",()=>this.chooseDailyTravelBreak(action));
           row.appendChild(button);
         }
       }else{
-        const move=el("button",phase==="paused"?"Resume Travel":phase==="moving"?
+        const moveLabel=phase==="paused"?"Resume Travel":phase==="moving"?
           "Pause Travel":phase==="pausing"?"Pausing…":phase==="ending"?"Ending Journey…":
           phase==="rest-applying"?"Recording Break…":assistedLegReady?
-            "Travel to "+transferPlan.legs[0].arrivalCheckpoint.name:"Travel Route");
-        move.type="button";
+            "Travel to "+transferPlan.legs[0].arrivalCheckpoint.name:"Travel Route";
+        const moveIcon=phase==="moving"?"pause":phase==="pausing"||
+          phase==="ending"||phase==="rest-applying"?"hourglass-half":"play";
+        const move=navigationFooterIconButton(moveLabel,moveIcon);
         move.disabled=this.journalStarting||(!this.travelSession&&
           !methodAssessment.guided&&!assistedLegReady)||phase==="ending"||
           phase==="pausing"||phase==="rest-applying";
         move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
-          "Pause after the current short road stretch":"Move the assigned party token along this route";
+          "Pause after the current short road stretch":moveLabel;
         move.addEventListener("click",()=>{
           if(this.travelSession){
             const ok=this.travelSession.phase==="paused"?this.resumeGuidedTravel():
@@ -2562,12 +2600,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(this.travelSession?.transportLeg?.transport?.operation==="continuous"&&
           this.travelSession.phase==="moving"){
         const session=this.travelSession;
-        for(const [action,title,hours] of [
-          ["short","Short Rest Aboard",session.schedule.rules.shortRestHours],
-          ["long","Long Rest Aboard",session.schedule.rules.longRestHours]
+        for(const [action,label,icon,hours] of [
+          ["short","Short Rest Aboard","mug-hot",session.schedule.rules.shortRestHours],
+          ["long","Long Rest Aboard","bed",session.schedule.rules.longRestHours]
         ]){
-          const underway=el("button",title+" ("+hours+"h)");
-          underway.type="button";
+          const underway=navigationFooterIconButton(label+" ("+hours+"h)",icon);
           underway.title="Rest while the vessel continues traveling; World time advances with confirmed movement only.";
           underway.disabled=Boolean(session.pendingPassengerRest)||
             hours>session.schedule.remainingHours+1e-7;
@@ -2579,8 +2616,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
       }
       if(this.travelSession){
-        const end=el("button","End Journey");
-        end.type="button";
+        const end=navigationFooterIconButton("End Journey","flag");
         end.disabled=this.travelSession.phase==="ending";
         end.title="Stop this journey permanently at the token's current position";
         end.addEventListener("click",()=>{
@@ -2589,11 +2625,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         row.appendChild(end);
       }
     }
-    const filler=el("span");filler.style.flex="1";row.appendChild(filler);
-    const close=el("button","Exit Navigation");
-    close.type="button";
-    close.addEventListener("click",()=>void this.close());
-    row.appendChild(close);
     root.append(body,row);
     return root;
   }

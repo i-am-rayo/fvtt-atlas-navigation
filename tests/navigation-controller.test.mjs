@@ -183,13 +183,18 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     const copy=nav.getItinerarySnapshot();copy.legs[0].points[0].x=999;
     assert.equal(nav.getItinerarySnapshot().legs[0].points[0].x,20);
     const content=await nav._renderHTML();
-    const newRoute=find(content,item=>item.tag==="button"&&item.textContent==="New Route");
+    const newRoute=find(content,item=>item.tag==="button"&&item.ariaLabel==="New Route");
     assert.ok(newRoute,"New Route is always visible in the non-scrolling footer");
     const footer=content.children.at(-1);
     assert.equal(footer.children.includes(newRoute),true);
+    assert.match(newRoute.innerHTML,/fa-route/);
+    assert.equal(newRoute.ariaLabel,"New Route","icon-only controls retain accessible labels");
+    assert.equal(find(content,item=>item.tag==="button"&&
+      item.ariaLabel==="Exit Navigation"),undefined,
+      "the redundant Exit Navigation footer button is removed");
     assert.match(content.children[0].style.cssText,/overflow-y:auto/,
       "the route Directions scroll without hiding travel controls");
-    const travelButton=find(content,item=>item.tag==="button"&&item.textContent==="Travel Route");
+    const travelButton=find(content,item=>item.tag==="button"&&item.ariaLabel==="Travel Route");
     assert.equal(footer.children.includes(travelButton),true);
     assert.ok(find(content,item=>item.textContent?.startsWith?.("Token playback:")),
       "Navigation displays the estimated animation duration independently of travel time");
@@ -232,7 +237,7 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.ok(find(transportPanel,item=>item.tag==="optgroup"&&item.label==="Party"));
     assert.ok(find(transportPanel,item=>item.tag==="optgroup"&&item.label==="Starting Town"));
     const transportButton=find(transportPanel,item=>item.tag==="button"&&
-      item.textContent==="Travel Route");
+      item.ariaLabel==="Travel Route");
     assert.equal(transportButton.disabled,true,
       "transport planning never silently starts native walking token movement");
     await assert.rejects(nav.startGuidedTravel(),/checkpoint transfers/);
@@ -266,7 +271,7 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.equal(nav.travelMethod,"walking");
     const walkingPanel=await nav._renderHTML();
     assert.equal(find(walkingPanel,item=>item.tag==="button"&&
-      item.textContent==="Travel Route").disabled,false);
+      item.ariaLabel==="Travel Route").disabled,false);
     nav.stop();
     assert.equal(listeners.has("pointerdown"),false);
   }finally{Object.assign(globalThis,previous);}
@@ -321,8 +326,8 @@ test("party departure chooses B with one click, tracks live token center, and pr
     const selector=find(panel,node=>node.tag==="select"&&node.id==="atlas-navigation-departure");
     assert.equal(selector.value,"party");
     const footer=panel.children.at(-1);
-    assert.equal(footer.children.some(node=>node.textContent==="Travel Route"),true);
-    const reset=find(panel,node=>node.tag==="button"&&node.textContent==="New Route");
+    assert.equal(footer.children.some(node=>node.ariaLabel==="Travel Route"),true);
+    const reset=find(panel,node=>node.tag==="button"&&node.ariaLabel==="New Route");
     reset.listeners.get("click")();
     assert.deepEqual(nav.start,point(120,85),"New Route keeps token departure in party mode");
     assert.equal(nav.end,null);
@@ -393,7 +398,7 @@ test("a saved Journal offers deliberate recovery from the actual token without r
     assert.equal(nav.recoveryJournal,journal);
     assert.equal(nav.recoveryRecord.status,"interrupted");
     const prepared=await nav._renderHTML();
-    assert.ok(find(prepared,node=>node.textContent==="Open Journey Journal"));
+    assert.ok(find(prepared,node=>node.ariaLabel==="Open Journey Journal"));
     nav.clear();
     assert.equal(nav.recoveryRecord,null,"New Route abandons the loaded recovery");
     nav.findRecoverableJournal();
@@ -467,8 +472,8 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
       "Foundry native movement constraints are not bypassed");
     const find=(item,match)=>match(item)?item:item.children.map(child=>find(child,match)).find(Boolean);
     const movingPanel=await nav._renderHTML();
-    assert.ok(find(movingPanel,node=>node.tag==="button"&&node.textContent==="Pause Travel"));
-    assert.ok(find(movingPanel,node=>node.tag==="button"&&node.textContent==="End Journey"));
+    assert.ok(find(movingPanel,node=>node.tag==="button"&&node.ariaLabel==="Pause Travel"));
+    assert.ok(find(movingPanel,node=>node.tag==="button"&&node.ariaLabel==="End Journey"));
     const bar=find(movingPanel,node=>node.tag==="progress");
     assert.equal(bar.value,0);
     assert.equal(bar.max,100);
@@ -482,7 +487,7 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.equal(calls.length,1,"pausing prevents the next chunk from starting");
     assert.ok(nav.travelProgress>0&&nav.travelProgress<100);
     const pausedPanel=await nav._renderHTML();
-    assert.ok(find(pausedPanel,node=>node.tag==="button"&&node.textContent==="Resume Travel"));
+    assert.ok(find(pausedPanel,node=>node.tag==="button"&&node.ariaLabel==="Resume Travel"));
     assert.equal(nav.resumeGuidedTravel(),true);
     await tickUntil(()=>calls.length===2);
     assert.equal(calls.length,2,"resume begins at the last completed stretch");
@@ -513,8 +518,8 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.equal(calls.length,before+1);
     await assert.rejects(nav.startGuidedTravel(),/already in progress/);
     const stillMoving=await nav._renderHTML();
-    assert.ok(find(stillMoving,node=>node.tag==="button"&&node.textContent==="Pause Travel"));
-    assert.equal(find(stillMoving,node=>node.tag==="button"&&node.textContent==="Travel Route"),undefined);
+    assert.ok(find(stillMoving,node=>node.tag==="button"&&node.ariaLabel==="Pause Travel"));
+    assert.equal(find(stillMoving,node=>node.tag==="button"&&node.ariaLabel==="Travel Route"),undefined);
     assert.equal(nav.pauseGuidedTravel(),true,"pause requests remain possible after native Document completion");
     assert.equal(nav.stopGuidedTravel(),true,"End Journey works while only Canvas animation remains");
     endVisibleAnimation();
@@ -883,6 +888,10 @@ test("multi-surface guided travel stops at the first actual port and checkpoints
     assert.equal(token.y,50);
     assert.equal(nav.pendingTransfer.checkpoint.name,"Port Barthos");
     assert.equal(logs.at(-1).status,"paused");
+    assert.deepEqual(logs.at(-1).destination,full.end,
+      "the Journal retains the entire route's original Point B beyond Port Barthos");
+    assert.deepEqual(logs.at(-1).legs[0].destination,cp,
+      "the committed leg itself must end at the first checkpoint");
     assert.equal(logs.at(-1).legs[0].completedPercent,100);
     assert.equal(nav.travelSession,null);
     assert.equal(nav.result,null,"full future route is not active after arrival");
@@ -922,12 +931,77 @@ test("the original destination checkpoint completes the Journey without another 
     nav.calculateRoute=()=>{replanned++;};
     nav.clear=()=>{cleared++;nav.recoveryRecord=null;};
     nav.render=async()=>{};
-    await assert.rejects(()=>nav.continueFromCheckpoint(),/already reached/);
-    assert.equal(replanned,0,"cannot build another 0.07-mile leg to same dock");
     assert.equal(await nav.completeJourneyAtCheckpoint(),true);
+    assert.equal(replanned,0,"completing does not create another 0.07-mile leg");
     assert.equal(saved.length,1);
     assert.equal(saved[0].status,"completed");
     assert.equal(cleared,1);
     assert.equal(nav.pendingTransfer,null);
   }finally{globalThis.game=oldGame;}
+});
+
+test("legacy final-checkpoint metadata permits onward choice but never routes back to the same point",async()=>{
+  const route={status:"ok",start:point(0,0),end:point(10,0),
+    distance:10,cost:10,terrainAware:false,legs:[{
+      kind:"road",roadId:"land",segmentId:"road",
+      points:[point(0,0),point(10,0)],distance:10,cost:10}]};
+  const itinerary=createNavigationItinerary({sceneId:"scene",route,
+    travel:{speed:2},roadName:()=>"Dock Road"});
+  const record=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:7,itinerary});
+  record.status="paused";record.legs[0].completedPercent=100;
+  record.legs[0].completedMovingHours=5;
+  record.legs[0].transport={methodId:"walking",methodName:"Walking (party pace)",
+    kind:"foot",arrangement:"owned",surface:"land",
+    arrivalCheckpointId:"dock",arrivalCheckpointName:"Port Barthos",
+    roadNames:["Dock Road"],estimatedFareCp:0,operation:"normal"};
+  const nav=new AtlasNavigationController({atlasProvider:()=>({revision:7})});
+  nav.scene={id:"scene",grid:{size:100}};
+  nav.recoveryRecord=record;
+  nav.end=point(10,0);
+  nav.pendingTransfer={checkpoint:{id:"dock",name:"Port Barthos",point:point(10,0)}};
+  nav.verifyPendingTransfer=()=>({pending:nav.pendingTransfer,view:{ready:true}});
+  let calculations=0;
+  nav.syncPartyDeparture=()=>{};
+  nav.calculateRoute=()=>{calculations++;assert.equal(nav.end,null,
+    "no attempt to route to the dock the party already occupies");};
+  nav.draw=()=>{};nav.render=async()=>{};
+  assert.equal(await nav.continueFromCheckpoint(),true);
+  assert.equal(calculations,1);
+  assert.equal(nav.pendingTransfer,null);
+  assert.match(nav.travelNotice,/Choose an onward Point B/);
+  assert.equal(nav.recoveryRecord.status,"paused",
+    "choosing onward travel does not erase confirmed Journey history");
+});
+
+test("a recovered intermediate checkpoint resumes the saved final destination",async()=>{
+  const route={status:"ok",start:point(0,0),end:point(10,0),
+    distance:10,cost:10,terrainAware:false,legs:[{
+      kind:"road",roadId:"land",segmentId:"road",
+      points:[point(0,0),point(10,0)],distance:10,cost:10}]};
+  const itinerary=createNavigationItinerary({sceneId:"scene",route,
+    travel:{speed:2},roadName:()=>"Dock Road"});
+  const record=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:7,itinerary,journeyDestination:point(200,0)});
+  record.status="paused";record.legs[0].completedPercent=100;
+  record.legs[0].completedMovingHours=5;
+  record.legs[0].transport={methodId:"walking",methodName:"Walking (party pace)",
+    kind:"foot",arrangement:"owned",surface:"land",
+    arrivalCheckpointId:"dock",arrivalCheckpointName:"Port Barthos",
+    roadNames:["Dock Road"],estimatedFareCp:0,operation:"normal"};
+  const nav=new AtlasNavigationController({atlasProvider:()=>({revision:7})});
+  nav.scene={id:"scene",grid:{size:100}};
+  nav.recoveryRecord=record;nav.end=point(200,0);
+  nav.pendingTransfer={checkpoint:{id:"dock",name:"Port Barthos",point:point(10,0)}};
+  nav.verifyPendingTransfer=()=>({pending:nav.pendingTransfer,view:{ready:true}});
+  let confirmedEnd=null;
+  nav.syncPartyDeparture=()=>{};
+  nav.calculateRoute=()=>{confirmedEnd={...nav.end};};
+  nav.draw=()=>{};nav.render=async()=>{};
+  assert.equal(nav.isAtJourneyDestination(),false,
+    "Port Barthos is a transfer, not the final destination");
+  assert.equal(await nav.continueFromCheckpoint(),true);
+  assert.deepEqual(confirmedEnd,point(200,0));
+  assert.equal(nav.pendingTransfer,null);
+  assert.match(nav.travelNotice,/saved Point B/);
 });

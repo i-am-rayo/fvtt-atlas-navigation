@@ -51,15 +51,17 @@ export function journeyLegFromItinerary(itinerary){
 }
 
 export function createJourneyRecord({sceneId,tokenId,atlasRevision,itinerary,
-  title=null,startedWorldTime=null,startedTimeLabel=null,
+  journeyDestination=null,title=null,startedWorldTime=null,startedTimeLabel=null,
   now=new Date().toISOString()}={}){
   if(!sceneId||!tokenId||!Number.isSafeInteger(atlasRevision))
     throw Error("Journey recovery requires a Scene, assigned token, and Atlas revision.");
   const leg=journeyLegFromItinerary(itinerary);
+  const selectedDestination=journeyDestination??leg.destination;
+  if(!validPoint(selectedDestination))throw Error("Journey destination must be a valid Point B.");
   return {
     schemaVersion:JOURNEY_JOURNAL_SCHEMA,status:"moving",
     sceneId:String(sceneId),tokenId:String(tokenId),atlasRevision,
-    destination:point(leg.destination),createdAt:now,updatedAt:now,
+    destination:point(selectedDestination),createdAt:now,updatedAt:now,
     ...(title?{title:String(title).trim()}:{}),
     ...(Number.isFinite(startedWorldTime)?{startedWorldTime}:{}),
     ...(startedTimeLabel?{startedTimeLabel:String(startedTimeLabel)}:{}),
@@ -133,12 +135,18 @@ export function checkpointJourneyRecord(record,{schedule,progress,status,
   return validateJourneyRecord(next);
 }
 
-export function resumeJourneyRecord(record,{itinerary,atlasRevision,now=new Date().toISOString()}={}){
+export function resumeJourneyRecord(record,{itinerary,atlasRevision,
+  journeyDestination=null,now=new Date().toISOString()}={}){
   const next=validateJourneyRecord(record);
   if(!RECOVERABLE.has(next.status)||atlasRevision!==next.atlasRevision||
       next.legs.length>=24)throw Error("This journey cannot safely resume. Plan a new route.");
   next.legs.push(journeyLegFromItinerary(itinerary));
-  next.destination=point(next.legs.at(-1).destination);
+  // The final Point B is independent of each checkpoint-bound travel leg.
+  // A new destination may replace it only after an explicit GM route choice.
+  if(journeyDestination!==null){
+    if(!validPoint(journeyDestination))throw Error("Journey destination must be a valid Point B.");
+    next.destination=point(journeyDestination);
+  }
   next.status="moving";next.updatedAt=now;
   return validateJourneyRecord(next);
 }
