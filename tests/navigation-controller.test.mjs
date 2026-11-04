@@ -779,7 +779,7 @@ test("GM checkpoint choice ends the confirmed Journal before allowing a new rout
 
 test("continuing from checkpoint never moves the token and requires a new route decision",async()=>{
   const nav=new AtlasNavigationController({atlasProvider:()=>({revision:7})});
-  nav.scene={id:"scene"};
+  nav.scene={id:"scene",grid:{size:100}};
   nav.pendingTransfer={checkpoint:{name:"Port Barthos"}};
   const view={ready:true};
   nav.verifyPendingTransfer=()=>({pending:nav.pendingTransfer,view});
