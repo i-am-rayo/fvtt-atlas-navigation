@@ -1173,13 +1173,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const paths=navigationCanvasLegPaths(view,atlas,route);
     const waypoints=createGuidedTokenWaypoints(paths,token,this.scene.grid?.size);
-    const itinerary=guidedLeg?{...createNavigationItinerary({
+    const snapshot=createNavigationItinerary({
       sceneId:this.scene.id,sceneName:this.scene.name??"",
       sceneUnits:this.scene.grid?.units??"",atlasRevision:atlas.revision,
       route,roadName:id=>atlas.roads.find(road=>road.id===id)?.name??"Road",travel
-    }),transport:guidedLeg.transport}:{
-      ...this.itinerary,
-      travel:{...this.itinerary.travel,
+    });
+    const itinerary=guidedLeg?{...snapshot,transport:guidedLeg.transport}:{
+      ...snapshot,
+      travel:{...snapshot.travel,
         methodId:travel.methodId??this.travelMethod,
         methodName:travel.methodLabel??this.travelMethod,
         arrangement:this.transportArrangement,operation:this.transportOperation}
@@ -1815,6 +1816,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     let methodTravel=resolveNavigationMethodTravel(this.travelMethod,travel,game.settings,sceneUnit,
       {systemId:game.system?.id});
+    // A partial, non-checkpoint land leg keeps its approved speed across a
+    // canvas rebuild; World or Group preset changes cannot silently re-time it.
+    const savedLeg=this.recoveryRecord?.legs?.at(-1);
+    if(isUnfinishedJourneyLeg(this.recoveryRecord)&&!savedLeg?.transport&&
+        savedLeg?.travelMethod?.id===this.travelMethod&&
+        Number.isFinite(savedLeg.speedPerHour)&&savedLeg.speedPerHour>0)
+      return {sceneUnit,travel:{...methodTravel,speed:savedLeg.speedPerHour,
+        source:"recovered-method"}};
     if(this.travelMethod!=="walking"&&(this.transportArrangement==="hire"||
         this.transportJourneyOverrides?.speedMph!==undefined)){
       try{
