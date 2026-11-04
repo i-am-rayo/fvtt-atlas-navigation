@@ -72,11 +72,18 @@ The existing `settings-controls.js`, `settings-layout.js`, `settings-input.js`, 
 4. Standardize button labels, accessible names, tooltips, danger confirmation and minimum hit area; don't rely on ambiguous icons alone.
 5. Avoid full-window rerenders for changes limited to progress text or a single footer button; profile before altering render behavior.
 
+**Beta.7.5 pilot:** The Road Editor dock exposes **Focus Map**, which calls native
+`ApplicationV2.minimize()` without changing a draft or saving it. A GM restores
+the dock from its native window title bar before Save Points / Finish / Cancel.
+The parent Scene settings sheet already minimizes when the road dock opens.
+Live Foundry v14 GM testing must confirm that restored title bars remain
+discoverable and map clicks are unobstructed.
+
 ## 5. Small change sequence
 
 1. **Architecture audit and safeguards (this slice):** This map, import graph, baseline cycle register, independent CI check, and tests. No runtime changes or version bump.
 2. **Shared UI action foundation:** Introduce a reusable accessible icon/button helper and CSS, migrate a small subset of existing controls, add DOM-fake tests, and publish as a separate stacked PR.
-3. **Map-focus UX:** Pilot explicit minimize/restore in one GM editor while preserving unsaved inputs; verify with native Foundry v14 and only then generalize.
+3. **Map-focus UX:** Pilot explicit minimize/restore in one GM editor while preserving unsaved inputs (**implemented in the separate map-focus draft PR**); verify with native Foundry v14 and only then generalize.
 4. **Decomposition:** Separate `navigation-controller.js` rendering from Journey coordination, and GM/editor canvas concerns from player overlay concerns. Preserve public interfaces and saved flags throughout.
 
 ## 6. Validation gates and known baseline

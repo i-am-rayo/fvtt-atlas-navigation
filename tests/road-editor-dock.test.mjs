@@ -48,6 +48,7 @@ test("floating new-road dock summarizes settings and does not edit the configure
     assert.equal(descendants(root).filter(node => ["input", "select"].includes(node.tag)).length, 0);
     assert.ok(button(root, "Finish Road"));
     assert.ok(button(root, "Cancel"));
+    assert.ok(button(root, "Focus Map"));
     assert.equal(saves, 0, "rendering never saves a road");
     await button(root, "Finish Road").listeners.get("click")();
     assert.equal(saves, 1, "the explicit finish control invokes saving");
@@ -124,6 +125,7 @@ test("floating Save Points remains available after its parent Scene sheet closes
       dock, controller), false, "other Scene sheets do not own this editor");
     const root = await dock._renderHTML();
     assert.ok(button(root, "Save Points"), "Save Points remains available");
+    assert.ok(button(root, "Focus Map"));
     dock.close = async () => { dock._onClose({}); };
     await button(root, "Save Points").listeners.get("click")();
     assert.equal(saved, 1);
@@ -134,6 +136,44 @@ test("floating Save Points remains available after its parent Scene sheet closes
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete globalThis[key];
       else globalThis[key] = value;
+    }
+  }
+});
+
+test("Focus Map uses native window minimization without losing an unsaved road draft", async () => {
+  const previous={foundry:globalThis.foundry,document:globalThis.document,
+    game:globalThis.game,window:globalThis.window,ui:globalThis.ui};
+  try {
+    globalThis.foundry={applications:{api:{ApplicationV2:class {}}}};
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.window={innerWidth:1280,innerHeight:800};
+    globalThis.game={user:{isGM:true}};
+    globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    const {AtlasRoadEditorDock}=await import("../scripts/road-editor-dock.js");
+    const scene={id:"map-focus-scene",canUserModify:()=>true};
+    const draft={mode:"points",points:8,dirty:true,canUndo:false};
+    let saves=0,cancels=0,minimizes=0,reads=0;
+    const controller={getDraft:()=>{reads++;return draft;}};
+    const dock=new AtlasRoadEditorDock({scene,controller,
+      onFinish:()=>{saves++;},onCancel:()=>{cancels++;},onClosed() {}});
+    dock.minimize=async()=>{minimizes++;};
+    const root=await dock._renderHTML();
+    const readsAfterRender=reads;
+    const focus=button(root,"Focus Map");
+    assert.ok(focus.title.includes("Restore it"));
+    await focus.listeners.get("click")();
+    assert.equal(minimizes,1);
+    assert.equal(reads,readsAfterRender,"minimization does not touch the draft");
+    assert.equal(dock.finished,false);
+    assert.equal(dock.busy,false);
+    assert.equal(saves,0);
+    assert.equal(cancels,0);
+    assert.equal(controller.getDraft(),draft);
+    assert.ok(button(root,"Save Points"),"finish action remains after restoring the dock");
+  } finally {
+    for(const [key,value] of Object.entries(previous)) {
+      if(value===undefined)delete globalThis[key];
+      else globalThis[key]=value;
     }
   }
 });

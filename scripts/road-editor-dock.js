@@ -101,6 +101,13 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       buttons.appendChild(button);
       return button;
     };
+    // Use Foundry v14's public window behavior: minimization does not finish,
+    // cancel, re-render, or persist the transient road draft.
+    const focusMap=makeButton("Focus Map", async () => {
+      try { await this.minimize(); }
+      catch (error) { ui.notifications.error(error.message || String(error)); }
+    });
+    focusMap.title="Minimize this editor to work on the map. Restore it from its title bar to finish or cancel.";
     const needsSave = draft.mode === "new" || draft.mode === "points";
     const save = needsSave ? makeButton(draft.mode === "new" ? "Finish Road" : "Save Points", async () => {
       if (this.busy) return;
