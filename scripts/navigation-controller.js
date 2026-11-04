@@ -903,22 +903,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   async saveJourneyCheckpoint(session,status,{updatePage=true}={}){
     if(!session?.journal||!session.journeyRecord)return;
     const arrival=status==="completed"?journeyWorldStamp(game.time):null;
-    let confirmedAnchor=null;
-    // Only committed native TokenDocument positions are recoverable; PIXI
-    // animation frames and stale canvas sprites are never persisted.
-    try{
-      const view=this.canvasProvider();
-      if(view?.ready&&view.scene?.id===session.sceneId){
-        const atlas=this.atlasProvider(this.scene);
-        confirmedAnchor=captureJourneyAnchor({
-          point:this.atlasPoint(view,atlas,
-            partyTokenCanvasCenter(session.token,session.gridSize)),
-          atlas,gridSize:session.gridSize,
-          levelId:session.token.level?.id??session.token.level??null,
-          elevation:session.token.elevation
-        });
-      }
-    }catch(error){atlasWarn("journey","Preserving previous native recovery anchor",error);}
+    // The cached native Document anchor was sampled ONLY after a completed,
+    // verified move. During an in-flight move the Document may be ahead of
+    // credited progress, and canvas teardown makes live sampling impossible.
+    const confirmedAnchor=session.lastConfirmedAnchor??null;
     const saved=checkpointJourneyRecord(session.journeyRecord,{
       schedule:session.schedule,status,
       progress:Math.max(0,Math.min(100,100*session.completedDistance/session.totalDistance)),
@@ -939,6 +927,22 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       await this.journeyJournalStore.save(saved,{journal:session.journal,updatePage});
     });
     await session.journalQueue;
+  }
+
+  /** Snapshot an authoritative TokenDocument position at a verified boundary.
+   * Call at departure or after native move + animation + endpoint confirmation,
+   * never while a chunk is pending or from a rendered Canvas sprite. */
+  captureConfirmedJourneyAnchor(session,view,atlas){
+    if(!view?.ready||view.scene?.id!==session.sceneId||
+        !this.scene||this.scene.id!==session.sceneId)
+      throw Error("The Scene changed before Atlas could confirm the native token position.");
+    return captureJourneyAnchor({
+      point:this.atlasPoint(view,atlas,
+        partyTokenCanvasCenter(session.token,session.gridSize)),
+      atlas,gridSize:session.gridSize,
+      levelId:session.token.level?.id??session.token.level??null,
+      elevation:session.token.elevation
+    });
   }
 
   /** Update the live progress display without re-rendering the scrollable directions. */
@@ -1366,13 +1370,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         transitions:guidedLeg?projectTransportationRouteLegs(this.result,atlas,
           validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING)).presets):null,
         atlas}):null;
-      const initialAnchor=!recovered?captureJourneyAnchor({
-        point:this.atlasPoint(view,atlas,
-          partyTokenCanvasCenter(token,this.scene.grid.size)),
-        atlas,gridSize:this.scene.grid.size,
-        levelId:token.level?.id??token.level??null,
-        elevation:token.elevation
-      }):null;
+      const initialAnchor=this.captureConfirmedJourneyAnchor(session,view,atlas);
+      session.lastConfirmedAnchor=initialAnchor;
       const record=recovered?
         resumeJourneyRecord(recovered,{itinerary,atlasRevision:atlas.revision,
           // The recovery target is the current leg checkpoint, not a GM edit
@@ -1505,6 +1504,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           interruptedReason="The token left the planned road path. Recalculate before traveling again.";
           reachedEnd=false;break;
         }
+        // Keep the last VERIFIED native position in memory even between
+        // periodic Journal writes. Canvas teardown checkpoints this anchor
+        // alongside the credited distance, never the current in-flight token.
+        session.lastConfirmedAnchor=this.captureConfirmedJourneyAnchor(session,
+          this.canvasProvider(),this.atlasProvider(this.scene));
         // Credit progress only after Foundry confirms the expected destination.
         // An interrupted/redirected movement must never receive World time.
         session.completedDistance+=chunk.distance;
@@ -2072,7 +2076,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "Route calculated. Shift+click changes A; Alt/Option+click changes B.") :
       (this.result?.reason ?? "No connected road route available.");
     let transferPlan=null;
-    if(this.result?.status==="ok"){
+    // During approved movement the transient preview/selection is no longer
+    // authoritative. The Journal leg below supplies the selected method and
+    // timing; avoid accidentally repainting a new transfer choice mid-voyage.
+    if(this.result?.status==="ok"&&!this.travelSession?.transportLeg){
       try{transferPlan=this.transportationTransitionPlan();}
       catch(error){atlasWarn("navigation","Transportation leg planning unavailable",error);}
     }
@@ -2083,7 +2090,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }));
     const availability=this.transportAvailability();
     const methods=availability.methods;
-    if(!methods.some(item=>item.id===this.travelMethod)){
+    const approvedActiveTransport=this.travelSession?.transportLeg?
+      (this.travelSession.journeyRecord?.legs.at(-1)?.transport??
+        this.travelSession.transportLeg.transport):null;
+    const approvedActiveLeg=approvedActiveTransport?
+      this.travelSession.journeyRecord?.legs.at(-1):null;
+    if(!approvedActiveTransport&&!methods.some(item=>item.id===this.travelMethod)){
       this.travelMethod="walking";this.transportArrangement="owned";
       this.transportHireTerms=null;this.transportHireDenomination=null;
       this.transportJourneyOverrides=null;
@@ -2098,7 +2110,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           group:offer.checkpointName||"Nearby checkpoint"}]:[];
       })
     ];
-    if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)
+    if(this.result?.status==="ok"&&approvedActiveTransport)
+      body.appendChild(renderNavigationTravelMethodSelector({
+        choices:[{value:"approved",label:approvedActiveTransport.methodName,
+          group:"Approved current Journey leg"}],
+        selectedValue:"approved",disabled:true,onMethodChange:()=>{}
+      }));
+    else if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)
       body.appendChild(renderNavigationTravelMethodSelector({
         choices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
         disabled:Boolean(this.travelSession||this.journalStarting),
@@ -2110,7 +2128,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       }));
-    if(this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
+    if(!approvedActiveTransport&&this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
       const worldMethod=methods.find(item=>item.id===this.travelMethod);
       const method=worldMethod&&this.effectiveTransportMethod(worldMethod,availability);
       if(method){
@@ -2158,12 +2176,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       body.appendChild(recovery);
     }
     const {sceneUnit,travel}=this.resolveTravel();
-    const speed=travel.speed;
+    const speed=Number.isFinite(approvedActiveLeg?.speedPerHour)&&
+      approvedActiveLeg.speedPerHour>0?approvedActiveLeg.speedPerHour:travel.speed;
     // Native Scene units remain authoritative for routing, timing and movement.
     // Only presentation is converted to the World Atlas measuring preference.
     const showDistance=amount=>atlasFormatMeasure(atlasDisplayDistance(amount,sceneUnit));
     const showSpeed=amount=>atlasFormatMeasure(atlasDisplaySpeed(amount,sceneUnit));
-    const travelSource=travel.source==="group-method"?
+    const travelSource=approvedActiveTransport?
+      `${approvedActiveTransport.methodName} (approved ${approvedActiveTransport.arrangement} Journey leg) · ${showSpeed(speed)}`:
+      travel.source==="group-method"?
       `${travel.methodLabel} (party-owned convoy; slowest matching resource) · ${showSpeed(speed)}`:
       travel.source==="atlas-method"?
       `${travel.methodLabel} (World transportation preset) · ${showSpeed(speed)}`:
@@ -2183,11 +2204,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       body.appendChild(renderRepeatedCheckpointNotice(
         transferPlan.legs[0].arrivalCheckpoint.name));
     }
-    if(this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
+    if(!approvedActiveTransport&&this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
       body.appendChild(renderTransportAdvisory(methodAssessment.reason??
         "Transport planning only."));
     }
-    if(this.travelMethod!=="walking"&&!transferPlan?.hasTransitions &&
+    if(!approvedActiveTransport&&this.travelMethod!=="walking"&&!transferPlan?.hasTransitions &&
         this.transportArrangement!=="hire" &&game.system?.id==="dnd5e" &&
         !["coach-hire","ship-passage"].includes(this.travelMethod)){
       // Show capacity as a read-only advisory; non-walking guided movement is
@@ -2220,7 +2241,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
       }catch(error){atlasWarn("navigation","Group capacity preview unavailable",error);}
     }
-    if(this.travelMethod!=="walking"&&this.result?.status==="ok"&&
+    if(!approvedActiveTransport&&this.travelMethod!=="walking"&&this.result?.status==="ok"&&
         methodAssessment.compatible){
       try{
         const baseMethod=methods.find(item=>item.id===this.travelMethod);
@@ -2364,11 +2385,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       let tripExplanation=null;
       try{
         const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
-        const hours=activeLeg?activeLeg.hours:navigationHours(weighted,speed);
+        const hours=activeLeg?activeLeg.hours:approvedActiveTransport?
+          this.travelSession.schedule.travelHours:navigationHours(weighted,speed);
         metric(activeLeg?"Current Leg Time":"Travel Time",
           hours===null?"Choose method":formatGuidedWorldTime(Math.round(hours*3600)));
-        const rules=this.resolveTravelRules(travel);
-        const schedule=this.travelMethod==="walking"&&this.journeySchedule&&
+        const rules=approvedActiveTransport?
+          this.travelSession.schedule.rules:this.resolveTravelRules(travel);
+        const schedule=approvedActiveTransport?this.travelSession.schedule:
+          this.travelMethod==="walking"&&this.journeySchedule&&
           Math.abs(this.journeySchedule.travelHours-hours)<1e-5?
           this.journeySchedule:null;
         const plan=hours===null?null:schedule?.estimate??
@@ -2384,7 +2408,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const activeMethod=methods.find(method=>method.id===this.travelMethod);
         const transportPreview=this.travelMethod!=="walking"&&
           ["mount","vehicle"].includes(activeMethod?.kind)&&rules.dailyHours!==null;
-        const explanation=transferPlan?.hasTransitions?
+        const explanation=approvedActiveTransport?
+          "Confirmed current leg: "+approvedActiveTransport.methodName+" ("+
+            approvedActiveTransport.arrangement+"). " +
+            "Movement and remaining time use its saved approved speed; "+
+            "no additional boarding or payment is implied by this preview.":
+          transferPlan?.hasTransitions?
           "Only the current stretch is estimated. Later transport decisions are made at checkpoints. "+
           (activeLeg?.operation==="continuous"?
             "This vessel operates continuously. Passenger rests may overlap sailing time without stopping the vessel or adding duplicate World time.":
@@ -2449,7 +2478,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "Foundry World time stays unchanged. Planned breaks are still counted in Total Trip; enable clock advancement in Atlas Module Settings.";
       let playbackLabel=null;
       try{
-        if(transferPlan?.hasTransitions)throw Error("No full-route guided playback for transfer legs.");
+        if(transferPlan?.hasTransitions||approvedActiveTransport)
+          throw Error("Use the active guided leg's confirmed playback state.");
         const playback=calculateGuidedPlayback({route:this.result,travel,
           paths:navigationCanvasLegPaths(this.canvasProvider(),this.atlasProvider(this.scene),this.result),
           gridSize:this.scene?.grid?.size,
@@ -2469,7 +2499,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       body.append(...status.nodes);
       this.worldTimeUI=status.worldTimeUI;
       const calculation=this.result.terrainWarning ||
-        (transferPlan?.hasTransitions?
+        (approvedActiveTransport?
+          "The active Journey uses its saved GM-approved transport and operating speed. " +
+          "Only verified native movement and Journal checkpoints affect recovery; " +
+          "this view never books, pays for, or replays travel.":
+        transferPlan?.hasTransitions?
           "Every leg uses its selected method's speed, checkpoint offer, crew and upkeep settings. The route uses authored surfaces; transfers require checkpoints. No automatic payments or movement.":
         (this.travelMethod!=="walking"?
           "Transport planning uses physical route distance and the GM's method speed. " +

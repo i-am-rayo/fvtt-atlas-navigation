@@ -94,6 +94,61 @@ test("canvas recovery restarts only the matching GM-approved Journey after its w
   }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
 });
 
+test("interrupted voyage writes the last confirmed native anchor, not an in-flight document position",async()=>{
+  const previous=globalThis.game;
+  try{
+    globalThis.game={time:{worldTime:1111}};
+    const scene={id:"voyage",grid:{size:100,units:"mi"}};
+    const view={ready:true,scene};
+    const atlas={revision:3,roads:[{id:"sea",name:"Sea Lane"}],
+      nodes:[{id:"port",x:0,y:0},{id:"dock",x:1000,y:0}],
+      segments:[{id:"sea-segment",roadId:"sea",from:"port",to:"dock",via:[]}]};
+    const token={id:"party",x:870,y:-50,width:1,height:1,elevation:0};
+    const route={status:"ok",start:point(0,0),end:point(1000,0),
+      distance:100,cost:100,terrainAware:false,legs:[{
+        kind:"road",roadId:"sea",segmentId:"sea-segment",distance:100,cost:100,
+        points:[point(0,0),point(1000,0)]}]};
+    const itinerary=createNavigationItinerary({sceneId:scene.id,route,
+      travel:{speed:20},roadName:()=>"Sea Lane"});
+    const record=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:3,itinerary,initialAnchor:{point:point(0,0),
+        roadId:"sea",segmentId:"sea-segment",checkpointId:null,
+        levelId:null,elevation:0}});
+    const stored=[];
+    const nav=new AtlasNavigationController({canvasProvider:()=>view,
+      atlasProvider:()=>atlas,atlasPoint:(_view,_atlas,at)=>at,
+      journeyJournalStore:{save:async saved=>{stored.push(saved);return {id:"journal"};}}});
+    nav.scene=scene;
+    const schedule=new GuidedTravelDayTracker({travelHours:5,rules:{
+      dailyHours:8,overnightHours:16,longRestHours:8,shortRestHours:1,
+      forcedMarch:"custom"}});
+    schedule.recordMovement(4.6);
+    const session={token,sceneId:scene.id,gridSize:100,journal:{id:"journal"},
+      journeyRecord:record,schedule,completedDistance:92,totalDistance:100,
+      currentChunk:null,clock:{advancedSeconds:16560,restSeconds:0}};
+    session.lastConfirmedAnchor=nav.captureConfirmedJourneyAnchor(session,view,atlas);
+    assert.equal(session.lastConfirmedAnchor.point.x,920);
+    assert.equal(session.lastConfirmedAnchor.roadId,"sea");
+    assert.equal(session.lastConfirmedAnchor.segmentId,"sea-segment");
+    // Foundry updates its TokenDocument before the visible movement finishes.
+    // This native coordinate has NOT earned any travel hours yet.
+    token.x=940;
+    session.currentChunk={distance:8};
+    view.ready=false;
+    await nav.saveJourneyCheckpoint(session,"interrupted");
+    assert.equal(stored.length,1);
+    assert.equal(stored[0].status,"interrupted");
+    assert.equal(stored[0].legs.at(-1).completedPercent,92);
+    assert.equal(stored[0].legs.at(-1).completedMovingHours,4.6);
+    assert.deepEqual(stored[0].lastConfirmedAnchor.point,point(920,0),
+      "canvas teardown never drops the last confirmed sea coordinate");
+    view.ready=true;
+    await nav.saveJourneyCheckpoint(session,"interrupted");
+    assert.deepEqual(stored.at(-1).lastConfirmedAnchor.point,point(920,0),
+      "a ready canvas must not promote an unconfirmed in-flight TokenDocument location");
+  }finally{globalThis.game=previous;}
+});
+
 test("a refreshed checkpoint-bound Riding Horse journey recovers its physical route and original destination",()=>{
   const previous={game:globalThis.game,ui:globalThis.ui};
   try{
@@ -616,6 +671,63 @@ test("an interrupted Riding Horse journey never renders or resumes as Walking",a
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("active ship Journey displays the approved method and saved sailing hours, not Walking",async()=>{
+  const previous={game:globalThis.game,window:globalThis.window,
+    ui:globalThis.ui,document:globalThis.document};
+  try{
+    globalThis.game={user:{isGM:true},system:{id:"dnd5e"},
+      settings:{get:()=>undefined}};
+    globalThis.window={innerWidth:1200,innerHeight:900};
+    globalThis.ui={notifications:{warn(){},error(){}}};
+    globalThis.document={createElement:tag=>({tag,style:{},children:[],
+      listeners:new Map(),textContent:"",append(...nodes){this.children.push(...nodes);},
+      appendChild(node){this.children.push(node);},
+      addEventListener(name,handler){this.listeners.set(name,handler);},
+      setAttribute(){}})};
+    const scene={id:"sea-scene",name:"Paedor",grid:{size:100,units:"mi"},
+      canUserModify:()=>true,getFlag:()=>null};
+    const atlas={revision:4,roads:[{id:"sea",name:"Sea Lane"}],
+      nodes:[],segments:[],checkpoints:[]};
+    const route={status:"ok",start:point(0,0),end:point(500,0),
+      distance:95.48,cost:95.48,terrainAware:false,legs:[{
+        kind:"road",roadId:"sea",segmentId:"ocean",distance:95.48,cost:95.48,
+        points:[point(0,0),point(500,0)]}]};
+    const nav=new AtlasNavigationController({
+      canvasProvider:()=>({ready:true,scene}),atlasProvider:()=>atlas});
+    nav.scene=scene;nav.sourceMode="party";nav.result=route;
+    nav.start=route.start;nav.end=route.end;nav.routeRevision=atlas.revision;
+    nav.travelMethod="walking"; // stale UI state must not replace Journal approval
+    nav.transportationTransitionPlan=()=>({hasTransitions:false,legs:[]});
+    nav.resolveTravel=()=>({sceneUnit:"mi",travel:{speed:3,source:"party",
+      actorName:"The Party",pace:"normal"}});
+    const schedule=new GuidedTravelDayTracker({travelHours:47+44/60,
+      rules:{dailyHours:24,overnightHours:0,longRestHours:8,
+        shortRestHours:1,forcedMarch:"custom"}});
+    const approved={methodId:"ship-passage",methodName:"Ship passage (hired)",
+      kind:"vehicle",arrangement:"hire",surface:"water",operation:"continuous"};
+    nav.travelSession={phase:"moving",transportLeg:{transport:approved},
+      schedule,journeyRecord:{legs:[{speedPerHour:2,movingHours:47+44/60,
+        transport:approved}]}};
+    const panel=await nav._renderHTML();
+    const all=node=>[node,...(node.children??[]).flatMap(all)];
+    const nodes=all(panel);
+    const method=nodes.find(node=>node.id==="atlas-navigation-travel-method");
+    assert.ok(method);
+    assert.equal(method.disabled,true,"approved transportation is read-only mid-voyage");
+    assert.equal(method.value,"approved");
+    assert.ok(nodes.some(node=>node.tag==="option"&&
+      node.textContent==="Ship passage (hired)"));
+    assert.ok(nodes.some(node=>node.textContent?.includes?.(
+      "Speed: Ship passage (hired) (approved hire Journey leg)")));
+    const card=nodes.find(node=>node.tag==="div"&&
+      node.children?.[0]?.textContent==="Travel Time");
+    assert.ok(card);
+    assert.match(card.children[1].textContent,/47h 44m|1d 23h 44m/);
+    assert.equal(nav.travelMethod,"walking",
+      "presenting a saved method must not write transient selection or Journey state");
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("GM guided travel pauses and ends at native chunk boundaries with honest progress",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
     ui:globalThis.ui,document:globalThis.document};
@@ -695,6 +807,10 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     await tickUntil(()=>nav.travelSession?.phase==="paused");
     assert.equal(nav.travelSession.phase,"paused");
     assert.equal(calls.length,1,"pausing prevents the next chunk from starting");
+    assert.ok(Math.abs(nav.travelSession.lastConfirmedAnchor.point.x-(token.x+50))<.001);
+    assert.ok(Math.abs(nav.travelSession.lastConfirmedAnchor.point.y-(token.y+50))<.001);
+    assert.ok(nav.travelSession.lastConfirmedAnchor.point.x>100,
+      "the confirmed native chunk advances the cached recovery anchor");
     assert.ok(nav.travelProgress>0&&nav.travelProgress<100);
     const pausedPanel=await nav._renderHTML();
     assert.ok(find(pausedPanel,node=>node.tag==="button"&&node.ariaLabel==="Resume Travel"));
