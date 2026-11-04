@@ -29,7 +29,8 @@ export function validateTransportJourneyInfo(raw){
     arrivalCheckpointId:raw.arrivalCheckpointId,
     arrivalCheckpointName:raw.arrivalCheckpointName,
     roadNames:[...raw.roadNames],estimatedFareCp:raw.estimatedFareCp,
-    operation:raw.operation??null,continuation:raw.continuation===true
+    ...(raw.operation!=null?{operation:raw.operation}:{}),
+    ...(raw.continuation===true?{continuation:true}:{})
   };
 }
 

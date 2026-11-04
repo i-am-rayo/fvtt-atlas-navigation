@@ -736,7 +736,8 @@ test("mounts, wagons, and ships use explicit daily operating policies",()=>{
       {...warship,continuousEnabled:true});
     nav.transportOperation="continuous";
     const sailing=nav.resolveTravelRules({methodId:"warship"});
-    assert.equal(sailing.dailyHours,24);
+    assert.equal(sailing.dailyHours,null,
+      "a verified continuously crewed vessel never triggers the party travel-day limit");
     assert.equal(estimateNavigationTotalTrip(31+34/60,sailing).overnights,0);
     profile="custom";
     assert.equal(nav.resolveTravelRules({methodId:"camel"}).dailyHours,6,

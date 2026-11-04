@@ -2,6 +2,7 @@ import { MODULE_ID } from "./atlas-storage.js";
 import { formatNavigationDuration } from "./navigation-time.js";
 import { atlasDisplayDistance } from "./navigation-measure-units.js";
 import { confirmedJourneyDirections } from "./navigation-journey-timeline.js";
+import {isRestUnderway} from "./navigation-passenger-rest.js";
 import {validateTransportJourneyInfo,confirmedTransportJourneyLines} from "./navigation-transport-journal.js";
 
 /** A Journal Entry owns the recoverable record and a generated human-readable page.
