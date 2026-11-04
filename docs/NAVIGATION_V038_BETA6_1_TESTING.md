@@ -12,10 +12,10 @@ Target: Foundry VTT v14, D&D 5e. **Do not merge without GM approval.**
   **Party** (walking and owned mounts/vehicles), followed by actual nearby checkpoint
   names such as **Port Barthos** (locally offered hire/passage). Unavailable methods
   never appear simply because they are defined in the World catalog.
-- The final off-road attachment after a road or sea lane is split out as an
+- The final off-road attachment after a water or air lane is split out as an
   **Unclassified** leg; it cannot inherit the ship's speed or fare. All genuinely
   available transport types appear for that unclassified leg when it becomes current.
-  A transition from sea to unclassified terrain without an authored landing checkpoint
+  A land-only last-mile approach remains part of its land leg. A transition from sea to unclassified terrain without an authored landing checkpoint
   remains blocked; Atlas does not invent an arrival or disembarkation.
 - The pencil for a selected non-walking current-leg method opens the **same**
   General / Services / Ownership editor as the World and checkpoint presets.

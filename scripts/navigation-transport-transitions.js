@@ -52,7 +52,7 @@ export function projectTransportationRouteLegs(route,atlas,travelPresets=[]){
     // as a distinct, explicitly chosen segment instead of silently carrying
     // a ship/aircraft across unknown terrain.
     const trailingUnclassified=leg.kind==="off-road"&&index===legs.length-1&&
-      index>0&&leg.distance>0.005;
+      index>0&&leg.distance>0.005&&["water","air"].includes(previous?.surface);
     const surface=trailingUnclassified?"unspecified":leg.kind==="road"?
       routeSurface(roads.get(leg.roadId),presets):
       (previous?.surface??nextSurface(index+1));
