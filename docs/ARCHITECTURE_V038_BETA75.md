@@ -182,6 +182,18 @@ transport recovery validation is surface/method-neutral; completed arrivals
 must not silently continue without a new GM decision. No schema or movement
 changes, and no relaxation of duplicate-booking guards.
 
+**Beta.7.12 transfer-preview presentation boundary (after beta.7.11.2 owner tests):**
+Extract only the read-only current-leg frame, recovery explanation, approved
+leg heading, road names, preformatted cost/time narration, validation warning,
+checkpoint advisory, and optional future-leg GM preview to
+`navigation-transfer-preview-view.js`. Keep transportation selectors,
+recovered operating-schedule input, edit dialogs, pricing and method
+calculations in the controller. The preview never requests transport,
+books services, charges funds, confirms checkpoint arrival or creates a new
+Journey leg. This prepares a reusable, read-only transfer summary for the
+future player pamphlet without exposing GM actions or changing future-leg
+approval semantics. Preserve exact copy, ordering and Foundry v14 behavior.
+
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.
