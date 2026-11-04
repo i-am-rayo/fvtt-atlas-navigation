@@ -38,7 +38,7 @@ import {isJourneyDestinationCheckpoint,isRepeatedArrivalCheckpoint}
   from "./navigation-checkpoint-terminal.js";
 import {restoreApprovedTransportPlan,hasUnfinishedApprovedTransport}
   from "./navigation-transport-recovery.js";
-import {requestPassengerRest,canRequestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
+import {requestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
   recoverPassengerRestRequest} from "./navigation-passenger-rest.js";
 import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
   from "./navigation-measure-units.js";
@@ -59,17 +59,12 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   validateJourneyRecord,eligibleJourneyRecord,isUnfinishedJourneyLeg,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
   JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
-import { createAtlasIconButton } from "./ui-action-button.js";
+import {renderNavigationFooter} from "./navigation-footer.js";
 
 const el = (tag, content) => {
   const node = document.createElement(tag);
   if (content !== undefined) node.textContent = content;
   return node;
-};
-
-/** Keep footer controls compact without sacrificing keyboard or screen-reader labels. */
-const navigationFooterIconButton=(label,icon)=>{
-  return createAtlasIconButton({icon,label,size:"footer"});
 };
 
 /** GM-only navigation. Travel uses an explicit, native v14 TokenDocument.move action. */
@@ -2642,134 +2637,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Choose Point B to see available transportation and journey estimates.");
       hint.style.cssText="margin:0;opacity:.8;font-size:.9em;";body.appendChild(hint);
     }
-    const row=el("div");
-    row.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;padding:.65rem 1rem;border-top:1px solid var(--color-border-light-tertiary,#555);background:var(--color-bg,#100e18);flex:none;";
-    const newRoute=navigationFooterIconButton("New Route","route");
-    newRoute.disabled=Boolean(this.travelSession||this.journalStarting||this.pendingTransfer);
-    newRoute.title=partyMode?"Choose a new destination from the party token":
-      "Clear route and choose a new Point A";
-    newRoute.addEventListener("click",()=>{
-      this.clear();
-      if(partyMode)this.refreshPartyDeparture();
-    });
-    row.appendChild(newRoute);
-    if(this.pendingTransfer){
-      const atDestination=this.isAtJourneyDestination();
-      const actions=[
-        ["Stop and replan","code-branch",()=>this.stopAndReplanAtCheckpoint()],
-        ["Continue from checkpoint","forward-step",()=>this.continueFromCheckpoint()],
-        ...(atDestination?[["Complete Journey","flag-checkered",
-          ()=>this.completeJourneyAtCheckpoint()]]:[])
-      ];
-      for(const [label,icon,action] of actions){
-        const choice=navigationFooterIconButton(label,icon);
-        choice.disabled=Boolean(this.journalStarting||this.travelSession);
-        choice.addEventListener("click",()=>void action().catch(error=>
-          globalThis.ui?.notifications?.error?.(error.message??String(error))));
-        row.appendChild(choice);
-      }
-    }
-    if(this.journeyJournal){
-      const open=navigationFooterIconButton("Open Journey Journal","book-open");
-      open.title="Open the saved Journey Journal and recovery record";
-      open.addEventListener("click",()=>void this.journeyJournal.sheet?.render(true));
-      row.appendChild(open);
-    }
-    if(this.result?.status==="ok"){
-      const phase=this.travelSession?.phase;
-      if(phase==="rest-choice"){
-        const rules=this.travelSession.schedule.rules;
-        for(const [action,label,icon,title] of [
-          ["overnight","Overnight Camp ("+rules.overnightHours+"h)","campground",
-            "Camp overnight and reset the daily travel allowance"],
-          ["long","Long Rest ("+rules.longRestHours+"h)","bed",
-            "Record a long rest; Actor resources remain unchanged"],
-          ["short","Short Rest ("+rules.shortRestHours+"h)","mug-hot",
-            "Add a short rest without resetting daily travel hours"],
-          ["continue","Continue March","person-walking",
-            "Continue one more travel hour; adjudicate any Constitution saves manually"]]){
-          const button=navigationFooterIconButton(label,icon);
-          button.title=title;
-          button.disabled=action==="continue"&&this.travelSession.schedule.todayHours>=24-1e-7;
-          button.addEventListener("click",()=>this.chooseDailyTravelBreak(action));
-          row.appendChild(button);
-        }
-      }else{
-        const moveLabel=phase==="paused"?"Resume Travel":phase==="moving"?
-          "Pause Travel":phase==="pausing"?"Pausing…":phase==="ending"?"Ending Journey…":
-          phase==="rest-applying"?"Recording Break…":assistedLegReady?
-            "Travel to "+transferPlan.legs[0].arrivalCheckpoint.name:"Travel Route";
-        const moveIcon=phase==="moving"?"pause":phase==="pausing"||
-          phase==="ending"||phase==="rest-applying"?"hourglass-half":"play";
-        const move=navigationFooterIconButton(moveLabel,moveIcon);
-        move.disabled=this.journalStarting||(!this.travelSession&&
-          (!methodAssessment.guided&&!assistedLegReady||repeatingCheckpoint))||phase==="ending"||
-          phase==="pausing"||phase==="rest-applying"||phase==="rest-error";
-        move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
-          "Pause after the current short road stretch":moveLabel;
-        move.addEventListener("click",()=>{
-          if(this.travelSession){
-            const ok=this.travelSession.phase==="paused"?this.resumeGuidedTravel():
-              this.pauseGuidedTravel();
-            if(!ok)ui.notifications.warn("The token could not change its movement state yet.");
-            return;
-          }
-          void this.startGuidedTravel().catch(error=>{
-            this.travelNotice=error.message||String(error);
-            ui.notifications.error(this.travelNotice);
-            if(this.active)void this.render(true);
-          });
-        });
-        row.appendChild(move);
-      }
-      if(this.travelSession?.phase==="paused"){
-        const session=this.travelSession,rules=session.schedule.rules;
-        for(const [action,label,icon,hours] of [
-          ["short","Short Rest","mug-hot",rules.shortRestHours],
-          ["long","Long Rest","bed",rules.longRestHours],
-          ["overnight","Overnight Camp","campground",rules.overnightHours]
-        ]){
-          const rest=navigationFooterIconButton(label+" ("+hours+"h)",icon);
-          rest.title="Record an optional rest at the current paused location; "+
-            "Actor resources remain manual and World time follows module settings.";
-          rest.disabled=Boolean(session.pendingPassengerRest||
-            session.schedule.restEvents>=MAX_GUIDED_REST_EVENTS||
-            session.schedule.events.length>=MAX_GUIDED_TRAVEL_EVENTS);
-          rest.addEventListener("click",()=>void this.choosePausedTravelRest(action)
-            .catch(error=>globalThis.ui?.notifications?.error?.(
-              error.message??String(error))));
-          row.appendChild(rest);
-        }
-      }
-      if(this.travelSession?.transportLeg?.transport?.operation==="continuous"&&
-          this.travelSession.phase==="moving"){
-        const session=this.travelSession;
-        for(const [action,label,icon,hours] of [
-          ["short","Short Rest Aboard","mug-hot",session.schedule.rules.shortRestHours],
-          ["long","Long Rest Aboard","bed",session.schedule.rules.longRestHours]
-        ]){
-          const underway=navigationFooterIconButton(label+" ("+hours+"h)",icon);
-          underway.title="Rest while the vessel continues traveling; World time advances with confirmed movement only.";
-          underway.disabled=!canRequestPassengerRest(session.schedule,
-            session.pendingPassengerRest,action);
-          underway.addEventListener("click",()=>void this.choosePassengerRest(action)
-            .then(approved=>{
-              if(!approved)ui.notifications.warn("A passenger rest is already underway.");
-            }).catch(error=>ui.notifications.warn(error.message??String(error))));
-          row.appendChild(underway);
-        }
-      }
-      if(this.travelSession){
-        const end=navigationFooterIconButton("End Journey","flag");
-        end.disabled=["ending","rest-applying"].includes(this.travelSession.phase);
-        end.title="Stop this journey permanently at the token's current position";
-        end.addEventListener("click",()=>{
-          if(!this.stopGuidedTravel())ui.notifications.warn("The journey could not be ended.");
-        });
-        row.appendChild(end);
-      }
-    }
-    root.append(body,row);
+    root.append(body,renderNavigationFooter(this,{partyMode,transferPlan,
+      methodAssessment,assistedLegReady,repeatingCheckpoint}));
     return root;
   }
 

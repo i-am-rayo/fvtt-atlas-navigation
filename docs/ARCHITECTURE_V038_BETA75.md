@@ -108,6 +108,15 @@ UI-only milestone.
    and confirmed Journey-destination contract before further decomposition
    (**beta.7.7**, test-only changes).
 
+**Beta.7.8 first Navigation decomposition slice:** The action-only footer is
+now `navigation-footer.js`, with its own direct DOM regression tests. The
+controller still calculates eligibility, renders the Journey body, performs
+GM-authorized token movement and manages the clock/Journal state. The footer
+receives a read-only eligibility snapshot plus the controller's existing
+guarded action methods; merely rendering never commits a decision. The
+controls, copy, button labels and callbacks are unchanged. This is an
+architecture-only extract, not a new Journey feature or a schema update.
+
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.
