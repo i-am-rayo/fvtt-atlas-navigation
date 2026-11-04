@@ -220,6 +220,24 @@ time/fare estimates and all guarded writes. The checkpoint-specific selector
 and old-Journal operating-schedule control are explicitly not part of this
 slice. No saved schema, permission or Canvas lifecycle change.
 
+**Beta.7.14 bounded larger presentation pass (after beta.7.13 GM Journey success):**
+Two closely related renderer boundaries ship together. First,
+`navigation-transfer-controls-view.js` accepts a resolved current-leg choice
+set, selected method, disabled/editability state and callbacks for a checkpoint
+transport selection and its legacy recovered-voyage operation control. Second,
+`navigation-transport-summary-view.js` displays preformatted GM transport
+advisories, Group carrying capacity information, and original/current fare
+estimates with a guarded journey-only reset callback. The controller still
+selects options, verifies Group capacity, computes fares, resolves old Journal
+rules, handles edit/recovery actions and performs every authorized write.
+Rendering is inert until explicit user input. This broader slice changes no
+stored contract, system integration, movement/rest timing, native Region,
+Canvas behavior, or player-visible metadata. It is one separately testable
+architectural boundary—not permission to mix in scheduled services, Region
+containment, import/export or other deferred gameplay features. Non-GM live
+verification remains a release gate for both builds; a successful GM Journey
+does not by itself prove player permission and visibility compatibility.
+
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.

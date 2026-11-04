@@ -31,7 +31,6 @@ import { availableNavigationTravelMethods,resolveNavigationMethodTravel,
   assessNavigationMethodRoute } from "./navigation-travel-method.js";
 import { projectTransportationRouteLegs,transportationLegSelection,
   describeTransportationLeg } from "./navigation-transport-transitions.js";
-import {appendGroupedTransportationOptions} from "./navigation-transport-choices.js";
 import {prepareGuidedTransportLeg,confirmGuidedCheckpointArrival}
   from "./navigation-guided-transport-leg.js";
 import {isJourneyDestinationCheckpoint,isRepeatedArrivalCheckpoint}
@@ -63,6 +62,10 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
 import {renderNavigationFooter} from "./navigation-footer.js";
 import {renderNavigationDepartureSelector,renderNavigationTravelMethodSelector}
   from "./navigation-selection-view.js";
+import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
+  from "./navigation-transfer-controls-view.js";
+import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote}
+  from "./navigation-transport-summary-view.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
@@ -2108,9 +2111,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         transferPlan.legs[0].arrivalCheckpoint.name));
     }
     if(this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
-      const advisory=el("p",methodAssessment.reason??"Transport planning only.");
-      advisory.style.cssText="margin:0;padding:.5rem;border:1px solid #b18b54;border-radius:6px;font-size:.83em;";
-      body.appendChild(advisory);
+      body.appendChild(renderTransportAdvisory(methodAssessment.reason??
+        "Transport planning only."));
     }
     if(this.travelMethod!=="walking"&&!transferPlan?.hasTransitions &&
         this.transportArrangement!=="hire" &&game.system?.id==="dnd5e" &&
@@ -2124,40 +2126,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         if(group?.type==="group"&&selectedMethod?.surface){
           const roster=projectGroupTransportation(group,readGroupTransportation(game.settings),methods);
           const capacity=groupMethodCapacityStatus(roster,selectedMethod);
-          const capacityNote=el("p",roster.travelers+" traveler(s); "+
+          const capacityDescription=roster.travelers+" traveler(s); "+
             capacity.seats+" available "+selectedMethod.surface+" seat(s). "+
             (capacity.missing?capacity.missing+" additional seat(s) needed. ":
               capacity.sufficient?"Capacity meets party size. ":"")+
             (capacity.unknown?"Some transport capacities are not specified. ":"")+
             (roster.unclassified?roster.unclassified+" NPC role(s) still need GM review. ":"")+
             (capacity.matched?"Availability does not mean the party has boarded.":
-              "No matching Group resource. Assign an owned mount or vehicle to this method."));
-          capacityNote.style.cssText="margin:0;padding:.5rem;border:1px solid "+
-            (capacity.missing?"#b18b54":"var(--color-border-light-tertiary,#666)")+
-            ";border-radius:6px;font-size:.83em;";
-
-          const capacityBox=el("div");
-          capacityBox.style.cssText="display:grid;gap:.4rem;";
-          capacityBox.appendChild(capacityNote);
-          if(capacity.missing||roster.unclassified){
-            const controls=el("div");
-            controls.style.cssText="display:flex;gap:.5rem;flex-wrap:wrap;";
-            const review=el("button","Review mounts & NPC roles");
-            review.type="button";
-            review.addEventListener("click",()=>{
+              "No matching Group resource. Assign an owned mount or vehicle to this method.");
+          body.appendChild(renderTransportCapacity({
+            description:capacityDescription,warning:Boolean(capacity.missing),
+            needsReview:Boolean(capacity.missing||roster.unclassified),
+            onReview:()=>{
               try{openAtlasGroupTransportation(group.id);}catch(error){
                 globalThis.ui?.notifications?.error?.(error.message??String(error));
               }
-            });
-            const refresh=el("button","Refresh seats");
-            refresh.type="button";
-            refresh.addEventListener("click",()=>void this.render());
-            controls.append(review,refresh);capacityBox.appendChild(controls);
-            capacityBox.appendChild(el("small","In the Group sheet\u0027s Travel Pace header, open Manage Party Transportation, "+
-              "set a mount NPC's Role to Mount, specify its quantity and rider capacity, "+
-              "then Save assignments. Refresh seats after saving."));
-          }
-          body.appendChild(capacityBox);
+            },onRefresh:()=>void this.render()
+          }));
 
         }
       }catch(error){atlasWarn("navigation","Group capacity preview unavailable",error);}
@@ -2195,50 +2180,39 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               quoteTransportationService(baseMethod,{...quoteArgs,hireTerms:null}):null;
             const formatMoney=cp=>dndCurrencyBreakdown(cp,
               globalThis.CONFIG?.DND5E?.currencies).label;
-            const block=el("section");
-            block.style.cssText="display:grid;gap:.55rem;border:1px solid var(--color-border-light-tertiary,#777);border-radius:8px;padding:.65rem;";
-            if(original){
-              const initial=el("div","World preset estimate: "+formatMoney(original.totalCp));
-              initial.style.cssText="opacity:.78;font-size:.9em;";block.append(initial);
-            }
-            block.append(el("strong","Current "+(quote.arrangement==="hire"?
-              "hired service":"party-owned transport")+" estimate: "+formatMoney(quote.totalCp)));
-            block.append(el("small",[
-              quote.baseLabel+": "+formatMoney(quote.baseCp),
-              "Paid crew: "+formatMoney(quote.crewWagesCp),
-              "Overtime fare: "+formatMoney(quote.overtimeFareCp),
-              "Overtime labor: "+formatMoney(quote.overtimeCrewCp)
-            ].filter(Boolean).join(" · ")));
-            const timetable=el("small",quote.travelDays+" operating day(s) at "+
-              quote.dailyHours+"h/day, "+quote.extraHours.toFixed(1)+" overtime hour(s), "+
-              quote.units+" transport unit(s). "+
-              (this.transportArrangement==="hire"?"Checkpoint availability listed; booking not confirmed. ":"")+
-              "No currency is deducted.");
-            timetable.style.cssText="opacity:.8;";block.append(timetable);
             const disabled=Boolean(this.travelSession||this.journalStarting);
-            if(this.transportJourneyOverrides&&
-                Object.keys(this.transportJourneyOverrides).length){
-              const helper=el("small","Journey-only settings are active. "+
-                "Use the pencil beside Travel method to edit them.");
-              helper.style.opacity=".85";block.append(helper);
-              const reset=el("button","Reset journey overrides");reset.type="button";
-              reset.disabled=disabled;reset.style.cssText="justify-self:start;";
-              reset.addEventListener("click",()=>{
-                if(disabled)return;
+            body.append(renderTransportQuote({
+              worldEstimate:original?"World preset estimate: "+
+                formatMoney(original.totalCp):null,
+              currentEstimate:"Current "+(quote.arrangement==="hire"?
+                "hired service":"party-owned transport")+" estimate: "+
+                formatMoney(quote.totalCp),
+              breakdown:[
+                quote.baseLabel+": "+formatMoney(quote.baseCp),
+                "Paid crew: "+formatMoney(quote.crewWagesCp),
+                "Overtime fare: "+formatMoney(quote.overtimeFareCp),
+                "Overtime labor: "+formatMoney(quote.overtimeCrewCp)
+              ].filter(Boolean).join(" · "),
+              operatingSummary:quote.travelDays+" operating day(s) at "+
+                quote.dailyHours+"h/day, "+quote.extraHours.toFixed(1)+
+                " overtime hour(s), "+quote.units+" transport unit(s). "+
+                (this.transportArrangement==="hire"?
+                  "Checkpoint availability listed; booking not confirmed. ":"")+
+                "No currency is deducted.",
+              overrides:Boolean(this.transportJourneyOverrides&&
+                Object.keys(this.transportJourneyOverrides).length),disabled,
+              onReset:()=>{
                 this.transportJourneyOverrides=null;
                 this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
                 this.draw();void this.render(true);
-              });
-              block.append(reset);
-            }
-            body.append(block);
+              }
+            }));
           }
         }
       }catch(error){
         atlasWarn("navigation","Transport service preview unavailable",error);
-        const warning=el("p","Transport cost estimate unavailable: "+(error.message??String(error)));
-        warning.style.cssText="margin:0;padding:.5rem;border:1px solid #b18b54;border-radius:6px;font-size:.83em;";
-        body.append(warning);
+        body.append(renderTransportAdvisory("Transport cost estimate unavailable: "+
+          (error.message??String(error))));
       }
     }
     const help=el("p",partyMode?
@@ -2263,58 +2237,30 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         if(leg.recovered&&this.recoveryRecord?.legs?.at(-1)?.transport?.operation==null&&
             ["water","air"].includes(leg.surface)&&
             leg.selectedOption?.method?.kind==="vehicle"){
-          const operationLabel=el("label","Operating schedule for recovered voyage");
-          operationLabel.style.cssText="display:grid;gap:.3rem;font-size:.87em;";
-          const recoveredOperation=el("select");
-          recoveredOperation.disabled=Boolean(this.travelSession||this.journalStarting);
-          for(const [value,label] of [
-            ["normal","Standard — 8h/day"],
-            ["continuous","Continuous — crewed 24h operation"]
-          ]){
-            const entry=el("option",label);entry.value=value;
-            recoveredOperation.append(entry);
-          }
-          recoveredOperation.value=leg.operation;
-          recoveredOperation.addEventListener("change",()=>{
-            this.recoveryOperationOverride=recoveredOperation.value;
-            void this.render(true);
-          });
-          operationLabel.append(recoveredOperation);
-          card.append(el("small","This older Journey Journal did not retain its operating schedule. The GM must confirm whether the hired vessel has rotating crew before restoring continuous travel."));
-          card.append(operationLabel);
+          card.append(...renderRecoveredVoyageOperation({
+            operation:leg.operation,
+            disabled:Boolean(this.travelSession||this.journalStarting),
+            onChange:value=>{
+              this.recoveryOperationOverride=value;
+              void this.render(true);
+            }
+          }));
         }
         card.append(renderNavigationTransferRoadNames(leg.roadNames));
-        const methodLabel=el("label","Transportation for this leg");
-        methodLabel.style.cssText="display:grid;gap:.3rem;min-width:0;";
-        const methodRow=el("div");
-        methodRow.style.cssText="display:flex;gap:.5rem;align-items:center;min-width:0;";
-        const select=el("select");
-        select.style.cssText="flex:1;min-width:0;";
-        select.disabled=Boolean(this.travelSession||this.journalStarting||leg.recovered);
-        select.setAttribute("aria-label","Transportation method for current leg");
-        const placeholder=el("option","Select a transport method");
-        placeholder.value="";select.append(placeholder);
-        appendGroupedTransportationOptions(select,leg.options);
-        select.value=leg.selectedValue;
-        select.addEventListener("change",()=>{
-          if(this.travelSession||this.journalStarting)return;
-          this.transferSelections[0]=select.value;
-          delete this.transferLegOverrides[0];
-          void this.render(true);
-        });
-        methodRow.append(select);
-        if(!leg.recovered&&leg.selectedOption&&leg.selectedOption.method?.id!=="walking"){
-          const edit=el("button");
-          edit.type="button";edit.title="Edit this leg's transportation and save for trip or checkpoint";
-          edit.setAttribute("aria-label","Edit current leg transportation");
-          edit.innerHTML='<i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>';
-          edit.style.cssText="min-width:2.5rem;min-height:2.5rem;";
-          edit.disabled=Boolean(this.travelSession||this.journalStarting);
-          edit.addEventListener("click",()=>void this.editTransportationLeg(0)
-            .catch(error=>globalThis.ui?.notifications?.error?.(error.message??String(error))));
-          methodRow.append(edit);
-        }
-        methodLabel.append(methodRow);card.append(methodLabel);
+        card.append(renderCurrentTransferMethodSelector({
+          options:leg.options,selectedValue:leg.selectedValue,
+          disabled:Boolean(this.travelSession||this.journalStarting||leg.recovered),
+          editable:Boolean(!leg.recovered&&leg.selectedOption&&
+            leg.selectedOption.method?.id!=="walking"),
+          onChange:value=>{
+            if(this.travelSession||this.journalStarting)return;
+            this.transferSelections[0]=value;
+            delete this.transferLegOverrides[0];
+            void this.render(true);
+          },
+          onEdit:()=>void this.editTransportationLeg(0)
+            .catch(error=>globalThis.ui?.notifications?.error?.(error.message??String(error)))
+        }));
         card.append(...renderNavigationTransferLegOutcome({
           estimateLabel:leg.hours!==null&&leg.costCp!==null?
             showDistance(leg.distance)+" · "+
