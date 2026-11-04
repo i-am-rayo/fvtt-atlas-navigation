@@ -167,6 +167,21 @@ R-01 investigation of *why* Foundry redraws the Canvas is independent and
 does not justify suppressing native teardown. Live GM/player v14 redraw and
 recovery verification remains mandatory.
 
+**Beta.7.11.2 checkpoint continuation follow-up:** The owner observed a
+successfully recovered land-to-ship journey pause at Port Barthos after
+automatic Canvas restart. A selected Point B near the same completed
+checkpoint could still generate a new tiny water preview which the correct
+duplicate-arrival guard blocked. Keep completed checkpoint arrival as an
+explicit GM decision distinct from unfinished-leg automatic recovery. If the
+first onward preview would rebook the last completed checkpoint, drop only
+its transient end/route selection and request a different Point B. A GM may
+reopen the confirmed checkpoint choices read-only from the paused Journal,
+revalidating the Scene, Atlas revision, TokenDocument location and checkpoint
+before any new action. No authority comes from a rendered UI notice. Saved
+transport recovery validation is surface/method-neutral; completed arrivals
+must not silently continue without a new GM decision. No schema or movement
+changes, and no relaxation of duplicate-booking guards.
+
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.

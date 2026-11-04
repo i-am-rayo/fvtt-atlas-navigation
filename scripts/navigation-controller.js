@@ -783,7 +783,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** Load a saved destination, but never start a token movement automatically. */
   recoverSavedJourney(){
     if(this.travelSession||this.journalStarting||!this.scene)return false;
-    const journal=this.recoverableJourney;
+    // A completed checkpoint is a durable Journey decision. If Continue
+    // produced an invalid onward preview, allow the GM to reopen those same
+    // choices from its Journal without inventing another movement leg.
+    const completedCheckpoint=this.recoveryRecord?.status==="paused"&&
+      this.recoveryRecord.legs?.at(-1)?.completedPercent>=99.999;
+    const journal=this.recoverableJourney??
+      (completedCheckpoint?this.recoveryJournal:null);
     const record=journal?.getFlag?.(MODULE_ID,JOURNEY_JOURNAL_FLAG);
     const token=this.getPartyToken();
     const atlas=this.atlasProvider(this.scene);
@@ -1627,10 +1633,29 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const atlas=this.atlasProvider(this.scene);
     this.syncPartyDeparture(view,atlas);
     this.calculateRoute(view,atlas);
+    // Some map-click destinations near a dock resolve right back to that
+    // same completed checkpoint. The safety guard must still forbid another
+    // booking, but Continue should leave the GM free to choose a new Point B.
+    // This is a preview-only check; approved Journal history is untouched.
+    let duplicateArrival=false;
+    if(this.result?.status==="ok"){
+      try{
+        const plan=this.transportationTransitionPlan();
+        duplicateArrival=isRepeatedArrivalCheckpoint(this.recoveryRecord,
+          plan?.legs?.[0]?.arrivalCheckpoint);
+      }catch(error){
+        atlasWarn("navigation","Could not inspect checkpoint continuation preview",error);
+      }
+    }
+    if(duplicateArrival){
+      this.end=null;
+      this.calculateRoute(view,atlas);
+    }
     this.travelNotice=this.end?
       "Continuing from "+pending.checkpoint.name+" toward the saved destination. "+
         "Select transportation for the next leg.":
       "Checkpoint confirmed at "+pending.checkpoint.name+". "+
+        (duplicateArrival?"The saved Point B resolves back to this same checkpoint. ":"")+
         "Choose the next destination to continue this Journey without replaying past travel.";
     this.draw();await this.render(true);
     return true;

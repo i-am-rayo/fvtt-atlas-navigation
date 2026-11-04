@@ -1278,3 +1278,71 @@ test("a recovered intermediate checkpoint resumes the saved final destination",a
   assert.equal(nav.pendingTransfer,null);
   assert.match(nav.travelNotice,/saved destination/);
 });
+
+test("Continue from a completed port never previews another voyage to that same port",async()=>{
+  const port={id:"port",name:"Port Barthos",point:point(100,0)};
+  const record={status:"paused",destination:point(120,0),
+    legs:[{completedPercent:100,transport:{arrivalCheckpointId:port.id}}]};
+  const nav=new AtlasNavigationController({atlasProvider:()=>({revision:7})});
+  nav.scene={id:"scene",grid:{size:100}};
+  nav.recoveryRecord=record;
+  nav.end={...record.destination};
+  nav.pendingTransfer={checkpoint:port};
+  nav.verifyPendingTransfer=()=>({pending:nav.pendingTransfer,view:{ready:true}});
+  nav.syncPartyDeparture=()=>{};
+  const endpoints=[];
+  nav.calculateRoute=()=>{
+    endpoints.push(nav.end);
+    nav.result=nav.end?{status:"ok"}:null;
+  };
+  nav.transportationTransitionPlan=()=>({legs:[{arrivalCheckpoint:port}]});
+  nav.draw=()=>{};nav.render=async()=>{};
+  assert.equal(nav.isAtJourneyDestination(),false,
+    "an offset Point B must not be silently reclassified as final");
+  assert.equal(await nav.continueFromCheckpoint(),true);
+  assert.deepEqual(endpoints,[point(120,0),null]);
+  assert.equal(nav.end,null,"the new Point B must be chosen deliberately");
+  assert.equal(nav.pendingTransfer,null);
+  assert.equal(nav.recoveryRecord,record,"the Journal snapshot remains unchanged");
+  assert.match(nav.travelNotice,/resolves back to this same checkpoint/);
+});
+
+test("confirmed checkpoint choices can be reopened from their Journal after a blocked preview",()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui};
+  try{
+    const scene={id:"paedor",grid:{size:100}};
+    const port={id:"port",name:"Port Barthos",nodeId:"port-node"};
+    const atlas={revision:7,roads:[],nodes:[{id:"port-node",x:100,y:0}],
+      checkpoints:[port]};
+    const token={id:"party"};
+    const route={status:"ok",start:point(0,0),end:point(100,0),
+      distance:100,cost:100,legs:[{kind:"road",roadId:"sea",
+        segmentId:"s",distance:100,cost:100,
+        points:[point(0,0),point(100,0)]}]};
+    const itinerary={...createNavigationItinerary({sceneId:scene.id,
+      route,travel:{speed:2}}),transport:{methodId:"ship-passage",
+      methodName:"Ship passage (hired)",kind:"vehicle",arrangement:"hire",
+      surface:"water",departureCheckpointName:null,arrivalCheckpointId:"port",
+      arrivalCheckpointName:port.name,roadNames:["Sea Route"],
+      estimatedFareCp:100,operation:"continuous"}};
+    const saved=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:atlas.revision,itinerary,journeyDestination:point(120,0)});
+    saved.status="paused";saved.legs[0].completedPercent=100;
+    saved.legs[0].completedMovingHours=50;
+    const journal={id:"journal",getFlag:()=>saved};
+    globalThis.game={user:{id:"gm",isGM:true}};
+    globalThis.ui={notifications:{warn(message){throw Error(message);}}};
+    const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token});
+    nav.scene=scene;nav.draw=()=>{};nav.render=async()=>{};
+    nav.syncPartyDeparture=()=>{nav.start=point(100,0);};
+    nav.recoverableJourney=null;nav.recoveryJournal=journal;
+    nav.recoveryRecord=saved;
+    nav.result={status:"ok",end:point(120,0)};
+    assert.equal(nav.recoverSavedJourney(),true);
+    assert.equal(nav.pendingTransfer.checkpoint.name,port.name);
+    assert.deepEqual(nav.end,point(120,0));
+    assert.equal(nav.result,null,"an obsolete preview cannot trigger movement");
+    assert.equal(journal.getFlag(),saved,"reviewing checkpoint must not write to Journal");
+  }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});

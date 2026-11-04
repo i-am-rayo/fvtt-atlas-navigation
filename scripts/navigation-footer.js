@@ -42,6 +42,19 @@ export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
       row.appendChild(choice);
     }
   }
+  const lastConfirmedCheckpoint=nav.recoveryRecord?.status==="paused"&&
+    nav.recoveryRecord.legs?.at(-1)?.completedPercent>=99.999&&
+    nav.recoveryRecord.legs.at(-1).transport?.arrivalCheckpointId;
+  if(!nav.pendingTransfer&&nav.recoveryJournal&&lastConfirmedCheckpoint){
+    const review=footerButton("Review checkpoint choices","flag-checkered");
+    review.title="Reopen the confirmed checkpoint decision from the saved Journey; no movement or payment";
+    review.disabled=Boolean(nav.travelSession||nav.journalStarting);
+    review.addEventListener("click",()=>{
+      try{nav.recoverSavedJourney();}
+      catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
+    });
+    row.appendChild(review);
+  }
   if(nav.journeyJournal){
     const open=footerButton("Open Journey Journal","book-open");
     open.title="Open the saved Journey Journal and recovery record";

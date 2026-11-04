@@ -49,6 +49,21 @@ test("footer is presentation-only until an explicit action is clicked",async()=>
       repeatingCheckpoint:true,methodAssessment:{guided:true},
       transferPlan:{legs:[{arrivalCheckpoint:{name:"Port Barthos"}}]}});
     assert.equal(button(repeated,"Travel to Port Barthos").disabled,true);
+    nav.recoveryJournal={id:"journal"};
+    nav.recoveryRecord={status:"paused",legs:[{completedPercent:100,
+      transport:{arrivalCheckpointId:"port"}}]};
+    nav.recoverSavedJourney=()=>{calls.push("review checkpoint");return true;};
+    const recoverable=renderNavigationFooter(nav,{assistedLegReady:false,
+      repeatingCheckpoint:true,methodAssessment:{guided:false}});
+    assert.ok(button(recoverable,"Review checkpoint choices"));
+    assert.deepEqual(calls,["clear","refresh","travel"],
+      "the checkpoint button is read-only until clicked");
+    button(recoverable,"Review checkpoint choices").listeners.click();
+    assert.deepEqual(calls,["clear","refresh","travel","review checkpoint"]);
+    const onward=renderNavigationFooter(nav,{repeatingCheckpoint:false,
+      methodAssessment:{guided:true}});
+    assert.ok(button(onward,"Review checkpoint choices"),
+      "the saved checkpoint remains reviewable after choosing an onward Point B");
   }finally{restore();}
 });
 
