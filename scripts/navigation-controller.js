@@ -65,6 +65,9 @@ import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
 import {renderNavigationDirections} from "./navigation-directions-view.js";
 import {renderRepeatedCheckpointNotice,renderCheckpointArrivalPrompt,
   renderDailyTravelPrompt} from "./navigation-prompts-view.js";
+import {createNavigationTransferSection,createNavigationTransferLegCard,
+  renderNavigationTransferRoadNames,renderNavigationTransferLegOutcome,
+  renderNavigationLaterLegsPreview} from "./navigation-transfer-preview-view.js";
 
 const el = (tag, content) => {
   const node = document.createElement(tag);
@@ -2237,25 +2240,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         checkpointName:this.pendingTransfer.checkpoint.name,atDestination}));
     }
     if(transferPlan?.hasTransitions&&!this.pendingTransfer){
-      const section=el("section");
-      section.style.cssText="display:grid;gap:.65rem;border:1px solid var(--color-border-light-tertiary,#777);border-radius:8px;padding:.8rem;";
-      section.append(el("h3","Current journey leg"));
-      const note=el("small",transferPlan.legs[0]?.recovered?
-        "Recovered voyage: the previously approved transportation remains assigned. No second fare or boarding is applied. Atlas will continue from the last confirmed token position to the saved checkpoint.":
-        "Choose transportation for the stretch ahead. At the next checkpoint the party may stop, reconsider its destination, or choose a new method. Future legs are only a GM preview; no booking, payment or movement occurs here.");
-      note.style.cssText="opacity:.8;line-height:1.45;";
-      section.append(note);
+      const section=createNavigationTransferSection({
+        recovered:Boolean(transferPlan.legs[0]?.recovered)});
       const formatMoney=cp=>dndCurrencyBreakdown(cp,
         globalThis.CONFIG?.DND5E?.currencies).label;
       const leg=transferPlan.legs[0];
       if(leg){
-        const card=el("article");
-        card.style.cssText="border:1px solid var(--color-border-light-tertiary,#666);border-radius:7px;padding:.7rem;display:grid;gap:.55rem;";
-        const place=leg.departureCheckpoint?.name??"Starting point";
-        const finish=leg.arrivalCheckpoint?.name??(leg.surface==="unspecified"?
-          "Unclassified approach":"Next transfer or destination");
-        const surface=leg.surface==="unspecified"?"UNCLASSIFIED":leg.surface.toUpperCase();
-        card.append(el("strong","Leg 1 · "+surface+" · "+place+" → "+finish));
+        const card=createNavigationTransferLegCard(leg);
         if(leg.recovered&&this.recoveryRecord?.legs?.at(-1)?.transport?.operation==null&&
             ["water","air"].includes(leg.surface)&&
             leg.selectedOption?.method?.kind==="vehicle"){
@@ -2279,8 +2270,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           card.append(el("small","This older Journey Journal did not retain its operating schedule. The GM must confirm whether the hired vessel has rotating crew before restoring continuous travel."));
           card.append(operationLabel);
         }
-        const road=el("small",leg.roadNames.join(", ")||"Surface not authored");
-        road.style.opacity=".75";card.append(road);
+        card.append(renderNavigationTransferRoadNames(leg.roadNames));
         const methodLabel=el("label","Transportation for this leg");
         methodLabel.style.cssText="display:grid;gap:.3rem;min-width:0;";
         const methodRow=el("div");
@@ -2312,49 +2302,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           methodRow.append(edit);
         }
         methodLabel.append(methodRow);card.append(methodLabel);
-        if(leg.hours!==null&&leg.costCp!==null){
-          const amounts=el("small",showDistance(leg.distance)+" · "+
+        card.append(...renderNavigationTransferLegOutcome({
+          estimateLabel:leg.hours!==null&&leg.costCp!==null?
+            showDistance(leg.distance)+" · "+
             formatNavigationDuration(leg.hours,24)+" moving · "+
-            formatMoney(leg.costCp)+" estimated cost");
-          amounts.style.opacity=".85";card.append(amounts);
-        }
-        for(const line of leg.narration){
-          const event=el("div",line);
-          event.style.cssText="font-size:.86em;line-height:1.35;";
-          card.append(event);
-        }
-        for(const error of leg.errors){
-          const warning=el("small",error);
-          warning.style.cssText="color:#e1a763;line-height:1.4;";
-          card.append(warning);
-        }
-        if(leg.arrivalCheckpoint){
-          const choice=el("small","At "+leg.arrivalCheckpoint.name+
-            ": stop and replan, or refresh the party's location and decide how to continue. Guided checkpoint arrival choices follow in beta.7.");
-          choice.style.cssText="padding:.45rem;border-left:3px solid #b18b54;line-height:1.4;";
-          card.append(choice);
-        }
+            formatMoney(leg.costCp)+" estimated cost":null,
+          narration:leg.narration,errors:leg.errors,
+          arrivalCheckpointName:leg.arrivalCheckpoint?.name??null}));
         section.append(card);
       }
       if(transferPlan.legs.length>1){
-        const future=el("details");
-        const title=el("summary","GM preview · "+(transferPlan.legs.length-1)+
-          " possible later leg(s) (no decisions committed)");
-        title.style.cssText="cursor:pointer;font-weight:600;";
-        future.append(title);
-        const help=el("small","These are tentative road segments, not a fixed party itinerary. Move or refresh the party token at the actual checkpoint to choose the next method.");
-        help.style.cssText="display:block;margin:.4rem 0;opacity:.8;";
-        future.append(help);
-        for(const next of transferPlan.legs.slice(1)){
-          const text=el("div","Leg "+(next.index+1)+" · "+
-            (next.surface==="unspecified"?"Unclassified":next.surface)+
-            " · "+(next.departureCheckpoint?.name??"Unconfirmed transfer")+
-            " → "+(next.arrivalCheckpoint?.name??"Destination or unknown")+
-            " · "+(next.roadNames.join(", ")||"Unclassified approach"));
-          text.style.cssText="padding:.45rem 0;border-top:1px solid var(--color-border-light-tertiary,#555);font-size:.85em;";
-          future.append(text);
-        }
-        section.append(future);
+        section.append(renderNavigationLaterLegsPreview(transferPlan.legs.slice(1)));
       }
       const current=transferPlan.legs[0];
       section.append(el("strong",current?.errors.length?

@@ -2,7 +2,7 @@
 
 **Owner requests received:** November 4, 2026  
 **Status:** Proposed, unimplemented backlog. No feature, release or merge authorization implied.  
-**Current baseline:** v0.3.8-beta.7.10 passed the owner's live Hearth's Heart Dock → Port Barthos multi-leg Journey test (Riding Horse → hired ship with rest aboard → Riding Horse), totaling 47h 13m confirmed moving time and no separate downtime. v0.3.8-beta.7.11 is the next architecture-only GM journey advisory extraction pending GM/player Foundry v14 acceptance.
+**Current baseline:** v0.3.8-beta.7.11 passed the owner's live Port Barthos → Hearth's Heart Dock Journey test (Riding Horse → hired ship with both Long and Short Rest Aboard → land Long Rest), totaling 46h 33m moving and 8h downtime. v0.3.8-beta.7.12 is the next architecture-only transfer-preview presentation extraction pending GM/player Foundry v14 acceptance. The future player travel pamphlet and permissions remain deferred.
 
 This is the current **future-feature planning handoff** for other chats. Consult the [active roadmap](ROADMAP.md) and [stabilization architecture](ARCHITECTURE_V038_BETA75.md) for the development slice actually in progress. Stage IDs A–G are durable planning references; future version numbers are **provisional** and may change. Do not mix these new features into the beta.7.x architecture PR stack.
 
