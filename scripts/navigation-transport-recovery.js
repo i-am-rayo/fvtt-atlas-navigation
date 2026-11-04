@@ -7,7 +7,7 @@ const near=(a,b,tolerance=.01)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
   Number.isFinite(b?.x)&&Number.isFinite(b?.y)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
 
-export function restoreApprovedTransportPlan(route,projected,record,catalog){
+export function restoreApprovedTransportPlan(route,projected,record,catalog,operationOverride=null){
   const prior=record?.legs?.at(-1);
   const t=prior?.transport;
   if(!t||prior.completedPercent>=99.999||
@@ -22,7 +22,12 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog){
   const method=catalog.find(item=>item.id===t.methodId);
   if(!method||method.kind!==t.kind||method.surface!==t.surface)
     throw Error("The saved voyage's transportation method is no longer compatible.");
-  const operation=t.operation??(method.continuousEnabled&&
+  if(operationOverride!==null&&
+      (t.operation!=null||!['water','air'].includes(t.surface)||
+        method.kind!=='vehicle'||
+        !['normal','continuous'].includes(operationOverride)))
+    throw Error('The recovered voyage operating override is unavailable.');
+  const operation=t.operation??operationOverride??(method.continuousEnabled&&
     ["water","air"].includes(t.surface)&&method.kind==="vehicle"?
     "continuous":"normal");
   if(!["normal","continuous"].includes(operation))

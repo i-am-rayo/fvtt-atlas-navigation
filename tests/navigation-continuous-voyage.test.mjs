@@ -131,3 +131,26 @@ test("recovery rejects altered checkpoints, surfaces or retired methods",()=>{
   assert.equal(restoreApprovedTransportPlan(route(),projected(),
     {...saved,status:"completed"},[method]),null);
 });
+
+test("legacy saved voyages can explicitly restore continuous crew operation",()=>{
+  const day=schedule();day.recordMovement(8);
+  const legacy=checkpointJourneyRecord(voyage(),{
+    schedule:day,status:"interrupted",progress:16});
+  delete legacy.legs[0].transport.operation;
+  const standardMethod={...method,continuousEnabled:false};
+  const normal=restoreApprovedTransportPlan(route(),projected(),legacy,
+    [standardMethod]);
+  assert.equal(normal.legs[0].operation,"normal");
+  assert.equal(normal.legs[0].operation,"normal");
+  const approved=restoreApprovedTransportPlan(route(),projected(),legacy,
+    [standardMethod],"continuous");
+  assert.equal(approved.legs[0].operation,"continuous");
+  assert.equal(approved.totalElapsedHours,26);
+  assert.equal(approved.legs[0].selectedOption.method.continuousEnabled,true);
+  assert.throws(()=>restoreApprovedTransportPlan(route(),projected(),legacy,
+    [standardMethod],"overtime"),/operating override is unavailable/);
+  const savedNew=checkpointJourneyRecord(voyage(),{
+    schedule:day,status:"interrupted",progress:16});
+  assert.throws(()=>restoreApprovedTransportPlan(route(),projected(),savedNew,
+    [standardMethod],"continuous"),/operating override is unavailable/);
+});

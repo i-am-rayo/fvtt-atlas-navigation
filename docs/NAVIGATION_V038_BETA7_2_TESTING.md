@@ -16,7 +16,7 @@
 2. Confirm native guided travel. At the 8-hour and 24-hour marks the ship should continue without automatically asking for overnight camp.
 3. During sailing, choose **Short Rest Aboard (1h)**, then **Long Rest Aboard (8h)** when enough movement remains. Check the Journal only marks each completed after the specified ship movement; World time and token advance once and the vessel never stops for the passenger rest.
 4. While sailing, trigger/reproduce a Foundry canvas rebuild; confirm an interrupted Journal is retained. Recover using **Recover Saved Journey** if automatic recovery is unavailable. Check **Ship passage (hired)** and **Continuous** are restored, and the next Travel button is enabled for the saved checkpoint.
-5. Verify the Journal keeps the first passage's fare, adds a continuation leg without another booking, and does not replay earlier movement or World time.
+5. For an older beta.7.1 Journal, use the **Operating schedule for recovered voyage** selector to confirm Continuous for a genuinely crewed vessel. Verify the Journal keeps the first passage's fare, adds a continuation leg without another booking, and does not replay earlier movement or World time.
 6. Test a normal walking journey: daily limit, camp and Long Rest should still stop movement and advance World time separately. Test player/GM map route visibility and a Scene refresh.
 7. Verify the glowing cyan route remains visible above an authored road in daylight and water areas and the pulse does not rebuild the canvas.
 8. For safety, change an authored checkpoint or remove the method mid-journey in a disposable test World: recovery must stop with an explanatory message; it must not move the party.
@@ -24,6 +24,6 @@
 ## Known boundaries
 
 - A rebuild initiated by Foundry or another module can still interrupt an in-progress native animation; this build addresses safe continuation rather than suppressing canvas rebuilds.
-- For interrupted Journeys created by **older beta builds** with no saved transport operation, the exact journey-only Continuous override cannot be inferred. Recovery uses the current compatible World preset's continuous capability; otherwise it uses normal operation. The saved ship method should still be preserved.
+- For interrupted Journeys created by **older beta builds** with no saved operating schedule, the GM now sees an explicit **Operating schedule for recovered voyage** selector. Standard operation is the safe fallback unless the World preset already supports continuous travel; the GM may explicitly reapprove rotating-crew continuous operation for the remainder, without changing the World preset.
 - Passenger rests aboard are **journey annotations only**, not D&D 5e Actor rest automation. A pending rest interrupted before its full duration is not marked completed.
 - Hired services remain GM estimates; no payment, booking, boarding, or Actor resources are automatically modified.

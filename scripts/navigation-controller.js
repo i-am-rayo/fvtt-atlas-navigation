@@ -119,6 +119,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.recoverableJourney=null;
     this.recoveryJournal=null;
     this.recoveryRecord=null;
+    this.recoveryOperationOverride=null;
     this.journeyJournal=null;
     this.journalStarting=false;
     this.autoResumePending=null;
@@ -300,7 +301,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const projected=projectTransportationRouteLegs(this.result,atlas,presets.presets);
     const catalog=availableNavigationTravelMethods(game.settings,game.system?.id);
     const restored=restoreApprovedTransportPlan(this.result,projected,
-      this.recoveryRecord,catalog);
+      this.recoveryRecord,catalog,this.recoveryOperationOverride);
     if(restored)return restored;
     const actor=this.getPartyToken()?.actor;
     let roster=null;
@@ -1122,6 +1123,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.journeyJournal=session.journal;
       this.recoveryJournal=null;
       this.recoveryRecord=null;
+    this.recoveryOperationOverride=null;
       this.recoverableJourney=null;
     }finally{this.journalStarting=false;}
     if(advanceWorldTime)session.clock=new GuidedJourneyClock({
@@ -1450,6 +1452,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportJourneyOverrides=null;
     this.recoveryJournal=null;
     this.recoveryRecord=null;
+    this.recoveryOperationOverride=null;
     this.recoverableJourney=null;
     this.journeyJournal=null;
     this.pendingTransfer=null;
@@ -1529,6 +1532,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.recoverableJourney=null;
     this.recoveryJournal=null;
     this.recoveryRecord=null;
+    this.recoveryOperationOverride=null;
     this.journeyJournal=null;
     this.journalStarting=false;
     this.pendingTransfer=null;
@@ -2053,6 +2057,29 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Unclassified approach":"Next transfer or destination");
         const surface=leg.surface==="unspecified"?"UNCLASSIFIED":leg.surface.toUpperCase();
         card.append(el("strong","Leg 1 · "+surface+" · "+place+" → "+finish));
+        if(leg.recovered&&this.recoveryRecord?.legs?.at(-1)?.transport?.operation==null&&
+            ["water","air"].includes(leg.surface)&&
+            leg.selectedOption?.method?.kind==="vehicle"){
+          const operationLabel=el("label","Operating schedule for recovered voyage");
+          operationLabel.style.cssText="display:grid;gap:.3rem;font-size:.87em;";
+          const recoveredOperation=el("select");
+          recoveredOperation.disabled=Boolean(this.travelSession||this.journalStarting);
+          for(const [value,label] of [
+            ["normal","Standard — 8h/day"],
+            ["continuous","Continuous — crewed 24h operation"]
+          ]){
+            const entry=el("option",label);entry.value=value;
+            recoveredOperation.append(entry);
+          }
+          recoveredOperation.value=leg.operation;
+          recoveredOperation.addEventListener("change",()=>{
+            this.recoveryOperationOverride=recoveredOperation.value;
+            void this.render(true);
+          });
+          operationLabel.append(recoveredOperation);
+          card.append(el("small","This older Journey Journal did not retain its operating schedule. The GM must confirm whether the hired vessel has rotating crew before restoring continuous travel."));
+          card.append(operationLabel);
+        }
         const road=el("small",leg.roadNames.join(", ")||"Surface not authored");
         road.style.opacity=".75";card.append(road);
         const methodLabel=el("label","Transportation for this leg");
