@@ -129,6 +129,17 @@ Atlas-authored native Region boundaries and spatial checkpoint containment,
 system-agnostic World calendar, and Scene-only import/export belong to later
 feature stages. The inactive-GM movement policy remains on hold pending R-01.
 
+**Beta.7.10 directions rendering slice (after beta.7.9 owner acceptance):**
+Move the explanatory calculation text, Directions heading, endpoint cards,
+route instruction cards and annotated Journey event cards into a separate
+read-only directions view. The controller still selects, calculates and
+formats the permitted current-leg steps; the view receives a plain, already
+resolved model and registers no interactive events. Do not alter the
+meaning of the original destination, checkpoint boundary, historical rest
+or Continue March record, World time, TokenDocument movement or Journal
+schema. Keep this on a separate stacked draft and test against the accepted
+beta.7.9 live Journey behavior before merge.
+
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.

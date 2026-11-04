@@ -21,7 +21,7 @@ import { calculateGuidedPlayback,formatPlaybackDuration,readGuidedPlaybackSettin
 import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
   navigationHours, formatNavigationDuration }
   from "./navigation-time.js";
-import { buildNavigationSteps, NAVIGATION_ARROWS } from "./navigation-instructions.js";
+import { buildNavigationSteps } from "./navigation-instructions.js";
 import { navigationPointIntent } from "./navigation-selection.js";
 import { createNavigationItinerary } from "./navigation-itinerary.js";
 import { REGION_ROUTING_ORDER_FLAG } from "./navigation-terrain.js";
@@ -62,6 +62,7 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
 import {renderNavigationFooter} from "./navigation-footer.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
+import {renderNavigationDirections} from "./navigation-directions-view.js";
 
 const el = (tag, content) => {
   const node = document.createElement(tag);
@@ -2490,11 +2491,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Terrain-weighted distance: "+showDistance(this.result.cost)+"-equivalent":null});
       body.append(...status.nodes);
       this.worldTimeUI=status.worldTimeUI;
-      const details=el("details");
-      const summaryText=el("summary","How Atlas calculated this journey");
-      summaryText.style.cursor="pointer";
-      details.appendChild(summaryText);
-      const calculation=el("p",this.result.terrainWarning ||
+      const calculation=this.result.terrainWarning ||
         (transferPlan?.hasTransitions?
           "Every leg uses its selected method's speed, checkpoint offer, crew and upkeep settings. The route uses authored surfaces; transfers require checkpoints. No automatic payments or movement.":
         (this.travelMethod!=="walking"?
@@ -2505,33 +2502,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "then the road's travel preset where no Region applies. " +
           "Overlapping Regions follow GM priority; short checkpoint Regions are included. " +
           "Travel time is an estimate and never changes native Token movement.":
-          "No compatible terrain cost was available, so travel time uses physical distance.")));
-      calculation.style.cssText="font-size:.85em;opacity:.85;line-height:1.4;margin:.4rem 0;";
-      details.appendChild(calculation);
-      body.appendChild(details);
-      const heading=el("h3",transferPlan?.hasTransitions?
-        "Directions to next decision point":"Directions");
-      heading.style.cssText="margin:.2rem 0 0;";body.appendChild(heading);
-      const list=el("div");list.style.cssText="display:flex;flex-direction:column;gap:.4rem;";
-      const endpoint=(atStart)=>{
-        const item=el("div");
-        item.style.cssText="display:flex;align-items:center;gap:.8rem;padding:.8rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:8px;";
-        const marker=el("span",atStart?"●":"◆");
-        marker.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;font-weight:bold;color:white;background:"+
-          (atStart?"#16a765":"#d83c49")+";";
-        const body=el("div");
-        const name=el("strong",atStart?"Depart from starting point":
-          transferPlan?.hasTransitions?
-            "Reach "+(transferPlan.legs[0]?.arrivalCheckpoint?.name??"the next decision point"):
-            "Arrive at destination");
-        const detail=el("div",atStart?"Starting location":
-          transferPlan?.hasTransitions?"Decide whether to stop, replan or continue":
-          "Final destination");
-        detail.style.cssText="opacity:.7;font-size:.8em;margin-top:.2rem;";
-        body.append(name,detail);item.append(marker,body);
-        return item;
-      };
-      list.appendChild(endpoint(true));
+          "No compatible terrain cost was available, so travel time uses physical distance."));
       const baseSteps=transferPlan?.hasTransitions?
         buildNavigationSteps(this.result.legs.slice(0,
           (transferPlan.legs[0]?.lastRouteLeg??0)+1),
@@ -2549,45 +2520,32 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         annotateJourneyDirections(baseSteps,this.journeySchedule.events,{
           travelHours:journeyHours,speed:journeySpeed,
           terrainAware:Boolean(guidedTimeline?.terrainAware??this.result.terrainAware)}):baseSteps;
-      for (const step of steps) {
+      const rows=steps.map(step=>{
         if(step.kind==="journey-event"){
-          const item=el("div");
-          item.style.cssText="display:flex;align-items:center;gap:.8rem;padding:.8rem;border:1px solid #b18b54;border-radius:8px;background:rgba(177,139,84,.08);";
-          const badge=el("span",step.action==="continue"?"➜":"☕");
-          badge.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;background:#5c482c;";
-          const content=el("div");
-          const name=el("strong",step.label);
-          const timeContext=`After ${formatNavigationDuration(step.atHours,24)} on this leg`+
-            (step.todayHours!==null?
-              ` · ${formatNavigationDuration(step.todayHours,24)} traveled today`:"");
-          const detail=el("div",step.hours?
-            `${formatNavigationDuration(step.hours,24)} ${step.action?.endsWith("-underway")?"rest aboard while underway":"downtime"} · ${timeContext}`:
-            `One extra travel hour approved · ${timeContext}`);
-          detail.style.cssText="opacity:.75;font-size:.85em;margin-top:.2rem;";
-          content.append(name,detail);item.append(badge,content);list.appendChild(item);
-          continue;
+          const timeContext="After "+formatNavigationDuration(step.atHours,24)+
+            " on this leg"+(step.todayHours!==null?
+              " · "+formatNavigationDuration(step.todayHours,24)+" traveled today":"");
+          return {kind:"journey-event",label:step.label,
+            marker:step.action==="continue"?"➜":"☕",
+            detail:step.hours?
+              formatNavigationDuration(step.hours,24)+" "+
+                (step.action?.endsWith("-underway")?
+                  "rest aboard while underway":"downtime")+" · "+timeContext:
+              "One extra travel hour approved · "+timeContext};
         }
-        const item=el("div");item.style.cssText="display:flex;align-items:flex-start;gap:.8rem;padding:.8rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:8px;";
-        const marker=el("span",NAVIGATION_ARROWS[step.direction]??"•");
-        marker.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;background:var(--color-cool-4,#333);font-weight:bold;";
-        marker.title=step.direction||"Route";
-        const text=el("div");text.style.minWidth="0";
-        const instruction=el("strong",step.instruction);instruction.style.display="block";
-        const info=el("div",showDistance(step.distance)+
-          (transferPlan?.hasTransitions?" · See per-leg time above":" · "+
-            formatGuidedWorldTime(Math.round(navigationHours(
-              this.result.terrainAware?step.cost:step.distance,speed)*3600))));
-        info.style.cssText="opacity:.75;font-size:.85em;margin-top:.3rem;";
-        const surface=el("div",[step.terrain === "Unspecified terrain" ? null : step.terrain,
-          step.regionName && step.regionName!==step.terrain?step.regionName:null]
-          .filter(Boolean).join(" · "));
-        surface.style.cssText="opacity:.55;font-size:.72em;margin-top:.18rem;";
-        text.append(instruction,info);
-        if(surface.textContent)text.appendChild(surface);
-        item.append(marker,text);list.appendChild(item);
-      }
-      list.appendChild(endpoint(false));
-      body.appendChild(list);
+        return {kind:"direction",direction:step.direction,instruction:step.instruction,
+          info:showDistance(step.distance)+
+            (transferPlan?.hasTransitions?" · See per-leg time above":" · "+
+              formatGuidedWorldTime(Math.round(navigationHours(
+                this.result.terrainAware?step.cost:step.distance,speed)*3600))),
+          surface:[step.terrain==="Unspecified terrain"?null:step.terrain,
+            step.regionName&&step.regionName!==step.terrain?step.regionName:null]
+            .filter(Boolean).join(" · ")};
+      });
+      body.append(...renderNavigationDirections({calculation,
+        transfer:Boolean(transferPlan?.hasTransitions),
+        arrivalCheckpointName:transferPlan?.legs[0]?.arrivalCheckpoint?.name??null,
+        rows}));
     } else {
       const hint=el("p",this.pendingTransfer?
         (this.isAtJourneyDestination()?

@@ -2,7 +2,7 @@
 
 **Owner requests received:** November 4, 2026  
 **Status:** Proposed, unimplemented backlog. No feature, release or merge authorization implied.  
-**Current baseline:** v0.3.8-beta.7.8 passed owner Journey/rest testing; v0.3.8-beta.7.9 is the next architecture-only presentation extraction pending GM/player Foundry v14 acceptance.
+**Current baseline:** v0.3.8-beta.7.9 passed the owner's live multi-leg Journey test (Riding Horse → hired ship with rest aboard → Riding Horse), totaling 44h 31m confirmed moving time and no separate downtime. v0.3.8-beta.7.10 is the next architecture-only directions presentation extraction pending GM/player Foundry v14 acceptance.
 
 This is the current **future-feature planning handoff** for other chats. Consult the [active roadmap](ROADMAP.md) and [stabilization architecture](ARCHITECTURE_V038_BETA75.md) for the development slice actually in progress. Stage IDs A–G are durable planning references; future version numbers are **provisional** and may change. Do not mix these new features into the beta.7.x architecture PR stack.
 
