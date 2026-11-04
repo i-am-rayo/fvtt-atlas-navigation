@@ -63,6 +63,8 @@ import {renderNavigationFooter} from "./navigation-footer.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
+import {renderRepeatedCheckpointNotice,renderCheckpointArrivalPrompt,
+  renderDailyTravelPrompt} from "./navigation-prompts-view.js";
 
 const el = (tag, content) => {
   const node = document.createElement(tag);
@@ -2086,12 +2088,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       transferPlan.legs[0]?.arrivalCheckpoint&&
       transferPlan.legs[0]?.transferValid&&!repeatingCheckpoint);
     if(repeatingCheckpoint&&!this.travelSession){
-      const advisory=el("p","Already at "+transferPlan.legs[0].arrivalCheckpoint.name+
-        ". A second voyage to that same checkpoint is blocked. " +
-        "Choose a different onward destination or finish the Journey at the port.");
-      advisory.style.cssText="padding:.5rem;border:1px solid #b18b54;"+
-        "border-radius:6px;font-size:.83em;";
-      body.appendChild(advisory);
+      body.appendChild(renderRepeatedCheckpointNotice(
+        transferPlan.legs[0].arrivalCheckpoint.name));
     }
     if(this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
       const advisory=el("p",methodAssessment.reason??"Transport planning only.");
@@ -2233,17 +2231,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     help.style.cssText="margin:0;font-size:.8em;opacity:.75;line-height:1.35;";
     body.appendChild(help);
     if(this.pendingTransfer){
-      const choice=el("section");
-      choice.style.cssText="padding:.8rem;border:2px solid #caa15c;border-radius:8px;display:grid;gap:.4rem;";
-      choice.append(el("h3","Checkpoint reached · "+this.pendingTransfer.checkpoint.name));
       const atDestination=isJourneyDestinationCheckpoint(this.recoveryRecord,
         this.pendingTransfer.checkpoint,this.scene.grid.size);
-      choice.append(el("p",atDestination?
-        "The party has reached its original destination. Complete this Journey now or stop and replan. Atlas will not create another short leg back to the same checkpoint.":
-        "The previous leg is confirmed in the Journey Journal. "+
-        "Choose to stop and replan or to continue with a new method. "+
-        "No further token movement, booking or payment occurs until you confirm."));
-      body.append(choice);
+      body.append(renderCheckpointArrivalPrompt({
+        checkpointName:this.pendingTransfer.checkpoint.name,atDestination}));
     }
     if(transferPlan?.hasTransitions&&!this.pendingTransfer){
       const section=el("section");
@@ -2460,11 +2451,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           `Continue March: +1h moving (roughly ${showDistance(routeAverage)} on this route).`+
             (rules.forcedMarch!=="custom"?` DC ${10+upcomingExtra} Constitution save afterward (GM adjudicates).`:"")
         ];
-        const prompt=el("div");
-        prompt.style.cssText="padding:.8rem;border:1px solid #d99c46;border-radius:8px;font-size:.85em;display:grid;gap:.3rem;";
-        prompt.appendChild(el("strong","Daily travel limit reached — choose how to proceed:"));
-        for(const option of options)prompt.appendChild(el("div",option));
-        body.appendChild(prompt);
+        body.appendChild(renderDailyTravelPrompt(options));
       }
       const clockAllowed=readNavigationWorldClockSetting(game.settings);
       const clockHint=clockAllowed?

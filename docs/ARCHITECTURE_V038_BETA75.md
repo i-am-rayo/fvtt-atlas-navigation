@@ -140,6 +140,17 @@ or Continue March record, World time, TokenDocument movement or Journal
 schema. Keep this on a separate stacked draft and test against the accepted
 beta.7.9 live Journey behavior before merge.
 
+**Beta.7.11 GM decision-prompt rendering slice (after beta.7.10 owner acceptance):**
+Extract three read-only Journey notices into `navigation-prompts-view.js`:
+daily travel-limit options, confirmed checkpoint arrival with distinct onward
+and final-destination copy, and the repeated-arrival warning. The Navigation
+controller still owns the daily travel rules, rest and forced-march wording,
+checkpoint identity and terminal checks. The existing Footer owns all GM
+buttons and callbacks. Rendering these notices cannot approve rest, advance
+time, board transport, move a token, create a new leg, charge currency or
+write Journal state. Preserve exact order and visible copy. This is a separate
+stacked draft with no gameplay, permissions or persisted-schema changes.
+
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.
