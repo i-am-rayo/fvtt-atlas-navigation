@@ -36,7 +36,7 @@ import {prepareGuidedTransportLeg,confirmGuidedCheckpointArrival}
 import {isJourneyDestinationCheckpoint} from "./navigation-checkpoint-terminal.js";
 import {restoreApprovedTransportPlan,hasUnfinishedApprovedTransport}
   from "./navigation-transport-recovery.js";
-import {requestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
+import {requestPassengerRest,canRequestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
   recoverPassengerRestRequest} from "./navigation-passenger-rest.js";
 import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
   from "./navigation-measure-units.js";
@@ -1386,6 +1386,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             break;
           }
         }
+        // The pending rest was released after its confirmed sailing hours.
+        // Refresh the footer once the completed event is durable in the Journal,
+        // so its disabled controls are not left stale until the next checkpoint.
+        if(passengerRestFinished&&this.travelSession===session&&this.active)
+          void this.render(true);
       }
       if(this.travelSession===session){
         if(!clockFailed){
@@ -2655,8 +2660,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         ]){
           const underway=navigationFooterIconButton(label+" ("+hours+"h)",icon);
           underway.title="Rest while the vessel continues traveling; World time advances with confirmed movement only.";
-          underway.disabled=Boolean(session.pendingPassengerRest)||
-            hours>session.schedule.remainingHours+1e-7;
+          underway.disabled=!canRequestPassengerRest(session.schedule,
+            session.pendingPassengerRest,action);
           underway.addEventListener("click",()=>void this.choosePassengerRest(action)
             .then(approved=>{
               if(!approved)ui.notifications.warn("A passenger rest is already underway.");

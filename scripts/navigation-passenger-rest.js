@@ -21,6 +21,15 @@ export function requestPassengerRest(schedule,action){
   return Object.freeze({action,hours,startHours:schedule.completedHours});
 }
 
+/** One eligibility check shared by the voyage buttons and rest regressions.
+ * A completed rest must release the pending lock; an unfinished rest must not.
+ * This is about starting an Atlas rest annotation, not granting Actor benefits. */
+export function canRequestPassengerRest(schedule,pending,action){
+  if(pending)return false;
+  try{requestPassengerRest(schedule,action);return true;}
+  catch{return false;}
+}
+
 export function confirmPassengerRest(schedule,request){
   if(!request)return null;
   if(!["short","long"].includes(request.action)||

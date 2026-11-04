@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {GuidedTravelDayTracker} from "../scripts/navigation-travel-day.js";
-import {requestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
+import {requestPassengerRest,canRequestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
   recoverPassengerRestRequest,validatePassengerRestMetadata}
   from "../scripts/navigation-passenger-rest.js";
 import {isJourneyDestinationCheckpoint}
@@ -87,6 +87,42 @@ test("passenger rests overlap confirmed sailing; no extra downtime is created",(
   assert.match(html,/World time recorded: 16h/);
   assert.equal(saved.legs[0].transport.operation,"continuous");
   assert.throws(()=>requestPassengerRest(day,"overnight"),/continuous voyage/);
+});
+
+test("shipboard rest controls unlock after eight confirmed hours when sailing remains",()=>{
+  const day=schedule();
+  day.recordMovement(22+41/60);
+  assert.equal(canRequestPassengerRest(day,null,"long"),true);
+  let pending=requestPassengerRest(day,"long");
+  assert.equal(canRequestPassengerRest(day,pending,"long"),false);
+  assert.equal(canRequestPassengerRest(day,pending,"short"),false);
+  day.recordMovement(7);
+  assert.equal(confirmPassengerRest(day,pending),null);
+  assert.equal(canRequestPassengerRest(day,pending,"long"),false);
+  day.recordMovement(1);
+  assert.equal(confirmPassengerRest(day,pending)?.action,"long-underway");
+  pending=null; // The controller clears this lock after saving the rest event.
+  assert.ok(day.remainingHours>17&&day.remainingHours<17.1);
+  assert.equal(canRequestPassengerRest(day,pending,"long"),true);
+  assert.equal(canRequestPassengerRest(day,pending,"short"),true);
+  pending=requestPassengerRest(day,"short");
+  assert.equal(canRequestPassengerRest(day,pending,"long"),false);
+  day.recordMovement(1);
+  assert.equal(confirmPassengerRest(day,pending)?.action,"short-underway");
+  pending=null;
+  assert.equal(canRequestPassengerRest(day,pending,"long"),true);
+  assert.equal(day.breakHours,0,"passenger rests never double-credit World time");
+});
+
+test("shipboard rest buttons refuse a new rest when sailing is too short",()=>{
+  const day=schedule();
+  day.recordMovement(41);
+  assert.equal(canRequestPassengerRest(day,null,"long"),false);
+  assert.equal(canRequestPassengerRest(day,null,"short"),true);
+  day.recordMovement(6);
+  assert.equal(canRequestPassengerRest(day,null,"short"),false);
+  assert.equal(canRequestPassengerRest(day,null,"long"),false);
+  assert.equal(canRequestPassengerRest(day,null,"overnight"),false);
 });
 
 test("recovery reuses confirmed vessel and checkpoint without another fare",()=>{
@@ -179,15 +215,21 @@ test("unfinished long rest survives native canvas interruption and Journal recov
   const held=recoverPassengerRestRequest(continuation,resumed);
   assert.equal(held.startHours,-5);
   assert.equal(held.hours,8);
+  assert.equal(canRequestPassengerRest(resumed,held,"long"),false,
+    "the recovered pending rest keeps both rest actions locked");
+  assert.equal(canRequestPassengerRest(resumed,held,"short"),false);
   assert.equal(confirmPassengerRest(resumed,held),null);
   resumed.recordMovement(2);
   assert.equal(confirmPassengerRest(resumed,held),null);
+  assert.equal(canRequestPassengerRest(resumed,held,"long"),false);
   resumed.recordMovement(1);
   const event=confirmPassengerRest(resumed,held);
   assert.equal(event.action,"long-underway");
   assert.equal(event.atHours,3);
   assert.equal(event.continuedFromEarlierLeg,true);
   continuation.passengerRest=null;
+  assert.equal(canRequestPassengerRest(resumed,null,"long"),true,
+    "completed recovered rests must release the availability lock");
   const completed=checkpointJourneyRecord(continuation,{schedule:resumed,
     status:"interrupted",progress:6,worldTravelSeconds:3*3600});
   assert.doesNotMatch(formatJourneyJournalHTML(completed),
