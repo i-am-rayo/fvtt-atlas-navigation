@@ -206,6 +206,20 @@ No persisted schema, token movement, World-clock calculation or recovery
 checkpoint logic changes. Owner GM/player v14 acceptance is still required;
 the next decomposition slice must not depend on this hotfix before acceptance.
 
+**Beta.7.13 GM selector presentation boundary (after beta.7.12.1 owner acceptance):**
+`navigation-selection-view.js` now renders only the source selector (Map Point A
+versus assigned party token), optional Refresh location button, current-leg
+travel method grouped select, and the journey-only method edit button. It
+receives resolved option groups, selected IDs and disabled state from the
+controller, and forwards user-triggered events through injected callbacks.
+It does not inspect Foundry documents or game settings and cannot recalculate
+routes, approve a transport, move a token, edit an Actor or save any Journal
+by rendering. The controller retains offer/ownership eligibility, unexpected
+method fallback, selected arrangement, callbacks, transport rules, recovery,
+time/fare estimates and all guarded writes. The checkpoint-specific selector
+and old-Journal operating-schedule control are explicitly not part of this
+slice. No saved schema, permission or Canvas lifecycle change.
+
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.

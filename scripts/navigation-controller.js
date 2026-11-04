@@ -61,6 +61,8 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
   JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
 import {renderNavigationFooter} from "./navigation-footer.js";
+import {renderNavigationDepartureSelector,renderNavigationTravelMethodSelector}
+  from "./navigation-selection-view.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
@@ -2002,38 +2004,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       try{transferPlan=this.transportationTransitionPlan();}
       catch(error){atlasWarn("navigation","Transportation leg planning unavailable",error);}
     }
-    const departure=el("div");
-    departure.style.cssText="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;";
-    const departureLabel=el("label","Start from");
-    departureLabel.htmlFor="atlas-navigation-departure";
-    const departureSelect=el("select");
-    departureSelect.id="atlas-navigation-departure";
-    departureSelect.title="Choose the route departure source";
-    departureSelect.disabled=Boolean(this.travelSession);
-    departureSelect.style.cssText="flex:1;min-width:12rem;";
-    for(const [value,label] of [["map","Map Point A"],["party","Party token location"]]){
-      const option=el("option",label);option.value=value;departureSelect.appendChild(option);
-    }
-    departureSelect.value=this.sourceMode;
-    departureSelect.addEventListener("change",()=>this.setSourceMode(departureSelect.value));
-    departure.append(departureLabel,departureSelect);
-    if(partyMode){
-      const refresh=el("button","Refresh location");
-      refresh.type="button";refresh.title="Recalculate from the party token's current location";
-      refresh.disabled=Boolean(this.travelSession);
-      refresh.addEventListener("click",()=>this.refreshPartyDeparture());
-      departure.appendChild(refresh);
-    }
-    body.appendChild(departure);
-    const methodRow=el("div");
-    methodRow.style.cssText="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;";
-    const methodLabel=el("label","Travel method");
-    methodLabel.htmlFor="atlas-navigation-travel-method";
-    const methodSelect=el("select");
-    methodSelect.id="atlas-navigation-travel-method";
-    methodSelect.title="Party transport or services offered at the departure checkpoint";
-    methodSelect.disabled=Boolean(this.travelSession||this.journalStarting);
-    methodSelect.style.cssText="flex:1;min-width:12rem;";
+    body.appendChild(renderNavigationDepartureSelector({
+      sourceMode:this.sourceMode,partyMode,disabled:Boolean(this.travelSession),
+      onSourceChange:mode=>this.setSourceMode(mode),
+      onRefresh:()=>this.refreshPartyDeparture()
+    }));
     const availability=this.transportAvailability();
     const methods=availability.methods;
     if(!methods.some(item=>item.id===this.travelMethod)){
@@ -2051,25 +2026,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           group:offer.checkpointName||"Nearby checkpoint"}]:[];
       })
     ];
-    appendGroupedTransportationOptions(methodSelect,choices);
-    methodSelect.value=this.transportArrangement+"|"+this.travelMethod;
-    methodSelect.addEventListener("change",()=>{
-      const [arrangement,method]=methodSelect.value.split("|",2);
-      this.setTravelMethod(method,arrangement);
-    });
-    methodRow.append(methodLabel,methodSelect);
-    if(this.travelMethod!=="walking"){
-      const edit=el("button");edit.type="button";
-      edit.title="Edit this journey's travel method using the World preset fields";
-      edit.setAttribute?.("aria-label","Edit selected travel method for this journey");
-      edit.innerHTML='<i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>';
-      edit.disabled=Boolean(this.travelSession||this.journalStarting);
-      edit.style.cssText="min-width:2.5rem;min-height:2.5rem;";
-      edit.addEventListener("click",()=>void this.editJourneyTravelMethod().catch(error=>
-        globalThis.ui?.notifications?.error?.(error?.message??String(error))));
-      methodRow.append(edit);
-    }
-    if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)body.appendChild(methodRow);
+    if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)
+      body.appendChild(renderNavigationTravelMethodSelector({
+        choices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
+        disabled:Boolean(this.travelSession||this.journalStarting),
+        showEditor:this.travelMethod!=="walking",
+        onMethodChange:value=>{
+          const [arrangement,method]=value.split("|",2);
+          this.setTravelMethod(method,arrangement);
+        },
+        onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
+          globalThis.ui?.notifications?.error?.(error?.message??String(error)))
+      }));
     if(this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
       const worldMethod=methods.find(item=>item.id===this.travelMethod);
       const method=worldMethod&&this.effectiveTransportMethod(worldMethod,availability);
