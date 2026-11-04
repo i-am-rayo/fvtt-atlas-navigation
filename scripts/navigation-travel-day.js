@@ -92,9 +92,12 @@ export class GuidedTravelDayTracker {
   }
 
   /** Preview before the caller commits any authorized World-time write. */
-  breakChoice(action){
-    if(!this.needsDecision)throw Error("No daily travel break is due.");
+  breakChoice(action,{allowEarly=false}={}){
+    if(!this.needsDecision&&!allowEarly)
+      throw Error("No daily travel break is due.");
     if(action==="continue"){
+      if(!this.needsDecision)
+        throw Error("Forced marching is only available at the daily travel limit.");
       if(this.todayHours>=24-EPSILON)
         throw Error("A journey cannot travel more than 24 hours without a break.");
       return {action,hours:0,resetsDay:false};
@@ -106,14 +109,16 @@ export class GuidedTravelDayTracker {
       throw Error("Unknown travel break selection.");
     if(this.restEvents>=MAX_GUIDED_REST_EVENTS)
       throw Error("Too many breaks on one journey. End this journey and plan a shorter route.");
-    return {action,hours,resetsDay:action!=="short"};
+    return {action,hours,resetsDay:action!=="short",
+      ...(!this.needsDecision?{early:true}:{})};
   }
 
   /** Apply only after any requested World-clock update succeeds. */
   applyBreak(choice,{startedWorldTime=null,endedWorldTime=null,
     startedTimeLabel=null,endedTimeLabel=null}={}){
-    const expected=this.breakChoice(choice.action);
-    if(expected.hours!==choice.hours||expected.resetsDay!==choice.resetsDay)
+    const expected=this.breakChoice(choice.action,{allowEarly:choice.early===true});
+    if(expected.hours!==choice.hours||expected.resetsDay!==choice.resetsDay||
+        Boolean(expected.early)!==Boolean(choice.early))
       throw Error("The selected travel break changed before confirmation.");
     if(this.events.length>=MAX_GUIDED_TRAVEL_EVENTS)
       throw Error("The journey has too many travel decisions. Plan a shorter route.");

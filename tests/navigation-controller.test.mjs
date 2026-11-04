@@ -3,7 +3,8 @@ import test from "node:test";
 import { createNavigationItinerary } from "../scripts/navigation-itinerary.js";
 import { createJourneyRecord,checkpointJourneyRecord,findRecoverableJourney,
   JOURNEY_JOURNAL_FLAG } from "../scripts/navigation-journey-journal.js";
-import { estimateNavigationTotalTrip } from "../scripts/navigation-travel-day.js";
+import { GuidedTravelDayTracker,estimateNavigationTotalTrip }
+  from "../scripts/navigation-travel-day.js";
 import { defaultTransportationCatalog,findTransportationPreset,setTransportationPreset }
   from "../scripts/navigation-transport-catalog.js";
 
@@ -107,6 +108,92 @@ test("manual pauses never arm automatic journey continuation",()=>{
     nav.tearDown("canvasTearDown");
     assert.equal(nav.autoResumePending,null);
   }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
+test("a manual pause permits a long rest without moving, resuming or double-counting World time",async()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui};
+  try{
+    globalThis.game={user:{isGM:true},time:{worldTime:72000}};
+    globalThis.ui={notifications:{error(message){throw Error(message);}}};
+    const route={status:"ok",start:point(0,0),end:point(10,0),
+      distance:10,cost:10,terrainAware:false,legs:[{
+        kind:"road",roadId:"road",segmentId:"segment",
+        points:[point(0,0),point(10,0)],distance:10,cost:10}]};
+    const itinerary=createNavigationItinerary({sceneId:"pause-scene",route,
+      travel:{speed:2},roadName:()=>"Road"});
+    const record=createJourneyRecord({sceneId:"pause-scene",tokenId:"party",
+      atlasRevision:7,itinerary});
+    const rules={dailyHours:8,overnightHours:16,shortRestHours:1,
+      longRestHours:8,forcedMarch:"dnd5e2024"};
+    const schedule=new GuidedTravelDayTracker({travelHours:5,rules});
+    schedule.recordMovement(1);
+    let clockCommits=0,breakCommits=0,resumed=0;
+    const clock={advancedSeconds:3600,restSeconds:0,
+      commit:async()=>{clockCommits++;return 0;},
+      commitBreak:async seconds=>{
+        breakCommits++;clock.restSeconds+=seconds;
+        globalThis.game.time.worldTime+=seconds;
+      }};
+    const saves=[];
+    const nav=new AtlasNavigationController({journeyJournalStore:{
+      save:async data=>{saves.push(structuredClone(data));return {id:"journal"};},
+      find:()=>null}});
+    nav.scene={id:"pause-scene"};nav.render=async()=>{};
+    const session={sceneId:"pause-scene",phase:"paused",schedule,clock,
+      journal:{id:"journal"},journeyRecord:record,completedDistance:2,
+      totalDistance:10,resumeWaiter:()=>resumed++};
+    nav.travelSession=session;
+    assert.equal(await nav.choosePausedTravelRest("long"),true);
+    assert.equal(session.phase,"paused");
+    assert.equal(session.manualRestApplying,false);
+    assert.equal(clockCommits,1,"pending moving time is settled before rest");
+    assert.equal(breakCommits,1,"World downtime is committed only once");
+    assert.equal(clock.restSeconds,8*3600);
+    assert.equal(globalThis.game.time.worldTime,72000+8*3600);
+    assert.equal(resumed,0,"rest must not wake the movement loop");
+    assert.equal(schedule.completedHours,1,"confirmed distance is preserved");
+    assert.equal(schedule.todayHours,0,"long rest resets daily allowance");
+    assert.equal(saves.length,1);
+    assert.equal(saves[0].status,"paused");
+    assert.equal(saves[0].legs[0].worldRestSeconds,8*3600);
+    assert.equal(saves[0].legs[0].worldTravelSeconds,3600);
+    assert.equal(saves[0].legs[0].events[0].action,"long");
+    assert.equal(saves[0].legs[0].events[0].atHours,1);
+    assert.match(nav.travelNotice,/journey remains paused/);
+    assert.equal(await nav.choosePausedTravelRest("continue"),false,
+      "forced march is not a rest available mid-day");
+    session.phase="moving";
+    assert.equal(await nav.choosePausedTravelRest("short"),false,
+      "rest actions require an actual paused movement boundary");
+    session.phase="paused";
+    nav.journeyJournalStore.save=async()=>{throw Error("Journal write failed");};
+    await assert.rejects(nav.choosePausedTravelRest("short"),/Journal write failed/);
+    assert.equal(session.phase,"rest-error",
+      "if the World clock advances but Journal persistence fails, movement locks");
+    assert.equal(nav.resumeGuidedTravel(),false);
+    assert.equal(await nav.choosePausedTravelRest("short"),false,
+      "a failed rest cannot be booked a second time while recovery is needed");
+    assert.equal(resumed,0);
+  }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
+test("canvas refresh during an optional paused rest never arms automatic token continuation",()=>{
+  const previous={ui:globalThis.ui,game:globalThis.game};
+  try{
+    globalThis.game={user:{isGM:true}};
+    globalThis.ui={notifications:{warn(){}}};
+    const nav=new AtlasNavigationController();
+    nav.scene={id:"pause-scene"};
+    nav.travelSession={phase:"rest-applying",manualRestApplying:true,
+      sceneId:"pause-scene",token:{id:"party"},journal:{id:"journal"},
+      journeyRecord:{atlasRevision:7}};
+    let stops=0;
+    nav.stop=()=>{stops++;};
+    nav.tearDown("canvasTearDown");
+    assert.equal(stops,1);
+    assert.equal(nav.autoResumePending,null,
+      "a manually paused rest must recover manually after canvas replacement");
+  }finally{globalThis.ui=previous.ui;globalThis.game=previous.game;}
 });
 
 test("navigation locks the completed route until deliberate endpoint gestures or New Route",async()=>{
@@ -544,6 +631,19 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.ok(nav.travelProgress>0&&nav.travelProgress<100);
     const pausedPanel=await nav._renderHTML();
     assert.ok(find(pausedPanel,node=>node.tag==="button"&&node.ariaLabel==="Resume Travel"));
+    for(const label of ["Short Rest (","Long Rest (","Overnight Camp ("])
+      assert.ok(find(pausedPanel,node=>node.tag==="button"&&
+        node.ariaLabel?.startsWith(label)),
+      "all optional rest actions appear at a manual pause: "+label);
+    nav.travelSession.phase="rest-applying";
+    const savingPanel=await nav._renderHTML();
+    assert.ok(find(savingPanel,node=>node.tag==="button"&&
+      node.ariaLabel==="Recording Break…"&&node.disabled),
+    "movement is locked during a World-time and Journal rest checkpoint");
+    assert.ok(find(savingPanel,node=>node.tag==="button"&&
+      node.ariaLabel==="End Journey"&&node.disabled),
+    "ending is locked until a rest checkpoint is durable");
+    nav.travelSession.phase="paused";
     assert.equal(nav.resumeGuidedTravel(),true);
     await tickUntil(()=>calls.length===2);
     assert.equal(calls.length,2,"resume begins at the last completed stretch");

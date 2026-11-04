@@ -97,6 +97,34 @@ test("custom long rest resets a day's travel but never creates Actor updates",()
   assert.equal(day.lastForcedCheck,null);
 });
 
+test("optional rests at a manual pause preserve progress and daily-limit rules",()=>{
+  const day=new GuidedTravelDayTracker({travelHours:12,rules:dnd()});
+  day.recordMovement(2);
+  assert.equal(day.needsDecision,false);
+  assert.throws(()=>day.breakChoice("long"),/No daily travel break/);
+  assert.throws(()=>day.breakChoice("continue",{allowEarly:true}),
+    /only available at the daily travel limit/);
+  const short=day.breakChoice("short",{allowEarly:true});
+  assert.equal(short.early,true);
+  assert.equal(short.hours,1);
+  day.applyBreak(short);
+  assert.equal(day.completedHours,2);
+  assert.equal(day.todayHours,2,"a short rest never refreshes travel allowance");
+  assert.equal(day.breakHours,1);
+  assert.deepEqual(day.events[0],{action:"short",atHours:2,todayHours:2,hours:1});
+  day.recordMovement(1);
+  const long=day.breakChoice("long",{allowEarly:true});
+  day.applyBreak(long);
+  assert.equal(day.completedHours,3);
+  assert.equal(day.todayHours,0,"a long rest renews the daily allowance");
+  assert.equal(day.breakHours,9);
+  assert.equal(day.restEvents,2);
+  assert.throws(()=>day.applyBreak({action:"continue",hours:0,
+    resetsDay:false,early:true}),/Forced marching/);
+  assert.throws(()=>day.applyBreak({action:"long",hours:8,resetsDay:true}),
+    /No daily travel break/,"an unscheduled rest needs explicit early approval");
+});
+
 test("short rest plus long rest accumulates both breaks at one direction boundary",()=>{
   const day=new GuidedTravelDayTracker({travelHours:10,rules:dnd()});
   day.recordMovement(8);

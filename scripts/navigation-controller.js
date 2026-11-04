@@ -9,7 +9,8 @@ import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
 import { planGuidedTravelChunks, waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS }
   from "./navigation-movement-lifecycle.js";
 import { GuidedTravelDayTracker,estimateNavigationTotalTrip,
-  splitGuidedChunkAtDistance,MAX_GUIDED_REST_EVENTS } from "./navigation-travel-day.js";
+  splitGuidedChunkAtDistance,MAX_GUIDED_REST_EVENTS,MAX_GUIDED_TRAVEL_EVENTS }
+  from "./navigation-travel-day.js";
 import { annotateJourneyDirections,projectJourneyTiming }
   from "./navigation-journey-timeline.js";
 import { resolveNavigationTravelRules } from "./navigation-rules-profile.js";
@@ -990,6 +991,68 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     return true;
   }
 
+  /** A deliberate GM pause is a safe stop even before the day's travel limit. */
+  async choosePausedTravelRest(action){
+    const session=this.travelSession;
+    if(!session||session.phase!=="paused"||session.pendingPassengerRest||
+        !["short","long","overnight"].includes(action))return false;
+    const choice=session.schedule.breakChoice(action,{allowEarly:true});
+    if(session.schedule.events.length>=MAX_GUIDED_TRAVEL_EVENTS)
+      throw Error("The journey has too many travel decisions. Plan a shorter route.");
+    session.manualRestApplying=true;
+    session.phase="rest-applying";
+    this.travelNotice="Recording GM-approved "+action+" rest at the paused position…";
+    if(this.active)void this.render(true);
+    try{
+      await this.commitGuidedTravelBreak(session,choice,()=>
+        this.travelSession===session&&session.phase!=="ending"?
+          "paused":"interrupted");
+      if(this.travelSession!==session||session.phase==="ending")return false;
+      session.phase="paused";
+      this.travelNotice=(action==="overnight"?"Overnight camp":
+        action==="long"?"Long rest":"Short rest")+
+        " recorded ("+formatGuidedWorldTime(Math.round(choice.hours*3600))+
+        "). The journey remains paused; resume when ready.";
+      if(this.active)await this.render(true);
+      return true;
+    }catch(error){
+      // An already approved World-clock update may not be reversible. Never
+      // permit further movement or repeat the break if its Journal save fails.
+      if(this.travelSession===session&&session.phase==="rest-applying"){
+        session.phase="rest-error";
+        this.travelNotice="The paused rest could not be fully checkpointed. "+
+          "End and inspect the Journey Journal and World time before resuming.";
+        if(this.active)void this.render(true);
+      }
+      throw error;
+    }finally{
+      session.manualRestApplying=false;
+    }
+  }
+
+  /** The existing daily-limit and manual-pause paths share one clock/write order. */
+  async commitGuidedTravelBreak(session,choice,status){
+    await this.commitGuidedWorldTime(session,{force:true});
+    const restStart=journeyWorldStamp(game.time);
+    if(choice.hours>0){
+      if(session.clock)await session.clock.commitBreak(Math.round(choice.hours*3600));
+      atlasDebug("clock","GM-confirmed rest recorded",{
+        sceneId:session.sceneId,action:choice.action,hours:choice.hours,
+        worldTimeAdvanced:Boolean(session.clock)
+      });
+    }
+    const restEnd=journeyWorldStamp(game.time);
+    session.schedule.applyBreak(choice,{
+      startedWorldTime:restStart.seconds,endedWorldTime:restEnd.seconds,
+      startedTimeLabel:restStart.label,endedTimeLabel:restEnd.label});
+    if(session.clock)this.setWorldTimeAdvanced(
+      session.clock.advancedSeconds,session.clock.restSeconds);
+    // Canvas teardown can occur while World time is being written. Resolve
+    // the status only after those awaited writes, not at the call site.
+    await this.saveJourneyCheckpoint(session,
+      typeof status==="function"?status():status);
+  }
+
   async waitForDailyTravelChoice(session){
     if(!session.schedule.needsDecision)return true;
     session.phase="rest-checkpointing";
@@ -1012,24 +1075,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     session.restWaiter=null;
     if(session.phase==="ending"||this.travelSession!==session||!action)return false;
     const choice=session.schedule.breakChoice(action);
-    // A break's start must be measured after any pending confirmed movement
-    // time is credited, but before the GM-approved downtime advances time.
-    await this.commitGuidedWorldTime(session,{force:true});
-    const restStart=journeyWorldStamp(game.time);
-    if(choice.hours>0){
-      if(session.clock)await session.clock.commitBreak(Math.round(choice.hours*3600));
-      atlasDebug("clock","GM-confirmed rest recorded",{
-        sceneId:session.sceneId,action,hours:choice.hours,
-        worldTimeAdvanced:Boolean(session.clock)
-      });
-    }
-    const restEnd=journeyWorldStamp(game.time);
-    session.schedule.applyBreak(choice,{
-      startedWorldTime:restStart.seconds,endedWorldTime:restEnd.seconds,
-      startedTimeLabel:restStart.label,endedTimeLabel:restEnd.label});
-    if(session.clock)this.setWorldTimeAdvanced(
-      session.clock.advancedSeconds,session.clock.restSeconds);
-    await this.saveJourneyCheckpoint(session,session.phase==="ending"?
+    // A break's start is after confirmed travel time and before downtime.
+    await this.commitGuidedTravelBreak(session,choice,()=>session.phase==="ending"?
       "interrupted":"moving");
     session.restCheckpointed=true;
     atlasDebug("journey","Rest decision and World-time checkpoint settled",{
@@ -1730,6 +1777,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       completedPercent:Math.floor(this.travelProgress),phase:session?.phase??null
     });
     if(reason==="canvasTearDown"&&["moving","rest-applying"].includes(session?.phase)&&
+        !session.manualRestApplying&&
         session.journal?.id&&session.journeyRecord){
       const attempts=(this.autoResumeAttempts.get(session.journal.id)??0)+1;
       this.autoResumeAttempts.set(session.journal.id,attempts);
@@ -2656,7 +2704,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const move=navigationFooterIconButton(moveLabel,moveIcon);
         move.disabled=this.journalStarting||(!this.travelSession&&
           (!methodAssessment.guided&&!assistedLegReady||repeatingCheckpoint))||phase==="ending"||
-          phase==="pausing"||phase==="rest-applying";
+          phase==="pausing"||phase==="rest-applying"||phase==="rest-error";
         move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
           "Pause after the current short road stretch":moveLabel;
         move.addEventListener("click",()=>{
@@ -2673,6 +2721,25 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           });
         });
         row.appendChild(move);
+      }
+      if(this.travelSession?.phase==="paused"){
+        const session=this.travelSession,rules=session.schedule.rules;
+        for(const [action,label,icon,hours] of [
+          ["short","Short Rest","mug-hot",rules.shortRestHours],
+          ["long","Long Rest","bed",rules.longRestHours],
+          ["overnight","Overnight Camp","campground",rules.overnightHours]
+        ]){
+          const rest=navigationFooterIconButton(label+" ("+hours+"h)",icon);
+          rest.title="Record an optional rest at the current paused location; "+
+            "Actor resources remain manual and World time follows module settings.";
+          rest.disabled=Boolean(session.pendingPassengerRest||
+            session.schedule.restEvents>=MAX_GUIDED_REST_EVENTS||
+            session.schedule.events.length>=MAX_GUIDED_TRAVEL_EVENTS);
+          rest.addEventListener("click",()=>void this.choosePausedTravelRest(action)
+            .catch(error=>globalThis.ui?.notifications?.error?.(
+              error.message??String(error))));
+          row.appendChild(rest);
+        }
       }
       if(this.travelSession?.transportLeg?.transport?.operation==="continuous"&&
           this.travelSession.phase==="moving"){
@@ -2694,7 +2761,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
       if(this.travelSession){
         const end=navigationFooterIconButton("End Journey","flag");
-        end.disabled=this.travelSession.phase==="ending";
+        end.disabled=["ending","rest-applying"].includes(this.travelSession.phase);
         end.title="Stop this journey permanently at the token's current position";
         end.addEventListener("click",()=>{
           if(!this.stopGuidedTravel())ui.notifications.warn("The journey could not be ended.");
