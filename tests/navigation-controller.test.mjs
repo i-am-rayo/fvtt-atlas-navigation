@@ -888,3 +888,46 @@ test("multi-surface guided travel stops at the first actual port and checkpoints
     assert.equal(nav.result,null,"full future route is not active after arrival");
   }finally{Object.assign(globalThis,previous);}
 });
+
+test("the original destination checkpoint completes the Journey without another tiny leg",async()=>{
+  const oldGame=globalThis.game;
+  try{
+    globalThis.game={user:{isGM:true},time:{worldTime:86400}};
+    const route={status:"ok",start:point(0,0),end:point(10,0),
+      distance:10,cost:10,terrainAware:false,legs:[{
+        kind:"road",roadId:"sea",segmentId:"segment",
+        points:[point(0,0),point(10,0)],distance:10,cost:10}]};
+    const itinerary={...createNavigationItinerary({sceneId:"scene",route,
+      travel:{speed:2},roadName:()=>"Strait"}),
+      transport:{methodId:"ship-passage",methodName:"Ship passage (hired)",
+        kind:"vehicle",arrangement:"hire",surface:"water",
+        departureCheckpointName:"Port Barthos",arrivalCheckpointId:"dock",
+        arrivalCheckpointName:"Hearth's Heart Dock",roadNames:["Strait"],
+        estimatedFareCp:100,operation:"continuous"}};
+    const record=createJourneyRecord({sceneId:"scene",tokenId:"token",
+      atlasRevision:7,itinerary});
+    record.status="paused";record.legs[0].completedPercent=100;
+    record.legs[0].completedMovingHours=5;
+    const saved=[];
+    const nav=new AtlasNavigationController({journeyJournalStore:{
+      save:async data=>{saved.push(data);return {id:"journal"};},find:()=>null
+    }});
+    nav.scene={id:"scene",grid:{size:100}};
+    nav.recoveryJournal={id:"journal"};nav.recoveryRecord=record;
+    nav.pendingTransfer={journalId:"journal",checkpoint:{
+      id:"dock",name:"Hearth's Heart Dock",point:point(10,0)}};
+    nav.verifyPendingTransfer=()=>({pending:nav.pendingTransfer});
+    let replanned=0,cleared=0;
+    nav.syncPartyDeparture=()=>{replanned++;};
+    nav.calculateRoute=()=>{replanned++;};
+    nav.clear=()=>{cleared++;nav.recoveryRecord=null;};
+    nav.render=async()=>{};
+    await assert.rejects(()=>nav.continueFromCheckpoint(),/already reached/);
+    assert.equal(replanned,0,"cannot build another 0.07-mile leg to same dock");
+    assert.equal(await nav.completeJourneyAtCheckpoint(),true);
+    assert.equal(saved.length,1);
+    assert.equal(saved[0].status,"completed");
+    assert.equal(cleared,1);
+    assert.equal(nav.pendingTransfer,null);
+  }finally{globalThis.game=oldGame;}
+});

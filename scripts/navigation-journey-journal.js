@@ -2,7 +2,8 @@ import { MODULE_ID } from "./atlas-storage.js";
 import { formatNavigationDuration } from "./navigation-time.js";
 import { atlasDisplayDistance } from "./navigation-measure-units.js";
 import { confirmedJourneyDirections } from "./navigation-journey-timeline.js";
-import {isRestUnderway} from "./navigation-passenger-rest.js";
+import {isRestUnderway,validatePassengerRestMetadata,confirmedJourneyMovingHours}
+  from "./navigation-passenger-rest.js";
 import {validateTransportJourneyInfo,confirmedTransportJourneyLines} from "./navigation-transport-journal.js";
 
 /** A Journal Entry owns the recoverable record and a generated human-readable page.
@@ -102,6 +103,7 @@ export function validateJourneyRecord(value){
       !Number.isSafeInteger(value.day?.restEvents)||value.day.restEvents<0||
       value.day.restEvents>48)
     throw Error("This Atlas Journey Journal has invalid recovery metadata.");
+  if(value.passengerRest!==undefined)validatePassengerRestMetadata(value.passengerRest);
   return structuredClone(value);
 }
 
@@ -155,7 +157,13 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
   const title=record.status==="completed"?"Completed":record.status==="ended"?"Ended":
     record.status==="interrupted"?"Interrupted — may resume":
     record.status==="paused"?"Paused — may resume":"In progress";
-  const confirmedMoving=record.legs.reduce((sum,leg)=>sum+leg.completedMovingHours,0);
+  const confirmedMoving=confirmedJourneyMovingHours(record);
+  const underway=validatePassengerRestMetadata(record.passengerRest);
+  const pendingRestText=underway?
+    `<p><strong>Passenger rest aboard underway:</strong> ${escapeHTML(underway.action)} rest, `+
+    `${escapeHTML(formatNavigationDuration(Math.max(0,underway.startedAtMovingHours+
+      underway.hours-confirmedMoving),24))} of sailing time remaining. `+
+    `Rest progress continues across a recovered voyage; no extra World time is added.</p>`:"";
   const confirmedBreaks=record.legs.reduce((sum,leg)=>sum+
     leg.events.reduce((hours,event)=>hours+(isRestUnderway(event.action)?0:(Number(event.hours)||0)),0),0);
   const clockMoving=record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0);
@@ -206,7 +214,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       `${escapeHTML(record.startedTimeLabel)}</p>`:"")+
     (record.arrivedTimeLabel?`<p><strong>Arrived (World time):</strong> `+
       `${escapeHTML(record.arrivedTimeLabel)}</p>`:"")+
-    `<h2>Journey Overview</h2>`+
+    `<h2>Journey Overview</h2>`+pendingRestText+
     `<p>Confirmed moving: ${escapeHTML(formatNavigationDuration(confirmedMoving,24))}; `+
       `confirmed downtime: ${escapeHTML(formatNavigationDuration(confirmedBreaks,24))}; `+
       `elapsed: ${escapeHTML(formatNavigationDuration(confirmedMoving+confirmedBreaks,24))}.</p>`+

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {GuidedTravelDayTracker} from "../scripts/navigation-travel-day.js";
-import {requestPassengerRest,confirmPassengerRest}
+import {requestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
+  recoverPassengerRestRequest,validatePassengerRestMetadata}
   from "../scripts/navigation-passenger-rest.js";
+import {isJourneyDestinationCheckpoint}
+  from "../scripts/navigation-checkpoint-terminal.js";
 import {restoreApprovedTransportPlan}
   from "../scripts/navigation-transport-recovery.js";
 import {prepareGuidedTransportLeg}
@@ -153,4 +156,64 @@ test("legacy saved voyages can explicitly restore continuous crew operation",()=
     schedule:day,status:"interrupted",progress:16});
   assert.throws(()=>restoreApprovedTransportPlan(route(),projected(),savedNew,
     [standardMethod],"continuous"),/operating override is unavailable/);
+});
+
+test("unfinished long rest survives native canvas interruption and Journal recovery",()=>{
+  const day=schedule(),record=voyage();
+  day.recordMovement(6);
+  const requested=requestPassengerRest(day,"long");
+  record.passengerRest=beginPassengerRestMetadata(record,day,requested);
+  assert.deepEqual(record.passengerRest,{action:"long",hours:8,
+    startedAtMovingHours:6});
+  day.recordMovement(5);
+  const interrupted=checkpointJourneyRecord(record,{schedule:day,
+    status:"interrupted",progress:20,
+    worldTravelSeconds:11*3600,worldRestSeconds:0});
+  const pendingHtml=formatJourneyJournalHTML(interrupted);
+  assert.match(pendingHtml,/Passenger rest aboard underway/);
+  assert.match(pendingHtml,/3h of sailing time remaining/);
+  const continuation=resumeJourneyRecord(interrupted,{itinerary:itinerary(
+    interrupted.legs[0].transport),atlasRevision:3});
+  const resumed=schedule();
+  const held=recoverPassengerRestRequest(continuation,resumed);
+  assert.equal(held.startHours,-5);
+  assert.equal(held.hours,8);
+  assert.equal(confirmPassengerRest(resumed,held),null);
+  resumed.recordMovement(2);
+  assert.equal(confirmPassengerRest(resumed,held),null);
+  resumed.recordMovement(1);
+  const event=confirmPassengerRest(resumed,held);
+  assert.equal(event.action,"long-underway");
+  assert.equal(event.atHours,3);
+  assert.equal(event.continuedFromEarlierLeg,true);
+  continuation.passengerRest=null;
+  const completed=checkpointJourneyRecord(continuation,{schedule:resumed,
+    status:"interrupted",progress:6,worldTravelSeconds:3*3600});
+  assert.doesNotMatch(formatJourneyJournalHTML(completed),
+    /Passenger rest aboard underway/);
+  assert.match(formatJourneyJournalHTML(completed),/Long Rest Aboard/);
+  assert.equal(completed.legs[0].worldTravelSeconds,11*3600);
+  assert.equal(completed.legs[1].worldTravelSeconds,3*3600);
+  assert.equal(completed.legs[0].worldRestSeconds,0);
+  assert.equal(completed.legs[1].worldRestSeconds,0);
+  assert.throws(()=>validatePassengerRestMetadata({
+    action:"long",hours:-1,startedAtMovingHours:2}),/Invalid/);
+});
+
+test("destination checkpoint guard stops repeated 0.07-mi legs",()=>{
+  const record=voyage();
+  record.status="paused";
+  record.legs.at(-1).completedPercent=100;
+  const destination={id:"hearth-dock",name:"Hearth's Heart Dock",
+    point:p(100,0)};
+  assert.equal(isJourneyDestinationCheckpoint(record,destination,100),true);
+  assert.equal(isJourneyDestinationCheckpoint(record,{
+    ...destination,id:"another-checkpoint"},100),false);
+  assert.equal(isJourneyDestinationCheckpoint({
+    ...record,destination:p(250,0)},destination,100),false);
+  assert.equal(isJourneyDestinationCheckpoint({
+    ...record,status:"interrupted"},destination,100),false);
+  assert.equal(isJourneyDestinationCheckpoint({
+    ...record,legs:[{...record.legs.at(-1),completedPercent:99}]},
+    destination,100),false);
 });
