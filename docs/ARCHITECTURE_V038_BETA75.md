@@ -56,7 +56,7 @@ the second cycle above; only the fog/exploration storage cycle remains on the
 current baseline. `checkpoint-preset-settings.js` re-exports the reader for
 compatibility. No World setting or document schema changes.
 
-**Beta.7.6 boundary slice:** A later, separately reviewed PR extracts the
+**Beta.7.6 boundary slice (live GM/player acceptance passed):** A separately reviewed PR extracts the
 read-only `readManualFog` and `readAtlasMapFog` functions into
 `atlas-fog-readers.js`. This removes the final storage cycle; older modules
 continue exporting the same functions. No fog flag writes, migration behavior,
@@ -80,28 +80,46 @@ The existing `settings-controls.js`, `settings-layout.js`, `settings-input.js`, 
 ## 4. Map-editing window behavior
 
 1. Preserve current **modeless** GM authoring and the floating Road Editor dock. Edits stay staged until explicit Save/Finish; Cancel discards them.
-2. Offer an **explicit Focus Map / Minimize** action on relevant windows, using public `ApplicationV2.minimize()` and native restoration. Never automatically close a window or discard unsaved fields when drawing starts.
+2. Offer **Locate Road** when an editor has a spatial target: pan/zoom to and
+   briefly highlight the *working*, potentially unsaved road. It does **not**
+   minimize the editor. Native `ApplicationV2` title-bar minimization is a
+   separate optional way to uncover more of the canvas. Never discard staged
+   fields when locating, minimizing, or restoring.
 3. For dialogs that must remain open during a map selection, keep click capture attached to the map with a visible contextual instruction. Respect Esc, Undo, Cancel, and native Foundry focus.
 4. Standardize button labels, accessible names, tooltips, danger confirmation and minimum hit area; don't rely on ambiguous icons alone.
 5. Avoid full-window rerenders for changes limited to progress text or a single footer button; profile before altering render behavior.
 
-**Beta.7.5 pilot:** The Road Editor dock exposes **Focus Map**, which calls native
-`ApplicationV2.minimize()` without changing a draft or saving it. A GM restores
-the dock from its native window title bar before Save Points / Finish / Cancel.
-The parent Scene settings sheet already minimizes when the road dock opens.
-Live Foundry v14 GM testing must confirm that restored title bars remain
-discoverable and map clicks are unobstructed.
+**Beta.7.5.2 correction (live GM acceptance passed):** The Road Editor dock
+exposes **Locate Road**, using its unsaved geometry to pan/zoom and pulse the
+corresponding road overlay. It leaves Save Points / Finish / Cancel available
+without committing drafts. The earlier Focus Map/minimization interpretation
+was incorrect. Icon parity with the Scene Atlas list is deferred to a later
+UI-only milestone.
 
 ## 5. Small change sequence
 
 1. **Architecture audit and safeguards (this slice):** This map, import graph, baseline cycle register, independent CI check, and tests. No runtime changes or version bump.
 2. **Shared UI action foundation:** Introduce a reusable accessible icon/button helper and CSS, migrate a small subset of existing controls, add DOM-fake tests, and publish as a separate stacked PR.
-3. **Map-focus UX:** Pilot explicit minimize/restore in one GM editor while preserving unsaved inputs (**implemented in the separate map-focus draft PR**); verify with native Foundry v14 and only then generalize.
+3. **Map-focus UX:** Correctly locate/highlight the active unsaved road without
+   closing or minimizing its editor (**accepted in beta.7.5.2**); standardize
+   icon styling later without modifying the editing workflow.
 4. **Decomposition:** Separate `navigation-controller.js` rendering from Journey coordination, and GM/editor canvas concerns from player overlay concerns. Preserve public interfaces and saved flags throughout.
+5. **Regression safety net:** Reconcile tests with the current accessible UI
+   and confirmed Journey-destination contract before further decomposition
+   (**beta.7.7**, test-only changes).
 
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.
+
+**Beta.7.7 update:** The six remaining full-suite assertions were found to
+reference superseded UI text/accessible icon controls or the old assumption
+that a resumed leg automatically replaces the Journal's original Point B.
+The tests now assert the actual accessibility and explicit-destination
+contracts. The repository-wide `npm test` completes with **556/556 passing**.
+These are corrected regression expectations, **not** a runtime fix to travel
+or Journal persistence; actual Foundry GM/player behavior still needs the
+usual owner smoke tests after installing a new version.
 
 Before changing Journey presentation or map authoring lifecycle, require targeted Node tests and actual Foundry v14 GM/non-GM acceptance covering Long Rest re-enablement, multi-leg travel, Canvas redraw recovery, preserved Journal/world time, fog, road/checkpoint rendering, and native window focus.
 
