@@ -10,6 +10,7 @@ import { CUSTOM_DAY_HOURS_SETTING,CUSTOM_OVERNIGHT_HOURS_SETTING,
 import { NAVIGATION_WORLD_CLOCK_SETTING } from "../scripts/navigation-world-clock.js";
 import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING }
   from "../scripts/navigation-travel-method.js";
+import {ATLAS_LEVEL_PLANNER_SETTING} from "../scripts/navigation-native-level-model.js";
 
 test("navigation World Settings register once in a reusable module with bounded slider",()=>{
   const catalog=new Map(),menus=new Map();
@@ -22,7 +23,11 @@ test("navigation World Settings register once in a reusable module with bounded 
   }};
   let updates=0;
   registerNavigationWorldSettings({settings,onPlaybackChange:()=>updates++});
-  assert.equal(catalog.size,12);
+  assert.equal(catalog.size,13,"includes the new opt-in native Level planner");
+  const levels=catalog.get(ATLAS_LEVEL_PLANNER_SETTING);
+  assert.equal(levels.config,true);
+  assert.equal(levels.default,false);
+  assert.equal(levels.restricted,true);
   assert.equal(menus.get("atlasTransportationPresetsMenu").restricted,true);
   assert.equal(catalog.get("guidedTransportationCatalog").config,false);
   const groupConfig=catalog.get(GROUP_TRANSPORT_SETTING);

@@ -15,11 +15,19 @@ import { TRANSPORT_CATALOG_SETTING,defaultTransportationCatalog }
 import { AtlasTransportationSettings } from "./navigation-transport-settings.js";
 import { GROUP_TRANSPORT_SETTING,defaultGroupTransportation }
   from "./navigation-group-transport.js";
+import {ATLAS_LEVEL_PLANNER_SETTING} from "./navigation-native-level-model.js";
 
 const MODULE_ID="fvtt-atlas-navigation";
 
 /** One centralized registration point for World navigation/travel preferences. */
 export function registerNavigationWorldSettings({settings=game.settings,onPlaybackChange=()=>{}}={}){
+  settings.register(MODULE_ID,ATLAS_LEVEL_PLANNER_SETTING,{
+    name:"Atlas — Enable Native Scene Level Setup",
+    hint:"Opt in to GM-reviewed Scene Level creation from the Atlas Scene tab. " +
+      "Requires explicit elevation ranges, a preview and confirmation. " +
+      "Does not change roads, Regions, existing Levels or Token elevation.",
+    scope:"world",config:true,restricted:true,type:Boolean,default:false
+  });
   settings.register(MODULE_ID,TRANSPORT_CATALOG_SETTING,{
     name:"Atlas Transportation Catalog",
     hint:"Versioned World transportation preset overrides and custom mounts/vehicles.",

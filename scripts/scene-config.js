@@ -23,6 +23,8 @@ import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
 import { availableMovementActions, unavailableMovementActions,
   previewNativeMovementCost, nativeCostPresetStatus,
   editableManagedNativeCost } from "./native-movement-cost.js";
+import {ATLAS_LEVEL_PLANNER_SETTING} from "./navigation-native-level-model.js";
+import {atlasNativeLevelSetup} from "./navigation-native-level-setup.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -157,6 +159,10 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
   const active = atlas.segments.length > 0;
   root.appendChild(node("h3", label("FVTTATLAS.Atlas.Tab")));
   if (!active) root.appendChild(node("p", "Add a road to begin.", "hint"));
+  if(!generatorOnly&&game.user?.isGM&&
+      game.settings?.get?.("fvtt-atlas-navigation",ATLAS_LEVEL_PLANNER_SETTING)){
+    root.appendChild(atlasNativeLevelSetup(scene));
+  }
 
   const legacy = atlas.schemaVersion === 1 && (atlas.nodes.length || atlas.segments.length);
   if (legacy) {

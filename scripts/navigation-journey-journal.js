@@ -5,6 +5,8 @@ import { confirmedJourneyDirections } from "./navigation-journey-timeline.js";
 import {isRestUnderway,validatePassengerRestMetadata,confirmedJourneyMovingHours}
   from "./navigation-passenger-rest.js";
 import {validateTransportJourneyInfo,confirmedTransportJourneyLines} from "./navigation-transport-journal.js";
+import {validateJourneyTargets,validateJourneyAnchor,confirmJourneyTarget}
+  from "./navigation-route-targets.js";
 
 /** A Journal Entry owns the recoverable record and a generated human-readable page.
  * No Scene flag, token flag, or second persistent journey store is needed. */
@@ -65,7 +67,7 @@ export function journeyLegFromItinerary(itinerary){
 
 export function createJourneyRecord({sceneId,tokenId,atlasRevision,itinerary,
   journeyDestination=null,title=null,startedWorldTime=null,startedTimeLabel=null,
-  now=new Date().toISOString()}={}){
+  routeTargets=null,initialAnchor=null,now=new Date().toISOString()}={}){
   if(!sceneId||!tokenId||!Number.isSafeInteger(atlasRevision))
     throw Error("Journey recovery requires a Scene, assigned token, and Atlas revision.");
   const leg=journeyLegFromItinerary(itinerary);
@@ -75,6 +77,8 @@ export function createJourneyRecord({sceneId,tokenId,atlasRevision,itinerary,
     schemaVersion:JOURNEY_JOURNAL_SCHEMA,status:"moving",
     sceneId:String(sceneId),tokenId:String(tokenId),atlasRevision,
     destination:point(selectedDestination),createdAt:now,updatedAt:now,
+    ...(routeTargets?{routeTargets:validateJourneyTargets(routeTargets)}:{}),
+    ...(initialAnchor?{lastConfirmedAnchor:validateJourneyAnchor(initialAnchor)}:{}),
     ...(title?{title:String(title).trim()}:{}),
     ...(Number.isFinite(startedWorldTime)?{startedWorldTime}:{}),
     ...(startedTimeLabel?{startedTimeLabel:String(startedTimeLabel)}:{}),
@@ -121,12 +125,19 @@ export function validateJourneyRecord(value){
       value.day.restEvents>48)
     throw Error("This Atlas Journey Journal has invalid recovery metadata.");
   if(value.passengerRest!==undefined)validatePassengerRestMetadata(value.passengerRest);
+  // Optional in schema 1: existing Journeys continue to load without a forced
+  // migration or a write-on-read. Newly created Journeys use A/B/C targets.
+  if(value.routeTargets!==undefined)validateJourneyTargets(value.routeTargets);
+  if(value.lastConfirmedAnchor!==undefined)
+    validateJourneyAnchor(value.lastConfirmedAnchor);
   return structuredClone(value);
 }
 
 export function checkpointJourneyRecord(record,{schedule,progress,status,
   worldTravelSeconds=0,worldRestSeconds=0,
-  arrivedWorldTime=null,arrivedTimeLabel=null,now=new Date().toISOString()}={}){
+  arrivedWorldTime=null,arrivedTimeLabel=null,confirmedAnchor=null,
+  arrivedCheckpoint=null,checkpointTolerancePixels=.01,
+  now=new Date().toISOString()}={}){
   const next=validateJourneyRecord(record);
   if(!STATUSES.has(status)||!Number.isFinite(progress)||progress<0||progress>100||
       !schedule||!Number.isFinite(schedule.completedHours)||
@@ -143,6 +154,16 @@ export function checkpointJourneyRecord(record,{schedule,progress,status,
     restEvents:schedule.restEvents,
     lastForcedCheck:structuredClone(schedule.lastForcedCheck)};
   next.status=status;next.updatedAt=now;
+  if(confirmedAnchor)next.lastConfirmedAnchor=validateJourneyAnchor(confirmedAnchor);
+  if(next.routeTargets&&progress>=99.999&&arrivedCheckpoint?.id){
+    next.routeTargets=confirmJourneyTarget(next.routeTargets,{
+      checkpointId:arrivedCheckpoint.id,position:arrivedCheckpoint.point,
+      tolerancePixels:checkpointTolerancePixels,
+      transport:leg.transport
+    });
+  }
+  if(status==="completed"&&next.routeTargets&&progress>=99.999)
+    next.routeTargets.nextTargetIndex=next.routeTargets.targets.length;
   if(status==="completed"){
     if(Number.isFinite(arrivedWorldTime))next.arrivedWorldTime=arrivedWorldTime;
     if(arrivedTimeLabel)next.arrivedTimeLabel=String(arrivedTimeLabel);

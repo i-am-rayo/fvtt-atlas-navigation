@@ -59,6 +59,8 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   validateJourneyRecord,eligibleJourneyRecord,isUnfinishedJourneyLeg,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
   JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
+import {buildJourneyTargets,assessJourneyAnchor,captureJourneyAnchor,
+  nextJourneyTarget} from "./navigation-route-targets.js";
 import {renderNavigationFooter} from "./navigation-footer.js";
 import {renderNavigationDepartureSelector,renderNavigationTravelMethodSelector}
   from "./navigation-selection-view.js";
@@ -69,6 +71,7 @@ import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote}
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
+import {renderJourneyTargets} from "./navigation-targets-view.js";
 import {renderRepeatedCheckpointNotice,renderCheckpointArrivalPrompt,
   renderDailyTravelPrompt} from "./navigation-prompts-view.js";
 import {createNavigationTransferSection,createNavigationTransferLegCard,
@@ -814,6 +817,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const saved=validateJourneyRecord(record);
     this.sourceMode="party";
     this.syncPartyDeparture(view,atlas);
+    if(saved.lastConfirmedAnchor){
+      const assessment=assessJourneyAnchor({anchor:saved.lastConfirmedAnchor,
+        position:this.start,atlas,gridSize:this.scene.grid.size});
+      if(!assessment.safe)
+        throw Error("The party token differs from its last committed position and " +
+          "is not on the recorded road/checkpoint. The Journal is intact; " +
+          "ask the GM to resolve the token position before resuming.");
+      atlasDebug("journey","Native token recovery anchor checked",{
+        sceneId:this.scene.id,kind:assessment.kind,
+        driftPixels:Math.round(assessment.drift*100)/100
+      });
+    }
     const recent=saved.legs.at(-1),arrival=recent.transport;
     // Both checkpoint-bound transport and ordinary land travel must restore
     // their approved method BEFORE calculating the remaining road route.
@@ -884,11 +899,32 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   async saveJourneyCheckpoint(session,status,{updatePage=true}={}){
     if(!session?.journal||!session.journeyRecord)return;
     const arrival=status==="completed"?journeyWorldStamp(game.time):null;
+    let confirmedAnchor=null;
+    // Only committed native TokenDocument positions are recoverable; PIXI
+    // animation frames and stale canvas sprites are never persisted.
+    try{
+      const view=this.canvasProvider();
+      if(view?.ready&&view.scene?.id===session.sceneId){
+        const atlas=this.atlasProvider(this.scene);
+        confirmedAnchor=captureJourneyAnchor({
+          point:this.atlasPoint(view,atlas,
+            partyTokenCanvasCenter(session.token,session.gridSize)),
+          atlas,gridSize:session.gridSize,
+          levelId:session.token.level?.id??session.token.level??null,
+          elevation:session.token.elevation
+        });
+      }
+    }catch(error){atlasWarn("journey","Preserving previous native recovery anchor",error);}
     const saved=checkpointJourneyRecord(session.journeyRecord,{
       schedule:session.schedule,status,
       progress:Math.max(0,Math.min(100,100*session.completedDistance/session.totalDistance)),
       worldTravelSeconds:session.clock?.advancedSeconds??0,
       worldRestSeconds:session.clock?.restSeconds??0,
+      confirmedAnchor,
+      arrivedCheckpoint:session.transportLeg&&
+        status==="paused"&&session.completedDistance/session.totalDistance>=.99999?
+          session.transportLeg.checkpoint:null,
+      checkpointTolerancePixels:session.gridSize*.75,
       arrivedWorldTime:arrival?.seconds??null,
       arrivedTimeLabel:arrival?.label??null
     });
@@ -1227,6 +1263,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The selected land transportation is no longer eligible.");
     }
     const route=guidedLeg??this.result;
+    if(this.recoveryRecord?.routeTargets&&!isUnfinishedJourneyLeg(this.recoveryRecord)){
+      const target=nextJourneyTarget(this.recoveryRecord.routeTargets);
+      if(!target||Math.hypot(target.point.x-this.end.x,
+          target.point.y-this.end.y)>Math.max(.01,this.scene.grid.size*.35))
+        throw Error("This route no longer matches the saved next A/B/C target. " +
+          "Use Stop and Replan rather than replaying a prior checkpoint.");
+      if(guidedLeg?.checkpoint&&target.checkpointId&&
+          guidedLeg.checkpoint.id!==target.checkpointId)
+        throw Error("The next checkpoint differs from the saved A/B/C target. " +
+          "No travel was committed; review the authored roads.");
+    }
     let travel=this.resolveTravel().travel;
     if(guidedLeg){
       const option=this.transportationTransitionPlan()?.legs[0]?.selectedOption;
@@ -1308,13 +1355,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(recovered?.passengerRest&&guidedLeg?.transport?.operation!=="continuous")
         throw Error("Restore continuous vessel operation before resuming a passenger rest.");
       const departureStamp=recovered?null:journeyWorldStamp(game.time);
+      const routeTargets=!recovered?buildJourneyTargets({route:this.result,
+        transitions:guidedLeg?projectTransportationRouteLegs(this.result,atlas,
+          validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING)).presets):null,
+        atlas}):null;
+      const initialAnchor=!recovered?captureJourneyAnchor({
+        point:this.atlasPoint(view,atlas,
+          partyTokenCanvasCenter(token,this.scene.grid.size)),
+        atlas,gridSize:this.scene.grid.size,
+        levelId:token.level?.id??token.level??null,
+        elevation:token.elevation
+      }):null;
       const record=recovered?
         resumeJourneyRecord(recovered,{itinerary,atlasRevision:atlas.revision,
           // The recovery target is the current leg checkpoint, not a GM edit
           // to the original Point B. Preserve the final destination on resume.
-          journeyDestination:isUnfinishedJourneyLeg(recovered)?null:this.end}):
+          journeyDestination:recovered.routeTargets||isUnfinishedJourneyLeg(recovered)?
+            null:this.end}):
         createJourneyRecord({sceneId:this.scene.id,tokenId:token.id,
           atlasRevision:atlas.revision,itinerary,journeyDestination:this.end,
+          routeTargets,initialAnchor,
           startedWorldTime:departureStamp?.seconds??null,
           startedTimeLabel:departureStamp?.label??null,
           title:navigationJourneyTitle({atlas,
@@ -1641,7 +1701,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   async continueFromCheckpoint(){
     const {pending,view}=this.verifyPendingTransfer();
     const atDestination=this.isAtJourneyDestination(pending.checkpoint);
-    const selectedEnd=this.end??this.recoveryRecord?.destination;
+    const nextTarget=this.recoveryRecord?.routeTargets?
+      nextJourneyTarget(this.recoveryRecord.routeTargets):null;
+    const selectedEnd=nextTarget?.point??this.end??this.recoveryRecord?.destination;
     // Never create another tiny leg back to the checkpoint already occupied.
     this.end=atDestination?null:(selectedEnd?{...selectedEnd}:null);
     this.pendingTransfer=null;
@@ -2069,6 +2131,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       message.style.cssText="margin:0;font-size:.85em;opacity:.85;";
       body.appendChild(message);
     }
+    const savedTargets=this.travelSession?.journeyRecord?.routeTargets??
+      this.recoveryRecord?.routeTargets;
+    if(game.user?.isGM&&savedTargets)
+      body.appendChild(renderJourneyTargets(savedTargets));
     if(this.recoverableJourney&&!this.travelSession&&!this.recoveryRecord){
       const recovery=el("div");
       recovery.style.cssText="border:1px solid #b18b54;border-radius:8px;padding:.75rem;display:flex;flex-wrap:wrap;align-items:center;gap:.7rem;";

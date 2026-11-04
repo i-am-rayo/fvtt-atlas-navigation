@@ -1309,6 +1309,37 @@ test("a recovered intermediate checkpoint resumes the saved final destination",a
   assert.match(nav.travelNotice,/saved destination/);
 });
 
+test("ABC checkpoint continuation targets the next saved coordinate without replacing final Point B",async()=>{
+  const port={id:"port",name:"Port Barthos",point:point(100,0)};
+  const record={status:"paused",destination:point(300,0),
+    legs:[{completedPercent:100,transport:{arrivalCheckpointId:"port"}}],
+    routeTargets:{schemaVersion:1,nextTargetIndex:2,targets:[
+      {id:"A",point:point(0,0)},
+      {id:"B",point:port.point,checkpointId:"port"},
+      {id:"C",point:point(200,0),checkpointId:"next-port"},
+      {id:"D",point:point(300,0)}
+    ]}};
+  const nav=new AtlasNavigationController({atlasProvider:()=>({revision:7})});
+  nav.scene={id:"scene",grid:{size:100}};
+  nav.recoveryRecord=record;nav.end={...record.destination};
+  nav.pendingTransfer={checkpoint:port};
+  nav.verifyPendingTransfer=()=>({pending:nav.pendingTransfer,view:{ready:true}});
+  nav.syncPartyDeparture=()=>{};
+  let previewEnd;
+  nav.calculateRoute=()=>{previewEnd={...nav.end};nav.result={status:"ok"};};
+  nav.transportationTransitionPlan=()=>({legs:[{
+    arrivalCheckpoint:{id:"next-port",name:"Next Port"}
+  }]});
+  nav.draw=()=>{};nav.render=async()=>{};
+  assert.equal(await nav.continueFromCheckpoint(),true);
+  assert.deepEqual(previewEnd,point(200,0));
+  assert.deepEqual(nav.end,point(200,0));
+  assert.deepEqual(record.destination,point(300,0),
+    "previewing the saved next target cannot overwrite the final destination");
+  assert.equal(record.routeTargets.nextTargetIndex,2,
+    "Continue never commits progress or advances the plan");
+});
+
 test("Continue from a completed port never previews another voyage to that same port",async()=>{
   const port={id:"port",name:"Port Barthos",point:point(100,0)};
   const record={status:"paused",destination:point(120,0),

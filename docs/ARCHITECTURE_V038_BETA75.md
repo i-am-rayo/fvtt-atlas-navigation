@@ -238,6 +238,26 @@ containment, import/export or other deferred gameplay features. Non-GM live
 verification remains a release gate for both builds; a successful GM Journey
 does not by itself prove player permission and visibility compatibility.
 
+**Beta.7.15 recovery intent + native Level setup:** `navigation-route-targets.js`
+defines a pure, schema-versioned sequence of Scene-local A/B/C positions,
+their stable road/segment/checkpoint identifiers and optional native
+Level/elevation references. The Journey Journal remains the sole durable store
+for route targets, GM-approved transport and last committed TokenDocument
+position; it accepts older schema-1 Journals without rewriting them. The
+controller consults this intent on checkpoint continuation and confirms small
+coordinate differences using the same authored graph IDs; distant or
+off-network relocations remain blocked to protect World-time integrity.
+`navigation-targets-view.js` displays intent but cannot commit movement.
+`navigation-native-level-model.js` validates pure, non-overlapping proposed
+native elevation bands; `navigation-native-level-setup.js` alone invokes the
+public `Scene.createEmbeddedDocuments("Level",...)` adapter after deliberate
+GM preview and confirmation from the opt-in Scene Atlas tab. Native Scene
+Levels remain authoritative; this slice does not remap legacy checkpoint
+`elevationMeters`, auto-configure Levels by terrain type, or alter Regions,
+fog, token heights, journey animation or World clocks. See the dedicated
+[beta.7.15 test guide](NAVIGATION_BETA7_15_TESTING.md). Real v14 live
+acceptance—especially the Port Barthos terminal transfer—remains mandatory.
+
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.
