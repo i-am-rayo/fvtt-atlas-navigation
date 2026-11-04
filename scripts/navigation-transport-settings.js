@@ -12,8 +12,8 @@ import { NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED } from "./navigation-
 import { NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT,
   NAVIGATION_PLAYBACK_MIN,NAVIGATION_PLAYBACK_MAX,
   exampleTripPlayback,formatPlaybackDuration } from "./navigation-playback.js";
-import { NAVIGATION_RULES_PROFILE_SETTING,NAVIGATION_RULES_PROFILES,
-  CUSTOM_DAY_HOURS_SETTING,CUSTOM_OVERNIGHT_HOURS_SETTING,
+import { resolveNavigationTravelRules,NAVIGATION_RULES_PROFILE_SETTING,
+  NAVIGATION_RULES_PROFILES,CUSTOM_DAY_HOURS_SETTING,CUSTOM_OVERNIGHT_HOURS_SETTING,
   CUSTOM_SHORT_REST_HOURS_SETTING,CUSTOM_LONG_REST_HOURS_SETTING }
   from "./navigation-rules-profile.js";
 import { NAVIGATION_WORLD_CLOCK_SETTING } from "./navigation-world-clock.js";
@@ -340,7 +340,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
   }
 
   async _edit(preset,surface="land",{scope="world",onSave=null,onReset=null,
-    onSaveCheckpoint=null,checkpointName=null}={}){
+    onSaveCheckpoint=null,checkpointName=null,journeyOperation=null}={}){
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
     const existing=Boolean(preset),profile=selectedTransportationProfile(game.settings,game.system?.id);
     const before=snapshot();
@@ -455,6 +455,22 @@ export class AtlasTransportationSettings extends ApplicationBase {
     panels.general.append(field("GM note",note,preset?.builtIn&&scope==="world"?
       "Reference note is read-only; use a custom transport for your own notes.":
       "Optional setting and world-building details."));
+    // Per-Journey schedule is a trip decision, not a World transport preset.
+    // Keep it in the shared editor to avoid a second, contradictory selector.
+    if(scope==="journey"&&journeyOperation!==null){
+      const daily=resolveNavigationTravelRules({
+        settings:game.settings,systemId:game.system?.id,actorHoursPerDay:null});
+      const regularHours=value.surface==="land"?(daily.dailyHours??8):8;
+      const choices=[["normal","Standard — "+regularHours+"h/day"]];
+      if(value.overtimeEnabled)choices.push(["overtime",
+        "Overtime — up to "+(8+(value.overtimeExtraHours??8))+"h/day"]);
+      if(value.continuousEnabled&&value.kind==="vehicle"&&
+          ["water","air"].includes(value.surface))
+        choices.push(["continuous","Continuous — 24h/day"]);
+      panels.general.append(field("Operating schedule for this journey",
+        selected(choices,journeyOperation,"atlasJourneyOperation"),
+        "Saved with this trip only. The World method determines which schedules are available."));
+    }
 
     // Services — hired quotes and optional operating schedules.
     panels.services.append(heading("Hired transportation",
@@ -646,11 +662,22 @@ export class AtlasTransportationSettings extends ApplicationBase {
       continuousEnabled:bool("continuousEnabled"),
       note:scope==="world"&&preset?.builtIn?value.note:String(response.note??"")};
     if(onSave){
+      const operation=journeyOperation===null?null:
+        String(response.atlasJourneyOperation??journeyOperation);
+      if(operation!==null){
+        const supported=["normal",
+          ...(next.overtimeEnabled?["overtime"]:[]),
+          ...(next.continuousEnabled&&next.kind==="vehicle"&&
+            ["water","air"].includes(next.surface)?["continuous"]:[])];
+        if(!supported.includes(operation))
+          throw Error("Choose an operating schedule permitted by this travel method.");
+      }
+      const journey={operation};
       if(response.__atlasSaveScope==="checkpoint"){
         if(typeof onSaveCheckpoint!=="function")
           throw Error("Checkpoint saving is not available for this method.");
-        await onSaveCheckpoint(next);
-      }else await onSave(next);
+        await onSaveCheckpoint(next,journey);
+      }else await onSave(next,journey);
       return next;
     }
     const updated=setTransportationPreset(readTransportationCatalog(game.settings),profile,next);
@@ -808,13 +835,13 @@ export class AtlasTransportationSettings extends ApplicationBase {
  * Callers own the Save callback; this helper never changes World settings.
  */
 export async function openTransportationMethodEditor({method,scope,onSave,onReset=null,
-  onSaveCheckpoint=null,checkpointName=null}={}){
+  onSaveCheckpoint=null,checkpointName=null,journeyOperation=null}={}){
   if(!method||!["checkpoint","journey"].includes(scope)||
       typeof onSave!=="function"||
       (onSaveCheckpoint!==null&&typeof onSaveCheckpoint!=="function"))
     throw Error("Invalid transportation editor context.");
   const app=new AtlasTransportationSettings();
   return app._edit(method,method.surface,{scope,onSave,onReset,
-    onSaveCheckpoint,checkpointName});
+    onSaveCheckpoint,checkpointName,journeyOperation});
 }
 

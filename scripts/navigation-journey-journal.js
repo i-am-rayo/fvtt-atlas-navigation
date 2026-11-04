@@ -24,6 +24,12 @@ const escapeHTML=value=>String(value??"").replace(/[&<>"']/g,char=>({
 /** Copy only the itinerary fields needed for a readable history and recovery.
  * The road solver is authoritative for any future token movement. */
 const isTransportJourneyInfo=value=>{try{validateTransportJourneyInfo(value);return true;}catch{return false;}};
+const validJourneyMethod=value=>Boolean(value&&typeof value==="object"&&
+  typeof value.id==="string"&&/^[a-zA-Z0-9_-]{1,128}$/.test(value.id)&&
+  typeof value.name==="string"&&value.name.trim()&&value.name.length<=240&&
+  !/[\u0000-\u001f]/.test(value.name)&&
+  ["owned","hire"].includes(value.arrangement)&&
+  ["normal","overtime","continuous"].includes(value.operation));
 
 export function journeyLegFromItinerary(itinerary){
   if(itinerary?.schemaVersion!==1||!validPoint(itinerary.endpoints?.departure)||
@@ -46,7 +52,14 @@ export function journeyLegFromItinerary(itinerary){
     })),
     completedMovingHours:0,completedPercent:0,events:[],
     worldTravelSeconds:0,worldRestSeconds:0,
-    ...(itinerary.transport?{transport:validateTransportJourneyInfo(itinerary.transport)}:{})
+    ...(itinerary.transport?{transport:validateTransportJourneyInfo(itinerary.transport)}
+      :itinerary.travel?.methodId&&itinerary.travel.methodId!=="walking"?
+        {travelMethod:{
+          id:String(itinerary.travel.methodId),
+          name:String(itinerary.travel.methodName??itinerary.travel.methodId),
+          arrangement:String(itinerary.travel.arrangement??"owned"),
+          operation:String(itinerary.travel.operation??"normal")
+        }}:{})
   };
 }
 
@@ -97,7 +110,9 @@ export function validateJourneyRecord(value){
             event[key]!==undefined&&(typeof event[key]!=="string"||
               event[key].length>100)))||
         !Array.isArray(leg.directions)||leg.directions.length>4096||
-        (leg.transport!==undefined&&!isTransportJourneyInfo(leg.transport)))||
+        (leg.transport!==undefined&&!isTransportJourneyInfo(leg.transport))||
+        (leg.travelMethod!==undefined&&!validJourneyMethod(leg.travelMethod))||
+        (leg.transport!==undefined&&leg.travelMethod!==undefined))||
       !Number.isFinite(value.day?.todayHours)||value.day.todayHours<0||
       value.day.todayHours>24||
       !Number.isFinite(value.day?.permittedExtraUntil)||
@@ -203,6 +218,10 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       movingHours:leg.completedMovingHours,
       complete:leg.completedPercent>=99.999}).map(line=>
       `<li>${escapeHTML(line)}</li>`).join("");
+    const landMethod=leg.travelMethod&&leg.completedMovingHours>0?
+      `<li>The party traveled using ${escapeHTML(leg.travelMethod.name)} (`+
+        `${escapeHTML(leg.travelMethod.arrangement==="hire"?"hired":"party-owned")}).`+
+        ` No automatic purchase, booking or currency deduction occurred.</li>`:"";
     const rows=timeline.map(step=>step.kind==="journey-event"?
       `<li><strong>${escapeHTML(step.label)}</strong> after `+
       `${escapeHTML(formatNavigationDuration(step.atHours,24))} on this leg`+
@@ -223,7 +242,8 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       `Moving time: ${escapeHTML(formatNavigationDuration(leg.movingHours,24))}; `+
       `Confirmed progress: ${Math.floor(leg.completedPercent)}% `+
       `(${escapeHTML(formatNavigationDuration(leg.completedMovingHours,24))} moving).</p>`+
-      (transportLines?`<h3>Confirmed Transportation and Transfers</h3><ul>${transportLines}</ul>`:"")+
+      (transportLines||landMethod?
+        `<h3>Confirmed Transportation and Transfers</h3><ul>${transportLines}${landMethod}</ul>`:"")+
       `<h3>Confirmed Directions and Stops</h3>`+
       `<p>The full planned route remains in this Journey's saved metadata. `+
       `Only confirmed travel and approved stops appear below.</p>`+

@@ -1,7 +1,8 @@
 /**
  * Overland methods are distinct from Foundry Token movement actions.
- * Walking keeps existing guided travel; all transport methods estimate time
- * only until GM-confirmed checkpoint transfers and rest policies exist.
+ * Walking keeps its native guided travel lifecycle. Compatible land transport
+ * can use the same road-following lifecycle with explicit GM authorization;
+ * water and air still require approved checkpoint transfers.
  */
 import { validateNavigationSpeed } from "./navigation-time.js";
 import { convertGroupSpeed } from "./navigation-party-speed.js";
@@ -16,7 +17,7 @@ export const NAVIGATION_SAILING_SPEED_DEFAULT=2;
 /** Backward-compatible reference for beta.1 callers and existing tests. */
 export const NAVIGATION_TRAVEL_METHODS=Object.freeze({
   walking:Object.freeze({label:"Walking",kind:"foot",surface:"land",guided:true}),
-  mounted:Object.freeze({label:"Mounted",kind:"mount",surface:"land",guided:false}),
+  mounted:Object.freeze({label:"Mounted",kind:"mount",surface:"land",guided:true}),
   sailing:Object.freeze({label:"Sailing Ship",kind:"vehicle",surface:"water",guided:false})
 });
 export function availableNavigationTravelMethods(settings,systemId){
@@ -60,6 +61,9 @@ export function assessNavigationMethodRoute(method,route,atlas,presets=[],
     if((surface??"land")!==selected.surface)return {compatible:false,guided:false,
       reason:selected.name+" needs "+selected.surface+" routes throughout; this route crosses another surface."};
   }
-  return {compatible:true,guided:false,
-    reason:selected.name+" is available for distance/time planning. Guided movement awaits explicit checkpoint transfers."};
+  const guided=selected.surface==="land";
+  return {compatible:true,guided,
+    reason:guided?
+      selected.name+" may follow this land-only road route after GM confirmation.":
+      selected.name+" is available for distance/time planning. Guided movement requires an approved checkpoint transfer."};
 }

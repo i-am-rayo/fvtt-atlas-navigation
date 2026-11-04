@@ -7,11 +7,17 @@ const near=(a,b,tolerance=.01)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
   Number.isFinite(b?.x)&&Number.isFinite(b?.y)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
 
-export function restoreApprovedTransportPlan(route,projected,record,catalog,operationOverride=null){
+export function hasUnfinishedApprovedTransport(record){
   const prior=record?.legs?.at(-1);
-  const t=prior?.transport;
-  if(!t||prior.completedPercent>=99.999||
-      !["interrupted","paused","moving"].includes(record.status))return null;
+  return Boolean(prior?.transport&&Number.isFinite(prior.completedPercent)&&
+    prior.completedPercent<99.999&&
+    ["interrupted","paused","moving"].includes(record?.status));
+}
+
+export function restoreApprovedTransportPlan(route,projected,record,catalog,operationOverride=null){
+  if(!hasUnfinishedApprovedTransport(record))return null;
+  const prior=record.legs.at(-1);
+  const t=prior.transport;
   if(route?.status!=="ok"||!Array.isArray(catalog)||
       !Array.isArray(projected?.legs)||projected.legs.length!==1||
       !near(route.end,prior.destination)||

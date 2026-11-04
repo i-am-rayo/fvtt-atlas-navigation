@@ -48,6 +48,8 @@ test("mounted and sailing use GM-set speeds, independent of Group Actor pace",()
 
 test("surface checks fail closed on cross-category and dangling-preset routes",()=>{
   assert.equal(assessNavigationMethodRoute("mounted",route("land"),atlas,presets).compatible,true);
+  assert.equal(assessNavigationMethodRoute("mounted",route("land"),atlas,presets).guided,true,
+    "a pure land route may use GM-confirmed mounted native travel");
   assert.equal(assessNavigationMethodRoute("sailing",route("water"),atlas,presets).compatible,true);
   assert.equal(assessNavigationMethodRoute("sailing",route("water"),atlas,presets).guided,false);
   assert.match(assessNavigationMethodRoute("sailing",route("land"),atlas,presets).reason,/water/);

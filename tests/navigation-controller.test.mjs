@@ -251,6 +251,10 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     const pencil=find(hired,item=>item.tag==="button"&&
       item.title?.startsWith?.("Edit this journey's travel method"));
     assert.ok(pencil,"Journey uses the shared method editor pencil");
+    assert.equal(find(hired,item=>item.textContent==="Arrangement"),undefined,
+      "the method's dropdown group already selects owned versus hired");
+    assert.equal(find(hired,item=>item.textContent==="Operating schedule"),undefined,
+      "the operating schedule belongs in the method editor");
     assert.equal(find(hired,item=>item.textContent==="GM pricing for this journey only"),undefined,
       "the duplicate inline pricing form was removed");
     assert.equal(nav.transportJourneyOverrides,null);

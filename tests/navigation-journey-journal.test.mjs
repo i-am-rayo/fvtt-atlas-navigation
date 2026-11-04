@@ -54,6 +54,29 @@ test("one versioned record contains readable route, rest history, and recovery s
   assert.throws(()=>resumeJourneyRecord(changed,{itinerary:itinerary(),atlasRevision:13}),/cannot safely/);
 });
 
+test("land method selections persist independently of completed checkpoint transports",()=>{
+  const land=itinerary();
+  land.travel={...land.travel,methodId:"riding-horse",methodName:"Riding Horse",
+    arrangement:"owned",operation:"normal"};
+  const created=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:land});
+  assert.deepEqual(created.legs[0].travelMethod,{
+    id:"riding-horse",name:"Riding Horse",arrangement:"owned",operation:"normal"});
+  const partial=checkpointJourneyRecord(created,{schedule:{
+    completedHours:1,todayHours:1,permittedExtraUntil:0,
+    restEvents:0,lastForcedCheck:null,events:[]},
+    progress:45,status:"interrupted"});
+  assert.equal(eligibleJourneyRecord(partial,{
+    sceneId:"scene",tokenId:"token",atlasRevision:12}),true);
+  assert.match(formatJourneyJournalHTML(partial),/traveled using Riding Horse/);
+  const resumed=resumeJourneyRecord(partial,{itinerary:land,atlasRevision:12});
+  assert.equal(resumed.legs.at(-1).travelMethod.id,"riding-horse");
+  const invalid=structuredClone(partial);
+  invalid.legs[0].travelMethod.operation="timewarp";
+  assert.equal(eligibleJourneyRecord(invalid,{
+    sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
+});
+
 test("an interrupted Journal renders only reached directions and approved rests",()=>{
   const record=createRecord();
   record.legs[0].directions=[

@@ -34,7 +34,8 @@ import {appendGroupedTransportationOptions} from "./navigation-transport-choices
 import {prepareGuidedTransportLeg,confirmGuidedCheckpointArrival}
   from "./navigation-guided-transport-leg.js";
 import {isJourneyDestinationCheckpoint} from "./navigation-checkpoint-terminal.js";
-import {restoreApprovedTransportPlan} from "./navigation-transport-recovery.js";
+import {restoreApprovedTransportPlan,hasUnfinishedApprovedTransport}
+  from "./navigation-transport-recovery.js";
 import {requestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
   recoverPassengerRestRequest} from "./navigation-passenger-rest.js";
 import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
@@ -519,13 +520,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const {openTransportationMethodEditor}=await import("./navigation-transport-settings.js");
     await openTransportationMethodEditor({
       method:baseline,scope:"journey",checkpointName:offer?.checkpointName??null,
-      onSaveCheckpoint:offer?async edited=>{
+      journeyOperation:this.transportOperation,
+      onSaveCheckpoint:offer?async (edited,{operation}={})=>{
         if(this.travelMethod!==id||this.transportArrangement!=="hire")
           throw Error("The selected travel method changed. Reopen its settings.");
         await this.saveNavigationCheckpointOffer({
           checkpointId:offer.checkpointId,methodId:id,world,
           originalOffers:initialOffers,edited});
         this.transportJourneyOverrides=null;
+        if(operation)this.transportOperation=operation;
         this.transportHireTerms=null;this.transportHireDenomination=null;
         this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
         this.draw();await this.render(true);
@@ -535,10 +538,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
         this.draw();await this.render(true);
       },
-      onSave:async edited=>{
+      onSave:async (edited,{operation}={})=>{
         if(this.travelMethod!==id||this.transportArrangement!==arrangement)
           throw Error("The selected travel method changed. Reopen its settings.");
         this.transportJourneyOverrides=transportationMethodOverrideDelta(original,edited);
+        if(operation)this.transportOperation=operation;
         this.transportHireTerms=null;this.transportHireDenomination=null;
         this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
         this.draw();await this.render(true);
@@ -608,8 +612,30 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     try{
       const atlas=this.atlasProvider(this.scene);
       const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
-      return assessNavigationMethodRoute(this.travelMethod,this.result,atlas,presets.presets,
+      const result=assessNavigationMethodRoute(this.travelMethod,this.result,atlas,presets.presets,
         {settings:game.settings,systemId:game.system?.id});
+      if(!result.guided)return result;
+      if(this.sourceMode!=="party")return {...result,guided:false,
+        reason:"Guided mount travel requires the assigned party token as Point A."};
+      // Hired land journeys still require an authored checkpoint boundary.
+      // This hotfix only removes the unnecessary terminal guard for owned mounts.
+      if(this.transportArrangement!=="owned")return {...result,guided:false,
+        reason:"Hired land services require an approved checkpoint leg for native movement."};
+      const availability=this.transportAvailability();
+      const permitted=availability.owned.has(this.travelMethod);
+      if(!permitted)return {...result,guided:false,
+        reason:"The selected transport is no longer owned or available at this departure."};
+      const method=availability.methods.find(item=>item.id===this.travelMethod);
+      const group=this.getPartyToken()?.actor;
+      if(this.transportArrangement==="owned"&&method&&
+          game.system?.id==="dnd5e"&&group?.type==="group"){
+        const roster=projectGroupTransportation(group,
+          readGroupTransportation(game.settings),availability.all);
+        if(!groupMethodCapacityStatus(roster,method).sufficient)
+          return {...result,guided:false,
+            reason:"Not enough matching party-owned passenger seats for this land leg."};
+      }
+      return result;
     }catch{return {compatible:false,guided:false,
       reason:"Atlas could not verify the road travel surfaces. Check World presets."};}
   }
@@ -768,6 +794,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.sourceMode="party";
     this.syncPartyDeparture(view,atlas);
     const recent=saved.legs.at(-1),arrival=recent.transport;
+    // A newly approved overland method is leg-owned Journal metadata. Restore
+    // it before computing the remainder so a redraw cannot silently walk.
+    if(isUnfinishedJourneyLeg(saved)&&!arrival&&recent.travelMethod){
+      const selected=availableNavigationTravelMethods(game.settings,game.system?.id)
+        .find(method=>method.id===recent.travelMethod.id);
+      if(!selected||selected.surface!=="land")
+        throw Error("The saved land transportation method is unavailable. Ask the GM to replan.");
+      this.travelMethod=selected.id;
+      this.transportArrangement=recent.travelMethod.arrangement;
+      this.transportOperation=recent.travelMethod.operation;
+    }
     if(saved.status==="paused"&&recent.completedPercent>=99.999&&
         arrival?.arrivalCheckpointId){
       const checkpoint=atlas.checkpoints?.find(cp=>
@@ -1059,8 +1096,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.result.legs.every(leg=>Array.isArray(leg.points)&&leg.points.length>=2)){
       const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
       const projected=projectTransportationRouteLegs(this.result,atlas,presets.presets);
-      const savedTransport=this.recoveryRecord?.legs?.at(-1)?.transport;
-      if(projected.hasTransitions||savedTransport){
+      const resumingTransport=hasUnfinishedApprovedTransport(this.recoveryRecord);
+      if(projected.hasTransitions||resumingTransport){
         if(this.sourceMode!=="party")
           throw Error("Checkpoint-assisted movement requires the assigned party token as Point A.");
         const plan=this.transportationTransitionPlan();
@@ -1068,8 +1105,37 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }else if(projected.legs.some(leg=>leg.surface!=="land"))
         throw Error("Native guided movement for this water/air-only route needs a supported checkpoint leg.");
     }
-    if(!guidedLeg&&this.travelMethod!=="walking")
-      throw Error("Guided vehicle movement requires an explicit checkpoint-boundary leg.");
+    if(!guidedLeg&&this.travelMethod!=="walking"){
+      const assessment=this.assessTravelMethod();
+      if(!assessment.guided)
+        throw Error(assessment.reason??
+          "Guided transport needs a compatible land-only route or approved checkpoint leg.");
+      const method=this.transportAvailability().methods
+        .find(item=>item.id===this.travelMethod);
+      if(!method||method.surface!=="land")
+        throw Error("The chosen transport is not eligible for this land journey.");
+      const approval=await foundry.applications.api.DialogV2.confirm({
+        window:{title:"Confirm land travel"},
+        content:el("div","GM confirmation: follow the authored land route using "+
+          method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+"). "+
+          "The party token will move using Foundry's native movement and optional "+
+          "World-time advancement. Costs are estimates; no automatic boarding, "+
+          "resource changes or currency deductions occur. Continue?"),
+        rejectClose:false,modal:true
+      });
+      if(!approval)return false;
+      if(this.travelSession||this.pendingTransfer||this.scene?.id!==view.scene?.id||
+          this.atlasProvider(this.scene).revision!==this.routeRevision||
+          this.getPartyToken()?.id!==token.id)
+        throw Error("The Scene, token or route changed during confirmation.");
+      const current=this.atlasPoint(view,atlas,
+        partyTokenCanvasCenter(token,this.scene.grid.size));
+      if(Math.hypot(current.x-this.result.start.x,current.y-this.result.start.y)>
+          Math.max(.01,this.scene.grid.size/50))
+        throw Error("The party token moved during confirmation. Refresh its location.");
+      if(!this.assessTravelMethod().guided)
+        throw Error("The selected land transportation is no longer eligible.");
+    }
     const route=guidedLeg??this.result;
     let travel=this.resolveTravel().travel;
     if(guidedLeg){
@@ -1111,7 +1177,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       sceneId:this.scene.id,sceneName:this.scene.name??"",
       sceneUnits:this.scene.grid?.units??"",atlasRevision:atlas.revision,
       route,roadName:id=>atlas.roads.find(road=>road.id===id)?.name??"Road",travel
-    }),transport:guidedLeg.transport}:this.itinerary;
+    }),transport:guidedLeg.transport}:{
+      ...this.itinerary,
+      travel:{...this.itinerary.travel,
+        methodId:travel.methodId??this.travelMethod,
+        methodName:travel.methodLabel??this.travelMethod,
+        arrangement:this.transportArrangement,operation:this.transportOperation}
+    };
     const playback=calculateGuidedPlayback({
       route,travel,paths,
       gridSize:this.scene.grid?.size,
@@ -1884,54 +1956,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         if(!method.overtimeEnabled&&this.transportOperation==="overtime"||
            !method.continuousEnabled&&this.transportOperation==="continuous")
           this.transportOperation="normal";
-        const services=el("div");
-        services.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.65rem;";
-        const arrangementLabel=el("label","Arrangement");
-        arrangementLabel.style.cssText="display:grid;gap:.25rem;font-size:.87em;";
-        const arrangement=el("select");arrangement.title="Choose whether the party owns or plans to hire this transport";
-        arrangement.disabled=Boolean(this.travelSession||this.journalStarting);
-        for(const [id,label] of [["owned","Party-owned"],["hire","For hire / passage"]]){
-          if(id==="hire"&&!availability.offers.has(method.id))continue;
-          if(id==="owned"&&!availability.owned.has(method.id))continue;
-          const opt=el("option",label);opt.value=id;arrangement.append(opt);
-        }
-        arrangement.value=this.transportArrangement;
-        arrangement.addEventListener("change",()=>{
-          if(this.travelSession)return;
-          this.transportArrangement=arrangement.value;
-                try{
-            const view=this.canvasProvider();
-            this.calculateRoute(view,this.atlasProvider(this.scene));this.draw();
-          }catch(error){atlasWarn("navigation","Service arrangement refresh failed",error);}
-          void this.render(true);
-        });
-        arrangementLabel.append(arrangement);
-        const operationLabel=el("label","Operating schedule");
-        operationLabel.style.cssText="display:grid;gap:.25rem;font-size:.87em;";
-        const operation=el("select");operation.title="Select GM-approved daily transport operation";
-        operation.disabled=Boolean(this.travelSession||this.journalStarting);
-        const normalProfile=resolveNavigationTravelRules({settings:game.settings,
-          systemId:game.system?.id,actorHoursPerDay:null});
-        const standardHours=method.surface==="land"?(normalProfile.dailyHours??8):8;
-        const operations=[["normal","Standard — "+standardHours+"h/day"]];
-        if(method.overtimeEnabled)operations.push(["overtime",
-          "Overtime — up to "+(8+(method.overtimeExtraHours??8))+"h/day"]);
-        if(method.continuousEnabled&&method.kind==="vehicle"&&
-            ["water","air"].includes(method.surface))
-          operations.push(["continuous","Continuous — 24h/day"]);
-        for(const [id,label] of operations){
-          const opt=el("option",label);opt.value=id;operation.append(opt);
-        }
-        operation.value=this.transportOperation;
-        operation.addEventListener("change",()=>{
-          if(this.travelSession)return;
-          this.transportOperation=operation.value;
-          this.journeySchedule=null;
-          void this.render(true);
-        });
-        operationLabel.append(operation);
-        services.append(arrangementLabel,operationLabel);
-        body.append(services);
         if(this.transportArrangement==="hire"){
           const offer=availability.offers.get(method.id);
           const note=el("small","Service offered at "+(offer?.checkpointName??"the departure checkpoint")+". Planning estimate only; no booking or payment occurs.");
