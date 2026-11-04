@@ -867,12 +867,14 @@ test("multi-surface guided travel stops at the first actual port and checkpoints
     const leg={index:0,firstRouteLeg:0,lastRouteLeg:0,
       start:full.start,end:cp,distance:10,hours:10/3,
       surface:"land",roadNames:["Port Road"],costCp:0,errors:[],
+      options:[{value:"owned|walking",label:"Walking (party pace)",group:"Party"}],
+      narration:["The party heads toward Port Barthos."],
       transferValid:true,arrivalCheckpoint:{id:"port",name:"Port Barthos"},
       selectedValue:"owned|walking",
       selectedOption:{arrangement:"owned",value:"owned|walking",
         method:{id:"walking",name:"Walking (party pace)",kind:"foot"}}};
     nav.transportationTransitionPlan=()=>({hasTransitions:true,
-      legs:[leg,{surface:"water"}]});
+      legs:[leg,{index:1,surface:"water",roadNames:["Strait"],errors:[]}]});
     assert.equal(await nav.startGuidedTravel(),true);
     assert.equal(confirmed,1);
     assert.ok(nativeMoves>0);
