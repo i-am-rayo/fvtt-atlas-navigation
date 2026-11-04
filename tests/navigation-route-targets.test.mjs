@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {buildJourneyTargets,confirmJourneyTarget,nextJourneyTarget,
-  assessJourneyAnchor,captureJourneyAnchor,validateJourneyTargets}
+  assessJourneyAnchor,captureJourneyAnchor,validateJourneyTargets,
+  isCheckpointBoundContinuation}
   from "../scripts/navigation-route-targets.js";
+import {projectTransportationRouteLegs} from "../scripts/navigation-transport-transitions.js";
 import {createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   validateJourneyRecord} from "../scripts/navigation-journey-journal.js";
 
@@ -86,4 +88,30 @@ test("small token drift and matching road IDs permit recovery; distant moves fai
     false,"unrelated off-road coordinates cannot be trusted");
   assert.throws(()=>assessJourneyAnchor({anchor,position:B,atlas,gridSize:0}),
     /Grid size/);
+});
+
+test("saved C dock authorizes guided continuation on a single water-surface leg",()=>{
+  const seaRoute={status:"ok",start:B,end:C,legs:[{
+    kind:"road",roadId:"sea-road",segmentId:"s-sea",points:[B,C],
+    distance:100,cost:100}]};
+  const map={...atlas,roads:[{id:"sea-road",name:"Sailing",travelPresetId:"sea"}]};
+  const projected=projectTransportationRouteLegs(seaRoute,map,[{id:"sea",mode:"water"}]);
+  assert.equal(projected.hasTransitions,false,"single-surface route has no surface changes");
+  assert.equal(projected.legs[0].arrivalCheckpoint.id,"dock");
+  const plan=confirmJourneyTarget(buildJourneyTargets({route,transitions,atlas}),{
+    checkpointId:"port",position:B});
+  const record={status:"paused",routeTargets:plan,legs:[{completedPercent:100}]};
+  assert.equal(isCheckpointBoundContinuation({record,route:seaRoute,projected,
+    gridSize:100}),true);
+  assert.equal(isCheckpointBoundContinuation({record:{...record,status:"stopped"},
+    route:seaRoute,projected,gridSize:100}),false,
+  "manual stop does not auto-enable the checkpoint leg");
+  assert.equal(isCheckpointBoundContinuation({record:{...record,legs:[{completedPercent:80}]},
+    route:seaRoute,projected,gridSize:100}),false,
+  "unconfirmed progress cannot create a new transport decision");
+  assert.equal(isCheckpointBoundContinuation({record,route:seaRoute,
+    projected:{...projected,legs:[{...projected.legs[0],arrivalCheckpoint:{id:"other"}}]},
+    gridSize:100}),false,"another endpoint cannot hijack the saved C target");
+  assert.equal(isCheckpointBoundContinuation({record,route:{...seaRoute,end:{x:999,y:0}},
+    projected,gridSize:100}),false,"unrelated destinations remain blocked");
 });

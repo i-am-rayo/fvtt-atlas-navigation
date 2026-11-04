@@ -60,7 +60,7 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
   JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
 import {buildJourneyTargets,assessJourneyAnchor,captureJourneyAnchor,
-  nextJourneyTarget} from "./navigation-route-targets.js";
+  nextJourneyTarget,isCheckpointBoundContinuation} from "./navigation-route-targets.js";
 import {renderNavigationFooter} from "./navigation-footer.js";
 import {renderNavigationDepartureSelector,renderNavigationTravelMethodSelector}
   from "./navigation-selection-view.js";
@@ -334,6 +334,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const atlas=this.atlasProvider(this.scene);
     const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
     const projected=projectTransportationRouteLegs(this.result,atlas,presets.presets);
+    const checkpointContinuation=isCheckpointBoundContinuation({
+      record:this.recoveryRecord,route:this.result,projected,
+      gridSize:this.scene.grid.size});
     const catalog=availableNavigationTravelMethods(game.settings,game.system?.id);
     const restored=restoreApprovedTransportPlan(this.result,projected,
       this.recoveryRecord,catalog,this.recoveryOperationOverride);
@@ -453,7 +456,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           surface:leg.surface,arrangement:option.arrangement
         }:{}),errors,hours,costCp};
     });
-    return {...projected,legs,complete,totalHours:complete?totalHours:null,
+    return {...projected,hasTransitions:projected.hasTransitions||checkpointContinuation,
+      checkpointContinuation,legs,complete,totalHours:complete?totalHours:null,
       totalElapsedHours:complete?totalElapsedHours:null,
       totalCp:complete?totalCp:null};
   }
@@ -1217,7 +1221,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
       const projected=projectTransportationRouteLegs(this.result,atlas,presets.presets);
       const resumingTransport=hasUnfinishedApprovedTransport(this.recoveryRecord);
-      if(projected.hasTransitions||resumingTransport){
+      const checkpointContinuation=isCheckpointBoundContinuation({
+        record:this.recoveryRecord,route:this.result,projected,
+        gridSize:this.scene.grid.size});
+      if(projected.hasTransitions||resumingTransport||checkpointContinuation){
         if(this.sourceMode!=="party")
           throw Error("Checkpoint-assisted movement requires the assigned party token as Point A.");
         const plan=this.transportationTransitionPlan();

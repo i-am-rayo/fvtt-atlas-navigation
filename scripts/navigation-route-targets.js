@@ -106,6 +106,26 @@ export function nextJourneyTarget(plan){
   return saved.targets[saved.nextTargetIndex]??null;
 }
 
+/**
+ * A saved checkpoint can lead to a single water/air leg, even with no surface
+ * transition inside that leg. Only the exact pending A/B/C target authorizes
+ * checkpoint-assisted transport; arbitrary same-surface routes remain previews.
+ */
+export function isCheckpointBoundContinuation({record,route,projected,gridSize}={}){
+  if(record?.status!=="paused"||!record.routeTargets||
+      !(record.legs?.at(-1)?.completedPercent>=99.999)||
+      !Number.isFinite(gridSize)||gridSize<=0||route?.status!=="ok"||
+      projected?.legs?.length!==1||projected.hasTransitions)return false;
+  const leg=projected.legs[0];
+  if(!["water","air"].includes(leg.surface)||!leg.transferValid||
+      !leg.arrivalCheckpoint?.id)return false;
+  const next=nextJourneyTarget(record.routeTargets);
+  return Boolean(next?.checkpointId===leg.arrivalCheckpoint.id&&
+    finite(next.point)&&finite(route.end)&&finite(leg.end)&&
+    separation(next.point,route.end)<=Math.max(.01,gridSize*.35)&&
+    separation(next.point,leg.end)<=Math.max(.01,gridSize*.35));
+}
+
 /** Read-only fallback: tiny native-position drift or same authored road/segment.
  * A distant relocation is not trusted even if it lands somewhere on that road.
  */

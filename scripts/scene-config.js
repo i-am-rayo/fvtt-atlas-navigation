@@ -161,7 +161,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
   if (!active) root.appendChild(node("p", "Add a road to begin.", "hint"));
   if(!generatorOnly&&game.user?.isGM&&
       game.settings?.get?.("fvtt-atlas-navigation",ATLAS_LEVEL_PLANNER_SETTING)){
-    root.appendChild(atlasNativeLevelSetup(scene));
+    root.appendChild(atlasNativeLevelSetup(scene,{onSceneToggle:refresh}));
   }
 
   const legacy = atlas.schemaVersion === 1 && (atlas.nodes.length || atlas.segments.length);

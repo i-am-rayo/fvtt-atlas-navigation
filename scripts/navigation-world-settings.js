@@ -23,10 +23,10 @@ const MODULE_ID="fvtt-atlas-navigation";
 export function registerNavigationWorldSettings({settings=game.settings,onPlaybackChange=()=>{}}={}){
   settings.register(MODULE_ID,ATLAS_LEVEL_PLANNER_SETTING,{
     name:"Atlas — Enable Native Scene Level Setup",
-    hint:"Opt in to GM-reviewed Scene Level creation from the Atlas Scene tab. " +
-      "Requires explicit elevation ranges, a preview and confirmation. " +
-      "Does not change roads, Regions, existing Levels or Token elevation.",
-    scope:"world",config:true,restricted:true,type:Boolean,default:false
+    hint:"Make GM-reviewed native Level setup available in Atlas Scene tabs. " +
+      "Each Scene must also opt in. Proposed ranges are reviewed and confirmed " +
+      "before native Level creation or in-place updates. No road, Region or Token changes.",
+    scope:"world",config:true,restricted:true,type:Boolean,default:true
   });
   settings.register(MODULE_ID,TRANSPORT_CATALOG_SETTING,{
     name:"Atlas Transportation Catalog",

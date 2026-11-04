@@ -1340,6 +1340,48 @@ test("ABC checkpoint continuation targets the next saved coordinate without repl
     "Continue never commits progress or advances the plan");
 });
 
+test("saved B to C all-water route exposes a checkpoint ship transfer, not preview-only travel",()=>{
+  const previous={game:globalThis.game};
+  try{
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"unknown"},
+      settings:{get:()=>undefined}};
+    const port={x:100,y:100},dock={x:300,y:100};
+    const atlas={revision:12,nodes:[{id:"p",...port},{id:"d",...dock}],
+      roads:[{id:"sea",name:"Dirwest-Hearth's Heart",travelPresetId:"water-sea"}],
+      segments:[{id:"s",roadId:"sea",from:"p",to:"d",via:[]}],
+      checkpoints:[{id:"port",name:"Port Barthos",nodeId:"p",roadId:"sea"},
+        {id:"dock",name:"Hearth's Heart Dock",nodeId:"d",roadId:"sea"}]};
+    const scene={id:"paedor",grid:{size:100,units:"mi"},getFlag:(_ns,key)=>
+      key==="checkpointTransportOffers"?{schemaVersion:1,entries:{
+        port:[{methodId:"ship-passage",mode:"sea",overrides:{hireEnabled:true}}]
+      }}:undefined};
+    const route={status:"ok",start:port,end:dock,distance:95.48,cost:95.48,
+      legs:[{kind:"road",roadId:"sea",segmentId:"s",points:[port,dock],
+        distance:95.48,cost:95.48}]};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas});
+    nav.scene=scene;nav.sourceMode="party";nav.result=route;nav.end=dock;
+    nav.recoveryRecord={status:"paused",destination:{x:340,y:100},
+      legs:[{completedPercent:100,travelMethod:{id:"walking"}}],
+      routeTargets:{schemaVersion:1,nextTargetIndex:2,targets:[
+        {id:"A",point:{x:0,y:0}},
+        {id:"B",point:port,checkpointId:"port"},
+        {id:"C",point:dock,checkpointId:"dock"},
+        {id:"D",point:{x:340,y:100}}
+      ]}};
+    nav.transferSelections[0]="hire|ship-passage";
+    const plan=nav.transportationTransitionPlan();
+    assert.equal(plan.checkpointContinuation,true);
+    assert.equal(plan.hasTransitions,true,"force checkpoint choice UI despite one surface");
+    assert.equal(plan.legs.length,1);
+    assert.equal(plan.legs[0].arrivalCheckpoint.id,"dock");
+    assert.equal(plan.legs[0].selectedOption.value,"hire|ship-passage");
+    assert.deepEqual(plan.legs[0].errors,[]);
+    assert.ok(plan.legs[0].hours>0);
+    assert.equal(nav.recoveryRecord.routeTargets.nextTargetIndex,2,
+      "planning must not confirm C or change the Journal");
+  }finally{globalThis.game=previous.game;}
+});
+
 test("Continue from a completed port never previews another voyage to that same port",async()=>{
   const port={id:"port",name:"Port Barthos",point:point(100,0)};
   const record={status:"paused",destination:point(120,0),

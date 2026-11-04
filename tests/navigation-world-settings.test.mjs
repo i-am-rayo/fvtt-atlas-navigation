@@ -26,7 +26,7 @@ test("navigation World Settings register once in a reusable module with bounded 
   assert.equal(catalog.size,13,"includes the new opt-in native Level planner");
   const levels=catalog.get(ATLAS_LEVEL_PLANNER_SETTING);
   assert.equal(levels.config,true);
-  assert.equal(levels.default,false);
+  assert.equal(levels.default,true);
   assert.equal(levels.restricted,true);
   assert.equal(menus.get("atlasTransportationPresetsMenu").restricted,true);
   assert.equal(catalog.get("guidedTransportationCatalog").config,false);
