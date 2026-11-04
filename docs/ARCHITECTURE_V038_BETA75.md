@@ -117,6 +117,18 @@ guarded action methods; merely rendering never commits a decision. The
 controls, copy, button labels and callbacks are unchanged. This is an
 architecture-only extract, not a new Journey feature or a schema update.
 
+**Beta.7.9 next Navigation presentation slice:** Extract read-only distance,
+travel time, total-trip, progress, in-world clock, speed, playback and terrain
+summary display into a dedicated Navigation summary renderer, using values
+already resolved by the controller. Calculation, GM action authorization,
+clock/Journal writes and native TokenDocument movement stay in the controller.
+The renderer may return element references for the existing progress and clock
+updates, but never reads Foundry globals or registers actions. Preserve exact
+copy, order and footer behavior in v14. The owner's future decisions regarding
+Atlas-authored native Region boundaries and spatial checkpoint containment,
+system-agnostic World calendar, and Scene-only import/export belong to later
+feature stages. The inactive-GM movement policy remains on hold pending R-01.
+
 ## 6. Validation gates and known baseline
 
 At untouched beta.7.4.4, the targeted `navigation-continuous-voyage.test.mjs` passes **12/12**, and the shared settings control/layout tests pass **8/8**. The repository-wide `npm run check` is **not green**: local baseline run reached 533 passes, six failures, one cancelled case and a 60-second timeout. Track that suite separately; do not claim a new architecture change caused or fixed its prior failures.

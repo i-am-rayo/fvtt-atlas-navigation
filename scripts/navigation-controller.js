@@ -60,6 +60,8 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
   JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
 import {renderNavigationFooter} from "./navigation-footer.js";
+import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
+  from "./navigation-summary.js";
 
 const el = (tag, content) => {
   const node = document.createElement(tag);
@@ -2372,14 +2374,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       body.append(section);
     }
     if (this.result?.status === "ok") {
-      const summary=el("div");
-      summary.style.cssText="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;";
-      const metric=(label,value)=>{
-        const card=el("div");card.style.cssText="border:1px solid var(--color-border-light-tertiary,#666);border-radius:8px;padding:.75rem;min-width:0;";
-        const small=el("div",label);small.style.cssText="font-size:.8em;opacity:.75;margin-bottom:.25rem;";
-        const big=el("strong",value);big.style.cssText="font-size:1.15em;";
-        card.append(small,big);summary.appendChild(card);
-      };
+      const metrics=[];
+      const metric=(label,value)=>metrics.push({label,value});
       const activeLeg=transferPlan?.hasTransitions?transferPlan.legs[0]:null;
       metric(activeLeg?"Current Leg Distance":"Distance",
         showDistance(activeLeg?.distance??this.result.distance));
@@ -2429,37 +2425,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           (plan.breakHours?" "+formatGuidedWorldTime(Math.round(plan.breakHours*3600))+
             " of confirmed breaks included.":"")+
           " The GM's rest or forced-travel choices update this estimate.";
-        tripExplanation=el("p",explanation);
-        tripExplanation.style.cssText="margin:0;font-size:.8em;opacity:.75;";
+        tripExplanation=explanation;
       }catch(error){metric("Travel Time","Unavailable");metric("Total Trip","Unavailable");}
-      body.appendChild(summary);
-      if(tripExplanation)body.appendChild(tripExplanation);
-      if(this.travelSession||this.travelProgress>0){
-        const progressWrap=el("div");
-        progressWrap.style.cssText="display:flex;flex-direction:column;gap:.35rem;padding:.45rem 0;";
-        const progressHeader=el("div");
-        progressHeader.style.cssText="display:flex;justify-content:space-between;gap:1rem;font-size:.85em;";
-        const progressTitle=el("strong","Journey progress");
-        const progressLabel=el("span",`${Math.floor(this.travelProgress)}% complete`);
-        const progressBar=el("progress");
-        progressBar.max=100;
-        progressBar.value=this.travelProgress;
-        progressBar.title="Journey progress";
-        progressBar.setAttribute?.("aria-label","Journey progress");
-        progressBar.style.cssText="width:100%;height:.75rem;accent-color:#16b9a1;";
-        progressHeader.append(progressTitle,progressLabel);
-        progressWrap.append(progressHeader,progressBar);
-        body.appendChild(progressWrap);
-        this.travelProgressUI={bar:progressBar,label:progressLabel};
-        const status=el("div");
-        status.style.cssText="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem;font-size:.78em;";
-        const timePart=label=>{
-          const section=el("div");
-          const heading=el("div",label);heading.style.cssText="opacity:.7;margin-bottom:.15rem;";
-          const value=el("strong","—");
-          section.append(heading,value);status.appendChild(section);
-          return value;
-        };
+      const summary=renderNavigationSummaryMetrics({metrics,
+        explanation:tripExplanation,
+        progressPercent:this.travelSession||this.travelProgress>0?
+          this.travelProgress:null});
+      body.append(...summary.nodes);
+      this.travelProgressUI=summary.progressUI;
+      if(summary.timeUI){
         // The full multi-surface route is only a preview. Its distance must not
         // replace the checkpoint-clipped native journey's timing projection.
         const activeGuidedLeg=this.travelSession?.transportLeg;
@@ -2469,10 +2443,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.journeyTimeUI={travelHours:progressHours,
           plan:estimateNavigationTotalTrip(progressHours,
             activeGuidedLeg?this.travelSession.schedule.rules:this.resolveTravelRules(travel)),
-          moving:timePart("Travelled (moving)"),
-          elapsed:timePart("Elapsed (with rests)"),
-          eta:timePart("ETA remaining (in-game)")};
-        progressWrap.appendChild(status);
+          ...summary.timeUI};
         this.updateJourneyTiming();
       }else{this.travelProgressUI=null;this.journeyTimeUI=null;}
       if(this.travelSession?.phase==="rest-choice"){
@@ -2495,40 +2466,30 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         body.appendChild(prompt);
       }
       const clockAllowed=readNavigationWorldClockSetting(game.settings);
-      const clockHint=el("p",clockAllowed?
+      const clockHint=clockAllowed?
         "Foundry World time advances for confirmed movement and GM-approved breaks. Actor rests and exhaustion remain manual; change the clock setting in Module Settings.":
-        "Foundry World time stays unchanged. Planned breaks are still counted in Total Trip; enable clock advancement in Atlas Module Settings.");
-      clockHint.style.cssText="margin:0;font-size:.77em;opacity:.7;";
-      body.appendChild(clockHint);
-      if(this.travelSession?.clock||this.worldTimeAdvancedSeconds>0){
-        const clockStatus=el("p",this.worldTimeStatus());
-        clockStatus.style.cssText="margin:0;font-size:.85em;font-weight:600;";
-        this.worldTimeUI=clockStatus;
-        body.appendChild(clockStatus);
-      }else this.worldTimeUI=null;
-      if(!transferPlan?.hasTransitions){
-        const sourceLabel=el("p",`Speed: ${travelSource}`);
-        sourceLabel.style.cssText="margin:0;font-size:.85em;opacity:.85;";
-        body.appendChild(sourceLabel);
-      }
+        "Foundry World time stays unchanged. Planned breaks are still counted in Total Trip; enable clock advancement in Atlas Module Settings.";
+      let playbackLabel=null;
       try{
         if(transferPlan?.hasTransitions)throw Error("No full-route guided playback for transfer legs.");
         const playback=calculateGuidedPlayback({route:this.result,travel,
           paths:navigationCanvasLegPaths(this.canvasProvider(),this.atlasProvider(this.scene),this.result),
           gridSize:this.scene?.grid?.size,
           secondsPerHour:readGuidedPlaybackSetting(game.settings)});
-        const animationLabel=el("p",`Token playback: about ${formatPlaybackDuration(playback.durationSeconds)} `+
-          `(${playback.secondsPerHour} real seconds per in-game travel hour). `+
-          "Playback speed is visual only and does not change travel hours.");
-        animationLabel.style.cssText="margin:0;font-size:.8em;opacity:.75;";
-        body.appendChild(animationLabel);
+        playbackLabel="Token playback: about "+formatPlaybackDuration(playback.durationSeconds)+" "+
+          "("+playback.secondsPerHour+" real seconds per in-game travel hour). "+
+          "Playback speed is visual only and does not change travel hours.";
       }catch{
         // Invalid/missing canvas geometry must not conceal the route summary.
       }
-      if (this.result.terrainAware) {
-        const cost=el("p",`Terrain-weighted distance: ${showDistance(this.result.cost)}-equivalent`);
-        cost.style.cssText="margin:0;font-size:.85em;";body.appendChild(cost);
-      }
+      const status=renderNavigationSummaryStatus({clockHint,
+        worldTimeStatus:this.travelSession?.clock||this.worldTimeAdvancedSeconds>0?
+          this.worldTimeStatus():null,
+        speedSource:transferPlan?.hasTransitions?null:"Speed: "+travelSource,
+        playbackLabel,terrainCostLabel:this.result.terrainAware?
+          "Terrain-weighted distance: "+showDistance(this.result.cost)+"-equivalent":null});
+      body.append(...status.nodes);
+      this.worldTimeUI=status.worldTimeUI;
       const details=el("details");
       const summaryText=el("summary","How Atlas calculated this journey");
       summaryText.style.cursor="pointer";

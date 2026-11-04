@@ -2,7 +2,7 @@
 
 **Owner requests received:** November 4, 2026  
 **Status:** Proposed, unimplemented backlog. No feature, release or merge authorization implied.  
-**Current baseline:** v0.3.8-beta.7.8 passed owner Journey/rest testing; v0.3.8-beta.7.9+ remains the architecture-only stabilization track for Foundry v14.
+**Current baseline:** v0.3.8-beta.7.8 passed owner Journey/rest testing; v0.3.8-beta.7.9 is the next architecture-only presentation extraction pending GM/player Foundry v14 acceptance.
 
 This is the current **future-feature planning handoff** for other chats. Consult the [active roadmap](ROADMAP.md) and [stabilization architecture](ARCHITECTURE_V038_BETA75.md) for the development slice actually in progress. Stage IDs A–G are durable planning references; future version numbers are **provisional** and may change. Do not mix these new features into the beta.7.x architecture PR stack.
 
@@ -44,13 +44,13 @@ The earlier **v0.3.8-beta.8** scheduled-transport proposal is **rescheduled to S
 ## C. Checkpoint topology and portable schema foundation
 
 - **C-01 Free-standing checkpoints:** Create/edit a checkpoint without road association; attach or detach road links later with the same stable checkpoint ID. Do not create fake roads.
-- **C-02 Region categorization:** Checkpoint **Region** field and grouped checkpoint catalog; under Scene Settings → Atlas add **Regions [+]** alongside Roads/Checkpoints. **Decision required:** narrative grouping vs native Foundry RegionDocument. Recommend independent Atlas grouping with an optional *separate* native Region link; never treat a category as a native spatial Region or silently rewrite Behavior.
+- **C-02 Native Region containment (owner decision, November 4):** Atlas will author delimiting boundary points and, after an explicit GM preview/confirmation, generate or update an associated native Foundry Region. Checkpoints located *inside* the native Region will automatically appear under it in Scene Atlas → **Regions [+]** without manually assigning each checkpoint. Keep checkpoint IDs independent of roads, and preserve native Region Behaviors, Levels and GM geometry edits. Define overlap/boundary handling and refresh rules before implementation; this is a later schema feature, not beta.7.9.
 - **R-04 Slicer:** Split an existing road at a user-selected point with preview/undo, explicit graph transaction, preservation/remapping of IDs, junctions, attached checkpoints, Region references, and stale-route recovery.
 - **I-01 Data contract:** Versioned export/import payload design, stable reference IDs, Scene-image-relative points and selected metadata; establish legacy migration, collision mapping and native document references before an actual exporter is shipped in G.
 
 ## D. Hire scheduling and player-facing transit options
 
-- **T-01 Scheduled transport:** Editable service weekdays/World-calendar days, departure windows and eligible ship/ferry/coach/setting-specific air services. Use native World calendar semantics; **do not assume Gregorian weekdays or seven-day weeks**. Resolve a window such as 12:00–14:00 to a deterministic per-service/per-day departure, stable across rerender and recovery. Late travelers wait for the next service only after explicit GM approval; record schedule/wait snapshots and actual costs in the Journey.
+- **T-01 Scheduled transport (owner calendar decision):** Editable service weekdays/World-calendar days, departure windows and eligible ship/ferry/coach/setting-specific air services. Read Foundry's configured World calendar **system-agnostically**, with no hard-coded D&D calendar, Gregorian weekdays or seven-day assumption. Resolve a window such as 12:00–14:00 to a deterministic per-service/per-day departure, stable across rerender and recovery. Late travelers wait for the next service only after explicit GM approval; record schedule/wait snapshots and actual costs in the Journey.
 - **T-02 On-call transport:** Carriages/local watercraft/mounts with configurable operating hours, lead time, optional nighttime scarcity or surcharge. Default lore-inspired **editable examples** (daylight ferries, market-day coaches, intermittent merchant vessels), not universal D&D canon or modern fixed timetables.
 - **P-02 Player pamphlet (tentative/GM-opt-in):** Role-friendly “travel desk” menu at A→B→C checkpoint transfers listing permitted methods, approximate schedules/fare, and setting descriptions. GM controls visibility and approves booking/payment; no hidden destinations, automatic currency deductions or bypass of available checkpoint offers.
 
@@ -70,16 +70,16 @@ The earlier **v0.3.8-beta.8** scheduled-transport proposal is **rescheduled to S
 
 ## G. World portability and deferred polish
 
-- **I-02 Atlas import/export:** First test what native Foundry Scene export already carries. Prefer a portable Atlas-owned, versioned bundle where needed: roads, checkpoints, grouping, chosen Scene metadata, native Region references and opt-in exploration history. Provide preview/dry-run, ID remap, collision warnings, unresolved Actor/Journal references and rollback. Never erase existing exploration or Scene metadata by default; cross-World permissions need an explicit mapping choice.
+- **I-02 Scene-only Atlas import/export (owner scope decision):** First test what native Foundry Scene export already carries. Prefer a portable Atlas-owned, versioned **Scene-only** bundle where needed: roads, checkpoints, Atlas Region boundaries and native association, chosen Scene metadata and explicitly selected exploration history. Provide preview/dry-run, ID remap, collision warnings and rollback. Do **not** export Actor, Journal or World preset records in the first implementation; preserve or warn about references. Never erase existing exploration or Scene metadata by default.
 - **U-01 Visual alignment:** Mirror icons between Road Editor and Scene Settings, harmonize Token/Group forms, and restyle the **completed Journey Journal** after data/journey correctness stabilizes. Keep this separate from movement and persistence hotfixes.
 
-## Decisions to ask the owner before implementing their stage
+## Owner decisions and remaining questions (November 4, 2026)
 
-1. Region grouping: Atlas narrative group, native Region, or both independently? (Recommendation: both as separate IDs.)
-2. Player permissions: which choices are only visible, which can be requested, and which always need GM confirmation? (Recommendation: every side effect GM-approved.)
-3. Travel services: which World calendar and which lore templates should be default? (Recommendation: inspect World calendar, editable defaults.)
-4. Inactive GM: should unfinished movement safely pause or continue from the authoritative host? (Investigate R-01 before deciding.)
-5. Imports: Scene-only Atlas payload first, or optional Actor/Journal/World presets too? (Recommendation: Scene first, explicit optional relationships.)
+1. **Resolved — Regions:** Atlas defines the delimiting geometry for native Foundry Regions. Checkpoint membership is spatial containment, never manual per-checkpoint Region assignment. Overlapping/adjacent Region rules and regeneration with GM-edited native shapes remain to design.
+2. **Partially resolved — Players:** Creating, modifying and deleting Atlas data is forbidden to players. The exact permission policy for viewing/requesting travel or rests is **deferred** until most of the module is established; existing restrictions are unchanged.
+3. **Resolved — Calendar:** Use the Foundry-configured World calendar through a **system-agnostic** adapter. Editable service templates remain a future feature.
+4. **On hold — Inactive GM policy:** Decide whether travel safely pauses or continues only after diagnosing R-01. Beta.7.9 does not guess or change this policy.
+5. **Resolved — Portability:** Scene-only Atlas import/export first, including roads, checkpoints and related Scene metadata. Exclude Actor, Journal and World catalog export initially.
 
 ## Cross-chat handoff and acceptance rules
 
