@@ -56,6 +56,13 @@ the second cycle above; only the fog/exploration storage cycle remains on the
 current baseline. `checkpoint-preset-settings.js` re-exports the reader for
 compatibility. No World setting or document schema changes.
 
+**Beta.7.6 boundary slice:** A later, separately reviewed PR extracts the
+read-only `readManualFog` and `readAtlasMapFog` functions into
+`atlas-fog-readers.js`. This removes the final storage cycle; older modules
+continue exporting the same functions. No fog flag writes, migration behavior,
+GM privileges, geometry, history, or canvas refresh logic changes. The cycle
+baseline is then empty, so CI rejects any new strongly connected component.
+
 ## 3. UI responsibility boundaries
 
 | Layer | Owns | Must not own |

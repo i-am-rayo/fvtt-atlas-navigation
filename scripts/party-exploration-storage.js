@@ -1,5 +1,5 @@
 import { MODULE_ID, readAtlas } from "./atlas-storage.js";
-import { readManualFog } from "./atlas-manual-fog-storage.js";
+import { readManualFog } from "./atlas-fog-readers.js";
 import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
 import { checkpointRevealKeys, clearHiddenForCheckpoint } from "./checkpoint-exploration.js";
 import { validateManualFog } from "./atlas-manual-fog-model.js";

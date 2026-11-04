@@ -2,15 +2,13 @@ import { MODULE_ID } from "./atlas-storage.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { sceneImageOrigin } from "./road-coordinates.js";
 import { discoveredCellsForGrid } from "./atlas-fog-geometry.js";
+import { readAtlasMapFog } from "./atlas-fog-readers.js";
 import { ATLAS_MAP_FOG_FLAG, validateAtlasMapFog, atlasFogSurveyRadiusCells,
   appendAtlasFogTrail, removeAtlasFogTrailPoint, clearAtlasFogTrail,
   atlasMapFogDiscs, withAtlasExploredCells
 } from "./atlas-map-fog-model.js";
 
-export function readAtlasMapFog(scene) {
-  if (!scene?.getFlag) throw new Error("Select an Atlas Scene.");
-  return validateAtlasMapFog(scene.getFlag(MODULE_ID, ATLAS_MAP_FOG_FLAG));
-}
+export { readAtlasMapFog };
 
 function authorize(scene) {
   if (!globalThis.game?.user?.isGM || !scene?.canUserModify?.(game.user, "update")) {

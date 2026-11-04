@@ -1,10 +1,4 @@
 {
-  "notes": "Remaining pre-existing cycles after decoupling checkpoint preset World reads from UI. New cycles fail architecture:check; remove groups only after their imports are decoupled.",
-  "cycles": [
-    [
-      "scripts/atlas-manual-fog-storage.js",
-      "scripts/atlas-map-fog-storage.js",
-      "scripts/party-exploration-storage.js"
-    ]
-  ]
+  "notes": "No known cycles after the beta.7.6 read-only fog boundary extraction. All newly introduced cycles fail architecture:check.",
+  "cycles": []
 }
