@@ -732,6 +732,37 @@ test("drag handles preview without writes; undo, cancel, and save are reversible
  } finally {m.controller.tearDown();Object.assign(globalThis,prev);}
 });
 
+test("Locate Road receives active uncommitted geometry, never the saved copy",async()=>{
+ const prev={game:globalThis.game,PIXI:globalThis.PIXI};
+ const m=setup();
+ try{
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Graphics:m.Graphics};
+  assert.equal(m.controller.getEditingRoadFocus(m.scene),null);
+  m.controller.start(m.scene,()=>{});
+  m.listeners.get("pointerdown")(pointEvent(20,30));
+  m.listeners.get("pointerdown")(pointEvent(35,40));
+  m.listeners.get("pointerdown")(pointEvent(50,30));
+  const drawing=m.controller.getEditingRoadFocus(m.scene);
+  assert.equal(drawing.roadId,null,"new roads do not have persistent IDs yet");
+  assert.equal(drawing.atlas.schemaVersion,3);
+  assert.equal(drawing.points.length,3);
+  assert.equal(readAtlas(m.scene).roads.length,0,"locating must not save new roads");
+  assert.equal(await m.controller.finish(),true);
+  const stored=readAtlas(m.scene),roadId=stored.roads[0].id;
+  m.controller.startPointEdit(m.scene,roadId,()=>{});
+  m.listeners.get("pointerdown")(pointEvent(35,40));
+  m.listeners.get("pointermove")(pointEvent(40,50));
+  m.listeners.get("pointerup")(pointEvent(40,50));
+  const working=m.controller.getEditingRoadFocus(m.scene);
+  assert.equal(working.roadId,roadId);
+  assert.notDeepEqual(working.atlas.segments[0].via,stored.segments[0].via,
+    "Locate previews moved control points before Save Points");
+  assert.deepEqual(readAtlas(m.scene),stored,"focus lookup never changes Scene flags");
+  m.controller.cancel();
+ }finally{m.controller.tearDown();Object.assign(globalThis,prev);}
+});
+
 test("point editing ends on Scene configuration close without mutating flags",async()=>{
  const prev={game:globalThis.game,PIXI:globalThis.PIXI};
  const m=setup();

@@ -25,6 +25,7 @@ import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
 import { getRoadMergeCandidates, suggestRoadName } from "./road-model.js";
 import { sceneImageOrigin, toCanvasPoint } from "./road-coordinates.js";
+import { roadFocusCamera } from "./road-focus-camera.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
@@ -106,6 +107,16 @@ function openRoadDock(scene, refresh) {
     scene, controller: roadCanvas, sceneSheet,
     onFinish: () => roadCanvas.finish(),
     onCancel: () => roadCanvas.cancel(),
+    onFocus: async () => {
+      const subject=roadCanvas.getEditingRoadFocus(scene);
+      if(!subject)throw Error("There is no road being edited to locate.");
+      if(subject.points && !subject.points.length)
+        throw Error("Draw at least one road point before locating it.");
+      await centerAtlasOn(scene,subject.roadId,null,{
+        atlasOverride:subject.atlas,pointsOverride:subject.points,
+        zoomIntoRoad:true
+      });
+    },
     onClosed: () => {
       if (roadDock === dock) roadDock = null;
       refresh();
@@ -142,38 +153,34 @@ function fadeSceneSheet(scene) {
   },3650);
   atlasFocusFades.set(element,{opacity:original,timer});
 }
-async function centerAtlasOn(scene, roadId, checkpointId=null) {
+async function centerAtlasOn(scene, roadId, checkpointId=null,
+  {atlasOverride=null,pointsOverride=null,zoomIntoRoad=false}={}) {
   const view=globalThis.canvas;
   if (!view?.ready || view.scene?.id !== scene.id)
     throw Error("Open this Scene on the map first.");
-  const atlas=readAtlas(scene);
-  const nodes=new Map(atlas.nodes.map(item=>[item.id,item]));
-  let points=[];
-  if (checkpointId) {
-    const checkpoint=atlas.checkpoints?.find(c=>c.id===checkpointId);
-    const node=nodes.get(checkpoint?.nodeId);
-    if (node) points=[node];
-  } else {
-    for (const segment of atlas.segments.filter(item=>item.roadId===roadId)) {
-      for (const point of [nodes.get(segment.from),...segment.via,nodes.get(segment.to)])
-        if (point) points.push(point);
+  const atlas=atlasOverride??readAtlas(scene);
+  const nodes=new Map((atlas.nodes??[]).map(item=>[item.id,item]));
+  let points=pointsOverride??[];
+  if (pointsOverride===null) {
+    if (checkpointId) {
+      const checkpoint=atlas.checkpoints?.find(c=>c.id===checkpointId);
+      const node=nodes.get(checkpoint?.nodeId);
+      if (node) points=[node];
+    } else {
+      for (const segment of (atlas.segments??[]).filter(item=>item.roadId===roadId)) {
+        for (const point of [nodes.get(segment.from),...segment.via,nodes.get(segment.to)])
+          if (point) points.push(point);
+      }
     }
   }
   if (!points.length) throw Error("This map location no longer exists.");
-  const converted=points.map(point=>toCanvasPoint(view,atlas,point));
-  const x=(Math.min(...converted.map(p=>p.x))+Math.max(...converted.map(p=>p.x)))/2;
-  const y=(Math.min(...converted.map(p=>p.y))+Math.max(...converted.map(p=>p.y)))/2;
-  const bounds={width:Math.max(1,Math.max(...converted.map(p=>p.x))-Math.min(...converted.map(p=>p.x))),
-    height:Math.max(1,Math.max(...converted.map(p=>p.y))-Math.min(...converted.map(p=>p.y)))};
-  const viewport=view.app?.renderer?.screen??view.app?.screen;
+  const target=roadFocusCamera(view,atlas,points,{zoomIntoRoad});
   const currentZoom=view.stage?.scale?.x??1;
-  const fitZoom=!checkpointId && Number.isFinite(viewport?.width) && Number.isFinite(viewport?.height)
-    ?Math.min(currentZoom,Math.max(.1,Math.min(
-      (viewport.width-120)/bounds.width,(viewport.height-120)/bounds.height)))
-    :currentZoom;
   fadeSceneSheet(scene);
-  roadCanvas.focusOn(scene,checkpointId?"checkpoint":"road",checkpointId??roadId);
-  await view.animatePan({x,y,scale:checkpointId ? Math.max(2.2,currentZoom) : fitZoom,duration:450});
+  roadCanvas.focusOn(scene,checkpointId?"checkpoint":roadId?"road":"draft",
+    checkpointId??roadId);
+  await view.animatePan({...target,
+    scale:checkpointId?Math.max(2.2,currentZoom):target.scale,duration:450});
 }
 
 function ensureIdle(scene) {

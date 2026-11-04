@@ -33,7 +33,7 @@ test("floating new-road dock summarizes settings and does not edit the configure
     const { AtlasRoadEditorDock } = await import("../scripts/road-editor-dock.js");
     const scene = { id: "dock-scene", canUserModify: () => true };
     const configured = { name: "Hidden River", presetId: "gravel-road" };
-    let saves = 0;
+    let saves = 0, locates=0;
     const controller = {
       getDraft: () => ({ mode: "new", points: 3 }),
       getNewRoadOptions: () => structuredClone(configured),
@@ -41,14 +41,16 @@ test("floating new-road dock summarizes settings and does not edit the configure
     };
     const dock = new AtlasRoadEditorDock({
       scene, controller, onFinish: async () => { saves++; return false; },
-      onCancel() {}, onClosed() {}
+      onCancel() {}, onClosed() {}, onFocus:()=>{locates++;}
     });
     const root = await dock._renderHTML();
     assert.ok(descendants(root).some(node => node.textContent === "Hidden River"));
     assert.equal(descendants(root).filter(node => ["input", "select"].includes(node.tag)).length, 0);
     assert.ok(button(root, "Finish Road"));
     assert.ok(button(root, "Cancel"));
-    assert.ok(button(root, "Focus Map"));
+    assert.ok(button(root, "Locate Road"));
+    button(root,"Locate Road").listeners.get("click")();
+    assert.equal(locates,1);
     assert.equal(saves, 0, "rendering never saves a road");
     await button(root, "Finish Road").listeners.get("click")();
     assert.equal(saves, 1, "the explicit finish control invokes saving");
@@ -78,13 +80,14 @@ test("compact checkpoint and junction docks keep persistent map instructions", a
     ]) {
       const controller = { getDraft: () => ({ mode, points: 0 }) };
       const dock = new AtlasRoadEditorDock({
-        scene, controller, onFinish() {}, onCancel() {}, onClosed() {}
+        scene, controller, onFinish() {}, onCancel() {}, onClosed() {}, onFocus() {}
       });
       const root = await dock._renderHTML();
       assert.ok(descendants(root).some(node => node.textContent.includes(expected)));
       assert.ok(button(root, "Cancel"));
       assert.equal(button(root, "Finish Road"), undefined);
       assert.equal(button(root, "Save Points"), undefined);
+      assert.equal(button(root, "Locate Road"), undefined);
     }
   } finally {
     for (const [key, value] of Object.entries(previous)) {
@@ -115,7 +118,7 @@ test("floating Save Points remains available after its parent Scene sheet closes
       scene, sceneSheet: sheet, controller,
       onFinish: async () => { saved++; draft = null; return true; },
       onCancel: () => { canceled++; draft = null; },
-      onClosed() {}
+      onClosed() {}, onFocus() {}
     });
     let editorEnded = false;
     if (!activeRoadDockForSceneConfig(sheet, dock, controller)) editorEnded = true;
@@ -125,7 +128,7 @@ test("floating Save Points remains available after its parent Scene sheet closes
       dock, controller), false, "other Scene sheets do not own this editor");
     const root = await dock._renderHTML();
     assert.ok(button(root, "Save Points"), "Save Points remains available");
-    assert.ok(button(root, "Focus Map"));
+    assert.ok(button(root, "Locate Road"));
     dock.close = async () => { dock._onClose({}); };
     await button(root, "Save Points").listeners.get("click")();
     assert.equal(saved, 1);
@@ -140,7 +143,7 @@ test("floating Save Points remains available after its parent Scene sheet closes
   }
 });
 
-test("Focus Map uses native window minimization without losing an unsaved road draft", async () => {
+test("Locate Road requests map focus without minimizing or writing an unsaved road draft", async () => {
   const previous={foundry:globalThis.foundry,document:globalThis.document,
     game:globalThis.game,window:globalThis.window,ui:globalThis.ui};
   try {
@@ -154,27 +157,29 @@ test("Focus Map uses native window minimization without losing an unsaved road d
       "Foundry only offers native minimize/restore on minimizable windows");
     const scene={id:"map-focus-scene",canUserModify:()=>true};
     const draft={mode:"points",points:8,dirty:true,canUndo:false};
-    let saves=0,cancels=0,minimizes=0,reads=0;
+    let saves=0,cancels=0,minimizes=0,reads=0,locates=0;
     const controller={getDraft:()=>{reads++;return draft;}};
     const dock=new AtlasRoadEditorDock({scene,controller,
-      onFinish:()=>{saves++;},onCancel:()=>{cancels++;},onClosed() {}});
+      onFinish:()=>{saves++;},onCancel:()=>{cancels++;},onClosed() {},
+      onFocus:()=>{locates++;}});
     dock.minimize=async()=>{
       if(!dock.constructor.DEFAULT_OPTIONS.window.minimizable)return;
       minimizes++;
     };
     const root=await dock._renderHTML();
     const readsAfterRender=reads;
-    const focus=button(root,"Focus Map");
-    assert.ok(focus.title.includes("Restore it"));
+    const focus=button(root,"Locate Road");
+    assert.ok(focus.title.includes("Zoom to and highlight"));
     await focus.listeners.get("click")();
-    assert.equal(minimizes,1);
-    assert.equal(reads,readsAfterRender,"minimization does not touch the draft");
+    assert.equal(minimizes,0,"locating never minimizes the editor");
+    assert.equal(locates,1);
+    assert.equal(reads,readsAfterRender,"locating does not touch the draft");
     assert.equal(dock.finished,false);
     assert.equal(dock.busy,false);
     assert.equal(saves,0);
     assert.equal(cancels,0);
     assert.equal(controller.getDraft(),draft);
-    assert.ok(button(root,"Save Points"),"finish action remains after restoring the dock");
+    assert.ok(button(root,"Save Points"),"save remains available after locating the road");
   } finally {
     for(const [key,value] of Object.entries(previous)) {
       if(value===undefined)delete globalThis[key];

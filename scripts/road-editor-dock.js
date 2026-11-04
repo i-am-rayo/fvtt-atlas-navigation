@@ -29,7 +29,8 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     position: { width: 340, height: 270, left: 80, top: 115 }
   };
 
-  constructor({ scene, controller, sceneSheet, onFinish, onCancel, onClosed }) {
+  constructor({ scene, controller, sceneSheet, onFinish, onCancel, onClosed,
+    onFocus=null }) {
     const isNewRoad=controller.getDraft(scene)?.mode==="new";
     super({ position: {
       width: Math.min(340, Math.max(260, window.innerWidth - 60)),
@@ -42,6 +43,7 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     this.onFinish = onFinish;
     this.onCancel = onCancel;
     this.onClosed = onClosed;
+    this.onFocus = onFocus;
     this.finished = false;
     this.busy = false;
   }
@@ -101,14 +103,21 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       buttons.appendChild(button);
       return button;
     };
-    // Use Foundry v14's public window behavior: minimization does not finish,
-    // cancel, re-render, or persist the transient road draft.
-    const focusMap=makeButton("Focus Map", async () => {
-      try { await this.minimize(); }
-      catch (error) { ui.notifications.error(error.message || String(error)); }
-    });
-    focusMap.title="Minimize this editor to work on the map. Restore it from its title bar to finish or cancel.";
     const needsSave = draft.mode === "new" || draft.mode === "points";
+    if(needsSave && typeof this.onFocus==="function"){
+      // The same pan/highlight action as Scene Atlas > Locate road, but applied
+      // to the current unsaved geometry. Native title-bar minimization remains
+      // available separately for GMs who want more canvas space.
+      const locate=makeButton("Locate Road",async()=>{
+        try { await this.onFocus(); }
+        catch(error){ui.notifications.error(error.message||String(error));}
+      });
+      locate.title="Zoom to and highlight the road currently being edited.";
+      if(draft.mode==="new"&&!draft.points){
+        locate.disabled=true;
+        locate.title="Draw the first road point before locating it.";
+      }
+    }
     const save = needsSave ? makeButton(draft.mode === "new" ? "Finish Road" : "Save Points", async () => {
       if (this.busy) return;
       this.busy = true;

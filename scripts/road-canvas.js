@@ -497,6 +497,22 @@ export class RoadCanvasController {
     };
   }
 
+  /** Snapshot the active, unsaved road geometry for the Road Editor locate action. */
+  getEditingRoadFocus(scene) {
+    if(!scene?.id)return null;
+    const editing=this.pointEditor.session;
+    if(editing?.sceneId===scene.id)return {
+      roadId:editing.roadId,
+      atlas:editing.drag?.preview??editing.working
+    };
+    const draft=this.draft;
+    if(draft?.sceneId===scene.id&&draft.mode==="new")return {
+      roadId:null,atlas:{schemaVersion:3},
+      points:draft.points.map(p=>({x:p.x,y:p.y}))
+    };
+    return null;
+  }
+
   toggleViewMode() {
     this.viewMode = this.viewMode === "roads" ? "corridors" : "roads";
     this.refresh();
@@ -1044,7 +1060,7 @@ export class RoadCanvasController {
     const view=this.canvasProvider();
     if (!view?.ready || view.scene?.id !== scene?.id)
       throw Error("Open this Scene on the map to find it.");
-    if (!["road","checkpoint"].includes(kind)) return;
+    if (!["road","checkpoint","draft"].includes(kind)) return;
     this.focusTarget = {sceneId:scene.id,kind,id,until:Date.now()+3500};
     if (this.focusTimer) clearInterval(this.focusTimer);
     this.focusTimer = setInterval(()=>{
@@ -1923,6 +1939,15 @@ export class RoadCanvasController {
         previewStyle ? Number.parseInt(previewStyle.color.slice(1), 16) : 0xffd166,
         previewStyle?.width ?? 4, previewStyle?.opacity ?? 0.85,
         previewStyle?.pattern ?? "solid");
+      if(this.focusTarget?.sceneId===canvas.scene.id &&
+          this.focusTarget.kind==="draft" && draft.mode==="new") {
+        const alpha=focusPulse(this.focusTarget);
+        if(alpha>0) {
+          if(canvasPoints.length>1)drawLine(g,smoothRoadPath(canvasPoints,curvature),
+            0x69e4ff,(previewStyle?.width??4)+7/zoom,alpha);
+          else if(canvasPoints.length===1)drawDot(g,canvasPoints[0],0x69e4ff,9/zoom);
+        }
+      }
       for (const point of canvasPoints) drawDot(g, point, 0xffd166);
     }
     if (editing && editing.sceneId === canvas.scene.id) {

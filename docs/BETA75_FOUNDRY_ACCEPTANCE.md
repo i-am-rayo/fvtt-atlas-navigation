@@ -1,4 +1,4 @@
-# v0.3.8-beta.7.5 — architecture acceptance checklist
+# v0.3.8-beta.7.5.2 — architecture acceptance checklist
 
 **Status:** Installable *test branch*, not a merged mainline release. Use a copy
 of a Foundry v14 World or make a backup first. No intentional Scene, Actor,
@@ -6,14 +6,14 @@ World-setting, Journal, fog-history, or road-coordinate migrations.
 
 **Install:** Paste the `manifest` URL in this branch's `module.json` into
 Foundry's module installation dialog. Confirm the installed module reports
-`0.3.8-beta.7.5`. Reload both GM and player sessions after installation.
+`0.3.8-beta.7.5.2`. Reload both GM and player sessions after installation.
 
 ## GM edit-window checks
 
 - [ ] Open Road Editor for an existing road; drag a node without saving.
-- [ ] Click **Focus Map**. Verify the dock minimizes via the normal Foundry
-      title bar and leaves the map available for interaction.
-- [ ] Restore the dock; verify points, Undo and **Save Points** still work.
+- [ ] Click **Locate Road**. Verify the map pans/zooms to the in-progress road
+      and briefly highlights it without minimizing the dock.
+- [ ] Verify the unsaved points, Undo and **Save Points** still work.
 - [ ] Repeat while drawing a *new* road, then Cancel; verify no abandoned road
       appears. Repeat and Finish; verify one road is saved.
 - [ ] Verify native Scene configuration minimizes while the Road Editor opens,
@@ -43,9 +43,25 @@ may generate unrelated warnings; do not assume they belong to Atlas.
 twice, or fog/road/visited history disappears, stop and report before saving
 more data. Do not merge the stacked architecture drafts until accepted.
 
-## Focus Map follow-up: beta.7.5.1
+## Historical Focus Map follow-up: beta.7.5.1 (superseded)
 
 After the owner found that **Focus Map** produced no visible window change in
 `beta.7.5`, the Road Editor explicitly enables Foundry v14's
-`window.minimizable` option. Verify that the button now collapses the editor
-to its native title bar, which can restore the same unfinished editing session.
+`window.minimizable` option. This was an incorrect interpretation of the
+requested button. The option remains available for *native* title-bar
+minimization, but the editor button no longer calls `minimize()`.
+
+## Corrected road-location intent: beta.7.5.2
+
+Owner clarification: **Focus Map** was meant to locate and highlight the road
+being edited, like **Locate road** in Scene Atlas, *not* minimize the window.
+The dock control is now labeled **Locate Road** and calls the existing native
+canvas pan/highlight routine using the unsaved working geometry.
+
+- [ ] While moving a bend or endpoint, click **Locate Road**. The map centers
+      and fits/zooms to the edited road, then briefly pulses its highlight.
+- [ ] Repeat with an unfinished new road after placing one or more points; the
+      gold draft remains unsaved and receives a temporary focus pulse.
+- [ ] Confirm the dock stays open, and Undo, Save Points, Finish, and Cancel
+      are unaffected. Window minimization remains available via Foundry's
+      native title bar, not the Locate Road button.
