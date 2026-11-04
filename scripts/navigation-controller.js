@@ -31,6 +31,8 @@ import { availableNavigationTravelMethods,resolveNavigationMethodTravel,
 import { projectTransportationRouteLegs,transportationLegSelection,
   describeTransportationLeg } from "./navigation-transport-transitions.js";
 import {appendGroupedTransportationOptions} from "./navigation-transport-choices.js";
+import {prepareGuidedTransportLeg,confirmGuidedCheckpointArrival}
+  from "./navigation-guided-transport-leg.js";
 import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
   from "./navigation-measure-units.js";
 import { readGroupTransportation,projectGroupTransportation,
@@ -89,6 +91,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportJourneyOverrides=null;
     this.transferSelections={};
     this.transferLegOverrides={};
+    this.pendingTransfer=null;
     this.start = null;
     this.end = null;
     this.result = null;
@@ -136,6 +139,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportJourneyOverrides=null;
     this.transferSelections={};
     this.transferLegOverrides={};
+    this.pendingTransfer=null;
     // Favor the manually assigned Atlas party explorer when it can actually
     // provide a valid Scene-to-Atlas origin. Otherwise retain map-point mode.
     try{
@@ -706,6 +710,25 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const saved=validateJourneyRecord(record);
     this.sourceMode="party";
     this.syncPartyDeparture(view,atlas);
+    const recent=saved.legs.at(-1),arrival=recent.transport;
+    if(saved.status==="paused"&&recent.completedPercent>=99.999&&
+        arrival?.arrivalCheckpointId){
+      const checkpoint=atlas.checkpoints?.find(cp=>
+        cp.id===arrival.arrivalCheckpointId);
+      const node=atlas.nodes?.find(n=>n.id===checkpoint?.nodeId);
+      if(!node||Math.hypot(node.x-this.start.x,node.y-this.start.y)>
+          Math.max(.01,this.scene.grid.size*.75))
+        throw Error("Move the assigned party token to its confirmed checkpoint before recovery.");
+      this.pendingTransfer={sceneId:this.scene.id,atlasRevision:atlas.revision,
+        tokenId:token.id,checkpoint:{id:checkpoint.id,name:checkpoint.name,
+          point:{x:node.x,y:node.y}},journalId:journal.id};
+      this.recoveryJournal=journal;this.recoveryRecord=saved;
+      this.journeyJournal=journal;this.recoverableJourney=null;
+      this.end=null;this.result=null;this.itinerary=null;
+      this.travelNotice="Recovered at "+checkpoint.name+
+        ". Choose Stop and replan or Continue from checkpoint.";
+      this.draw();void this.render(true);return true;
+    }
     this.end={...saved.destination};
     this.calculateRoute(view,atlas);
     if(this.result?.status!=="ok")
@@ -906,11 +929,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   /** Execute the already-previewed curve through Foundry's native movement pipeline. */
   async startGuidedTravel(){
-    if(this.travelMethod!=="walking")
-      throw Error("Guided mounted/sailing journeys require checkpoint transfers in a later v0.3.8 beta. Select Walking to travel now.");
     const view=this.canvasProvider();
-    if(this.travelSession||this.journalStarting)
-      throw Error("Guided travel is already in progress or being prepared.");
+    if(this.travelSession||this.journalStarting||this.pendingTransfer)
+      throw Error("Finish the current checkpoint decision before starting another leg.");
     if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
         !view?.ready||view.scene?.id!==this.scene?.id||this.result?.status!=="ok")
       throw Error("A GM must calculate a route on the active Scene before guided travel.");
@@ -923,29 +944,72 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const atlas=this.atlasProvider(this.scene);
     if(atlas.revision!==this.routeRevision)
       throw Error("The road network changed. Calculate a fresh route before traveling.");
-    // Native guided walking may not traverse an authored water or air road.
-    // Older test doubles and pre-checkpoint Scene schemas remain readable.
+    if(this.sourceMode==="party"&&this.syncPartyDeparture(view,atlas)){
+      // A moved token invalidates the old route AND selected checkpoint offer.
+      this.calculateRoute(view,atlas);this.draw();void this.render(true);
+      throw Error("The party moved since the preview. Select transportation on the refreshed route.");
+    }
+    let guidedLeg=null;
+    // Preserve the proven walking lifecycle. Other movement is permitted ONLY
+    // to the next authored checkpoint, never across a guessed surface change.
     if(Array.isArray(atlas.roads)&&Array.isArray(atlas.nodes)&&
         atlas.roads.some(road=>road.travelPresetId)&&
         this.result.legs.every(leg=>Array.isArray(leg.points)&&leg.points.length>=2)){
       const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
       const projected=projectTransportationRouteLegs(this.result,atlas,presets.presets);
-      if(projected.legs.some(leg=>leg.surface!=="land"))
-        throw Error("Guided travel cannot cross a water or air route. "+
-          "Plan checkpoint transfers first; vehicle movement is reserved for beta.7.");
+      if(projected.hasTransitions){
+        if(this.sourceMode!=="party")
+          throw Error("Checkpoint-assisted movement requires the assigned party token as Point A.");
+        const plan=this.transportationTransitionPlan();
+        guidedLeg=prepareGuidedTransportLeg(this.result,plan?.legs[0]);
+      }else if(projected.legs.some(leg=>leg.surface!=="land"))
+        throw Error("Native guided movement for this water/air-only route needs a supported checkpoint leg.");
     }
-    if(this.sourceMode==="party" && this.syncPartyDeparture(view,atlas)){
-      // Re-read live token position before movement, never follow an outdated route.
-      this.calculateRoute(view,atlas);
-      this.draw();
-      void this.render(true);
-      if(this.result?.status!=="ok")throw Error("The party token's current position has no connected road route.");
+    if(!guidedLeg&&this.travelMethod!=="walking")
+      throw Error("Guided vehicle movement requires an explicit checkpoint-boundary leg.");
+    const route=guidedLeg??this.result;
+    let travel=this.resolveTravel().travel;
+    if(guidedLeg){
+      const option=this.transportationTransitionPlan()?.legs[0]?.selectedOption;
+      const info=guidedLeg.transport;
+      const speedDistance=info.methodId==="walking"&&route.terrainAware?
+        route.cost:route.distance;
+      const hours=this.transportationTransitionPlan()?.legs[0]?.hours;
+      if(!Number.isFinite(hours)||hours<=0)throw Error("This leg has no valid operating speed.");
+      travel={...travel,methodId:info.methodId,
+        speed:speedDistance/hours,source:info.arrangement==="hire"?
+          "checkpoint-service":"group-transport",hoursPerDay:8};
+      const approval=await foundry.applications.api.DialogV2.confirm({
+        window:{title:"Confirm travel to "+guidedLeg.checkpoint.name},
+        content:el("div","GM confirmation: travel to "+guidedLeg.checkpoint.name+
+          " using "+info.methodName+" ("+info.arrangement+"). "+
+          "Native token movement and optional confirmed World-time advancement will occur. "+
+          "Estimated fare is for reference only: no booking, currency deduction, "+
+          "Actor mutation or forced terrain bypass occurs. Stop at the checkpoint?"),
+        rejectClose:false,modal:true
+      });
+      if(!approval)return false;
+      if(this.travelSession||this.pendingTransfer||this.scene?.id!==view.scene?.id||
+          this.atlasProvider(this.scene).revision!==this.routeRevision||
+          this.getPartyToken()?.id!==token.id)
+        throw Error("The Scene, token or route changed during confirmation.");
+      const current=this.atlasPoint(view,atlas,partyTokenCanvasCenter(token,this.scene.grid.size));
+      if(Math.hypot(current.x-route.start.x,current.y-route.start.y)>Math.max(.01,this.scene.grid.size/50))
+        throw Error("The party token moved during confirmation. Refresh its location.");
+      const after=this.transportationTransitionPlan()?.legs[0];
+      if(!after||JSON.stringify(after.selectedOption?.method)!==JSON.stringify(option?.method)||
+          after.selectedValue!==option?.value||after.errors.length)
+        throw Error("The selected transportation changed. Review the updated checkpoint offer.");
     }
-    const paths=navigationCanvasLegPaths(view,atlas,this.result);
+    const paths=navigationCanvasLegPaths(view,atlas,route);
     const waypoints=createGuidedTokenWaypoints(paths,token,this.scene.grid?.size);
-    const travel=this.resolveTravel().travel;
+    const itinerary=guidedLeg?{...createNavigationItinerary({
+      sceneId:this.scene.id,sceneName:this.scene.name??"",
+      sceneUnits:this.scene.grid?.units??"",atlasRevision:atlas.revision,
+      route,roadName:id=>atlas.roads.find(road=>road.id===id)?.name??"Road",travel
+    }),transport:guidedLeg.transport}:this.itinerary;
     const playback=calculateGuidedPlayback({
-      route:this.result,travel,paths,
+      route,travel,paths,
       gridSize:this.scene.grid?.size,
       secondsPerHour:readGuidedPlaybackSetting(game.settings)
     });
@@ -964,6 +1028,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
+      transportLeg:guidedLeg,
       completedDistance:0,totalDistance,currentChunk:null,timer:null,clock:null,
       confirmedSegments:0,restCheckpointed:false};
     session.finished=new Promise(resolve=>{session.resolveFinished=resolve;});
@@ -974,14 +1039,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const recovered=this.recoveryRecord;
       const departureStamp=recovered?null:journeyWorldStamp(game.time);
       const record=recovered?
-        resumeJourneyRecord(recovered,{itinerary:this.itinerary,atlasRevision:atlas.revision}):
+        resumeJourneyRecord(recovered,{itinerary,atlasRevision:atlas.revision}):
         createJourneyRecord({sceneId:this.scene.id,tokenId:token.id,
-          atlasRevision:atlas.revision,itinerary:this.itinerary,
+          atlasRevision:atlas.revision,itinerary,
           startedWorldTime:departureStamp?.seconds??null,
           startedTimeLabel:departureStamp?.label??null,
           title:navigationJourneyTitle({atlas,
-            departure:this.itinerary.endpoints.departure,
-            destination:this.itinerary.endpoints.destination,
+            departure:itinerary.endpoints.departure,
+            destination:itinerary.endpoints.destination,
             dateLabel:departureStamp?.label??null,time:game.time})});
       if(recovered){
         schedule.todayHours=recovered.day.todayHours;
@@ -1132,27 +1197,55 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             interruptedReason="World time could not advance: "+(error.message||String(error));
           }
         }
-        const arrived=reachedEnd&&session.phase!=="ending"&&!clockFailed;
+        let arrived=reachedEnd&&session.phase!=="ending"&&!clockFailed;
+        if(arrived&&guidedLeg){
+          try{
+            const actual=this.atlasPoint(view,atlas,
+              partyTokenCanvasCenter(token,this.scene.grid.size));
+            if(!confirmGuidedCheckpointArrival({token,gridSize:this.scene.grid.size,
+              atlasPoint:actual,expectedPoint:guidedLeg.checkpoint.point}))
+              throw Error("The token did not reach the authored checkpoint.");
+          }catch(error){
+            arrived=false;interruptedReason="Checkpoint arrival was not verified: "+
+              (error.message??String(error));
+          }
+        }
         if(arrived){
-          // The 100ms animation sampler clamps to 99% until arrival. Stop it
-          // first so it cannot overwrite a confirmed 100% during Journal I/O.
+          // Do not allow the animation sampler to overwrite confirmed arrival.
           if(session.timer!==null){clearInterval(session.timer);session.timer=null;}
           this.setTravelProgress(100);
+          if(guidedLeg)session.phase="checkpoint-arrival";
         }
-        try{await this.saveJourneyCheckpoint(session,arrived?"completed":
+        try{await this.saveJourneyCheckpoint(session,arrived?
+          (guidedLeg?"paused":"completed"):
           session.phase==="ending"?"ended":"interrupted");}
         catch(error){
           interruptedReason="The Journey Journal could not finalize: "+
             (error.message||String(error));
-          atlasWarn("journey",interruptedReason);
+          arrived=false;atlasWarn("journey",interruptedReason);
         }
-        this.travelNotice=arrived?"Arrived at destination."+
+        if(arrived&&guidedLeg){
+          this.pendingTransfer={sceneId:session.sceneId,atlasRevision:atlas.revision,
+            tokenId:token.id,checkpoint:guidedLeg.checkpoint,
+            journalId:session.journal.id};
+          this.recoveryRecord=session.journeyRecord;
+          this.recoveryJournal=session.journal;
+          this.recoverableJourney=null;
+          // The old full-route preview must never look like an active next leg.
+          this.result=null;this.itinerary=null;
+          try{this.syncPartyDeparture(view,atlas);this.draw();}
+          catch(error){atlasWarn("journey","Checkpoint arrived but preview origin did not refresh",error);}
+          this.travelNotice="Reached "+guidedLeg.checkpoint.name+
+            ". Choose Stop and replan or Continue from checkpoint. "+
+            "No onward transport has been selected or paid for.";
+        }else this.travelNotice=arrived?"Arrived at destination."+
           (schedule.lastForcedCheck?` Resolve the latest forced-march DC `+
             `${schedule.lastForcedCheck.dc} Constitution saves manually.`:""):
           (interruptedReason??"Journey ended at the last completed road stretch.");
         atlasDebug("journey",arrived?"Journey arrived":
           "Journey stopped",{
-          sceneId:session.sceneId,reason:arrived?"arrived":
+          sceneId:session.sceneId,reason:arrived?
+            (guidedLeg?"checkpoint-arrived":"arrived"):
             (interruptedReason??(session.phase==="ending"?"gm-ended":"interrupted")),
           completedPercent:Math.floor(this.travelProgress)
         });
@@ -1182,6 +1275,56 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
       session.resolveFinished?.();
     }
+  }
+
+  /** The party must actually occupy its authored checkpoint before onward choice. */
+  verifyPendingTransfer(){
+    const pending=this.pendingTransfer;
+    const view=this.canvasProvider(),token=this.getPartyToken();
+    if(!pending||this.travelSession||this.journalStarting||
+        !game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
+        !view?.ready||view.scene?.id!==pending.sceneId||
+        this.atlasProvider(this.scene).revision!==pending.atlasRevision||
+        token?.id!==pending.tokenId||!token.canUserModify?.(game.user,"update"))
+      throw Error("The checkpoint decision is stale. Reopen the saved Journey.");
+    const point=this.atlasPoint(view,this.atlasProvider(this.scene),
+      partyTokenCanvasCenter(token,this.scene.grid.size));
+    if(!confirmGuidedCheckpointArrival({token,gridSize:this.scene.grid.size,
+      atlasPoint:point,expectedPoint:pending.checkpoint.point}))
+      throw Error("The party is no longer at the confirmed checkpoint. Review the Journey.");
+    return {pending,view,token};
+  }
+
+  /** End the confirmed Journal at this checkpoint; future destinations stay free. */
+  async stopAndReplanAtCheckpoint(){
+    const {pending}=this.verifyPendingTransfer();
+    if(this.recoveryJournal?.id!==pending.journalId||!this.recoveryRecord)
+      throw Error("The confirmed checkpoint Journal is unavailable.");
+    const next=validateJourneyRecord(this.recoveryRecord);
+    if(next.status!=="paused"||next.legs.at(-1)?.completedPercent<99.999)
+      throw Error("Only a confirmed checkpoint can end this leg.");
+    next.status="ended";next.updatedAt=new Date().toISOString();
+    await this.journeyJournalStore.save(next,{journal:this.recoveryJournal});
+    this.pendingTransfer=null;
+    this.clear();
+    this.travelNotice="Journey ended at "+pending.checkpoint.name+
+      ". Choose a new destination when the party is ready.";
+    await this.render(true);
+    return true;
+  }
+
+  /** Continue is deliberately two actions: confirm arrival, then choose mode. */
+  async continueFromCheckpoint(){
+    const {pending,view}=this.verifyPendingTransfer();
+    this.pendingTransfer=null;
+    this.sourceMode="party";
+    const atlas=this.atlasProvider(this.scene);
+    this.syncPartyDeparture(view,atlas);
+    this.calculateRoute(view,atlas);
+    this.travelNotice="Confirmed arrival at "+pending.checkpoint.name+
+      ". Select the next transport method and approve Travel to the next checkpoint.";
+    this.draw();await this.render(true);
+    return true;
   }
 
   /** Pause at the next short native movement boundary (at most ~2s). */
@@ -1244,6 +1387,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.recoveryRecord=null;
     this.recoverableJourney=null;
     this.journeyJournal=null;
+    this.pendingTransfer=null;
     if(this.sourceMode==="party"&&this.scene){
       try{this.syncPartyDeparture(this.canvasProvider(),this.atlasProvider(this.scene));}
       catch{this.start=null;}
@@ -1320,6 +1464,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.recoveryRecord=null;
     this.journeyJournal=null;
     this.journalStarting=false;
+    this.pendingTransfer=null;
   }
 
   tearDown(reason="requested") {
@@ -1667,6 +1812,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       `${travel.actorName} · ${travel.pace} pace · ${showSpeed(speed)}` :
       `Atlas default · ${showSpeed(speed)}`;
     const methodAssessment=this.assessTravelMethod();
+    const assistedLegReady=Boolean(transferPlan?.hasTransitions&&
+      !this.pendingTransfer&&this.sourceMode==="party"&&
+      transferPlan.legs[0]?.selectedOption&&
+      !transferPlan.legs[0]?.errors?.length&&
+      transferPlan.legs[0]?.arrivalCheckpoint&&
+      transferPlan.legs[0]?.transferValid);
     if(this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
       const advisory=el("p",methodAssessment.reason??"Transport planning only.");
       advisory.style.cssText="margin:0;padding:.5rem;border:1px solid #b18b54;border-radius:6px;font-size:.83em;";
@@ -1806,7 +1957,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       "After choosing A and B, ordinary map clicks leave the route unchanged. Shift+click sets Point A; Alt/Option+click sets Point B.");
     help.style.cssText="margin:0;font-size:.8em;opacity:.75;line-height:1.35;";
     body.appendChild(help);
-    if(transferPlan?.hasTransitions){
+    if(this.pendingTransfer){
+      const choice=el("section");
+      choice.style.cssText="padding:.8rem;border:2px solid #caa15c;border-radius:8px;display:grid;gap:.4rem;";
+      choice.append(el("h3","Checkpoint reached · "+this.pendingTransfer.checkpoint.name));
+      choice.append(el("p","The previous leg is confirmed in the Journey Journal. "+
+        "Choose to stop and replan or to continue with a new method. "+
+        "No further token movement, booking or payment occurs until you confirm."));
+      body.append(choice);
+    }
+    if(transferPlan?.hasTransitions&&!this.pendingTransfer){
       const section=el("section");
       section.style.cssText="display:grid;gap:.65rem;border:1px solid var(--color-border-light-tertiary,#777);border-radius:8px;padding:.8rem;";
       section.append(el("h3","Current journey leg"));
@@ -2161,13 +2321,25 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     row.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;padding:.65rem 1rem;border-top:1px solid var(--color-border-light-tertiary,#555);background:var(--color-bg,#100e18);flex:none;";
     const newRoute=el("button","New Route");
     newRoute.type="button";
-    newRoute.disabled=Boolean(this.travelSession||this.journalStarting);
+    newRoute.disabled=Boolean(this.travelSession||this.journalStarting||this.pendingTransfer);
     newRoute.title=partyMode?"Choose a new destination from the party token":"Clear route and choose a new Point A";
     newRoute.addEventListener("click",()=>{
       this.clear();
       if(partyMode)this.refreshPartyDeparture();
     });
     row.appendChild(newRoute);
+    if(this.pendingTransfer){
+      for(const [label,action] of [
+        ["Stop and replan",()=>this.stopAndReplanAtCheckpoint()],
+        ["Continue from checkpoint",()=>this.continueFromCheckpoint()]
+      ]){
+        const choice=el("button",label);choice.type="button";
+        choice.disabled=Boolean(this.journalStarting||this.travelSession);
+        choice.addEventListener("click",()=>void action().catch(error=>
+          globalThis.ui?.notifications?.error?.(error.message??String(error))));
+        row.append(choice);
+      }
+    }
     if(this.journeyJournal){
       const open=el("button","Open Journey Journal");
       open.type="button";
@@ -2193,9 +2365,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }else{
         const move=el("button",phase==="paused"?"Resume Travel":phase==="moving"?
           "Pause Travel":phase==="pausing"?"Pausing…":phase==="ending"?"Ending Journey…":
-          phase==="rest-applying"?"Recording Break…":"Travel Route");
+          phase==="rest-applying"?"Recording Break…":assistedLegReady?
+            "Travel to "+transferPlan.legs[0].arrivalCheckpoint.name:"Travel Route");
         move.type="button";
-        move.disabled=this.journalStarting||(!this.travelSession&&!methodAssessment.guided)||phase==="ending"||
+        move.disabled=this.journalStarting||(!this.travelSession&&
+          !methodAssessment.guided&&!assistedLegReady)||phase==="ending"||
           phase==="pausing"||phase==="rest-applying";
         move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
           "Pause after the current short road stretch":"Move the assigned party token along this route";

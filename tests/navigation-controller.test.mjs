@@ -740,3 +740,53 @@ test("mounts, wagons, and ships use explicit daily operating policies",()=>{
       "custom World travel-day hours also apply to overland mount estimates");
   }finally{globalThis.game=priorGame;}
 });
+
+test("GM checkpoint choice ends the confirmed Journal before allowing a new route",async()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui};
+  try{
+    globalThis.game={user:{isGM:true}};
+    const route={status:"ok",start:point(0,0),end:point(10,0),
+      distance:10,cost:10,terrainAware:false,legs:[
+        {kind:"road",roadId:"road",segmentId:"segment",
+          points:[point(0,0),point(10,0)],distance:10,cost:10}]};
+    const itinerary=createNavigationItinerary({sceneId:"scene",route,
+      travel:{speed:2},roadName:()=> "Road"});
+    const record=createJourneyRecord({sceneId:"scene",tokenId:"token",
+      atlasRevision:7,itinerary});
+    record.status="paused";record.legs[0].completedPercent=100;
+    record.legs[0].completedMovingHours=5;
+    const saves=[];
+    const nav=new AtlasNavigationController({journeyJournalStore:{
+      save:async value=>{saves.push(value);return {id:"journal"};},find:()=>null
+    }});
+    nav.scene={id:"scene"};
+    nav.recoveryJournal={id:"journal"};nav.recoveryRecord=record;
+    nav.pendingTransfer={journalId:"journal",checkpoint:{name:"Port Barthos"}};
+    nav.verifyPendingTransfer=()=>({pending:nav.pendingTransfer});
+    let cleared=0;
+    nav.clear=()=>{cleared++;nav.recoveryRecord=null;};
+    nav.render=async()=>{};
+    assert.equal(await nav.stopAndReplanAtCheckpoint(),true);
+    assert.equal(saves[0].status,"ended");
+    assert.equal(cleared,1);
+    assert.equal(nav.pendingTransfer,null);
+  }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
+test("continuing from checkpoint never moves the token and requires a new route decision",async()=>{
+  const nav=new AtlasNavigationController({atlasProvider:()=>({revision:7})});
+  nav.scene={id:"scene"};
+  nav.pendingTransfer={checkpoint:{name:"Port Barthos"}};
+  const view={ready:true};
+  nav.verifyPendingTransfer=()=>({pending:nav.pendingTransfer,view});
+  const actions=[];
+  nav.syncPartyDeparture=()=>actions.push("sync");
+  nav.calculateRoute=()=>actions.push("calculate");
+  nav.draw=()=>actions.push("draw");
+  nav.render=async()=>actions.push("render");
+  assert.equal(await nav.continueFromCheckpoint(),true);
+  assert.deepEqual(actions,["sync","calculate","draw","render"]);
+  assert.equal(nav.pendingTransfer,null);
+  assert.equal(nav.sourceMode,"party");
+  assert.match(nav.travelNotice,/Select the next transport method/);
+});

@@ -2,6 +2,7 @@ import { MODULE_ID } from "./atlas-storage.js";
 import { formatNavigationDuration } from "./navigation-time.js";
 import { atlasDisplayDistance } from "./navigation-measure-units.js";
 import { confirmedJourneyDirections } from "./navigation-journey-timeline.js";
+import {validateTransportJourneyInfo,confirmedTransportJourneyLines} from "./navigation-transport-journal.js";
 
 /** A Journal Entry owns the recoverable record and a generated human-readable page.
  * No Scene flag, token flag, or second persistent journey store is needed. */
@@ -20,6 +21,8 @@ const escapeHTML=value=>String(value??"").replace(/[&<>"']/g,char=>({
 
 /** Copy only the itinerary fields needed for a readable history and recovery.
  * The road solver is authoritative for any future token movement. */
+const isTransportJourneyInfo=value=>{try{validateTransportJourneyInfo(value);return true;}catch{return false;}};
+
 export function journeyLegFromItinerary(itinerary){
   if(itinerary?.schemaVersion!==1||!validPoint(itinerary.endpoints?.departure)||
       !validPoint(itinerary.endpoints?.destination)||
@@ -40,7 +43,8 @@ export function journeyLegFromItinerary(itinerary){
       terrain:String(step.terrain??""),roadId:step.roadId??null
     })),
     completedMovingHours:0,completedPercent:0,events:[],
-    worldTravelSeconds:0,worldRestSeconds:0
+    worldTravelSeconds:0,worldRestSeconds:0,
+    ...(itinerary.transport?{transport:validateTransportJourneyInfo(itinerary.transport)}:{})
   };
 }
 
@@ -88,7 +92,8 @@ export function validateJourneyRecord(value){
           ["startedTimeLabel","endedTimeLabel"].some(key=>
             event[key]!==undefined&&(typeof event[key]!=="string"||
               event[key].length>100)))||
-        !Array.isArray(leg.directions)||leg.directions.length>4096)||
+        !Array.isArray(leg.directions)||leg.directions.length>4096||
+        (leg.transport!==undefined&&!isTransportJourneyInfo(leg.transport)))||
       !Number.isFinite(value.day?.todayHours)||value.day.todayHours<0||
       value.day.todayHours>24||
       !Number.isFinite(value.day?.permittedExtraUntil)||
@@ -130,6 +135,7 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,now=new Date
   if(!RECOVERABLE.has(next.status)||atlasRevision!==next.atlasRevision||
       next.legs.length>=24)throw Error("This journey cannot safely resume. Plan a new route.");
   next.legs.push(journeyLegFromItinerary(itinerary));
+  next.destination=point(next.legs.at(-1).destination);
   next.status="moving";next.updatedAt=now;
   return validateJourneyRecord(next);
 }
@@ -162,6 +168,10 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     const timeline=confirmedJourneyDirections(leg.directions,leg.events,{
       travelHours:leg.movingHours,speed:leg.speedPerHour,
       terrainAware:leg.terrainAware,confirmedHours:leg.completedMovingHours});
+    const transportLines=confirmedTransportJourneyLines(leg.transport,{
+      movingHours:leg.completedMovingHours,
+      complete:leg.completedPercent>=99.999}).map(line=>
+      `<li>${escapeHTML(line)}</li>`).join("");
     const rows=timeline.map(step=>step.kind==="journey-event"?
       `<li><strong>${escapeHTML(step.label)}</strong> after `+
       `${escapeHTML(formatNavigationDuration(step.atHours,24))} on this leg`+
@@ -180,6 +190,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       `Moving time: ${escapeHTML(formatNavigationDuration(leg.movingHours,24))}; `+
       `Confirmed progress: ${Math.floor(leg.completedPercent)}% `+
       `(${escapeHTML(formatNavigationDuration(leg.completedMovingHours,24))} moving).</p>`+
+      (transportLines?`<h3>Confirmed Transportation and Transfers</h3><ul>${transportLines}</ul>`:"")+
       `<h3>Confirmed Directions and Stops</h3>`+
       `<p>The full planned route remains in this Journey's saved metadata. `+
       `Only confirmed travel and approved stops appear below.</p>`+
