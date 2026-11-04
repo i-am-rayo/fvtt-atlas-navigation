@@ -1356,6 +1356,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           this.recoveryRecord=session.journeyRecord;
           this.recoveryJournal=session.journal;
           this.recoverableJourney=null;
+          // A recovered voyage temporarily routes Point B to its approved
+          // checkpoint. At arrival, restore the Journal's original Point B
+          // before deciding whether this checkpoint is the final destination.
+          // The checkpoint remains the confirmed leg endpoint in the Journal.
+          this.end={...session.journeyRecord.destination};
           // The old full-route preview must never look like an active next leg.
           this.result=null;this.itinerary=null;
           try{this.syncPartyDeparture(view,atlas);this.draw();}
@@ -1364,7 +1369,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             "Destination reached at "+guidedLeg.checkpoint.name+
               ". Complete the Journey here, or choose Continue for a new onward destination.":
             "Reached "+guidedLeg.checkpoint.name+
-              ". Continue toward the saved Point B or stop and replan. "+
+              ". Continue toward the saved destination or stop and replan. "+
               "No onward transport has been selected or paid for.";
         }else this.travelNotice=arrived?"Arrived at destination."+
           (schedule.lastForcedCheck?` Resolve the latest forced-march DC `+
@@ -1475,10 +1480,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.syncPartyDeparture(view,atlas);
     this.calculateRoute(view,atlas);
     this.travelNotice=this.end?
-      "Continuing from "+pending.checkpoint.name+" toward the saved Point B. "+
+      "Continuing from "+pending.checkpoint.name+" toward the saved destination. "+
         "Select transportation for the next leg.":
       "Checkpoint confirmed at "+pending.checkpoint.name+". "+
-        "Choose an onward Point B to continue this Journey without replaying past travel.";
+        "Choose the next destination to continue this Journey without replaying past travel.";
     this.draw();await this.render(true);
     return true;
   }
@@ -2521,8 +2526,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     } else {
       const hint=el("p",this.pendingTransfer?
         (this.isAtJourneyDestination()?
-          "Complete the saved Journey here, or Continue to choose a new onward Point B.":
-          "Continue from this checkpoint to resume the saved route toward Point B.") :
+          "Complete the saved Journey here, or Continue to choose a new onward destination.":
+          "Continue from this checkpoint toward the saved journey destination.") :
         this.result?.status==="ok"?
           `Travel estimates will use ${travelSource}.`:
           "Choose Point B to see available transportation and journey estimates.");

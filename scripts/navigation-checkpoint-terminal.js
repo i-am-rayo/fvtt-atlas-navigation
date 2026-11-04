@@ -1,8 +1,9 @@
 /**
  * A confirmed checkpoint may also be the originally selected destination.
- * Token center and clicked checkpoint nodes can differ slightly because
- * Foundry snaps movement to the Scene grid. Never start another tiny journey
- * back to the same checkpoint once the party has already arrived there.
+ * Token-center snap tolerance is checked separately during native arrival.
+ * This is a GM-selected Point B comparison and must be tighter: otherwise a
+ * legitimate short land leg after a dock may be mistaken for a completed trip.
+ * Never start another tiny journey back to the same selected checkpoint.
  */
 export function isJourneyDestinationCheckpoint(record,checkpoint,gridSize){
   if(!record||record.status!=="paused"||
@@ -15,5 +16,5 @@ export function isJourneyDestinationCheckpoint(record,checkpoint,gridSize){
   if(!last||last.completedPercent<99.999||
       last.transport?.arrivalCheckpointId!==checkpoint.id)return false;
   return Math.hypot(record.destination.x-checkpoint.point.x,
-    record.destination.y-checkpoint.point.y)<=Math.max(.01,gridSize*.75);
+    record.destination.y-checkpoint.point.y)<=Math.max(.01,Math.min(gridSize*.15,16));
 }

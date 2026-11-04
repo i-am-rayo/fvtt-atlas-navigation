@@ -217,6 +217,40 @@ test("destination checkpoint guard stops repeated 0.07-mi legs",()=>{
   assert.equal(isJourneyDestinationCheckpoint({
     ...record,legs:[{...record.legs.at(-1),completedPercent:99}]},
     destination,100),false);
+  // A separate onshore destination only 20% of a grid cell away must still
+  // offer Continue, even though the old 75% snap radius called it "complete".
+  assert.equal(isJourneyDestinationCheckpoint({
+    ...record,destination:p(120,0)},destination,100),false);
+  assert.equal(isJourneyDestinationCheckpoint({
+    ...record,destination:p(108,0)},destination,100),true,
+    "small marker-click offsets should still count as the dock itself");
+});
+
+test("checkpoint arrival restores original Point B after recovered ship leg",()=>{
+  const day=schedule(),saved=voyage();
+  saved.destination=p(120,0); // a short, separate land leg after the dock
+  day.recordMovement(24);
+  const interrupted=checkpointJourneyRecord(saved,{schedule:day,
+    progress:48,status:"interrupted",worldTravelSeconds:24*3600});
+  assert.deepEqual(journeyRecoveryRouteDestination(interrupted),p(100,0),
+    "while underway the safe movement target is the approved dock");
+  const resumed=resumeJourneyRecord(interrupted,{atlasRevision:3,
+    itinerary:itinerary({...interrupted.legs.at(-1).transport,
+      estimatedFareCp:0,continuation:true}),
+    journeyDestination:null});
+  assert.deepEqual(resumed.destination,p(120,0),
+    "resuming cannot replace the original Point B");
+  const last=resumed.legs.at(-1);
+  last.completedMovingHours=last.movingHours;
+  last.completedPercent=100;
+  resumed.status="paused";
+  const restoredPointB=journeyRecoveryRouteDestination(resumed);
+  assert.deepEqual(restoredPointB,p(120,0),
+    "at arrival the Navigation decision target must revert to final Point B");
+  assert.equal(isJourneyDestinationCheckpoint({...resumed,
+    destination:restoredPointB},{
+    id:"hearth-dock",name:"Hearth's Heart Dock",point:p(100,0)},100),false,
+    "short land continuation may not be hidden by a broad snap tolerance");
 });
 
 
