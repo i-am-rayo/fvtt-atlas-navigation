@@ -61,9 +61,8 @@ export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
     open.addEventListener("click",()=>void nav.journeyJournal.sheet?.render(true));
     row.appendChild(open);
   }
-  // A completed Journal still leaves its original route preview visible.
-  // Render no movement action for that finished route; New Route is the only
-  // explicit way to offer fresh travel without replaying an approved Journey.
+  // A completed Journal may retain a preview, but never exposes a movement
+  // action that could replay the approved Journey.
   if(nav.result?.status==="ok"&&!nav.completedRoute){
     const phase=nav.travelSession?.phase;
     if(phase==="rest-choice"){

@@ -725,6 +725,15 @@ test("active ship Journey displays the approved method and saved sailing hours, 
     assert.match(card.children[1].textContent,/47h 44m|1d 23h 44m/);
     assert.equal(nav.travelMethod,"walking",
       "presenting a saved method must not write transient selection or Journey state");
+    // A schema-one mounted leg can have approved travelMethod metadata without
+    // the richer checkpoint transport shape; its saved method also wins.
+    nav.travelSession.transportLeg=null;
+    nav.travelSession.journeyRecord.legs[0].transport=undefined;
+    nav.travelSession.journeyRecord.legs[0].travelMethod={
+      id:"riding-horse",name:"Riding Horse",arrangement:"owned",operation:"normal"};
+    const mounted=await nav._renderHTML();
+    assert.ok(all(mounted).some(node=>node.textContent?.includes?.(
+      "Speed: Riding Horse (approved owned Journey leg)")));
   }finally{Object.assign(globalThis,previous);}
 });
 
@@ -1307,6 +1316,11 @@ test("the original destination checkpoint completes the Journey without another 
     assert.equal(saved[0].status,"completed");
     assert.equal(cleared,1);
     assert.equal(nav.pendingTransfer,null);
+    assert.equal(nav.navigationStage(),"completed",
+      "the confirmed Journal remains visible in its own completed stage");
+    assert.equal(nav.completedRecord.status,"completed");
+    assert.equal(nav.journeyJournal.id,"journal",
+      "the completed panel may open the Journal but cannot replay movement");
   }finally{globalThis.game=oldGame;}
 });
 

@@ -39,7 +39,8 @@ import {restoreApprovedTransportPlan,hasUnfinishedApprovedTransport,
   approvedTransportRecoverySelection}
   from "./navigation-transport-recovery.js";
 import {requestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
-  recoverPassengerRestRequest} from "./navigation-passenger-rest.js";
+  recoverPassengerRestRequest,confirmedJourneyMovingHours,isRestUnderway}
+  from "./navigation-passenger-rest.js";
 import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
   from "./navigation-measure-units.js";
 import { readGroupTransportation,projectGroupTransportation,
@@ -62,6 +63,9 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
 import {buildJourneyTargets,assessJourneyAnchor,captureJourneyAnchor,
   nextJourneyTarget,isCheckpointBoundContinuation} from "./navigation-route-targets.js";
 import {renderNavigationFooter} from "./navigation-footer.js";
+import {NAVIGATION_STAGES,resolveNavigationStage} from "./navigation-stage-model.js";
+import {createNavigationStageShell,renderNavigationStageIntro,
+  renderNavigationCompletedOverview} from "./navigation-stage-view.js";
 import {renderNavigationDepartureSelector,renderNavigationTravelMethodSelector}
   from "./navigation-selection-view.js";
 import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
@@ -130,6 +134,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // Ephemeral control state: only a durably completed Journey locks its
     // finished route. A deliberate new route calculation releases the lock.
     this.completedRoute=false;
+    this.completedRecord=null;
     this.travelProgressUI=null;
     this.journeyTimeUI=null;
     this.worldTimeAdvancedSeconds=0;
@@ -206,6 +211,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.itinerary=null;
     this.travelProgress=0;
     this.completedRoute=false;
+    this.completedRecord=null;
     this.worldTimeAdvancedSeconds=0;
     this.worldTravelAdvancedSeconds=0;
     this.worldRestAdvancedSeconds=0;
@@ -1588,8 +1594,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             (error.message||String(error));
           arrived=false;atlasWarn("journey",interruptedReason);
         }
-        if(arrived&&!guidedLeg&&session.journeyRecord?.status==="completed")
+        if(arrived&&!guidedLeg&&session.journeyRecord?.status==="completed"){
           this.completedRoute=true;
+          this.completedRecord=validateJourneyRecord(session.journeyRecord);
+        }
         if(arrived&&guidedLeg){
           this.pendingTransfer={sceneId:session.sceneId,atlasRevision:atlas.revision,
             tokenId:token.id,checkpoint:guidedLeg.checkpoint,
@@ -1700,8 +1708,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(Number.isFinite(arrived?.seconds))next.arrivedWorldTime=arrived.seconds;
     if(arrived?.label)next.arrivedTimeLabel=arrived.label;
     await this.journeyJournalStore.save(next,{journal:this.recoveryJournal});
+    const completedJournal=this.recoveryJournal;
     this.pendingTransfer=null;
     this.clear();
+    // Retain only a validated, in-memory read model for the finished screen.
+    // The already-saved Journey Journal remains the sole durable record.
+    this.completedRecord=next;
+    this.completedRoute=true;
+    this.journeyJournal=completedJournal;
     this.travelNotice="Journey completed at "+pending.checkpoint.name+
       ". No duplicate short travel leg was created.";
     await this.render(true);
@@ -1799,6 +1813,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelNotice="";
     this.travelProgress=0;
     this.completedRoute=false;
+    this.completedRecord=null;
     this.worldTimeAdvancedSeconds=0;
     this.worldTravelAdvancedSeconds=0;
     this.worldRestAdvancedSeconds=0;
@@ -1880,6 +1895,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelNotice="";
     this.travelProgress=0;
     this.completedRoute=false;
+    this.completedRecord=null;
     this.travelProgressUI=null;
     this.worldTimeAdvancedSeconds=0;
     this.worldTravelAdvancedSeconds=0;
@@ -2057,11 +2073,192 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     return {sceneUnit,travel:methodTravel};
   }
 
-  async _renderHTML() {
+  /** Read-only UI stage projection. It is not a journey state machine and does
+   * not authorize, save, or replay any Journey transition. */
+  navigationStage(){
+    return resolveNavigationStage({pendingTransfer:this.pendingTransfer,
+      travelSession:this.travelSession,completedRecord:this.completedRecord,
+      completedRoute:this.completedRoute});
+  }
+
+  /** Each non-planning stage has its own view; source/method editors and
+   * transient route estimates belong exclusively to destination planning. */
+  async renderJourneyStage(stage){
+    const {root,body}=createNavigationStageShell();
+    const partyMode=this.sourceMode==="party";
+    const session=this.travelSession;
+    if(stage===NAVIGATION_STAGES.CHECKPOINT){
+      const checkpoint=this.pendingTransfer?.checkpoint;
+      body.append(...renderNavigationStageIntro({title:"Checkpoint decision",
+        description:"The arriving leg is confirmed. Decide how to continue; no onward travel or payment is automatic.",
+        notice:this.travelNotice||null}));
+      if(checkpoint){
+        const atDestination=this.isAtJourneyDestination(checkpoint);
+        body.append(renderCheckpointArrivalPrompt({
+          checkpointName:checkpoint.name,atDestination}));
+      }
+      if(game.user?.isGM&&this.recoveryRecord?.routeTargets)
+        body.append(renderJourneyTargets(this.recoveryRecord.routeTargets));
+      body.append(el("p","Continue retains the saved Point B and lets the GM choose the next eligible transportation method. Complete is available only at the confirmed final destination."));
+      root.append(body,renderNavigationFooter(this,{partyMode}));
+      return root;
+    }
+    if(stage===NAVIGATION_STAGES.COMPLETED){
+      body.append(...renderNavigationStageIntro({title:"Journey completed",
+        description:"Confirmed travel history from the saved Journey Journal. Start a new route to travel again.",
+        notice:this.travelNotice||null}));
+      const record=this.completedRecord;
+      if(record?.status==="completed"){
+        const moving=confirmedJourneyMovingHours(record);
+        const downtime=record.legs.reduce((sum,leg)=>sum+leg.events.reduce(
+          (rest,event)=>rest+(event.hours>0&&!isRestUnderway(event.action)?
+            event.hours:0),0),0);
+        const showHours=hours=>formatNavigationDuration(hours,24);
+        const clockMoving=record.legs.reduce((sum,leg)=>
+          sum+(leg.worldTravelSeconds||0),0);
+        const clockRest=record.legs.reduce((sum,leg)=>
+          sum+(leg.worldRestSeconds||0),0);
+        body.append(renderNavigationCompletedOverview({
+          title:record.title??"Confirmed Journey",
+          departed:record.startedTimeLabel??"Recorded in Journey Journal",
+          arrived:record.arrivedTimeLabel??"Recorded in Journey Journal",
+          moving:showHours(moving),downtime:showHours(downtime),
+          elapsed:showHours(moving+downtime),
+          legs:record.legs.map((leg,index)=>({
+            label:`Leg ${index+1} · ${leg.sceneName}`,
+            details:`${atlasFormatMeasure(atlasDisplayDistance(leg.distance,
+              leg.units||this.scene?.grid?.units||""))} · `+
+              `${showHours(leg.completedMovingHours)} moving · `+
+              `${leg.transport?.methodName??leg.travelMethod?.name??"On foot"}`
+          }))}));
+        const clock=el("p","Foundry World time recorded: "+
+          formatGuidedWorldTime(clockMoving+clockRest)+" (moving "+
+          formatGuidedWorldTime(clockMoving)+"; breaks "+
+          formatGuidedWorldTime(clockRest)+").");
+        clock.style.cssText="margin:0;font-size:.82em;opacity:.8;";
+        body.append(clock);
+      }else body.append(el("p","Open the Journey Journal for its confirmed record."));
+      root.append(body,renderNavigationFooter(this,{partyMode}));
+      return root;
+    }
+    if(stage!==NAVIGATION_STAGES.JOURNEY||!session)
+      throw Error("The Navigation stage is no longer available.");
+
+    const leg=session.transportLeg??this.result;
+    const approvedLeg=session.journeyRecord?.legs?.at(-1);
+    const approved=approvedLeg?.transport??session.transportLeg?.transport;
+    const {sceneUnit,travel}=this.resolveTravel();
+    const speed=Number.isFinite(approvedLeg?.speedPerHour)&&approvedLeg.speedPerHour>0?
+      approvedLeg.speedPerHour:travel.speed;
+    const showDistance=amount=>atlasFormatMeasure(atlasDisplayDistance(amount,sceneUnit));
+    const showSpeed=amount=>atlasFormatMeasure(atlasDisplaySpeed(amount,sceneUnit));
+    const hours=session.schedule.travelHours;
+    const plan=session.schedule.estimate??
+      estimateNavigationTotalTrip(hours,session.schedule.rules);
+    body.append(...renderNavigationStageIntro({title:"Journey in progress",
+      description:"Follow the approved leg. Pause, resume, end, or record GM-approved rests using the controls below.",
+      notice:this.travelNotice||null}));
+    if(approved){
+      body.append(renderNavigationTravelMethodSelector({
+        choices:[{value:"approved",label:approved.methodName,
+          group:"Approved current Journey leg"}],selectedValue:"approved",
+        disabled:true,onMethodChange:()=>{}}));
+    }else{
+      const method=el("p","Travel method: "+(approvedLeg?.travelMethod?.name??
+        (this.travelMethod==="walking"?"Walking (party pace)":
+          travel.methodLabel??"Current method")));
+      method.style.cssText="margin:0;font-size:.87em;";
+      body.append(method);
+    }
+    const summary=renderNavigationSummaryMetrics({metrics:[
+      {label:"Current Leg Distance",value:showDistance(leg?.distance??this.result?.distance??0)},
+      {label:"Travel Time",value:formatGuidedWorldTime(Math.round(hours*3600))},
+      {label:"Total Trip",value:formatNavigationDuration(plan.totalHours,24)}
+    ],explanation:"The saved approved Journey leg controls movement and recovery; these values are read-only.",
+    progressPercent:this.travelProgress});
+    body.append(...summary.nodes);
+    this.travelProgressUI=summary.progressUI;
+    this.journeyTimeUI=summary.timeUI?{travelHours:hours,plan,...summary.timeUI}:null;
+    this.updateJourneyTiming();
+    if(session.phase==="rest-choice"){
+      const rules=session.schedule.rules;
+      const routeAverage=hours>0?(leg?.distance??0)/hours:0;
+      const upcomingExtra=Math.floor(Math.max(0,session.schedule.todayHours-rules.dailyHours)+1e-6)+1;
+      body.append(renderDailyTravelPrompt([
+        `Overnight Camp: +${rules.overnightHours}h downtime; resets travel allowance to ${rules.dailyHours}h.`,
+        `Long Rest: +${rules.longRestHours}h downtime; resets travel allowance to ${rules.dailyHours}h.`,
+        `Short Rest: +${rules.shortRestHours}h downtime; does not restore daily travel hours.`,
+        `Continue March: +1h moving (roughly ${showDistance(routeAverage)} on this route).`+
+          (rules.forcedMarch!=="custom"?` DC ${10+upcomingExtra} Constitution save afterward (GM adjudicates).`:"")
+      ]));
+    }
+    const clockAllowed=readNavigationWorldClockSetting(game.settings);
+    const approvedMethod=approved??approvedLeg?.travelMethod;
+    const travelSource=approvedMethod?
+      `${approvedMethod.methodName??approvedMethod.name} (approved ${approvedMethod.arrangement} Journey leg) · ${showSpeed(speed)}`:
+      travel.source==="group-method"?
+        `${travel.methodLabel} (party-owned convoy; slowest matching resource) · ${showSpeed(speed)}`:
+      travel.source==="party"?
+        `${travel.actorName} · ${travel.pace} pace · ${showSpeed(speed)}`:
+      `${travel.methodLabel??"Atlas default"} · ${showSpeed(speed)}`;
+    const status=renderNavigationSummaryStatus({
+      clockHint:clockAllowed?
+        "Foundry World time advances for confirmed movement and GM-approved breaks. Actor rests and exhaustion remain manual.":
+        "Foundry World time remains unchanged; confirmed breaks still count toward Journey duration.",
+      worldTimeStatus:session.clock||this.worldTimeAdvancedSeconds>0?
+        this.worldTimeStatus():null,
+      speedSource:"Speed: "+travelSource,
+      terrainCostLabel:leg?.terrainAware?
+        "Terrain-weighted distance: "+showDistance(leg.cost)+"-equivalent":null});
+    body.append(...status.nodes);
+    this.worldTimeUI=status.worldTimeUI;
+    if(game.user?.isGM&&session.journeyRecord?.routeTargets)
+      body.append(renderJourneyTargets(session.journeyRecord.routeTargets));
+    const routeLegs=leg?.legs??this.result?.legs??[];
+    const atlas=this.atlasProvider(this.scene);
+    const steps=buildNavigationSteps(routeLegs,
+      id=>atlas.roads?.find(road=>road.id===id)?.name??"Road");
+    const journeySpeed=hours>0?
+      (leg?.terrainAware?leg.cost:leg?.distance)/hours:speed;
+    const annotated=this.journeySchedule?.events?.length?
+      annotateJourneyDirections(steps,this.journeySchedule.events,{
+        travelHours:hours,speed:journeySpeed,
+        terrainAware:Boolean(leg?.terrainAware)}):steps;
+    const rows=annotated.map(step=>step.kind==="journey-event"?{
+      kind:"journey-event",label:step.label,
+      marker:step.action==="continue"?"➜":"☕",
+      detail:(step.hours?formatNavigationDuration(step.hours,24)+" "+
+        (step.action?.endsWith("-underway")?"rest aboard while underway":"downtime")+" · ":"")+
+        "After "+formatNavigationDuration(step.atHours,24)+" on this leg"
+    }:{kind:"direction",direction:step.direction,instruction:step.instruction,
+      info:showDistance(step.distance)+" · "+
+        formatGuidedWorldTime(Math.round(navigationHours(
+          leg?.terrainAware?step.cost:step.distance,speed)*3600)),
+      surface:[step.terrain==="Unspecified terrain"?null:step.terrain,
+        step.regionName&&step.regionName!==step.terrain?step.regionName:null]
+        .filter(Boolean).join(" · ")});
+    body.append(...renderNavigationDirections({
+      calculation:"Only confirmed TokenDocument movement and Journal checkpoints affect recovery. The next checkpoint requires a separate GM decision.",
+      transfer:Boolean(session.transportLeg),
+      arrivalCheckpointName:session.transportLeg?.checkpoint?.name??null,rows}));
+    root.append(body,renderNavigationFooter(this,{partyMode}));
+    return root;
+  }
+
+  async _renderHTML(){
+    const stage=this.navigationStage();
+    if(stage!==NAVIGATION_STAGES.DESTINATION)
+      return this.renderJourneyStage(stage);
+    return this.renderDestinationStage();
+  }
+
+  async renderDestinationStage() {
     const root=el("section");
     root.style.cssText="display:flex;flex-direction:column;height:100%;max-height:100%;min-height:0;overflow:hidden;";
     const body=el("div");
     body.style.cssText="display:flex;flex-direction:column;gap:.85rem;padding:1rem;flex:1;min-height:0;overflow-y:auto;";
+    body.append(...renderNavigationStageIntro({title:"Choose destination",
+      description:"Select Point B on the map. Once a route is available, review transport and confirm travel; a checkpoint directory can be added without changing this workflow."}));
     const partyMode=this.sourceMode==="party";
     const status=this.pendingTransfer?
       "Checkpoint reached at "+this.pendingTransfer.checkpoint.name+
