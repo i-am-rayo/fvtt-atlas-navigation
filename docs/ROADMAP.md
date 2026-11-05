@@ -2,6 +2,20 @@
 
 # Active v0.3.x roadmap — updated November 5, 2026
 
+**Current implementation — v0.3.8-beta.7.22 overlay observability and lifecycle (draft):**
+Following the owner's successful beta.7.21.1 generated-Region retest, this
+separate Road overlay slice measures refresh requests and render/Graphics
+churn without Foundry writes, and closes a leaked Locate Road pulse timer plus
+stale queued/async redraws after teardown. There is **no** unproven caching,
+native Canvas suppression, Road/Checkpoint migration or Fog/player read-model
+change. Run the [GM/non-GM overlay checklist](OVERLAY_BETA7_22_TESTING.md)
+and collect optional GM Trace logs before any optimization or merge. R-01 and
+Canvas rebuild issue #135 remain investigations. User-requested future
+improvements: [#186](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/186)
+Terrain Region preview/confirmation window workflow and
+[#187](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/187)
+Checkpoint relocation (dependent on the versioned independent-Checkpoint plan).
+
 **Blocking beta.7.21 live-test finding — beta.7.21.1 focused hotfix:**
 The owner encountered `width is not defined` despite the native Region
 generator displaying a valid 0.75-cell corridor half-width. The Preview
@@ -9,8 +23,9 @@ callback referenced a removed `width` variable rather than the live shared
 slider input. A click-through DOM test reproduced the error, and the fix
 changes only that read. No Region schema, native Behavior, Canvas, Fog,
 Journey, or game rules change. The parent beta.7.21 acceptance checklist
-remains **blocked** until owner retests Region creation and other Regions,
-Surfaces, weather and Journey preservation in Foundry v14. See
+is **partially cleared** by the owner's successful Region creation retest;
+other Regions, Surfaces, weather and Journey preservation checks in Foundry v14
+are still pending. See
 [beta.7.21.1 checklist](REGION_WIDTH_BETA7_21_1_TESTING.md).
 
 **Current implementation — v0.3.8-beta.7.21 native Region / Surface read boundary:**

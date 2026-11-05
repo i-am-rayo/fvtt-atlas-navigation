@@ -189,6 +189,122 @@ test("v0.2.22 canvas zoom redraws checkpoint overlay after a short debounce", as
   } finally { Object.assign(globalThis, previous); }
 });
 
+test("canvas teardown cancels Locate Road pulse timer before it can redraw", () => {
+  const previous = {game:globalThis.game,PIXI:globalThis.PIXI,
+    setInterval:globalThis.setInterval,clearInterval:globalThis.clearInterval};
+  const m=setup();
+  const intervals=new Map();
+  let serial=0;
+  try {
+    globalThis.game={user:{isGM:true}};
+    globalThis.PIXI={Graphics:m.Graphics};
+    globalThis.setInterval=callback=>{
+      const id=++serial;intervals.set(id,callback);return id;
+    };
+    globalThis.clearInterval=id=>intervals.delete(id);
+    m.canvas.stage={scale:{x:1}};
+    m.controller.focusOn(m.scene,"road","road-1");
+    assert.equal(intervals.size,1,"Locate Road schedules one temporary pulse");
+    const queued=intervals.values().next().value;
+    m.controller.tearDown();
+    assert.equal(intervals.size,0,"teardown clears the temporary pulse interval");
+    assert.equal(m.controller.focusTarget,null,"teardown clears stale focus state");
+    assert.equal(m.controller.focusTimer,null,"there is no timer to redraw a torn-down canvas");
+    const count=m.controller.getOverlayDiagnostics().refreshes;
+    queued();
+    assert.equal(m.controller.getOverlayDiagnostics().refreshes,count,
+      "an already queued pulse callback cannot recreate a torn-down overlay");
+  } finally {Object.assign(globalThis,previous);}
+});
+
+test("overlay diagnostics count redraw/graphics lifecycle without touching Scene data",()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+  const m=setup();
+  try {
+    globalThis.game={user:{isGM:true}};
+    globalThis.PIXI={Graphics:m.Graphics};
+    m.canvas.stage={scale:{x:1}};
+    m.controller.refresh();m.controller.refresh();
+    const before=m.controller.getOverlayDiagnostics();
+    assert.equal(before.refreshes,2);
+    assert.equal(before.graphicsCreated,1,"one graphics instance survives redraw");
+    assert.equal(before.graphicsDestroyed,0);
+    assert.equal(before.last.sceneId,m.scene.id);
+    m.controller.onCanvasPan(m.canvas);
+    assert.equal(m.controller.getOverlayDiagnostics().panRequests,1);
+    m.controller.tearDown();
+    const after=m.controller.getOverlayDiagnostics();
+    assert.equal(after.graphicsDestroyed,1);
+    assert.equal(after.teardowns,1);
+    assert.equal(m.controller.graphics,null);
+    assert.equal(Object.hasOwn(m.scene,"flags"),false);
+  }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
+});
+
+test("stale pan and fog callbacks cannot refresh graphics after teardown",()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI,
+    setTimeout:globalThis.setTimeout,clearTimeout:globalThis.clearTimeout};
+  const m=setup();
+  const callbacks=new Map();
+  let serial=0;
+  try {
+    globalThis.game={user:{isGM:false}};
+    globalThis.PIXI={Graphics:m.Graphics};
+    globalThis.setTimeout=callback=>{
+      const id=++serial;callbacks.set(id,callback);return id;
+    };
+    globalThis.clearTimeout=id=>callbacks.delete(id);
+    m.canvas.stage={scale:{x:1}};
+    m.controller.onCanvasPan(m.canvas);
+    m.controller.onFogRefresh();
+    assert.equal(callbacks.size,2);
+    const queued=[...callbacks.values()];
+    m.controller.tearDown();
+    assert.equal(callbacks.size,0,"both scheduled draws are canceled");
+    const count=m.controller.getOverlayDiagnostics().refreshes;
+    queued.forEach(callback=>callback());
+    assert.equal(m.controller.getOverlayDiagnostics().refreshes,count,
+      "callbacks already queued by the event loop cannot resurrect the overlay");
+    assert.equal(m.controller.graphics,null);
+  }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
+});
+
+test("late icon texture load does not redraw after Canvas teardown",async()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI,
+    foundry:globalThis.foundry};
+  const m=setup();
+  let resolveTexture;
+  try {
+    globalThis.game={user:{isGM:true}};
+    globalThis.PIXI={Graphics:m.Graphics};
+    globalThis.foundry={canvas:{loadTexture:()=>new Promise(resolve=>{
+      resolveTexture=resolve;
+    })}};
+    m.canvas.stage={scale:{x:1}};
+    let n=0;
+    const idFactory=()=>"late"+ ++n;
+    let atlas=addRoad(createEmptyAtlas(),{
+      points:[{x:0,y:0},{x:100,y:0}],name:"Temporary",idFactory});
+    atlas=addRoadCheckpoint(atlas,{roadId:atlas.roads[0].id,
+      candidate:{kind:"node",nodeId:atlas.segments[0].from},
+      name:"Late texture",elevationMeters:null,idFactory});
+    atlas=editCheckpointAppearance(atlas,{
+      checkpointId:atlas.checkpoints[0].id,
+      appearance:{...DEFAULT_CHECKPOINT_APPEARANCE,type:"fa",icon:"mountain"}
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",atlas);
+    m.controller.refresh();
+    await Promise.resolve();
+    assert.equal(typeof resolveTexture,"function","native texture load is pending");
+    m.controller.tearDown();
+    const afterTeardown=m.controller.getOverlayDiagnostics().refreshes;
+    resolveTexture({name:"finished-late"});
+    await Promise.resolve();await Promise.resolve();
+    assert.equal(m.controller.getOverlayDiagnostics().refreshes,afterTeardown);
+    assert.equal(m.controller.graphics,null,"late completion cannot recreate Pixi graphics");
+  }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
+});
+
 test("v0.2.23 GM canvas clusters nearby checkpoints, previews names, and expands on zoom", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
   const m = setup();

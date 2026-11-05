@@ -1760,6 +1760,8 @@ Hooks.once("init", () => {
     }
     fogPalette.close();
     roadCanvas.tearDown();
+    atlasDebug("lifecycle","Road overlay lifetime diagnostics",
+      roadCanvas.getOverlayDiagnostics(),{level:"trace"});
     manualFog.tearDown();
   });
   Hooks.on("canvasPan", view => { roadCanvas.onCanvasPan(view); navigation.draw(); });

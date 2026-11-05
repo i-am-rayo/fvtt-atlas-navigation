@@ -25,6 +25,7 @@ import { defaultTravelPresets, validateTravelPresets,
   TRAVEL_PRESET_SETTING } from "./travel-preset-model.js";
 import { validateRoadAppearance } from "./road-appearance.js";
 import { sceneRoadSurfaces, roadSurfaceSpans, roadSurfaceAtPoint } from "./road-surface-overlay.js";
+import { RoadOverlayObservability } from "./road-overlay-observability.js";
 import { checkpointIconPath, checkpointFontIcon, checkpointMarkerPosition,
   checkpointCanvasSize,
   resolveCheckpointAppearance }
@@ -476,6 +477,8 @@ export class RoadCanvasController {
     this.regionPreview = null;
     this.focusTarget = null;
     this.focusTimer = null;
+    this.overlayEpoch = 0;
+    this.overlayObservability = new RoadOverlayObservability();
     // GM display preference only; never changes authored road/Region colors.
     this.viewMode = "roads";
     this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
@@ -1020,15 +1023,18 @@ export class RoadCanvasController {
     if (!["road","checkpoint","draft"].includes(kind)) return;
     this.focusTarget = {sceneId:scene.id,kind,id,until:Date.now()+3500};
     if (this.focusTimer) clearInterval(this.focusTimer);
-    this.focusTimer = setInterval(()=>{
+    const epoch=this.overlayEpoch;
+    const pulse=setInterval(()=>{
+      if (epoch!==this.overlayEpoch || this.focusTimer!==pulse) return;
       if (!this.focusTarget || Date.now() >= this.focusTarget.until ||
           this.canvasProvider()?.scene?.id !== scene.id) {
-        clearInterval(this.focusTimer);
+        clearInterval(pulse);
         this.focusTimer=null;
         this.focusTarget=null;
       }
       this.refresh();
     },65);
+    this.focusTimer=pulse;
     this.refresh();
   }
 
@@ -1302,11 +1308,12 @@ export class RoadCanvasController {
     const fontSet = globalThis.document?.fonts;
     if (!fontSet?.load) return true; // No FontFaceSet in deterministic Node mocks.
     this.fontStatus.set(key, "loading");
+    const epoch=this.overlayEpoch;
     const descriptor = font.weight + ' 24px "' + font.family + '"';
     Promise.resolve().then(() => fontSet.load(descriptor)).then(faces => {
       if (!faces?.length) throw new Error("Font Awesome face was not registered");
       this.fontStatus.set(key, "ready");
-      this.refresh();
+      if (epoch===this.overlayEpoch) this.refresh();
     }).catch(error => {
       this.fontStatus.set(key, "error");
       console.warn("[fvtt-atlas-navigation] Checkpoint icon font unavailable:", error);
@@ -1318,10 +1325,11 @@ export class RoadCanvasController {
     if (!src || !globalThis.foundry?.canvas?.loadTexture) return null;
     if (this.textureCache.has(src)) return this.textureCache.get(src);
     this.textureCache.set(src, null);
+    const epoch=this.overlayEpoch;
     Promise.resolve().then(() => foundry.canvas.loadTexture(src)).then(texture => {
       if (!texture) throw new Error("No usable texture returned");
       this.textureCache.set(src, texture);
-      this.refresh();
+      if (epoch===this.overlayEpoch) this.refresh();
     }).catch(error => {
       // Keep a null cache entry rather than retrying every canvas refresh.
       console.warn("[fvtt-atlas-navigation] Checkpoint icon could not load:", src, error);
@@ -1581,9 +1589,10 @@ export class RoadCanvasController {
     const key=game.user?.id+":"+uuid;
     if(!this.journalAccessCache.has(key)) {
       this.journalAccessCache.set(key,null);
+      const epoch=this.overlayEpoch;
       void canOpenAtlasJournal(uuid).then(allowed=>{
         this.journalAccessCache.set(key,allowed);
-        this.refresh();
+        if (epoch===this.overlayEpoch) this.refresh();
       }).catch(()=>this.journalAccessCache.set(key,false));
     }
     return this.journalAccessCache.get(key)===true;
@@ -1622,11 +1631,32 @@ export class RoadCanvasController {
     if (!this.graphics) return;
     this.graphics.parent?.removeChild?.(this.graphics);
     this.graphics.destroy?.();
+    this.overlayObservability.noteGraphicsDestroyed();
     this.graphics = null;
     this.graphicsCanvas = null;
   }
 
+  /** Read-only counters/timings for diagnosing Canvas overlay redraw costs. */
+  getOverlayDiagnostics() { return this.overlayObservability.snapshot(); }
+
   refresh() {
+    const started=this.overlayObservability.beginRefresh();
+    try { return this.#renderOverlay(); }
+    finally {
+      const view=this.canvasProvider();
+      const player=globalThis.game?.user?.isGM===false;
+      this.overlayObservability.finishRefresh(started, {
+        sceneId:view?.scene?.id??null,
+        active:!!this.graphics && !this.graphics.destroyed,
+        roadPaths:player?this.playerHoverGeometry.length:this.hoverGeometry.length,
+        checkpointHits:player?this.playerCheckpointHoverGeometry.length:
+          this.checkpointHoverGeometry.length+this.clusterHoverGeometry.length,
+        labels:this.labels.length
+      });
+    }
+  }
+
+  #renderOverlay() {
     const canvas = this.canvasProvider();
     if (!canvas?.ready || !canvas.scene || !globalThis.game?.user) return;
     if (!game.user.isGM) {
@@ -1650,6 +1680,7 @@ export class RoadCanvasController {
       this.graphics.eventMode = "none";
       canvas.interface.addChild(this.graphics);
       this.graphicsCanvas = canvas;
+      this.overlayObservability.noteGraphicsCreated();
     }
     const g = this.graphics;
     const zoom = Number.isFinite(canvas.stage?.scale?.x) && canvas.stage.scale.x > 0
@@ -1917,25 +1948,38 @@ export class RoadCanvasController {
   /** Redraw the player overlay as Foundry saves or expands explored fog. */
   onFogRefresh() {
     if (globalThis.game?.user?.isGM || this.fogRefreshTimer !== null) return;
-    this.fogRefreshTimer = setTimeout(() => {
+    this.overlayObservability.noteFog();
+    const epoch=this.overlayEpoch;
+    const timer=setTimeout(() => {
+      if (this.fogRefreshTimer!==timer) return;
       this.fogRefreshTimer = null;
-      if (this.canvasProvider()?.ready) this.refresh();
+      if (epoch===this.overlayEpoch && this.canvasProvider()?.ready) this.refresh();
     }, 120);
+    this.fogRefreshTimer=timer;
   }
 
   /** Foundry v14 canvasPan hook: re-anchor labels while panning or zooming. */
   onCanvasPan(view) {
     if (view !== this.canvasProvider() || !view?.ready || !globalThis.game?.user) return;
+    this.overlayObservability.notePan();
     const zoom = view.stage?.scale?.x;
     if (!Number.isFinite(zoom)) return;
     if (this.zoomRefreshTimer !== null) clearTimeout(this.zoomRefreshTimer);
-    this.zoomRefreshTimer = setTimeout(() => {
+    const epoch=this.overlayEpoch;
+    const timer=setTimeout(() => {
+      if (this.zoomRefreshTimer!==timer) return;
       this.zoomRefreshTimer = null;
-      if (view === this.canvasProvider() && view.ready) this.refresh();
+      if (epoch===this.overlayEpoch && view === this.canvasProvider() && view.ready) this.refresh();
     }, 60);
+    this.zoomRefreshTimer=timer;
   }
 
   tearDown() {
+    this.overlayEpoch++;
+    this.overlayObservability.noteTeardown();
+    if (this.focusTimer !== null) clearInterval(this.focusTimer);
+    this.focusTimer = null;
+    this.focusTarget = null;
     if (this.fogRefreshTimer !== null) clearTimeout(this.fogRefreshTimer);
     this.fogRefreshTimer = null;
     if (this.zoomRefreshTimer !== null) clearTimeout(this.zoomRefreshTimer);
@@ -1949,6 +1993,7 @@ export class RoadCanvasController {
     if (this.graphics && !this.graphics.destroyed) {
       this.graphics.parent?.removeChild?.(this.graphics);
       this.graphics.destroy?.();
+      this.overlayObservability.noteGraphicsDestroyed();
     }
     this.graphics = null;
     this.graphicsCanvas = null;
