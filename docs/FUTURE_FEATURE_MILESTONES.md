@@ -10,7 +10,7 @@
 
 **Owner requests received:** November 4, 2026  
 **Status:** Proposed, unimplemented backlog. No feature, release or merge authorization implied.  
-**Current baseline:** v0.3.8-beta.7.18 passed the owner's five-leg Foundry v14 GM Journey (2d 19h 38m moving + 16h downtime, with two recoverable canvas rebuilds). The beta.7.19 audit is documentation-only; the planned beta.7.20–7.24 subsystem reviews/refactors remain independently gated. The future player travel pamphlet and permissions remain deferred.
+**Current baseline:** v0.3.8-beta.7.18 passed the owner's five-leg Foundry v14 GM Journey (2d 19h 38m moving + 16h downtime, with two recoverable canvas rebuilds). The beta.7.19 audit is documentation-only; beta.7.20's Roads/Checkpoints authoring extraction passed seven owner-reported GM/non-GM smoke checks. Beta.7.20.1 specifies a future independent-Checkpoint contract without changing the current schema. Later beta.7.21+ reviews remain independently gated. The future player travel pamphlet and permissions remain deferred.
 
 This is the current **future-feature planning handoff** for other chats. Consult the [active roadmap](ROADMAP.md) and [stabilization architecture](ARCHITECTURE_V038_BETA75.md) for the development slice actually in progress. Stage IDs A–G are durable planning references; future version numbers are **provisional** and may change. Do not mix these new features into the beta.7.x architecture PR stack.
 
@@ -50,6 +50,8 @@ The earlier **v0.3.8-beta.8** scheduled-transport proposal is **rescheduled to S
 - **V-01 GM visibility switch:** Compare fully discovered Atlas roads/icons with the **as-players-see-it** visibility/hidden state, without changing exploration, Seen/Visited or Known through Lore. GM-only.
 
 ## C. Checkpoint topology and portable schema foundation
+
+> **Design dependency established in beta.7.20.1:** [Independent Checkpoint contract](INDEPENDENT_CHECKPOINT_CONTRACT_BETA7_20_1.md) proposes separate Checkpoint identity anchored to a persistent Scene-image-local Node, zero-or-more Road associations derived from graph segment incidence and read-only native Region containment. It is not an implemented schema or permission change. v0.4 needs a separately accepted migration and rollback gate.
 
 - **C-01 Free-standing checkpoints:** Create/edit a checkpoint without road association; attach or detach road links later with the same stable checkpoint ID. Do not create fake roads.
 - **C-02 Native Region containment (owner decision, November 4):** Atlas will author delimiting boundary points and, after an explicit GM preview/confirmation, generate or update an associated native Foundry Region. Checkpoints located *inside* the native Region will automatically appear under it in Scene Atlas → **Regions [+]** without manually assigning each checkpoint. Keep checkpoint IDs independent of roads, and preserve native Region Behaviors, Levels and GM geometry edits. Define overlap/boundary handling and refresh rules before implementation; this is a later schema feature, not beta.7.9.

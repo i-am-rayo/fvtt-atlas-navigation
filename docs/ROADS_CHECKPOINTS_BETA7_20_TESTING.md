@@ -4,6 +4,15 @@
 not live Foundry v14 acceptance. The only runtime change is call-boundary
 extraction; no intended gameplay, drawing, saved flag, migration or UI change.
 
+**Owner result (November 5, 2026):** All seven summarized GM/non-GM live
+checks were reported **PASS**: Road Save/reload, point Undo/Cancel/Save with
+connectivity/IDs, Locate Road on unsaved geometry, Checkpoint interior/shared
+junction creation, discovery/Journal/preset/offers after reload, non-GM display
+and authoring restrictions, and unchanged Regions/Fog/Journeys after canvas
+refresh. This establishes targeted live smoke acceptance, **not** a two-GM
+concurrency guarantee, raw player Scene-flag confidentiality, R-01 resolution
+or exhaustive stale-revision/legacy-Scene verification. PR remains draft.
+
 ## Contract and architecture
 
 - **Domain:** `checkpointCandidateRoads()` selects eligible owners from the

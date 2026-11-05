@@ -2,7 +2,20 @@
 
 # Active v0.3.x roadmap — updated November 5, 2026
 
-**Current decision — v0.3.8-beta.7.20 focused Roads/Checkpoints authoring boundary:**
+**Current decision — v0.3.8-beta.7.20.1 independent Checkpoint design gate:**
+Following the owner's seven successful GM/non-GM beta.7.20 Foundry smoke
+checks, define the future Road-independent Checkpoint contract before the
+beta.7.21 native Region/Surface boundary. The proposed v0.4 model keeps
+Checkpoint identity separate from its referenced persistent Node: the Node
+alone owns image-relative position, while Road associations are derived from
+incident graph segments. Native Region containment remains read-only.
+Specify dependent readers, migration, GM preview, rollback, Journey recovery,
+permissions and player-data privacy. **Documentation and version pointers
+only—no checkpoint schema, World/Scene data, gameplay or Region changes.**
+See [beta.7.20.1 contract](INDEPENDENT_CHECKPOINT_CONTRACT_BETA7_20_1.md).
+Approval of the design does not authorize v0.4 implementation or migration.
+
+**Prior gate — v0.3.8-beta.7.20 focused Roads/Checkpoints authoring boundary:**
 The accepted next implementation slice after the beta.7.19 architecture audit
 extracts Road and Checkpoint creation commits from `road-canvas.js` into a pure
 application workflow and Foundry persistence adapter; candidate Road selection

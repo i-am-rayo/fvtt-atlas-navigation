@@ -97,3 +97,12 @@ the planned order. Do not combine these slices into one high-risk rewrite.
 
 The immediate owner review checklist for this assessment is
 [ARCHITECTURE_BETA7_19_TESTING.md](ARCHITECTURE_BETA7_19_TESTING.md).
+
+**Subsequent design note (beta.7.20.1):** The accepted beta.7.20
+Road/Checkpoint authoring extraction does not alter the mandatory
+`roadId/nodeId` checkpoint schema. The proposed separate Checkpoint identity
+referencing a persistent Node, graph-derived Road connectivity, native Region
+containment and versioned v0.4 migration
+contract is documented separately in
+[INDEPENDENT_CHECKPOINT_CONTRACT_BETA7_20_1.md](INDEPENDENT_CHECKPOINT_CONTRACT_BETA7_20_1.md).
+It is design-only and does not retroactively change this audit's findings.
