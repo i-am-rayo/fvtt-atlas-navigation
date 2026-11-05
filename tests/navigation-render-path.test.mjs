@@ -15,6 +15,8 @@ test("render path reuses the displayed road spline and clips to the route endpoi
   const paths=navigationCanvasLegPaths(null,atlas,route,{toCanvas:p=>p,curve:"strong"});
   assert.equal(paths.length,1);
   assert.equal(paths[0].kind,"road");
+  assert.equal(paths[0].roadId,"r");
+  assert.equal(paths[0].segmentId,"s");
   assert.deepEqual(paths[0].points[0],point(0,0));
   assert.deepEqual(paths[0].points.at(-1),point(200,0));
   assert.ok(paths[0].points.length>route.legs[0].points.length,

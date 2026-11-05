@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {coordinateNativeTokenMovement}
   from "../scripts/navigation-native-movement-coordinator.js";
 
-function nativeHarness({alterDestination=false,animationNeverEnds=false}={}){
+function nativeHarness({alterDestination=false,alterOrigin=false,
+  detour=false,animationNeverEnds=false}={}){
   const listeners=new Map();
   const calls=[];
   const hooks={
@@ -19,15 +20,17 @@ function nativeHarness({alterDestination=false,animationNeverEnds=false}={}){
     stopMovement(){this.stopped=true;this.release?.();return true;},
     async move(path,options){
       this.moves++;
-      assert.equal(path.length,3);
-      for(const [index,to] of path.slice(1).entries()){
+      assert.equal(path.length,2,"native move() receives destinations, not its origin");
+      for(const [index,to] of path.entries()){
         if(this.stopped)return false;
         const from={x:this.x,y:this.y};
         this.x=to.x+(alterDestination?4:0);this.y=to.y;
         this.hold=null;this.release=null;
         const movement={id:index?"second-native-id":options.id,
-          chain:index?[options.id]:[],origin:from,
+          chain:index?[options.id]:[],origin:alterOrigin?{x:from.x-5,y:from.y}:from,
           destination:{x:this.x,y:this.y},
+          passed:{waypoints:detour?[from,{x:from.x+5,y:8},{x:this.x,y:this.y}]:
+            [from,{x:this.x,y:this.y}]},
           animation:{ended:animationNeverEnds?new Promise(()=>{}):Promise.resolve()}};
         calls.push(movement);
         listeners.get("moveToken")(this,movement,{}, {isSelf:true});
@@ -95,6 +98,54 @@ test("a redirected native checkpoint stops without accepting visually close-enou
   }),/does not match the approved native checkpoint/);
   assert.equal(confirmed,0);
   assert.equal(token.stopped,true);
+});
+
+test("a reported full-path origin is reconciled only with an exact passed approved interval",async()=>{
+  const {token,plan,hooks}=nativeHarness({alterOrigin:true});
+  const observed=[];
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"atlas-native-verified",movementSpeed:2,
+    prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{},
+    onCheckpointDiagnostics:event=>observed.push(event)
+  });
+  assert.equal(result.confirmed,2);
+  assert.ok(observed.every(event=>event.details.reconciledFromPassed));
+  assert.equal(observed[0].details.nativeCheckpointKey,"atlas-native-verified:0");
+  assert.deepEqual(observed[0].details.expectedFrom,{x:0,y:0});
+  assert.deepEqual(observed[0].details.nativeOrigin,{x:-5,y:0});
+});
+
+test("a native passed-path detour is rejected even if its final endpoint matches",async()=>{
+  const {token,plan,hooks}=nativeHarness({alterOrigin:true,detour:true});
+  const observed=[];
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"atlas-native-detour",movementSpeed:2,
+    prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{},
+    onCheckpointDiagnostics:event=>observed.push(event)
+  }),/does not match the approved native checkpoint/);
+  assert.equal(token.stopped,true);
+  assert.equal(observed[0].mismatch,true);
+  assert.equal(observed[0].details.originDifferencePixels,5);
+  assert.deepEqual(observed[0].details.tokenDocument,{x:10,y:0});
+});
+
+test("native checkpoint failures report Atlas checkpoint and road IDs with both coordinate sets",async()=>{
+  const {token,plan,hooks}=nativeHarness({alterDestination:true});
+  plan.checkpoints[0].roadId="road-port";
+  plan.checkpoints[0].segmentId="segment-ship";
+  plan.checkpoints[0].atlasCheckpointId="checkpoint-harbor";
+  const observed=[];
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"atlas-native-coordinates",movementSpeed:2,
+    prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{},
+    onCheckpointDiagnostics:event=>observed.push(event)
+  }),/does not match the approved native checkpoint/);
+  assert.deepEqual(observed[0].details.expectedTo,{x:10,y:0});
+  assert.deepEqual(observed[0].details.nativeDestination,{x:14,y:0});
+  assert.equal(observed[0].details.destinationDifferencePixels,4);
+  assert.equal(observed[0].details.roadId,"road-port");
+  assert.equal(observed[0].details.segmentId,"segment-ship");
+  assert.equal(observed[0].details.atlasCheckpointId,"checkpoint-harbor");
 });
 
 test("preparation fails before any native Document position changes",async()=>{

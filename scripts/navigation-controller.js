@@ -8,7 +8,8 @@ import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
 import { planGuidedTravelChunks, waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS }
   from "./navigation-movement-lifecycle.js";
-import {planNativeCheckpointPath,NATIVE_CONTINUOUS_CHECKPOINT_SECONDS}
+import {planNativeCheckpointPath,anchorNativeTokenWaypoints,
+  describeNativeCheckpointSources,NATIVE_CONTINUOUS_CHECKPOINT_SECONDS}
   from "./navigation-native-movement-plan.js";
 import {coordinateNativeTokenMovement}
   from "./navigation-native-movement-coordinator.js";
@@ -1066,6 +1067,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // at-start intent. A crash after update leaves an unresolved intent,
       // never falsely credited Journey progress.
       await this.saveJourneyCheckpoint(session,"moving",{updatePage:false});
+      atlasDebug("movement","Native checkpoint intent saved",{
+        operationId,nativeCheckpointKey:`${operationId}:${checkpoint.index}`,
+        atlasCheckpointId:checkpoint.atlasCheckpointId??null,
+        roadId:checkpoint.roadId??null,segmentId:checkpoint.segmentId??null,
+        nearestRoadId:checkpoint.nearestRoadId??null,
+        routeSeparationPixels:checkpoint.routeSeparationPixels??null,
+        expectedFrom:checkpoint.from,expectedTo:checkpoint.point
+      },{level:"verbose"});
     };
     const confirmCheckpoint=async(checkpoint,movement)=>{
       if(shouldStop())throw Error("Native movement interrupted before confirmation.");
@@ -1123,6 +1132,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.setTravelProgress(Math.min(99,100*session.completedDistance/session.totalDistance));
       atlasDebug("movement","Native checkpoint durably confirmed",{
         operationId,nativeMovementId:movement.id,
+        nativeCheckpointKey:`${operationId}:${checkpoint.index}`,
+        atlasCheckpointId:checkpoint.atlasCheckpointId??null,
+        roadId:checkpoint.roadId??null,segmentId:checkpoint.segmentId??null,
+        nearestRoadId:checkpoint.nearestRoadId??null,
+        expectedTo:checkpoint.point,
+        observedTo:{x:session.token.x,y:session.token.y},
         checkpoint:checkpoint.index+1,checkpointCount:plan.checkpoints.length
       },{level:"verbose"});
     };
@@ -1132,7 +1147,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const result=await coordinateNativeTokenMovement({
         token:session.token,plan,operationId,movementSpeed:playback.movementSpeed,
         hooks:Hooks,prepareCheckpoint,confirmCheckpoint,shouldStop,
-        signal:session.nativeAbort.signal
+        signal:session.nativeAbort.signal,
+        onCheckpointDiagnostics:({mismatch,details})=>{
+          if(!game.user?.isGM)return;
+          if(mismatch)atlasWarn("movement","Native checkpoint reconciliation blocked",details);
+          else atlasDebug("movement","Native checkpoint observed",details,{level:"verbose"});
+        }
       });
       return result.completed;
     }finally{
@@ -1463,7 +1483,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The selected transportation changed. Review the updated checkpoint offer.");
     }
     const paths=navigationCanvasLegPaths(view,atlas,route);
-    const waypoints=createGuidedTokenWaypoints(paths,token,this.scene.grid?.size);
+    const routeWaypoints=createGuidedTokenWaypoints(paths,token,this.scene.grid?.size);
+    const nativeContinuous=guidedLeg?.transport?.operation==="continuous";
+    const waypoints=nativeContinuous?anchorNativeTokenWaypoints(routeWaypoints,
+      token,this.scene.grid.size):routeWaypoints;
     const snapshot=createNavigationItinerary({
       sceneId:this.scene.id,sceneName:this.scene.name??"",
       sceneUnits:this.scene.grid?.units??"",atlasRevision:atlas.revision,
@@ -1488,7 +1511,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const schedule=new GuidedTravelDayTracker({travelHours:playback.travelHours,
       rules:this.resolveTravelRules(travel,guidedOption?.method,
         guidedLeg?.transport?.operation)});
-    const nativeContinuous=guidedLeg?.transport?.operation==="continuous";
     if(nativeContinuous&&(
       typeof token.pauseMovement!=="function"||
       typeof token.stopMovement!=="function"||
@@ -1498,11 +1520,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("Continuous travel requires Foundry v14 native movement " +
         "checkpoints and Hooks. The token and Journal have not changed.");
     // Reject unsupported paths before even creating a Journey Journal.
-    const nativePlan=nativeContinuous?planNativeCheckpointPath(waypoints,{
+    const nativePlan=nativeContinuous?describeNativeCheckpointSources(
+      planNativeCheckpointPath(waypoints,{
       movementSpeed:playback.movementSpeed,gridSize:this.scene.grid.size,
       secondsPerCheckpoint:NATIVE_CONTINUOUS_CHECKPOINT_SECONDS,
       totalMovingHours:playback.travelHours
-    }):null;
+    }),{legPaths:paths,token,gridSize:this.scene.grid.size,
+      arrivalCheckpointId:guidedLeg?.checkpoint?.id??null}):null;
     if(nativePlan&&Math.abs(nativePlan.totalDistance-totalDistance)>1e-3)
       throw Error("The native and approved route distances disagree.");
     const advanceWorldTime=readNavigationWorldClockSetting(game.settings);

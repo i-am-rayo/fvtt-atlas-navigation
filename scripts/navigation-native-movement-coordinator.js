@@ -6,6 +6,69 @@
 const near=(a,b,tolerance)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
   Number.isFinite(b?.x)&&Number.isFinite(b?.y)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
+const point=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y)?
+  {x:p.x,y:p.y}:null;
+const separation=(a,b)=>point(a)&&point(b)?Math.hypot(a.x-b.x,a.y-b.y):null;
+const distanceToSegment=(p,a,b)=>{
+  const dx=b.x-a.x,dy=b.y-a.y,len=dx*dx+dy*dy;
+  const t=len?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/len)):0;
+  return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);
+};
+
+/**
+ * A native continuation can report its full-path origin instead of the
+ * previous Atlas interval's origin. Accept that form only if Foundry's
+ * documented passed waypoints prove this exact approved interval, in order,
+ * without a detour away from the submitted native path.
+ */
+function verifiedPassedInterval(movement,plan,checkpoint,tolerance){
+  const passed=movement?.passed?.waypoints;
+  if(!Array.isArray(passed)||passed.length<2)return false;
+  const last=passed.findLastIndex(p=>near(p,checkpoint.point,tolerance));
+  if(last<1)return false;
+  let first=-1;
+  for(let i=last-1;i>=0;i--){
+    if(near(passed[i],checkpoint.from,tolerance)){first=i;break;}
+  }
+  if(first<0)return false;
+  const start=checkpoint.pathStartIndex??
+    plan.path.findIndex(p=>near(p,checkpoint.from,tolerance));
+  const finish=checkpoint.pathEndIndex??
+    plan.path.findIndex((p,i)=>i>start&&near(p,checkpoint.point,tolerance));
+  if(start<0||finish<=start)return false;
+  if(!near(plan.path[start],checkpoint.from,tolerance)||
+      !near(plan.path[finish],checkpoint.point,tolerance))return false;
+  const approved=plan.path.slice(start,finish+1);
+  return passed.slice(first,last+1).every(p=>point(p)&&
+    approved.slice(1).some((b,i)=>distanceToSegment(p,approved[i],b)<=tolerance));
+}
+
+function checkpointDetails({token,movement,operationId,checkpoint,index,tolerance,
+  originMatches,destinationMatches,documentMatches,reconciledFromPassed}){
+  const passed=movement?.passed?.waypoints;
+  return {
+    nativeOperationId:operationId,nativeMovementId:movement?.id??null,
+    movementChain:Array.isArray(movement?.chain)?movement.chain.slice(0,16):[],
+    nativeCheckpointKey:checkpoint?`${operationId}:${checkpoint.index}`:null,
+    nativeCheckpointIndex:checkpoint?.index??index,
+    atlasCheckpointId:checkpoint?.atlasCheckpointId??null,
+    roadId:checkpoint?.roadId??null,segmentId:checkpoint?.segmentId??null,
+    nearestRoadId:checkpoint?.nearestRoadId??null,
+    nearestSegmentId:checkpoint?.nearestSegmentId??null,
+    routeSeparationPixels:checkpoint?.routeSeparationPixels??null,
+    expectedFrom:point(checkpoint?.from),expectedTo:point(checkpoint?.point),
+    nativeOrigin:point(movement?.origin),nativeDestination:point(movement?.destination),
+    tokenDocument:point(token),
+    originDifferencePixels:separation(movement?.origin,checkpoint?.from),
+    destinationDifferencePixels:separation(movement?.destination,checkpoint?.point),
+    documentDifferencePixels:separation(token,checkpoint?.point),
+    originMatches,destinationMatches,documentMatches,reconciledFromPassed,
+    nativePathConstrained:movement?.constrained===true,
+    passedWaypointCount:Array.isArray(passed)?passed.length:null,
+    passedStart:point(passed?.[0]),passedEnd:point(passed?.at(-1)),
+    tolerancePixels:tolerance
+  };
+}
 
 /**
  * A TokenMovementOptions.id is set before any Document update. Subsequent
@@ -15,7 +78,7 @@ const near=(a,b,tolerance)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
 export async function coordinateNativeTokenMovement({
   token,plan,operationId,movementSpeed,hooks,
   prepareCheckpoint,confirmCheckpoint,shouldStop=()=>false,
-  tolerancePixels=1,signal=null
+  tolerancePixels=1,signal=null,onCheckpointDiagnostics=null
 }={}){
   if(typeof token?.move!=="function"||
       typeof token?.pauseMovement!=="function"||
@@ -27,6 +90,7 @@ export async function coordinateNativeTokenMovement({
       !Array.isArray(plan?.checkpoints)||!plan.checkpoints.length||
       !Number.isFinite(movementSpeed)||movementSpeed<=0||
       typeof operationId!=="string"||!operationId||
+      (onCheckpointDiagnostics!==null&&typeof onCheckpointDiagnostics!=="function")||
       !Number.isFinite(tolerancePixels)||tolerancePixels<0||tolerancePixels>1)
     throw Error("Native checkpoint movement cannot start without v14 public movement controls.");
 
@@ -42,19 +106,37 @@ export async function coordinateNativeTokenMovement({
     try{token.stopMovement();}
     catch{/* The original movement failure remains authoritative. */}
   };
+  const report=(mismatch,details)=>{
+    try{onCheckpointDiagnostics?.({mismatch,details});}
+    catch{/* Diagnostics cannot alter native movement or checkpoint authority. */}
+  };
   const onMove=(document,movement)=>{
     if(ended||document!==token)return;
+    const checkpoint=plan.checkpoints[checkpointIndex];
     const chain=Array.isArray(movement?.chain)?movement.chain:[];
     if(movement?.id!==operationId&&!chain.includes(operationId)){
+      report(true,checkpointDetails({token,movement,operationId,checkpoint,
+        index:checkpointIndex,tolerance:tolerancePixels}));
       fail(Error("Another native movement displaced the Atlas party token."));return;
     }
-    const checkpoint=plan.checkpoints[checkpointIndex];
-    if(!checkpoint){fail(Error("Foundry issued an unexpected extra movement checkpoint."));return;}
+    if(!checkpoint){
+      report(true,checkpointDetails({token,movement,operationId,checkpoint,
+        index:checkpointIndex,tolerance:tolerancePixels}));
+      fail(Error("Foundry issued an unexpected extra movement checkpoint."));return;
+    }
     // The movement operation is immutable. Verify its documented native origin
     // and destination before accepting even a visually plausible waypoint.
-    if(!near(movement.origin,checkpoint.from,tolerancePixels)||
-        !near(movement.destination,checkpoint.point,tolerancePixels)||
-        !near(token,checkpoint.point,tolerancePixels)){
+    const originMatches=near(movement.origin,checkpoint.from,tolerancePixels);
+    const destinationMatches=near(movement.destination,checkpoint.point,tolerancePixels);
+    const documentMatches=near(token,checkpoint.point,tolerancePixels);
+    const reconciledFromPassed=!originMatches&&destinationMatches&&documentMatches&&
+      verifiedPassedInterval(movement,plan,checkpoint,tolerancePixels);
+    const mismatch=!(originMatches||reconciledFromPassed)||
+      !destinationMatches||!documentMatches;
+    report(mismatch,checkpointDetails({token,movement,operationId,checkpoint,
+      index:checkpointIndex,tolerance:tolerancePixels,originMatches,
+      destinationMatches,documentMatches,reconciledFromPassed}));
+    if(mismatch){
       fail(Error("Foundry movement does not match the approved native checkpoint."));
       return;
     }
@@ -90,7 +172,9 @@ export async function coordinateNativeTokenMovement({
       if(signal.aborted)abortListener();
     });
     nativeStarted=true;
-    const nativePromise=token.move(plan.path,{
+    // The first path element is our authoritative TokenDocument origin, not a
+    // destination to send to Foundry's public move(waypoints) operation.
+    const nativePromise=token.move(plan.path.slice(1),{
       id:operationId,animate:true,autoRotate:false,showRuler:false,pan:false,
       animation:{movementSpeed}
     });

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {planNativeCheckpointPath}
+import {planNativeCheckpointPath,anchorNativeTokenWaypoints,
+  describeNativeCheckpointSources}
   from "../scripts/navigation-native-movement-plan.js";
 import {validatePendingNativeMove,assessPendingNativeMove}
   from "../scripts/navigation-native-movement-reconciliation.js";
@@ -28,6 +29,12 @@ test("one Foundry movement keeps all road bends with checkpoints, not separate t
   assert.equal(plan.checkpoints.at(-1).completedMovingHours,12);
   assert.equal(plan.checkpoints.at(-1).completedDistance,120);
   assert.equal(plan.path.filter(p=>p.checkpoint).length,plan.checkpoints.length);
+  for(const checkpoint of plan.checkpoints){
+    assert.deepEqual(pt(plan.path[checkpoint.pathStartIndex].x,
+      plan.path[checkpoint.pathStartIndex].y),checkpoint.from);
+    assert.deepEqual(pt(plan.path[checkpoint.pathEndIndex].x,
+      plan.path[checkpoint.pathEndIndex].y),checkpoint.point);
+  }
 });
 
 test("native waypoint planning rejects invalid or unbounded movement",()=>{
@@ -35,6 +42,36 @@ test("native waypoint planning rejects invalid or unbounded movement",()=>{
     gridSize:10,movementSpeed:1,totalMovingHours:-1}),/approved travel hours/);
   assert.throws(()=>planNativeCheckpointPath([pt(0,0),pt(10000,0)],{
     gridSize:1,movementSpeed:1,totalMovingHours:1}),/too long for safe/);
+});
+
+test("native movement origin follows the committed TokenDocument, not the nearby route hex",()=>{
+  const route=[pt(50,50),pt(100,50),pt(150,50)];
+  const anchored=anchorNativeTokenWaypoints(route,pt(43,58),100);
+  assert.deepEqual(anchored,[pt(43,58),...route],
+    "a nearby actual token must approach the authored start, without a teleport");
+  const plan=planNativeCheckpointPath(anchored,{movementSpeed:.5,gridSize:100,
+    secondsPerCheckpoint:2,totalMovingHours:3});
+  assert.deepEqual(plan.path[0],pt(43,58));
+  assert.deepEqual(plan.checkpoints[0].from,pt(43,58));
+  assert.deepEqual(route,[pt(50,50),pt(100,50),pt(150,50)]);
+  assert.deepEqual(anchorNativeTokenWaypoints(route,pt(50.4,49.6),100)[0],pt(50,50));
+  assert.throws(()=>anchorNativeTokenWaypoints(route,pt(-100,58),100),
+    /too far from the approved route/);
+});
+
+test("GM checkpoint diagnostics attribute the nearest authored road and final checkpoint ID",()=>{
+  const native=planNativeCheckpointPath([pt(0,0),pt(20,0),pt(40,0)],{
+    movementSpeed:1,gridSize:10,secondsPerCheckpoint:2,totalMovingHours:4});
+  const annotated=describeNativeCheckpointSources(native,{gridSize:10,
+    token:{width:1,height:1},arrivalCheckpointId:"dock-c",
+    legPaths:[{kind:"road",roadId:"waterway",segmentId:"sea-s1",
+      points:[pt(5,5),pt(45,5)]}]});
+  assert.equal(annotated.checkpoints[0].roadId,"waterway");
+  assert.equal(annotated.checkpoints[0].segmentId,"sea-s1");
+  assert.equal(annotated.checkpoints[0].atlasCheckpointId,null);
+  assert.equal(annotated.checkpoints.at(-1).atlasCheckpointId,"dock-c");
+  assert.equal(native.checkpoints[0].roadId,undefined,
+    "derived diagnostic labels must not modify the original path plan");
 });
 
 test("native recovery classifies only uniquely witnessed endpoint and clock state",()=>{

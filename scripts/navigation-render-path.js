@@ -26,6 +26,9 @@ export function navigationCanvasLegPaths(view, atlas, route, {
         points = clipNavigationSpline(full, points[0], points.at(-1));
       }
     }
-    return { kind: leg.kind, points };
+    // Preserve authored IDs for read-only native movement diagnostics. Canvas
+    // geometry and movement paths remain derived from the same Scene roads.
+    return { kind: leg.kind, roadId: leg.roadId ?? null,
+      segmentId: leg.segmentId ?? null, points };
   });
 }
