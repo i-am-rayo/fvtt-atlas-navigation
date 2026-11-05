@@ -33,6 +33,19 @@ const pointer=(x,y,flags={})=>({button:0,clientX:x,clientY:y,
   prevented:0,stopped:0,...flags,
   preventDefault(){this.prevented++;},stopImmediatePropagation(){this.stopped++;}});
 
+test("changing Navigation stages releases detached progress and World-clock DOM refs",async()=>{
+  const nav=new AtlasNavigationController();
+  nav.completedRoute=true;
+  nav.travelProgressUI={bar:{}};
+  nav.journeyTimeUI={moving:{}};
+  nav.worldTimeUI={};
+  nav.renderJourneyStage=async stage=>stage;
+  assert.equal(await nav._renderHTML(),"completed");
+  assert.equal(nav.travelProgressUI,null);
+  assert.equal(nav.journeyTimeUI,null);
+  assert.equal(nav.worldTimeUI,null);
+});
+
 test("unexpected canvas redraw reports and safely ends the active journey",()=>{
   const old={ui:globalThis.ui,game:globalThis.game};
   const messages=[];

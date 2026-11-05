@@ -2247,6 +2247,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   async _renderHTML(){
     const stage=this.navigationStage();
+    if(stage!==NAVIGATION_STAGES.JOURNEY){
+      // Drop references to the previous stage's detached DOM on transitions.
+      // Never let an animation tick update stale progress/clock elements.
+      this.travelProgressUI=null;
+      this.journeyTimeUI=null;
+      this.worldTimeUI=null;
+    }
     if(stage!==NAVIGATION_STAGES.DESTINATION)
       return this.renderJourneyStage(stage);
     return this.renderDestinationStage();
