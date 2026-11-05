@@ -3,7 +3,7 @@
   "type": "module",
   "title": "FVTT Atlas Navigation",
   "description": "Foundry v14 Scene Atlas with roads, checkpoints, terrain Regions and Atlas terrain-aware Navigation.",
-  "version": "0.3.9-beta.1",
+  "version": "0.3.9-beta.2",
   "authors": [
     {
       "name": "i-am-rayo",
@@ -14,11 +14,13 @@
     "minimum": "14"
   },
   "esmodules": [
-    "scripts/main.js"
+    "scripts/main.js",
+    "scripts/atlas-announcement-settings.js"
   ],
   "styles": [
     "styles/atlas-ui.css",
     "styles/atlas-journey-journal.css",
+    "styles/atlas-announcements.css",
     "styles/checkpoint-icons.css",
     "styles/atlas-manual-fog.css",
     "styles/road-settings-dialog.css",
@@ -34,6 +36,6 @@
   "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
   "readme": "README.md",
   "media": [],
-  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feat/v0.3.9-beta.1-journey-journal-ui/module.json",
-  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feat/v0.3.9-beta.1-journey-journal-ui.zip"
+  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feat/v0.3.9-beta.2-announcement-preview/module.json",
+  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feat/v0.3.9-beta.2-announcement-preview.zip"
 }

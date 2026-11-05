@@ -14,7 +14,9 @@ test("module manifest declares a v14 system-agnostic module shell", async () => 
   assert.equal(manifest.version, packageInfo.version);
   assert.equal(manifest.compatibility.minimum, "14");
   assert.equal(manifest.compatibility.verified, undefined);
-  assert.deepEqual(manifest.esmodules, ["scripts/main.js"]);
+  assert.deepEqual(manifest.esmodules, [
+    "scripts/main.js", "scripts/atlas-announcement-settings.js"
+  ], "the optional preview entry is independent of the main gameplay module");
   assert.equal("system" in manifest, false);
   assert.equal("relationships" in manifest, false);
   const manifestUrl = new URL(manifest.manifest);
