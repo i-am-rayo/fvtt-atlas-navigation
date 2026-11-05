@@ -4,6 +4,17 @@ import { applyRoadGeometryEdit } from "./road-model.js";
 
 const MAX_NAME = 120;
 
+/** Eligible owning roads for a node shared by roads, or an edge on one road. */
+export function checkpointCandidateRoads(atlas, candidate) {
+  const sections = candidate?.kind === "node"
+    ? atlas.segments.filter(segment => segment.from === candidate.nodeId ||
+        segment.to === candidate.nodeId)
+    : candidate?.kind === "edge"
+      ? atlas.segments.filter(segment => segment.id === candidate.segmentId) : [];
+  const roadIds = new Set(sections.map(segment => segment.roadId));
+  return atlas.roads.filter(road => roadIds.has(road.id));
+}
+
 function cleanName(name) {
   if (typeof name !== "string" || !name.trim() || name.length > MAX_NAME) {
     throw new Error("Checkpoint name must contain 1–120 characters.");

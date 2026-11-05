@@ -602,6 +602,59 @@ test("click-to-draw uses canvas coordinates and saves with visible feedback", as
   }
 });
 
+test("GM checkpoint placement commits the graph split in one revision, then closes its picker", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: true }, i18n: { localize: key => key } };
+    globalThis.PIXI = { Graphics: m.Graphics };
+    let nextId = 0;
+    const initial = addRoad(createEmptyAtlas(), {
+      name: "East Road", points: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
+      idFactory: () => "initial" + ++nextId
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", initial);
+    const priorSetFlag = m.scene.setFlag;
+    let writes = 0;
+    m.scene.setFlag = async (...args) => { writes++; return priorSetFlag(...args); };
+    m.controller.promptCheckpoint = async ({ roads }) => {
+      assert.deepEqual(roads.map(road => road.id), [initial.roads[0].id]);
+      return { roadId: roads[0].id, name: "Bridge", elevationMeters: 0 };
+    };
+    m.controller.startCheckpoint(m.scene, () => {});
+    const click = pointEvent(20, 15);
+    await m.listeners.get("pointerdown")(click);
+    const saved = readAtlas(m.scene);
+    assert.equal(click.prevented, true);
+    assert.equal(writes, 1, "checkpoint and edge split are one Scene flag revision");
+    assert.equal(saved.revision, initial.revision + 1);
+    assert.equal(saved.nodes.length, initial.nodes.length + 1);
+    assert.equal(saved.segments.length, initial.segments.length + 1);
+    assert.equal(saved.segments[0].id, initial.segments[0].id);
+    assert.deepEqual(saved.checkpoints.map(checkpoint => [checkpoint.roadId, checkpoint.name]),
+      [[initial.roads[0].id, "Bridge"]]);
+    assert.equal(m.controller.getDraft(m.scene), null);
+    assert.equal(m.listeners.has("pointerdown"), false);
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, previous);
+  }
+});
+
+test("non-GM checkpoint placement cannot begin or mutate a Scene", () => {
+  const previous = { game: globalThis.game };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: false } };
+    assert.throws(() => m.controller.startCheckpoint(m.scene, () => {}), /Only a GM/);
+    assert.equal(readAtlas(m.scene).revision, 0);
+    assert.equal(m.controller.getDraft(m.scene), null);
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, previous);
+  }
+});
+
 test("Escape cancels a draft with no Scene flag mutation", () => {
   const prev = { game: globalThis.game, PIXI: globalThis.PIXI };
   const m = setup();

@@ -1,6 +1,7 @@
 import { readAtlas } from "./atlas-storage.js";
-import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink, canOpenAtlasJournal, openAtlasJournal } from "./atlas-journal-links.js";
-import { saveNewRoad, saveNewCheckpoint } from "./road-storage.js";
+import { readAtlasJournalLinks, journalUuidFor, canOpenAtlasJournal, openAtlasJournal } from "./atlas-journal-links.js";
+import { createRoadFromDraft, createCheckpointFromDraft } from "./road-authoring-foundry.js";
+import { checkpointCandidateRoads } from "./checkpoint-model.js";
 import { RoadPointEditor } from "./road-point-editor.js";
 import { roadHandles } from "./road-hit.js";
 import { attachmentRoadNames, findRoadSnap, suggestRoadName } from "./road-model.js";
@@ -11,14 +12,9 @@ import { groupCheckpointMarkers, checkpointQuickInfo,
 import { playerAtlasOverlay } from "./player-visibility.js";
 import { readManualFog } from "./atlas-manual-fog-storage.js";
 import { cellKey } from "./atlas-manual-fog-model.js";
-import { readPartyExploration, saveCheckpointKnowledge } from "./party-exploration-storage.js";
+import { readPartyExploration } from "./party-exploration-storage.js";
 import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
 import { checkpointRevealKeys } from "./checkpoint-exploration.js";
-import { readCheckpointDiscoveryMethods } from "./checkpoint-discovery-method.js";
-import { saveCheckpointCategory } from "./checkpoint-types.js";
-import { saveCheckpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
-import { saveCheckpointPresetAssignment } from "./checkpoint-preset-assignment.js";
-import { saveCheckpointOffers } from "./checkpoint-transportation.js";
 import { createSettingsSelect } from "./settings-select.js";
 import { checkpointKnowledge } from "./party-exploration-model.js";
 import { exploredRoadSpans, atlasPointExplored } from "./road-fog.js";
@@ -769,11 +765,7 @@ export class RoadCanvasController {
       }
       event.preventDefault?.();
       event.stopImmediatePropagation?.();
-      const roadIds = candidate.kind === "node"
-        ? new Set(current.segments.filter(s => s.from === candidate.nodeId ||
-            s.to === candidate.nodeId).map(s => s.roadId))
-        : new Set(current.segments.filter(s => s.id === candidate.segmentId).map(s => s.roadId));
-      const roads = current.roads.filter(road => roadIds.has(road.id));
+      const roads = checkpointCandidateRoads(current, candidate);
       if (!roads.length) return;
       draft.confirming = true;
       try {
@@ -783,38 +775,11 @@ export class RoadCanvasController {
         });
         if (this.draft !== draft || !config) return;
         this.saving = true;
-        const saved = await saveNewCheckpoint(scene, {
-          ...config, candidate, expectedRevision: draft.expectedRevision,
+        const { checkpointId: newId, metadataError } = await createCheckpointFromDraft(scene, {
+          config, candidate, expectedRevision: draft.expectedRevision,
           idFactory: this.idFactory
         });
-        const newId = saved.checkpoints.at(-1).id;
-        // Metadata and appearance are committed together above. The separate
-        // discovery and Journal stores are written only after creation succeeds.
-        try {
-          if (config.knowledge !== null && config.knowledge !== undefined) {
-            await saveCheckpointKnowledge(scene, {
-              checkpointId: newId, knowledge: config.knowledge,
-              revealRadiusCells: config.revealRadiusCells ?? 3,
-              expected: readPartyExploration(scene),
-              method: config.discoveryMethod ?? "automatic",
-              expectedMethods: readCheckpointDiscoveryMethods(scene)
-            });
-          }
-          if (config.journalUuid) {
-            await saveAtlasJournalLink(scene, {
-              kind: "checkpoint", id: newId, uuid: config.journalUuid,
-              expected: readAtlasJournalLinks(scene)
-            });
-          }
-          if(config.checkpointType && config.checkpointType!=="generic")
-            await saveCheckpointCategory(scene,newId,config.checkpointType);
-          if(config.terrainSuggestion)
-            await saveCheckpointTerrainSuggestion(scene,newId,config.terrainSuggestion);
-          if(config.checkpointPresetId)
-            await saveCheckpointPresetAssignment(scene,newId,config.checkpointPresetId);
-          if(config.transportationOffers)
-            await saveCheckpointOffers(scene,newId,config.transportationOffers);
-        } catch (metadataError) {
+        if (metadataError) {
           this.notify()?.warn?.("Checkpoint created, but some discovery or Journal settings could not be saved: " +
             (metadataError.message ?? String(metadataError)));
         }
@@ -824,7 +789,7 @@ export class RoadCanvasController {
         this.draft = null;
         this.selectedRoadId = null;
         this.selectedJunctionId = null;
-        this.selectedCheckpointId = saved.checkpoints.at(-1).id;
+        this.selectedCheckpointId = newId;
         this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Checkpoints.Saved"));
         this.refresh();
         callback?.(config.roadId);
@@ -1018,25 +983,17 @@ export class RoadCanvasController {
       if (this.draft !== draft) return false;
       this.saving = true;
       this.#changed();
-      const savedRoad = await saveNewRoad(draft.scene, {
+      const { journalError } = await createRoadFromDraft(draft.scene, {
         points: draft.points, name: draft.options.name.trim(),
         presetId: draft.options.presetId, appearance: draft.options.appearance,
         playerVisible: draft.options.playerVisible === true,
         expectedRevision: draft.expectedRevision,
         snapEndpoints: [draft.snap[0], draft.snap.at(-1)],
-        idFactory: this.idFactory
+        idFactory: this.idFactory, journalUuid: draft.options.journalUuid
       });
-      if (draft.options.journalUuid) {
-        try {
-          const newId = savedRoad.roads.at(-1)?.id;
-          if (newId) await saveAtlasJournalLink(draft.scene, {
-            kind: "road", id: newId, uuid: draft.options.journalUuid,
-            expected: readAtlasJournalLinks(draft.scene)
-          });
-        } catch (linkError) {
-          this.notify()?.warn?.("Road created, but its Journal link was not saved: " +
-            (linkError.message ?? String(linkError)));
-        }
+      if (journalError) {
+        this.notify()?.warn?.("Road created, but its Journal link was not saved: " +
+          (journalError.message ?? String(journalError)));
       }
       const changed = draft.onChange;
       this.#detach();

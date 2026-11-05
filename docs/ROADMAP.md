@@ -2,7 +2,20 @@
 
 # Active v0.3.x roadmap — updated November 5, 2026
 
-**Current decision — v0.3.8-beta.7.19 assessment-only draft:** After the
+**Current decision — v0.3.8-beta.7.20 focused Roads/Checkpoints authoring boundary:**
+The accepted next implementation slice after the beta.7.19 architecture audit
+extracts Road and Checkpoint creation commits from `road-canvas.js` into a pure
+application workflow and Foundry persistence adapter; candidate Road selection
+is pure domain logic. The existing revision-checked Scene Atlas graph write is
+authoritative; optional Journal/discovery/offer metadata writes remain separate,
+ordered and explicitly partial on failure. No UI, stable ID, graph topology,
+schema, canvas rendering, Region, Fog, Journey or gameplay behavior changes.
+Retain the single-GM editing contract: revision checking is not atomic
+compare-and-swap across clients. See [the beta.7.20 test checklist](ROADS_CHECKPOINTS_BETA7_20_TESTING.md).
+Complete GM/non-GM Foundry v14 acceptance before treating this as stabilized;
+the wider A19-R1/R2/R3 risks are not fully resolved by this extraction.
+
+**Prior gate — v0.3.8-beta.7.19 assessment-only draft:** After the
 successful beta.7.18 owner GM test (five legs, 2d 19h 38m moving, 16h rest,
 two automatic canvas rebuild recoveries), extend the architecture review
 beyond Navigation to **Roads, Checkpoints, native Regions/Surfaces, Overlays

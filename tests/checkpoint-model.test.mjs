@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEmptyAtlas, validateAtlas, upgradeAtlasCheckpoints } from "../scripts/atlas-model.js";
-import { addRoadCheckpoint, editRoadCheckpoint, removeRoadCheckpoint,
+import { addRoadCheckpoint, editRoadCheckpoint, removeRoadCheckpoint, checkpointCandidateRoads,
   listRoadCheckpoints } from "../scripts/checkpoint-model.js";
 import { addRoad, applyRoadGeometryEdit, listRoadJunctions, mergeRoadGroups, removeRoad } from "../scripts/road-model.js";
 
@@ -35,6 +35,16 @@ function factory() {
   let index = 0;
   return () => "generated" + (++index);
 }
+
+test("checkpoint placement offers only roads containing the clicked graph node or edge", () => {
+  const atlas = fixture();
+  assert.deepEqual(checkpointCandidateRoads(atlas, { kind: "node", nodeId: "b" })
+    .map(road => road.id), ["main", "spur"]);
+  assert.deepEqual(checkpointCandidateRoads(atlas, { kind: "edge", segmentId: "ce" })
+    .map(road => road.id), ["far"]);
+  assert.deepEqual(checkpointCandidateRoads(atlas, { kind: "node", nodeId: "missing" }), []);
+  assert.deepEqual(checkpointCandidateRoads(atlas, { kind: "edge", segmentId: "missing" }), []);
+});
 
 test("v3 remains valid and is upgraded only by explicit checkpoint creation", () => {
   const prior = fixture();

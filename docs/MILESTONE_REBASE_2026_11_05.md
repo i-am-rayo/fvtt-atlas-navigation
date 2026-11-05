@@ -2,8 +2,9 @@
 
 **Planning status:** owner review. Milestone names are dependencies, not an
 authorization to implement later feature stages or merge existing draft PRs.
-The active development baseline is `v0.3.8-beta.7.18` (owner GM journey
-successful); beta.7.19 is a **documentation-only assessment**. Earlier
+The latest owner-tested GM Journey baseline is `v0.3.8-beta.7.18`;
+beta.7.19 is a **documentation-only assessment** and beta.7.20 is the first
+Road/Checkpoint authoring-boundary draft, not yet Foundry-accepted. Earlier
 beta.7.17 GM tests covered hired Cart, Wagon, owned Warship, Riding Horse,
 continuous ship and ordinary Long Rests. The beta.7.18 five-leg GM journey
 confirmed two automatic canvas rebuild recoveries. None of these GM tests
@@ -32,7 +33,7 @@ substitute for non-GM or cross-subsystem acceptance.
 | **A1 — current foundation** | `v0.3.8-beta.7.17` | Retain the authoritative Journey state/Journal projection separation and confirmed native anchors. Owner GM journeys are positive; non-GM, repeated teardown and ambiguous in-flight recovery checks remain required. |
 | **A2 — lifecycle safety** | `v0.3.8-beta.7.18` | Pure terminal/pause/teardown policy and native-coordinate rest regression. **Owner GM five-leg Journey successful**, including two automatic recoveries; non-GM test outstanding. No transport, rules, schema, calendar or UI behavior changes. |
 | **A3a — module-wide architecture assessment** | `v0.3.8-beta.7.19` | Audit existing Roads, Checkpoints, native Regions/Surfaces, Overlays and Fog/Exploration, in addition to Navigation R-01. Document source evidence, ownership, boundary risks, permissions/migrations and future acceptance. **Assessment documentation only; no runtime refactor.** See [full assessment](ARCHITECTURE_AUDIT_BETA7_19.md). |
-| **A3b — focused subsystem stabilization** | `v0.3.8-beta.7.20–7.24` (provisional) | Separate draft gates for road/checkpoint authoring, native Region/Surface integration, Overlay lifecycle/performance, Fog/player-safe read boundaries and integration testing. Diagnose and scope each before modifying code; version allocations can change. Continue R-01 inactive-GM/player investigation with TokenDocument/Journal/clock evidence. |
+| **A3b — focused subsystem stabilization** | `v0.3.8-beta.7.20–7.24` (provisional) | **beta.7.20 draft implemented:** Road/Checkpoint graph-first creation workflow extracted with unchanged single-GM revision and partial-metadata semantics; live v14 GM/non-GM acceptance pending. Later separate draft gates cover native Region/Surface integration, Overlay lifecycle/performance, Fog/player-safe read boundaries and integration testing. Diagnose and scope each before modifying code; version allocations can change. Continue R-01 inactive-GM/player investigation with TokenDocument/Journal/clock evidence. |
 | **B — Journey UX and Journal** | `v0.3.9` (candidate) | Align the completed Journey Journal with Atlas Navigation styling; improve journey status, leg readability, rest transition and accessible controls. A separate saved-planned-itinerary action and permission-filtered player read model may follow after contracts are tested. No Actor rest, currency, or automatic player travel in this UI phase. |
 | **C — topology/Region data** | `v0.4` (candidate) | Independent checkpoint IDs, Atlas-authored native Region boundaries and spatial containment, road slicing, and versioned Scene migration/rollback. Design the export payload early, but do not ship import/export with the migration. |
 | **D — scheduled services** | `v0.4.x` (candidate) | System-neutral World-calendar adapter; deterministic departures/on-call windows and explicit GM-approved wait/booking/fare. Player pamphlet requires separate filtered permissions. |
