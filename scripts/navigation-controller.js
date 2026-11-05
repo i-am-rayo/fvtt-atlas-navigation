@@ -1126,14 +1126,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         checkpoint:checkpoint.index+1,checkpointCount:plan.checkpoints.length
       },{level:"verbose"});
     };
+    session.nativeAbort=new AbortController();
     session.nativeActive=true;
     try{
       const result=await coordinateNativeTokenMovement({
         token:session.token,plan,operationId,movementSpeed:playback.movementSpeed,
-        hooks:Hooks,prepareCheckpoint,confirmCheckpoint,shouldStop
+        hooks:Hooks,prepareCheckpoint,confirmCheckpoint,shouldStop,
+        signal:session.nativeAbort.signal
       });
       return result.completed;
-    }finally{session.nativeActive=false;session.currentChunk=null;}
+    }finally{
+      session.nativeActive=false;session.nativeAbort=null;session.currentChunk=null;
+    }
   }
 
   /** All rule interpretations flow through one pure World settings adapter. */
@@ -1958,6 +1962,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // A single native v14 movement can span many checkpoints. Stopping Atlas
     // must stop that public TokenDocument operation, not merely its UI loop.
     if(session.nativeActive){
+      session.nativeAbort?.abort();
       try{session.token.stopMovement();}
       catch(error){atlasWarn("movement","Native movement could not be stopped",error);}
     }

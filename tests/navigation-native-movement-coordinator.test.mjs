@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {coordinateNativeTokenMovement}
   from "../scripts/navigation-native-movement-coordinator.js";
 
-function nativeHarness({alterDestination=false}={}){
+function nativeHarness({alterDestination=false,animationNeverEnds=false}={}){
   const listeners=new Map();
   const calls=[];
   const hooks={
@@ -28,7 +28,7 @@ function nativeHarness({alterDestination=false}={}){
         const movement={id:index?"second-native-id":options.id,
           chain:index?[options.id]:[],origin:from,
           destination:{x:this.x,y:this.y},
-          animation:{ended:Promise.resolve()}};
+          animation:{ended:animationNeverEnds?new Promise(()=>{}):Promise.resolve()}};
         calls.push(movement);
         listeners.get("moveToken")(this,movement,{}, {isSelf:true});
         if(this.hold)await this.hold;
@@ -106,5 +106,22 @@ test("preparation fails before any native Document position changes",async()=>{
   }),/Journal unavailable/);
   assert.equal(token.moves,0);
   assert.equal(token.x,0);
+  assert.equal(listeners.size,0);
+});
+
+test("canvas abort stops a movement whose native animation promise never settles",async()=>{
+  const {token,plan,hooks,listeners}=nativeHarness({animationNeverEnds:true});
+  const abort=new AbortController();
+  let confirmed=0;
+  const pending=coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"atlas-native-abort",movementSpeed:2,signal:abort.signal,
+    prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;}
+  });
+  for(let index=0;index<100&&token.x===0;index++)await Promise.resolve();
+  assert.equal(token.x,10,"the TokenDocument has already updated");
+  abort.abort();
+  await assert.rejects(pending,/Canvas lifecycle cancelled native travel/);
+  assert.equal(token.stopped,true);
+  assert.equal(confirmed,0);
   assert.equal(listeners.size,0);
 });

@@ -15,7 +15,7 @@ const near=(a,b,tolerance)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
 export async function coordinateNativeTokenMovement({
   token,plan,operationId,movementSpeed,hooks,
   prepareCheckpoint,confirmCheckpoint,shouldStop=()=>false,
-  tolerancePixels=1
+  tolerancePixels=1,signal=null
 }={}){
   if(typeof token?.move!=="function"||
       typeof token?.pauseMovement!=="function"||
@@ -34,6 +34,9 @@ export async function coordinateNativeTokenMovement({
   let failure=null;
   let inFlight=Promise.resolve();
   let ended=false;
+  let nativeStarted=false;
+  let abortListener=null;
+  let abortPromise=null;
   const fail=(error)=>{
     if(!failure)failure=error instanceof Error?error:Error(String(error));
     try{token.stopMovement();}
@@ -62,7 +65,7 @@ export async function coordinateNativeTokenMovement({
     checkpointIndex++;
     inFlight=inFlight.then(async()=>{
       // Unlike TokenDocument.x/y, animation.ended proves visual arrival.
-      await movement.animation?.ended;
+      await Promise.race([movement.animation?.ended??Promise.resolve(),abortPromise]);
       if(shouldStop())throw Error("Native movement stopped by the GM or canvas lifecycle.");
       await confirmCheckpoint(checkpoint,movement);
       if(checkpointIndex<plan.checkpoints.length){
@@ -78,18 +81,31 @@ export async function coordinateNativeTokenMovement({
     // A prepared, durable pending intent must exist before the first native
     // TokenDocument update. The caller persists each successor before resume.
     await prepareCheckpoint(plan.checkpoints[0]);
-    if(shouldStop())return {completed:false,confirmed:0,error:null};
-    const completed=await token.move(plan.path,{
+    if(shouldStop()||signal?.aborted)
+      return {completed:false,confirmed:0,error:null};
+    abortPromise=new Promise((_,reject)=>{
+      if(!signal)return;
+      abortListener=()=>reject(Error("Canvas lifecycle cancelled native travel."));
+      signal.addEventListener("abort",abortListener,{once:true});
+      if(signal.aborted)abortListener();
+    });
+    nativeStarted=true;
+    const nativePromise=token.move(plan.path,{
       id:operationId,animate:true,autoRotate:false,showRuler:false,pan:false,
       animation:{movementSpeed}
     });
+    const completed=await Promise.race([nativePromise,abortPromise]);
     await inFlight;
     if(failure)throw failure;
     if(!completed||checkpointIndex!==plan.checkpoints.length)
       throw Error("Native movement stopped before every checkpoint was confirmed.");
     return {completed:true,confirmed:checkpointIndex,error:null};
+  }catch(error){
+    if(nativeStarted)fail(error);
+    throw error;
   }finally{
     ended=true;
+    if(abortListener)signal?.removeEventListener("abort",abortListener);
     hooks.off("moveToken",hookId);
   }
 }
