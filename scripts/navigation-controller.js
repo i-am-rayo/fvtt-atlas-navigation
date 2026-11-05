@@ -67,6 +67,7 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   validateJourneyRecord,eligibleJourneyRecord,isUnfinishedJourneyLeg,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
   JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
+import { journeySummaryDue } from "./navigation-journey-state-store.js";
 import {buildJourneyTargets,assessJourneyAnchor,captureJourneyAnchor,
   nextJourneyTarget,isCheckpointBoundContinuation} from "./navigation-route-targets.js";
 import {renderNavigationFooter} from "./navigation-footer.js";
@@ -1014,7 +1015,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     return true;
   }
 
-  async saveJourneyCheckpoint(session,status,{updatePage=true}={}){
+  async saveJourneyCheckpoint(session,status,{updatePage=null}={}){
     if(!session?.journal||!session.journeyRecord)return;
     // The native movement callback can settle after a Scene redraw or a GM
     // confirmation. Never overwrite a completed/ended Journal from a late
@@ -1040,10 +1041,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       arrivedTimeLabel:arrival?.label??null
     });
     session.journeyRecord=saved;
+    // Persist each confirmed native movement/rest as recovery data, but publish
+    // readable history only on an arrived leg or deliberate finalization.
+    const publish=updatePage??journeySummaryDue({status,
+      completedPercent:saved.legs.at(-1).completedPercent,
+      pendingNativeMove:saved.pendingNativeMove});
     // Scene redraws may interrupt an in-flight write. Serialize the final
     // interrupted state after any earlier checkpoint; last committed wins.
     session.journalQueue=(session.journalQueue??Promise.resolve()).catch(()=>{}).then(async()=>{
-      await this.journeyJournalStore.save(saved,{journal:session.journal,updatePage});
+      await this.journeyJournalStore.save(saved,{journal:session.journal,
+        updatePage:publish});
     });
     await session.journalQueue;
   }
@@ -1383,8 +1390,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   async waitForDailyTravelChoice(session){
     if(!session.schedule.needsDecision)return true;
     session.phase="rest-checkpointing";
-    // A daily-limit boundary is a durable confirmed stop, even if fewer than
-    // five native movement stretches have completed since the last save.
+    // A daily-limit decision is durable even when no new native movement
+    // occurred after the most recent verified checkpoint.
     await this.saveJourneyCheckpoint(session,"paused");
     if(session.phase==="ending"||this.travelSession!==session)return false;
     session.phase="rest-choice";
@@ -1690,7 +1697,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       session.pendingPassengerRest=recovered?
         recoverPassengerRestRequest(record,schedule):null;
       session.journal=await this.journeyJournalStore.save(record,{
-        journal:this.recoveryJournal});
+        journal:this.recoveryJournal,updatePage:false});
       session.journeyRecord=record;
       session.journalQueue=Promise.resolve();
       if(this.scene?.id!==session.sceneId||!this.canvasProvider()?.ready||
@@ -1809,18 +1816,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           interruptedReason="The token left the planned road path. Recalculate before traveling again.";
           reachedEnd=false;break;
         }
-        // Keep the last VERIFIED native position in memory even between
-        // periodic Journal writes. Canvas teardown checkpoints this anchor
-        // alongside the credited distance, never the current in-flight token.
-        session.lastConfirmedAnchor=this.captureConfirmedJourneyAnchor(session,
+        // Retain the verified native endpoint, but do not claim progress in
+        // the recoverable record until the corresponding World-clock write
+        // settles. An in-flight teardown must not confirm one side alone.
+        const verifiedAnchor=this.captureConfirmedJourneyAnchor(session,
           this.canvasProvider(),this.atlasProvider(this.scene));
-        // Credit progress only after Foundry confirms the expected destination.
-        // An interrupted/redirected movement must never receive World time.
-        session.completedDistance+=chunk.distance;
+        const verifiedDistance=session.completedDistance+chunk.distance;
         atlasDebug("movement","Native movement confirmed",{
           sceneId:session.sceneId,chunk:index+1,
-          completedPercent:Math.round(100*session.completedDistance/totalDistance)
+          completedPercent:Math.round(100*verifiedDistance/totalDistance)
         },{level:"verbose"});
+        try{await this.commitGuidedWorldTime(session,{
+          completedDistance:verifiedDistance});}
+        catch(error){
+          reachedEnd=false;clockFailed=true;
+          interruptedReason="World time could not advance: "+(error.message||String(error));
+          break;
+        }
+        if(this.travelSession!==session)return false;
+        session.lastConfirmedAnchor=verifiedAnchor;
+        session.completedDistance=verifiedDistance;
         schedule.recordMovement(chunk.distance/totalDistance*playback.travelHours);
         let passengerRestFinished=false;
         if(session.pendingPassengerRest&&
@@ -1835,22 +1850,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           passengerRestFinished=true;
         }
         session.confirmedSegments++;
-        this.setTravelProgress(Math.min(99,100*session.completedDistance/totalDistance));
-        try{await this.commitGuidedWorldTime(session);}
+        this.setTravelProgress(Math.min(99,100*session.completedDistance/session.totalDistance));
+        // Never start another native chunk with an earlier TokenDocument
+        // position as the last durable Journal anchor. In particular, rest
+        // and canvas rebuilds must find the most recently verified position.
+        try{await this.saveJourneyCheckpoint(session,"moving",{updatePage:false});}
         catch(error){
-          reachedEnd=false;clockFailed=true;
-          interruptedReason="World time could not advance: "+(error.message||String(error));
+          reachedEnd=false;
+          interruptedReason="The Journey recovery state could not save confirmed progress: "+
+            (error.message||String(error));
           break;
-        }
-        if(this.travelSession!==session)return false;
-        if(session.confirmedSegments%5===0||passengerRestFinished){
-          try{await this.saveJourneyCheckpoint(session,"moving");}
-          catch(error){
-            reachedEnd=false;
-            interruptedReason="The Journey Journal could not save confirmed progress: "+
-              (error.message||String(error));
-            break;
-          }
         }
         // The pending rest was released after its confirmed sailing hours.
         // Refresh the footer once the completed event is durable in the Journal,
@@ -2234,7 +2243,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session=this.travelSession;
     atlasDebug("lifecycle","Navigation teardown",{
       reason,sceneId:this.scene?.id??null,journeyActive:Boolean(session),
-      completedPercent:Math.floor(this.travelProgress),phase:session?.phase??null
+      completedPercent:Math.floor(this.travelProgress),phase:session?.phase??null,
+      // Distinguish a redraw between durable checkpoints from one occurring
+      // during native movement/clock confirmation; never credit a visual frame.
+      nativeChunkInFlight:Boolean(session?.currentChunk),
+      pendingNativeCheckpoint:Boolean(session?.journeyRecord?.pendingNativeMove),
+      confirmedDistance:session?.completedDistance??null,
+      lastConfirmedAnchor:session?.lastConfirmedAnchor?.point??null,
+      worldTime:game.time?.worldTime??null,
+      journalId:session?.journal?.id??null
     });
     if(["canvasTearDown","canvasReady"].includes(reason)&&this.active&&this.rendered){
       this.windowRestorePending={sceneId:this.scene.id,

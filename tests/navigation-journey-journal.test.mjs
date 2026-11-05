@@ -5,6 +5,10 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   findRecoverableJourney,ensureJourneyLogFolder,JOURNEY_JOURNAL_FLAG,
   JOURNEY_JOURNAL_PAGE,JOURNEY_JOURNAL_FOLDER }
   from "../scripts/navigation-journey-journal.js";
+import { journeySummaryDue,persistJourneyState }
+  from "../scripts/navigation-journey-state-store.js";
+import { publishJourneySummary }
+  from "../scripts/navigation-journey-summary-writer.js";
 const MODULE_ID="fvtt-atlas-navigation";
 const itinerary=()=>({schemaVersion:1,scene:{name:"Paedor",units:"km"},
   endpoints:{departure:{x:0,y:0},destination:{x:120,y:30}},
@@ -159,6 +163,56 @@ test("Journal creation, metadata updates, and the managed summary all use one re
     globalThis.game.user.isGM=false;
     await assert.rejects(saveJourneyJournal(updated,{journal}),/Only a GM/);
   }finally{globalThis.game=prev.game;globalThis.CONST=prev.CONST;}
+});
+
+test("backend checkpoints do not regenerate the readable Journal until a leg is confirmed",async()=>{
+  const previous=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  const writes=[];
+  const journal={id:"journey",pages:[{id:"page",name:JOURNEY_JOURNAL_PAGE}],
+    async update(data){writes.push({kind:"state",data});},
+    async updateEmbeddedDocuments(type,data){writes.push({kind:"page",type,data});}};
+  try{
+    const moving=checkpointJourneyRecord(createRecord(),{schedule,
+      progress:45,status:"moving"});
+    await saveJourneyJournal(moving,{journal,updatePage:false});
+    assert.equal(writes.length,1,"intermediate progress persists exactly one native flag");
+    assert.equal(writes[0].kind,"state");
+    assert.equal(writes[0].data[`flags.${MODULE_ID}.${JOURNEY_JOURNAL_FLAG}`].status,"moving");
+    const interrupted=checkpointJourneyRecord(moving,{schedule,
+      progress:45,status:"interrupted"});
+    await saveJourneyJournal(interrupted,{journal,
+      updatePage:journeySummaryDue({status:interrupted.status,
+        completedPercent:interrupted.legs.at(-1).completedPercent})});
+    assert.deepEqual(writes.map(entry=>entry.kind),["state","state"],
+      "even an unexpected canvas interruption does not publish partial narrative history");
+    const arrived=checkpointJourneyRecord(interrupted,{schedule:{...schedule,
+      completedHours:18},progress:100,status:"paused"});
+    await saveJourneyJournal(arrived,{journal,
+      updatePage:journeySummaryDue({status:arrived.status,
+        completedPercent:arrived.legs.at(-1).completedPercent})});
+    assert.deepEqual(writes.map(entry=>entry.kind),["state","state","state","page"]);
+    assert.match(writes.at(-1).data[0]["text.content"],/Confirmed progress: 100%/);
+    assert.equal(journeySummaryDue({status:"paused",completedPercent:50}),false);
+    assert.equal(journeySummaryDue({status:"paused",completedPercent:100,
+      pendingNativeMove:{operationId:"pending"}}),false);
+    assert.equal(journeySummaryDue({status:"completed",completedPercent:100}),true);
+    assert.equal(journeySummaryDue({status:"ended",completedPercent:50}),true,
+      "the GM's deliberate End Journey action is a final publication event");
+  }finally{globalThis.game=previous;}
+});
+
+test("a failed state write must not publish an uncommitted leg summary",async()=>{
+  const before=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  const journal={id:"j",pages:[{id:"p",name:JOURNEY_JOURNAL_PAGE}],
+    async update(){throw Error("stale revision");},
+    async updateEmbeddedDocuments(){assert.fail("no uncommitted page write");}};
+  try{
+    await assert.rejects(saveJourneyJournal(createRecord(),{journal}),/stale revision/);
+    await assert.rejects(persistJourneyState(null,createRecord()),/persisted Journey/);
+    await assert.rejects(publishJourneySummary(journal,"no"),/uncommitted page write/);
+  }finally{globalThis.game=before;}
 });
 
 test("Atlas Journey Journals share a native Journal folder and reuse its stable ID",async()=>{

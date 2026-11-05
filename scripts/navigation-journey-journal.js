@@ -9,12 +9,15 @@ import {validateJourneyTargets,validateJourneyAnchor,confirmJourneyTarget}
   from "./navigation-route-targets.js";
 import {validatePendingNativeMove}
   from "./navigation-native-movement-reconciliation.js";
+import {JOURNEY_JOURNAL_FLAG,persistJourneyState}
+  from "./navigation-journey-state-store.js";
+import {JOURNEY_JOURNAL_PAGE,publishJourneySummary}
+  from "./navigation-journey-summary-writer.js";
 
 /** A Journal Entry owns the recoverable record and a generated human-readable page.
  * No Scene flag, token flag, or second persistent journey store is needed. */
-export const JOURNEY_JOURNAL_FLAG="guidedJourney";
+export { JOURNEY_JOURNAL_FLAG, JOURNEY_JOURNAL_PAGE };
 export const JOURNEY_JOURNAL_SCHEMA=1;
-export const JOURNEY_JOURNAL_PAGE="Atlas Journey Summary";
 export const JOURNEY_JOURNAL_FOLDER="Atlas Navigation Logs";
 const JOURNEY_FOLDER_FLAG="journeyLogFolder";
 const RECOVERABLE=new Set(["moving","paused","interrupted"]);
@@ -361,10 +364,7 @@ export async function saveJourneyJournal(record,{journal=null,create=null,
     if(!journal?.id)throw Error("Foundry did not create the Atlas Journey Journal.");
     return journal;
   }
-  await journal.update({[`flags.${MODULE_ID}.${JOURNEY_JOURNAL_FLAG}`]:state});
-  const page=updatePage?[...(journal.pages??[])].find(p=>p.name===JOURNEY_JOURNAL_PAGE):null;
-  if(page)await journal.updateEmbeddedDocuments("JournalEntryPage",[
-    {_id:page.id,"text.content":html}
-  ]);
+  await persistJourneyState(journal,state);
+  if(updatePage)await publishJourneySummary(journal,html);
   return journal;
 }

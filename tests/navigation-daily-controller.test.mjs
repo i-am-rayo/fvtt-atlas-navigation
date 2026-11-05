@@ -24,6 +24,7 @@ async function journeyFixture({clockEnabled=true,hours=10}={}){
     ui:globalThis.ui,document:globalThis.document};
   const calls=[];
   const journalStates=[];
+  const journalWrites=[];
   const clock={worldTime:30*86400+9*3600,
     calendar:{format(seconds){
       const day=Math.floor(seconds/86400)+1;
@@ -60,8 +61,9 @@ async function journeyFixture({clockEnabled=true,hours=10}={}){
     segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[]}]};
   const nav=new AtlasNavigationController({canvasProvider:()=>view,
     atlasProvider:()=>atlas,partyTokenProvider:()=>token,
-    journeyJournalStore:{save:async(record,{journal}={})=>{
+    journeyJournalStore:{save:async(record,{journal,updatePage}={})=>{
       journalStates.push(structuredClone(record));
+      journalWrites.push({status:record.status,updatePage});
       return journal??{id:"daily-journal"};
     },
       find:()=>null}});
@@ -75,7 +77,7 @@ async function journeyFixture({clockEnabled=true,hours=10}={}){
   nav.itinerary=createNavigationItinerary({sceneId:scene.id,sceneName:scene.name,
     sceneUnits:scene.grid.units,atlasRevision:atlas.revision,route:nav.result,
     travel:{speed:1}});
-  return {nav,token,calls,journalStates,
+  return {nav,token,calls,journalStates,journalWrites,
     restore:()=>{nav.stop();Object.assign(globalThis,old);}};
 }
 
@@ -189,7 +191,7 @@ test("a rest-triggered canvas rebuild waits for its World-time and Journal check
   }finally{f.restore();}
 });
 
-test("native movement Journal writes are batched, but rest boundaries and arrival are immediate",async()=>{
+test("each verified native chunk persists recovery without republishing mid-leg directions",async()=>{
   const f=await journeyFixture({clockEnabled:false,hours:10});
   try{
     const running=f.nav.startGuidedTravel();
@@ -199,13 +201,47 @@ test("native movement Journal writes are batched, but rest boundaries and arriva
     assert.equal(f.nav.chooseDailyTravelBreak("overnight"),true);
     assert.equal(await running,true);
     assert.ok(f.token.moves.length>5);
-    assert.ok(f.journalStates.length<f.token.moves.length,
-      "do not issue a flag/page write for every short native movement segment");
+    assert.ok(f.journalStates.length>=f.token.moves.length,
+      "every verified TokenDocument chunk must be durably anchored before the next move");
+    assert.equal(f.journalWrites.filter(write=>write.updatePage===true).length,1,
+      "only final arrival publishes the readable Journey page");
+    assert.equal(f.journalWrites.some(write=>write.status==="paused"&&
+      write.updatePage===true),false,
+    "daily-limit decisions preserve recovery state without rewriting incomplete legs");
     assert.equal(f.journalStates.at(-1).status,"completed");
     assert.equal(f.journalStates.at(-1).startedWorldTime,
       f.journalStates.at(-1).arrivedWorldTime,
       "the disabled World clock must not invent elapsed calendar time");
     assert.match(formatJourneyJournalHTML(f.journalStates.at(-1)),/World clock unchanged/);
+  }finally{f.restore();}
+});
+
+test("canvas teardown during an unconfirmed native move cannot invent progress or World time",async()=>{
+  const f=await journeyFixture({hours:10});
+  const notices=[];
+  globalThis.ui.notifications.warn=message=>notices.push(message);
+  let interruptedSession;
+  f.token.move=async waypoints=>{
+    f.token.moves.push(waypoints);
+    const destination=waypoints.at(-1);
+    // Native document movement can precede Canvas animation/confirmation.
+    f.token.x=destination.x;f.token.y=destination.y;
+    interruptedSession=f.nav.travelSession;
+    f.nav.tearDown("canvasTearDown");
+    return true;
+  };
+  try{
+    assert.equal(await f.nav.startGuidedTravel(),false);
+    await interruptedSession.journalQueue;
+    assert.equal(f.journalStates.at(-1).status,"interrupted");
+    assert.equal(f.journalStates.at(-1).legs.at(-1).completedPercent,0,
+      "early TokenDocument movement is not equivalent to confirmed travel");
+    assert.equal(f.calls.reduce((sum,n)=>sum+n,0),0,
+      "World time is not advanced for an unconfirmed native move");
+    assert.ok(notices.some(message=>message.includes("canvas redraw")),
+      "the GM must be notified about the interrupted native movement");
+    assert.equal(f.journalWrites.some(write=>write.updatePage===true),false,
+      "interrupted movement must never be presented as a completed leg");
   }finally{f.restore();}
 });
 

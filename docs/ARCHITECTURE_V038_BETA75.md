@@ -275,6 +275,35 @@ Before changing Journey presentation or map authoring lifecycle, require targete
 
 **Explicit exclusions:** No new transportation services, automatic Actor rests, feature milestones, Scene/Journal/Actor schema migrations, currency changes, or intercepting native Canvas teardown.
 
+**Beta.7.17 Journey state / Journal projection boundary (owner-approved):**
+`navigation-journey-state-store.js` owns the single GM-authoritative Journey
+flag write and milestone policy; `navigation-journey-summary-writer.js` writes
+only the generated human-readable JournalEntryPage, never a TokenDocument or
+World clock. `navigation-journey-journal.js` retains schema-v1 validation,
+compatibility, Journal folder creation, and the deterministic human projection.
+This is a logical backend/presentation separation using **one native Journal
+as the recoverable store**, not a second World setting or token flag. New
+Journals still begin with one managed page; subsequent flag writes may be
+frequent while that page stays at its last completed-leg publication until an
+arrival or deliberate End Journey. Interruption, rest and ordinary manual
+pause only change recovery metadata. Third-party `updateJournalEntry` listeners
+may still receive flag updates; reducing those hooks would require a separate
+storage design and independent evidence of their involvement in canvas rebuilds.
+
+Standard guided movement now saves the confirmed TokenDocument anchor after
+**every verified native chunk**, rather than batching those durable writes in
+five-chunk groups. World-clock commits settle before crediting the new
+checkpoint in recoverable state; another chunk cannot begin until the flag
+write succeeds. This closes the previous *between-confirmed-chunks* Journal
+lag but does not make TokenDocument, World time and Journal commits an atomic
+transaction: redraw **during** a native `move()` or clock update still stops
+for GM review when evidence is incomplete. The continuous vessel path retains
+its existing pending-native-move ledger and strict recovery checks. Never
+upgrade legacy Journal flags on read, infer time from a sprite, replay a
+pending movement, or release an unsafe recovery by weakening tolerances.
+
+See [beta.7.17 acceptance checklist](NAVIGATION_BETA7_17_TESTING.md).
+
 **Future-feature architecture boundary (November 4):** New owner requests and their cross-chat [milestone plan](FUTURE_FEATURE_MILESTONES.md) do not expand this beta.7.x stabilization scope. Prepare role-filtered read-only Journey projections, retain GM-authoritative action boundaries, and investigate the reported player-view travel stall when the GM window is inactive **before** player progress, camera follow or faster playback. No future-feature code or stored-data migration is authorized by this documentation.
 
 ## Technical references
