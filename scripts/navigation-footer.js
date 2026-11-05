@@ -14,11 +14,13 @@ const footerButton=(label,icon)=>createAtlasIconButton({icon,label,size:"footer"
 
 /** @param {object} nav Existing AtlasNavigationController instance. */
 export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
-  assistedLegReady=false,repeatingCheckpoint=false,methodAssessment=null}={}){
+  assistedLegReady=false,repeatingCheckpoint=false,methodAssessment=null,
+  pendingNativeReview=false}={}){
   const row=document.createElement("div");
   row.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;padding:.65rem 1rem;border-top:1px solid var(--color-border-light-tertiary,#555);background:var(--color-bg,#100e18);flex:none;";
   const newRoute=footerButton("New Route","route");
-  newRoute.disabled=Boolean(nav.travelSession||nav.journalStarting||nav.pendingTransfer);
+  newRoute.disabled=Boolean(nav.travelSession||nav.journalStarting||
+    nav.pendingTransfer||pendingNativeReview);
   newRoute.title=partyMode?"Choose a new destination from the party token":
     "Clear route and choose a new Point A";
   newRoute.addEventListener("click",()=>{
@@ -55,10 +57,11 @@ export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
     });
     row.appendChild(review);
   }
-  if(nav.journeyJournal){
+  const savedJournal=nav.journeyJournal??(pendingNativeReview?nav.recoverableJourney:null);
+  if(savedJournal){
     const open=footerButton("Open Journey Journal","book-open");
     open.title="Open the saved Journey Journal and recovery record";
-    open.addEventListener("click",()=>void nav.journeyJournal.sheet?.render(true));
+    open.addEventListener("click",()=>void savedJournal.sheet?.render(true));
     row.appendChild(open);
   }
   // A completed Journal may retain a preview, but never exposes a movement
@@ -90,7 +93,7 @@ export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
       const moveIcon=phase==="moving"?"pause":phase==="pausing"||
         phase==="ending"||phase==="rest-applying"?"hourglass-half":"play";
       const move=footerButton(moveLabel,moveIcon);
-      move.disabled=nav.journalStarting||(!nav.travelSession&&
+      move.disabled=pendingNativeReview||nav.journalStarting||(!nav.travelSession&&
         (!methodAssessment?.guided&&!assistedLegReady||repeatingCheckpoint))||
         phase==="ending"||phase==="pausing"||phase==="rest-applying"||phase==="rest-error";
       move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?

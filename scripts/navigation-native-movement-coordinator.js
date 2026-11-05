@@ -44,11 +44,15 @@ function verifiedPassedInterval(movement,plan,checkpoint,tolerance){
 }
 
 function checkpointDetails({token,movement,operationId,checkpoint,index,tolerance,
-  originMatches,destinationMatches,documentMatches,reconciledFromPassed}){
+  originMatches,destinationMatches,documentMatches,reconciledFromPassed,
+  failureReason=null,failedChecks=[]}){
   const passed=movement?.passed?.waypoints;
+  const pending=movement?.pending?.waypoints;
   return {
+    failureReason,failedChecks,
     nativeOperationId:operationId,nativeMovementId:movement?.id??null,
     movementChain:Array.isArray(movement?.chain)?movement.chain.slice(0,16):[],
+    nativeSubpathId:movement?.subpathId??null,
     nativeCheckpointKey:checkpoint?`${operationId}:${checkpoint.index}`:null,
     nativeCheckpointIndex:checkpoint?.index??index,
     atlasCheckpointId:checkpoint?.atlasCheckpointId??null,
@@ -66,6 +70,8 @@ function checkpointDetails({token,movement,operationId,checkpoint,index,toleranc
     nativePathConstrained:movement?.constrained===true,
     passedWaypointCount:Array.isArray(passed)?passed.length:null,
     passedStart:point(passed?.[0]),passedEnd:point(passed?.at(-1)),
+    pendingWaypointCount:Array.isArray(pending)?pending.length:null,
+    pendingStart:point(pending?.[0]),pendingEnd:point(pending?.at(-1)),
     tolerancePixels:tolerance
   };
 }
@@ -116,12 +122,14 @@ export async function coordinateNativeTokenMovement({
     const chain=Array.isArray(movement?.chain)?movement.chain:[];
     if(movement?.id!==operationId&&!chain.includes(operationId)){
       report(true,checkpointDetails({token,movement,operationId,checkpoint,
-        index:checkpointIndex,tolerance:tolerancePixels}));
+        index:checkpointIndex,tolerance:tolerancePixels,
+        failureReason:"foreign-native-movement-id",failedChecks:["movement-id"]}));
       fail(Error("Another native movement displaced the Atlas party token."));return;
     }
     if(!checkpoint){
       report(true,checkpointDetails({token,movement,operationId,checkpoint,
-        index:checkpointIndex,tolerance:tolerancePixels}));
+        index:checkpointIndex,tolerance:tolerancePixels,
+        failureReason:"unexpected-native-checkpoint",failedChecks:["checkpoint-count"]}));
       fail(Error("Foundry issued an unexpected extra movement checkpoint."));return;
     }
     // The movement operation is immutable. Verify its documented native origin
@@ -133,9 +141,15 @@ export async function coordinateNativeTokenMovement({
       verifiedPassedInterval(movement,plan,checkpoint,tolerancePixels);
     const mismatch=!(originMatches||reconciledFromPassed)||
       !destinationMatches||!documentMatches;
+    const failedChecks=[
+      ...(!(originMatches||reconciledFromPassed)?["origin-and-passed-path"]:[]),
+      ...(!destinationMatches?["destination"]:[]),
+      ...(!documentMatches?["token-document"]:[])
+    ];
     report(mismatch,checkpointDetails({token,movement,operationId,checkpoint,
       index:checkpointIndex,tolerance:tolerancePixels,originMatches,
-      destinationMatches,documentMatches,reconciledFromPassed}));
+      destinationMatches,documentMatches,reconciledFromPassed,
+      failureReason:mismatch?"native-checkpoint-mismatch":null,failedChecks}));
     if(mismatch){
       fail(Error("Foundry movement does not match the approved native checkpoint."));
       return;

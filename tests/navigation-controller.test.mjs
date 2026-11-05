@@ -769,6 +769,83 @@ test("canvas automatic restart refuses same-road drift beyond the confirmed anch
   }finally{globalThis.game=previous;}
 });
 
+test("an unconfirmed native ship checkpoint shows approved transport and prevents a new route",async()=>{
+  const previous={game:globalThis.game,window:globalThis.window,ui:globalThis.ui,
+    document:globalThis.document};
+  try{
+    globalThis.game={user:{isGM:true},system:{id:"test"},
+      settings:{get:()=>undefined}};
+    globalThis.window={innerWidth:1200,innerHeight:900};
+    globalThis.ui={notifications:{warn(){},error(){}}};
+    globalThis.document={createElement:tag=>({tag,style:{},children:[],
+      listeners:new Map(),textContent:"",append(...nodes){this.children.push(...nodes);},
+      appendChild(node){this.children.push(node);},
+      addEventListener(name,handler){this.listeners.set(name,handler);}})};
+    const scene={id:"native-review-scene",name:"Paedor",
+      grid:{size:100,units:"mi"},canUserModify:()=>true,getFlag:()=>null};
+    const token={id:"review-party",x:14,y:0,width:1,height:1,
+      canUserModify:()=>true,move(){throw Error("Unconfirmed movement may not replay");}};
+    const route={status:"ok",start:point(0,0),end:point(100,0),
+      distance:95.48,cost:95.48,terrainAware:false,
+      legs:[{kind:"road",roadId:"harbor-road",segmentId:"harbor-segment",
+        points:[point(0,0),point(100,0)],distance:95.48,cost:95.48}]};
+    const itinerary=createNavigationItinerary({sceneId:scene.id,
+      sceneName:scene.name,sceneUnits:"mi",route,travel:{speed:2}});
+    const record=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:1,itinerary:{...itinerary,transport:{
+        methodId:"ship-passage",methodName:"Ship passage (hired)",
+        arrangement:"hire",kind:"vessel",surface:"water",
+        departureCheckpointName:"Port Barthos",arrivalCheckpointId:"dock",
+        arrivalCheckpointName:"Hearth's Heart Dock",roadNames:["Sea Road"],
+        estimatedFareCp:500,operation:"continuous"}}});
+    record.status="interrupted";
+    record.pendingNativeMove={schemaVersion:1,operationId:"native-ship-52",
+      tokenId:token.id,checkpointIndex:0,from:point(0,0),to:point(10,0),
+      nativeDistance:10,movingHours:.2,worldTimeBefore:420,
+      worldAdvanceSeconds:0,atlasRevision:1};
+    let opened=0;
+    const journal={id:"saved-ship",getFlag:()=>structuredClone(record),
+      sheet:{render(){opened++;}}};
+    const nav=new AtlasNavigationController({
+      canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>({revision:1,roads:[],nodes:[],segments:[]}),
+      partyTokenProvider:()=>token});
+    nav.scene=scene;nav.sourceMode="party";
+    nav.travelMethod="walking";nav.start=point(0,0);nav.end=point(100,0);
+    nav.result=route;nav.recoverableJourney=journal;
+    const panel=await nav._renderHTML();
+    const find=(node,predicate)=>predicate(node)?node:
+      node.children?.map(child=>find(child,predicate)).find(Boolean);
+    const selector=find(panel,node=>node.id==="atlas-navigation-travel-method");
+    assert.equal(selector.disabled,true);
+    const labels=[];
+    const collect=(node)=>{
+      if(typeof node.textContent==="string")labels.push(node.textContent);
+      node.children?.forEach(collect);
+    };
+    collect(panel);
+    assert.ok(labels.some(label=>label.includes("Ship passage (hired)")),
+      "the active saved method must remain visible despite Walking preview state");
+    const recover=find(panel,node=>node.textContent==="Recover Saved Journey");
+    assert.equal(recover.disabled,true);
+    const newRoute=find(panel,node=>node.ariaLabel==="New Route");
+    assert.equal(newRoute.disabled,true);
+    const journalButton=find(panel,node=>node.ariaLabel==="Open Journey Journal");
+    assert.ok(journalButton,"GM can inspect the preserved Journey Journal");
+    journalButton.listeners.get("click")();
+    assert.equal(opened,1);
+    assert.equal(nav.travelMethod,"walking","rendering is a read-only projection");
+    assert.equal(record.pendingNativeMove.operationId,"native-ship-52");
+    assert.equal(find(panel,node=>node.textContent==="Travel Route"),undefined);
+    assert.equal(find(panel,node=>node.textContent==="Speed:"),undefined);
+    record.pendingNativeMove.operationId="";
+    const invalid=await nav._renderHTML();
+    assert.equal(find(invalid,node=>node.ariaLabel==="New Route").disabled,true,
+      "invalid pending metadata must also prevent unapproved replay");
+    assert.equal(find(invalid,node=>node.textContent==="Recover Saved Journey").disabled,true);
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("an interrupted Riding Horse journey never renders or resumes as Walking",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,ui:globalThis.ui,
     document:globalThis.document};

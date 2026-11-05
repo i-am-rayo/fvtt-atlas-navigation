@@ -1150,7 +1150,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         signal:session.nativeAbort.signal,
         onCheckpointDiagnostics:({mismatch,details})=>{
           if(!game.user?.isGM)return;
-          if(mismatch)atlasWarn("movement","Native checkpoint reconciliation blocked",details);
+          // Plain-text console exports otherwise collapse nested diagnostic
+          // objects into "Object". This bounded, GM-only snapshot contains
+          // only native movement identity, route IDs and coordinates.
+          if(mismatch)atlasWarn("movement","Native checkpoint reconciliation blocked",
+            JSON.stringify(details));
           else atlasDebug("movement","Native checkpoint observed",details,{level:"verbose"});
         }
       });
@@ -2501,6 +2505,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       onSourceChange:mode=>this.setSourceMode(mode),
       onRefresh:()=>this.refreshPartyDeparture()
     }));
+    // An unresolved native checkpoint is still an approved Journal leg. Do
+    // not present the default Walking selection or an unrelated recalculated
+    // route as permission to replay a failed vessel movement.
+    let pendingNativeReview=null;
+    if(this.recoverableJourney&&!this.travelSession&&!this.recoveryRecord){
+      const raw=this.recoverableJourney.getFlag?.(MODULE_ID,JOURNEY_JOURNAL_FLAG);
+      if(raw?.pendingNativeMove){
+        try{
+          pendingNativeReview=validateJourneyRecord(raw);
+        }catch{
+          // A corrupted pending intent is *more* reason to block movement.
+          // Never trust its unvalidated coordinates or IDs for a preview.
+          pendingNativeReview={pendingNativeMove:{}};
+        }
+      }
+    }
+    const pendingReviewLeg=pendingNativeReview?.legs?.at(-1)??null;
+    const pendingReviewMethod=pendingReviewLeg?.transport??pendingReviewLeg?.travelMethod;
+    const pendingReviewMethodName=pendingReviewMethod?.methodName??
+      pendingReviewMethod?.name??"Previously approved travel method";
     const availability=this.transportAvailability();
     const methods=availability.methods;
     const approvedActiveTransport=this.travelSession?.transportLeg?
@@ -2510,7 +2534,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.travelSession.journeyRecord?.legs.at(-1):null;
     const approvedRecoveryTransport=hasUnfinishedApprovedTransport(this.recoveryRecord)?
       this.recoveryRecord.legs.at(-1).transport:null;
-    if(!approvedActiveTransport&&!approvedRecoveryTransport&&
+    if(!pendingNativeReview&&!approvedActiveTransport&&!approvedRecoveryTransport&&
         !methods.some(item=>item.id===this.travelMethod)){
       this.travelMethod="walking";this.transportArrangement="owned";
       this.transportHireTerms=null;this.transportHireDenomination=null;
@@ -2531,7 +2555,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           group:offer.checkpointName||"Nearby checkpoint"}]:[];
       })
     ];
-    if(this.result?.status==="ok"&&approvedActiveTransport)
+    if(pendingNativeReview)
+      body.appendChild(renderNavigationTravelMethodSelector({
+        choices:[{value:"saved",label:pendingReviewMethodName,
+          group:"Approved saved Journey — GM review required"}],
+        selectedValue:"saved",disabled:true,onMethodChange:()=>{}
+      }));
+    else if(this.result?.status==="ok"&&approvedActiveTransport)
       body.appendChild(renderNavigationTravelMethodSelector({
         choices:[{value:"approved",label:approvedActiveTransport.methodName,
           group:"Approved current Journey leg"}],
@@ -2549,7 +2579,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       }));
-    if(!approvedActiveTransport&&!approvedRecoveryTransport&&
+    if(!pendingNativeReview&&!approvedActiveTransport&&!approvedRecoveryTransport&&
         this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
       const worldMethod=methods.find(item=>item.id===this.travelMethod);
       const method=worldMethod&&this.effectiveTransportMethod(worldMethod,availability);
@@ -2578,6 +2608,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       message.style.cssText="margin:0;font-size:.85em;opacity:.85;";
       body.appendChild(message);
     }
+    if(pendingNativeReview){
+      const pending=pendingNativeReview.pendingNativeMove;
+      const checkpointLabel=Number.isSafeInteger(pending.checkpointIndex)?
+        String(pending.checkpointIndex+1):"unknown";
+      body.appendChild(renderTransportAdvisory(
+        "The approved "+pendingReviewMethodName+" Journey is blocked at native " +
+        "checkpoint "+checkpointLabel+" (operation "+
+        (pending.operationId??"unverified")+"). " +
+        "The Journal has not confirmed that movement. Review the token position, " +
+        "World time and saved checkpoint before continuing; no new method, fare " +
+        "or travel is authorized."));
+    }
     if(recoveredPlanError)body.appendChild(renderTransportAdvisory(
       "Approved Journey cannot continue yet: "+recoveredPlanError));
     const savedTargets=this.travelSession?.journeyRecord?.routeTargets??
@@ -2592,12 +2634,25 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const recover=el("button","Recover Saved Journey");
       recover.type="button";
       recover.title="Recalculate the remaining journey from the party token without moving it";
+      if(pendingNativeReview){
+        description.textContent="Saved Journey requires GM checkpoint review. " +
+          "Its approved transportation and Journal are preserved; " +
+          "automatic recovery is not yet safe.";
+        recover.disabled=true;
+        recover.title="Native movement is unconfirmed; review the Journal before recovery";
+      }
       recover.addEventListener("click",()=>{
         try{this.recoverSavedJourney();}
         catch(error){ui.notifications.warn(error.message||String(error));}
       });
       recovery.append(description,recover);
       body.appendChild(recovery);
+    }
+    if(pendingNativeReview){
+      // No Walking-based summary, fare, route Directions or enabled Travel
+      // control may be shown while the saved native movement is ambiguous.
+      root.append(body,renderNavigationFooter(this,{partyMode,pendingNativeReview:true}));
+      return root;
     }
     const {sceneUnit,travel}=this.resolveTravel();
     const speed=Number.isFinite(approvedActiveLeg?.speedPerHour)&&

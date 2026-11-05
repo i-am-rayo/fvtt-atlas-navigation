@@ -47,3 +47,11 @@ Technical tradeoff: the public native checkpoint pauses must await Journal write
 ## Explicit non-goals
 
 Do **not** set TokenDocument positions directly or animate unofficial PIXI properties in place of the public movement API. Do not disable Canvas redraw, bypass Region restrictions, reinterpret native movement costs as fares, or migrate old Journeys on read. Do not silently assume lost movement-history IDs after a full reconnect mean a native move was confirmed.
+
+## beta.7.16.2.2 — Unconfirmed native checkpoint diagnostics
+
+The owner's live beta.7.16.2.1 test confirmed a new failure mode: the hired ship advances into its first native checkpoint but the Journey remains at 0% sea progress and the UI can fall back to the Walking preview. The exact v14 `moveToken` origin/destination/passed-waypoints that triggered this rejection were not available in an expandable export, so the cause of the native mismatch is **not yet proven**.
+
+The focused beta.7.16.2.2 diagnostic build adds bounded, serializable GM warnings: native operation/movement IDs, subpath identity, Atlas road/segment/checkpoint IDs, approved and reported endpoints, TokenDocument coordinates, pending/passed waypoint bounds, match booleans and failed validation checks. It **does not relax** native position/identity validation, replay a movement, credit an unconfirmed step, or alter Journey persistence. A pending native intent in a recoverable Journal now renders its approved transport read-only, provides an Open Journal control, and disables New Route/Travel/Recover to avoid implying a Walking fallback is authorized. Invalid pending metadata is also held for GM review rather than treated as permission to move.
+
+Checkpoint-scoped immutable transportation offering IDs are an independently useful proposed schema feature, but their migration and extension work are deferred. Journey-approved transport already records its method ID and approved transport detail; the present failure involves movement identity/coordinates, so a new offering ID would not itself prove a native checkpoint was reached. No new ID or data migration is introduced by this diagnostic hotfix.

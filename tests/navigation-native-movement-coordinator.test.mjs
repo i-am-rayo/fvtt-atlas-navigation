@@ -4,7 +4,7 @@ import {coordinateNativeTokenMovement}
   from "../scripts/navigation-native-movement-coordinator.js";
 
 function nativeHarness({alterDestination=false,alterOrigin=false,
-  detour=false,animationNeverEnds=false}={}){
+  detour=false,animationNeverEnds=false,alterMovementId=false}={}){
   const listeners=new Map();
   const calls=[];
   const hooks={
@@ -26,8 +26,10 @@ function nativeHarness({alterDestination=false,alterOrigin=false,
         const from={x:this.x,y:this.y};
         this.x=to.x+(alterDestination?4:0);this.y=to.y;
         this.hold=null;this.release=null;
-        const movement={id:index?"second-native-id":options.id,
-          chain:index?[options.id]:[],origin:alterOrigin?{x:from.x-5,y:from.y}:from,
+        const movement={id:alterMovementId?"foreign-token-move":
+          index?"second-native-id":options.id,
+          chain:alterMovementId?[]:index?[options.id]:[],
+          origin:alterOrigin?{x:from.x-5,y:from.y}:from,
           destination:{x:this.x,y:this.y},
           passed:{waypoints:detour?[from,{x:from.x+5,y:8},{x:this.x,y:this.y}]:
             [from,{x:this.x,y:this.y}]},
@@ -146,6 +148,37 @@ test("native checkpoint failures report Atlas checkpoint and road IDs with both 
   assert.equal(observed[0].details.roadId,"road-port");
   assert.equal(observed[0].details.segmentId,"segment-ship");
   assert.equal(observed[0].details.atlasCheckpointId,"checkpoint-harbor");
+  assert.equal(observed[0].details.failureReason,"native-checkpoint-mismatch");
+  assert.deepEqual(observed[0].details.failedChecks,["destination","token-document"]);
+  assert.equal(observed[0].details.nativeOperationId,"atlas-native-coordinates");
+  assert.equal(observed[0].details.nativeCheckpointKey,"atlas-native-coordinates:0");
+  assert.deepEqual(observed[0].details.expectedFrom,{x:0,y:0});
+  assert.deepEqual(observed[0].details.nativeOrigin,{x:0,y:0});
+  assert.deepEqual(observed[0].details.tokenDocument,{x:14,y:0});
+  assert.equal(observed[0].details.pendingWaypointCount,null);
+  assert.equal(observed[0].details.nativeSubpathId,null);
+  const exported=JSON.parse(JSON.stringify(observed[0].details));
+  assert.deepEqual(exported.failedChecks,["destination","token-document"],
+    "native mismatch diagnostics must survive plain-text JSON export");
+  assert.equal(exported.atlasCheckpointId,"checkpoint-harbor");
+});
+
+test("a foreign native movement ID emits an actionable failure without Journal confirmation",async()=>{
+  const {token,plan,hooks}=nativeHarness({alterMovementId:true});
+  const observed=[];
+  let confirmed=0;
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"atlas-native-owned",movementSpeed:2,
+    prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;},
+    onCheckpointDiagnostics:event=>observed.push(event)
+  }),/Another native movement displaced/);
+  assert.equal(confirmed,0);
+  assert.equal(token.stopped,true);
+  assert.equal(observed[0].details.failureReason,"foreign-native-movement-id");
+  assert.deepEqual(observed[0].details.failedChecks,["movement-id"]);
+  assert.equal(observed[0].details.nativeMovementId,"foreign-token-move");
+  assert.equal(observed[0].details.nativeOperationId,"atlas-native-owned");
+  assert.deepEqual(observed[0].details.expectedTo,{x:10,y:0});
 });
 
 test("preparation fails before any native Document position changes",async()=>{
