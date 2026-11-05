@@ -1,7 +1,9 @@
 # v0.3.8-beta.7.21 — Native Regions & Surfaces read-boundary checklist
 
 **Status:** focused refactor; automated checks run locally, owner Foundry v14
-GM/non-GM acceptance pending. Install only in a backed-up test World. This
+GM/non-GM acceptance pending. **Owner found a blocking Region-generator
+preview error (`width is not defined`) on beta.7.21; retest with the focused
+beta.7.21.1 hotfix before marking this checklist passed.** Install only in a backed-up test World. This
 build does **not** activate independent Checkpoints or migrate any schema.
 
 ## Implemented boundary

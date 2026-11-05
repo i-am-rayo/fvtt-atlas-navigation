@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
 const { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
-  filteredRoadIds } = await import("../scripts/scene-config.js");
+  filteredRoadIds, openAtlasRegionGenerator } = await import("../scripts/scene-config.js");
 
 class Element {
   constructor(tag) { this.tag = tag; this.attributes = new Map(); this.children = []; this.listeners = new Map(); this.style = {}; this.dataset = {}; }
@@ -450,6 +450,90 @@ test("native Region creation is offered from a road without legacy inline cost c
   } finally {
    for(const [key,value] of Object.entries(saved))globalThis[key]=value;
  }
+});
+
+test("Region generator submits the displayed corridor half-width without a stale width reference",async()=>{
+  const saved={document:globalThis.document,game:globalThis.game,
+    CONFIG:globalThis.CONFIG,ui:globalThis.ui,window:globalThis.window};
+  const base=globalThis.foundry.applications.api.ApplicationV2.prototype;
+  const previousRender=base.render;
+  let generator=null;
+  const errors=[];
+  const submissions=[];
+  const atlas={schemaVersion:4,coordinateSpace:"image",revision:1,enabled:true,
+    calibration:null,
+    roads:[{id:"road",name:"Sea Route"}],
+    nodes:[{id:"a",x:0,y:0},{id:"b",x:100,y:0}],
+    segments:[{id:"segment",roadId:"road",from:"a",to:"b",via:[],bidirectional:true}],
+    checkpoints:[
+      {id:"start",roadId:"road",nodeId:"a",name:"Deep Sea",elevationMeters:null},
+      {id:"end",roadId:"road",nodeId:"b",name:"Deep sea",elevationMeters:null}
+    ]};
+  const scene={id:"width-regression",grid:{size:100,distance:5,units:"mi"},
+    regions:{contents:[],values:()=>[].values(),[Symbol.iterator]:function*(){}},
+    getFlag:(_scope,key)=>key==="atlas"?atlas:null};
+  const visit=(root,predicate)=>{
+    if(predicate(root))return root;
+    for(const child of root.children??[]){const found=visit(child,predicate);if(found)return found;}
+    return null;
+  };
+  try{
+    base.render=function(){generator=this;return this;};
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.window={innerWidth:1280,innerHeight:900};
+    globalThis.game={user:{isGM:true},users:[],
+      settings:{get:()=>null},i18n:{localize:key=>key,lang:"en"}};
+    globalThis.CONFIG={};
+    globalThis.ui={notifications:{error:message=>errors.push(message)}};
+    openAtlasRegionGenerator(scene,"road",{draft:()=>null,generateRegion:(_scene,settings)=>{
+      submissions.push(settings);
+    }},()=>{});
+    assert.ok(generator,"native Region generator window opened");
+    let body=await generator._renderHTML();
+    const shape=visit(body,e=>e.tag==="select"&&e.children?.some(option=>
+      option.value==="corridor"));
+    assert.ok(shape,"the native Region shape selector is rendered");
+    shape.value="corridor";
+    shape.listeners.get("change")();
+    body=await generator._renderHTML();
+    const slider=visit(body,e=>e.tag==="input"&&e.type==="range"&&
+      e.attributes?.get("aria-label")?.includes("Distance on either side"));
+    assert.ok(slider,"corridor half-width slider is rendered");
+    slider.value="0.75";
+    slider.listeners.get("input")();
+    const preview=visit(body,e=>e.tag==="button"&&e.textContent==="Preview & Confirm");
+    assert.ok(preview&&!preview.disabled,"Region preview is available");
+    await preview.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(errors,[],"no JavaScript reference error is shown");
+    assert.equal(submissions.length,1,"the draft is passed to the existing preview handler");
+    assert.equal(submissions[0].widthCells,.75,"the submitted value matches the visible slider");
+    assert.equal(submissions[0].kind,"corridor");
+    assert.equal(submissions[0].checkpointId,"start");
+    assert.equal(submissions[0].endCheckpointId,"end");
+    // The same slider controls a single-checkpoint radius and must not
+    // regress when the GM switches back from a corridor.
+    const areaShape=visit(body,e=>e.tag==="select"&&e.children?.some(option=>
+      option.value==="checkpoint"));
+    areaShape.value="checkpoint";
+    areaShape.listeners.get("change")();
+    body=await generator._renderHTML();
+    const radius=visit(body,e=>e.tag==="input"&&e.type==="range"&&
+      e.attributes?.get("aria-label")?.includes("Radius around checkpoint"));
+    assert.ok(radius);
+    radius.value="0.5";
+    radius.listeners.get("input")();
+    await visit(body,e=>e.tag==="button"&&e.textContent==="Preview & Confirm")
+      .listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(errors,[]);
+    assert.equal(submissions.length,2);
+    assert.equal(submissions[1].kind,"checkpoint");
+    assert.equal(submissions[1].widthCells,.5);
+    assert.equal(submissions[1].endCheckpointId,null);
+    assert.equal(Object.hasOwn(scene,"setFlag"),false,"the preview does not write Scene data");
+  }finally{
+    base.render=previousRender;
+    for(const [key,value] of Object.entries(saved))globalThis[key]=value;
+  }
 });
 
 

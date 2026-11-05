@@ -767,7 +767,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
         kind: selected.kind, roadId: selected.roadId,
         checkpointId: selected.first,
         endCheckpointId: selected.kind === "corridor" ? selected.last : null,
-        widthCells: Number(width.value),
+        widthCells: Number(widthControl.input.value),
         presetId: selected.presetId ?? null,
         applyNativeCost: selected.kind === "corridor" && !!selected.applyNativeCost,
         movementAction: selected.kind === "corridor" ? selected.movementAction : null

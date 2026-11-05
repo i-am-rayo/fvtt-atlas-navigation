@@ -2,6 +2,17 @@
 
 # Active v0.3.x roadmap — updated November 5, 2026
 
+**Blocking beta.7.21 live-test finding — beta.7.21.1 focused hotfix:**
+The owner encountered `width is not defined` despite the native Region
+generator displaying a valid 0.75-cell corridor half-width. The Preview
+callback referenced a removed `width` variable rather than the live shared
+slider input. A click-through DOM test reproduced the error, and the fix
+changes only that read. No Region schema, native Behavior, Canvas, Fog,
+Journey, or game rules change. The parent beta.7.21 acceptance checklist
+remains **blocked** until owner retests Region creation and other Regions,
+Surfaces, weather and Journey preservation in Foundry v14. See
+[beta.7.21.1 checklist](REGION_WIDTH_BETA7_21_1_TESTING.md).
+
 **Current implementation — v0.3.8-beta.7.21 native Region / Surface read boundary:**
 Following owner approval of the beta.7.20.1 Node-anchored Checkpoint design,
 extract generated-Region inspection and visual surface observations into a
