@@ -5,6 +5,8 @@ import { createJourneyRecord,checkpointJourneyRecord,findRecoverableJourney,
   JOURNEY_JOURNAL_FLAG } from "../scripts/navigation-journey-journal.js";
 import { GuidedTravelDayTracker,estimateNavigationTotalTrip }
   from "../scripts/navigation-travel-day.js";
+import {planNativeCheckpointPath}
+  from "../scripts/navigation-native-movement-plan.js";
 import { defaultTransportationCatalog,findTransportationPreset,setTransportationPreset }
   from "../scripts/navigation-transport-catalog.js";
 
@@ -32,6 +34,79 @@ const pointer=(x,y,flags={})=>({button:0,clientX:x,clientY:y,
   shiftKey:false,altKey:false,ctrlKey:false,metaKey:false,
   prevented:0,stopped:0,...flags,
   preventDefault(){this.prevented++;},stopImmediatePropagation(){this.stopped++;}});
+
+test("continuous vessel uses one native move and saves each checkpoint intent before document updates",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,Hooks:globalThis.Hooks};
+  try{
+    const listeners=new Map(),events=[];
+    globalThis.foundry={utils:{randomID:()=>"native-voyage-01"}};
+    globalThis.Hooks={
+      on(name,callback){listeners.set(name,callback);return callback;},
+      off(name,callback){assert.equal(listeners.get(name),callback);listeners.delete(name);}
+    };
+    globalThis.game={time:{worldTime:100}};
+    const scene={id:"native-scene",grid:{size:100}};
+    const atlas={revision:4};
+    const view={ready:true,scene};
+    const token={id:"party-token",x:0,y:0,width:1,height:1,
+      hold:null,release:null,moves:0,
+      pauseMovement(){
+        this.hold=new Promise(resolve=>{this.release=resolve;});
+        return async()=>{this.release();};
+      },
+      stopMovement(){this.release?.();return true;},
+      async move(path,options){
+        this.moves++;
+        let from={x:this.x,y:this.y};
+        for(const target of path.filter(point=>point.checkpoint)){
+          assert.equal(events.at(-1)?.kind,"intent",
+            "a token update must always have a saved pending intent");
+          this.x=target.x;this.y=target.y;
+          this.hold=null;this.release=null;
+          listeners.get("moveToken")(this,{
+            id:options.id,chain:[],origin:from,
+            destination:{x:this.x,y:this.y},
+            animation:{ended:Promise.resolve()}
+          });
+          if(this.hold)await this.hold;
+          from={x:this.x,y:this.y};
+        }
+        return true;
+      }
+    };
+    const nav=new AtlasNavigationController({canvasProvider:()=>view,
+      atlasProvider:()=>atlas,atlasPoint:(_view,_atlas,p)=>p});
+    nav.scene=scene;
+    const session={token,sceneId:scene.id,gridSize:100,phase:"moving",
+      totalDistance:30,completedDistance:0,clock:null,
+      journeyRecord:{},schedule:{recordMovement(){}},confirmedSegments:0,
+      pendingPassengerRest:null};
+    nav.travelSession=session;
+    nav.saveJourneyCheckpoint=async(record,status)=>{
+      events.push({kind:record.journeyRecord.pendingNativeMove?"intent":"confirmed",
+        status,progress:record.completedDistance});
+    };
+    nav.captureConfirmedJourneyAnchor=()=>({point:{x:token.x,y:token.y}});
+    assert.equal(await nav.runNativeContinuousLeg(session,{
+      plan:planNativeCheckpointPath([point(0,0),point(30,0)],{
+        movementSpeed:.05,gridSize:100,totalMovingHours:6}),
+      playback:{movementSpeed:.05,travelHours:6},atlas,view,
+      guidedLeg:{checkpoint:{point:point(80,50)},
+        transport:{methodName:"Warship"}}
+    }),true);
+    assert.equal(token.moves,1);
+    assert.equal(session.completedDistance,30);
+    assert.equal(session.journeyRecord.pendingNativeMove,null);
+    assert.deepEqual(events.map(event=>event.kind),[
+      "intent","confirmed","intent","confirmed","intent","confirmed"]);
+    assert.equal(events.at(-1).status,"paused",
+      "the final dock must be durable before the native movement promise resolves");
+    assert.equal(listeners.size,0);
+  }finally{
+    globalThis.game=previous.game;globalThis.foundry=previous.foundry;
+    globalThis.Hooks=previous.Hooks;
+  }
+});
 
 test("changing Navigation stages releases detached progress and World-clock DOM refs",async()=>{
   const nav=new AtlasNavigationController();
@@ -68,6 +143,21 @@ test("unexpected canvas redraw reports and safely ends the active journey",()=>{
     assert.equal(woke,1);
     assert.equal(nav.closed,true);
   }finally{globalThis.ui=old.ui;globalThis.game=old.game;}
+});
+
+test("canvas redraw cannot downgrade a durably confirmed final native dock",async()=>{
+  const nav=new AtlasNavigationController();
+  nav.scene={id:"arrival-scene"};
+  const statuses=[];
+  let nativeStops=0;
+  nav.saveJourneyCheckpoint=async(_session,status)=>{statuses.push(status);};
+  nav.travelSession={phase:"moving",nativeActive:true,
+    token:{stopMovement(){nativeStops++;}},
+    completedDistance:50,totalDistance:50,
+    journeyRecord:{status:"paused",pendingNativeMove:null}};
+  nav.stop();
+  assert.deepEqual(statuses,["paused"]);
+  assert.equal(nativeStops,1);
 });
 
 test("canvas recovery restarts only the matching GM-approved Journey after its writes settle",async()=>{
@@ -628,6 +718,14 @@ test("a saved Journal offers deliberate recovery from the actual token without r
     nav.clear();
     assert.equal(nav.recoveryRecord,null,"New Route abandons the loaded recovery");
     nav.findRecoverableJournal();
+    record.pendingNativeMove={schemaVersion:1,operationId:"native-voyage-01",
+      tokenId:token.id,checkpointIndex:3,
+      from:point(100,50),to:point(125,75),nativeDistance:35,
+      movingHours:.1,worldTimeBefore:420,worldAdvanceSeconds:0,
+      atlasRevision:11};
+    assert.throws(()=>nav.recoverSavedJourney(),/stopped during native checkpoint/,
+      "an unconfirmed native movement cannot be silently credited on recovery");
+    delete record.pendingNativeMove;
     atlas.revision=12;
     assert.throws(()=>nav.recoverSavedJourney(),/no longer matches/);
     nav.stop();

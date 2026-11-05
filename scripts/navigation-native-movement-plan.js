@@ -15,6 +15,9 @@ const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const EPS=1e-7;
 
 export const NATIVE_CHECKPOINT_PATH_SCHEMA=1;
+// Journal durability checkpoints are not road nodes. A somewhat longer native
+// interval avoids writing a Journal flag at every 2-second visual microstep.
+export const NATIVE_CONTINUOUS_CHECKPOINT_SECONDS=5;
 
 /**
  * Convert the existing, bounded Atlas movement intervals into a single
@@ -33,23 +36,31 @@ export function planNativeCheckpointPath(waypoints,{
   const totalDistance=intervals.reduce((n,part)=>n+part.distance,0);
   if(!Number.isFinite(totalDistance)||totalDistance<=EPS)
     throw Error("The native movement path must have positive length.");
-  const path=[{x:waypoints[0].x,y:waypoints[0].y}];
+  // Native TokenMovementWaypoint coordinates are integer top-left pixels.
+  // Record the actual submitted endpoints, not unrounded Atlas curve points.
+  const nativePoint=p=>({x:Math.round(p.x),y:Math.round(p.y)});
+  const path=[nativePoint(waypoints[0])];
   let completedDistance=0;
   const checkpoints=[];
   for(const [index,interval] of intervals.entries()){
+    const from=path.at(-1);
     for(const next of interval.waypoints.slice(1)){
       if(!validPoint(next))throw Error("Invalid native path waypoint.");
       const prior=path.at(-1);
       if(distance(prior,next)<=EPS)continue;
-      path.push({x:next.x,y:next.y});
+      const target=nativePoint(next);
+      if(distance(prior,target)<=EPS)continue;
+      path.push(target);
     }
     const end=path.at(-1);
+    if(distance(from,end)<=EPS)
+      throw Error("A native movement checkpoint collapses to one pixel. Use a longer interval.");
     completedDistance+=interval.distance;
     // Foundry's final waypoint is inherently a checkpoint; marking it
     // explicitly keeps the same uniform contract for the host adapter.
     end.checkpoint=true;
     checkpoints.push({index,point:{x:end.x,y:end.y},
-      from:interval.waypoints[0],distance:interval.distance,
+      from:{x:from.x,y:from.y},distance:interval.distance,
       completedDistance,
       completedMovingHours:totalMovingHours*completedDistance/totalDistance});
   }

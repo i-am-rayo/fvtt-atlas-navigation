@@ -7,6 +7,8 @@ import {isRestUnderway,validatePassengerRestMetadata,confirmedJourneyMovingHours
 import {validateTransportJourneyInfo,confirmedTransportJourneyLines} from "./navigation-transport-journal.js";
 import {validateJourneyTargets,validateJourneyAnchor,confirmJourneyTarget}
   from "./navigation-route-targets.js";
+import {validatePendingNativeMove}
+  from "./navigation-native-movement-reconciliation.js";
 
 /** A Journal Entry owns the recoverable record and a generated human-readable page.
  * No Scene flag, token flag, or second persistent journey store is needed. */
@@ -125,6 +127,8 @@ export function validateJourneyRecord(value){
       value.day.restEvents>48)
     throw Error("This Atlas Journey Journal has invalid recovery metadata.");
   if(value.passengerRest!==undefined)validatePassengerRestMetadata(value.passengerRest);
+  if(value.pendingNativeMove!==undefined&&value.pendingNativeMove!==null)
+    validatePendingNativeMove(value.pendingNativeMove);
   // Optional in schema 1: existing Journeys continue to load without a forced
   // migration or a write-on-read. Newly created Journeys use A/B/C targets.
   if(value.routeTargets!==undefined)validateJourneyTargets(value.routeTargets);
@@ -326,7 +330,9 @@ export async function saveJourneyJournal(record,{journal=null,create=null,
   folderProvider=ensureJourneyLogFolder,updatePage=true}={}){
   if(!globalThis.game?.user?.isGM)throw Error("Only a GM may save an Atlas Journey Journal.");
   const state=validateJourneyRecord(record);
-  const html=formatJourneyJournalHTML(state);
+  // Native movement checkpoints update the authoritative flag frequently;
+  // do not regenerate the display page until a visible Journal sync is due.
+  const html=!journal||updatePage?formatJourneyJournalHTML(state):null;
   if(!journal){
     const folder=await folderProvider();
     const JournalEntry=globalThis.foundry?.documents?.JournalEntry;

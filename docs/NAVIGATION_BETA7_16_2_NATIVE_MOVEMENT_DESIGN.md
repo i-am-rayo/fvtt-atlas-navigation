@@ -1,6 +1,6 @@
 # beta.7.16.2 — Native waypoint movement / durable recovery design
 
-**Status: draft architecture and pure safety models only. No live token movement behavior is switched on.** Stacked on beta.7.16.1. This is not an installable test release; publish a test manifest only after Foundry adapter integration and automated checks are complete. Preserve the interrupted real Journeys for inspection, not for speculative retroactive credit.
+**Status: native continuous-voyage coordinator integrated in the development branch; automated tests in progress, live v14 behavior unverified.** Stacked on beta.7.16.1. This remains an unpublished draft, not an installable test release. Preserve the interrupted real Journeys for inspection, not for speculative retroactive credit.
 
 ## Verified public Foundry v14 primitives
 
@@ -26,7 +26,15 @@ Owner's beta.7.16.1 test: 95.48 mi ship leg with about 33.5% Journal-confirmed p
 5. **Canvas recovery**: Read Journal, TokenDocument native position, native movement ID/history (when retained), and World time. If still at the saved start, proceed from already confirmed progress. If exactly at a verified pending endpoint, reconcile the single known step once, respecting whether World time already advanced. If history/clock/anchor is ambiguous, leave the Journal intact and block with a GM diagnostic. Never rewind/teleport or credit a whole remaining route from proximity alone.
 6. **Lifecycle**: Guard active-GM permissions; detach hook listeners and release/stop native movement when a window closes, Scene changes, World disconnects or Canvas tears down. Do not repeatedly rebuild canvas or rerender full Directions on each checkpoint. Playback speed is visual and must not alter game travel hours.
 
-The pure `navigation-native-movement-plan.js` and `navigation-native-movement-reconciliation.js` models implement the first read-only pieces and are independently tested. **The current `navigation-controller.js` remains unchanged; a future focused integration commit must satisfy all the above steps before enabling the new path.**
+## Current implementation boundaries
+
+- `navigation-native-movement-plan.js` builds one path with bounded integer-pixel native checkpoints from authored road geometry. It never moves a Token.
+- `navigation-native-movement-coordinator.js` is the Foundry-facing adapter: one `token.move(path, {id,animation:{movementSpeed}})`, `moveToken` identity/endpoint validation, synchronous native pause, awaited animation, durable callback, and native resume. It detaches hooks on completion/failure.
+- `AtlasNavigationController.runNativeContinuousLeg` implements a **continuous checkpoint transport leg only**. Before each native update, it persists an optional schema-1 `pendingNativeMove` in the existing Journey Journal. After native endpoint/animation proof, it advances only intended World time, credits the schedule/anchor, and commits progress before allowing the next native checkpoint. Five-second visual checkpoints reduce Journal writes; the final dock is durably committed as `paused` with transfer metadata before native `move()` resolves. Canvas interruption calls `stopMovement` without downgrading an already confirmed dock.
+- If a pending intent survives a refresh, recovery **fails closed with a GM review diagnostic**. `navigation-native-movement-reconciliation.js` supplies a pure proof classifier, but native movement-history corroboration, revision-checked automatic reconciliation, and safely crediting a pending endpoint on reload are **not yet integrated**. No interrupted Journal is retroactively modified or assumed completed.
+- Normal walking, mounted travel, noncontinuous ships, rest/forced-march decisions, and checkpoint transfers **retain their previously proven movement loop** during this focused change. In a non-v14 environment missing the public API, continuous travel is refused before the Journal or Token changes.
+
+Technical tradeoff: the public native checkpoint pauses must await Journal writes, which may introduce brief holds in an otherwise single continuous animation. The new approach avoids reissuing a new move command after each short interval. The owner must assess real v14 animation smoothness and movement-history behavior before enabling a test release.
 
 ## Live adapter gate before any test build
 

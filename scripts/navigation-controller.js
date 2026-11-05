@@ -8,6 +8,12 @@ import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
 import { planGuidedTravelChunks, waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS }
   from "./navigation-movement-lifecycle.js";
+import {planNativeCheckpointPath,NATIVE_CONTINUOUS_CHECKPOINT_SECONDS}
+  from "./navigation-native-movement-plan.js";
+import {coordinateNativeTokenMovement}
+  from "./navigation-native-movement-coordinator.js";
+import {validatePendingNativeMove}
+  from "./navigation-native-movement-reconciliation.js";
 import { GuidedTravelDayTracker,estimateNavigationTotalTrip,
   splitGuidedChunkAtDistance,MAX_GUIDED_REST_EVENTS,MAX_GUIDED_TRAVEL_EVENTS }
   from "./navigation-travel-day.js";
@@ -831,6 +837,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(!view?.ready||view.scene?.id!==this.scene.id)
       throw Error("Open the journey's original Scene before resuming.");
     const saved=validateJourneyRecord(record);
+    if(saved.pendingNativeMove){
+      const intent=saved.pendingNativeMove;
+      throw Error("The saved Journey stopped during native checkpoint "+
+        (intent.checkpointIndex+1)+" (movement "+intent.operationId+"). "+
+        "The token may have advanced before the Journal was confirmed. "+
+        "Do not replay this leg. Ask the GM to review the native Token movement " +
+        "history, World time, and the Journal's last confirmed anchor.");
+    }
     this.sourceMode="party";
     this.syncPartyDeparture(view,atlas);
     if(saved.lastConfirmedAnchor){
@@ -1001,9 +1015,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.worldTimeStatus();
   }
 
-  async commitGuidedWorldTime(session,{force=false}={}){
+  async commitGuidedWorldTime(session,{force=false,
+    completedDistance=session.completedDistance}={}){
     if(!session.clock)return 0;
-    const delta=await session.clock.commit(session.completedDistance,{force});
+    const delta=await session.clock.commit(completedDistance,{force});
     if(delta)atlasDebug("clock","Confirmed travel time advanced",{
       sceneId:session.sceneId,seconds:delta,
       totalMovingSeconds:session.clock.advancedSeconds,force
@@ -1011,6 +1026,114 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(this.travelSession===session)this.setWorldTimeAdvanced(
       session.clock.advancedSeconds,session.clock.restSeconds);
     return delta;
+  }
+
+  /**
+   * Continuous transport uses one public v14 native movement, with each
+   * checkpoint held until its intent, clock, and confirmed Journal are durable.
+   * Land routes with GM rest/forced-march decisions retain their existing loop.
+   */
+  async runNativeContinuousLeg(session,{plan,playback,atlas,view,guidedLeg}){
+    const operationId=foundry.utils.randomID();
+    const pixelsPerSecond=playback.movementSpeed*session.gridSize;
+    const shouldStop=()=>this.travelSession!==session||session.phase==="ending"||
+      this.scene?.id!==session.sceneId||
+      this.atlasProvider(this.scene)?.revision!==atlas.revision;
+    const prepareCheckpoint=async checkpoint=>{
+      if(shouldStop())throw Error("The approved native journey was interrupted.");
+      await this.waitForGuidedTravelResume(session);
+      if(shouldStop())throw Error("The approved native journey was stopped.");
+      const worldTimeBefore=game.time?.worldTime;
+      if(!Number.isSafeInteger(worldTimeBefore))
+        throw Error("The current Foundry World time is not a safe integer.");
+      const clock=session.clock;
+      const target=clock?.targetSeconds(checkpoint.completedDistance)??0;
+      const outstanding=target-(clock?.advancedSeconds??0);
+      const worldAdvanceSeconds=clock&&outstanding>0&&
+        (checkpoint.index===plan.checkpoints.length-1||
+          outstanding>=clock.minimumStep)?outstanding:0;
+      session.journeyRecord.pendingNativeMove=validatePendingNativeMove({
+        schemaVersion:1,operationId,tokenId:session.token.id,
+        checkpointIndex:checkpoint.index,from:checkpoint.from,to:checkpoint.point,
+        nativeDistance:checkpoint.distance,movingHours:
+          checkpoint.completedMovingHours-
+          (plan.checkpoints[checkpoint.index-1]?.completedMovingHours??0),
+        worldTimeBefore,worldAdvanceSeconds,atlasRevision:atlas.revision
+      });
+      session.currentChunk={distance:checkpoint.distance,startedAt:Date.now(),
+        durationMs:1000*checkpoint.distance/pixelsPerSecond};
+      // A crash between here and native TokenDocument.update leaves a valid
+      // at-start intent. A crash after update leaves an unresolved intent,
+      // never falsely credited Journey progress.
+      await this.saveJourneyCheckpoint(session,"moving",{updatePage:false});
+    };
+    const confirmCheckpoint=async(checkpoint,movement)=>{
+      if(shouldStop())throw Error("Native movement interrupted before confirmation.");
+      const pending=session.journeyRecord.pendingNativeMove;
+      if(pending?.operationId!==operationId||
+          pending.checkpointIndex!==checkpoint.index)
+        throw Error("The Journey's pending native checkpoint was replaced.");
+      if(game.time.worldTime!==pending.worldTimeBefore)
+        throw Error("World time changed while a native checkpoint was pending.");
+      if(Math.hypot(session.token.x-checkpoint.point.x,
+          session.token.y-checkpoint.point.y)>1)
+        throw Error("The native TokenDocument missed its approved checkpoint.");
+      const finalCheckpoint=checkpoint.index===plan.checkpoints.length-1;
+      if(finalCheckpoint){
+        const actual=this.atlasPoint(view,atlas,
+          partyTokenCanvasCenter(session.token,session.gridSize));
+        if(!confirmGuidedCheckpointArrival({token:session.token,
+          gridSize:session.gridSize,atlasPoint:actual,
+          expectedPoint:guidedLeg.checkpoint.point}))
+          throw Error("The native voyage did not reach the authored arrival checkpoint.");
+      }
+      // Keep credited progress unchanged while the asynchronous World-clock
+      // write runs. A concurrent canvas teardown must not persist uncredited
+      // movement as confirmed simply because a TokenDocument advanced first.
+      const delta=await this.commitGuidedWorldTime(session,{
+        force:finalCheckpoint,
+        completedDistance:checkpoint.completedDistance
+      });
+      if(delta!==pending.worldAdvanceSeconds)
+        throw Error("The committed World time differs from the approved checkpoint intent.");
+      if(shouldStop())
+        throw Error("Canvas or GM interruption during checkpoint confirmation.");
+      session.completedDistance=checkpoint.completedDistance;
+      session.currentChunk=null;
+      session.schedule.recordMovement(checkpoint.distance/plan.totalDistance*
+        playback.travelHours);
+      session.confirmedSegments++;
+      session.lastConfirmedAnchor=this.captureConfirmedJourneyAnchor(session,view,atlas);
+      if(session.pendingPassengerRest&&
+          confirmPassengerRest(session.schedule,session.pendingPassengerRest)){
+        this.travelNotice="Passenger rest completed aboard "+
+          guidedLeg.transport.methodName+" while the vessel kept moving.";
+        session.pendingPassengerRest=null;
+        session.journeyRecord.passengerRest=null;
+        if(this.active)void this.render(true);
+      }
+      // Predictable from the saved intent: no World time is advanced during
+      // animation, and an unrelated GM clock change invalidates this step.
+      session.journeyRecord.pendingNativeMove=null;
+      // The last native checkpoint is already an approved dock arrival.
+      // Commit transfer metadata *here* so a canvas redraw before the outer
+      // move() promise resolves does not lose the durable C/D decision.
+      await this.saveJourneyCheckpoint(session,finalCheckpoint?"paused":"moving",
+        {updatePage:finalCheckpoint});
+      this.setTravelProgress(Math.min(99,100*session.completedDistance/session.totalDistance));
+      atlasDebug("movement","Native checkpoint durably confirmed",{
+        operationId,nativeMovementId:movement.id,
+        checkpoint:checkpoint.index+1,checkpointCount:plan.checkpoints.length
+      },{level:"verbose"});
+    };
+    session.nativeActive=true;
+    try{
+      const result=await coordinateNativeTokenMovement({
+        token:session.token,plan,operationId,movementSpeed:playback.movementSpeed,
+        hooks:Hooks,prepareCheckpoint,confirmCheckpoint,shouldStop
+      });
+      return result.completed;
+    }finally{session.nativeActive=false;session.currentChunk=null;}
   }
 
   /** All rule interpretations flow through one pure World settings adapter. */
@@ -1361,6 +1484,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const schedule=new GuidedTravelDayTracker({travelHours:playback.travelHours,
       rules:this.resolveTravelRules(travel,guidedOption?.method,
         guidedLeg?.transport?.operation)});
+    const nativeContinuous=guidedLeg?.transport?.operation==="continuous";
+    if(nativeContinuous&&(
+      typeof token.pauseMovement!=="function"||
+      typeof token.stopMovement!=="function"||
+      typeof globalThis.Hooks?.on!=="function"||
+      typeof globalThis.Hooks?.off!=="function"||
+      typeof foundry.utils?.randomID!=="function"))
+      throw Error("Continuous travel requires Foundry v14 native movement " +
+        "checkpoints and Hooks. The token and Journal have not changed.");
+    // Reject unsupported paths before even creating a Journey Journal.
+    const nativePlan=nativeContinuous?planNativeCheckpointPath(waypoints,{
+      movementSpeed:playback.movementSpeed,gridSize:this.scene.grid.size,
+      secondsPerCheckpoint:NATIVE_CONTINUOUS_CHECKPOINT_SECONDS,
+      totalMovingHours:playback.travelHours
+    }):null;
+    if(nativePlan&&Math.abs(nativePlan.totalDistance-totalDistance)>1e-3)
+      throw Error("The native and approved route distances disagree.");
     const advanceWorldTime=readNavigationWorldClockSetting(game.settings);
     if(advanceWorldTime){
       if(game.users?.activeGM?.id!==game.user?.id||!game.user?.isGM)
@@ -1457,7 +1597,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           (chunk?.distance??0)*fraction)/session.totalDistance));
       },100);
       let reachedEnd=true,interruptedReason=null,clockFailed=false;
-      for(let index=0;index<chunks.length;index++){
+      if(nativeContinuous){
+        try{
+          reachedEnd=await this.runNativeContinuousLeg(session,{
+            plan:nativePlan,playback,atlas,view,guidedLeg
+          });
+        }catch(error){
+          reachedEnd=false;
+          interruptedReason="Native journey checkpoint could not be confirmed: "+
+            (error.message||String(error));
+          clockFailed=true;
+        }
+      }else for(let index=0;index<chunks.length;index++){
         if(this.travelSession!==session||session.phase==="ending"){
           reachedEnd=false;break;
         }
@@ -1598,7 +1749,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
         try{await this.saveJourneyCheckpoint(session,arrived?
           (guidedLeg?"paused":"completed"):
-          session.phase==="ending"?"ended":"interrupted");}
+          session.phase==="ending"&&!session.journeyRecord.pendingNativeMove?
+            "ended":"interrupted");}
         catch(error){
           interruptedReason="The Journey Journal could not finalize: "+
             (error.message||String(error));
@@ -1803,6 +1955,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     atlasDebug("journey","End journey requested",{sceneId:session.sceneId});
     session.resumeWaiter?.();
     session.restWaiter?.(null);
+    // A single native v14 movement can span many checkpoints. Stopping Atlas
+    // must stop that public TokenDocument operation, not merely its UI loop.
+    if(session.nativeActive){
+      try{session.token.stopMovement();}
+      catch(error){atlasWarn("movement","Native movement could not be stopped",error);}
+    }
     this.travelNotice="Ending journey after the current short road stretch…";
     if(render&&this.active)void this.render(true);
     return true;
@@ -1882,7 +2040,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const session=this.travelSession;
       // A closed navigation window or canvas redraw is an interruption, not
       // an End Journey. Preserve the last confirmed position in its Journal.
-      void this.saveJourneyCheckpoint(session,"interrupted").catch(error=>
+      // A final native dock confirmation may already have durably committed
+      // transfer metadata before move() resolves. Never downgrade that paused
+      // checkpoint to an unconfirmed, partially travelled leg on redraw.
+      const confirmedArrival=session.journeyRecord?.status==="paused"&&
+        !session.journeyRecord.pendingNativeMove&&
+        session.completedDistance/session.totalDistance>=.99999;
+      void this.saveJourneyCheckpoint(session,confirmedArrival?
+        "paused":"interrupted").catch(error=>
         atlasWarn("journey","Journey interrupted but its Journal could not update",error));
       this.stopGuidedTravel({render:false});
     }
