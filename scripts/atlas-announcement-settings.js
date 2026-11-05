@@ -1,6 +1,8 @@
 import {MODULE_ID} from "./atlas-storage.js";
 import {ATLAS_ANNOUNCEMENT_TYPES} from "./atlas-announcement-model.js";
 import {AtlasAnnouncementPreviewRenderer} from "./atlas-announcement-view.js";
+import {registerAtlasAnnouncementDelivery,atlasAnnouncementRuntime}
+  from "./atlas-announcement-runtime.js";
 
 /** GM-only presentation test harness exposed through native Module Settings. */
 export class AtlasAnnouncementPreviewSettings extends foundry.applications.api.ApplicationV2 {
@@ -60,4 +62,8 @@ export function registerAtlasAnnouncementPreviewMenu(){
   });
 }
 
-Hooks.once("init",registerAtlasAnnouncementPreviewMenu);
+Hooks.once("init",()=>{
+  registerAtlasAnnouncementPreviewMenu();
+  registerAtlasAnnouncementDelivery();
+});
+Hooks.once("ready",()=>atlasAnnouncementRuntime.start());

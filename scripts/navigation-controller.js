@@ -63,6 +63,7 @@ import { offersAtOrigin,checkpointOffers,saveCheckpointOffers,
   from "./checkpoint-transportation.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
+import {publishAtlasJourneyAnnouncement} from "./atlas-announcement-runtime.js";
 import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
 import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   validateJourneyRecord,eligibleJourneyRecord,isUnfinishedJourneyLeg,
@@ -112,6 +113,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     routeCalculator=calculateSceneRoadRoute,atlasProvider=readAtlas,
     atlasPoint=toAtlasPoint,
     journeyJournalStore={save:saveJourneyJournal,find:findRecoverableJourney},
+    announcementPublisher=publishAtlasJourneyAnnouncement,
     partyTokenProvider=scene=>{
       const assignment=readPartyExploration(scene);
       return assignment.enabled?scene?.tokens?.get?.(assignment.tokenId):null;
@@ -123,6 +125,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.atlasPoint=atlasPoint;
     this.partyTokenProvider=partyTokenProvider;
     this.journeyJournalStore=journeyJournalStore;
+    this.announcementPublisher=announcementPublisher;
     this.scene = null;
     this.sourceMode = "map";
     this.travelMethod = "walking";
@@ -1009,6 +1012,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     try{
       const ended={...saved,status:"ended",updatedAt:new Date().toISOString()};
       await this.journeyJournalStore.save(ended,{journal});
+      this.announceCommittedJourney({journal,previous:saved,committed:ended,
+        type:"journey.ended"});
       // A successful Journal write, not the button click, releases the lock.
       this.autoResumePending=null;
       this.autoResumeAttempts.delete(journal.id);
@@ -1043,6 +1048,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // confirmation. Never overwrite a completed/ended Journal from a late
     // interruption; the verified terminal record stays authoritative.
     if(!mayCheckpointJourneyStatus(session.journeyRecord.status,status))return;
+    const previous=session.journeyRecord;
     const arrival=status==="completed"?journeyWorldStamp(game.time):null;
     // The cached native Document anchor was sampled ONLY after a completed,
     // verified move. During an in-flight move the Document may be ahead of
@@ -1074,6 +1080,31 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         updatePage:publish});
     });
     await session.journalQueue;
+    if(status==="completed")this.announceCommittedJourney({
+      journal:session.journal,previous,committed:saved,
+      type:"destination.reached",subject:"your destination"});
+    else if(status==="ended")this.announceCommittedJourney({
+      journal:session.journal,previous,committed:saved,type:"journey.ended"});
+    else if(status==="paused"&&session.transportLeg?.checkpoint?.id&&
+        saved.legs.at(-1)?.completedPercent>=99.999)
+      this.announceCommittedJourney({
+        journal:session.journal,previous,committed:saved,
+        type:"checkpoint.arrived",checkpointId:session.transportLeg.checkpoint.id,
+        subject:session.transportLeg.checkpoint.name});
+    else if(status==="paused"&&session.phase==="pausing")
+      this.announceCommittedJourney({
+        journal:session.journal,previous,committed:saved,
+        type:"journey.paused"});
+  }
+
+  /** Presentation can only observe a successful Journal commit. It is never
+   * part of the native movement/clock/Journal transaction or a recovery gate. */
+  announceCommittedJourney(payload){
+    try{return this.announcementPublisher(payload);}
+    catch(error){
+      atlasWarn("journey","A confirmed Journey banner could not be displayed",error);
+      return false;
+    }
   }
 
   /** Snapshot an authoritative TokenDocument position at a verified boundary.
@@ -1684,8 +1715,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // The Journal is the one durable journey store. Create it before any
     // movement; a failed Journal write cannot leave an unrecorded trip.
     this.journalStarting=true;
+    let freshJourney=false;
     try{
       const recovered=this.recoveryRecord;
+      freshJourney=!recovered;
       if(recovered?.passengerRest&&guidedLeg?.transport?.operation!=="continuous")
         throw Error("Restore continuous vessel operation before resuming a passenger rest.");
       const departureStamp=recovered?null:journeyWorldStamp(game.time);
@@ -1741,6 +1774,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.travelSession===session&&this.scene?.id===session.sceneId
     });
     this.travelSession=session;
+    if(freshJourney)this.announceCommittedJourney({
+      journal:session.journal,previous:null,committed:session.journeyRecord,
+      type:"journey.started",subject:"new horizons"});
     atlasDebug("journey","Guided journey started",{
       sceneId:session.sceneId,chunkCount:chunks.length,
       plannedTravelHours:Math.round(playback.travelHours*100)/100,
@@ -2054,6 +2090,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("Only a confirmed checkpoint can end this leg.");
     next.status="ended";next.updatedAt=new Date().toISOString();
     await this.journeyJournalStore.save(next,{journal:this.recoveryJournal});
+    this.announceCommittedJourney({journal:this.recoveryJournal,
+      previous:this.recoveryRecord,committed:next,type:"journey.ended"});
     this.pendingTransfer=null;
     this.clear();
     this.travelNotice="Journey ended at "+pending.checkpoint.name+
@@ -2075,6 +2113,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(Number.isFinite(arrived?.seconds))next.arrivedWorldTime=arrived.seconds;
     if(arrived?.label)next.arrivedTimeLabel=arrived.label;
     await this.journeyJournalStore.save(next,{journal:this.recoveryJournal});
+    this.announceCommittedJourney({journal:this.recoveryJournal,
+      previous:this.recoveryRecord,committed:next,
+      type:"destination.reached",subject:pending.checkpoint.name});
     const completedJournal=this.recoveryJournal;
     this.pendingTransfer=null;
     this.clear();

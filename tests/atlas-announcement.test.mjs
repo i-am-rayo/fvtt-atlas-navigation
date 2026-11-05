@@ -79,7 +79,8 @@ test("DOM preview is local, escaped by textContent, and reuses one overlay",()=>
 
 test("Foundry integration is settings-only with no Scene or gameplay writes",()=>{
   const manifest=JSON.parse(readFileSync(new URL("../module.json",import.meta.url),"utf8"));
-  assert.equal(manifest.version,"0.3.9-beta.2");
+  assert.match(manifest.version,/^0\.3\.9-beta\.[2-9]\d*$/,
+    "beta.3 and later must retain the preview foundation");
   assert.ok(manifest.styles.includes("styles/atlas-announcements.css"));
   assert.ok(manifest.esmodules.includes("scripts/atlas-announcement-settings.js"));
   const settingsSource=readFileSync(new URL("../scripts/atlas-announcement-settings.js",import.meta.url),"utf8");
