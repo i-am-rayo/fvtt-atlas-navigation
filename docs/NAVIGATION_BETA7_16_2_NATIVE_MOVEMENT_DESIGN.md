@@ -1,6 +1,6 @@
 # beta.7.16.2 — Native waypoint movement / durable recovery design
 
-**Status: native continuous-voyage coordinator integrated in the development branch; automated tests in progress, live v14 behavior unverified.** Stacked on beta.7.16.1. This remains an unpublished draft, not an installable test release. Preserve the interrupted real Journeys for inspection, not for speculative retroactive credit.
+**Status: owner-authorized beta.7.16.2 installable test build; live Foundry v14 behavior unverified.** Stacked on beta.7.16.1; PR #171 remains draft and is not a stable release. See `docs/NAVIGATION_BETA7_16_2_TEST_CHECKLIST.md` for the exact manifest and live acceptance steps. Preserve interrupted real Journeys for inspection, not for speculative retroactive credit.
 
 ## Verified public Foundry v14 primitives
 
