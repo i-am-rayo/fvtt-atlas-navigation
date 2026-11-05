@@ -1,6 +1,6 @@
 import { readManualFog, applyManualFogBrush } from "./atlas-manual-fog-storage.js";
 import { nativeFogCells, brushCells } from "./atlas-manual-fog-geometry.js";
-import { cellKey } from "./atlas-manual-fog-model.js";
+import { coveredManualFogCells } from "./atlas-manual-fog-projection.js";
 import { MODULE_ID, readAtlas } from "./atlas-storage.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { checkpointRevealKeys } from "./checkpoint-exploration.js";
@@ -40,7 +40,8 @@ export class AtlasManualFogController {
     },this.paletteOpen);
     if(!mode)return;
     const scene=canvas.scene;
-    if(!readManualFog(scene).enabled)return;
+    try{if(!readManualFog(scene).enabled)return;}
+    catch(error){ui.notifications.error(error.message);return;}
     const p=canvas.canvasCoordinatesFromClient?.({x:event.clientX,y:event.clientY});
     if(!p)return;
     let cells;
@@ -63,7 +64,14 @@ export class AtlasManualFogController {
     const view=globalThis.canvas;
     if(!view?.ready||!view.scene||!globalThis.game?.user)return;
     this.installPointer();
-    const state=readManualFog(view.scene);
+    let state,invalidState=null;
+    try{state=readManualFog(view.scene);}
+    catch(error){
+      // Invalid saved flags are never treated as a disabled mask. Keep the
+      // native Scene untouched and cover the whole image until GM repair.
+      invalidState=error;
+      state={enabled:true};
+    }
     const shouldDraw=state.enabled&&(!game.user.isGM||this.preview);
     if(!shouldDraw){if(this.layer)this.layer.visible=false;return;}
     if(!globalThis.PIXI?.Graphics||!view.primary?.addChild)return;
@@ -79,20 +87,18 @@ export class AtlasManualFogController {
     const sceneX=Number(view.dimensions?.sceneX),sceneY=Number(view.dimensions?.sceneY);
     const width=Number(view.dimensions?.sceneWidth),height=Number(view.dimensions?.sceneHeight);
     try{
+      if(invalidState)throw invalidState;
       const all=nativeFogCells(view);
-      const revealed=new Set(state.revealed.map(cellKey));
-      const hidden=new Set(state.hidden.map(cellKey));
       const checkpointCells=checkpointRevealKeys(all,readAtlas(view.scene),
         readPartyExploration(view.scene),Number(view.scene.grid?.size),
         {x:sceneX,y:sceneY});
+      const covered=coveredManualFogCells(all,state,checkpointCells);
       atlasDebug("fog","Exploration mask rebuilt",{
         sceneId:view.scene.id,totalCells:all.length,
-        revealedCells:revealed.size,hiddenCells:hidden.size,
-        checkpointCells:checkpointCells.size
+        revealedCells:state.revealed.length,hiddenCells:state.hidden.length,
+        checkpointCells:checkpointCells.size,coveredCells:covered.length
       },{level:"trace"});
-      for(const cell of all) {
-        const key=cellKey(cell);
-        if((revealed.has(key)||checkpointCells.has(key))&&!hidden.has(key))continue;
+      for(const cell of covered) {
         g.beginFill(0x080b12,game.user.isGM?0.62:1);
         g.drawPolygon(cell.polygon.flat());
         g.endFill();

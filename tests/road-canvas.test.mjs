@@ -269,6 +269,24 @@ test("stale pan and fog callbacks cannot refresh graphics after teardown",()=>{
   }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
 });
 
+test("invalid player fog flags do not interrupt the independent opaque fog renderer",()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+  const m=setup();
+  const original=m.scene.getFlag;
+  const warn=console.warn;
+  try{
+    globalThis.game={user:{isGM:false}};
+    globalThis.PIXI={Graphics:m.Graphics};
+    m.scene.getFlag=(scope,key)=>key==="manualFog"?
+      {schemaVersion:1,enabled:true,revealed:[],hidden:[{x:NaN,y:4}]}:
+      original(scope,key);
+    console.warn=()=>{};
+    assert.doesNotThrow(()=>m.controller.refresh(),
+      "an invalid player flag cannot abort the following manual Fog controller refresh");
+    assert.equal(m.controller.graphics,null);
+  }finally{console.warn=warn;m.controller.tearDown();Object.assign(globalThis,previous);}
+});
+
 test("late icon texture load does not redraw after Canvas teardown",async()=>{
   const previous={game:globalThis.game,PIXI:globalThis.PIXI,
     foundry:globalThis.foundry};

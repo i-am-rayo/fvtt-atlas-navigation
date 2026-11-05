@@ -9,7 +9,7 @@ import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 import { atlasShortcutTarget } from "./atlas-canvas-hit.js";
 import { groupCheckpointMarkers, checkpointQuickInfo,
   clusterQuickInfo } from "./checkpoint-clusters.js";
-import { playerAtlasOverlay } from "./player-visibility.js";
+import { playerAtlasOverlay } from "./player-overlay-model.js";
 import { readManualFog } from "./atlas-manual-fog-storage.js";
 import { cellKey } from "./atlas-manual-fog-model.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
@@ -1660,15 +1660,17 @@ export class RoadCanvasController {
     const canvas = this.canvasProvider();
     if (!canvas?.ready || !canvas.scene || !globalThis.game?.user) return;
     if (!game.user.isGM) {
-      let revealed;
-      try { revealed = playerAtlasOverlay(readAtlas(canvas.scene),
-        readPartyExploration(canvas.scene)); }
+      let revealed,atlasMapMode;
+      try {
+        revealed = playerAtlasOverlay(readAtlas(canvas.scene),
+          readPartyExploration(canvas.scene));
+        atlasMapMode = readManualFog(canvas.scene).enabled;
+      }
       catch (error) {
         console.warn("[fvtt-atlas-navigation] Player overlay unavailable", error);
         this.#clearPlayerOverlay();
         return;
       }
-      const atlasMapMode = readManualFog(canvas.scene).enabled;
       if (!revealed.segments.length && !revealed.checkpoints.length && !atlasMapMode) {
         this.#clearPlayerOverlay();
         return;

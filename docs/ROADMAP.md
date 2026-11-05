@@ -2,6 +2,22 @@
 
 # Active v0.3.x roadmap — updated November 5, 2026
 
+**Current implementation — v0.3.8-beta.7.23 Fog / player visual read boundary (draft):**
+Extract an explicit field-whitelisted player overlay projection and a pure
+manual Fog cell-coverage rule, retaining native Grid, Region, and
+FogExploration authority. A malformed manual Fog flag must cover rather than
+expose the Scene, without a write-on-read repair or mutation. The existing
+player Scene flag remains technically inspectable; this is canvas display
+isolation, **not server-side confidentiality**. No Journey/recovery changes.
+See [beta.7.23 Foundry checklist](FOG_PLAYER_READ_BETA7_23_TESTING.md).
+The owner's checkpoint-transfer regression is now tracked as
+[high-risk bug #189](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/189),
+linked to existing canvas rebuild [#135](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/135).
+The log shows a native token/Journal anchor mismatch refused safely; later
+expanded traces suggest a weather/World-time Scene update initiates some
+canvas rebuilds. Fixing that separate safety incident is deferred; it must be
+resolved or explicitly contained before full cross-subsystem acceptance.
+
 **Current implementation — v0.3.8-beta.7.22 overlay observability and lifecycle (draft):**
 Following the owner's successful beta.7.21.1 generated-Region retest, this
 separate Road overlay slice measures refresh requests and render/Graphics

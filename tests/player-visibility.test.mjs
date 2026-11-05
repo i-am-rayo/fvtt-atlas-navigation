@@ -73,6 +73,35 @@ test("independent visual toggles never reveal a hidden road through checkpoint p
   assert.throws(() => setRoadPlayerVisibility(old, { roadId, visible: "true" }), /on or off/);
 });
 
+test("player overlay read model whitelists visible geometry and cannot expose private fields", () => {
+  const initial=fixture();
+  const shownRoad=setRoadPlayerVisibility(initial,{
+    roadId:initial.roads[0].id,visible:true});
+  const shown=setCheckpointPlayerVisibility(shownRoad,{
+    checkpointId:initial.checkpoints[0].id,visible:true});
+  // Simulate a future Atlas schema or read adapter attaching GM-only data.
+  const input={...shown,gmPrivateNotes:"never-visible-root",
+    calibration:{source:"manual",unitsPerPixel:123,unit:"mi"},
+    roads:shown.roads.map(road=>({...road,internalCost:"never-visible-road"})),
+    segments:shown.segments.map(segment=>({...segment,
+      hiddenMetadata:"never-visible-segment"})),
+    nodes:shown.nodes.map(node=>({...node,hiddenReference:"never-visible-node"})),
+    checkpoints:shown.checkpoints.map(checkpoint=>({...checkpoint,
+      hiddenJournal:"never-visible-checkpoint"}))};
+  const projected=playerAtlasOverlay(input);
+  const output=JSON.stringify(projected);
+  assert.equal(output.includes("never-visible"),false);
+  assert.equal(Object.hasOwn(projected,"calibration"),false);
+  assert.equal(Object.hasOwn(projected,"gmPrivateNotes"),false);
+  assert.deepEqual(projected.roads.map(road=>road.name),["Secret Road"]);
+  assert.deepEqual(projected.checkpoints.map(checkpoint=>checkpoint.name),
+    ["Secret Observatory"]);
+  projected.nodes[0].x=987;
+  projected.segments[0].via.push({x:999,y:999});
+  assert.notEqual(input.nodes[0].x,987);
+  assert.equal(input.segments[0].via.length,0);
+});
+
 test("v9-added roads and checkpoints default hidden without touching existing reveals", () => {
   let data = setRoadPlayerVisibility(fixture(), { roadId: fixture().roads[0].id, visible: true });
   let i = 0;
