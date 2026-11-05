@@ -61,13 +61,19 @@ test("continuous vessel uses one native move and saves each checkpoint intent be
         for(const target of path.filter(point=>point.checkpoint)){
           assert.equal(events.at(-1)?.kind,"intent",
             "a token update must always have a saved pending intent");
-          this.x=target.x;this.y=target.y;
+          const destination={x:target.x,y:target.y};
+          let endAnimation;
+          const animationEnded=new Promise(resolve=>{endAnimation=resolve;});
           this.hold=null;this.release=null;
           listeners.get("moveToken")(this,{
             id:options.id,chain:[],origin:from,
-            destination:{x:this.x,y:this.y},
-            animation:{ended:Promise.resolve()}
+            destination,animation:{ended:animationEnded}
           });
+          // The live v14 move hook may report an approved endpoint while the
+          // authoritative document still contains the preceding checkpoint.
+          assert.deepEqual({x:this.x,y:this.y},from);
+          Object.assign(this,destination);
+          endAnimation();
           if(this.hold)await this.hold;
           from={x:this.x,y:this.y};
         }
@@ -101,6 +107,69 @@ test("continuous vessel uses one native move and saves each checkpoint intent be
       "intent","confirmed","intent","confirmed","intent","confirmed"]);
     assert.equal(events.at(-1).status,"paused",
       "the final dock must be durable before the native movement promise resolves");
+    assert.equal(listeners.size,0);
+  }finally{
+    globalThis.game=previous.game;globalThis.foundry=previous.foundry;
+    globalThis.Hooks=previous.Hooks;
+  }
+});
+
+test("native destination without committed token position preserves pending Journal intent and clock",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,Hooks:globalThis.Hooks};
+  try{
+    const listeners=new Map(),journalWrites=[];
+    globalThis.foundry={utils:{randomID:()=>"native-uncommitted-01"}};
+    globalThis.Hooks={
+      on(name,callback){listeners.set(name,callback);return callback;},
+      off(name,callback){assert.equal(listeners.get(name),callback);listeners.delete(name);}
+    };
+    globalThis.game={time:{worldTime:500}};
+    const scene={id:"native-scene",grid:{size:100}};
+    const atlas={revision:4};
+    const view={ready:true,scene};
+    const token={id:"party-token",x:0,y:0,width:1,height:1,stopped:false,
+      release:null,
+      pauseMovement(){
+        const hold=new Promise(resolve=>{this.release=resolve;});
+        this.hold=hold;
+        return async()=>{this.release?.();};
+      },
+      stopMovement(){this.stopped=true;this.release?.();return true;},
+      async move(path,options){
+        const destination={x:path.at(-1).x,y:path.at(-1).y};
+        listeners.get("moveToken")(this,{
+          id:options.id,chain:[],origin:{x:0,y:0},destination,
+          animation:{ended:Promise.resolve()}
+        });
+        if(this.hold)await this.hold;
+        return !this.stopped;
+      }
+    };
+    const nav=new AtlasNavigationController({canvasProvider:()=>view,
+      atlasProvider:()=>atlas,atlasPoint:(_view,_atlas,p)=>p});
+    nav.scene=scene;
+    const session={token,sceneId:scene.id,gridSize:100,phase:"moving",
+      totalDistance:10,completedDistance:0,clock:null,
+      journeyRecord:{},schedule:{recordMovement(){throw Error("Unconfirmed movement credited");}},
+      confirmedSegments:0,pendingPassengerRest:null};
+    nav.travelSession=session;
+    nav.saveJourneyCheckpoint=async(_session,status)=>journalWrites.push(status);
+    await assert.rejects(nav.runNativeContinuousLeg(session,{
+      plan:{path:[{x:0,y:0},{x:10,y:0,checkpoint:true}],
+        checkpoints:[{index:0,from:{x:0,y:0},point:{x:10,y:0},
+          distance:10,completedDistance:10,completedMovingHours:1}],totalDistance:10},
+      playback:{movementSpeed:1,travelHours:1},atlas,view,
+      guidedLeg:{checkpoint:{point:point(60,50)},transport:{methodName:"Ship passage"}}
+    }),/TokenDocument missed its approved checkpoint/);
+    assert.deepEqual(journalWrites,["moving"],
+      "a pending intent is saved but no confirmation is committed");
+    assert.equal(session.journeyRecord.pendingNativeMove?.operationId,
+      "native-uncommitted-01");
+    assert.equal(session.completedDistance,0);
+    assert.equal(session.confirmedSegments,0);
+    assert.equal(globalThis.game.time.worldTime,500);
+    assert.equal(token.x,0);
+    assert.equal(token.stopped,true);
     assert.equal(listeners.size,0);
   }finally{
     globalThis.game=previous.game;globalThis.foundry=previous.foundry;

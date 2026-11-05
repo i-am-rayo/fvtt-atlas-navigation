@@ -45,11 +45,11 @@ function verifiedPassedInterval(movement,plan,checkpoint,tolerance){
 
 function checkpointDetails({token,movement,operationId,checkpoint,index,tolerance,
   originMatches,destinationMatches,documentMatches,reconciledFromPassed,
-  failureReason=null,failedChecks=[]}){
+  observationPhase="move-hook",failureReason=null,failedChecks=[]}){
   const passed=movement?.passed?.waypoints;
   const pending=movement?.pending?.waypoints;
   return {
-    failureReason,failedChecks,
+    observationPhase,failureReason,failedChecks,
     nativeOperationId:operationId,nativeMovementId:movement?.id??null,
     movementChain:Array.isArray(movement?.chain)?movement.chain.slice(0,16):[],
     nativeSubpathId:movement?.subpathId??null,
@@ -132,19 +132,19 @@ export async function coordinateNativeTokenMovement({
         failureReason:"unexpected-native-checkpoint",failedChecks:["checkpoint-count"]}));
       fail(Error("Foundry issued an unexpected extra movement checkpoint."));return;
     }
-    // The movement operation is immutable. Verify its documented native origin
-    // and destination before accepting even a visually plausible waypoint.
+    // Foundry can issue moveToken for an approved native endpoint before the
+    // TokenDocument's x/y fields show that endpoint. Identity and route proof
+    // are mandatory now; document arrival is verified after animation.ended,
+    // before any Journey/World-time confirmation is allowed.
     const originMatches=near(movement.origin,checkpoint.from,tolerancePixels);
     const destinationMatches=near(movement.destination,checkpoint.point,tolerancePixels);
     const documentMatches=near(token,checkpoint.point,tolerancePixels);
-    const reconciledFromPassed=!originMatches&&destinationMatches&&documentMatches&&
+    const reconciledFromPassed=!originMatches&&destinationMatches&&
       verifiedPassedInterval(movement,plan,checkpoint,tolerancePixels);
-    const mismatch=!(originMatches||reconciledFromPassed)||
-      !destinationMatches||!documentMatches;
+    const mismatch=!(originMatches||reconciledFromPassed)||!destinationMatches;
     const failedChecks=[
       ...(!(originMatches||reconciledFromPassed)?["origin-and-passed-path"]:[]),
-      ...(!destinationMatches?["destination"]:[]),
-      ...(!documentMatches?["token-document"]:[])
+      ...(!destinationMatches?["destination"]:[])
     ];
     report(mismatch,checkpointDetails({token,movement,operationId,checkpoint,
       index:checkpointIndex,tolerance:tolerancePixels,originMatches,
@@ -160,9 +160,20 @@ export async function coordinateNativeTokenMovement({
     }
     checkpointIndex++;
     inFlight=inFlight.then(async()=>{
-      // Unlike TokenDocument.x/y, animation.ended proves visual arrival.
+      // The native animation signal alone is not proof of a persisted Token
+      // position; verify the authoritative document *after* it resolves.
       await Promise.race([movement.animation?.ended??Promise.resolve(),abortPromise]);
-      if(shouldStop())throw Error("Native movement stopped by the GM or canvas lifecycle.");
+      if(signal?.aborted||shouldStop())
+        throw Error("Native movement stopped by the GM or canvas lifecycle.");
+      const settledDocumentMatches=near(token,checkpoint.point,tolerancePixels);
+      report(!settledDocumentMatches,checkpointDetails({token,movement,operationId,
+        checkpoint,index:checkpoint.index,tolerance:tolerancePixels,
+        originMatches,destinationMatches,documentMatches:settledDocumentMatches,
+        reconciledFromPassed,observationPhase:"animation-ended",
+        failureReason:settledDocumentMatches?null:"native-document-checkpoint-mismatch",
+        failedChecks:settledDocumentMatches?[]:["token-document"]}));
+      if(!settledDocumentMatches)
+        throw Error("The native TokenDocument missed its approved checkpoint.");
       await confirmCheckpoint(checkpoint,movement);
       if(checkpointIndex<plan.checkpoints.length){
         if(shouldStop())throw Error("Native movement stopped at the confirmed checkpoint.");
