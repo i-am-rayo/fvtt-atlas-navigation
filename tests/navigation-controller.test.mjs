@@ -1413,6 +1413,10 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
     assert.deepEqual(dialogTitles,["Confirm land travel","Confirm land travel"]);
     assert.equal(writes.at(-1).status,"completed");
     assert.equal(writes.at(-1).legs.length,2);
+    assert.deepEqual(writes.at(-1).legs[1].approvedPath.legs.map(leg=>({
+      roadId:leg.roadId,segmentId:leg.segmentId})),[
+      {roadId:"land",segmentId:"segment"}],
+    "every newly approved continuation leg persists its exact Road identity");
     assert.equal(writes.at(-1).legs[0].transport.methodId,"ship-passage");
     assert.deepEqual(writes.at(-1).legs[1].travelMethod,{
       id:"cart",name:"Cart",arrangement:"hire",operation:"normal"});

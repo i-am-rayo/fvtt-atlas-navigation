@@ -9,6 +9,7 @@ import {validateJourneyTargets,validateJourneyAnchor,confirmJourneyTarget}
   from "./navigation-route-targets.js";
 import {validatePendingNativeMove}
   from "./navigation-native-movement-reconciliation.js";
+import {validateApprovedJourneyPath} from "./navigation-approved-path.js";
 import {JOURNEY_JOURNAL_FLAG,persistJourneyState}
   from "./navigation-journey-state-store.js";
 import {JOURNEY_JOURNAL_PAGE,publishJourneySummary}
@@ -31,6 +32,7 @@ const escapeHTML=value=>String(value??"").replace(/[&<>"']/g,char=>({
 /** Copy only the itinerary fields needed for a readable history and recovery.
  * The road solver is authoritative for any future token movement. */
 const isTransportJourneyInfo=value=>{try{validateTransportJourneyInfo(value);return true;}catch{return false;}};
+const isApprovedJourneyPath=value=>{try{validateApprovedJourneyPath(value);return true;}catch{return false;}};
 const validJourneyMethod=value=>Boolean(value&&typeof value==="object"&&
   typeof value.id==="string"&&/^[a-zA-Z0-9_-]{1,128}$/.test(value.id)&&
   typeof value.name==="string"&&value.name.trim()&&value.name.length<=240&&
@@ -72,10 +74,12 @@ export function journeyLegFromItinerary(itinerary){
 
 export function createJourneyRecord({sceneId,tokenId,atlasRevision,itinerary,
   journeyDestination=null,title=null,startedWorldTime=null,startedTimeLabel=null,
-  routeTargets=null,initialAnchor=null,now=new Date().toISOString()}={}){
+  routeTargets=null,initialAnchor=null,approvedPath=null,
+  now=new Date().toISOString()}={}){
   if(!sceneId||!tokenId||!Number.isSafeInteger(atlasRevision))
     throw Error("Journey recovery requires a Scene, assigned token, and Atlas revision.");
   const leg=journeyLegFromItinerary(itinerary);
+  if(approvedPath)leg.approvedPath=validateApprovedJourneyPath(approvedPath);
   const selectedDestination=journeyDestination??leg.destination;
   if(!validPoint(selectedDestination))throw Error("Journey destination must be a valid Point B.");
   return {
@@ -119,6 +123,8 @@ export function validateJourneyRecord(value){
             event[key]!==undefined&&(typeof event[key]!=="string"||
               event[key].length>100)))||
         !Array.isArray(leg.directions)||leg.directions.length>4096||
+        (leg.approvedPath!==undefined&&
+          !isApprovedJourneyPath(leg.approvedPath))||
         (leg.transport!==undefined&&!isTransportJourneyInfo(leg.transport))||
         (leg.travelMethod!==undefined&&!validJourneyMethod(leg.travelMethod))||
         (leg.transport!==undefined&&leg.travelMethod!==undefined))||
@@ -185,11 +191,13 @@ export function checkpointJourneyRecord(record,{schedule,progress,status,
 }
 
 export function resumeJourneyRecord(record,{itinerary,atlasRevision,
-  journeyDestination=null,now=new Date().toISOString()}={}){
+  journeyDestination=null,approvedPath=null,now=new Date().toISOString()}={}){
   const next=validateJourneyRecord(record);
   if(!RECOVERABLE.has(next.status)||atlasRevision!==next.atlasRevision||
       next.legs.length>=24)throw Error("This journey cannot safely resume. Plan a new route.");
-  next.legs.push(journeyLegFromItinerary(itinerary));
+  const resumed=journeyLegFromItinerary(itinerary);
+  if(approvedPath)resumed.approvedPath=validateApprovedJourneyPath(approvedPath);
+  next.legs.push(resumed);
   // The final Point B is independent of each checkpoint-bound travel leg.
   // A new destination may replace it only after an explicit GM route choice.
   if(journeyDestination!==null){

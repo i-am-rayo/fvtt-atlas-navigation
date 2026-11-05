@@ -12,6 +12,7 @@ import {projectTransportationRouteLegs}
   from "../scripts/navigation-transport-transitions.js";
 import {prepareGuidedTransportLeg}
   from "../scripts/navigation-guided-transport-leg.js";
+import {captureApprovedJourneyPath} from "../scripts/navigation-approved-path.js";
 import {createJourneyRecord,checkpointJourneyRecord,formatJourneyJournalHTML,
   resumeJourneyRecord,isUnfinishedJourneyLeg,journeyRecoveryRouteDestination}
   from "../scripts/navigation-journey-journal.js";
@@ -212,6 +213,31 @@ test("a token near port cannot erase unconfirmed sailing during recovery",()=>{
   assert.throws(()=>restoreApprovedTransportPlan(shifted,closePlan,saved,
     [method],null,{gridDistance:7.5}),/unconfirmed progress/,
   "even sub-hex miles of unconfirmed movement cannot be swallowed by a loose tolerance");
+});
+
+test("approved geometry restores a confirmed voyage despite inconsistent spline percent",()=>{
+  const record=voyage();
+  record.legs[0].approvedPath=captureApprovedJourneyPath({status:"ok",legs:[{
+    kind:"road",roadId:"water-road",segmentId:"s",
+    points:[p(0,0),p(100,0)]}]});
+  record.lastConfirmedAnchor={point:p(48,0),roadId:"water-road",segmentId:"s",
+    checkpointId:null,levelId:null,elevation:null};
+  record.legs[0].completedPercent=32;
+  // The old guard expected 68 native units, despite a confirmed 52-unit suffix.
+  assert.equal(100*(1-record.legs[0].completedPercent/100),68);
+  const fresh=route();
+  fresh.legs[0].segmentId="s";
+  const approved=restoreApprovedTransportPlan(fresh,projected(),record,[method],null,
+    {gridDistance:7.5,gridSize:100});
+  assert.equal(approved.legs[0].costCp,0);
+  assert.equal(approved.legs[0].selectedOption.method.id,method.id);
+  const wrong={...fresh,legs:[{...fresh.legs[0],segmentId:"wrong-branch"}]};
+  assert.throws(()=>restoreApprovedTransportPlan(wrong,projected(),record,
+    [method],null,{gridDistance:7.5,gridSize:100}),/road-sequence-changed/);
+  const moved={...fresh,start:p(99,0),legs:[{
+    ...fresh.legs[0],points:[p(99,0),p(100,0)]}]};
+  assert.throws(()=>restoreApprovedTransportPlan(moved,projected(),record,
+    [method],null,{gridDistance:7.5,gridSize:100}),/unconfirmed-native-movement/);
 });
 
 test("recovery rejects altered checkpoints, surfaces or retired methods",()=>{

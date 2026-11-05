@@ -4,6 +4,7 @@ import { calculateSceneRoadRoute } from "./navigation-foundry.js";
 import { roadStrokeSpans } from "./road-appearance.js";
 import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.js";
 import { navigationCanvasLegPaths } from "./navigation-render-path.js";
+import {captureApprovedJourneyPath} from "./navigation-approved-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
 import { planGuidedTravelChunks, waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS }
@@ -1600,6 +1601,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           after.selectedValue!==option?.value||after.errors.length)
         throw Error("The selected transportation changed. Review the updated checkpoint offer.");
     }
+    const approvedPath=captureApprovedJourneyPath(route);
     const paths=navigationCanvasLegPaths(view,atlas,route);
     const routeWaypoints=createGuidedTokenWaypoints(paths,token,this.scene.grid?.size);
     const nativeContinuous=guidedLeg?.transport?.operation==="continuous";
@@ -1675,14 +1677,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const initialAnchor=this.captureConfirmedJourneyAnchor(session,view,atlas);
       session.lastConfirmedAnchor=initialAnchor;
       const record=recovered?
-        resumeJourneyRecord(recovered,{itinerary,atlasRevision:atlas.revision,
+        resumeJourneyRecord(recovered,{itinerary,atlasRevision:atlas.revision,approvedPath,
           // The recovery target is the current leg checkpoint, not a GM edit
           // to the original Point B. Preserve the final destination on resume.
           journeyDestination:recovered.routeTargets||isUnfinishedJourneyLeg(recovered)?
             null:this.end}):
         createJourneyRecord({sceneId:this.scene.id,tokenId:token.id,
           atlasRevision:atlas.revision,itinerary,journeyDestination:this.end,
-          routeTargets,initialAnchor,
+          routeTargets,initialAnchor,approvedPath,
           startedWorldTime:departureStamp?.seconds??null,
           startedTimeLabel:departureStamp?.label??null,
           title:navigationJourneyTitle({atlas,

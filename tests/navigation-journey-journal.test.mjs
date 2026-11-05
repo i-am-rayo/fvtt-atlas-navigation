@@ -9,6 +9,7 @@ import { journeySummaryDue,persistJourneyState }
   from "../scripts/navigation-journey-state-store.js";
 import { publishJourneySummary }
   from "../scripts/navigation-journey-summary-writer.js";
+import {captureApprovedJourneyPath} from "../scripts/navigation-approved-path.js";
 const MODULE_ID="fvtt-atlas-navigation";
 const itinerary=()=>({schemaVersion:1,scene:{name:"Paedor",units:"km"},
   endpoints:{departure:{x:0,y:0},destination:{x:120,y:30}},
@@ -22,6 +23,25 @@ const createRecord=()=>createJourneyRecord({sceneId:"scene",tokenId:"token",
 const schedule={completedHours:8,todayHours:0,permittedExtraUntil:0,
   restEvents:1,lastForcedCheck:null,
   events:[{action:"long",atHours:8,hours:8}]};
+
+test("new Journey legs retain approved geometry; legacy Journal flags still read",()=>{
+  const approvedPath=captureApprovedJourneyPath({status:"ok",legs:[{
+    kind:"road",roadId:"road",segmentId:"segment-1",
+    points:[{x:0,y:0},{x:120,y:30}]}]});
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"token",atlasRevision:12,
+    itinerary:itinerary(),approvedPath});
+  assert.deepEqual(saved.legs[0].approvedPath,approvedPath);
+  const prior=checkpointJourneyRecord(saved,{schedule,progress:45,status:"interrupted"});
+  const resumed=resumeJourneyRecord(prior,{itinerary:itinerary(),atlasRevision:12,
+    approvedPath});
+  assert.deepEqual(resumed.legs.map(leg=>leg.approvedPath),[approvedPath,approvedPath]);
+  assert.equal(createRecord().legs[0].approvedPath,undefined,
+    "older Journal schema remains valid without silent migration");
+  const corrupt=structuredClone(saved);
+  corrupt.legs[0].approvedPath.legs[0].points[0].x=Infinity;
+  assert.equal(eligibleJourneyRecord(corrupt,{sceneId:"scene",tokenId:"token",
+    atlasRevision:12}),false,"corrupt path evidence must fail closed");
+});
 
 test("one versioned record contains readable route, rest history, and recovery status",()=>{
   const created=createRecord();

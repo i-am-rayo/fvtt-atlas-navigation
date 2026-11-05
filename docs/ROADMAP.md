@@ -2,6 +2,18 @@
 
 # Active v0.3.x roadmap — updated November 5, 2026
 
+**Current recovery implementation — v0.3.8-beta.7.26 (draft):**
+Save the exact approved Road segment sequence and image-relative geometry with
+each newly authorized Journey leg (Journal-owned metadata). For interrupted
+transport, compare a fresh route against the saved suffix with a maximum
+two-cell lateral tolerance; do not equate spline playback percentage with
+native Grid distance. Native TokenDocument/confirmed anchor remains strict;
+manual relocation, branch substitution, extra expenses, and unconfirmed time
+never auto-reconcile. Existing Journals use their legacy guard because they
+lack historical route evidence. Foundry v14 owner verification and issue #189
+reproduction are required before claiming the fix is accepted. See
+[beta.7.26 test matrix](JOURNEY_PATH_RECOVERY_BETA7_26.md).
+
 **Current assessment — v0.3.8-beta.7.25 Transportation Methods & Presets (draft):**
 Following the owner's positive but incomplete beta.7.24 results (Journey
 recovery failed again and is logged under [#189](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/189)),
