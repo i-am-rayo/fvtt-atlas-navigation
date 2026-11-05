@@ -190,6 +190,10 @@ LegendKeeper's [developer portal](https://www.legendkeeper.com/developers/) docu
 - Size/performance threshold at which Scene flags need reconsideration.
 - JS vs TypeScript and bundler choice (prefer the smallest maintainable setup).
 
+### v0.3.8-beta.7.16.3.1 — confirmed checkpoint recovery boundary (draft)
+
+After an involuntary Foundry canvas rebuild, automatic recovery validates the same approved Journey and may restart movement **only** if the last saved leg remains unfinished. A recovered, durably confirmed checkpoint with a `pendingTransfer` instead restores its existing checkpoint-decision UI and stops; recovering a Journey does not imply the GM authorized the **next** transportation method. A completed final leg with no transfer also cannot be replayed. Manual Pause/End and unresolved native intents retain their existing fail-closed behavior. No persistence migration or native APIs change. See `docs/NAVIGATION_BETA7_16_3_1_TESTING.md`.
+
 ### v0.3.8-beta.7.16.3 — Pause and Journey terminal-state safety (draft)
 
 A confirmed `completed` or `ended` Journey Journal cannot be downgraded by a late canvas teardown or stale checkpoint callback. The old pending native movement and clock/Journal promises settle before a same-Scene canvas rebuild reopens the GM Navigation window. A fully confirmed manual pause can restore only its route **preview**, subject to the strict token-anchor check; it does not restart native movement. An unresolved native checkpoint remains locked for GM review. The earlier five-second continuous-vessel durability intervals are reduced to **two nominal real seconds** for responsive Pause, without inventing intermediate authoritative positions. This does not suppress Foundry canvas redraw or change native Token, Scene, Region or Journal schemas. Journal layout and aboard-rest display stay deferred; see `docs/NAVIGATION_BETA7_16_3_TESTING.md`.

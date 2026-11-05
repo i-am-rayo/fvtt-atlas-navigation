@@ -312,7 +312,11 @@ test("canvas recovery restarts only the matching GM-approved Journey after its w
       atlasProvider:()=>({revision:17}),partyTokenProvider:()=>token});
     let recovered=0,started=0;
     nav.activate=()=>{nav.scene=scene;nav.recoverableJourney={id:"saved-journey"};};
-    nav.recoverSavedJourney=()=>{recovered++;return true;};
+    nav.recoverSavedJourney=()=>{
+      recovered++;
+      nav.recoveryRecord={legs:[{completedPercent:40}]};
+      return true;
+    };
     nav.startGuidedTravel=async()=>{started++;return true;};
     nav.autoResumePending={sceneId:scene.id,tokenId:token.id,
       revision:17,journalId:"saved-journey",session:{
@@ -335,6 +339,66 @@ test("canvas recovery restarts only the matching GM-approved Journey after its w
     assert.equal(await nav.autoResumeAfterCanvasReady(),false,
       "an interrupted, uncommitted rest cannot restart token movement");
     assert.equal(started,1);
+  }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
+test("involuntary canvas redraw restores a confirmed dock without requesting approval to recover or starting a new leg",async()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui};
+  try{
+    const scene={id:"dock-scene"},token={id:"party"};
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}}};
+    const messages=[];
+    globalThis.ui={notifications:{warn:message=>messages.push(message)}};
+    const nav=new AtlasNavigationController({
+      canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>({revision:19}),partyTokenProvider:()=>token
+    });
+    nav.activate=()=>{nav.scene=scene;nav.recoverableJourney={id:"saved-journal"};};
+    let recovered=0,started=0;
+    nav.recoverSavedJourney=({automatic})=>{
+      assert.equal(automatic,true);
+      recovered++;
+      nav.recoveryRecord={status:"paused",legs:[{completedPercent:100}]};
+      nav.pendingTransfer={checkpoint:{id:"port-barthos",name:"Port Barthos"},
+        journalId:"saved-journal"};
+      return true;
+    };
+    nav.startGuidedTravel=async()=>{started++;throw Error("Unapproved next leg");};
+    nav.autoResumePending={sceneId:scene.id,tokenId:token.id,
+      revision:19,journalId:"saved-journal",session:{
+        finished:Promise.resolve(),journalQueue:Promise.resolve()}};
+    assert.equal(await nav.autoResumeAfterCanvasReady(),true);
+    assert.equal(recovered,1,"the previously approved Journey recovers automatically");
+    assert.equal(started,0,"no new transport or checkpoint leg can start automatically");
+    assert.equal(nav.pendingTransfer.checkpoint.id,"port-barthos");
+    assert.deepEqual(messages,[],"confirmed checkpoint recovery is not an error");
+    assert.equal(nav.autoResumePending,null);
+    assert.equal(await nav.autoResumeAfterCanvasReady(),false,
+      "canvasReady duplication cannot start travel again");
+  }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
+test("canvas recovery never auto-replays a fully confirmed leg without an onward decision",async()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui};
+  try{
+    const scene={id:"last-leg-scene"},token={id:"party"};
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}}};
+    globalThis.ui={notifications:{warn(){throw Error("Unexpected warning");}}};
+    const nav=new AtlasNavigationController({
+      canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>({revision:9}),partyTokenProvider:()=>token});
+    nav.activate=()=>{nav.scene=scene;nav.recoverableJourney={id:"journal"};};
+    nav.recoverSavedJourney=()=>{
+      nav.recoveryRecord={status:"interrupted",legs:[{completedPercent:100}]};
+      return true;
+    };
+    nav.render=async()=>{};
+    nav.startGuidedTravel=async()=>{throw Error("Full leg should never be replayed");};
+    nav.autoResumePending={sceneId:scene.id,tokenId:token.id,
+      revision:9,journalId:"journal",session:{finished:Promise.resolve()}};
+    assert.equal(await nav.autoResumeAfterCanvasReady(),true);
+    assert.match(nav.travelNotice,/last approved leg is already confirmed/);
+    assert.equal(nav.autoResumePending,null);
   }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
 });
 

@@ -2285,8 +2285,31 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.activate();
       if(this.recoverableJourney?.id!==pending.journalId)
         throw Error("The saved journey is no longer eligible for recovery.");
-      this.recoverSavedJourney({automatic:true});
+      if(!this.recoverSavedJourney({automatic:true}))
+        throw Error("The saved Journey could not be restored after the canvas rebuild.");
       this.autoResumePending=null;
+      // A native move may have durably reached an authored port immediately
+      // before the canvas was rebuilt. Restoring this checkpoint decision is
+      // automatic, but the NEXT transport leg has not been approved. Do not
+      // call startGuidedTravel while a transfer decision is pending.
+      if(this.pendingTransfer){
+        atlasDebug("journey","Canvas recovery restored confirmed checkpoint decision",{
+          sceneId:pending.sceneId,journalId:pending.journalId,
+          checkpointId:this.pendingTransfer.checkpoint?.id??null
+        });
+        return true;
+      }
+      // Automatic continuation is authorized only for the remaining distance
+      // of the SAME approved leg. A fully confirmed leg with no pending
+      // transfer cannot authorize an entirely new route on its own.
+      if(!isUnfinishedJourneyLeg(this.recoveryRecord)){
+        this.travelNotice="The last approved leg is already confirmed. " +
+          "Review the recovered Journey before starting another leg.";
+        if(this.active)void this.render(true);
+        atlasDebug("journey","Canvas recovery restored confirmed leg without travel",{
+          sceneId:pending.sceneId,journalId:pending.journalId});
+        return true;
+      }
       atlasDebug("journey","Automatically continuing after canvas rebuild",{
         sceneId:pending.sceneId,journalId:pending.journalId});
       void this.startGuidedTravel().catch(error=>{
