@@ -931,6 +931,74 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     return true;
   }
 
+  /** Deliberately end an unrecoverable or unwanted saved Journey without
+   * rewriting confirmed history or resolving an unconfirmed native move. */
+  async forgetSavedJourney(){
+    if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update"))
+      throw Error("Only a GM may forget an Atlas Journey on its Scene.");
+    if(this.travelSession||this.journalStarting||this.pendingTransfer)
+      throw Error("Finish the active Journey or checkpoint decision first.");
+    const journal=this.recoverableJourney??this.recoveryJournal;
+    const scene=this.scene,token=this.getPartyToken();
+    if(!journal?.id||!token?.id)
+      throw Error("No saved party Journey is available to forget.");
+    const readSaved=()=>validateJourneyRecord(journal.getFlag?.(
+      MODULE_ID,JOURNEY_JOURNAL_FLAG));
+    const saved=readSaved();
+    if(saved.sceneId!==scene.id||saved.tokenId!==token.id||
+        !["moving","paused","interrupted"].includes(saved.status))
+      throw Error("This saved Journey no longer belongs to the assigned party token.");
+    const snapshot=JSON.stringify(saved);
+    const confirmed=await foundry.applications.api.DialogV2.confirm({
+      window:{title:"Forget saved Atlas Journey?"},
+      content:el("div","End this saved Journey and start a new route from the " +
+        "party token's current location? Its confirmed travel and unfinished " +
+        "native checkpoint remain in the Journey Journal for GM review. " +
+        "No token movement, World time, rest or fare will be changed. " +
+        "This Journey will no longer be available for recovery."),
+      rejectClose:false,modal:true
+    });
+    if(!confirmed)return false;
+    if(this.travelSession||this.journalStarting||this.pendingTransfer||
+        !game.user?.isGM||this.scene!==scene||
+        !scene.canUserModify?.(game.user,"update")||
+        this.getPartyToken()?.id!==token.id||
+        this.recoverableJourney?.id!==journal.id&&
+          this.recoveryJournal?.id!==journal.id||
+        JSON.stringify(readSaved())!==snapshot)
+      throw Error("The saved Journey changed during confirmation. Reopen Navigation to review it.");
+    this.journalStarting=true;
+    try{
+      const ended={...saved,status:"ended",updatedAt:new Date().toISOString()};
+      await this.journeyJournalStore.save(ended,{journal});
+      // A successful Journal write, not the button click, releases the lock.
+      this.autoResumePending=null;
+      this.autoResumeAttempts.delete(journal.id);
+      this.clear();
+      this.travelMethod="walking";
+      this.transportArrangement="owned";
+      this.transportOperation="normal";
+      this.transferSelections={};
+      this.transferLegOverrides={};
+      this.notice="Saved Journey ended. Select a new destination from the party token.";
+      if(this.active)void this.render(true);
+      return true;
+    }finally{
+      this.journalStarting=false;
+      if(this.active)void this.render(true);
+    }
+  }
+
+  /** New Route discards only the current preview; a saved Journal is first
+   * explicitly ended so a future canvas refresh cannot silently recover it. */
+  async startNewRoute(){
+    if(this.travelSession||this.journalStarting||this.pendingTransfer)return false;
+    if(this.recoverableJourney||this.recoveryJournal)
+      return this.forgetSavedJourney();
+    this.clear();
+    return true;
+  }
+
   async saveJourneyCheckpoint(session,status,{updatePage=true}={}){
     if(!session?.journal||!session.journeyRecord)return;
     const arrival=status==="completed"?journeyWorldStamp(game.time):null;
@@ -2646,6 +2714,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         catch(error){ui.notifications.warn(error.message||String(error));}
       });
       recovery.append(description,recover);
+      const forget=el("button","Forget Saved Journey");
+      forget.type="button";
+      forget.title="GM confirmation: end recovery for this Journey and retain its historical Journal";
+      forget.disabled=Boolean(this.journalStarting);
+      forget.addEventListener("click",()=>void this.forgetSavedJourney().catch(error=>
+        globalThis.ui?.notifications?.error?.(error.message??String(error))));
+      recovery.append(forget);
       body.appendChild(recovery);
     }
     if(pendingNativeReview){

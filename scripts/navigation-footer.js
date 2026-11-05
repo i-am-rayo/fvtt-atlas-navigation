@@ -20,13 +20,11 @@ export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
   row.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;padding:.65rem 1rem;border-top:1px solid var(--color-border-light-tertiary,#555);background:var(--color-bg,#100e18);flex:none;";
   const newRoute=footerButton("New Route","route");
   newRoute.disabled=Boolean(nav.travelSession||nav.journalStarting||
-    nav.pendingTransfer||pendingNativeReview);
+    nav.pendingTransfer);
   newRoute.title=partyMode?"Choose a new destination from the party token":
     "Clear route and choose a new Point A";
-  newRoute.addEventListener("click",()=>{
-    nav.clear();
-    if(partyMode)nav.refreshPartyDeparture();
-  });
+  newRoute.addEventListener("click",()=>void nav.startNewRoute().catch(error=>
+    globalThis.ui?.notifications?.error?.(error.message??String(error))));
   row.appendChild(newRoute);
   if(nav.pendingTransfer){
     const atDestination=nav.isAtJourneyDestination();

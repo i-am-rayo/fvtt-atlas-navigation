@@ -15,7 +15,7 @@ const fixture=()=>{
   const calls=[];
   const nav={result:{status:"ok"},travelSession:null,pendingTransfer:null,
     journalStarting:false,journeyJournal:null,active:false,
-    clear:()=>calls.push("clear"),refreshPartyDeparture:()=>calls.push("refresh"),
+    startNewRoute:async()=>{calls.push("clear");calls.push("refresh");return true;},
     startGuidedTravel:async()=>{calls.push("travel");return true;},
     pauseGuidedTravel:()=>{calls.push("pause");return true;},
     resumeGuidedTravel:()=>{calls.push("resume");return true;},
@@ -86,6 +86,22 @@ test("completed route hides Play but keeps Journal and New Route available",()=>
     nav.completedRoute=false;
     const next=renderNavigationFooter(nav,{methodAssessment:{guided:true}});
     assert.equal(button(next,"Travel Route").disabled,false);
+  }finally{restore();}
+});
+
+test("blocked native recovery offers New Route but not unchecked Travel",()=>{
+  const restore=mockDOM();
+  try{
+    const {nav}=fixture();
+    nav.recoverableJourney={id:"saved",sheet:{render(){}}};
+    const row=renderNavigationFooter(nav,{partyMode:true,pendingNativeReview:true,
+      methodAssessment:{guided:true}});
+    assert.equal(button(row,"New Route").disabled,false);
+    assert.equal(button(row,"Travel Route").disabled,true);
+    assert.ok(button(row,"Open Journey Journal"));
+    nav.journalStarting=true;
+    assert.equal(button(renderNavigationFooter(nav,{pendingNativeReview:true}),
+      "New Route").disabled,true,"concurrent Journal saves lock New Route");
   }finally{restore();}
 });
 

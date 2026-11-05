@@ -769,7 +769,7 @@ test("canvas automatic restart refuses same-road drift beyond the confirmed anch
   }finally{globalThis.game=previous;}
 });
 
-test("an unconfirmed native ship checkpoint shows approved transport and prevents a new route",async()=>{
+test("an unconfirmed native ship checkpoint preserves transport and offers deliberate abandonment",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,ui:globalThis.ui,
     document:globalThis.document};
   try{
@@ -829,7 +829,14 @@ test("an unconfirmed native ship checkpoint shows approved transport and prevent
     const recover=find(panel,node=>node.textContent==="Recover Saved Journey");
     assert.equal(recover.disabled,true);
     const newRoute=find(panel,node=>node.ariaLabel==="New Route");
-    assert.equal(newRoute.disabled,true);
+    assert.equal(newRoute.disabled,false,"New Route must allow GM-confirmed abandonment");
+    const forget=find(panel,node=>node.textContent==="Forget Saved Journey");
+    assert.equal(forget.disabled,false);
+    let attempts=0;
+    nav.startNewRoute=async()=>{attempts++;return true;};
+    newRoute.listeners.get("click")();
+    await Promise.resolve();
+    assert.equal(attempts,1,"New Route invokes the guarded abandonment workflow");
     const journalButton=find(panel,node=>node.ariaLabel==="Open Journey Journal");
     assert.ok(journalButton,"GM can inspect the preserved Journey Journal");
     journalButton.listeners.get("click")();
@@ -840,9 +847,124 @@ test("an unconfirmed native ship checkpoint shows approved transport and prevent
     assert.equal(find(panel,node=>node.textContent==="Speed:"),undefined);
     record.pendingNativeMove.operationId="";
     const invalid=await nav._renderHTML();
-    assert.equal(find(invalid,node=>node.ariaLabel==="New Route").disabled,true,
-      "invalid pending metadata must also prevent unapproved replay");
+    assert.equal(find(invalid,node=>node.ariaLabel==="New Route").disabled,false);
     assert.equal(find(invalid,node=>node.textContent==="Recover Saved Journey").disabled,true);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("GM-confirmed New Route ends only the saved recovery and keeps native evidence",async()=>{
+  const previous={foundry:globalThis.foundry,game:globalThis.game,
+    document:globalThis.document};
+  try{
+    globalThis.document={createElement:tag=>({tag,textContent:""})};
+    let prompts=0,saves=0,moves=0;
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>{
+      prompts++;return true;
+    }}}}};
+    globalThis.game={user:{id:"gm",isGM:true},time:{worldTime:980}};
+    const token={id:"party",x:200,y:120,width:1,height:1,
+      move(){moves++;throw Error("No native replay may occur");}};
+    const scene={id:"current",grid:{size:50,units:"mi"},
+      canUserModify:()=>true};
+    const route={status:"ok",start:point(10,20),end:point(800,200),
+      distance:80,cost:80,legs:[{kind:"road",roadId:"sea",
+        segmentId:"sea-segment",points:[point(10,20),point(800,200)],
+        distance:80,cost:80}]};
+    const itinerary=createNavigationItinerary({sceneId:scene.id,route,travel:{speed:2}});
+    let record=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:2,itinerary});
+    record.status="interrupted";
+    record.legs[0].completedPercent=20;
+    record.legs[0].completedMovingHours=8;
+    record.pendingNativeMove={schemaVersion:1,operationId:"native-77",
+      tokenId:token.id,checkpointIndex:1,from:point(40,40),to:point(100,90),
+      nativeDistance:60,movingHours:2,worldTimeBefore:950,
+      worldAdvanceSeconds:0,atlasRevision:2};
+    const original=structuredClone(record);
+    const journal={id:"old-voyage",getFlag:()=>structuredClone(record)};
+    const nav=new AtlasNavigationController({
+      canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>({revision:2}),partyTokenProvider:()=>token,
+      journeyJournalStore:{save:async next=>{saves++;record=structuredClone(next);
+        return journal;},find:()=>null}});
+    nav.scene=scene;nav.sourceMode="party";
+    nav.recoverableJourney=journal;
+    nav.travelMethod="ship-passage";nav.transportArrangement="hire";
+    nav.transportOperation="continuous";
+    nav.start=point(10,20);nav.end=point(800,200);nav.result=route;
+    nav.draw=()=>{};nav.render=async()=>{};
+    nav.syncPartyDeparture=()=>{nav.start=point(token.x+25,token.y+25);return true;};
+    nav.autoResumePending={journalId:journal.id};
+    nav.autoResumeAttempts.set(journal.id,1);
+    assert.equal(await nav.startNewRoute(),true);
+    assert.equal(prompts,1);assert.equal(saves,1);
+    assert.equal(record.status,"ended");
+    assert.equal(record.pendingNativeMove.operationId,"native-77",
+      "do not erase unconfirmed native checkpoint evidence");
+    assert.deepEqual(record.legs,original.legs,"confirmed progress and hours stay untouched");
+    assert.equal(moves,0);assert.equal(globalThis.game.time.worldTime,980);
+    assert.equal(nav.recoverableJourney,null);
+    assert.deepEqual(nav.start,point(225,145),"new Point A reads the physical token");
+    assert.equal(nav.end,null);assert.equal(nav.result,null);
+    assert.equal(nav.travelMethod,"walking");
+    assert.equal(nav.transportArrangement,"owned");
+    assert.equal(nav.autoResumePending,null);
+    assert.equal(nav.autoResumeAttempts.has(journal.id),false);
+    assert.match(nav.notice,/Saved Journey ended/);
+    assert.equal(findRecoverableJourney([journal],{sceneId:scene.id,
+      tokenId:token.id,atlasRevision:2}),null,
+      "an Ended historical Journal must never relock a later Navigation session");
+    // The same operation also applies after Recover has loaded an approved leg.
+    record=structuredClone(original);
+    nav.recoverableJourney=null;nav.recoveryJournal=journal;
+    nav.recoveryRecord=structuredClone(record);
+    nav.end=point(800,200);
+    assert.equal(await nav.forgetSavedJourney(),true);
+    assert.equal(prompts,2);assert.equal(saves,2);
+    assert.equal(record.status,"ended");
+    assert.equal(nav.recoveryJournal,null);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("forgetting a saved Journey fails closed on cancellation, save error and stale state",async()=>{
+  const previous={foundry:globalThis.foundry,game:globalThis.game,
+    document:globalThis.document};
+  try{
+    globalThis.document={createElement:tag=>({tag,textContent:""})};
+    globalThis.game={user:{id:"gm",isGM:true}};
+    const scene={id:"scene",canUserModify:()=>true};
+    const token={id:"party"};
+    const itinerary=createNavigationItinerary({sceneId:scene.id,
+      route:{status:"ok",start:point(0,0),end:point(20,0),distance:5,cost:5,
+        legs:[{kind:"road",roadId:"road",segmentId:"segment",
+          points:[point(0,0),point(20,0)],distance:5,cost:5}]},
+      travel:{speed:2}});
+    let record=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:1,itinerary});
+    record.status="interrupted";
+    const journal={id:"stored",getFlag:()=>structuredClone(record)};
+    let attempts=0;
+    const nav=new AtlasNavigationController({partyTokenProvider:()=>token,
+      journeyJournalStore:{save:async()=>{attempts++;throw Error("Journal read-only");}}});
+    nav.scene=scene;nav.recoverableJourney=journal;
+    nav.start=point(0,0);nav.end=point(20,0);
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>false}}}};
+    assert.equal(await nav.startNewRoute(),false);
+    assert.equal(attempts,0);assert.deepEqual(nav.end,point(20,0));
+    assert.equal(nav.recoverableJourney,journal);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
+    await assert.rejects(nav.forgetSavedJourney(),/Journal read-only/);
+    assert.equal(attempts,1);assert.equal(record.status,"interrupted");
+    assert.equal(nav.journalStarting,false);
+    assert.equal(nav.recoverableJourney,journal);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      record.updatedAt="2026-12-01T00:00:00Z";return true;
+    };
+    await assert.rejects(nav.forgetSavedJourney(),/changed during confirmation/);
+    assert.equal(attempts,1);
+    globalThis.game.user.isGM=false;
+    await assert.rejects(nav.forgetSavedJourney(),/Only a GM/);
+    assert.equal(attempts,1);
   }finally{Object.assign(globalThis,previous);}
 });
 
