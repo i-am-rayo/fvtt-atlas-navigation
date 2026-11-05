@@ -106,3 +106,11 @@ containment and versioned v0.4 migration
 contract is documented separately in
 [INDEPENDENT_CHECKPOINT_CONTRACT_BETA7_20_1.md](INDEPENDENT_CHECKPOINT_CONTRACT_BETA7_20_1.md).
 It is design-only and does not retroactively change this audit's findings.
+
+**Subsequent beta.7.21 boundary:** Owner approved the beta.7.20.1 design,
+but not the proposed v10 migration. Generated native Region listing and
+visual Region surface observation now share a read-only Foundry adapter,
+while surface-preset ordering/color selection is a pure projection.
+Native Region writes, geometry, elevation, Levels and Behaviors stay with
+existing public API adapters. The remaining A19-S1 native-overlap, elevation,
+manual-geometry and real-v14 checks are not declared resolved by extraction.

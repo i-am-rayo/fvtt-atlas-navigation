@@ -1,6 +1,6 @@
 # v0.3.8-beta.7.20.1 — Independent Checkpoint architecture contract
 
-**Status: DESIGN ONLY — owner review.** This is a proposed future contract,
+**Status: DESIGN ONLY — owner approved November 5, 2026.** This is an accepted future contract,
 not an implemented schema, compatibility reader, migration, UI feature, or
 Foundry Region integration. Beta.7.20's successful owner GM/non-GM smoke tests
 remain the runtime baseline. Changes to native data or gameplay require a
@@ -190,6 +190,8 @@ Checkpoint references or a fabricated shortcut.
 
 **Decision gate for beta.7.21:** Native Region/Surface refactors must respect
 this separation of Checkpoint identity, Node-owned position, Road-graph
-connectivity and native Region ownership. They may prepare narrow read/adapter boundaries, but must not
-write v10 data or silently regenerate/retarget any existing Region. The
-contract remains subject to the Product Owner's approval before v0.4 work.
+connectivity and native Region ownership. They may prepare narrow read/adapter
+boundaries, but must not write v10 data or silently regenerate/retarget any
+existing Region. The contract is owner-approved as a design constraint;
+v0.4 work and migration
+still require separate Product Owner authorization.

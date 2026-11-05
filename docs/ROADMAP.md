@@ -2,6 +2,17 @@
 
 # Active v0.3.x roadmap — updated November 5, 2026
 
+**Current implementation — v0.3.8-beta.7.21 native Region / Surface read boundary:**
+Following owner approval of the beta.7.20.1 Node-anchored Checkpoint design,
+extract generated-Region inspection and visual surface observations into a
+Foundry read adapter and pure, ordered overlay projection. Re-export existing
+public paths so controller/canvas behavior remains unchanged. Do not change
+native Region geometry, elevation, Levels or Behaviors; descriptive surface
+colors are not native travel costs. v10 Checkpoint migration and Region
+containment features stay deferred. Require automated checks plus actual
+GM/non-GM Foundry v14 Region edit, overlay, Journey, Fog and refresh tests.
+See [beta.7.21 checklist](REGIONS_SURFACES_BETA7_21_TESTING.md).
+
 **Current decision — v0.3.8-beta.7.20.1 independent Checkpoint design gate:**
 Following the owner's seven successful GM/non-GM beta.7.20 Foundry smoke
 checks, define the future Road-independent Checkpoint contract before the
