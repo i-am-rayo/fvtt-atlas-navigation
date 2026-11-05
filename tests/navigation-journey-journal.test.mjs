@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {readFileSync} from "node:fs";
 import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   eligibleJourneyRecord,formatJourneyJournalHTML,saveJourneyJournal,
   findRecoverableJourney,ensureJourneyLogFolder,JOURNEY_JOURNAL_FLAG,
@@ -76,6 +77,52 @@ test("one versioned record contains readable route, rest history, and recovery s
   assert.equal(eligibleJourneyRecord({...resumed,status:"completed"},
     {sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
   assert.throws(()=>resumeJourneyRecord(changed,{itinerary:itinerary(),atlasRevision:13}),/cannot safely/);
+});
+
+test("beta.1 Journal hero, metrics and confirmed progress are decorative read-only markup",()=>{
+  const record=checkpointJourneyRecord(createRecord(),{
+    schedule,progress:45,status:"interrupted",
+    worldTravelSeconds:28800,worldRestSeconds:28800});
+  record.title="Dirwest <script>alert('journey')</script> & Harbor";
+  record.startedTimeLabel="0998-01-01 00:00";
+  record.updatedAt="2026-11-06T00:00:00Z";
+  const before=structuredClone(record);
+  const html=formatJourneyJournalHTML(record);
+  assert.match(html,/<article class="atlas-journey-journal atlas-journey-status-interrupted">/);
+  assert.match(html,/<header class="atlas-journey-banner">/);
+  assert.match(html,/Atlas Navigation \/ Journey Log/);
+  assert.match(html,/class="atlas-journey-status-badge">Interrupted — may resume/);
+  assert.match(html,/class="atlas-journey-metrics"/);
+  assert.match(html,/role="progressbar" aria-label="Leg 1 confirmed progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="45"/);
+  assert.match(html,/style="width:45%"/);
+  assert.match(html,/class="atlas-journey-rest-event"/);
+  assert.match(html,/Dirwest &lt;script&gt;alert\(&#39;journey&#39;\)&lt;\/script&gt; &amp; Harbor/);
+  assert.doesNotMatch(html,/<script>/);
+  assert.doesNotMatch(html,/Arrived \(World time\)/);
+  assert.deepEqual(record,before,"formatting never changes Journey recovery metadata");
+});
+
+test("completed Journal styles the status without altering confirmed log data",()=>{
+  const record=checkpointJourneyRecord(createRecord(),{
+    schedule:{...schedule,completedHours:18},progress:100,status:"completed",
+    arrivedWorldTime:2300,arrivedTimeLabel:"0998-01-03 06:00"});
+  const html=formatJourneyJournalHTML(record);
+  assert.match(html,/atlas-journey-status-completed/);
+  assert.match(html,/Arrived \(World time\):<\/strong> 0998-01-03 06:00/);
+  assert.match(html,/aria-valuenow="100"/);
+  assert.match(html,/Confirmed progress: 100%/);
+});
+
+test("beta.1 stylesheet is shipped and namespaced to the generated Journal",()=>{
+  const manifest=JSON.parse(readFileSync(new URL("../module.json",import.meta.url),"utf8"));
+  const sheet="styles/atlas-journey-journal.css";
+  assert.equal(manifest.version,"0.3.9-beta.1");
+  assert.ok(manifest.styles.includes(sheet));
+  const css=readFileSync(new URL("../"+sheet,import.meta.url),"utf8");
+  assert.match(css,/\.atlas-journey-journal \.atlas-journey-banner/);
+  assert.match(css,/@media print/);
+  assert.doesNotMatch(css,/\.journal-entry-page\s*\{|\.window-content\s*\{/,
+    "never override native Foundry Journal windows");
 });
 
 test("confirmed completion and an explicitly ended Journal cannot be reopened by late lifecycle writes",()=>{

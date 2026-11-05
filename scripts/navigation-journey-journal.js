@@ -244,7 +244,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
   const confirmedMoving=confirmedJourneyMovingHours(record);
   const underway=validatePassengerRestMetadata(record.passengerRest);
   const pendingRestText=underway?
-    `<p><strong>Passenger rest aboard underway:</strong> ${escapeHTML(underway.action)} rest, `+
+    `<p class="atlas-journey-notice"><strong>Passenger rest aboard underway:</strong> ${escapeHTML(underway.action)} rest, `+
     `${escapeHTML(formatNavigationDuration(Math.max(0,underway.startedAtMovingHours+
       underway.hours-confirmedMoving),24))} of sailing time remaining. `+
     `Rest progress continues across a recovered voyage; no extra World time is added.</p>`:"";
@@ -264,13 +264,13 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     const transportLines=confirmedTransportJourneyLines(leg.transport,{
       movingHours:leg.completedMovingHours,
       complete:leg.completedPercent>=99.999}).map(line=>
-      `<li>${escapeHTML(line)}</li>`).join("");
+      `<li class="atlas-journey-transport-event">${escapeHTML(line)}</li>`).join("");
     const landMethod=leg.travelMethod&&leg.completedMovingHours>0?
-      `<li>The party traveled using ${escapeHTML(leg.travelMethod.name)} (`+
+      `<li class="atlas-journey-transport-event">The party traveled using ${escapeHTML(leg.travelMethod.name)} (`+
         `${escapeHTML(leg.travelMethod.arrangement==="hire"?"hired":"party-owned")}).`+
         ` No automatic purchase, booking or currency deduction occurred.</li>`:"";
     const rows=timeline.map(step=>step.kind==="journey-event"?
-      `<li><strong>${escapeHTML(step.label)}</strong> after `+
+      `<li class="atlas-journey-rest-event"><strong>${escapeHTML(step.label)}</strong> after `+
       `${escapeHTML(formatNavigationDuration(step.atHours,24))} on this leg`+
       (step.todayHours!==null?
         ` (${escapeHTML(formatNavigationDuration(step.todayHours,24))} traveled today)`:
@@ -283,35 +283,60 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         ` to ${escapeHTML(step.endedTimeLabel)}`:
         (step.hours&&!isRestUnderway(step.action)&&step.endedTimeLabel===step.startedTimeLabel?
           " (World clock unchanged)":""))+"</li>":
-      `<li>${escapeHTML(step.instruction)} — ${escapeHTML(displayDistance(Number(step.distance)))}</li>`).join("");
-    return `<section><h2>Leg ${index+1}: ${escapeHTML(leg.sceneName)}</h2>`+
+      `<li class="atlas-journey-direction">${escapeHTML(step.instruction)} — ${escapeHTML(displayDistance(Number(step.distance)))}</li>`).join("");
+    const percent=Math.floor(leg.completedPercent);
+    return `<section class="atlas-journey-leg" aria-label="Leg ${index+1}">`+
+      `<div class="atlas-journey-leg-header"><h3>Leg ${index+1}: ${escapeHTML(leg.sceneName)}</h3>`+
+      `<span class="atlas-journey-leg-progress-label">${percent}% confirmed</span></div>`+
+      `<div class="atlas-journey-progress-track" role="progressbar" aria-label="Leg ${index+1} confirmed progress" `+
+      `aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">`+
+      `<span class="atlas-journey-progress-fill" style="width:${percent}%"></span></div>`+
       `<p>Distance: ${escapeHTML(displayDistance(Number(leg.distance)))}; `+
       `Moving time: ${escapeHTML(formatNavigationDuration(leg.movingHours,24))}; `+
-      `Confirmed progress: ${Math.floor(leg.completedPercent)}% `+
+      `Confirmed progress: ${percent}% `+
       `(${escapeHTML(formatNavigationDuration(leg.completedMovingHours,24))} moving).</p>`+
       (transportLines||landMethod?
-        `<h3>Confirmed Transportation and Transfers</h3><ul>${transportLines}${landMethod}</ul>`:"")+
-      `<h3>Confirmed Directions and Stops</h3>`+
-      `<p>The full planned route remains in this Journey's saved metadata. `+
+        `<div class="atlas-journey-leg-group"><h4>Confirmed Transportation and Transfers</h4>`+
+        `<ul>${transportLines}${landMethod}</ul></div>`:"")+
+      `<div class="atlas-journey-leg-group"><h4>Confirmed Directions and Stops</h4>`+
+      `<p class="atlas-journey-caption">The full planned route remains in this Journey's saved metadata. `+
       `Only confirmed travel and approved stops appear below.</p>`+
-      `<ol>${rows}</ol>`+"</section>";
+      `<ol>${rows}</ol></div>`+"</section>";
   }).join("");
-  return `<h1>${escapeHTML(record.title??"Atlas Journey")} — ${escapeHTML(title)}</h1>`+
-    `<p>Atlas automatically maintains this summary. Add personal notes as a separate Journal page.</p>`+
-    `<p><strong>Last updated:</strong> ${escapeHTML(record.updatedAt)}</p>`+
-    (record.startedTimeLabel?`<p><strong>Departed (World time):</strong> `+
-      `${escapeHTML(record.startedTimeLabel)}</p>`:"")+
-    (record.status==="completed"&&record.arrivedTimeLabel?
-      `<p><strong>Arrived (World time):</strong> `+
-      `${escapeHTML(record.arrivedTimeLabel)}</p>`:"")+
-    `<h2>Journey Overview</h2>`+pendingRestText+
-    `<p>Confirmed moving: ${escapeHTML(formatNavigationDuration(confirmedMoving,24))}; `+
-      `confirmed downtime: ${escapeHTML(formatNavigationDuration(confirmedBreaks,24))}; `+
-      `elapsed: ${escapeHTML(formatNavigationDuration(confirmedMoving+confirmedBreaks,24))}.</p>`+
-    `<p>Foundry World time recorded: `+
-      `${escapeHTML(formatNavigationDuration((clockMoving+clockBreaks)/3600,24))} `+
-      `(moving ${escapeHTML(formatNavigationDuration(clockMoving/3600,24))}, `+
-      `breaks ${escapeHTML(formatNavigationDuration(clockBreaks/3600,24))}).</p>`+legs;
+  const movingText=escapeHTML(formatNavigationDuration(confirmedMoving,24));
+  const downtimeText=escapeHTML(formatNavigationDuration(confirmedBreaks,24));
+  const elapsedText=escapeHTML(formatNavigationDuration(confirmedMoving+confirmedBreaks,24));
+  const statusClass=record.status; // validated to a finite set above; never from arbitrary HTML.
+  return `<article class="atlas-journey-journal atlas-journey-status-${statusClass}">`+
+    `<header class="atlas-journey-banner">`+
+    `<p class="atlas-journey-eyebrow">Atlas Navigation / Journey Log</p>`+
+    `<h1>${escapeHTML(record.title??"Atlas Journey")} — ${escapeHTML(title)}</h1>`+
+    `<p class="atlas-journey-status-badge">${escapeHTML(title)}</p>`+
+    `<div class="atlas-journey-banner-times">`+
+      (record.startedTimeLabel?`<p><strong>Departed (World time):</strong> `+
+        `${escapeHTML(record.startedTimeLabel)}</p>`:"")+
+      (record.status==="completed"&&record.arrivedTimeLabel?
+        `<p><strong>Arrived (World time):</strong> `+
+        `${escapeHTML(record.arrivedTimeLabel)}</p>`:"")+
+    `</div></header>`+
+    `<p class="atlas-journey-caption">Atlas automatically maintains this summary. `+
+      `Add personal notes as a separate Journal page.</p>`+
+    `<p class="atlas-journey-updated"><strong>Last updated:</strong> `+
+      `${escapeHTML(record.updatedAt)}</p>`+
+    `<section class="atlas-journey-overview" aria-label="Journey Overview">`+
+      `<h2>Journey Overview</h2>`+pendingRestText+
+      `<div class="atlas-journey-metrics">`+
+        `<div><span>Moving</span><strong>${movingText}</strong></div>`+
+        `<div><span>Downtime</span><strong>${downtimeText}</strong></div>`+
+        `<div><span>Elapsed</span><strong>${elapsedText}</strong></div>`+
+      `</div>`+
+      `<p class="atlas-journey-timing">Confirmed moving: ${movingText}; `+
+        `confirmed downtime: ${downtimeText}; elapsed: ${elapsedText}.</p>`+
+      `<p class="atlas-journey-clock">Foundry World time recorded: `+
+        `${escapeHTML(formatNavigationDuration((clockMoving+clockBreaks)/3600,24))} `+
+        `(moving ${escapeHTML(formatNavigationDuration(clockMoving/3600,24))}, `+
+        `breaks ${escapeHTML(formatNavigationDuration(clockBreaks/3600,24))}).</p>`+
+    `</section>`+legs+`</article>`;
 }
 
 export function findRecoverableJourney(journals,{sceneId,tokenId,atlasRevision}){
