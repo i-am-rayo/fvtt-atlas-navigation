@@ -68,6 +68,8 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
   JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
 import { journeySummaryDue } from "./navigation-journey-state-store.js";
+import {mayCheckpointJourneyStatus,assessJourneyTeardown,
+  mayAttemptCanvasJourneyRecovery} from "./navigation-journey-lifecycle.js";
 import {buildJourneyTargets,assessJourneyAnchor,captureJourneyAnchor,
   nextJourneyTarget,isCheckpointBoundContinuation} from "./navigation-route-targets.js";
 import {renderNavigationFooter} from "./navigation-footer.js";
@@ -1020,8 +1022,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // The native movement callback can settle after a Scene redraw or a GM
     // confirmation. Never overwrite a completed/ended Journal from a late
     // interruption; the verified terminal record stays authoritative.
-    if(["completed","ended"].includes(session.journeyRecord.status)&&
-        status!==session.journeyRecord.status)return;
+    if(!mayCheckpointJourneyStatus(session.journeyRecord.status,status))return;
     const arrival=status==="completed"?journeyWorldStamp(game.time):null;
     // The cached native Document anchor was sampled ONLY after a completed,
     // verified move. During an in-flight move the Document may be ahead of
@@ -2191,15 +2192,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // A final native dock confirmation may already have durably committed
       // transfer metadata before move() resolves. Never downgrade that paused
       // checkpoint to an unconfirmed, partially travelled leg on redraw.
-      const finalStatus=["completed","ended"].includes(session.journeyRecord?.status);
-      const confirmedArrival=session.journeyRecord?.status==="paused"&&
-        !session.journeyRecord.pendingNativeMove&&
-        session.completedDistance/session.totalDistance>=.99999;
-      const confirmedPause=session.phase==="paused"&&
-        session.journeyRecord?.status==="paused"&&
-        !session.journeyRecord.pendingNativeMove;
-      if(!finalStatus)void this.saveJourneyCheckpoint(session,
-        confirmedArrival||confirmedPause?"paused":"interrupted").catch(error=>
+      const teardown=assessJourneyTeardown(session);
+      if(!teardown.terminal)void this.saveJourneyCheckpoint(session,
+        teardown.interruptedStatus).catch(error=>
         atlasWarn("journey","Journey interrupted but its Journal could not update",error));
       this.stopGuidedTravel({render:false});
     }
@@ -2257,13 +2252,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.windowRestorePending={sceneId:this.scene.id,
         session,
         journalId:session?.journal?.id??null,
-        confirmedPause:session?.phase==="paused"&&
-          session.journeyRecord?.status==="paused"&&
-          !session.journeyRecord.pendingNativeMove};
+        confirmedPause:assessJourneyTeardown(session).confirmedPause};
     }
-    if(reason==="canvasTearDown"&&["moving","rest-applying"].includes(session?.phase)&&
-        !session.manualRestApplying&&
-        session.journal?.id&&session.journeyRecord){
+    if(mayAttemptCanvasJourneyRecovery(reason,session)){
       const attempts=(this.autoResumeAttempts.get(session.journal.id)??0)+1;
       this.autoResumeAttempts.set(session.journal.id,attempts);
       if(attempts<=6){

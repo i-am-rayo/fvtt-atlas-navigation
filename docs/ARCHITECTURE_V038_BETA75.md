@@ -304,6 +304,19 @@ pending movement, or release an unsafe recovery by weakening tolerances.
 
 See [beta.7.17 acceptance checklist](NAVIGATION_BETA7_17_TESTING.md).
 
+**Beta.7.18 Journey lifecycle policy boundary (architecture-only draft):**
+`navigation-journey-lifecycle.js` now owns the pure decisions about terminal
+Journey status preservation, confirmed pause/dock classification on teardown,
+and whether an involuntary canvas teardown is eligible to *request* automatic
+recovery. It does not attempt recovery or authorize movement. The Navigation
+controller retains the Foundry lifecycle, retry limits, active-GM checks,
+Journal/TokenDocument/World-clock writes, and protected confirmation flow.
+This extraction preserves runtime semantics and existing Journey schema.
+The daily-rest regression holds the eight-hour World-clock promise unresolved
+and verifies that TokenDocument coordinates and native move count remain
+unchanged until the rest commit returns. See the [beta.7.18 test guide](NAVIGATION_BETA7_18_TESTING.md)
+and [revised milestone plan](MILESTONE_REBASE_2026_11_05.md).
+
 **Future-feature architecture boundary (November 4):** New owner requests and their cross-chat [milestone plan](FUTURE_FEATURE_MILESTONES.md) do not expand this beta.7.x stabilization scope. Prepare role-filtered read-only Journey projections, retain GM-authoritative action boundaries, and investigate the reported player-view travel stall when the GM window is inactive **before** player progress, camera follow or faster playback. No future-feature code or stored-data migration is authorized by this documentation.
 
 ## Technical references

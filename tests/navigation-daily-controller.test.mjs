@@ -112,6 +112,42 @@ test("guided travel waits at 8h and confirms 16h overnight before moving again",
   }finally{f.restore();}
 });
 
+test("non-continuous Long Rest advances eight World hours without moving the token",async()=>{
+  const f=await journeyFixture();
+  let releaseRest;
+  try{
+    const running=f.nav.startGuidedTravel();
+    await tickUntil(()=>f.nav.travelSession?.phase==="rest-choice"&&
+      Boolean(f.nav.travelSession.restWaiter));
+    const restingPosition={x:f.token.x,y:f.token.y};
+    const movesBeforeRest=f.token.moves.length;
+    const advance=game.time.advance;
+    let restWorldTimeCommitted=false;
+    game.time.advance=async function(seconds){
+      await advance.call(this,seconds);
+      if(seconds===8*3600){
+        restWorldTimeCommitted=true;
+        await new Promise(resolve=>{releaseRest=resolve;});
+      }
+    };
+    assert.equal(f.nav.chooseDailyTravelBreak("long"),true);
+    await tickUntil(()=>restWorldTimeCommitted&&Boolean(releaseRest));
+    assert.deepEqual({x:f.token.x,y:f.token.y},restingPosition);
+    assert.equal(f.token.moves.length,movesBeforeRest,
+      "no native move may begin before the approved rest clock write settles");
+    assert.equal(f.calls.reduce((sum,value)=>sum+value,0),16*3600,
+      "World time advances 8h moving then 8h rest, with no travel distance");
+    releaseRest();releaseRest=null;
+    assert.equal(await running,true);
+    assert.ok(f.token.moves.length>movesBeforeRest,
+      "the next native move is allowed only after the rest settles");
+    assert.equal(f.nav.worldRestAdvancedSeconds,8*3600);
+  }finally{
+    releaseRest?.();
+    f.restore();
+  }
+});
+
 test("short rest then forced march leaves daily hours intact and requires manual checks",async()=>{
   const f=await journeyFixture();
   try{

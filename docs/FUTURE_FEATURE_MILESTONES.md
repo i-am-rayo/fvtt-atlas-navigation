@@ -1,5 +1,12 @@
 # Atlas — future capabilities, milestone plan and cross-chat handoff
 
+> **November 5, 2026 rebaseline:** The historical beta.7.11.2 baseline below
+> has been superseded by the owner-tested `v0.3.8-beta.7.17` Journey-state
+> architecture. See [the revised milestone gates](MILESTONE_REBASE_2026_11_05.md).
+> Journal visual refinement now belongs to the Journey UX stage B, after
+> stability checks, rather than waiting until stage G. Future features remain
+> proposed and require separate owner approval.
+
 **Owner requests received:** November 4, 2026  
 **Status:** Proposed, unimplemented backlog. No feature, release or merge authorization implied.  
 **Current baseline:** v0.3.8-beta.7.11.2 passed the owner's live Port Barthos → Hearth's Heart Dock journey (owned Riding Horse → hired ship → walking; 51h 58m moving, no additional downtime) and Hearth's Heart Dock → South-East Gate journey (walking → owned Warship → owned Riding Horse; 43h 42m moving and 49h downtime). v0.3.8-beta.7.12 is the next architecture-only transfer-preview presentation extraction, restacked after both recovery hotfixes and pending GM/player Foundry v14 acceptance. The future player travel pamphlet and permissions remain deferred.
