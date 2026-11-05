@@ -2,7 +2,20 @@
 
 # Active v0.3.x roadmap — updated November 5, 2026
 
-**Current implementation — v0.3.8-beta.7.23 Fog / player visual read boundary (draft):**
+**Current implementation — v0.3.8-beta.7.24 Cross-subsystem regression/compatibility (draft):**
+Following owner GM and player acceptance of beta.7.23, test the boundaries
+between Road/Checkpoint writes, native Regions, Fog projection, visible/player
+Roads, and interrupted Journey read models without changing runtime mechanics.
+Use focused tests during iteration while retaining the full automated and
+architecture gate for draft PR upload. Foundry v14 GM/non-GM integration
+across Scene refresh/padding, weather, native Region edits and Journey transfer
+still requires owner testing. Existing transfer anchor mismatch
+[#189](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/189)
+blocks a full recovery PASS; do not weaken guards. See
+[beta.7.24 test matrix](CROSS_SUBSYSTEM_BETA7_24_TESTING.md) and
+[feature/bug register](FEATURE_ISSUE_REGISTER_2026_11_05.md).
+
+**Previously owner-accepted — v0.3.8-beta.7.23 Fog / player visual read boundary (draft):**
 Extract an explicit field-whitelisted player overlay projection and a pure
 manual Fog cell-coverage rule, retaining native Grid, Region, and
 FogExploration authority. A malformed manual Fog flag must cover rather than

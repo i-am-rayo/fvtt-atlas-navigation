@@ -44,6 +44,18 @@ substitute for non-GM or cross-subsystem acceptance.
 
 ## Release / testing boundaries
 
+**November 5 owner update — beta.7.23 passed GM and non-GM live tests.**
+beta.7.24 is now a cross-subsystem regression and compatibility **draft test
+build**; it adds composed interface tests and the
+[live matrix](CROSS_SUBSYSTEM_BETA7_24_TESTING.md), but no gameplay changes.
+The known checkpoint-transfer native Token/Journal mismatch
+[#189](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/189) remains
+a high-risk unresolved gate; absent a proven safe recovery, broad Journey
+compatibility must not be declared successful. The complete owner-requested
+future-feature list is mapped to [labeled GitHub Issues](FEATURE_ISSUE_REGISTER_2026_11_05.md),
+including Lore camera focus [#191](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/191).
+
+
 1. Every beta.7.x slice remains stacked on its predecessor and draft until the
    Product Owner accepts live Foundry v14 tests. A green Node suite is not
    evidence of a GM/non-GM two-client run.

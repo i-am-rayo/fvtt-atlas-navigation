@@ -1,7 +1,8 @@
 # v0.3.8-beta.7.23 — Fog & player visual read-model boundary
 
-**Status:** draft implementation, automated verification only. Owner Foundry v14
-GM/non-GM acceptance pending. This branch stacks on beta.7.22; it does not
+**Status:** draft implementation; automated verification passed (680/680);
+owner Foundry v14 **GM and non-GM acceptance passed** on November 5, 2026.
+This branch stacks on beta.7.22; it does not
 merge or release any previous drafts. Test in a backed-up World.
 
 ## Scope and contracts
@@ -84,6 +85,7 @@ merge or release any previous drafts. Test in a backed-up World.
   obligations. This slice does not claim to solve A19-F1's full performance
   measurement or A19-P1's server-side confidentiality problem.
 
-**Exit gate:** review GM/non-GM test outcomes before beta.7.24's broad
-integration gate; bug #189 is a separate high-risk Journey investigation,
+**Exit gate:** owner GM/non-GM confirmation cleared this focused visual
+boundary; beta.7.24 broad integration remains independently gated.
+Bug #189 is a separate high-risk Journey investigation,
 not a basis for relaxing recovery safety.
