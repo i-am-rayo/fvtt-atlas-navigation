@@ -75,7 +75,7 @@ test("only active GM can send a committed banner; public payload contains no nam
   const settings={get:()=>({schemaVersion:1,id:"previousprevious",type:"journey.started"}),
     async set(...args){writes.push(args);return true;}};
   const runtime=new AtlasAnnouncementRuntime({
-    settings,renderer:{show:(type,opts)=>{shows.push({type,...opts});return true;}},
+    settings,renderer:{enqueue:(type,opts)=>{shows.push({type,...opts});return true;}},
     user:()=>currentUser,activeGM:()=>({id:"gm-1"}),
     randomID:()=>"unique-announcement-01"
   });
@@ -110,7 +110,7 @@ test("world-setting listener accepts only canned public content and never replay
   const shows=[];
   const runtime=new AtlasAnnouncementRuntime({
     settings:{get:()=>({schemaVersion:1,id:"from-prior-session",type:"journey.paused"})},
-    renderer:{show:(...args)=>{shows.push(args);return true;}}
+    renderer:{enqueue:(...args)=>{shows.push(args);return true;}}
   });
   runtime.start();
   assert.equal(runtime.receive({schemaVersion:1,id:"from-prior-session",
@@ -130,7 +130,7 @@ test("a failed World announcement projection never rejects a committed journey",
   const warnings=[],saved=record("completed",{percent:100});
   const runtime=new AtlasAnnouncementRuntime({
     settings:{set:async()=>{throw Error("player delivery offline");}},
-    renderer:{show:()=>true},user:()=>({id:"gm",isGM:true}),
+    renderer:{enqueue:()=>true},user:()=>({id:"gm",isGM:true}),
     activeGM:()=>({id:"gm"}),randomID:()=>"safe-message-id-001",
     onWarning:error=>warnings.push(error.message)
   });

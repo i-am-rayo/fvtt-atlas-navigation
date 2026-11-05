@@ -75,7 +75,7 @@ export class AtlasAnnouncementRuntime {
     // checkpoint ID, destination name, hidden POI or free-form client text.
     const spec=atlasAnnouncementPreview(pulse.type,{
       subject:PUBLIC_SUBJECTS[pulse.type]});
-    return this.renderer.show(spec.type,{subject:spec.subject});
+    return this.renderer.enqueue(spec.type,{subject:spec.subject});
   }
 
   /** GM-only, best-effort presentation AFTER Journal save/verification.
@@ -94,7 +94,7 @@ export class AtlasAnnouncementRuntime {
     if(!matchesSavedJourneyAnnouncement(committed,stored))return false;
     const key=`${journal.id}|${plan.key}`;
     if(!this.remember(this.sent,key))return false;
-    try{this.renderer.show(type,{subject});}
+    try{this.renderer.enqueue(type,{subject});}
     catch(error){this.onWarning(error);}
     const id=this.randomID();
     const pulse=validatedAtlasAnnouncementPulse({

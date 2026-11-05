@@ -32,8 +32,11 @@
     linear-gradient(125deg, #181621 0%, #292231 62%, #15141d 100%);
   box-shadow: 0 14px 35px rgba(0, 0, 0, .52),
     0 0 20px var(--atlas-announcement-soft);
-  animation: atlas-announcement-enter .5s cubic-bezier(.2,.8,.3,1) both,
-    atlas-announcement-leave .7s ease-in 3.75s forwards;
+  /* Total banner cycle is controlled by the renderer (5s default).
+   * The final fade completes before the next queued event is displayed. */
+  animation: atlas-announcement-enter .55s cubic-bezier(.16,1,.3,1) both,
+    atlas-announcement-leave .75s ease-in-out
+      calc(var(--atlas-announcement-duration, 5000ms) - 750ms) forwards;
 }
 
 .atlas-announcement--discovery {
@@ -121,12 +124,12 @@
 }
 
 @keyframes atlas-announcement-enter {
-  from { opacity: 0; transform: translateY(-1.4rem) scale(.97); }
+  from { opacity: 0; transform: translateY(-.9rem) scale(.985); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes atlas-announcement-leave {
   from { opacity: 1; transform: translateY(0); }
-  to { opacity: 0; transform: translateY(-.7rem); }
+  to { opacity: 0; transform: translateY(-.45rem) scale(.99); }
 }
 
 @media (max-width: 480px) {

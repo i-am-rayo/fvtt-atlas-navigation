@@ -2,6 +2,8 @@
 
 # Active v0.3.x roadmap — updated November 6, 2026
 
+**v0.3.9-beta.3.1 — Announcement presentation timing (draft):** Owner confirmed the live beta.3 custom banners were visible to both GM and player. The supplied Foundry log identifies an Atlas `Illegal invocation` in the browser timer call. Repair timer host binding, introduce a bounded per-client FIFO live-event queue with a five-second default per item, and align smoother CSS entrance/exit animation with its dismissal. GM-only preview remains immediate. No discovery/break event producers yet, no World setting schema/Journal authority changes. [Owner hotfix test matrix](ANNOUNCEMENT_BETA3_1_TIMING.md).
+
 **v0.3.9-beta.3 — Confirmed Journey banners (draft):** Owner approved beta.2's visual samples. The active GM may project Journey started, checkpoint reached, destination reached, deliberate ended, and manual paused events only after matching a committed native Journal flag. Player clients receive only generic event type via a server-authorized, public World setting; no hidden IDs or names. Canvas/reconnect does not replay. No native token/World-time/rest/Region/fog change. [Two-client checklist](ANNOUNCEMENT_BETA3_DELIVERY.md); umbrella [#228](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/228). Beta.4 remains discovery and break automation after separate privacy/transition tests.
 
 **Checkpoint-boundary hotfix — v0.3.8-beta.7.26.1 (draft):**

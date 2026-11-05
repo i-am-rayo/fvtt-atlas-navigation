@@ -116,7 +116,7 @@ test("completed Journal styles the status without altering confirmed log data",(
 test("beta.1 stylesheet is shipped and namespaced to the generated Journal",()=>{
   const manifest=JSON.parse(readFileSync(new URL("../module.json",import.meta.url),"utf8"));
   const sheet="styles/atlas-journey-journal.css";
-  assert.match(manifest.version,/^0\.3\.9-beta\.[1-9]\d*$/,
+  assert.match(manifest.version,/^0\.3\.9-beta\.[1-9]\d*(?:\.\d+)?$/,
     "subsequent 0.3.9 betas must retain the beta.1 Journal stylesheet");
   assert.ok(manifest.styles.includes(sheet));
   const css=readFileSync(new URL("../"+sheet,import.meta.url),"utf8");

@@ -30,7 +30,7 @@ test("v14 module init registers restricted preview and server-authorized public 
     const {atlasAnnouncementRuntime}=await import(
       "../scripts/atlas-announcement-runtime.js");
     const shown=[];
-    atlasAnnouncementRuntime.renderer={show:(type,options)=>{
+    atlasAnnouncementRuntime.renderer={enqueue:(type,options)=>{
       shown.push([type,options]);return true;}};
     // No old Journey from another session may play on client bootstrap.
     assert.equal(settings[0][2].onChange(priorPulse),false);

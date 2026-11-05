@@ -62,7 +62,7 @@ test("DOM preview is local, escaped by textContent, and reuses one overlay",()=>
     "untrusted visible names must never become raw HTML");
   assert.equal(banner.attributes.role,"status");
   assert.equal(first.attributes["aria-live"],"polite");
-  assert.equal(pending[0].ms,4500);
+  assert.equal(pending[0].ms,5000);
   assert.equal(renderer.show("journey.paused"),true);
   assert.equal(body.children.length,1);
   assert.equal(body.children[0],first);
@@ -77,10 +77,82 @@ test("DOM preview is local, escaped by textContent, and reuses one overlay",()=>
   renderer.destroy();
 });
 
+test("live announcements display FIFO for five seconds each, even when simultaneous",()=>{
+  const body=fakeElement("body");
+  const documentRef={body,createElement:fakeElement};
+  const timers=[],cancelled=[];
+  const renderer=new AtlasAnnouncementPreviewRenderer({documentRef,
+    setTimeoutFn:(fn,ms)=>{timers.push({fn,ms});return timers.length;},
+    clearTimeoutFn:id=>cancelled.push(id)});
+  assert.equal(renderer.enqueue("checkpoint.discovered",{subject:"Hearth's Heart"}),true);
+  assert.equal(renderer.enqueue("road.discovered",{subject:"Old King's Road"}),true);
+  assert.equal(renderer.enqueue("destination.reached",{subject:"Dirwest"}),true);
+  assert.equal(timers.length,1,"one active timer, not one per event");
+  assert.equal(renderer.queue.length,2);
+  const layer=body.children[0];
+  const visibleSubject=()=>layer.children[0].children[1].children[2].textContent;
+  assert.equal(visibleSubject(),"Hearth's Heart");
+  assert.equal(timers[0].ms,5000);
+  timers[0].fn();
+  assert.equal(visibleSubject(),"Old King's Road");
+  assert.equal(timers[1].ms,5000);
+  timers[1].fn();
+  assert.equal(visibleSubject(),"Dirwest");
+  assert.equal(timers[2].ms,5000);
+  timers[2].fn();
+  assert.equal(body.children.length,0);
+  assert.deepEqual(cancelled,[],"completed timers need no cancellation");
+});
+
+test("queue is bounded; destroy or manual preview replaces and clears pending items",()=>{
+  const body=fakeElement("body");
+  const timers=[];
+  const renderer=new AtlasAnnouncementPreviewRenderer({
+    documentRef:{body,createElement:fakeElement},maxQueue:1,
+    setTimeoutFn:fn=>{timers.push(fn);return timers.length;},clearTimeoutFn:()=>{}});
+  assert.equal(renderer.enqueue("journey.started"),true);
+  assert.equal(renderer.enqueue("checkpoint.arrived"),true);
+  assert.equal(renderer.enqueue("journey.ended"),false);
+  assert.equal(renderer.queue.length,1);
+  assert.equal(renderer.show("journey.paused"),true);
+  assert.equal(renderer.queue.length,0);
+  timers[0]();
+  assert.equal(body.children.length,1,"stale timer cannot advance a replaced banner");
+  renderer.enqueue("destination.reached");
+  renderer.destroy();
+  assert.equal(renderer.queue.length,0);
+  assert.equal(body.children.length,0);
+  timers.at(-1)();
+  assert.equal(body.children.length,0,"stale callback cannot recreate a banner");
+});
+
+test("native Window timers are invoked with their original host context",()=>{
+  const realSetTimeout=globalThis.setTimeout;
+  const realClearTimeout=globalThis.clearTimeout;
+  try{
+    globalThis.setTimeout=function(callback,ms){
+      assert.equal(this,globalThis,"browser timer must not bind to Atlas renderer");
+      assert.equal(ms,5000);
+      return 19;
+    };
+    globalThis.clearTimeout=function(id){
+      assert.equal(this,globalThis,"browser timer clear must retain host context");
+      assert.equal(id,19);
+    };
+    const renderer=new AtlasAnnouncementPreviewRenderer({
+      documentRef:{body:fakeElement("body"),createElement:fakeElement}});
+    assert.equal(renderer.show("journey.started"),true);
+    renderer.destroy();
+  }finally{
+    globalThis.setTimeout=realSetTimeout;
+    globalThis.clearTimeout=realClearTimeout;
+  }
+});
+
 test("Foundry integration is settings-only with no Scene or gameplay writes",()=>{
   const manifest=JSON.parse(readFileSync(new URL("../module.json",import.meta.url),"utf8"));
-  assert.match(manifest.version,/^0\.3\.9-beta\.[2-9]\d*$/,
-    "beta.3 and later must retain the preview foundation");
+  assert.match(manifest.version,/^0\.3\.9-beta\.[2-9]\d*(?:\.\d+)?$/,
+    "beta.3 hotfixes and later must retain the preview foundation");
   assert.ok(manifest.styles.includes("styles/atlas-announcements.css"));
   assert.ok(manifest.esmodules.includes("scripts/atlas-announcement-settings.js"));
   const settingsSource=readFileSync(new URL("../scripts/atlas-announcement-settings.js",import.meta.url),"utf8");
