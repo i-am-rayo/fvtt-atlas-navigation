@@ -15,9 +15,10 @@ const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const EPS=1e-7;
 
 export const NATIVE_CHECKPOINT_PATH_SCHEMA=1;
-// Journal durability checkpoints are not road nodes. A somewhat longer native
-// interval avoids writing a Journal flag at every 2-second visual microstep.
-export const NATIVE_CONTINUOUS_CHECKPOINT_SECONDS=5;
+// Journal durability checkpoints are not road nodes. Two-second boundaries
+// make the GM's Pause request responsive without stopping between confirmed
+// TokenDocument positions or inventing partial World-time/Journal progress.
+export const NATIVE_CONTINUOUS_CHECKPOINT_SECONDS=2;
 
 /**
  * The Atlas route starts at the graph projection of Point A, which may be

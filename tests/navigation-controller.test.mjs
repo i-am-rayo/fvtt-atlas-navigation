@@ -229,6 +229,78 @@ test("canvas redraw cannot downgrade a durably confirmed final native dock",asyn
   assert.equal(nativeStops,1);
 });
 
+test("late stop and checkpoint callbacks cannot downgrade an arrived Journey Journal",async()=>{
+  const saved=[];
+  const nav=new AtlasNavigationController({journeyJournalStore:{
+    save:async record=>{saved.push(record.status);return {id:"journal"};},find:()=>null}});
+  const session={phase:"moving",completedDistance:10,totalDistance:10,
+    journal:{id:"journal"},journeyRecord:{status:"completed",
+      pendingNativeMove:null},token:{},schedule:{}};
+  nav.scene={id:"arrival-scene"};nav.travelSession=session;
+  await nav.saveJourneyCheckpoint(session,"interrupted");
+  assert.deepEqual(saved,[],"late callback cannot rewrite completed history");
+  nav.stop();
+  assert.deepEqual(saved,[],"canvas close cannot rewrite completed history");
+  assert.equal(session.journeyRecord.status,"completed");
+});
+
+test("canvas rebuild reopens the GM window and restores only a confirmed paused preview",async()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui};
+  try{
+    const scene={id:"pause-scene",canUserModify:()=>true};
+    globalThis.game={user:{id:"gm",isGM:true}};
+    globalThis.ui={notifications:{warn(){}}};
+    const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene})});
+    nav.scene=scene;nav.rendered=true;
+    nav.render=async()=>{};
+    nav.close=async()=>{nav.closed=true;};
+    const writes=[];
+    nav.saveJourneyCheckpoint=async(_session,status)=>writes.push(status);
+    nav.travelSession={sceneId:scene.id,phase:"paused",
+      journal:{id:"approved-journal"},
+      journeyRecord:{status:"paused",pendingNativeMove:null},
+      completedDistance:25,totalDistance:100};
+    nav.tearDown("canvasTearDown");
+    assert.equal(nav.active,false);
+    assert.equal(nav.windowRestorePending.confirmedPause,true);
+    assert.deepEqual(writes,["paused"],"a confirmed pause must not be downgraded");
+    const previews=[];
+    nav.activate=()=>{nav.scene=scene;
+      nav.recoverableJourney={id:"approved-journal"};};
+    nav.recoverSavedJourney=options=>{previews.push(options);return true;};
+    assert.equal(await nav.restoreWindowAfterCanvasReady(),true);
+    assert.deepEqual(previews,[{automatic:true}]);
+    assert.match(nav.travelNotice,/confirmed paused route is restored/);
+    assert.equal(nav.windowRestorePending,null);
+    assert.equal(await nav.restoreWindowAfterCanvasReady(),false,
+      "a second canvasReady must not restore again");
+  }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
+test("an unconfirmed native checkpoint may reopen the window but never recover or restart",async()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui};
+  try{
+    const scene={id:"review-scene",canUserModify:()=>true};
+    globalThis.game={user:{id:"gm",isGM:true}};
+    globalThis.ui={notifications:{warn(){}}};
+    const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene})});
+    nav.scene=scene;nav.rendered=true;nav.close=async()=>{};
+    nav.saveJourneyCheckpoint=async()=>{};
+    const session={sceneId:scene.id,phase:"pausing",
+      journal:{id:"pending-journal"},
+      journeyRecord:{status:"moving",pendingNativeMove:{operationId:"op"}},
+      completedDistance:25,totalDistance:100,token:{stopMovement(){}}};
+    nav.travelSession=session;
+    nav.tearDown("canvasTearDown");
+    assert.equal(nav.windowRestorePending.confirmedPause,false);
+    assert.equal(nav.autoResumePending,null);
+    nav.activate=()=>{nav.scene=scene;nav.recoverableJourney={id:"pending-journal"};};
+    nav.recoverSavedJourney=()=>{throw Error("Unsafe automatic recovery");};
+    assert.equal(await nav.restoreWindowAfterCanvasReady(),true);
+    assert.equal(session.journeyRecord.pendingNativeMove.operationId,"op");
+  }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
 test("canvas recovery restarts only the matching GM-approved Journey after its writes settle",async()=>{
   const previous={game:globalThis.game,ui:globalThis.ui};
   try{

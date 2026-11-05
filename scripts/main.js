@@ -1740,8 +1740,12 @@ Hooks.once("init", () => {
     atlasDebug("lifecycle","Foundry canvasReady",{sceneId:canvas?.scene?.id??null});
     navigation.tearDown("canvasReady");
     roadCanvas.refresh();manualFog.refresh();
-    void navigation.autoResumeAfterCanvasReady().catch(error=>
-      atlasWarn("journey","Automatic canvas recovery failed",error));
+    void (async()=>{
+      try{await navigation.autoResumeAfterCanvasReady();}
+      catch(error){atlasWarn("journey","Automatic canvas recovery failed",error);}
+      try{await navigation.restoreWindowAfterCanvasReady();}
+      catch(error){atlasWarn("lifecycle","Navigation window restoration failed",error);}
+    })();
   });
   // Foundry v14 movement includes origin, passed waypoints and destination.
   Hooks.on("moveToken", observeAtlasTokenMovement);

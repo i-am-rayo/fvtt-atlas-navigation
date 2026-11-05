@@ -147,6 +147,12 @@ export function checkpointJourneyRecord(record,{schedule,progress,status,
       !schedule||!Number.isFinite(schedule.completedHours)||
       !Number.isFinite(worldTravelSeconds)||!Number.isFinite(worldRestSeconds))
     throw Error("Invalid confirmed journey checkpoint.");
+  // Terminal decisions are durable GM history, never a transient animation
+  // phase. A late canvas teardown or pending UI callback cannot reopen them.
+  if(["completed","ended"].includes(next.status)&&status!==next.status)
+    throw Error("A finalized Journey cannot return to an active or interrupted state.");
+  if(status==="completed"&&next.pendingNativeMove)
+    throw Error("A pending native TokenDocument move cannot be marked as arrived.");
   const leg=next.legs.at(-1);
   leg.completedMovingHours=schedule.completedHours;
   leg.completedPercent=progress;
@@ -188,6 +194,11 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
     next.destination=point(journeyDestination);
   }
   next.status="moving";next.updatedAt=now;
+  // A recovered active leg is not an arrival, even if an older beta left a
+  // terminal stamp in otherwise recoverable metadata. Do not repeat it on the
+  // following leg or display a false arrival after an interruption.
+  delete next.arrivedWorldTime;
+  delete next.arrivedTimeLabel;
   return validateJourneyRecord(next);
 }
 
@@ -279,7 +290,8 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     `<p><strong>Last updated:</strong> ${escapeHTML(record.updatedAt)}</p>`+
     (record.startedTimeLabel?`<p><strong>Departed (World time):</strong> `+
       `${escapeHTML(record.startedTimeLabel)}</p>`:"")+
-    (record.arrivedTimeLabel?`<p><strong>Arrived (World time):</strong> `+
+    (record.status==="completed"&&record.arrivedTimeLabel?
+      `<p><strong>Arrived (World time):</strong> `+
       `${escapeHTML(record.arrivedTimeLabel)}</p>`:"")+
     `<h2>Journey Overview</h2>`+pendingRestText+
     `<p>Confirmed moving: ${escapeHTML(formatNavigationDuration(confirmedMoving,24))}; `+

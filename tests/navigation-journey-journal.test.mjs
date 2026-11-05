@@ -54,6 +54,41 @@ test("one versioned record contains readable route, rest history, and recovery s
   assert.throws(()=>resumeJourneyRecord(changed,{itinerary:itinerary(),atlasRevision:13}),/cannot safely/);
 });
 
+test("confirmed completion and an explicitly ended Journal cannot be reopened by late lifecycle writes",()=>{
+  const completed=checkpointJourneyRecord(createRecord(),{
+    schedule:{...schedule,completedHours:18},progress:100,status:"completed",
+    arrivedWorldTime:2300,arrivedTimeLabel:"0997-12-21 00:06"});
+  assert.equal(eligibleJourneyRecord(completed,{
+    sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
+  assert.throws(()=>checkpointJourneyRecord(completed,{
+    schedule,progress:100,status:"interrupted"}),/finalized Journey/);
+  assert.equal(completed.status,"completed");
+  assert.match(formatJourneyJournalHTML(completed),/Completed/);
+  const ended={...createRecord(),status:"ended"};
+  assert.throws(()=>checkpointJourneyRecord(ended,{
+    schedule,progress:10,status:"paused"}),/finalized Journey/);
+  const unresolved={...createRecord(),pendingNativeMove:{schemaVersion:1,
+    operationId:"checkpoint-123",tokenId:"token",checkpointIndex:0,
+    from:{x:0,y:0},to:{x:10,y:0},nativeDistance:10,movingHours:1,
+    worldTimeBefore:100,worldAdvanceSeconds:3600,atlasRevision:12}};
+  assert.throws(()=>checkpointJourneyRecord(unresolved,{
+    schedule,progress:100,status:"completed"}),/pending native TokenDocument/);
+});
+
+test("legacy interrupted metadata never claims arrival or carries stale arrival into a resumed leg",()=>{
+  const partial=checkpointJourneyRecord(createRecord(),{
+    schedule,progress:45,status:"interrupted"});
+  partial.arrivedWorldTime=123456;
+  partial.arrivedTimeLabel="old beta terminal stamp";
+  assert.doesNotMatch(formatJourneyJournalHTML(partial),/Arrived \(World time\)/);
+  const next=resumeJourneyRecord(partial,{itinerary:itinerary(),atlasRevision:12});
+  assert.equal(next.arrivedWorldTime,undefined);
+  assert.equal(next.arrivedTimeLabel,undefined);
+  assert.equal(next.status,"moving");
+  assert.equal(partial.arrivedTimeLabel,"old beta terminal stamp",
+    "historical Journal data is not changed on read or local resume preparation");
+});
+
 test("land method selections persist independently of completed checkpoint transports",()=>{
   const land=itinerary();
   land.travel={...land.travel,methodId:"riding-horse",methodName:"Riding Horse",

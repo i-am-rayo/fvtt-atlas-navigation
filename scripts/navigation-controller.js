@@ -164,6 +164,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.autoResumePending=null;
     this.autoResumeAttempts=new Map();
     this.canvasTeardownClose=Promise.resolve();
+    this.windowRestorePending=null;
   }
 
   get active() { return Boolean(this.scene); }
@@ -1001,6 +1002,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   async saveJourneyCheckpoint(session,status,{updatePage=true}={}){
     if(!session?.journal||!session.journeyRecord)return;
+    // The native movement callback can settle after a Scene redraw or a GM
+    // confirmation. Never overwrite a completed/ended Journal from a late
+    // interruption; the verified terminal record stays authoritative.
+    if(["completed","ended"].includes(session.journeyRecord.status)&&
+        status!==session.journeyRecord.status)return;
     const arrival=status==="completed"?journeyWorldStamp(game.time):null;
     // The cached native Document anchor was sampled ONLY after a completed,
     // verified move. During an in-flight move the Document may be ahead of
@@ -2026,7 +2032,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     return true;
   }
 
-  /** Pause at the next short native movement boundary (at most ~2s). */
+  /** Pause at the next short native movement boundary (nominally ~2s). */
   pauseGuidedTravel(){
     const session=this.travelSession;
     if(!session||session.phase!=="moving")return false;
@@ -2144,11 +2150,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // A final native dock confirmation may already have durably committed
       // transfer metadata before move() resolves. Never downgrade that paused
       // checkpoint to an unconfirmed, partially travelled leg on redraw.
+      const finalStatus=["completed","ended"].includes(session.journeyRecord?.status);
       const confirmedArrival=session.journeyRecord?.status==="paused"&&
         !session.journeyRecord.pendingNativeMove&&
         session.completedDistance/session.totalDistance>=.99999;
-      void this.saveJourneyCheckpoint(session,confirmedArrival?
-        "paused":"interrupted").catch(error=>
+      const confirmedPause=session.phase==="paused"&&
+        session.journeyRecord?.status==="paused"&&
+        !session.journeyRecord.pendingNativeMove;
+      if(!finalStatus)void this.saveJourneyCheckpoint(session,
+        confirmedArrival||confirmedPause?"paused":"interrupted").catch(error=>
         atlasWarn("journey","Journey interrupted but its Journal could not update",error));
       this.stopGuidedTravel({render:false});
     }
@@ -2194,6 +2204,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       reason,sceneId:this.scene?.id??null,journeyActive:Boolean(session),
       completedPercent:Math.floor(this.travelProgress),phase:session?.phase??null
     });
+    if(["canvasTearDown","canvasReady"].includes(reason)&&this.active&&this.rendered){
+      this.windowRestorePending={sceneId:this.scene.id,
+        session,
+        journalId:session?.journal?.id??null,
+        confirmedPause:session?.phase==="paused"&&
+          session.journeyRecord?.status==="paused"&&
+          !session.journeyRecord.pendingNativeMove};
+    }
     if(reason==="canvasTearDown"&&["moving","rest-applying"].includes(session?.phase)&&
         !session.manualRestApplying&&
         session.journal?.id&&session.journeyRecord){
@@ -2212,7 +2230,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(session&&["canvasTearDown","canvasReady"].includes(reason)){
       const message=this.autoResumePending?
         "Atlas journey interrupted by a Foundry canvas redraw. Atlas will try to continue safely.":
-        "Atlas journey interrupted by a Foundry canvas redraw. Reopen Navigation to recover it.";
+        this.windowRestorePending?
+          "Atlas journey interrupted by a Foundry canvas redraw. " +
+            "Navigation will reopen for GM review when the same Scene is ready.":
+          "Atlas journey interrupted by a Foundry canvas redraw. Reopen Navigation to recover it.";
       atlasWarn("lifecycle",message,{reason,sceneId:session.sceneId});
       globalThis.ui?.notifications?.warn?.(message);
     }
@@ -2279,6 +2300,59 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       atlasWarn("journey","Automatic continuation unavailable; recover manually",error);
       globalThis.ui?.notifications?.warn?.(
         "Atlas paused after a canvas rebuild. Open Navigation to recover the journey.");
+      return false;
+    }
+  }
+
+  /** Preserve the GM window across a same-Scene canvas rebuild. This never
+   * resumes a native TokenDocument move. A fully confirmed manual pause may
+   * restore its read-only route preview; a pending intent remains locked. */
+  async restoreWindowAfterCanvasReady(){
+    const pending=this.windowRestorePending;
+    if(!pending)return false;
+    this.windowRestorePending=null;
+    await this.canvasTeardownClose;
+    const view=this.canvasProvider();
+    if(!game.user?.isGM||!view?.ready||view.scene?.id!==pending.sceneId||
+        !view.scene.canUserModify?.(game.user,"update"))return false;
+    if(this.active)return true;
+    // The old Canvas may have disappeared during a clock/Journal await.
+    // A safe preview requires those writes and the movement loop to settle.
+    let settled=true;
+    if(pending.session){
+      let timeout;
+      settled=await Promise.race([
+        Promise.all([pending.session.finished??Promise.resolve(),
+          pending.session.journalQueue??Promise.resolve()])
+          .then(()=>true,()=>false),
+        new Promise(resolve=>{timeout=setTimeout(()=>resolve(false),8000);})
+      ]).finally(()=>clearTimeout(timeout));
+    }
+    try{
+      this.activate();
+      if(pending.confirmedPause&&settled&&
+          this.recoverableJourney?.id===pending.journalId){
+        try{
+          this.recoverSavedJourney({automatic:true});
+          this.travelNotice="A canvas refresh ended the native movement. " +
+            "The confirmed paused route is restored; select Travel Route to resume.";
+          if(this.active)void this.render(true);
+        }catch(error){
+          atlasWarn("journey","Paused preview needs GM recovery after canvas refresh",error);
+        }
+      }
+      if(!settled){
+        this.travelNotice="The prior Canvas stopped before its Journey writes settled. " +
+          "Review the saved Journey and TokenDocument before any new movement.";
+        if(this.active)void this.render(true);
+        atlasWarn("journey","Navigation reopened without automatic preview; old writes did not settle",{
+          sceneId:pending.sceneId,journalId:pending.journalId});
+      }
+      atlasDebug("lifecycle","Navigation window reopened after canvas refresh",{
+        sceneId:pending.sceneId,pausedPreview:pending.confirmedPause});
+      return true;
+    }catch(error){
+      atlasWarn("lifecycle","Navigation window could not reopen after canvas refresh",error);
       return false;
     }
   }

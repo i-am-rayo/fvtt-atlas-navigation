@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {planNativeCheckpointPath,anchorNativeTokenWaypoints,
-  describeNativeCheckpointSources}
+  describeNativeCheckpointSources,NATIVE_CONTINUOUS_CHECKPOINT_SECONDS}
   from "../scripts/navigation-native-movement-plan.js";
 import {validatePendingNativeMove,assessPendingNativeMove}
   from "../scripts/navigation-native-movement-reconciliation.js";
@@ -11,6 +11,16 @@ const pending=()=>({schemaVersion:1,operationId:"native-motion-1",
   tokenId:"party",checkpointIndex:2,from:pt(20,30),to:pt(30,30),
   nativeDistance:10,movingHours:4,worldTimeBefore:1000,
   worldAdvanceSeconds:14400,atlasRevision:3});
+
+test("native pause checkpoints target at most two seconds of nominal playback",()=>{
+  assert.equal(NATIVE_CONTINUOUS_CHECKPOINT_SECONDS,2);
+  const route=planNativeCheckpointPath([pt(0,0),pt(100,0)],{
+    movementSpeed:1,gridSize:10,
+    secondsPerCheckpoint:NATIVE_CONTINUOUS_CHECKPOINT_SECONDS,totalMovingHours:2});
+  assert.equal(route.checkpoints.length,5);
+  assert.ok(route.checkpoints.every(checkpoint=>checkpoint.distance<=20),
+    "the next durable checkpoint bounds pause latency without requiring road nodes");
+});
 
 test("one Foundry movement keeps all road bends with checkpoints, not separate token moves",()=>{
   const authored=[pt(0,0),pt(30,0),pt(30,40),pt(80,40)];

@@ -190,6 +190,10 @@ LegendKeeper's [developer portal](https://www.legendkeeper.com/developers/) docu
 - Size/performance threshold at which Scene flags need reconsideration.
 - JS vs TypeScript and bundler choice (prefer the smallest maintainable setup).
 
+### v0.3.8-beta.7.16.3 — Pause and Journey terminal-state safety (draft)
+
+A confirmed `completed` or `ended` Journey Journal cannot be downgraded by a late canvas teardown or stale checkpoint callback. The old pending native movement and clock/Journal promises settle before a same-Scene canvas rebuild reopens the GM Navigation window. A fully confirmed manual pause can restore only its route **preview**, subject to the strict token-anchor check; it does not restart native movement. An unresolved native checkpoint remains locked for GM review. The earlier five-second continuous-vessel durability intervals are reduced to **two nominal real seconds** for responsive Pause, without inventing intermediate authoritative positions. This does not suppress Foundry canvas redraw or change native Token, Scene, Region or Journal schemas. Journal layout and aboard-rest display stay deferred; see `docs/NAVIGATION_BETA7_16_3_TESTING.md`.
+
 ### v0.3.8-beta.7.15.2 — confirmed recovery anchor and approved transport view (draft)
 
 Each native TokenDocument `move` must finish, its Canvas animation settle, and its expected endpoint match before Atlas captures a new image-relative Journey recovery anchor. The cached anchor retains stable road/segment/checkpoint IDs and native elevation/Level ID when available. It is written with credited movement progress to the single versioned Journey Journal even if canvas teardown makes live document sampling unavailable. A stopped or incomplete move never promotes the current TokenDocument position to confirmed progress, and the existing positional/topological recovery guard remains strict. Active Navigation reads the saved approved ship/mount method, speed, and travel hours; rendering never recommits transportation. No Scene/Region/Level ownership changes, Journal migration, or speculative auto-snap of unsafe positions. GM and non-GM Foundry v14 live acceptance is required.
