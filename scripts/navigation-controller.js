@@ -659,17 +659,31 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!result.guided)return result;
       if(this.sourceMode!=="party")return {...result,guided:false,
         reason:"Guided mount travel requires the assigned party token as Point A."};
-      // Hired land journeys still require an authored checkpoint boundary.
-      // This hotfix only removes the unnecessary terminal guard for owned mounts.
-      if(this.transportArrangement!=="owned")return {...result,guided:false,
-        reason:"Hired land services require an approved checkpoint leg for native movement."};
       const availability=this.transportAvailability();
-      const permitted=availability.owned.has(this.travelMethod);
-      if(!permitted)return {...result,guided:false,
-        reason:"The selected transport is no longer owned or available at this departure."};
+      const savedLeg=this.recoveryRecord?.legs?.at(-1);
+      const approvedLand=isUnfinishedJourneyLeg(this.recoveryRecord)&&
+        !savedLeg?.transport?savedLeg?.travelMethod:null;
+      // A hired land service is authorized at a checkpoint departure. After
+      // interruption, its already-approved arrangement remains authoritative
+      // even when the token has moved outside the checkpoint's offer radius.
+      if(approvedLand&&(approvedLand.id!==this.travelMethod||
+          approvedLand.arrangement!==this.transportArrangement))
+        return {...result,guided:false,
+          reason:"Resume the previously approved land method and arrangement, or stop and replan."};
+      if(this.transportArrangement==="hire"){
+        if(!approvedLand&&!availability.offers.has(this.travelMethod))
+          return {...result,guided:false,
+            reason:"This hired land service is no longer offered at the departure checkpoint."};
+      }else if(this.transportArrangement==="owned"){
+        if(this.travelMethod!=="walking"&&!approvedLand&&
+            !availability.owned.has(this.travelMethod))
+          return {...result,guided:false,
+            reason:"The selected transport is no longer owned or available at this departure."};
+      }else return {...result,guided:false,
+        reason:"Choose a valid party-owned or checkpoint-hired transportation arrangement."};
       const method=availability.methods.find(item=>item.id===this.travelMethod);
       const group=this.getPartyToken()?.actor;
-      if(this.transportArrangement==="owned"&&method&&
+      if(!approvedLand&&this.transportArrangement==="owned"&&method&&
           game.system?.id==="dnd5e"&&group?.type==="group"){
         const roster=projectGroupTransportation(group,
           readGroupTransportation(game.settings),availability.all);
@@ -1449,9 +1463,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const approvedLandMethod=isUnfinishedJourneyLeg(this.recoveryRecord)&&
       !this.recoveryRecord.legs.at(-1)?.transport?
       this.recoveryRecord.legs.at(-1)?.travelMethod:null;
-    if(approvedLandMethod&&this.travelMethod!==approvedLandMethod.id)
+    if(approvedLandMethod&&(this.travelMethod!==approvedLandMethod.id||
+        this.transportArrangement!==approvedLandMethod.arrangement))
       throw Error("The saved "+approvedLandMethod.name+
-        " journey cannot silently resume using another travel method. Recover or replan with the GM.");
+        " journey cannot silently resume using another travel method or arrangement. Recover or replan with the GM.");
     if(this.sourceMode==="party"&&this.syncPartyDeparture(view,atlas)){
       // A moved token invalidates the old route AND selected checkpoint offer.
       this.calculateRoute(view,atlas);this.draw();void this.render(true);
@@ -1488,13 +1503,22 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!assessment.guided)
         throw Error(assessment.reason??
           "Guided transport needs a compatible land-only route or approved checkpoint leg.");
-      const method=this.transportAvailability().methods
+      const availability=this.transportAvailability();
+      const method=availability.methods
         .find(item=>item.id===this.travelMethod);
       if(!method||method.surface!=="land")
         throw Error("The chosen transport is not eligible for this land journey.");
+      const resumingApprovedLand=Boolean(approvedLandMethod);
+      const hiredOffer=this.transportArrangement==="hire"&&!resumingApprovedLand?
+        availability.offers.get(this.travelMethod):null;
+      const hireSnapshot=hiredOffer?JSON.stringify({offer:hiredOffer,
+        method:this.effectiveTransportMethod(method,availability)}):null;
+      if(this.transportArrangement==="hire"&&!resumingApprovedLand&&!hiredOffer)
+        throw Error("The hired land service is not offered at this checkpoint.");
       const approval=await foundry.applications.api.DialogV2.confirm({
-        window:{title:"Confirm land travel"},
-        content:el("div","GM confirmation: follow the authored land route using "+
+        window:{title:resumingApprovedLand?"Resume approved land travel":"Confirm land travel"},
+        content:el("div","GM confirmation: "+(resumingApprovedLand?
+          "resume the approved journey":"follow the authored land route")+" using "+
           method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+"). "+
           "The party token will move using Foundry's native movement and optional "+
           "World-time advancement. Costs are estimates; no automatic boarding, "+
@@ -1513,6 +1537,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The party token moved during confirmation. Refresh its location.");
       if(!this.assessTravelMethod().guided)
         throw Error("The selected land transportation is no longer eligible.");
+      if(hireSnapshot){
+        const updated=this.transportAvailability();
+        const revised=updated.methods.find(item=>item.id===this.travelMethod);
+        const offer=updated.offers.get(this.travelMethod);
+        if(!offer||!revised||JSON.stringify({offer,
+          method:this.effectiveTransportMethod(revised,updated)})!==hireSnapshot)
+          throw Error("The checkpoint's hired service or its terms changed during confirmation. Review the updated offer.");
+      }
     }
     const route=guidedLeg??this.result;
     if(this.recoveryRecord?.routeTargets&&!isUnfinishedJourneyLeg(this.recoveryRecord)){
@@ -2699,14 +2731,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.travelSession.journeyRecord?.legs.at(-1):null;
     const approvedRecoveryTransport=hasUnfinishedApprovedTransport(this.recoveryRecord)?
       this.recoveryRecord.legs.at(-1).transport:null;
+    const recoveryLeg=this.recoveryRecord?.legs?.at(-1);
+    const approvedRecoveryLand=isUnfinishedJourneyLeg(this.recoveryRecord)&&
+      !recoveryLeg?.transport?recoveryLeg?.travelMethod:null;
     if(!pendingNativeReview&&!approvedActiveTransport&&!approvedRecoveryTransport&&
+        !approvedRecoveryLand&&
         !methods.some(item=>item.id===this.travelMethod)){
       this.travelMethod="walking";this.transportArrangement="owned";
       this.transportHireTerms=null;this.transportHireDenomination=null;
       this.transportJourneyOverrides=null;
       this.transportOperation="normal";
     }
-    const choices=[
+    const choices=approvedRecoveryLand?[{
+      value:approvedRecoveryLand.arrangement+"|"+approvedRecoveryLand.id,
+      label:approvedRecoveryLand.name,group:"Approved saved Journey"
+    }]:[
       ...methods.filter(item=>item.id==="walking"||availability.owned.has(item.id)||
         approvedRecoveryTransport?.methodId===item.id)
         .map(method=>approvedRecoveryTransport?.methodId===method.id?{
@@ -2735,8 +2774,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     else if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)
       body.appendChild(renderNavigationTravelMethodSelector({
         choices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
-        disabled:Boolean(this.travelSession||this.journalStarting||approvedRecoveryTransport),
-        showEditor:this.travelMethod!=="walking"&&!approvedRecoveryTransport,
+        disabled:Boolean(this.travelSession||this.journalStarting||approvedRecoveryTransport||
+          approvedRecoveryLand),
+        showEditor:this.travelMethod!=="walking"&&!approvedRecoveryTransport&&
+          !approvedRecoveryLand,
         onMethodChange:value=>{
           const [arrangement,method]=value.split("|",2);
           this.setTravelMethod(method,arrangement);
@@ -2745,6 +2786,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       }));
     if(!pendingNativeReview&&!approvedActiveTransport&&!approvedRecoveryTransport&&
+        !approvedRecoveryLand&&
         this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
       const worldMethod=methods.find(item=>item.id===this.travelMethod);
       const method=worldMethod&&this.effectiveTransportMethod(worldMethod,availability);

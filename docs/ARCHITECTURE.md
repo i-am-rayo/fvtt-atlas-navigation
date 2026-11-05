@@ -190,6 +190,10 @@ LegendKeeper's [developer portal](https://www.legendkeeper.com/developers/) docu
 - Size/performance threshold at which Scene flags need reconsideration.
 - JS vs TypeScript and bundler choice (prefer the smallest maintainable setup).
 
+### v0.3.8-beta.7.16.3.2 — checkpoint-hired overland travel (draft)
+
+A GM may explicitly approve a **land-only** guided route using a vehicle/mount offered for hire at the departure checkpoint, including a final leg to a non-checkpoint Point B. Eligibility checks authored road surfaces, the assigned party token, and the current Scene checkpoint offer; a GM confirmation rechecks the offer and method terms before any Journal or native TokenDocument movement. A hired service does not become party-owned. Existing Journey `travelMethod` metadata retains the hired arrangement and approved speed for interrupted-leg recovery even after the token has left the original offer radius. During that recovery, the read-only method selector is locked and may not silently fall back to another Group method. Booking, payment, Actor changes and automatic hiring of draft animals are not implemented. The normal native movement, World-time/Journal, interruption and permissions safeguards remain unchanged. No Scene/Journal schema migration. See `docs/NAVIGATION_BETA7_16_3_2_TESTING.md`.
+
 ### v0.3.8-beta.7.16.3.1 — confirmed checkpoint recovery boundary (draft)
 
 After an involuntary Foundry canvas rebuild, automatic recovery validates the same approved Journey and may restart movement **only** if the last saved leg remains unfinished. A recovered, durably confirmed checkpoint with a `pendingTransfer` instead restores its existing checkpoint-decision UI and stops; recovering a Journey does not imply the GM authorized the **next** transportation method. A completed final leg with no transfer also cannot be replayed. Manual Pause/End and unresolved native intents retain their existing fail-closed behavior. No persistence migration or native APIs change. See `docs/NAVIGATION_BETA7_16_3_1_TESTING.md`.
