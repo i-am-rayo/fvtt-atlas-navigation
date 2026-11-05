@@ -3,7 +3,8 @@
  * The validated Journey Journal is authority for the voyage already approved;
  * the current Atlas graph and token position remain authority for movement.
  */
-import {assessApprovedJourneyRecovery} from "./navigation-approved-path.js";
+import {assessApprovedJourneyRecovery,MAX_APPROVED_ROUTE_MARGIN_CELLS}
+  from "./navigation-approved-path.js";
 const near=(a,b,tolerance=.01)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
   Number.isFinite(b?.x)&&Number.isFinite(b?.y)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
@@ -51,7 +52,8 @@ function checkConfirmedRemainingDistance(route,record,prior,{gridDistance,gridSi
   if(prior?.approvedPath){
     const assessment=assessApprovedJourneyRecovery({
       approvedPath:prior.approvedPath,route,anchor:record?.lastConfirmedAnchor,
-      tokenPosition:route?.start,gridSize,marginCells:2
+      tokenPosition:route?.start,gridSize,
+      marginCells:MAX_APPROVED_ROUTE_MARGIN_CELLS
     });
     if(!assessment.safe)
       throw Error("The saved voyage cannot be safely recovered against its approved " +

@@ -30,3 +30,39 @@ export function mayAttemptCanvasJourneyRecovery(reason,session){
     !session.manualRestApplying&&Boolean(session.journal?.id)&&
     Boolean(session.journeyRecord);
 }
+
+/**
+ * A fully travelled native stretch is NOT automatically a confirmed Atlas
+ * checkpoint. A canvas redraw may fall after the last TokenDocument update
+ * but before the Journal's paused/target confirmation. Never infer that
+ * missing target decision from the token, a rounded 100%, or a UI preview.
+ * This pure read-only check keeps that state visible for GM investigation.
+ */
+export function classifyRecoveredJourneyBoundary(record,{gridSize=0}={}){
+  const leg=record?.legs?.at(-1);
+  if(!leg||!Number.isFinite(leg.completedPercent))
+    return {kind:"review",reason:"invalid-last-leg"};
+  if(leg.completedPercent<99.999)return {kind:"unfinished"};
+  if(record.pendingNativeMove)
+    return {kind:"review",reason:"unresolved-native-intent"};
+  const checkpointId=leg.transport?.arrivalCheckpointId;
+  if(!checkpointId)
+    return {kind:"review",reason:"completed-leg-without-arrival-decision"};
+  if(record.status!=="paused")
+    return {kind:"review",reason:"checkpoint-not-finalized"};
+  if(record.routeTargets){
+    const {targets,nextTargetIndex}=record.routeTargets;
+    const previous=targets?.[nextTargetIndex-1];
+    if(previous?.checkpointId!==checkpointId)
+      return {kind:"review",reason:"checkpoint-target-not-committed"};
+    if(Number.isFinite(gridSize)&&gridSize>0&&
+        Number.isFinite(previous.point?.x)&&
+        Number.isFinite(previous.point?.y)&&
+        Number.isFinite(leg.destination?.x)&&
+        Number.isFinite(leg.destination?.y)&&
+        Math.hypot(previous.point.x-leg.destination.x,
+          previous.point.y-leg.destination.y)>Math.max(.01,gridSize*.75))
+      return {kind:"review",reason:"checkpoint-target-coordinate-changed"};
+  }
+  return {kind:"confirmed-transfer",checkpointId};
+}

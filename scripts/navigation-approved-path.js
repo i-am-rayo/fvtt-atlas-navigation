@@ -7,6 +7,7 @@
 export const APPROVED_JOURNEY_PATH_SCHEMA=1;
 const MAX_LEGS=512;
 const MAX_POINTS=4096;
+export const MAX_APPROVED_ROUTE_MARGIN_CELLS=3;
 const finite=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y);
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const copy=p=>({x:p.x,y:p.y});
@@ -92,16 +93,17 @@ const roadSequence=legs=>legs.filter(leg=>leg.kind==="road")
 
 /**
  * Evaluate a *freshly calculated* route against the confirmed original path.
- * A GM may tolerate at most two cells of sideways road/hex discrepancy, but
+ * A GM may tolerate at most three cells of sideways road/hex discrepancy, but
  * that tolerance NEVER confirms movement, time, rest, or transportation.
  * The independent Journal anchor check must run first.
  */
 export function assessApprovedJourneyRecovery({approvedPath,route,anchor,
-  tokenPosition,gridSize,marginCells=2}={}){
+  tokenPosition,gridSize,marginCells=MAX_APPROVED_ROUTE_MARGIN_CELLS}={}){
   const saved=validateApprovedJourneyPath(approvedPath);
   if(route?.status!=="ok"||!Array.isArray(route.legs)||!finite(anchor?.point)||
       !finite(tokenPosition)||!Number.isFinite(gridSize)||gridSize<=0||
-      !Number.isFinite(marginCells)||marginCells<0||marginCells>2)
+      !Number.isFinite(marginCells)||marginCells<0||
+      marginCells>MAX_APPROVED_ROUTE_MARGIN_CELLS)
     return {safe:false,reason:"unavailable"};
   if(distance(anchor.point,tokenPosition)>Math.max(2,gridSize*.35))
     return {safe:false,reason:"unconfirmed-native-movement"};
@@ -143,7 +145,13 @@ export function assessApprovedJourneyRecovery({approvedPath,route,anchor,
   // distance and an unrelated percentage of animated spline distance.
   const expectedPixels=Math.max(0,original.length-anchorHit.offset);
   const difference=Math.abs(fresh.length-expectedPixels);
-  const allowance=Math.max(gridSize*marginCells,expectedPixels*.05);
+  // Journal-native and freshly solved polyline lengths are measurements, not
+  // identity checks. Accept a small amount of rounding/curvature discrepancy,
+  // but NEVER scale that tolerance beyond three cells on a very long voyage.
+  // Otherwise five percent of a 1000-cell route could silently accept fifty
+  // cells of deviation, contrary to the GM's ten-cell review threshold.
+  const allowance=Math.min(gridSize*MAX_APPROVED_ROUTE_MARGIN_CELLS,
+    Math.max(gridSize*marginCells,expectedPixels*.05));
   if(difference>allowance)
     return {safe:false,reason:"route-length-changed",differencePixels:difference};
   return {safe:true,kind:"approved-route",lateralCells:anchorHit.distance/gridSize,

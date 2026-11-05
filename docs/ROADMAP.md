@@ -2,7 +2,15 @@
 
 # Active v0.3.x roadmap — updated November 5, 2026
 
-**Current recovery implementation — v0.3.8-beta.7.26 (draft):**
+**Checkpoint-boundary hotfix — v0.3.8-beta.7.26.1 (draft):**
+Final ordinary guided moves and their approved checkpoint/terminal status are
+committed together to avoid 100%-moving Journal flags during a canvas teardown.
+Existing incomplete checkpoint decisions fail closed with GM-readable
+diagnostics. Approved-path route variation is increased to at most three native
+Grid cells; no tolerance can credit unconfirmed native movement or World time.
+See [beta.7.26.1 investigation and GM/non-GM test matrix](JOURNEY_BOUNDARY_BETA7_26_1.md).
+
+**Previous recovery implementation — v0.3.8-beta.7.26 (draft):**
 Save the exact approved Road segment sequence and image-relative geometry with
 each newly authorized Journey leg (Journal-owned metadata). For interrupted
 transport, compare a fresh route against the saved suffix with a maximum

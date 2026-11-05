@@ -974,6 +974,54 @@ test("canvas automatic restart refuses same-road drift beyond the confirmed anch
   }finally{globalThis.game=previous;}
 });
 
+test("a recovered 100%-moved port with stale A/B/C target stops before any new route",()=>{
+  const previous=globalThis.game;
+  try{
+    globalThis.game={user:{id:"gm",isGM:true},settings:{get:()=>null}};
+    const scene={id:"port-scene",grid:{size:100,units:"mi"},
+      canUserModify:()=>true};
+    const token={id:"party",x:150,y:-50,width:1,height:1,
+      canUserModify:()=>true,move(){throw Error("no travel on read");}};
+    const cp={id:"port",name:"Port Barthos",nodeId:"port-node"};
+    const atlas={revision:7,roads:[],segments:[],
+      nodes:[{id:"port-node",x:200,y:0}],checkpoints:[cp]};
+    const route={status:"ok",start:point(0,0),end:point(200,0),
+      distance:20,cost:20,terrainAware:false,legs:[{
+        kind:"road",roadId:"land",segmentId:"land-segment",
+        points:[point(0,0),point(200,0)],distance:20,cost:20}]};
+    const itinerary=createNavigationItinerary({sceneId:scene.id,route,
+      travel:{speed:2}});
+    itinerary.transport={methodId:"walking",methodName:"Walking",
+      kind:"foot",arrangement:"owned",surface:"land",
+      departureCheckpointName:"Hearth's Heart",
+      arrivalCheckpointId:"port",arrivalCheckpointName:"Port Barthos",
+      roadNames:["Dock Road"],estimatedFareCp:0,operation:"normal"};
+    const journalRecord=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:7,itinerary,initialAnchor:{point:point(200,0),
+        roadId:"land",segmentId:"land-segment",checkpointId:"port",
+        levelId:null,elevation:null},routeTargets:{schemaVersion:1,
+        nextTargetIndex:1,targets:[
+          {id:"A",point:point(0,0),checkpointId:null},
+          {id:"B",point:point(200,0),checkpointId:"port"},
+          {id:"C",point:point(300,0),checkpointId:"dock"}]}});
+    journalRecord.status="interrupted";
+    journalRecord.legs[0].completedPercent=100;
+    journalRecord.legs[0].completedMovingHours=
+      journalRecord.legs[0].movingHours;
+    let routes=0;
+    const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      atlasPoint:(_view,_atlas,p)=>p,
+      routeCalculator:()=>{routes++;return route;}});
+    nav.scene=scene;nav.recoverableJourney={id:"saved",getFlag:()=>journalRecord};
+    assert.throws(()=>nav.recoverSavedJourney({automatic:true}),
+      /checkpoint\/target decision is not fully confirmed/);
+    assert.equal(routes,0,"a stale target never becomes a new route preview");
+    assert.equal(nav.pendingTransfer,null,"the UI cannot invent a transfer");
+    assert.equal(nav.recoveryRecord,null,"no incomplete approval enters active state");
+  }finally{globalThis.game=previous;}
+});
+
 test("an unconfirmed native ship checkpoint preserves transport and offers deliberate abandonment",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,ui:globalThis.ui,
     document:globalThis.document};
@@ -2062,6 +2110,10 @@ test("multi-surface guided travel stops at the first actual port and checkpoints
     assert.deepEqual(logs.at(-1).legs[0].destination,cp,
       "the committed leg itself must end at the first checkpoint");
     assert.equal(logs.at(-1).legs[0].completedPercent,100);
+    assert.equal(logs.filter(row=>row.legs[0].completedPercent>=99.999)
+      .every(row=>row.status==="paused"),true,
+    "the last confirmed land chunk must commit its checkpoint target together " +
+      "with its 100% Journal progress before any redraw can interrupt the finalizer");
     assert.equal(nav.travelSession,null);
     assert.equal(nav.result,null,"full future route is not active after arrival");
   }finally{Object.assign(globalThis,previous);}

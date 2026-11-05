@@ -70,7 +70,8 @@ import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   JOURNEY_JOURNAL_FLAG } from "./navigation-journey-journal.js";
 import { journeySummaryDue } from "./navigation-journey-state-store.js";
 import {mayCheckpointJourneyStatus,assessJourneyTeardown,
-  mayAttemptCanvasJourneyRecovery} from "./navigation-journey-lifecycle.js";
+  mayAttemptCanvasJourneyRecovery,classifyRecoveredJourneyBoundary}
+  from "./navigation-journey-lifecycle.js";
 import {buildJourneyTargets,assessJourneyAnchor,captureJourneyAnchor,
   nextJourneyTarget,isCheckpointBoundContinuation} from "./navigation-route-targets.js";
 import {renderNavigationFooter} from "./navigation-footer.js";
@@ -904,8 +905,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.transportOperation=recent.travelMethod.operation;
       }
     }
-    if(saved.status==="paused"&&recent.completedPercent>=99.999&&
-        arrival?.arrivalCheckpointId){
+    const boundary=classifyRecoveredJourneyBoundary(saved,{
+      gridSize:this.scene.grid.size});
+    if(boundary.kind==="review"){
+      // A readable Journal page may still show zero progress: the validated
+      // recovery flag is the authority. Emit a bounded GM diagnostic as JSON
+      // so exported console logs do not collapse critical values to Object.
+      if(game.user?.isGM)atlasWarn("journey","Checkpoint recovery needs GM review",
+        JSON.stringify({reason:boundary.reason,status:saved.status,
+          completedPercent:recent.completedPercent,
+          arrivalCheckpointId:arrival?.arrivalCheckpointId??null,
+          nextTargetIndex:saved.routeTargets?.nextTargetIndex??null,
+          lastConfirmedAnchor:saved.lastConfirmedAnchor?.point??null,
+          pendingNativeMove:Boolean(saved.pendingNativeMove)}));
+      throw Error("The last native travel leg is recorded as complete, but " +
+        "its checkpoint/target decision is not fully confirmed ("+
+        boundary.reason+"). Atlas has preserved the Journey and will not " +
+        "replay movement or advance the A/B/C target. Ask the GM to review " +
+        "the saved Journal flag and TokenDocument before continuing.");
+    }
+    if(boundary.kind==="confirmed-transfer"){
       const checkpoint=atlas.checkpoints?.find(cp=>
         cp.id===arrival.arrivalCheckpointId);
       const node=atlas.nodes?.find(n=>n.id===checkpoint?.nodeId);
@@ -1857,13 +1876,43 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         // Never start another native chunk with an earlier TokenDocument
         // position as the last durable Journal anchor. In particular, rest
         // and canvas rebuilds must find the most recently verified position.
-        try{await this.saveJourneyCheckpoint(session,"moving",{updatePage:false});}
+        // A redraw can land precisely between the last native move and the
+        // outer journey finalizer. Do not persist a 100%-complete "moving"
+        // stretch without its matching checkpoint/terminal decision. Confirm
+        // the native arrival and final World-clock rounding at this boundary,
+        // then atomically save the status, anchor, and next A/B/C target in the
+        // SAME Journal flag update. This mirrors continuous-voyage handling.
+        let checkpointStatus="moving";
+        const finalChunk=index===chunks.length-1&&
+          session.completedDistance/session.totalDistance>=.99999;
+        if(finalChunk){
+          const actual=guidedLeg?this.atlasPoint(view,atlas,
+            partyTokenCanvasCenter(token,session.gridSize)):null;
+          if(!guidedLeg||confirmGuidedCheckpointArrival({token,
+            gridSize:session.gridSize,atlasPoint:actual,
+            expectedPoint:guidedLeg.checkpoint.point})){
+            try{
+              await this.commitGuidedWorldTime(session,{force:true});
+              checkpointStatus=guidedLeg?"paused":"completed";
+            }catch(error){
+              clockFailed=true;reachedEnd=false;
+              interruptedReason="Final World-time checkpoint could not settle: "+
+                (error.message||String(error));
+            }
+          }else{
+            reachedEnd=false;
+            interruptedReason="The native token did not reach its authored transfer checkpoint.";
+          }
+        }
+        try{await this.saveJourneyCheckpoint(session,checkpointStatus,
+          {updatePage:checkpointStatus!=="moving"});}
         catch(error){
           reachedEnd=false;
           interruptedReason="The Journey recovery state could not save confirmed progress: "+
             (error.message||String(error));
           break;
         }
+        if(checkpointStatus==="paused")session.phase="checkpoint-arrival";
         // The pending rest was released after its confirmed sailing hours.
         // Refresh the footer once the completed event is durable in the Journal,
         // so its disabled controls are not left stale until the next checkpoint.
@@ -1897,10 +1946,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           this.setTravelProgress(100);
           if(guidedLeg)session.phase="checkpoint-arrival";
         }
-        try{await this.saveJourneyCheckpoint(session,arrived?
-          (guidedLeg?"paused":"completed"):
+        const finalStatus=arrived?(guidedLeg?"paused":"completed"):
           session.phase==="ending"&&!session.journeyRecord.pendingNativeMove?
-            "ended":"interrupted");}
+            "ended":"interrupted";
+        try{
+          // The final native chunk or the continuous-voyage callback may have
+          // already durably published this exact terminal/transfer decision.
+          // Never repeat the Journal summary write or advance the target twice.
+          if(session.journeyRecord.status!==finalStatus)
+            await this.saveJourneyCheckpoint(session,finalStatus);
+        }
         catch(error){
           interruptedReason="The Journey Journal could not finalize: "+
             (error.message||String(error));

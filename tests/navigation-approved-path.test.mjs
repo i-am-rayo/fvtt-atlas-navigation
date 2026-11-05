@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {captureApprovedJourneyPath,assessApprovedJourneyRecovery,
-  validateApprovedJourneyPath} from "../scripts/navigation-approved-path.js";
+  validateApprovedJourneyPath,MAX_APPROVED_ROUTE_MARGIN_CELLS}
+  from "../scripts/navigation-approved-path.js";
 
 const p=(x,y)=>({x,y});
 const leg=(id,points)=>({kind:"road",roadId:"ocean",segmentId:id,points});
@@ -34,10 +35,14 @@ test("a confirmed original route suffix can resume without guessing distance fro
   assert.equal(outcome.routeDifferencePixels,0);
 });
 
-test("two cells are the maximum *lateral route* tolerance, not token-travel credit",()=>{
-  const within={...resumed(),legs:[leg("east",[
-    p(900,0),p(930,120),p(1000,0)])]};
-  assert.equal(assess(within).safe,true);
+test("three cells are the maximum *lateral route* tolerance, not token-travel credit",()=>{
+  assert.equal(MAX_APPROVED_ROUTE_MARGIN_CELLS,3);
+  const within=resumed(p(600,0),[leg("east",[
+    p(600,0),p(800,220),p(1000,0)])]);
+  assert.equal(assess(within,anchor(600)).safe,true);
+  const outside=resumed(p(600,0),[leg("east",[
+    p(600,0),p(800,320),p(1000,0)])]);
+  assert.equal(assess(outside,anchor(600)).reason,"route-deviated");
   const tenCells={...resumed(),legs:[leg("east",[
     p(900,0),p(930,1000),p(1000,0)])]};
   assert.equal(assess(tenCells).safe,false);
@@ -45,6 +50,22 @@ test("two cells are the maximum *lateral route* tolerance, not token-travel cred
   const manuallyMoved=resumed(p(960,0),[leg("east",[p(960,0),p(1000,0)])]);
   assert.equal(assess(manuallyMoved).reason,"unconfirmed-native-movement",
     "native position mismatch needs Journal verification, not auto-teleport");
+});
+
+test("Journal/native lengths may differ within three cells but not by ten",()=>{
+  const long=captureApprovedJourneyPath({status:"ok",legs:[leg("coast",[
+    p(0,0),p(20000,0)])]});
+  const shifted={status:"ok",start:p(10000,0),end:p(20000,0),legs:[
+    leg("coast",[p(10000,0),p(15000,250),p(20000,0)])]};
+  const options={approvedPath:long,route:shifted,anchor:anchor(10000),
+    tokenPosition:shifted.start,gridSize:100};
+  assert.equal(assessApprovedJourneyRecovery(options).safe,true,
+    "minor length discrepancy is not an exact Journal/route match");
+  const excess={...shifted,legs:[leg("coast",Array.from({length:21},(_,i)=>
+    p(10000+i*500,i===0||i===20?0:i%2?250:-250)))]};
+  assert.equal(assessApprovedJourneyRecovery({...options,route:excess}).reason,
+    "route-length-changed",
+  "percent-based tolerance must never expand to ten cells on long routes");
 });
 
 test("saved branch identity and destination are never substituted by a new shortest path",()=>{

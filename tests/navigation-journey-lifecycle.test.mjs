@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {mayCheckpointJourneyStatus,assessJourneyTeardown,
-  mayAttemptCanvasJourneyRecovery} from "../scripts/navigation-journey-lifecycle.js";
+  mayAttemptCanvasJourneyRecovery,classifyRecoveredJourneyBoundary}
+  from "../scripts/navigation-journey-lifecycle.js";
 
 test("durable terminal Journeys cannot be downgraded by delayed callbacks",()=>{
   for(const terminal of ["completed","ended"]){
@@ -42,4 +43,37 @@ test("auto recovery is limited to involuntary canvas teardown while moving",()=>
   assert.equal(mayAttemptCanvasJourneyRecovery("canvasTearDown",session),false);
   session.phase="moving";session.journal=null;
   assert.equal(mayAttemptCanvasJourneyRecovery("canvasTearDown",session),false);
+});
+
+test("fully travelled but unfinalized checkpoint cannot be guessed from token location",()=>{
+  const journal={status:"interrupted",pendingNativeMove:null,
+    legs:[{completedPercent:100,destination:{x:200,y:0},
+      transport:{arrivalCheckpointId:"port"}}],
+    routeTargets:{nextTargetIndex:1,targets:[
+      {id:"A",checkpointId:null},
+      {id:"B",checkpointId:"port",point:{x:200,y:0}},
+      {id:"C",checkpointId:"dock"}]}};
+  assert.deepEqual(classifyRecoveredJourneyBoundary(journal),{
+    kind:"review",reason:"checkpoint-not-finalized"});
+  journal.status="paused";
+  assert.deepEqual(classifyRecoveredJourneyBoundary(journal),{
+    kind:"review",reason:"checkpoint-target-not-committed"},
+  "a rounded 100% must not advance the durable A/B/C target");
+  journal.routeTargets.nextTargetIndex=2;
+  assert.deepEqual(classifyRecoveredJourneyBoundary(journal,{gridSize:100}),{
+    kind:"confirmed-transfer",checkpointId:"port"});
+  journal.routeTargets.targets[1].point.x=300;
+  assert.equal(classifyRecoveredJourneyBoundary(journal,{gridSize:100}).reason,
+    "checkpoint-target-coordinate-changed");
+  journal.routeTargets.targets[1].point.x=200;
+  journal.pendingNativeMove={operationId:"still-in-flight"};
+  assert.equal(classifyRecoveredJourneyBoundary(journal).reason,"unresolved-native-intent");
+  journal.pendingNativeMove=null;
+  journal.legs[0].completedPercent=99.9;
+  assert.equal(classifyRecoveredJourneyBoundary(journal).kind,"unfinished",
+    "a nearly complete Journey still needs its remaining verified movement");
+  journal.legs[0].completedPercent=100;
+  delete journal.legs[0].transport;
+  assert.equal(classifyRecoveredJourneyBoundary(journal).reason,
+    "completed-leg-without-arrival-decision");
 });
