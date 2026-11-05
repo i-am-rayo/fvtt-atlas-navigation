@@ -44,6 +44,16 @@ substitute for non-GM or cross-subsystem acceptance.
 
 ## Release / testing boundaries
 
+**November 5 follow-up — beta.7.25:** Product Owner authorized an
+assessment-only [Transportation Methods & Presets architecture review](TRANSPORT_PRESET_ARCHITECTURE_BETA7_25.md)
+after reporting other beta.7.24 interactions apparently working but a second
+halted Journey recovery. Bug #189 has the additional 5.8%-unconfirmed
+failure; its previous 32.6% occurrence and weather-associated Canvas teardown
+remain independent observations. No game behavior/schema, catalog, native
+Region or recovery algorithm is changed in this audit. Later transport
+architecture improvements require separately approved implementation gates.
+
+
 **November 5 owner update — beta.7.23 passed GM and non-GM live tests.**
 beta.7.24 is now a cross-subsystem regression and compatibility **draft test
 build**; it adds composed interface tests and the

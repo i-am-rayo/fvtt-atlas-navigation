@@ -2,7 +2,17 @@
 
 # Active v0.3.x roadmap — updated November 5, 2026
 
-**Current implementation — v0.3.8-beta.7.24 Cross-subsystem regression/compatibility (draft):**
+**Current assessment — v0.3.8-beta.7.25 Transportation Methods & Presets (draft):**
+Following the owner's positive but incomplete beta.7.24 results (Journey
+recovery failed again and is logged under [#189](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/189)),
+inventory World transportation method catalogs and Rules Profiles, Group-owned
+transport, Scene Checkpoint offers, World terrain presets/Road surface IDs,
+native Region Behaviors and approved Journey recovery. This is documentation
+only; no runtime or persistence changes. See
+[beta.7.25 assessment](TRANSPORT_PRESET_ARCHITECTURE_BETA7_25.md) and
+[owner review checklist](TRANSPORT_PRESET_BETA7_25_TESTING.md).
+
+**Prior implementation — v0.3.8-beta.7.24 Cross-subsystem regression/compatibility (draft):**
 Following owner GM and player acceptance of beta.7.23, test the boundaries
 between Road/Checkpoint writes, native Regions, Fog projection, visible/player
 Roads, and interrupted Journey read models without changing runtime mechanics.

@@ -2,7 +2,11 @@
 
 **Status:** draft test build, local automated and architecture verification
 passed. **Owner live acceptance:** beta.7.23 passed on GM and non-GM
-clients (owner report, November 5, 2026); beta.7.24 not yet live-tested.
+clients (owner report, November 5, 2026); owner later reported other
+beta.7.24 behavior looked correct but **the original Journey again failed to
+continue**. This is a partial positive report, not a full 14-row PASS.
+The newer 5.8%-unconfirmed recovery failure is logged as another occurrence
+under bug #189. The GM/player matrix still needs individual outcomes.
 This branch stacks on beta.7.23 draft PR #190. It makes no runtime changes,
 storage migrations or new gameplay features. Test in a backed-up Foundry v14
 World; preserve native Region/Fog/Token/Journal ownership.
