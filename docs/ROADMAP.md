@@ -2,16 +2,19 @@
 
 # Active v0.3.x roadmap — updated November 5, 2026
 
-**Current decision — v0.3.8-beta.7.18 architecture-only draft:** The owner
-completed two GM multi-leg beta.7.17 test journeys with alternating hired and
-owned methods, continuous and ordinary operation, and four eight-hour rests.
-The existing Journal flag/managed-page separation and per-chunk confirmed
-recovery anchor remain. This next slice extracts only the pure terminal,
-pause and canvas-teardown policy and tests that Long Rest World-time writes
-cannot move a non-continuous token. No gameplay, stored contract or UI changes.
-See [beta.7.18 owner checks](NAVIGATION_BETA7_18_TESTING.md) and the
-[November 5 milestone rebaseline](MILESTONE_REBASE_2026_11_05.md), which now
-governs forward sequencing over the historical beta entries below.
+**Current decision — v0.3.8-beta.7.19 assessment-only draft:** After the
+successful beta.7.18 owner GM test (five legs, 2d 19h 38m moving, 16h rest,
+two automatic canvas rebuild recoveries), extend the architecture review
+beyond Navigation to **Roads, Checkpoints, native Regions/Surfaces, Overlays
+and Fog/Exploration**. The assessment identifies ownership, dependencies,
+source-backed risks and independently reviewable beta.7.20+ gates. Only
+documentation and package/manifest version/branch pointers change; no
+gameplay, stored contract, native Region/Fog, Journey or UI behavior changes.
+See [the audit](ARCHITECTURE_AUDIT_BETA7_19.md),
+[owner assessment checklist](ARCHITECTURE_BETA7_19_TESTING.md), and the
+[November 5 milestone rebaseline](MILESTONE_REBASE_2026_11_05.md), which
+governs forward sequencing over the historical beta entries below. Separate
+GM/non-GM acceptance is required for later runtime refactors.
 
 **v0.3.8-beta.7.16.3.2 hired land leg hotfix (pending owner v14 test):** The owner's Hearth's Heart Dock → South-East Gate test confirmed smooth token travel through hired ship and successful land completion using a Riding Horse, but a Cart explicitly offered at Port Barthos had a disabled Play button despite being compatible with the land road and having a hire fare estimate. Remove the blanket hired-land restriction only for an available departure-checkpoint offer and an eligible land-only route, with explicit GM confirmation and a second offer/terms check before writing or moving. Preserve the hire arrangement and approved speed across an interrupted Journey; never reinterpret it as party-owned merely because the token leaves the original offer radius. No automatic payment/booking, movement bypass, schema migration or Journal cosmetics. See [beta.7.16.3.2 test guide](NAVIGATION_BETA7_16_3_2_TESTING.md).
 

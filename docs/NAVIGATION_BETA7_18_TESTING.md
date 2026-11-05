@@ -1,7 +1,20 @@
 # v0.3.8-beta.7.18 — Journey lifecycle boundaries
 
-Status: **architecture-only draft; automated tests required; owner Foundry v14
-GM and non-GM acceptance pending**.
+Status: **architecture-only draft; automated tests passed; owner Foundry v14
+GM Journey successful. Non-GM and broader compatibility acceptance pending**.
+
+## Owner GM live result — November 5, 2026
+
+- Hearth's Heart → Dirwest completed across five confirmed legs; moving
+  **2d 19h 38m**, downtime **16h**, elapsed **3d 11h 38m**. The arithmetic
+  matches the recorded Foundry World-time total.
+- Owner reports Journal and logs successful. Console evidence includes **two**
+  Foundry `canvasTearDown` events while traveling, followed by confirmed
+  native anchor checks, resumed automatic continuation and final arrival.
+- Those observations validate the tested GM path only. They do not establish
+  that a non-GM client sees correct progress when the GM is inactive, nor
+  that canvas rebuild frequency is optimal. R-01/issue #135 remain open
+  investigations in the beta.7.19+ architecture assessment.
 
 ## Implementation boundary
 

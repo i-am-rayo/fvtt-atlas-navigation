@@ -1,15 +1,16 @@
 # Atlas — future capabilities, milestone plan and cross-chat handoff
 
 > **November 5, 2026 rebaseline:** The historical beta.7.11.2 baseline below
-> has been superseded by the owner-tested `v0.3.8-beta.7.17` Journey-state
-> architecture. See [the revised milestone gates](MILESTONE_REBASE_2026_11_05.md).
+> has been superseded by the successfully GM-tested `v0.3.8-beta.7.18`
+> Journey lifecycle, followed by the beta.7.19 architecture assessment.
+> See [the revised milestone gates](MILESTONE_REBASE_2026_11_05.md).
 > Journal visual refinement now belongs to the Journey UX stage B, after
 > stability checks, rather than waiting until stage G. Future features remain
 > proposed and require separate owner approval.
 
 **Owner requests received:** November 4, 2026  
 **Status:** Proposed, unimplemented backlog. No feature, release or merge authorization implied.  
-**Current baseline:** v0.3.8-beta.7.11.2 passed the owner's live Port Barthos → Hearth's Heart Dock journey (owned Riding Horse → hired ship → walking; 51h 58m moving, no additional downtime) and Hearth's Heart Dock → South-East Gate journey (walking → owned Warship → owned Riding Horse; 43h 42m moving and 49h downtime). v0.3.8-beta.7.12 is the next architecture-only transfer-preview presentation extraction, restacked after both recovery hotfixes and pending GM/player Foundry v14 acceptance. The future player travel pamphlet and permissions remain deferred.
+**Current baseline:** v0.3.8-beta.7.18 passed the owner's five-leg Foundry v14 GM Journey (2d 19h 38m moving + 16h downtime, with two recoverable canvas rebuilds). The beta.7.19 audit is documentation-only; the planned beta.7.20–7.24 subsystem reviews/refactors remain independently gated. The future player travel pamphlet and permissions remain deferred.
 
 This is the current **future-feature planning handoff** for other chats. Consult the [active roadmap](ROADMAP.md) and [stabilization architecture](ARCHITECTURE_V038_BETA75.md) for the development slice actually in progress. Stage IDs A–G are durable planning references; future version numbers are **provisional** and may change. Do not mix these new features into the beta.7.x architecture PR stack.
 
@@ -17,7 +18,7 @@ This is the current **future-feature planning handoff** for other chats. Consult
 
 | Order | Stage / tentative release | Scope | Exit gate |
 | --- | --- | --- | --- |
-| **A — current** | **v0.3.8-beta.7.9+** | Continue modular Navigation extraction, shared GM/player-safe read models and explicit action boundaries; investigate inactive-GM travel (R-01). **No new gameplay/schema.** | Architecture cycle check, existing regressions, and GM + player v14 investigation. |
+| **A — current** | **v0.3.8-beta.7.19+** | Module-wide architecture assessment and focused follow-up reviews for Roads, Checkpoints, Regions/Surfaces, Overlays, Fog and Journey lifecycle. Investigate inactive-GM travel (R-01); **no new gameplay/schema as a side effect**. | Source-backed [architecture audit](ARCHITECTURE_AUDIT_BETA7_19.md), import-cycle check, regressions, and per-slice GM + player v14 validation. |
 | **B — usability** | **v0.3.9 candidate** | Player progress, camera follow, GM playback speed, road distance and merge parity, Group Actor transport editing parity, GM full-map visibility preview. | Role-filtered Journey projections and UI isolation; two-client permission and journey tests. |
 | **C — topology** | **v0.4 candidate** | Road-independent checkpoints, Region-categorized checkpoints and Regions [+], road slicer, versioned graph migrations, export format contract. | Stable checkpoint IDs, safe legacy migrations, preservation of road/Region references and undo. |
 | **D — services** | **v0.4.x candidate** | Scheduled/on-call hire services, date-based departure windows, missed-service waits, optional player-facing transport pamphlet. | Calendar/offer model, determinism, explicit GM confirmation of time, cost, booking and disclosure. |
