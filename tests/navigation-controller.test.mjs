@@ -634,6 +634,43 @@ test("a saved Journal offers deliberate recovery from the actual token without r
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("canvas automatic restart refuses same-road drift beyond the confirmed anchor",()=>{
+  const previous=globalThis.game;
+  try{
+    globalThis.game={user:{isGM:true}};
+    const scene={id:"drift-scene",grid:{size:100,units:"mi"},
+      canUserModify:()=>true};
+    const atlas={revision:9,roads:[{id:"sea",name:"Sea Road"}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:200,y:0}],
+      segments:[{id:"sea-segment",roadId:"sea",from:"a",to:"b",via:[]}],
+      checkpoints:[]};
+    const token={id:"party",x:70,y:-50,width:1,height:1,
+      canUserModify:()=>true};
+    const route={status:"ok",start:point(20,0),end:point(200,0),
+      distance:50,cost:50,terrainAware:false,legs:[{
+        kind:"road",roadId:"sea",segmentId:"sea-segment",
+        points:[point(20,0),point(200,0)],distance:50,cost:50}]};
+    const itinerary=createNavigationItinerary({sceneId:scene.id,route,
+      travel:{speed:2}});
+    const record=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:9,itinerary,initialAnchor:{point:point(20,0),
+        roadId:"sea",segmentId:"sea-segment",checkpointId:null,
+        levelId:null,elevation:0}});
+    record.status="interrupted";
+    const journal={id:"saved",getFlag:()=>record};
+    let calculated=0;
+    const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      atlasPoint:(_view,_atlas,position)=>position,
+      routeCalculator:()=>{calculated++;return route;}});
+    nav.scene=scene;nav.recoverableJourney=journal;
+    assert.throws(()=>nav.recoverSavedJourney({automatic:true}),
+      /Automatic continuation is withheld/);
+    assert.equal(calculated,0,"no new route or native token movement may start");
+    assert.equal(nav.recoveryRecord,null,"an unchecked anchor is not promoted into recovery");
+  }finally{globalThis.game=previous;}
+});
+
 test("an interrupted Riding Horse journey never renders or resumes as Walking",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,ui:globalThis.ui,
     document:globalThis.document};
@@ -681,6 +718,57 @@ test("an interrupted Riding Horse journey never renders or resumes as Walking",a
     nav.travelMethod="walking";
     await assert.rejects(nav.startGuidedTravel(),/cannot silently resume/,
       "even a stale UI choice cannot resume an approved horse journey on foot");
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("a blocked hired ship recovery keeps the approved method and explains why it cannot play",async()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui,document:globalThis.document};
+  try{
+    globalThis.game={user:{isGM:true},system:{id:"dnd5e"},
+      settings:{get:()=>undefined}};
+    globalThis.ui={notifications:{warn(){},error(){}}};
+    globalThis.document={createElement:tag=>({tag,style:{},children:[],
+      textContent:"",listeners:new Map(),append(...nodes){this.children.push(...nodes);},
+      appendChild(node){this.children.push(node);},
+      addEventListener(name,handler){this.listeners.set(name,handler);},
+      setAttribute(){}})};
+    const scene={id:"ship-scene",name:"Paedor",grid:{size:49,distance:7.5,units:"km"},
+      canUserModify:()=>true,getFlag:()=>null};
+    const atlas={revision:8,roads:[{id:"water",name:"Sea Route",travelPresetId:"water-sea"}],
+      nodes:[],segments:[],checkpoints:[]};
+    const route={status:"ok",start:point(0,0),end:point(100,0),distance:10,
+      cost:10,terrainAware:false,legs:[{kind:"road",roadId:"water",segmentId:"s",
+        points:[point(0,0),point(100,0)],distance:10,cost:10}]};
+    const itinerary={...createNavigationItinerary({sceneId:scene.id,route,
+      travel:{speed:2},roadName:()=>"Sea Route"}),transport:{
+      methodId:"ship-passage",methodName:"Ship passage (hired)",kind:"vehicle",
+      arrangement:"hire",surface:"water",arrivalCheckpointId:"port",
+      arrivalCheckpointName:"Port Barthos",roadNames:["Sea Route"],
+      departureCheckpointName:"Hearth's Heart Dock",estimatedFareCp:50,
+      operation:"continuous"}};
+    const record=createJourneyRecord({sceneId:scene.id,tokenId:"party",atlasRevision:8,
+      itinerary});
+    record.status="interrupted";record.legs[0].completedPercent=86;
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas});
+    nav.scene=scene;nav.sourceMode="party";nav.start=route.start;nav.end=route.end;
+    nav.result=route;nav.routeRevision=atlas.revision;
+    nav.travelMethod="ship-passage";nav.transportArrangement="hire";
+    nav.recoveryRecord=record;
+    nav.transportationTransitionPlan=()=>{throw Error("projected leg count changed");};
+    const panel=await nav._renderHTML();
+    const all=node=>[node,...(node.children??[]).flatMap(all)];
+    const nodes=all(panel);
+    const selector=nodes.find(node=>node.id==="atlas-navigation-travel-method");
+    assert.equal(selector.value,"hire|ship-passage");
+    assert.equal(selector.disabled,true);
+    assert.equal(nav.travelMethod,"ship-passage");
+    assert.equal(nav.transportArrangement,"hire",
+      "rendering cannot downgrade a paid hire to party-owned transportation");
+    assert.ok(nodes.some(node=>node.textContent?.includes?.(
+      "Approved Journey cannot continue yet: projected leg count changed")));
+    const play=nodes.find(node=>node.ariaLabel==="Travel Route");
+    assert.equal(play?.disabled,true,
+      "an unresolved approved route must remain blocked rather than start Walking");
   }finally{Object.assign(globalThis,previous);}
 });
 

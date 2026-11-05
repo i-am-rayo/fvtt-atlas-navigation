@@ -307,11 +307,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         compatible=new Set(["walking"]);
       }
     }
-    const approved=this.recoveryRecord&&isUnfinishedJourneyLeg(this.recoveryRecord)&&
+    const approvedLand=this.recoveryRecord&&isUnfinishedJourneyLeg(this.recoveryRecord)&&
       !this.recoveryRecord.legs.at(-1)?.transport?
       this.recoveryRecord.legs.at(-1)?.travelMethod:null;
-    const preservingApprovedMethod=method=>Boolean(approved?.id===method.id&&
-      this.travelMethod===method.id);
+    const approvedTransport=hasUnfinishedApprovedTransport(this.recoveryRecord)?
+      this.recoveryRecord.legs.at(-1).transport:null;
+    const preservingApprovedMethod=method=>Boolean(this.travelMethod===method.id&&
+      (approvedLand?.id===method.id||
+        approvedTransport?.methodId===method.id&&
+        approvedTransport.kind===method.kind&&
+        approvedTransport.surface===method.surface));
     const methods=all.filter(method=>
       (method.id==="walking"||owned.has(method.id)||offers.has(method.id)||
         Boolean(this.travelSession&&method.id===this.travelMethod)||
@@ -345,7 +350,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       gridSize:this.scene.grid.size});
     const catalog=availableNavigationTravelMethods(game.settings,game.system?.id);
     const restored=restoreApprovedTransportPlan(this.result,projected,
-      this.recoveryRecord,catalog,this.recoveryOperationOverride);
+      this.recoveryRecord,catalog,this.recoveryOperationOverride,{
+        atlas,gridSize:this.scene.grid.size,gridDistance:this.scene.grid.distance});
     if(restored)return restored;
     const actor=this.getPartyToken()?.actor;
     let roster=null;
@@ -806,7 +812,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   /** Load a saved destination, but never start a token movement automatically. */
-  recoverSavedJourney(){
+  recoverSavedJourney({automatic=false}={}){
     if(this.travelSession||this.journalStarting||!this.scene)return false;
     // A completed checkpoint is a durable Journey decision. If Continue
     // produced an invalid onward preview, allow the GM to reopen those same
@@ -834,6 +840,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The party token differs from its last committed position and " +
           "is not on the recorded road/checkpoint. The Journal is intact; " +
           "ask the GM to resolve the token position before resuming.");
+      if(automatic&&assessment.kind!=="coordinate")
+        throw Error("Native token movement advanced beyond the last confirmed " +
+          "Journey anchor during Canvas teardown. Automatic continuation is " +
+          "withheld; the GM must review the saved anchor and Journal.");
       atlasDebug("journey","Native token recovery anchor checked",{
         sceneId:this.scene.id,kind:assessment.kind,
         driftPixels:Math.round(assessment.drift*100)/100
@@ -1988,7 +1998,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.activate();
       if(this.recoverableJourney?.id!==pending.journalId)
         throw Error("The saved journey is no longer eligible for recovery.");
-      this.recoverSavedJourney();
+      this.recoverSavedJourney({automatic:true});
       this.autoResumePending=null;
       atlasDebug("journey","Automatically continuing after canvas rebuild",{
         sceneId:pending.sceneId,journalId:pending.journalId});
@@ -2280,12 +2290,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "Route calculated. Shift+click changes A; Alt/Option+click changes B.") :
       (this.result?.reason ?? "No connected road route available.");
     let transferPlan=null;
+    let recoveredPlanError=null;
     // During approved movement the transient preview/selection is no longer
     // authoritative. The Journal leg below supplies the selected method and
     // timing; avoid accidentally repainting a new transfer choice mid-voyage.
     if(this.result?.status==="ok"&&!this.travelSession?.transportLeg){
       try{transferPlan=this.transportationTransitionPlan();}
-      catch(error){atlasWarn("navigation","Transportation leg planning unavailable",error);}
+      catch(error){
+        atlasWarn("navigation","Transportation leg planning unavailable",error);
+        if(hasUnfinishedApprovedTransport(this.recoveryRecord))
+          recoveredPlanError=error?.message??String(error);
+      }
     }
     body.appendChild(renderNavigationDepartureSelector({
       sourceMode:this.sourceMode,partyMode,disabled:Boolean(this.travelSession),
@@ -2299,16 +2314,24 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.travelSession.transportLeg.transport):null;
     const approvedActiveLeg=approvedActiveTransport?
       this.travelSession.journeyRecord?.legs.at(-1):null;
-    if(!approvedActiveTransport&&!methods.some(item=>item.id===this.travelMethod)){
+    const approvedRecoveryTransport=hasUnfinishedApprovedTransport(this.recoveryRecord)?
+      this.recoveryRecord.legs.at(-1).transport:null;
+    if(!approvedActiveTransport&&!approvedRecoveryTransport&&
+        !methods.some(item=>item.id===this.travelMethod)){
       this.travelMethod="walking";this.transportArrangement="owned";
       this.transportHireTerms=null;this.transportHireDenomination=null;
       this.transportJourneyOverrides=null;
       this.transportOperation="normal";
     }
     const choices=[
-      ...methods.filter(item=>item.id==="walking"||availability.owned.has(item.id))
-        .map(method=>({value:"owned|"+method.id,label:method.name,group:"Party"})),
+      ...methods.filter(item=>item.id==="walking"||availability.owned.has(item.id)||
+        approvedRecoveryTransport?.methodId===item.id)
+        .map(method=>approvedRecoveryTransport?.methodId===method.id?{
+          value:approvedRecoveryTransport.arrangement+"|"+method.id,
+          label:approvedRecoveryTransport.methodName,group:"Approved saved Journey"
+        }:{value:"owned|"+method.id,label:method.name,group:"Party"}),
       ...methods.flatMap(method=>{
+        if(approvedRecoveryTransport?.methodId===method.id)return [];
         const offer=availability.offers.get(method.id);
         return offer?[{value:"hire|"+method.id,label:method.name,
           group:offer.checkpointName||"Nearby checkpoint"}]:[];
@@ -2323,8 +2346,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     else if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)
       body.appendChild(renderNavigationTravelMethodSelector({
         choices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
-        disabled:Boolean(this.travelSession||this.journalStarting),
-        showEditor:this.travelMethod!=="walking",
+        disabled:Boolean(this.travelSession||this.journalStarting||approvedRecoveryTransport),
+        showEditor:this.travelMethod!=="walking"&&!approvedRecoveryTransport,
         onMethodChange:value=>{
           const [arrangement,method]=value.split("|",2);
           this.setTravelMethod(method,arrangement);
@@ -2332,7 +2355,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       }));
-    if(!approvedActiveTransport&&this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
+    if(!approvedActiveTransport&&!approvedRecoveryTransport&&
+        this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
       const worldMethod=methods.find(item=>item.id===this.travelMethod);
       const method=worldMethod&&this.effectiveTransportMethod(worldMethod,availability);
       if(method){
@@ -2360,6 +2384,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       message.style.cssText="margin:0;font-size:.85em;opacity:.85;";
       body.appendChild(message);
     }
+    if(recoveredPlanError)body.appendChild(renderTransportAdvisory(
+      "Approved Journey cannot continue yet: "+recoveredPlanError));
     const savedTargets=this.travelSession?.journeyRecord?.routeTargets??
       this.recoveryRecord?.routeTargets;
     if(game.user?.isGM&&savedTargets)
@@ -2408,11 +2434,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       body.appendChild(renderRepeatedCheckpointNotice(
         transferPlan.legs[0].arrivalCheckpoint.name));
     }
-    if(!approvedActiveTransport&&this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
+    if(!approvedActiveTransport&&!approvedRecoveryTransport&&
+        this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
       body.appendChild(renderTransportAdvisory(methodAssessment.reason??
         "Transport planning only."));
     }
-    if(!approvedActiveTransport&&this.travelMethod!=="walking"&&!transferPlan?.hasTransitions &&
+    if(!approvedActiveTransport&&!approvedRecoveryTransport&&
+        this.travelMethod!=="walking"&&!transferPlan?.hasTransitions &&
         this.transportArrangement!=="hire" &&game.system?.id==="dnd5e" &&
         !["coach-hire","ship-passage"].includes(this.travelMethod)){
       // Show capacity as a read-only advisory; non-walking guided movement is
@@ -2445,7 +2473,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
       }catch(error){atlasWarn("navigation","Group capacity preview unavailable",error);}
     }
-    if(!approvedActiveTransport&&this.travelMethod!=="walking"&&this.result?.status==="ok"&&
+    if(!approvedActiveTransport&&!approvedRecoveryTransport&&
+        this.travelMethod!=="walking"&&this.result?.status==="ok"&&
         methodAssessment.compatible){
       try{
         const baseMethod=methods.find(item=>item.id===this.travelMethod);

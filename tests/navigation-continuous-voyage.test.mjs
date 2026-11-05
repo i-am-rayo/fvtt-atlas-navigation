@@ -8,6 +8,8 @@ import {isJourneyDestinationCheckpoint,isRepeatedArrivalCheckpoint}
   from "../scripts/navigation-checkpoint-terminal.js";
 import {restoreApprovedTransportPlan}
   from "../scripts/navigation-transport-recovery.js";
+import {projectTransportationRouteLegs}
+  from "../scripts/navigation-transport-transitions.js";
 import {prepareGuidedTransportLeg}
   from "../scripts/navigation-guided-transport-leg.js";
 import {createJourneyRecord,checkpointJourneyRecord,formatJourneyJournalHTML,
@@ -152,6 +154,64 @@ test("recovery reuses confirmed vessel and checkpoint without another fare",()=>
       ...day,completedHours:2,events:[],todayHours:2},
       status:"interrupted",progress:3,worldTravelSeconds:2*3600})),
     /continued aboard Ship passage/);
+});
+
+test("a tiny terminal hex attachment may finish ONLY the confirmed ship checkpoint",()=>{
+  const saved=voyage();
+  const original={...route(),distance:52.05,legs:[{
+    ...route().legs[0],points:[p(48,0),p(99,0)]
+  },{kind:"off-road",points:[p(99,0),p(100,0)],distance:.05,cost:.05}]};
+  const atlas={roads:[{id:"water-road",name:"Dirwest-Hearth's Heart",
+    travelPresetId:"ocean"}],nodes:[{id:"dock",...p(100,0)}],
+    checkpoints:[{id:"hearth-dock",nodeId:"dock",name:"Hearth's Heart Dock"}]};
+  const projected=projectTransportationRouteLegs(original,atlas,[{id:"ocean",mode:"water"}]);
+  assert.deepEqual(projected.legs.map(item=>item.surface),["water","unspecified"],
+    "ordinary planning must still identify the off-road terminal attachment");
+  const context={atlas,gridSize:100,gridDistance:7.5};
+  const approved=restoreApprovedTransportPlan(original,projected,saved,[method],null,context);
+  assert.equal(approved.legs.length,1);
+  assert.equal(approved.legs[0].lastRouteLeg,1);
+  assert.equal(approved.legs[0].arrivalCheckpoint.id,"hearth-dock");
+  assert.equal(approved.legs[0].costCp,0,"the recovered voyage never rebooks passage");
+  const guided=prepareGuidedTransportLeg(original,approved.legs[0]);
+  assert.equal(guided.legs.length,2,"native movement still follows the true short connector");
+  assert.equal(guided.transport.continuation,true);
+  assert.equal(guided.end.x,100);
+  assert.deepEqual(projected.legs.map(item=>item.surface),["water","unspecified"],
+    "recovery must not mutate the general-purpose route projection");
+  const wrong={...atlas,checkpoints:[{...atlas.checkpoints[0],id:"other-dock"}]};
+  assert.throws(()=>restoreApprovedTransportPlan(original,projected,saved,[method],null,
+    {...context,atlas:wrong}),/projected leg count changed/,
+  "an unrelated checkpoint cannot be adopted through proximity");
+  const switchedPort={...projected,legs:[{
+    ...projected.legs[0],arrivalCheckpoint:{id:"some-other-port",name:"Other Port"}
+  },projected.legs[1]]};
+  assert.throws(()=>restoreApprovedTransportPlan(original,switchedPort,saved,[method],null,
+    context),/projected leg count changed/,
+  "an intervening checkpoint cannot be replaced with the saved arrival");
+  const tooLong={...original,distance:52.5,legs:[original.legs[0],
+    {...original.legs[1],distance:.5,cost:.5}]};
+  const longPlan=projectTransportationRouteLegs(tooLong,atlas,[{id:"ocean",mode:"water"}]);
+  assert.throws(()=>restoreApprovedTransportPlan(tooLong,longPlan,saved,[method],null,context),
+    /projected leg count changed/,"a real off-road excursion is not approved for a ship");
+});
+
+test("a token near port cannot erase unconfirmed sailing during recovery",()=>{
+  const saved=voyage();
+  saved.lastConfirmedAnchor={point:p(48,0),roadId:"water-road",segmentId:"s",
+    checkpointId:null,levelId:null,elevation:0};
+  saved.legs[0].completedPercent=86;
+  const closeToDock={...route(),start:p(99.9,0),distance:.05,
+    legs:[{...route().legs[0],points:[p(99.9,0),p(100,0)],distance:.05,cost:.05}]};
+  const closePlan={...projected(),legs:[{...projected().legs[0],
+    start:p(99.9,0),distance:.05,weightedDistance:.05}]};
+  assert.throws(()=>restoreApprovedTransportPlan(closeToDock,closePlan,saved,
+    [method],null,{gridDistance:7.5}),/unconfirmed progress/,
+  "a visually occupied destination hex is not credited as confirmed travel");
+  const shifted={...closeToDock,distance:6};
+  assert.throws(()=>restoreApprovedTransportPlan(shifted,closePlan,saved,
+    [method],null,{gridDistance:7.5}),/unconfirmed progress/,
+  "even sub-hex miles of unconfirmed movement cannot be swallowed by a loose tolerance");
 });
 
 test("recovery rejects altered checkpoints, surfaces or retired methods",()=>{
