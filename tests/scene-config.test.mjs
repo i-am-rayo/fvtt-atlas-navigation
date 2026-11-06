@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
 const { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
-  filteredRoadIds, openAtlasRegionGenerator, createAtlasRoadsPanel } =
+  filteredRoadIds, openAtlasRegionGenerator, createAtlasRoadsPanel,
+  createAtlasTopologyPanel } =
   await import("../scripts/scene-config.js");
 
 class Element {
@@ -321,6 +322,24 @@ test("focused Workspace Roads panel shares real road commands without building u
     globalThis.game.user.isGM = false;
     assert.throws(() => createAtlasRoadsPanel(scene, actions, () => {}),
       /Only a Scene-authorized GM/);
+  } finally { Object.assign(globalThis, previous); }
+});
+
+test("standalone Topology panel reads native Levels without writing them", () => {
+  const previous = { document: globalThis.document, game: globalThis.game };
+  try {
+    globalThis.document = { createElement: tag => new Element(tag),
+      createTextNode: text => ({ textContent: text, children: [] }) };
+    globalThis.game = { user: { isGM: true }, settings: { get: () => true } };
+    let writes = 0;
+    const scene = { id: "native-topology", levels: { contents: [] },
+      canUserModify: () => true, getFlag: () => false,
+      setFlag: () => { writes++; } };
+    const panel = createAtlasTopologyPanel(scene, () => {});
+    assert.match(textContents(panel), /Native Scene Levels/);
+    assert.equal(writes, 0, "rendering does not opt in to native Level writes");
+    globalThis.game.user.isGM = false;
+    assert.throws(() => createAtlasTopologyPanel(scene, () => {}), /Scene-authorized GM/);
   } finally { Object.assign(globalThis, previous); }
 });
 

@@ -31,7 +31,8 @@ const buttons = root => walk(root, item => item.tag === "button");
 function context() {
   const before = { game: globalThis.game, document: globalThis.document, ui: globalThis.ui,
     window: globalThis.window };
-  globalThis.document = { createElement: tag => new Element(tag) };
+  globalThis.document = { createElement: tag => new Element(tag),
+    createTextNode: value => ({ textContent: value, children: [] }) };
   globalThis.window = { innerWidth: 1280, innerHeight: 900 };
   globalThis.ui = { notifications: { error(message) { throw Error(message); } } };
   globalThis.game = { user: { id: "gm", isGM: true },
@@ -59,7 +60,7 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.ok(first instanceof AtlasSceneWorkspace);
     assert.equal(first.options.id, "atlas-scene-workspace-scene-1");
     assert.match(text(first.result), /Scene Overview/);
-    assert.match(text(first.result), /Roads & Topology/);
+    assert.match(text(first.result), /Roads/);
     const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     assert.equal(first, again, "per-Scene instance must be reused");
     const territories = buttons(first.result).find(item => item.textContent === "Territories");
@@ -110,14 +111,33 @@ test("Roads tab is a working Workspace view with legacy Scene settings unaffecte
   const ctx = context();
   try {
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
-    const roads = buttons(workspace.result).find(item => item.textContent === "Roads & Topology");
-    assert.ok(roads, "Roads & Topology has its own Workspace navigation entry");
+    const roads = buttons(workspace.result).find(item => item.textContent === "Roads");
+    assert.ok(roads, "Roads has its own Workspace navigation entry");
     await roads.listeners.get("click")({ preventDefault() {} });
     assert.equal(workspace.activeSection, "roads");
-    assert.match(text(workspace.result), /Roads & Topology/);
+    assert.match(text(workspace.result), /Roads/);
     assert.match(text(workspace.result), /Add a road to begin/);
     assert.doesNotMatch(text(workspace.result), /Territories & custom native Regions/,
       "Roads view does not construct the Territory manager");
+    await workspace.close();
+  } finally { ctx.restore(); }
+});
+
+test("native Levels are isolated in Topology and never constructed inside Roads", async () => {
+  const ctx = context();
+  try {
+    globalThis.game.settings.get = (_scope, key) =>
+      key === "nativeLevelPlannerEnabled" ? true : null;
+    const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    const topology = buttons(workspace.result).find(item => item.textContent === "Topology & Levels");
+    assert.ok(topology);
+    await topology.listeners.get("click")({ preventDefault() {} });
+    assert.equal(workspace.activeSection, "topology");
+    assert.match(text(workspace.result), /Native Scene Levels/);
+    assert.doesNotMatch(text(workspace.result), /Territories & custom native Regions/);
+    const roads = buttons(workspace.result).find(item => item.textContent === "Roads");
+    await roads.listeners.get("click")({ preventDefault() {} });
+    assert.doesNotMatch(text(workspace.result), /Native Scene Levels/);
     await workspace.close();
   } finally { ctx.restore(); }
 });
