@@ -606,6 +606,8 @@ test("native Region generation stays separate from Atlas line styling",async()=>
       "Atlas line appearance is edited through Road Settings");
     assert.ok(visit(road,e=>e.tag==="button"&&e.title==="Add Terrain Region"),
       "native Region generation remains a per-road action");
+    assert.ok(visit(road,e=>e.tag==="button"&&e.title==="Public Journey label"),
+      "Road-generated Regions retain direct public-name editing after the duplicate panel is removed");
     assert.doesNotMatch(textContents(mounted),/REGION SETTINGS/,
       "the native-cost form is no longer embedded in Scene Atlas");
   } finally {
@@ -642,7 +644,7 @@ test("Atlas exploration panel exposes persistent manual painting controls", asyn
   } finally { Object.assign(globalThis, previous); }
 });
 
-test("GM can open public Region naming without changing native Region metadata",async()=>{
+test("GM edits public Region naming inside territory management without a duplicate fieldset",async()=>{
   const previous={document:globalThis.document,game:globalThis.game,
     ui:globalThis.ui};
   let mounted=null,opened=null;
@@ -663,14 +665,15 @@ test("GM can open public Region naming without changing native Region metadata",
     globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
     addAtlasRoadsToSceneConfig({document:scene},element,{
       draft:()=>null,begin(){},select(){},rename(){},remove(){},
-      configurePublicTerritory:(selected)=>{opened=selected;}});
-    assert.match(textContents(mounted),/Public territory names/);
+      configurePublicTerritory:(selected,_refresh,id)=>{opened=[selected,id];}});
+    assert.match(textContents(mounted),/Territories & custom native Regions/);
+    assert.doesNotMatch(textContents(mounted),/Public territory names · Journey banners/);
     const control=buttons(mounted).find(b=>
-      b.title==="Configure public Region labels");
-    assert.ok(control,"an independent GM control is accessible without a linked Road");
+      b.title==="Edit public Journey territory label");
+    assert.ok(control,"public naming belongs to the selected native Region");
     assert.equal(control.disabled,false);
     await control.listeners.get("click")({preventDefault(){}});
-    assert.equal(opened,scene);
+    assert.deepEqual(opened,[scene,"territory"]);
     assert.equal(region.name,"Private native Region");
     assert.deepEqual(region.shapes,[]);
     assert.deepEqual(region.behaviors,[]);
@@ -701,8 +704,8 @@ test("Scene Atlas manages native Regions across roads and exposes safe boundary 
       configurePublicTerritory:(_s,_refresh,id)=>{publicName=id;},
       setNativeRegionLink:(_s,id,enabled)=>{link=[id,enabled];}
     });
-    assert.match(textContents(mounted),/Native Regions · Atlas boundary tools/);
-    assert.match(textContents(mounted),/Manual boundary/);
+    assert.match(textContents(mounted),/Territories & custom native Regions/);
+    assert.match(textContents(mounted),/Native only/);
     const controls=buttons(mounted);
     for(const [title,outcome] of [
       ["Edit native Region in Foundry",()=>opened],
@@ -718,5 +721,41 @@ test("Scene Atlas manages native Regions across roads and exposes safe boundary 
     await linked.listeners.get("click")({preventDefault(){}});
     assert.deepEqual(link,["r1",true]);
     assert.deepEqual(region.shapes,[],"rendering and actions cannot rewrite native geometry");
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("road-generated native Regions are excluded from the geographic boundary manager",()=>{
+  const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
+  let mounted=null;
+  const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
+  const element={querySelector:key=>key==="[data-fvtt-atlas-scene-root]"?nativeRoot:null};
+  const generatedFlag={schemaVersion:1,kind:"checkpoint",roadId:"road-a",
+    checkpointIds:["cp-a"],widthCells:.5,gridSize:100,shapeSignature:"00000000"};
+  const manual={id:"dirwest",name:"Dirwest",hidden:false,behaviors:[],shapes:[],
+    getFlag:()=>null};
+  const corridor={id:"road-region",name:"Road corridor",hidden:false,
+    behaviors:[],shapes:[],getFlag:(_scope,key)=>
+      key==="generatedRegion"?generatedFlag:null};
+  const regions=[manual,corridor];
+  const scene={id:"test",grid:{size:100,distance:1,units:"km"},
+    canUserModify:()=>true,getFlag:()=>null,
+    regions:{contents:regions,values:function*(){yield* regions;},
+      [Symbol.iterator]:function*(){yield* regions;}}};
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},settings:{get:()=>null},
+      i18n:{localize:key=>key,lang:"en"}};
+    globalThis.ui={notifications:{error:m=>{throw Error(m);}}};
+    addAtlasRoadsToSceneConfig({document:scene},element,{
+      draft:()=>null,begin(){},select(){},rename(){},remove(){}});
+    const regionRows=[];
+    const walk=n=>{
+      if(n.attributes?.has("data-atlas-native-region-id"))regionRows.push(n);
+      for(const child of n.children)walk(child);
+    };
+    walk(mounted);
+    assert.deepEqual(regionRows.map(row=>row.attributes.get("data-atlas-native-region-id")),
+      ["dirwest"]);
+    assert.doesNotMatch(textContents(regionRows[0]),/Road corridor/);
   }finally{Object.assign(globalThis,previous);}
 });

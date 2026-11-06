@@ -27,6 +27,16 @@ test("closed polygon smoothing preserves orientation and stays inside original c
   assert.deepEqual(planSmoothedNativeRegion([square()],1).shapes[0].origin,{x:0,y:0});
 });
 
+test("another Gentle pass is allowed on moderately detailed polygons, with a hard 256-vertex ceiling",()=>{
+  const circle=Array.from({length:80},(_,i)=>{
+    const a=i*2*Math.PI/80;return [200+100*Math.cos(a),200+100*Math.sin(a)];
+  }).flat();
+  const next=smoothClosedBoundary(circle,1);
+  assert.equal(next.length,320,"one additional gentle pass yields 160 vertices");
+  assert.throws(()=>smoothClosedBoundary(circle,2),/256 border vertices/);
+  assert.throws(()=>smoothClosedBoundary(next,1),/too many border vertices/);
+});
+
 test("invalid and complex polygons fail without silently changing holes or multiple shapes",()=>{
   assert.throws(()=>smoothClosedBoundary(square().points,0),/Gentle or Moderate/);
   assert.throws(()=>smoothClosedBoundary([0,0,100,100,0,100,100,0]),/crossed|area/);
