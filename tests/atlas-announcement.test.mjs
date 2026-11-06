@@ -34,6 +34,10 @@ test("every requested Journey/discovery banner has a distinct validated template
   }
   assert.equal(atlasAnnouncementPreview("journey.ended").eyebrow,"Journey Concluded");
   assert.equal(atlasAnnouncementPreview("destination.reached").eyebrow,"Destination Reached");
+  assert.equal(atlasAnnouncementPreview("destination.reached",{
+    subject:"your destination"}).lead,"You have reached");
+  assert.equal(atlasAnnouncementPreview("destination.reached",{
+    subject:"Dirwest"}).lead,"Welcome to");
 });
 
 test("preview specs fail closed for unsupported events and malformed text",()=>{

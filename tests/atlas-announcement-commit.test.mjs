@@ -9,6 +9,8 @@ import {MODULE_ID} from "../scripts/atlas-storage.js";
 import {JOURNEY_JOURNAL_FLAG} from "../scripts/navigation-journey-state-store.js";
 import {canvasRecoveryAnnouncementType}
   from "../scripts/navigation-canvas-announcement.js";
+import {upgradeAtlasPlayerVisibility} from "../scripts/atlas-model.js";
+import {defaultPartyExploration} from "../scripts/party-exploration-model.js";
 
 function record(status="moving",{
   percent=0,pendingNativeMove=null,transport=null,target=null
@@ -186,7 +188,7 @@ test("only active GM can send a committed banner; public payload contains no nam
   assert.equal(writes[0][0],MODULE_ID);
   assert.equal(writes[0][1],ATLAS_ANNOUNCEMENT_PULSE);
   assert.deepEqual(writes[0][2],{
-    schemaVersion:1,id:"unique-announcement-01",type:"destination.reached"});
+    schemaVersion:2,id:"unique-announcement-01",type:"destination.reached"});
   assert.equal(JSON.stringify(writes).includes("SECRET"),false);
   assert.equal(JSON.stringify(writes).includes("private-journal"),false);
   assert.equal(runtime.receive(writes[0][2]),false,
@@ -215,7 +217,102 @@ test("world-setting listener accepts only canned public content and never replay
   assert.equal(runtime.receive({...pulse,type:"road.discovered"}),false);
   assert.equal(runtime.receive({...pulse,type:"constructor"}),false);
   assert.equal(validatedAtlasAnnouncementPulse(pulse)?.type,"checkpoint.arrived");
+  assert.equal(validatedAtlasAnnouncementPulse({schemaVersion:2,
+    id:"named-visible-01",type:"journey.started",publicSubject:"Dirwest"})?.publicSubject,
+  "Dirwest");
+  for(const bad of [
+    {...pulse,schemaVersion:2,publicSubject:"SECRET Bridge"},
+    {...pulse,schemaVersion:2,type:"journey.started",publicSubject:""},
+    {...pulse,schemaVersion:2,type:"journey.started",publicSubject:"Hidden\nCity"},
+    {...pulse,schemaVersion:2,type:"journey.started",publicSubject:"X".repeat(121)},
+    {...pulse,publicSubject:"legacy cannot carry a name"},
+    {...pulse,schemaVersion:2,type:"destination.reached",publicSubject:"Dirwest",sceneId:"private"}
+  ])assert.equal(validatedAtlasAnnouncementPulse(bad),null);
   assert.equal(shows.length,1);
+});
+
+test("a Journal-verified visible Point B names both GM and player banners",async()=>{
+  const atlas=upgradeAtlasPlayerVisibility({schemaVersion:4,
+    coordinateSpace:"image",revision:9,enabled:true,calibration:null,
+    roads:[{id:"r",name:"Road"}],
+    nodes:[{id:"a",x:0,y:0},{id:"b",x:100,y:0}],
+    segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[],bidirectional:true}],
+    checkpoints:[{id:"city",roadId:"r",nodeId:"b",name:"Dirwest",
+      elevationMeters:null}]});
+  atlas.checkpoints[0].playerVisible=true;
+  const flags={atlas,partyExploration:defaultPartyExploration()};
+  const scene={id:"scene",grid:{size:100},canUserModify:()=>true,
+    getFlag:(_namespace,key)=>flags[key]};
+  let saved={...record("moving"),sceneId:"scene",atlasRevision:atlas.revision,
+    destination:{x:100,y:0},lastConfirmedAnchor:{point:{x:0,y:0}}};
+  const journal={id:"journal",getFlag:()=>saved};
+  const gm=[],writes=[];let sequence=0;
+  const server=new AtlasAnnouncementRuntime({
+    settings:{set:async(_ns,_key,pulse)=>writes.push(pulse)},
+    renderer:{enqueue:(type,options)=>{gm.push([type,options]);return true;}},
+    user:()=>({id:"gm",isGM:true}),activeGM:()=>({id:"gm"}),
+    randomID:()=>`safe-named-pulse-${++sequence}-abcdefgh`
+  });
+  assert.equal(server.publish({journal,scene,previous:null,committed:saved,
+    type:"journey.started",subject:"GM ONLY JOURNAL TITLE"}),true);
+  await server.publicWrites;
+  assert.deepEqual(gm,[ ["journey.started",{subject:"Dirwest"}] ]);
+  assert.deepEqual(writes[0],{schemaVersion:2,
+    id:"safe-named-pulse-1-abcdefgh",type:"journey.started",publicSubject:"Dirwest"});
+  assert.equal(JSON.stringify(writes).includes("JOURNAL TITLE"),false);
+  const player=[],client=new AtlasAnnouncementRuntime({
+    settings:{get:()=>null},renderer:{enqueue:(type,options)=>{
+      player.push([type,options]);return true;}}
+  });
+  client.start();
+  assert.equal(client.receive(writes[0]),true);
+  assert.deepEqual(player,[["journey.started",{subject:"Dirwest"}]]);
+  const before=saved;
+  saved={...saved,status:"completed",updatedAt:"2026-11-06T01:00:00.000Z",
+    lastConfirmedAnchor:{point:{x:100,y:0}},legs:[{completedPercent:100}]};
+  assert.equal(server.publish({journal,scene,previous:before,committed:saved,
+    type:"destination.reached",subject:"your destination"}),true);
+  await server.publicWrites;
+  assert.equal(writes[1].publicSubject,"Dirwest");
+  assert.equal(client.receive(writes[1]),true);
+  assert.deepEqual(player.at(-1),["destination.reached",{subject:"Dirwest"}]);
+});
+
+test("a hidden or unmatched destination never leaves the player-safe generic fallback",async()=>{
+  const atlas=upgradeAtlasPlayerVisibility({schemaVersion:4,
+    coordinateSpace:"image",revision:9,enabled:true,calibration:null,
+    roads:[{id:"r",name:"Road"}],
+    nodes:[{id:"a",x:0,y:0},{id:"b",x:100,y:0}],
+    segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[],bidirectional:true}],
+    checkpoints:[{id:"hidden",roadId:"r",nodeId:"b",name:"SECRET CITY",
+      elevationMeters:null}]});
+  const flags={atlas,partyExploration:defaultPartyExploration()};
+  const scene={id:"scene",grid:{size:100},canUserModify:()=>true,
+    getFlag:(_namespace,key)=>flags[key]};
+  let saved={...record("moving"),sceneId:"scene",atlasRevision:atlas.revision,
+    destination:{x:100,y:0}};
+  const journal={id:"j",getFlag:()=>saved};
+  const gm=[],writes=[];let seq=0;
+  const runtime=new AtlasAnnouncementRuntime({
+    settings:{set:async(_ns,_key,pulse)=>writes.push(pulse)},
+    renderer:{enqueue:(type,options)=>{gm.push([type,options]);return true;}},
+    user:()=>({id:"gm",isGM:true}),activeGM:()=>({id:"gm"}),
+    randomID:()=>`fallback-pulse-${++seq}-abcdefgh`
+  });
+  assert.equal(runtime.publish({journal,scene,previous:null,committed:saved,
+    type:"journey.started",subject:"SECRET CITY"}),true);
+  await runtime.publicWrites;
+  assert.deepEqual(gm,[ ["journey.started",{subject:"your destination"}] ]);
+  assert.equal(JSON.stringify(writes).includes("SECRET"),false);
+  assert.equal(Object.hasOwn(writes[0],"publicSubject"),false);
+  atlas.checkpoints[0].playerVisible=true;
+  saved={...saved,createdAt:"new-trip",updatedAt:"2026-11-06T02:00:00.000Z",
+    destination:{x:40,y:0}};
+  assert.equal(runtime.publish({journal,scene,previous:null,committed:saved,
+    type:"journey.started",subject:"SECRET CITY"}),true);
+  await runtime.publicWrites;
+  assert.equal(Object.hasOwn(writes[1],"publicSubject"),false,
+    "do not label a mid-road Point B with a visible but distant city");
 });
 
 test("a failed World announcement projection never rejects a committed journey",async()=>{

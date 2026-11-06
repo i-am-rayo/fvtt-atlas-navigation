@@ -39,7 +39,9 @@ const cleanText = (text,field) => {
 export function atlasAnnouncementPreview(type,{subject}={}){
   const item=LOOKUP.get(type);
   if(!item)throw new Error("Unsupported Atlas announcement type.");
+  const finalSubject=cleanText(subject??item.subject,"subject");
   return Object.freeze({schemaVersion:ATLAS_ANNOUNCEMENT_SCHEMA,type:item.id,
     theme:item.theme,icon:item.icon,eyebrow:item.eyebrow,
-    lead:item.lead,subject:cleanText(subject??item.subject,"subject")});
+    lead:type==="destination.reached"&&finalSubject==="your destination"?
+      "You have reached":item.lead,subject:finalSubject});
 }

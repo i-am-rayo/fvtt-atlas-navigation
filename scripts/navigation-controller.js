@@ -1127,7 +1127,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** Presentation can only observe a successful Journal commit. It is never
    * part of the native movement/clock/Journal transaction or a recovery gate. */
   announceCommittedJourney(payload){
-    try{return this.announcementPublisher(payload);}
+    try{return this.announcementPublisher({...payload,scene:this.scene});}
     catch(error){
       atlasWarn("journey","A confirmed Journey banner could not be displayed",error);
       return false;
@@ -1829,7 +1829,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelSession=session;
     if(freshJourney)this.announceCommittedJourney({
       journal:session.journal,previous:null,committed:session.journeyRecord,
-      type:"journey.started",subject:"new horizons"});
+      type:"journey.started",subject:"your destination"});
     atlasDebug("journey","Guided journey started",{
       sceneId:session.sceneId,chunkCount:chunks.length,
       plannedTravelHours:Math.round(playback.travelHours*100)/100,

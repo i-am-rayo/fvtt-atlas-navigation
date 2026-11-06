@@ -11,16 +11,18 @@ import {checkpointKnowledge} from "./party-exploration-model.js";
 import {confirmedAutomaticCheckpointDiscovery,confirmedRoadVisibilityReveal}
   from "./atlas-announcement-discovery.js";
 import {atlasDebug} from "./atlas-debug.js";
+import {publicJourneyDestinationName} from "./atlas-announcement-destination.js";
 
 /** A one-slot, server-permissioned World setting distributes *public-safe*
  * display pulses. It is NOT movement history, an event queue, or recovery
  * authority, and no saved pulse is replayed when a client opens/reloads. */
 export const ATLAS_ANNOUNCEMENT_PULSE="atlasAnnouncementPulse";
-export const ATLAS_ANNOUNCEMENT_PULSE_SCHEMA=1;
+export const ATLAS_ANNOUNCEMENT_PULSE_SCHEMA=2;
+const NAMED_PUBLIC_EVENTS=new Set(["journey.started","destination.reached"]);
 const PUBLIC_SUBJECTS=Object.freeze({
   "checkpoint.discovered":"a new location",
   "road.discovered":"a new path",
-  "journey.started":"new horizons",
+  "journey.started":"your destination",
   "checkpoint.arrived":"a waypoint",
   "destination.reached":"your destination",
   "journey.ended":"Until the next adventure",
@@ -35,10 +37,18 @@ const MAX_DIAGNOSTICS=32;
 
 export function validatedAtlasAnnouncementPulse(value){
   if(!value||typeof value!=="object"||
-      value.schemaVersion!==ATLAS_ANNOUNCEMENT_PULSE_SCHEMA||
+      ![1,ATLAS_ANNOUNCEMENT_PULSE_SCHEMA].includes(value.schemaVersion)||
       typeof value.id!=="string"||!/^[a-zA-Z0-9_-]{12,64}$/.test(value.id)||
-      !Object.hasOwn(PUBLIC_SUBJECTS,value.type)||
-      Object.keys(value).sort().join(",")!=="id,schemaVersion,type")
+      !Object.hasOwn(PUBLIC_SUBJECTS,value.type))
+    return null;
+  const named=Object.hasOwn(value,"publicSubject");
+  if((named&&(value.schemaVersion!==ATLAS_ANNOUNCEMENT_PULSE_SCHEMA||
+      !NAMED_PUBLIC_EVENTS.has(value.type)||
+      typeof value.publicSubject!=="string"||!value.publicSubject.trim()||
+      value.publicSubject.length>120||
+      /[\u0000-\u001f\u007f]/.test(value.publicSubject)))||
+      Object.keys(value).sort().join(",")!==
+        (named?"id,publicSubject,schemaVersion,type":"id,schemaVersion,type"))
     return null;
   return Object.freeze({...value});
 }
@@ -90,7 +100,7 @@ export class AtlasAnnouncementRuntime {
     // The received World setting contains NO Journal, token, road,
     // checkpoint ID, destination name, hidden POI or free-form client text.
     const spec=atlasAnnouncementPreview(pulse.type,{
-      subject:PUBLIC_SUBJECTS[pulse.type]});
+      subject:pulse.publicSubject??PUBLIC_SUBJECTS[pulse.type]});
     const queued=this.renderer.enqueue(spec.type,{subject:spec.subject});
     atlasDebug("announcement","Player-safe announcement received",{
       type:pulse.type,queued},{level:"verbose"});
@@ -112,12 +122,13 @@ export class AtlasAnnouncementRuntime {
 
   /** One server-permissioned World setting can only hold the latest pointer;
    * serialize writes so a burst of discoveries is delivered in order. */
-  dispatch(type,subject){
+  dispatch(type,subject,{publicSubject=null}={}){
     let queued=false;
     try{queued=this.renderer.enqueue(type,{subject});}
     catch(error){this.onWarning(error);}
     const pulse=validatedAtlasAnnouncementPulse({
-      schemaVersion:ATLAS_ANNOUNCEMENT_PULSE_SCHEMA,id:this.randomID(),type});
+      schemaVersion:ATLAS_ANNOUNCEMENT_PULSE_SCHEMA,id:this.randomID(),type,
+      ...(publicSubject?{publicSubject}:{})});
     const settings=this.getSettings();
     if(!pulse||typeof settings?.set!=="function")return queued;
     this.remember(this.seen,pulse.id);
@@ -183,7 +194,7 @@ export class AtlasAnnouncementRuntime {
 
   /** GM-only, best-effort presentation AFTER Journal save/verification.
    * A failed visual delivery cannot stop/replay native movement, clock or fares. */
-  publish({journal,previous=null,committed,type,subject,manualPause=false,
+  publish({journal,scene=null,previous=null,committed,type,subject,manualPause=false,
     checkpointId=null,canvasRecovery=false,gmReviewRequired=false}={}){
     const me=this.user(),active=this.activeGM();
     if(!me?.isGM||me.id!==active?.id||!journal?.id||
@@ -205,10 +216,29 @@ export class AtlasAnnouncementRuntime {
         method:"Journey Journal",decision:"Rejected: saved Journal receipt mismatch"});
       return false;
     }
+    let publicSubject=null,displaySubject=subject;
+    if(NAMED_PUBLIC_EVENTS.has(type)&&scene){
+      // Never treat GM's free-form subject or Journal title as player-safe.
+      // Re-read the actual Scene and party visibility after Journal verification.
+      displaySubject=PUBLIC_SUBJECTS[type];
+      try{
+        if(scene.id===stored.sceneId&&scene.id===committed.sceneId&&
+            scene.canUserModify?.(me,"update")&&
+            stored.atlasRevision===committed.atlasRevision&&
+            JSON.stringify(stored.destination)===JSON.stringify(committed.destination)&&
+            JSON.stringify(stored.routeTargets??null)===
+              JSON.stringify(committed.routeTargets??null)){
+          publicSubject=publicJourneyDestinationName({
+            atlas:readAtlas(scene),exploration:readPartyExploration(scene),
+            record:stored,gridSize:scene.grid?.size});
+          if(publicSubject)displaySubject=publicSubject;
+        }
+      }catch(error){this.onWarning(error);}
+    }
     const key=`${journal.id}|${plan.key}`;
     if(!this.remember(this.sent,key))return false;
     let displayed=false;
-    try{displayed=this.dispatch(type,subject);}
+    try{displayed=this.dispatch(type,displaySubject,{publicSubject});}
     catch(error){this.onWarning(error);}
     this.diagnostic({type,subject,from:previous?.status,to:committed?.status,
       method:"Journey Journal",decision:displayed?
