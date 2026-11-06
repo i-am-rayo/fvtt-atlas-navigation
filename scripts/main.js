@@ -29,6 +29,8 @@ import { roadFocusCamera } from "./road-focus-camera.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
 import {listPublicTerritorySettings,readPublicTerritory,savePublicTerritory}
   from "./region-narration.js";
+import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
+  from "./region-boundary.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
   applyGeneratedRegionPresetColor, updateGeneratedRegionMovementCost,
@@ -1480,23 +1482,76 @@ function actions() {
       sheet.bringToFront?.();
       return sheet;
     },
-    async configurePublicTerritory(scene, refresh) {
+    async setNativeRegionLink(scene,regionId,shouldLink,refresh) {
+      ensureIdle(scene);
+      if(shouldLink)await linkAtlasRegion(scene,regionId);
+      else await unlinkAtlasRegion(scene,regionId);
+      refresh();
+      ui.notifications.info(shouldLink?"Native Region linked to Atlas.":
+        "Atlas association removed; native Region unchanged.");
+    },
+    async smoothNativeRegion(scene,regionId,refresh) {
+      ensureIdle(scene);
+      if(navigation.travelSession)
+        throw Error("Finish or safely end the active Journey before changing native territory boundaries.");
+      const choice=document.createElement("div");
+      const intro=document.createElement("p");
+      intro.textContent="Round an existing manually drawn native polygon. " +
+        "This changes the border and may create gaps against neighboring Regions. " +
+        "Do not smooth a shared border independently until Atlas's paired-edge editor is available.";
+      choice.appendChild(intro);
+      choice.appendChild(createSettingsSelect([["1","Gentle · one smoothing pass"],
+        ["2","Moderate · two smoothing passes"]],
+      {name:"passes",ariaLabel:"Boundary smoothing strength"}));
+      const input=await DialogV2.input({window:{title:"Atlas · Smooth native Region"},
+        content:choice,ok:{label:"Preview Boundary"},rejectClose:false,modal:true});
+      if(!input)return;
+      const passes=Number(input.passes);
+      const view=globalThis.canvas;
+      if(!view?.ready||view.scene?.id!==scene.id)
+        throw Error("Open this Scene on the canvas to preview the Region.");
+      const plan=planNativeRegionSmoothing(scene,regionId,passes);
+      const confirmation=document.createElement("div");
+      for(const line of ["Region: "+plan.regionName,
+        "Orange: current polygon boundary. Green: proposed smoothed boundary.",
+        "No neighboring Region will be modified. Gaps or overlaps with adjacent territories " +
+          "may change. Use Cancel if this Region shares an exact political border.",
+        "Save changes only to this Region's native Shapes. Its ID, flags, " +
+          "Behaviors, name, Levels, elevation and visibility will remain unchanged."]){
+        const p=document.createElement("p");p.textContent=line;confirmation.appendChild(p);
+      }
+      roadCanvas.showTerritoryBoundaryPreview(scene,plan);
+      try {
+        const approved=await DialogV2.confirm({window:{title:"Confirm smoothed boundary"},
+          content:confirmation,yes:{label:"Save Smoothed Border"},
+          rejectClose:false,modal:true});
+        if(!approved)return;
+        if(!roadCanvas.isRegionPreviewActive(scene,plan))
+          throw Error("The canvas preview changed; reopen the boundary editor.");
+        await saveNativeRegionSmoothing(scene,plan);
+        refresh();ui.notifications.info("Native Region boundary smoothed; other Regions and Behaviors preserved.");
+      }finally{roadCanvas.clearRegionPreview();}
+    },
+    async configurePublicTerritory(scene, refresh, directRegionId=null) {
       if(!game.user?.isGM||!scene.canUserModify?.(game.user,"update"))
         throw Error("Only a Scene-authorized GM can publish territory names.");
       const entries=listPublicTerritorySettings(scene);
       if(!entries.length)throw Error("Create a native Scene Region first.");
-      const choose=document.createElement("div");
-      const intro=document.createElement("p");
-      intro.textContent="Select the native Region whose public Journey name you want to edit.";
-      choose.appendChild(intro);
-      choose.appendChild(createSettingsSelect(entries.map(item=>[
-        item.id,item.name+(item.label?" · Public: "+item.label:"")+
-          (item.invalid?" · Invalid flag":"")]),
-      {name:"regionId",ariaLabel:"Region to use for public journey narration"}));
-      const chosen=await DialogV2.input({window:{title:"Select public territory"},
-        content:choose,ok:{label:"Edit public name"},rejectClose:false});
-      if(!chosen)return;
-      const regionId=String(chosen.regionId??"");
+      let regionId=directRegionId;
+      if(!regionId){
+        const choose=document.createElement("div");
+        const intro=document.createElement("p");
+        intro.textContent="Select the native Region whose public Journey name you want to edit.";
+        choose.appendChild(intro);
+        choose.appendChild(createSettingsSelect(entries.map(item=>[
+          item.id,item.name+(item.label?" · Public: "+item.label:"")+
+            (item.invalid?" · Invalid flag":"")]),
+        {name:"regionId",ariaLabel:"Region to use for public journey narration"}));
+        const chosen=await DialogV2.input({window:{title:"Select public territory"},
+          content:choose,ok:{label:"Edit public name"},rejectClose:false});
+        if(!chosen)return;
+        regionId=String(chosen.regionId??"");
+      }
       if(!entries.some(item=>item.id===regionId))
         throw Error("Choose an existing Scene Region.");
       const region=scene.regions.get(regionId);

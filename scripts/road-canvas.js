@@ -591,6 +591,17 @@ export class RoadCanvasController {
     this.refresh();
   }
 
+  /** One native territory polygon preview; no edits until the GM confirms. */
+  showTerritoryBoundaryPreview(scene, plan) {
+    const view=this.canvasProvider();
+    if(!globalThis.game?.user?.isGM||!view?.ready||view.scene?.id!==scene.id)
+      throw Error("View this Scene as GM to preview its Region boundary.");
+    if(this.getDraft(scene))throw Error("Finish or cancel road editing first.");
+    this.regionPreview={sceneId:scene.id,plan,kind:"territory",
+      source:plan.sourcePoints,result:plan.resultPoints};
+    this.refresh();
+  }
+
   isRegionPreviewActive(scene, plan) {
     return this.regionPreview?.sceneId === scene?.id &&
       this.regionPreview.plan === plan && this.canvasProvider()?.scene?.id === scene.id;
@@ -1708,10 +1719,20 @@ export class RoadCanvasController {
     }
     if (this.regionPreview?.sceneId === canvas.scene.id) {
       const preview = this.regionPreview;
-      if (preview.points.length > 1) {
+      if(preview.kind==="territory") {
+        const polygon=(flat,color,alpha)=>{
+          if(flat.length<6||typeof g.moveTo!=="function"||typeof g.stroke!=="function")return;
+          g.moveTo(flat[0],flat[1]);
+          for(let i=2;i<flat.length;i+=2)g.lineTo(flat[i],flat[i+1]);
+          g.lineTo(flat[0],flat[1]);
+          g.stroke({color,width:3/zoom,alpha,join:"round"});
+        };
+        polygon(preview.source,0xffa35e,.9);
+        polygon(preview.result,0x7bdb9c,1);
+      } else if (preview.points.length > 1) {
         drawLine(g, preview.points, 0x7bdb9c, preview.radius * 2, 0.38);
       }
-      if (typeof g.circle === "function" && typeof g.fill === "function") {
+      if(preview.kind!=="territory"&&typeof g.circle === "function" && typeof g.fill === "function") {
         for (const point of preview.points) g.circle(point.x, point.y, preview.radius)
           .fill({ color: 0x7bdb9c, alpha: 0.22 });
       }

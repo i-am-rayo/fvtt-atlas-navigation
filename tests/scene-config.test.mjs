@@ -676,3 +676,47 @@ test("GM can open public Region naming without changing native Region metadata",
     assert.deepEqual(region.behaviors,[]);
   }finally{Object.assign(globalThis,previous);}
 });
+
+test("Scene Atlas manages native Regions across roads and exposes safe boundary preview",async()=>{
+  const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
+  let mounted=null,preview=null,opened=null,link=null,publicName=null;
+  const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
+  const element={querySelector:selector=>
+    selector==="[data-fvtt-atlas-scene-root]"?nativeRoot:null};
+  const region={id:"r1",name:"Valecor",hidden:false,behaviors:[],shapes:[],
+    getFlag:()=>null};
+  const scene={id:"world",grid:{size:100,distance:1,units:"km"},
+    canUserModify:()=>true,getFlag:()=>null,
+    regions:{contents:[region],values:function*(){yield region;},
+      [Symbol.iterator]:function*(){yield region;}}};
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},settings:{get:()=>null},
+      i18n:{localize:key=>key,lang:"en"}};
+    globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    addAtlasRoadsToSceneConfig({document:scene},element,{
+      draft:()=>null,begin(){},select(){},rename(){},remove(){},
+      configureRegion:(_s,id)=>{opened=id;},
+      smoothNativeRegion:(_s,id)=>{preview=id;},
+      configurePublicTerritory:(_s,_refresh,id)=>{publicName=id;},
+      setNativeRegionLink:(_s,id,enabled)=>{link=[id,enabled];}
+    });
+    assert.match(textContents(mounted),/Native Regions · Atlas boundary tools/);
+    assert.match(textContents(mounted),/Manual boundary/);
+    const controls=buttons(mounted);
+    for(const [title,outcome] of [
+      ["Edit native Region in Foundry",()=>opened],
+      ["Preview smoother native polygon boundary",()=>preview],
+      ["Edit public Journey territory label",()=>publicName]]){
+      const control=controls.find(b=>b.title===title);
+      assert.ok(control,title);
+      await control.listeners.get("click")({preventDefault(){}});
+      assert.equal(outcome(),"r1");
+    }
+    const linked=controls.find(b=>b.title==="Link this native Region to Atlas");
+    assert.ok(linked);
+    await linked.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(link,["r1",true]);
+    assert.deepEqual(region.shapes,[],"rendering and actions cannot rewrite native geometry");
+  }finally{Object.assign(globalThis,previous);}
+});
