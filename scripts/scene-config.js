@@ -219,7 +219,7 @@ function atlasPanel(scene, atlas, actions, refresh,
   const active = atlas.segments.length > 0;
   if (!roadsOnly) root.appendChild(node("h3", label("FVTTATLAS.Atlas.Tab")));
   if (!active) root.appendChild(node("p", "Add a road to begin.", "hint"));
-  if(!generatorOnly&&game.user?.isGM&&
+  if(!generatorOnly&&!roadsOnly&&game.user?.isGM&&
       game.settings?.get?.("fvtt-atlas-navigation",ATLAS_LEVEL_PLANNER_SETTING)){
     root.appendChild(atlasNativeLevelSetup(scene,{onSceneToggle:refresh}));
   }
@@ -1063,6 +1063,24 @@ export function createAtlasRoadsPanel(scene, actions, refresh) {
     throw Error("Only a Scene-authorized GM can use Atlas Road authoring tools.");
   }
   return atlasPanel(scene, readAtlas(scene), actions, refresh, { roadsOnly: true });
+}
+
+/** Native elevation setup is distinct from geographic territory hierarchy.
+ * The Workspace hosts its existing preview/approval workflow without writes on read. */
+export function createAtlasTopologyPanel(scene, refresh) {
+  if (!game.user?.isGM || !scene?.id ||
+      !scene.canUserModify?.(game.user, "update")) {
+    throw Error("Only a Scene-authorized GM can configure native Scene Levels.");
+  }
+  const panel = node("section");
+  panel.setAttribute("data-atlas-topology-panel", "");
+  if (!game.settings?.get?.("fvtt-atlas-navigation", ATLAS_LEVEL_PLANNER_SETTING)) {
+    panel.appendChild(node("p", "Enable Atlas — Native Scene Level Setup in " +
+      "World module settings to use this GM-reviewed tool.", "hint"));
+    return panel;
+  }
+  panel.appendChild(atlasNativeLevelSetup(scene, { onSceneToggle: refresh }));
+  return panel;
 }
 
 /** Standalone native Region generator; never changes graph or Region Behaviors implicitly. */

@@ -82,7 +82,7 @@ export function atlasNativeLevelSetup(scene,{onSceneToggle=()=>{}}={}){
       targetLevelId:initial?.id??""
     };
     state[category.id]=values;
-    const row=label("div","");row.className="form-group";
+    const row=label("div","");row.className="form-group atlas-native-level-row";
     const toggle=label("label","");toggle.title=category.hint;
     const checked=document.createElement("input");checked.type="checkbox";
     checked.checked=Boolean(values.selected);
@@ -95,7 +95,9 @@ export function atlasNativeLevelSetup(scene,{onSceneToggle=()=>{}}={}){
       input.setAttribute("aria-label",category.name+" "+edge+" elevation ("+unit+")");
       input.value=values[edge];
       input.addEventListener("input",()=>{values[edge]=input.value;clearPreview();});
-      row.appendChild(input);
+      const field=label("label",edge==="bottom"?"Bottom ("+unit+")":"Top ("+unit+")");
+      field.className="atlas-native-level-field";
+      field.appendChild(input);row.appendChild(field);
     }
     const select=document.createElement("select");
     select.setAttribute("aria-label",category.name+" native Level to create or adopt");
@@ -109,7 +111,10 @@ export function atlasNativeLevelSetup(scene,{onSceneToggle=()=>{}}={}){
     }
     select.value=values.targetLevelId??"";
     select.addEventListener("change",()=>{values.targetLevelId=select.value;clearPreview();});
-    row.appendChild(select);container.appendChild(row);
+    const levelField=label("label","Native Level (adopt or create)");
+    levelField.className="atlas-native-level-field";
+    levelField.appendChild(select);
+    row.appendChild(levelField);container.appendChild(row);
   }
   const requested=()=>ATLAS_LEVEL_USE_CASES.filter(item=>state[item.id]?.selected).map(item=>{
     const data=state[item.id];
