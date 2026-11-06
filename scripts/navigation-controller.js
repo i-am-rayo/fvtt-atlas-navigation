@@ -1080,21 +1080,37 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         updatePage:publish});
     });
     await session.journalQueue;
+    const recordedRest=(saved.legs.at(-1)?.events?.length??0)>
+      (previous.legs.at(-1)?.events?.length??0)&&
+      saved.legs.length===previous.legs.length;
+    if(recordedRest){
+      // These are two visual phases of the same confirmed Journal rest, not
+      // a second application of downtime, resources, or World time.
+      const action=saved.legs.at(-1).events.at(-1)?.action;
+      if(["long","short","overnight"].includes(action)){
+        const subject=action==="long"?"Long Rest":
+          action==="short"?"Short Rest":"Overnight Camp";
+        for(const type of ["break.started","break.ended"])
+          this.announceCommittedJourney({journal:session.journal,previous,
+            committed:saved,type,subject:type==="break.started"?
+              subject:"The road awaits"});
+      }
+    }
     if(status==="completed")this.announceCommittedJourney({
       journal:session.journal,previous,committed:saved,
       type:"destination.reached",subject:"your destination"});
     else if(status==="ended")this.announceCommittedJourney({
       journal:session.journal,previous,committed:saved,type:"journey.ended"});
+    else if(status==="paused"&&session.phase==="pausing")
+      this.announceCommittedJourney({
+        journal:session.journal,previous,committed:saved,
+        type:"journey.paused",manualPause:true});
     else if(status==="paused"&&session.transportLeg?.checkpoint?.id&&
         saved.legs.at(-1)?.completedPercent>=99.999)
       this.announceCommittedJourney({
         journal:session.journal,previous,committed:saved,
         type:"checkpoint.arrived",checkpointId:session.transportLeg.checkpoint.id,
         subject:session.transportLeg.checkpoint.name});
-    else if(status==="paused"&&session.phase==="pausing")
-      this.announceCommittedJourney({
-        journal:session.journal,previous,committed:saved,
-        type:"journey.paused"});
   }
 
   /** Presentation can only observe a successful Journal commit. It is never

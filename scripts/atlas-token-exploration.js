@@ -6,6 +6,10 @@ import { readAtlas } from "./atlas-storage.js";
 import { tokenTravelPath, surveyTrailCells, discoveredOnPath }
   from "./atlas-token-survey.js";
 import { atlasDebug } from "./atlas-debug.js";
+import {atlasAnnouncementRuntime} from "./atlas-announcement-runtime.js";
+import {checkpointKnowledge} from "./party-exploration-model.js";
+import {readCheckpointDiscoveryMethods,checkpointDiscoveryMethod}
+  from "./checkpoint-discovery-method.js";
 
 const pending=new Map();
 function primaryGM() {
@@ -34,7 +38,34 @@ async function recordSurvey(scene,tokenId,path) {
   if(cells.length)await applyManualFogBrush(scene,cells,"reveal");
   const checkpoints=discoveredOnPath(readAtlas(scene),path,radiusPx,
     {x:Number(canvas.dimensions.sceneX),y:Number(canvas.dimensions.sceneY)});
-  if(checkpoints.length)await saveAutomaticCheckpointVisits(scene,checkpoints);
+  if(checkpoints.length){
+    const before=readPartyExploration(scene);
+    let added;
+    try{added=await saveAutomaticCheckpointVisits(scene,checkpoints);}
+    catch(error){
+      atlasDebug("announcement","Checkpoint discovery Scene write failed",{
+        sceneId:scene.id,candidates:checkpoints.length},{level:"verbose"});
+      throw error;
+    }
+    const committed=readPartyExploration(scene);
+    const atlas=readAtlas(scene),methods=readCheckpointDiscoveryMethods(scene);
+    for(const checkpointId of new Set(checkpoints)){
+      const checkpoint=atlas.checkpoints.find(item=>item.id===checkpointId);
+      if(added.includes(checkpointId)){
+        // Only a committed automatic transition can produce a live banner.
+        // Failure in the display layer cannot invalidate the Scene update.
+        try{atlasAnnouncementRuntime.publishDiscovery({scene,kind:"checkpoint",
+          recordId:checkpointId,previous:before,committed});}
+        catch(error){console.warn("[fvtt-atlas-navigation] Discovery banner failed",error);}
+      }else{
+        atlasAnnouncementRuntime.diagnostic({type:"checkpoint.discovered",
+          subject:checkpoint?.name,from:checkpointKnowledge(before,checkpointId),
+          to:checkpointKnowledge(committed,checkpointId),
+          method:checkpointDiscoveryMethod(methods,checkpointId),
+          decision:"No new automatic visit; banner suppressed"});
+      }
+    }
+  }
 }
 function report(error) {
   console.warn("[fvtt-atlas-navigation] Explorer survey failed",error);

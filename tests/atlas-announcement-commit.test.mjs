@@ -69,6 +69,26 @@ test("durable Journal receipt must match status, update revision and final leg",
     ...done,pendingNativeMove:{operationId:"unconfirmed"}}),false);
 });
 
+test("a confirmed Long Rest publishes start/end once, even while already paused",()=>{
+  const before={...record("paused"),legs:[{
+    completedPercent:20,worldRestSeconds:0,events:[]}]};
+  const after={...before,updatedAt:"2026-11-06T00:02:00.000Z",
+    legs:[{completedPercent:20,worldRestSeconds:28800,events:[{
+      action:"long",hours:8,atHours:1}]}]};
+  for(const type of ["break.started","break.ended"]){
+    assert.equal(committedJourneyAnnouncement(before,after,{type})?.type,type);
+    assert.equal(committedJourneyAnnouncement(after,after,{type}),null);
+  }
+  assert.equal(matchesSavedJourneyAnnouncement(after,structuredClone(after)),true);
+  assert.equal(matchesSavedJourneyAnnouncement(after,{...after,legs:[{
+    ...after.legs[0],events:[] }]},{verifyRest:true}),false);
+  assert.equal(committedJourneyAnnouncement(before,{...after,legs:[{
+    ...after.legs[0],events:[{action:"continue",hours:0}]}]},
+    {type:"break.started"}),null);
+  assert.equal(committedJourneyAnnouncement(before,{...after,pendingNativeMove:{id:"x"}},
+    {type:"break.ended"}),null);
+});
+
 test("only active GM can send a committed banner; public payload contains no names or IDs",async()=>{
   const shows=[],writes=[],stored=record("completed",{percent:100});
   let currentUser={id:"gm-1",isGM:true};
@@ -90,6 +110,7 @@ test("only active GM can send a committed banner; public payload contains no nam
     type:"destination.reached",subject:"SECRET FOG LOCATION"}),true);
   assert.deepEqual(shows,[{type:"destination.reached",subject:"SECRET FOG LOCATION"}],
     "GM may see its already-confirmed destination");
+  await runtime.publicWrites;
   assert.equal(writes.length,1);
   assert.equal(writes[0][0],MODULE_ID);
   assert.equal(writes[0][1],ATLAS_ANNOUNCEMENT_PULSE);
@@ -137,9 +158,60 @@ test("a failed World announcement projection never rejects a committed journey",
   const journal={id:"journal",getFlag:()=>saved};
   assert.equal(runtime.publish({journal,previous:record("moving"),committed:saved,
     type:"destination.reached"}),true);
-  await Promise.resolve();
-  await Promise.resolve();
+  await runtime.publicWrites;
   assert.deepEqual(warnings,["player delivery offline"]);
+});
+
+test("rapid World pulses serialize without leaking any GM-only text",async()=>{
+  const writes=[];let releaseFirst;
+  const settings={set:async(_module,_key,value)=>{
+    writes.push(value);
+    if(writes.length===1)await new Promise(resolve=>{releaseFirst=resolve;});
+  }};
+  let sequence=0;
+  const runtime=new AtlasAnnouncementRuntime({settings,
+    renderer:{enqueue:()=>true},user:()=>({id:"gm",isGM:true}),
+    activeGM:()=>({id:"gm"}),randomID:()=>`valid-pulse-id-${++sequence}-abc`});
+  runtime.dispatch("checkpoint.discovered","SECRET Bridge");
+  runtime.dispatch("road.discovered","SECRET Road");
+  runtime.dispatch("break.started","Long Rest");
+  await Promise.resolve();await Promise.resolve();
+  assert.equal(writes.length,1,"next pulse waits for the prior server update");
+  releaseFirst();
+  await runtime.publicWrites;
+  assert.deepEqual(writes.map(p=>p.type),[
+    "checkpoint.discovered","road.discovered","break.started"]);
+  assert.equal(JSON.stringify(writes).includes("SECRET"),false);
+  assert.ok(writes.every(p=>Object.keys(p).sort().join(",")==="id,schemaVersion,type"));
+});
+
+test("live pause needs explicit manual proof, and live rest needs persisted events",async()=>{
+  const shows=[],writes=[];let seq=0;
+  const runtime=new AtlasAnnouncementRuntime({
+    settings:{set:async(_module,_key,p)=>writes.push(p)},
+    renderer:{enqueue:(type)=>{shows.push(type);return true;}},
+    user:()=>({id:"gm",isGM:true}),activeGM:()=>({id:"gm"}),
+    randomID:()=>`journal-event-${++seq}-abcdefgh`
+  });
+  const before=record("moving"),paused=record("paused");
+  const journal={id:"j",getFlag:()=>paused};
+  assert.equal(runtime.publish({journal,previous:before,committed:paused,
+    type:"journey.paused"}),false);
+  assert.equal(runtime.publish({journal,previous:before,committed:paused,
+    type:"journey.paused",manualPause:true}),true);
+  const beforeRest={...paused,legs:[{completedPercent:10,events:[],worldRestSeconds:0}]};
+  const afterRest={...beforeRest,updatedAt:"2026-11-06T02:00:00.000Z",
+    legs:[{completedPercent:10,events:[{action:"long",hours:8,atHours:1}],
+      worldRestSeconds:28800}]};
+  journal.getFlag=()=>afterRest;
+  for(const type of ["break.started","break.ended"])
+    assert.equal(runtime.publish({journal,previous:beforeRest,committed:afterRest,
+      type,subject:"Long Rest"}),true);
+  await runtime.publicWrites;
+  assert.deepEqual(shows,["journey.paused","break.started","break.ended"]);
+  assert.deepEqual(writes.map(p=>p.type),shows);
+  assert.equal(runtime.publish({journal,previous:afterRest,committed:afterRest,
+    type:"break.started"}),false);
 });
 
 test("controller issues a pause banner only after a successful Journal commit",async()=>{
@@ -151,11 +223,11 @@ test("controller issues a pause banner only after a successful Journal commit",a
   const originalGame=globalThis.game;
   try{
     globalThis.game={time:{worldTime:42}};
-    const events=[],journal={id:"journal",saved:null,getFlag(){return this.saved;}};
+    const events=[],payloads=[],journal={id:"journal",saved:null,getFlag(){return this.saved;}};
     const store={save:async(state)=>{events.push("save");journal.saved=state;return journal;}};
     const nav=new AtlasNavigationController({
       journeyJournalStore:store,
-      announcementPublisher:input=>{events.push(input.type);return true;}
+      announcementPublisher:input=>{events.push(input.type);payloads.push(input);return true;}
     });
     const itinerary={schemaVersion:1,
       scene:{name:"Example",units:"km"},
@@ -171,6 +243,7 @@ test("controller issues a pause banner only after a successful Journal commit",a
       lastConfirmedAnchor:{schemaVersion:1,point:{x:10,y:0}}};
     await nav.saveJourneyCheckpoint(session,"paused");
     assert.deepEqual(events,["save","journey.paused"]);
+    assert.equal(payloads[0].manualPause,true,"explicit pause proof is mandatory");
     events.length=0;
     const failing=new AtlasNavigationController({
       journeyJournalStore:{save:async()=>{throw Error("Failed to commit");}},

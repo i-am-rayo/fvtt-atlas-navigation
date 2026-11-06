@@ -61,6 +61,7 @@ import { addAtlasGroupTransportationControl } from "./navigation-group-transport
 import { ATLAS_MEASURING_UNITS_SETTING,ATLAS_MEASURING_UNITS_CHOICES,
   resolveAtlasMeasuringUnits,atlasDisplayElevation } from "./navigation-measure-units.js";
 import { registerAtlasDebugSettings,atlasDebug,atlasWarn } from "./atlas-debug.js";
+import {atlasAnnouncementRuntime} from "./atlas-announcement-runtime.js";
 
 const roadCanvas = new RoadCanvasController();
 roadCanvas.onCheckpointCreated=(scene,checkpointId,roadId)=>
@@ -860,6 +861,12 @@ function actions() {
       if(saved.roads.find(item=>item.id===road.id)?.travelPresetId!==selectedPresetId ||
           readAtlas(scene).roads.find(item=>item.id===road.id)?.travelPresetId!==selectedPresetId)
         throw Error("Road travel preset did not persist. Reopen Road Settings before continuing.");
+      if(actual.playerVisible!==true&&saved.roads.find(item=>item.id===road.id)?.playerVisible===true){
+        // Only the persisted GM visibility reveal is a road discovery event.
+        // Do not treat ordinary road edits or a preexisting shown road as new.
+        atlasAnnouncementRuntime.publishDiscovery({scene,kind:"road",recordId:road.id,
+          previous:currentAtlas,committed:saved});
+      }
       const currentLinks=readAtlasJournalLinks(scene);
       if(nextJournal!==journalUuidFor(currentLinks,"road",road.id)) {
         if (journalUuidFor(currentLinks,"road",road.id)!==
@@ -1139,10 +1146,13 @@ function actions() {
       const atlas = readAtlas(scene);
       const actual = atlas.roads?.find(item => item.id === road.id);
       if (!actual) throw new Error("Road no longer exists.");
-      await saveRoadPlayerVisibility(scene, {
+      const saved=await saveRoadPlayerVisibility(scene, {
         roadId: road.id, visible: actual.playerVisible !== true,
         expectedRevision: atlas.revision
       });
+      if(actual.playerVisible!==true)
+        atlasAnnouncementRuntime.publishDiscovery({scene,kind:"road",recordId:road.id,
+          previous:atlas,committed:saved});
       roadCanvas.refresh(); refresh();
       ui.notifications.info(actual.playerVisible === true
         ? "Road hidden from players." : "Road now visible to players.");

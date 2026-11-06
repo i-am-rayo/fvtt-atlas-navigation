@@ -1,9 +1,16 @@
-import {MODULE_ID} from "./atlas-storage.js";
+import {MODULE_ID,readAtlas} from "./atlas-storage.js";
 import {atlasAnnouncementPreview} from "./atlas-announcement-model.js";
 import {AtlasAnnouncementPreviewRenderer} from "./atlas-announcement-view.js";
 import {committedJourneyAnnouncement,matchesSavedJourneyAnnouncement}
   from "./atlas-announcement-commit.js";
 import {JOURNEY_JOURNAL_FLAG} from "./navigation-journey-state-store.js";
+import {readPartyExploration} from "./party-exploration-storage.js";
+import {readCheckpointDiscoveryMethods,checkpointDiscoveryMethod}
+  from "./checkpoint-discovery-method.js";
+import {checkpointKnowledge} from "./party-exploration-model.js";
+import {confirmedAutomaticCheckpointDiscovery,confirmedRoadVisibilityReveal}
+  from "./atlas-announcement-discovery.js";
+import {atlasDebug} from "./atlas-debug.js";
 
 /** A one-slot, server-permissioned World setting distributes *public-safe*
  * display pulses. It is NOT movement history, an event queue, or recovery
@@ -11,13 +18,18 @@ import {JOURNEY_JOURNAL_FLAG} from "./navigation-journey-state-store.js";
 export const ATLAS_ANNOUNCEMENT_PULSE="atlasAnnouncementPulse";
 export const ATLAS_ANNOUNCEMENT_PULSE_SCHEMA=1;
 const PUBLIC_SUBJECTS=Object.freeze({
+  "checkpoint.discovered":"a new location",
+  "road.discovered":"a new path",
   "journey.started":"new horizons",
   "checkpoint.arrived":"a waypoint",
   "destination.reached":"your destination",
   "journey.ended":"Until the next adventure",
-  "journey.paused":"Travel is on hold"
+  "journey.paused":"Travel is on hold",
+  "break.started":"a rest",
+  "break.ended":"The road awaits"
 });
 const MAX_SEEN=128;
+const MAX_DIAGNOSTICS=32;
 
 export function validatedAtlasAnnouncementPulse(value){
   if(!value||typeof value!=="object"||
@@ -46,6 +58,8 @@ export class AtlasAnnouncementRuntime {
     this.seen=new Set();
     this.sent=new Set();
     this.started=false;
+    this.publicWrites=Promise.resolve();
+    this.diagnostics=[];
   }
 
   remember(bucket,id){
@@ -75,7 +89,94 @@ export class AtlasAnnouncementRuntime {
     // checkpoint ID, destination name, hidden POI or free-form client text.
     const spec=atlasAnnouncementPreview(pulse.type,{
       subject:PUBLIC_SUBJECTS[pulse.type]});
-    return this.renderer.enqueue(spec.type,{subject:spec.subject});
+    const queued=this.renderer.enqueue(spec.type,{subject:spec.subject});
+    atlasDebug("announcement","Player-safe announcement received",{
+      type:pulse.type,queued},{level:"verbose"});
+    return queued;
+  }
+
+  /** Browser-local, GM-only status history for the preview panel. Never a
+   * persisted flag or transmitted payload. No coordinates or Actor data. */
+  diagnostic({type,subject,from,to,method,decision}){
+    if(!this.user()?.isGM)return;
+    const item=Object.freeze({at:new Date().toLocaleTimeString(),type,
+      subject:String(subject??"(unnamed)").slice(0,160),from,to,method,decision});
+    this.diagnostics.push(item);
+    if(this.diagnostics.length>MAX_DIAGNOSTICS)this.diagnostics.shift();
+    atlasDebug("announcement","Discovery status / banner decision",item,{level:"verbose"});
+  }
+
+  recentDiagnostics(){return this.user()?.isGM?this.diagnostics.map(item=>({...item})):[];}
+
+  /** One server-permissioned World setting can only hold the latest pointer;
+   * serialize writes so a burst of discoveries is delivered in order. */
+  dispatch(type,subject){
+    let queued=false;
+    try{queued=this.renderer.enqueue(type,{subject});}
+    catch(error){this.onWarning(error);}
+    const pulse=validatedAtlasAnnouncementPulse({
+      schemaVersion:ATLAS_ANNOUNCEMENT_PULSE_SCHEMA,id:this.randomID(),type});
+    const settings=this.getSettings();
+    if(!pulse||typeof settings?.set!=="function")return queued;
+    this.remember(this.seen,pulse.id);
+    const write=()=>Promise.resolve().then(()=>
+      settings.set(MODULE_ID,ATLAS_ANNOUNCEMENT_PULSE,{...pulse}))
+      .catch(error=>this.onWarning(error));
+    this.publicWrites=this.publicWrites.then(write,write);
+    return queued;
+  }
+
+  /** GM-only discovery projections after a native Scene flag has committed.
+   * The caller supplies its before/after snapshots; verify the saved Scene
+   * again before notifying clients. A failed banner never rolls back a Scene. */
+  publishDiscovery({scene,kind,recordId,previous,committed}={}){
+    const type=kind==="checkpoint"?"checkpoint.discovered":
+      kind==="road"?"road.discovered":null;
+    const me=this.user(),active=this.activeGM();
+    if(!type||!me?.isGM||me.id!==active?.id||!scene?.id||
+        !scene.canUserModify?.(me,"update")){
+      if(type&&me?.isGM)this.diagnostic({type,subject:recordId,
+        from:"unknown",to:"unknown",method:"authorization",
+        decision:"Banner blocked: only the active, Scene-authorized GM may publish"});
+      return false;
+    }
+    let subject,valid=false;
+    try{
+      const atlas=readAtlas(scene);
+      if(kind==="checkpoint"){
+        const checkpoint=atlas.checkpoints.find(item=>item.id===recordId);
+        const stored=readPartyExploration(scene);
+        const method=checkpointDiscoveryMethod(readCheckpointDiscoveryMethods(scene),recordId);
+        valid=Boolean(checkpoint)&&
+          JSON.stringify(committed)===JSON.stringify(stored)&&
+          confirmedAutomaticCheckpointDiscovery(previous,stored,{
+            checkpointId:recordId,method,exists:Boolean(checkpoint)});
+        subject=checkpoint?.name;
+        this.diagnostic({type,subject,from:checkpointKnowledge(previous,recordId),
+          to:checkpointKnowledge(stored,recordId),method,
+          decision:valid?"Verified Scene visit":"Rejected: no matching automatic visit"});
+      }else{
+        const road=atlas.roads.find(item=>item.id===recordId);
+        valid=Boolean(road)&&JSON.stringify(committed)===JSON.stringify(atlas)&&
+          confirmedRoadVisibilityReveal(previous,atlas,recordId);
+        subject=road?.name;
+        this.diagnostic({type,subject,from:previous?.roads?.find(item=>item.id===recordId)?.playerVisible===true?
+          "shown":"hidden",to:road?.playerVisible===true?"shown":"hidden",
+        method:"GM visibility setting",decision:valid?"Verified Scene visibility":"Rejected: no saved reveal transition"});
+      }
+    }catch(error){this.onWarning(error);return false;}
+    if(!valid)return false;
+    // An authored empty name is not a valid banner subject. Use safe fallback.
+    let queued=false;
+    try{queued=this.dispatch(type,typeof subject==="string"&&subject.trim()?
+      subject:(kind==="road"?"a new path":"a new location"));}
+    catch(error){this.onWarning(error);}
+    this.diagnostic({type,subject,from:kind==="checkpoint"?"Unknown":"Hidden",
+      to:kind==="checkpoint"?"Seen / Visited":"Shown to players",
+      method:kind==="checkpoint"?"Automatic proximity":"GM visibility setting",
+      decision:queued?"GM banner queued; public pulse scheduled":
+        "GM banner unavailable; public pulse attempted"});
+    return queued;
   }
 
   /** GM-only, best-effort presentation AFTER Journal save/verification.
@@ -87,27 +188,29 @@ export class AtlasAnnouncementRuntime {
         typeof journal.getFlag!=="function")return false;
     const plan=committedJourneyAnnouncement(previous,committed,{
       type,manualPause,checkpointId});
-    if(!plan)return false;
+    if(!plan){
+      this.diagnostic({type,subject,from:previous?.status,to:committed?.status,
+        method:"Journey Journal",decision:"Rejected: missing approved transition"});
+      return false;
+    }
     let stored;
     try{stored=journal.getFlag(MODULE_ID,JOURNEY_JOURNAL_FLAG);}
     catch(error){this.onWarning(error);return false;}
-    if(!matchesSavedJourneyAnnouncement(committed,stored))return false;
+    if(!matchesSavedJourneyAnnouncement(committed,stored,{
+      verifyRest:type==="break.started"||type==="break.ended"})){
+      this.diagnostic({type,subject,from:previous?.status,to:committed?.status,
+        method:"Journey Journal",decision:"Rejected: saved Journal receipt mismatch"});
+      return false;
+    }
     const key=`${journal.id}|${plan.key}`;
     if(!this.remember(this.sent,key))return false;
-    try{this.renderer.enqueue(type,{subject});}
+    let displayed=false;
+    try{displayed=this.dispatch(type,subject);}
     catch(error){this.onWarning(error);}
-    const id=this.randomID();
-    const pulse=validatedAtlasAnnouncementPulse({
-      schemaVersion:ATLAS_ANNOUNCEMENT_PULSE_SCHEMA,id,type});
-    const settings=this.getSettings();
-    if(!pulse||typeof settings?.set!=="function")return true;
-    // The World-setting onChange also fires on its originating GM. Prevent
-    // the generic public projection from replacing the GM's specific banner.
-    this.remember(this.seen,pulse.id);
-    try{
-      Promise.resolve(settings.set(MODULE_ID,ATLAS_ANNOUNCEMENT_PULSE,{...pulse}))
-        .catch(error=>this.onWarning(error));
-    }catch(error){this.onWarning(error);}
+    this.diagnostic({type,subject,from:previous?.status,to:committed?.status,
+      method:"Journey Journal",decision:displayed?
+        "Verified Journal; GM banner queued; public pulse scheduled":
+        "Verified Journal; GM renderer unavailable"});
     return true;
   }
 }

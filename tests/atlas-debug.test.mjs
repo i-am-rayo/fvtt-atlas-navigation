@@ -21,7 +21,8 @@ test("one browser-local logging dropdown replaces all redundant World checkboxes
   assert.equal(only.scope,"client","console logging must not trigger a World Setting write");
   assert.equal(only.config,true);
   assert.match(only.hint,/browser only/);
-  assert.equal(Object.keys(ATLAS_DEBUG_CATEGORIES).length,5);
+  assert.equal(Object.keys(ATLAS_DEBUG_CATEGORIES).length,6);
+  assert.equal(ATLAS_DEBUG_CATEGORIES.announcement,"Discovery & Banner Delivery");
   let level="off";
   const settings={get(_namespace,key){
     if(key===ATLAS_DEBUG_LEVEL_SETTING)return level;

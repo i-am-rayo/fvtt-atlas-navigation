@@ -2,7 +2,7 @@
  * A canvas, animation, progress preview, or pending TokenDocument move cannot. */
 export const ATLAS_JOURNEY_ANNOUNCEMENTS=Object.freeze([
   "journey.started","checkpoint.arrived","destination.reached",
-  "journey.ended","journey.paused"
+  "journey.ended","journey.paused","break.started","break.ended"
 ]);
 
 export function committedJourneyAnnouncement(previous,current,{
@@ -32,6 +32,17 @@ export function committedJourneyAnnouncement(previous,current,{
     if(!changed||current.status!=="ended")return null;
   }else if(type==="journey.paused"){
     if(!changed||current.status!=="paused"||!manualPause)return null;
+  }else if(type==="break.started"||type==="break.ended"){
+    // Both visual phases follow a single approved, persisted rest event. The
+    // World clock may already have advanced, but no uncommitted rest is shown.
+    const earlier=previous?.legs?.at(-1)?.events??[];
+    const later=last.events;
+    if(previous?.legs?.length!==current.legs.length||
+        !Array.isArray(earlier)||!Array.isArray(later)||
+        later.length!==earlier.length+1||
+        JSON.stringify(later.slice(0,-1))!==JSON.stringify(earlier)||
+        !["long","short","overnight"].includes(later.at(-1)?.action)||
+        !(later.at(-1)?.hours>0)||!Number.isFinite(last.worldRestSeconds))return null;
   }
   if(typeof current.createdAt!=="string"||
       typeof current.updatedAt!=="string")return null;
@@ -44,7 +55,7 @@ export function committedJourneyAnnouncement(previous,current,{
 
 /** Read-only proof of the *saved* Journey status, not a mutable controller
  * cache. Return false when the native Journal is not readable. */
-export function matchesSavedJourneyAnnouncement(expected,stored){
+export function matchesSavedJourneyAnnouncement(expected,stored,{verifyRest=false}={}){
   if(!Array.isArray(expected?.legs)||!Array.isArray(stored?.legs)||
       !expected.legs.length||!stored.legs.length)return false;
   const a=expected?.legs?.at?.(-1),b=stored?.legs?.at?.(-1);
@@ -53,5 +64,7 @@ export function matchesSavedJourneyAnnouncement(expected,stored){
     expected.updatedAt===stored.updatedAt&&
     expected.status===stored.status&&
     expected.legs.length===stored.legs.length&&
-    a?.completedPercent===b?.completedPercent);
+    a?.completedPercent===b?.completedPercent&&
+    (!verifyRest||(a?.worldRestSeconds===b?.worldRestSeconds&&
+      JSON.stringify(a?.events??[])===JSON.stringify(b?.events??[]))));
 }

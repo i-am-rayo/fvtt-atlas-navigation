@@ -564,10 +564,11 @@ test("a manual pause permits a long rest without moving, resuming or double-coun
         breakCommits++;clock.restSeconds+=seconds;
         globalThis.game.time.worldTime+=seconds;
       }};
-    const saves=[];
+    const saves=[],announcements=[];
     const nav=new AtlasNavigationController({journeyJournalStore:{
       save:async data=>{saves.push(structuredClone(data));return {id:"journal"};},
-      find:()=>null}});
+      find:()=>null},announcementPublisher:payload=>{
+      announcements.push(payload.type);return true;}});
     nav.scene={id:"pause-scene"};nav.render=async()=>{};
     const session={sceneId:"pause-scene",phase:"paused",schedule,clock,
       journal:{id:"journal"},journeyRecord:record,completedDistance:2,
@@ -589,6 +590,8 @@ test("a manual pause permits a long rest without moving, resuming or double-coun
     assert.equal(saves[0].legs[0].worldTravelSeconds,3600);
     assert.equal(saves[0].legs[0].events[0].action,"long");
     assert.equal(saves[0].legs[0].events[0].atHours,1);
+    assert.deepEqual(announcements,["break.started","break.ended"],
+      "one confirmed rest produces two queued visual phases");
     assert.match(nav.travelNotice,/journey remains paused/);
     assert.equal(await nav.choosePausedTravelRest("continue"),false,
       "forced march is not a rest available mid-day");
@@ -598,6 +601,8 @@ test("a manual pause permits a long rest without moving, resuming or double-coun
     session.phase="paused";
     nav.journeyJournalStore.save=async()=>{throw Error("Journal write failed");};
     await assert.rejects(nav.choosePausedTravelRest("short"),/Journal write failed/);
+    assert.deepEqual(announcements,["break.started","break.ended"],
+      "a failed rest Journal write must not produce banners");
     assert.equal(session.phase,"rest-error",
       "if the World clock advances but Journal persistence fails, movement locks");
     assert.equal(nav.resumeGuidedTravel(),false);
