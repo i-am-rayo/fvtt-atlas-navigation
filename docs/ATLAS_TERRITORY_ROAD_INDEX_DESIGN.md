@@ -1,4 +1,7 @@
-# Proposed Atlas Territory Road Directory (owner design approval pending)
+# Atlas Territory Road Directory — design approved for beta.8.6
+
+Implementation and remaining caveats are recorded in
+`docs/ATLAS_TERRITORY_ROAD_INDEX_BETA8_6.md`.
 
 ## Why the current dropdown cannot implement the requested hierarchy
 
@@ -60,10 +63,10 @@ several cities and their parent continent simultaneously.
   Region Behaviors, fog, navigation or World time.
 - Atlas never silently changes native Region shape to force Road membership.
 
-## Requested owner decision
+## Owner decision — approved
 
-Approve the combination of **explicit GM-assigned geographic kind/parent on
+The owner approved the combination of **explicit GM-assigned geographic kind/parent on
 Atlas-linked native Regions**, with **geometry-derived many-to-many Road
-membership** and a future manual override for ambiguous cases. This is
+membership** and a manual override for ambiguous cases. This is
 recommended over trying to infer region hierarchy from native elevation Levels
 or Road/Region names.

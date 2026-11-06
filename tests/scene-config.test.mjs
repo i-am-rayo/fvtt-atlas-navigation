@@ -343,6 +343,57 @@ test("standalone Topology panel reads native Levels without writing them", () =>
   } finally { Object.assign(globalThis, previous); }
 });
 
+test("Workspace Roads shows a geographic multi-territory directory, not the flat Road picker", async()=>{
+  const previous={document:globalThis.document,game:globalThis.game,canvas:globalThis.canvas};
+  try {
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},settings:{get:()=>null},
+      i18n:{localize:key=>key,lang:"en"}};
+    const atlas={schemaVersion:3,coordinateSpace:"image",revision:1,enabled:true,
+      calibration:null,nodes:[{id:"a",x:0,y:10},{id:"b",x:100,y:10},
+        {id:"c",x:0,y:200},{id:"d",x:100,y:200}],
+      roads:[{id:"bridge",name:"Millstone-Dirwest Road"},
+        {id:"ocean",name:"Nix Ocean Route"}],
+      segments:[{id:"bridge-segment",roadId:"bridge",from:"a",to:"b",via:[],bidirectional:true},
+        {id:"ocean-segment",roadId:"ocean",from:"c",to:"d",via:[],bidirectional:true}]};
+    const geographic=(id,name,kind,parentRegionId,points)=>({id,name,
+      shapes:[{type:"polygon",points}],behaviors:[],hidden:false,
+      getFlag:(_scope,key)=>key==="atlas"?{schemaVersion:1,linked:true}:
+        key==="territoryGeography"?{schemaVersion:1,kind,parentRegionId,roadOverrides:{}}:null});
+    const regions=[geographic("valecor","Valecor","continent",null,
+      [0,0,150,0,150,100,0,100]),
+    geographic("dirwest","Dirwest","city","valecor",[60,0,120,0,120,50,60,50]),
+    geographic("millstone","Millstone","city","valecor",[0,0,40,0,40,50,0,50])];
+    const scene={id:"geographic-roads",regions,
+      canUserModify:()=>true,getFlag:(_scope,key)=>key==="atlas"?atlas:null};
+    globalThis.canvas={scene,ready:true,dimensions:{sceneX:0,sceneY:0,size:100}};
+    const actions={draft:()=>null,begin() {}};
+    let panel;
+    const refresh=()=>{panel=createAtlasRoadsPanel(scene,actions,refresh);};
+    refresh();
+    assert.match(textContents(panel),/Valecor · Continent/);
+    assert.match(textContents(panel),/Dirwest · City/);
+    assert.doesNotMatch(textContents(panel),/Show road/);
+    const rowIds=()=>{
+      const found=[];
+      const scan=entry=>{if(entry.attributes?.has("data-atlas-road-id"))
+        found.push(entry.attributes.get("data-atlas-road-id"));
+        for(const child of entry.children??[])scan(child);};
+      scan(panel);return found;
+    };
+    assert.deepEqual(rowIds(),["bridge","ocean"]);
+    const choose=caption=>buttons(panel).find(item=>item.textContent?.startsWith(caption));
+    await choose("Dirwest · City").listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(rowIds(),["bridge"]);
+    await choose("Millstone · City").listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(rowIds(),["bridge"],"same Road belongs to both City directories");
+    await choose("Unclassified").listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(rowIds(),["ocean"]);
+    await choose("All Roads").listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(rowIds(),["bridge","ocean"]);
+  } finally {Object.assign(globalThis,previous);}
+});
+
 test("connection picking and point edits stay in the road authoring controls", async () => {
   const previous = { document: globalThis.document, game: globalThis.game };
   let mounted = null;

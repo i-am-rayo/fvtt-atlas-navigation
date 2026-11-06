@@ -95,6 +95,41 @@
 .atlas-scene-workspace .atlas-workspace-roads fieldset {
   min-width: 0;
 }
+.atlas-scene-workspace .atlas-territory-directory {
+  display: grid;
+  gap: .15rem;
+  padding: .55rem .65rem;
+  margin: .4rem 0 .8rem;
+  border: 1px solid var(--color-border-light-tertiary, #6666);
+  border-radius: .4rem;
+  max-height: 19rem;
+  overflow-y: auto;
+}
+.atlas-scene-workspace .atlas-territory-directory > .hint { margin: .2rem 0 .4rem; }
+.atlas-scene-workspace .atlas-territory-directory-global {
+  display: flex;
+  gap: .35rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--color-border-light-tertiary, #6666);
+  padding-bottom: .45rem;
+  margin-bottom: .3rem;
+}
+.atlas-scene-workspace .atlas-territory-directory-choice {
+  display: block;
+  width: fit-content;
+  max-width: calc(100% - .5rem);
+  min-width: 0;
+  min-height: 1.9rem;
+  padding: .2rem .55rem;
+  margin: 0;
+  text-align: left;
+  white-space: normal;
+}
+.atlas-scene-workspace .atlas-territory-directory-choice[aria-pressed="true"] {
+  border-color: var(--color-border-highlight, #a38744);
+  box-shadow: inset 3px 0 var(--color-border-highlight, #a38744);
+  font-weight: 700;
+}
 .atlas-scene-workspace .atlas-workspace-topology .atlas-native-level-row {
   display: grid;
   grid-template-columns: minmax(160px, 1fr) minmax(100px, .65fr) minmax(100px, .65fr) minmax(185px, 1.5fr);
