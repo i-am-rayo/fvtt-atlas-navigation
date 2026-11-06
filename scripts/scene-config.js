@@ -184,7 +184,8 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   return manager;
 }
 
-function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = {}) {
+function atlasPanel(scene, atlas, actions, refresh,
+  { generatorOnly = false, roadsOnly = false } = {}) {
   const root = node("section");
   root.setAttribute("data-fvtt-atlas-setup", "");
   const travelPresets = readWorldTravelPresets().presets;
@@ -216,7 +217,7 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
   // A configured road network is what makes this Scene an Atlas. The old
   // enabled flag remains persisted for v1 compatibility, but has no UI toggle.
   const active = atlas.segments.length > 0;
-  root.appendChild(node("h3", label("FVTTATLAS.Atlas.Tab")));
+  if (!roadsOnly) root.appendChild(node("h3", label("FVTTATLAS.Atlas.Tab")));
   if (!active) root.appendChild(node("p", "Add a road to begin.", "hint"));
   if(!generatorOnly&&game.user?.isGM&&
       game.settings?.get?.("fvtt-atlas-navigation",ATLAS_LEVEL_PLANNER_SETTING)){
@@ -474,6 +475,11 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     if (!sharedFilter || shownRoads.has(road.id)) roadList.appendChild(entry);
   }
   root.appendChild(section);
+
+  // A focused, fully functional Road/Topology view for the Scene Workspace.
+  // Exit before constructing unrelated native Region, fog and checkpoint panels;
+  // the historical Scene tab still renders its original complete view.
+  if (roadsOnly) return root;
 
   // Graph connections are edited via each road's Map tools, not listed
   // as internal IDs in the main Scene configuration.
@@ -1047,6 +1053,16 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     regionTarget.appendChild(regionSection);
   fogPanel.appendChild(measurement);
   return root;
+}
+
+/** Existing authored Road actions, independently mountable in the Workspace.
+ * Scene flags and edit drafts remain owned by their established adapters. */
+export function createAtlasRoadsPanel(scene, actions, refresh) {
+  if (!game.user?.isGM || !scene?.id ||
+      !scene.canUserModify?.(game.user, "update")) {
+    throw Error("Only a Scene-authorized GM can use Atlas Road authoring tools.");
+  }
+  return atlasPanel(scene, readAtlas(scene), actions, refresh, { roadsOnly: true });
 }
 
 /** Standalone native Region generator; never changes graph or Region Behaviors implicitly. */

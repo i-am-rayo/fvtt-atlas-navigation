@@ -6,7 +6,7 @@ import { readAtlas } from "./atlas-storage.js";
 import { listSceneRegions } from "./region-atlas.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { listPublicTerritorySettings } from "./region-narration.js";
-import { createAtlasTerritoryPanel } from "./scene-config.js";
+import { createAtlasRoadsPanel, createAtlasTerritoryPanel } from "./scene-config.js";
 
 const workspaces = new Map();
 
@@ -69,7 +69,8 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     const sidebar = make("nav", undefined, "atlas-workspace-nav");
     sidebar.setAttribute("aria-label", "Atlas workspace sections");
     sidebar.appendChild(make("h3", "Atlas"));
-    for (const [id, title] of [["overview", "Overview"], ["territories", "Territories"]]) {
+    for (const [id, title] of [["overview", "Overview"], ["roads", "Roads & Topology"],
+      ["territories", "Territories"]]) {
       const tab = action(title, `Show ${title}`, () => {
         if (this.activeSection !== id) {
           this.activeSection = id;
@@ -83,18 +84,27 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       sidebar.appendChild(tab);
     }
     sidebar.appendChild(make("p", "Coming in later phases", "hint"));
-    sidebar.appendChild(make("p", "Roads · Checkpoints · Surfaces · Exploration · Navigation", "hint"));
+    sidebar.appendChild(make("p", "Checkpoints · Surfaces · Exploration · Navigation", "hint"));
     const main = make("main", undefined, "atlas-workspace-content");
     main.setAttribute("data-atlas-workspace-scroll", "");
     const heading = make("header", undefined, "atlas-workspace-heading");
     const title = make("div");
-    title.appendChild(make("h2", this.activeSection === "territories" ? "Territories" : "Scene Overview"));
+    title.appendChild(make("h2", this.activeSection === "territories" ? "Territories" :
+      this.activeSection === "roads" ? "Roads & Topology" : "Scene Overview"));
     title.appendChild(make("p", `Scene: ${this.scene.name ?? this.scene.id}`, "hint"));
     heading.appendChild(title);
     heading.appendChild(action("Refresh", "Read current Scene and native Region records", () => this.render(true)));
     main.appendChild(heading);
 
-    if (this.activeSection === "territories") {
+    if (this.activeSection === "roads") {
+      main.appendChild(make("p", "Manage authored roads, their graph connections, " +
+        "per-road checkpoints and generated corridor Regions. Existing editors, " +
+        "revision guards and map tools remain authoritative.", "hint"));
+      const roadContent = make("section", undefined, "atlas-workspace-roads");
+      roadContent.appendChild(createAtlasRoadsPanel(this.scene, this.actions,
+        () => this.render(true)));
+      main.appendChild(roadContent);
+    } else if (this.activeSection === "territories") {
       main.appendChild(make("p", "Edit territory associations, public Journey labels and " +
         "preview smoother boundaries. Native Foundry Region shapes and Behaviors remain authoritative.", "hint"));
       main.appendChild(createAtlasTerritoryPanel(this.scene, this.actions,
@@ -117,9 +127,9 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       main.appendChild(summary);
       const next = make("section", undefined, "atlas-workspace-note");
       next.appendChild(make("h3", "A gradual migration"));
-      next.appendChild(make("p", "Territory controls are available here now. Roads, " +
-        "checkpoints, surface tools and exploration settings remain in Scene Configuration → " +
-        "Atlas while their existing editors are moved into this workspace in future betas."));
+      next.appendChild(make("p", "Roads and Territories are available in this Workspace. " +
+        "Standalone checkpoint, surface and exploration settings remain in Scene " +
+        "Configuration → Atlas until their dedicated views pass live testing."));
       next.appendChild(action("Manage Territories", "Open territory management", () => {
         this.activeSection = "territories";
         this._scrollY = 0;
