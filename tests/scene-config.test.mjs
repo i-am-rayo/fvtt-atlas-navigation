@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
 const { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
-  filteredRoadIds, openAtlasRegionGenerator } = await import("../scripts/scene-config.js");
+  filteredRoadIds, openAtlasRegionGenerator, createAtlasRoadsPanel } =
+  await import("../scripts/scene-config.js");
 
 class Element {
   constructor(tag) { this.tag = tag; this.attributes = new Map(); this.children = []; this.listeners = new Map(); this.style = {}; this.dataset = {}; }
@@ -271,6 +272,55 @@ test("v3 named roads render once and expanded road tools target the selected roa
     assert.deepEqual([editedId, mergedId], ["old", "old"]);
     assert.equal(connectionScene, scene);
     assert.equal(rows().length, 2, "opening tools does not duplicate road entries");
+  } finally { Object.assign(globalThis, previous); }
+});
+
+test("focused Workspace Roads panel shares real road commands without building unrelated panels", async () => {
+  const previous = { document: globalThis.document, game: globalThis.game, ui: globalThis.ui };
+  const scene = { id: "workspace-roads", grid: { size: 100, distance: 5, units: "km" },
+    canUserModify: () => true, getFlag: (_scope, key) => key !== "atlas" ? null : ({
+      schemaVersion: 3, coordinateSpace: "image", revision: 1, enabled: true,
+      calibration: null,
+      nodes: [{ id: "a", x: 0, y: 0 }, { id: "b", x: 100, y: 0 }],
+      roads: [{ id: "main", name: "River Road" }],
+      segments: [{ id: "s", roadId: "main", from: "a", to: "b", via: [], bidirectional: true }]
+    }) };
+  let began, edited, linked;
+  const actions = { draft: () => null, begin: chosen => { began = chosen; },
+    beginPointEdit: (_scene, id) => { edited = id; },
+    beginJunction: chosen => { linked = chosen; } };
+  try {
+    globalThis.document = { createElement: tag => new Element(tag) };
+    globalThis.game = { user: { isGM: true }, settings: { get: () => null },
+      i18n: { localize: key => key, lang: "en" } };
+    globalThis.ui = { notifications: { error: message => { throw Error(message); } } };
+    const panel = createAtlasRoadsPanel(scene, actions, () => {});
+    assert.match(textContents(panel), /River Road/);
+    assert.doesNotMatch(textContents(panel), /Manual exploration|Territories & custom native Regions/);
+    assert.equal(buttons(panel).filter(item => item.textContent === "+").length, 1);
+    const add = buttons(panel).find(item => item.textContent === "+");
+    await add.listeners.get("click")({ preventDefault() {} });
+    assert.equal(began, scene);
+    const road = (function find(root) {
+      if (root.attributes?.get("data-atlas-road-id") === "main") return root;
+      for (const child of root.children ?? []) { const hit = find(child); if (hit) return hit; }
+      return null;
+    })(panel);
+    assert.ok(road);
+    road.open = true;
+    road.listeners.get("toggle")();
+    const controls = buttons(road);
+    for (const title of ["Road settings", "Edit road", "Add connection", "Delete road"])
+      assert.ok(controls.some(item => item.title === title));
+    await controls.find(item => item.title === "Edit road")
+      .listeners.get("click")({ preventDefault() {} });
+    await controls.find(item => item.title === "Add connection")
+      .listeners.get("click")({ preventDefault() {} });
+    assert.equal(edited, "main");
+    assert.equal(linked, scene);
+    globalThis.game.user.isGM = false;
+    assert.throws(() => createAtlasRoadsPanel(scene, actions, () => {}),
+      /Only a Scene-authorized GM/);
   } finally { Object.assign(globalThis, previous); }
 });
 

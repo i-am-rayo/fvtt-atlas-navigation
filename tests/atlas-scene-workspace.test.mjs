@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 class MockApplicationV2 {
   constructor(options) { this.options = options; this.rendered = false; }
@@ -58,7 +59,7 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.ok(first instanceof AtlasSceneWorkspace);
     assert.equal(first.options.id, "atlas-scene-workspace-scene-1");
     assert.match(text(first.result), /Scene Overview/);
-    assert.match(text(first.result), /Roads · Checkpoints/);
+    assert.match(text(first.result), /Roads & Topology/);
     const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     assert.equal(first, again, "per-Scene instance must be reused");
     const territories = buttons(first.result).find(item => item.textContent === "Territories");
@@ -103,4 +104,26 @@ test("workspace refuses non-GM and unauthorized Scenes, including after open", a
     await assert.rejects(() => workspace.render(true), /Only a GM/);
     await workspace.close();
   } finally { ctx.restore(); }
+});
+
+test("Roads tab is a working Workspace view with legacy Scene settings unaffected", async () => {
+  const ctx = context();
+  try {
+    const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    const roads = buttons(workspace.result).find(item => item.textContent === "Roads & Topology");
+    assert.ok(roads, "Roads & Topology has its own Workspace navigation entry");
+    await roads.listeners.get("click")({ preventDefault() {} });
+    assert.equal(workspace.activeSection, "roads");
+    assert.match(text(workspace.result), /Roads & Topology/);
+    assert.match(text(workspace.result), /Add a road to begin/);
+    assert.doesNotMatch(text(workspace.result), /Territories & custom native Regions/,
+      "Roads view does not construct the Territory manager");
+    await workspace.close();
+  } finally { ctx.restore(); }
+});
+
+test("Territory action row stays right-aligned alongside the Region label", () => {
+  const css = readFileSync(new URL("../styles/atlas-scene-workspace.css", import.meta.url), "utf8");
+  assert.match(css, /\.atlas-territory-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/s);
+  assert.match(css, /\.atlas-territory-actions\s*\{[^}]*justify-self:\s*end/s);
 });

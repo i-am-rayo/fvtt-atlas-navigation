@@ -63,18 +63,19 @@
 .atlas-scene-workspace .atlas-workspace-note { margin-top: 1rem; }
 .atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: .35rem;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .6rem;
+  align-items: center;
   padding: .7rem .25rem;
   border-bottom: 1px solid var(--color-border-light-tertiary, #6666);
 }
 .atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-actions {
   display: flex;
   flex-direction: row;
-  justify-content: flex-start;
+  justify-content: flex-end;
   align-items: center;
   flex-wrap: wrap;
+  justify-self: end;
   width: auto;
   gap: .35rem;
 }
@@ -88,7 +89,20 @@
   min-height: 2.3rem;
   font-size: .9rem;
 }
+.atlas-scene-workspace .atlas-workspace-roads {
+  min-width: 0;
+}
+.atlas-scene-workspace .atlas-workspace-roads fieldset {
+  min-width: 0;
+}
 @media (max-width: 670px) {
   .atlas-scene-workspace { grid-template-columns: minmax(125px, 155px) minmax(0, 1fr); }
   .atlas-scene-workspace .atlas-workspace-content { padding: .75rem; }
+  .atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-actions {
+    justify-self: start;
+    justify-content: flex-start;
+  }
 }
