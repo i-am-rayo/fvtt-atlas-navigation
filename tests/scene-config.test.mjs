@@ -108,7 +108,7 @@ test("Roads plus opens drawing against the configured Scene; no Configure dialog
   } finally { Object.assign(globalThis, previous); }
 });
 
-test("Scene Atlas launches standalone workspace for the configured Scene without a native form submit", async () => {
+test("Scene Atlas retains existing editors without a duplicate Workspace launcher", () => {
   const prior = { document: globalThis.document, game: globalThis.game, ui: globalThis.ui };
   let mounted;
   const scene = { id: "launcher-scene", grid: { size: 100, distance: 5, units: "km" },
@@ -116,19 +116,17 @@ test("Scene Atlas launches standalone workspace for the configured Scene without
   const root = { querySelector: () => null, appendChild: child => { mounted = child; } };
   const element = { querySelector: selector =>
     selector === "[data-fvtt-atlas-scene-root]" ? root : null };
-  let launched;
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
     globalThis.game = { user: { isGM: true }, settings: { get: () => null },
       i18n: { localize: key => key, lang: "en" } };
     globalThis.ui = { notifications: { error: message => { throw Error(message); } } };
-    const actions = { begin() {}, draft: () => null, openAtlasWorkspace: chosen => { launched = chosen; } };
+    const actions = { begin() {}, draft: () => null,
+      openAtlasWorkspace: () => { throw Error("Workspace should launch from Atlas canvas controls"); } };
     addAtlasRoadsToSceneConfig({ document: scene }, element, actions);
     const launch = buttons(mounted).find(item => item.textContent === "Open Atlas Scene Workspace");
-    assert.ok(launch);
-    assert.equal(launch.type, "button", "must never submit core Scene form");
-    await launch.listeners.get("click")({ preventDefault() {} });
-    assert.equal(launched, scene);
+    assert.equal(launch, undefined, "Workspace opens only from the GM Atlas canvas toolbar");
+    assert.match(textContents(mounted), /FVTTATLAS.Roads.Title/);
     globalThis.game.user.isGM = false;
     mounted = null;
     addAtlasRoadsToSceneConfig({ document: scene }, element, actions);

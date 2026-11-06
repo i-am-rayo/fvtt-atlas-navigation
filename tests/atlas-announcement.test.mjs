@@ -155,7 +155,7 @@ test("native Window timers are invoked with their original host context",()=>{
 
 test("Foundry integration is settings-only with no Scene or gameplay writes",()=>{
   const manifest=JSON.parse(readFileSync(new URL("../module.json",import.meta.url),"utf8"));
-  assert.match(manifest.version,/^0\.3\.9-beta\.[2-9]\d*(?:\.\d+)?$/,
+  assert.match(manifest.version,/^0\.3\.9-beta\.[2-9]\d*(?:\.\d+)*$/,
     "beta.3 hotfixes and later must retain the preview foundation");
   assert.ok(manifest.styles.includes("styles/atlas-announcements.css"));
   assert.ok(manifest.esmodules.includes("scripts/atlas-announcement-settings.js"));

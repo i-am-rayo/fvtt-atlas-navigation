@@ -31,6 +31,7 @@ import { roadFocusCamera } from "./road-focus-camera.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
 import {listPublicTerritorySettings,readPublicTerritory,savePublicTerritory}
   from "./region-narration.js";
+import { createPublicTerritoryForm } from "./territory-public-form.js";
 import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
   from "./region-boundary.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
@@ -1564,33 +1565,8 @@ function actions() {
         throw Error("That native Region is no longer editable. Refresh Atlas.");
       const expected=readPublicTerritory(region); // Reject unsupported future flags.
       const expectedName=region.name,expectedHidden=region.hidden===true;
-      const form=document.createElement("div");
-      const hint=document.createElement("p");
-      hint.textContent="Explicit GM approval: this label is delivered to player " +
-        "clients at a confirmed Journey start/arrival inside the Region. " +
-        "Choose a public-safe name; the native Region name and geometry stay unchanged.";
-      form.appendChild(hint);
-      const row=document.createElement("div");row.className="form-group";
-      const nameLabel=document.createElement("label");
-      nameLabel.textContent="Public territory name";
-      nameLabel.htmlFor="atlasPublicTerritoryName";
-      const field=document.createElement("input");
-      field.type="text";field.id="atlasPublicTerritoryName";
-      field.name="publicName";field.maxLength=120;
-      field.value=expected?.label??"";
-      row.append(nameLabel,field);form.appendChild(row);
-      const toggleLabel=document.createElement("label");
-      const toggle=document.createElement("input");
-      toggle.type="checkbox";toggle.name="publish";toggle.value="true";
-      toggle.checked=!!expected;
-      toggleLabel.append(toggle,document.createTextNode(
-        " Show this name in Journey banners (public to players)"));
-      form.appendChild(toggleLabel);
-      if(expectedHidden){
-        const warning=document.createElement("p");
-        warning.textContent="This native Region is hidden. Unhide it before enabling a public name.";
-        form.appendChild(warning);
-      }
+      const form=createPublicTerritoryForm({nativeName:region.name,
+        published:expected,hidden:expectedHidden});
       const result=await DialogV2.input({window:{title:"Public territory: "+region.name},
         content:form,ok:{label:"Save public territory setting"},
         rejectClose:false,modal:true});
@@ -1816,7 +1792,7 @@ Hooks.once("init", () => {
         },
         atlasSceneWorkspace: {
           name: "atlasSceneWorkspace", title: "Atlas Scene Workspace (GM)",
-          icon: "fa-solid fa-map", order: 5, button: true, visible: true,
+          icon: "fa-solid fa-gear", order: 5, button: true, visible: true,
           onChange: () => {
             const scene = canvas?.scene;
             if (!scene) return ui.notifications.warn("Open a Scene first.");
