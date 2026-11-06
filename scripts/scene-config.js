@@ -128,6 +128,61 @@ function format(value) {
   return Number(value.toPrecision(7)).toLocaleString(game.i18n.lang || "en");
 }
 
+/** Scene-scoped native territory controls shared by the legacy tab and Workspace.
+ * Atlas never takes ownership of Region geometry or native Behaviors here. */
+export function createAtlasTerritoryPanel(scene, actions, refresh, {
+  generated = listGeneratedRegions(scene),
+  nativeRegions = listSceneRegions(scene),
+  publicById = new Map(listPublicTerritorySettings(scene)
+    .map(entry => [entry.id, entry]))
+} = {}) {
+  const draft = actions.draft(scene);
+  const manager=node("fieldset");
+  manager.setAttribute("data-atlas-territory-manager", "");
+  manager.appendChild(node("legend","Territories & custom native Regions"));
+  manager.appendChild(node("p","Manage manually authored geographic or custom " +
+    "Regions here, including their public Journey names. Atlas-generated " +
+    "corridors are managed under Roads. Native Foundry geometry and Behaviors " +
+    "remain authoritative; shared-border snapping is planned separately.","hint"));
+  const generatedById=new Map(generated.map(entry=>[entry.id,entry]));
+  const manualNative=nativeRegions.filter(region=>!generatedById.has(region.id));
+  if(!manualNative.length)manager.appendChild(node("p",
+    "No manually authored Regions yet. Draw one with Foundry's Region tool.","hint"));
+  for(const region of manualNative.slice(0,60)){
+    const row=node("div",undefined,"form-group");
+    row.setAttribute("data-atlas-native-region-id",region.id);
+    const details=node("div");details.style.flex="1 1 auto";
+    details.appendChild(node("span",region.name));
+    const status=[region.linked?"Atlas linked":"Native only",
+      region.hidden?"Hidden":"Visible",
+      publicById.get(region.id)?.invalid?"Unsupported public label flag":
+        publicById.get(region.id)?.label?"Public: "+publicById.get(region.id).label:
+          "Private (no public label)"];
+    details.appendChild(node("div",status.join(" · "),"hint"));
+    row.appendChild(details);
+    const controls=node("div",undefined,"form-fields");
+    controls.appendChild(button("⚙","Edit native Region in Foundry",
+      ()=>actions.configureRegion(scene,region.id)));
+    const smooth=button("∿","Preview smoother native polygon boundary",
+      ()=>actions.smoothNativeRegion(scene,region.id,refresh));
+    smooth.disabled=!!draft||region.invalidLink;
+    controls.appendChild(smooth);
+    const linked=button(region.linked?"⛓":"🔗",
+      region.linked?"Unlink Atlas association (native Region stays)":"Link this native Region to Atlas",
+      ()=>actions.setNativeRegionLink(scene,region.id,!region.linked,refresh));
+    linked.disabled=!!draft||region.invalidLink;
+    controls.appendChild(linked);
+    const publicLabel=button("🏷","Edit public Journey territory label",
+      ()=>actions.configurePublicTerritory(scene,refresh,region.id));
+    publicLabel.disabled=!!draft;
+    controls.appendChild(publicLabel);
+    row.appendChild(controls);manager.appendChild(row);
+  }
+  if(manualNative.length>60)manager.appendChild(node("p",
+    "First 60 manual Regions shown; use Foundry's native Region tools for the remaining entries.","hint"));
+  return manager;
+}
+
 function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = {}) {
   const root = node("section");
   root.setAttribute("data-fvtt-atlas-setup", "");
@@ -971,52 +1026,9 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
   }
   advanced.appendChild(regionSection);
 
-  // Scene-wide geographic / manually authored Region controls are independent
-  // of Road expansion. Road-generated Regions stay in the Road tools above,
-  // where native corridors and their shape signatures belong.
-  const manager=node("fieldset");
-  manager.appendChild(node("legend","Territories & custom native Regions"));
-  manager.appendChild(node("p","Manage manually authored geographic or custom " +
-    "Regions here, including their public Journey names. Atlas-generated " +
-    "corridors are managed under Roads. Native Foundry geometry and Behaviors " +
-    "remain authoritative; shared-border snapping is planned separately.","hint"));
-  const generatedById=new Map(generated.map(entry=>[entry.id,entry]));
-  const manualNative=nativeRegions.filter(region=>!generatedById.has(region.id));
-  if(!manualNative.length)manager.appendChild(node("p",
-    "No manually authored Regions yet. Draw one with Foundry's Region tool.","hint"));
-  for(const region of manualNative.slice(0,60)){
-    const row=node("div",undefined,"form-group");
-    row.setAttribute("data-atlas-native-region-id",region.id);
-    const details=node("div");details.style.flex="1 1 auto";
-    details.appendChild(node("span",region.name));
-    const status=[region.linked?"Atlas linked":"Native only",
-      region.hidden?"Hidden":"Visible",
-      publicById.get(region.id)?.invalid?"Unsupported public label flag":
-        publicById.get(region.id)?.label?"Public: "+publicById.get(region.id).label:
-          "Private (no public label)"];
-    details.appendChild(node("div",status.join(" · "),"hint"));
-    row.appendChild(details);
-    const controls=node("div",undefined,"form-fields");
-    controls.appendChild(button("⚙","Edit native Region in Foundry",
-      ()=>actions.configureRegion(scene,region.id)));
-    const smooth=button("∿","Preview smoother native polygon boundary",
-      ()=>actions.smoothNativeRegion(scene,region.id,refresh));
-    smooth.disabled=!!draft||region.invalidLink;
-    controls.appendChild(smooth);
-    const linked=button(region.linked?"⛓":"🔗",
-      region.linked?"Unlink Atlas association (native Region stays)":"Link this native Region to Atlas",
-      ()=>actions.setNativeRegionLink(scene,region.id,!region.linked,refresh));
-    linked.disabled=!!draft||region.invalidLink;
-    controls.appendChild(linked);
-    const publicLabel=button("🏷","Edit public Journey territory label",
-      ()=>actions.configurePublicTerritory(scene,refresh,region.id));
-    publicLabel.disabled=!!draft;
-    controls.appendChild(publicLabel);
-    row.appendChild(controls);manager.appendChild(row);
-  }
-  if(manualNative.length>60)manager.appendChild(node("p",
-    "First 60 manual Regions shown; use Foundry's native Region tools for the remaining entries.","hint"));
-  root.insertBefore(manager,section);
+  // Reuse exactly the same native Region controls in both Scene tab and Workspace.
+  root.insertBefore(createAtlasTerritoryPanel(scene,actions,refresh,
+    {generated,nativeRegions,publicById}),section);
 
   const measurement = node("fieldset");
   measurement.appendChild(node("legend", label("FVTTATLAS.Atlas.Measurement")));
@@ -1148,6 +1160,13 @@ export function addAtlasRoadsToSceneConfig(app, element, actions) {
     panel = node("section");
     panel.setAttribute("data-fvtt-atlas-setup", "");
     panel.appendChild(node("p", error.message, "hint"));
+  }
+  if (typeof actions.openAtlasWorkspace === "function") {
+    const launch = button("Open Atlas Scene Workspace",
+      "Open the larger Atlas Scene Workspace for this Scene",
+      () => actions.openAtlasWorkspace(scene));
+    launch.className = "atlas-workspace-launch";
+    panel.prepend(launch);
   }
   target.appendChild(panel);
 }
