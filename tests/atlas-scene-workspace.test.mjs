@@ -70,10 +70,12 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.ok(row, "native Region has a compact workspace row");
     assert.match(row.children[1].className, /atlas-territory-actions/,
       "actions must be placed underneath the Region details");
-    assert.equal(row.children[1].children.length, 4);
+    assert.equal(row.children[1].children.length, 5);
     assert.ok(row.children[1].children.every(item =>
       item.className?.includes?.("atlas-ui-icon-button")),
-    "all four actions must share the same icon size");
+    "all five actions must share the same icon size");
+    assert.equal(row.children[1].children[4].disabled, true,
+      "unlinked Regions cannot be classified as Atlas geography");
     const smooth = buttons(first.result).find(item =>
       item.title === "Preview smoother native polygon boundary");
     await smooth.listeners.get("click")({ preventDefault() {} });

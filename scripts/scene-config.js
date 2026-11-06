@@ -26,6 +26,9 @@ import { availableMovementActions, unavailableMovementActions,
   editableManagedNativeCost } from "./native-movement-cost.js";
 import {ATLAS_LEVEL_PLANNER_SETTING} from "./navigation-native-level-model.js";
 import {atlasNativeLevelSetup} from "./navigation-native-level-setup.js";
+import { listSceneGeography } from "./territory-geography-storage.js";
+import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
+import { readTerritoryRoadDirectory } from "./territory-road-directory.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -35,6 +38,64 @@ const expandedRoads = new Map();
 const expandedDetails = new Set();
 const generatorRoads = new Map();
 const regionLinkRoads = new Map();
+const territoryDirectorySelections = new Map();
+
+/** Read-only Workspace selection; it does not change authored Road state. */
+function selectedTerritoryRoads(scene, directory, atlas) {
+  const key = territoryDirectorySelections.get(scene.id) ?? "all";
+  if (key === "all") return new Set(directory.allRoadIds);
+  if (key === "unclassified") return new Set(directory.unclassifiedRoadIds);
+  const find = entries => {
+    for (const entry of entries) {
+      if (entry.id === key) return entry;
+      const child = find(entry.children);
+      if (child) return child;
+    }
+    return null;
+  };
+  const match = find(directory.tree);
+  if (match) return new Set(match.roadIds);
+  territoryDirectorySelections.set(scene.id,"all");
+  return new Set(atlas.roads.map(road => road.id));
+}
+
+function territoryDirectoryControls(scene, directory, refresh) {
+  const directoryElement = node("nav",undefined,"atlas-territory-directory");
+  directoryElement.setAttribute("aria-label","Roads by geographic territory");
+  directoryElement.appendChild(node("p","Geographic Road directory · inferred by sampled Road/Region overlap. " +
+    "A Road may appear in multiple territories; correct associations from Territories.","hint"));
+  if (!directory.geometryAvailable) directoryElement.appendChild(node("p",
+    "Open this Scene on the canvas to calculate geometric membership. Manual inclusions remain visible.","hint"));
+  if (directory.truncatedRoadIds.length) directoryElement.appendChild(node("p",
+    `${directory.truncatedRoadIds.length} long Roads reached the sampling limit; verify their membership manually.`,"hint"));
+  const current = territoryDirectorySelections.get(scene.id) ?? "all";
+  function choose(id, caption, count, container, depth = 0) {
+    const control=button(`${caption} (${count})`,`Show ${caption} Roads`,()=>{
+      territoryDirectorySelections.set(scene.id,id);refresh();
+    });
+    control.className="atlas-territory-directory-choice";
+    control.style.marginInlineStart=`${Math.min(4,depth)*1.15}rem`;
+    control.setAttribute("aria-pressed",String(current===id));
+    container.appendChild(control);
+  }
+  const rootControls=node("div",undefined,"atlas-territory-directory-global");
+  choose("all","All Roads",directory.allRoadIds.length,rootControls);
+  choose("unclassified","Unclassified",directory.unclassifiedRoadIds.length,rootControls);
+  directoryElement.appendChild(rootControls);
+  function appendTerritories(entries,container,depth=0) {
+    for (const entry of entries) {
+      const row=node("div",undefined,"atlas-territory-directory-node");
+      choose(entry.id,`${entry.name} · ${GEOGRAPHY_KINDS[entry.kind] ?? entry.kind}`,
+        entry.roadIds.length,row,depth);
+      container.appendChild(row);
+      appendTerritories(entry.children,container,depth+1);
+    }
+  }
+  appendTerritories(directory.tree,directoryElement);
+  if (!directory.classifiedCount) directoryElement.appendChild(node("p",
+    "No classified Territories yet. Link Regions in Territories and choose their geographic kind and parent.","hint"));
+  return directoryElement;
+}
 
 /** Shared display scope; filtering never edits Scene graph or native Regions. */
 export function filteredRoadIds(atlas, state) {
@@ -146,6 +207,7 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     "remain authoritative; shared-border snapping is planned separately.","hint"));
   const generatedById=new Map(generated.map(entry=>[entry.id,entry]));
   const manualNative=nativeRegions.filter(region=>!generatedById.has(region.id));
+  const geographyById=new Map(listSceneGeography(scene).map(entry=>[entry.id,entry]));
   if(!manualNative.length)manager.appendChild(node("p",
     "No manually authored Regions yet. Draw one with Foundry's Region tool.","hint"));
   for(const region of manualNative.slice(0,60)){
@@ -156,6 +218,9 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     const published=publicById.get(region.id);
     const status=[region.linked?"Atlas linked":"Native only",
       region.hidden?"Hidden":"Visible",
+      geographyById.get(region.id)?.invalid?"Unsupported geography flag":
+        geographyById.get(region.id)?.geography?.kind ?
+          GEOGRAPHY_KINDS[geographyById.get(region.id).geography.kind] : "Unclassified",
       published?.invalid?"Unsupported public label flag":
         published?.label?(published.label===region.name?"Public ✓":"Public: "+published.label):
           "Private (no public label)"];
@@ -177,6 +242,10 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
       ()=>actions.configurePublicTerritory(scene,refresh,region.id));
     publicLabel.disabled=!!draft;
     controls.appendChild(publicLabel);
+    const geography=iconAction("sitemap","Classify territory and correct Road membership",
+      ()=>actions.configureGeography(scene,refresh,region.id));
+    geography.disabled=!!draft||!region.linked||region.invalidLink||geographyById.get(region.id)?.invalid;
+    controls.appendChild(geography);
     row.appendChild(controls);manager.appendChild(row);
   }
   if(manualNative.length>60)manager.appendChild(node("p",
@@ -212,7 +281,10 @@ function atlasPanel(scene, atlas, actions, refresh,
   }
   const sharedFilter = atlas.schemaVersion >= 3 && atlas.roads?.length
     ? junctionFilterFor(scene, atlas) : null;
-  const shownRoads = sharedFilter ? filteredRoadIds(atlas, sharedFilter) : new Set();
+  const territoryDirectory=roadsOnly && atlas.schemaVersion>=3 ?
+    readTerritoryRoadDirectory(scene,atlas):null;
+  const shownRoads = territoryDirectory ? selectedTerritoryRoads(scene,territoryDirectory,atlas) :
+    sharedFilter ? filteredRoadIds(atlas, sharedFilter) : new Set();
 
   // A configured road network is what makes this Scene an Atlas. The old
   // enabled flag remains persisted for v1 compatibility, but has no UI toggle.
@@ -301,7 +373,9 @@ function atlasPanel(scene, atlas, actions, refresh,
   const roads = atlas.schemaVersion >= 3 ? atlas.roads : atlas.segments;
   const roadList = node("div");
   roadList.style.cssText = "display:grid;gap:.35rem;";
-  if (sharedFilter) {
+  if (territoryDirectory) {
+    section.appendChild(territoryDirectoryControls(scene,territoryDirectory,refresh));
+  } else if (sharedFilter) {
     const filter = node("div");
     filter.style.cssText = "display:flex;align-items:center;gap:.6rem;margin:.35rem 0 .65rem;";
     filter.appendChild(node("label","Road"));
@@ -472,7 +546,7 @@ function atlasPanel(scene, atlas, actions, refresh,
       entry.open = true;
       sync();
     }
-    if (!sharedFilter || shownRoads.has(road.id)) roadList.appendChild(entry);
+    if ((!sharedFilter&&!territoryDirectory) || shownRoads.has(road.id)) roadList.appendChild(entry);
   }
   root.appendChild(section);
 

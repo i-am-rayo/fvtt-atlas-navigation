@@ -32,6 +32,10 @@ import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-a
 import {listPublicTerritorySettings,readPublicTerritory,savePublicTerritory}
   from "./region-narration.js";
 import { createPublicTerritoryForm } from "./territory-public-form.js";
+import { listSceneGeography,readRegionGeography,saveRegionGeography }
+  from "./territory-geography-storage.js";
+import { buildTerritoryGeographyForm,geographyFromForm }
+  from "./territory-geography-form.js";
 import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
   from "./region-boundary.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
@@ -1578,6 +1582,44 @@ function actions() {
       refresh();
       ui.notifications.info(enabled?"Public territory label saved.":
         "Public territory label disabled.");
+    },
+    async configureGeography(scene,refresh,regionId) {
+      ensureIdle(scene);
+      if (!game.user?.isGM || !scene.canUserModify?.(game.user,"update"))
+        throw Error("Only a Scene-authorized GM can classify territories.");
+      const region=scene.regions?.get(regionId);
+      if (!region || region.parent?.id!==scene.id ||
+          !region.canUserModify?.(game.user,"update"))
+        throw Error("The Region is no longer editable. Refresh Atlas.");
+      const entries=listSceneGeography(scene);
+      if (!entries.some(entry=>entry.id===regionId&&entry.linked&&!entry.invalid))
+        throw Error("Link a valid native Region to Atlas before assigning geography.");
+      const expected=readRegionGeography(region);
+      const expectedName=region.name,expectedHidden=region.hidden===true;
+      const content=buildTerritoryGeographyForm({region,current:expected,
+        territories:entries,roads:readAtlas(scene).roads??[]});
+      const result=await DialogV2.input({window:{title:"Geographic territory: "+region.name},
+        content,ok:{label:"Review and Save Geography"},rejectClose:false,modal:true});
+      if (!result) return;
+      const next=geographyFromForm(result,expected);
+      const confirmation=document.createElement("div");
+      const message=document.createElement("p");
+      message.textContent=next ?
+        `Save ${region.name} as ${next.kind}`+
+          (next.parentRegionId?" under the selected parent territory":" as a root territory")+
+          `? Road membership will be inferred by geometry with ${Object.keys(next.roadOverrides).length} manual corrections. `+
+          "Native Region geometry, Behaviors and Journey labels will not change." :
+        `Remove the Atlas geographic classification and Road corrections from ${region.name}? `+
+          "The native Region and its public Journey name will be preserved.";
+      confirmation.appendChild(message);
+      const confirmed=await DialogV2.confirm({window:{title:"Confirm Atlas geography"},
+        content:confirmation,
+        rejectClose:false,modal:true});
+      if (!confirmed)return;
+      const changed=await saveRegionGeography(scene,regionId,{next,expected,
+        expectedName,expectedHidden});
+      if (changed) ui.notifications.info("Atlas geographic classification saved.");
+      refresh();
     },
     finish: () => roadCanvas.finish(),
     cancel: () => roadCanvas.cancel(),
