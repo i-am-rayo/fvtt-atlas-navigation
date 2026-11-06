@@ -1,0 +1,165 @@
+/**
+ * Scene-scoped, GM-only Atlas workspace. This is a presentation shell, not a
+ * second Scene/Region persistence layer. It reuses the native territory tools.
+ */
+import { readAtlas } from "./atlas-storage.js";
+import { listSceneRegions } from "./region-atlas.js";
+import { listGeneratedRegions } from "./generated-region.js";
+import { listPublicTerritorySettings } from "./region-narration.js";
+import { createAtlasTerritoryPanel } from "./scene-config.js";
+
+const workspaces = new Map();
+
+function assertEditable(scene) {
+  if (!globalThis.game?.user?.isGM || !scene?.id ||
+      !scene.canUserModify?.(game.user, "update")) {
+    throw new Error("Only a GM with permission to edit this Scene can open Atlas Workspace.");
+  }
+}
+
+const make = (tag, value, className) => {
+  const element = document.createElement(tag);
+  if (value !== undefined) element.textContent = value;
+  if (className) element.className = className;
+  return element;
+};
+
+function action(text, title, callback) {
+  const control = make("button", text);
+  control.type = "button";
+  control.title = title;
+  control.setAttribute("aria-label", title);
+  control.addEventListener("click", async event => {
+    event.preventDefault();
+    try { await callback(); }
+    catch (error) { ui.notifications.error(error.message ?? String(error)); }
+  });
+  return control;
+}
+
+export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 {
+  static DEFAULT_OPTIONS = {
+    window: { title: "Atlas — Scene Workspace", resizable: true },
+    position: { width: 1040, height: 720 }
+  };
+
+  constructor({ scene, actions }) {
+    assertEditable(scene);
+    super({ id: `atlas-scene-workspace-${scene.id}`, position: {
+      width: Math.max(450, Math.min(1040, globalThis.window?.innerWidth - 50 || 1040)),
+      height: Math.max(360, Math.min(720, globalThis.window?.innerHeight - 90 || 720))
+    } });
+    this.scene = scene;
+    this.actions = actions;
+    this.activeSection = "overview";
+    this._scrollY = 0;
+  }
+
+  async _renderHTML() {
+    assertEditable(this.scene);
+    this._scrollY = this.element?.querySelector?.("[data-atlas-workspace-scroll]")?.scrollTop ?? this._scrollY;
+    const atlas = readAtlas(this.scene);
+    const nativeRegions = listSceneRegions(this.scene);
+    const generated = listGeneratedRegions(this.scene);
+    const labels = listPublicTerritorySettings(this.scene);
+    const generatedIds = new Set(generated.map(region => region.id));
+
+    const root = make("div", undefined, "atlas-scene-workspace");
+    root.setAttribute("data-atlas-workspace-scene", this.scene.id);
+    const sidebar = make("nav", undefined, "atlas-workspace-nav");
+    sidebar.setAttribute("aria-label", "Atlas workspace sections");
+    sidebar.appendChild(make("h3", "Atlas"));
+    for (const [id, title] of [["overview", "Overview"], ["territories", "Territories"]]) {
+      const tab = action(title, `Show ${title}`, () => {
+        if (this.activeSection !== id) {
+          this.activeSection = id;
+          this._scrollY = 0;
+          return this.render(true);
+        }
+      });
+      tab.className = "atlas-workspace-tab";
+      tab.setAttribute("aria-current", this.activeSection === id ? "page" : "false");
+      tab.setAttribute("data-atlas-workspace-tab", id);
+      sidebar.appendChild(tab);
+    }
+    sidebar.appendChild(make("p", "Coming in later phases", "hint"));
+    sidebar.appendChild(make("p", "Roads · Checkpoints · Surfaces · Exploration · Navigation", "hint"));
+    const main = make("main", undefined, "atlas-workspace-content");
+    main.setAttribute("data-atlas-workspace-scroll", "");
+    const heading = make("header", undefined, "atlas-workspace-heading");
+    const title = make("div");
+    title.appendChild(make("h2", this.activeSection === "territories" ? "Territories" : "Scene Overview"));
+    title.appendChild(make("p", `Scene: ${this.scene.name ?? this.scene.id}`, "hint"));
+    heading.appendChild(title);
+    heading.appendChild(action("Refresh", "Read current Scene and native Region records", () => this.render(true)));
+    main.appendChild(heading);
+
+    if (this.activeSection === "territories") {
+      main.appendChild(make("p", "Edit territory associations, public Journey labels and " +
+        "preview smoother boundaries. Native Foundry Region shapes and Behaviors remain authoritative.", "hint"));
+      main.appendChild(createAtlasTerritoryPanel(this.scene, this.actions,
+        () => this.render(true), { generated, nativeRegions,
+          publicById: new Map(labels.map(item => [item.id, item])) }));
+    } else {
+      const summary = make("div", undefined, "atlas-workspace-summary");
+      for (const [label, value] of [
+        ["Roads", atlas.roads?.length ?? 0],
+        ["Checkpoints", atlas.checkpoints?.length ?? 0],
+        ["Territory / custom Regions", nativeRegions.filter(region => !generatedIds.has(region.id)).length],
+        ["Road-generated Regions", generated.length],
+        ["Published territory names", labels.filter(entry => entry.label && !entry.invalid).length]
+      ]) {
+        const card = make("section", undefined, "atlas-workspace-stat");
+        card.appendChild(make("strong", String(value)));
+        card.appendChild(make("span", label));
+        summary.appendChild(card);
+      }
+      main.appendChild(summary);
+      const next = make("section", undefined, "atlas-workspace-note");
+      next.appendChild(make("h3", "A gradual migration"));
+      next.appendChild(make("p", "Territory controls are available here now. Roads, " +
+        "checkpoints, surface tools and exploration settings remain in Scene Configuration → " +
+        "Atlas while their existing editors are moved into this workspace in future betas."));
+      next.appendChild(action("Manage Territories", "Open territory management", () => {
+        this.activeSection = "territories";
+        this._scrollY = 0;
+        return this.render(true);
+      }));
+      main.appendChild(next);
+    }
+    root.append(sidebar, main);
+    return root;
+  }
+
+  _replaceHTML(result, content) {
+    content.replaceChildren(result);
+    const scroll = content.querySelector?.("[data-atlas-workspace-scroll]");
+    if (scroll) scroll.scrollTop = this._scrollY;
+  }
+
+  _onClose(options) {
+    if (workspaces.get(this.scene.id) === this) workspaces.delete(this.scene.id);
+    return super._onClose?.(options);
+  }
+}
+
+/** One modeless workspace per Scene. Re-opening brings the same draft context forward. */
+export function openAtlasSceneWorkspace(scene, actions) {
+  assertEditable(scene);
+  let workspace = workspaces.get(scene.id);
+  if (!workspace) {
+    workspace = new AtlasSceneWorkspace({ scene, actions });
+    workspaces.set(scene.id, workspace);
+  }
+  return Promise.resolve(workspace.render(true)).catch(error => {
+    if (workspaces.get(scene.id) === workspace && !workspace.rendered)
+      workspaces.delete(scene.id);
+    throw error;
+  });
+}
+
+export function refreshAtlasSceneWorkspace(scene) {
+  const workspace = workspaces.get(scene?.id);
+  if (workspace?.rendered) return workspace.render(true);
+  return Promise.resolve();
+}

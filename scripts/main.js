@@ -5,6 +5,8 @@
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
   getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig,
   openAtlasRegionGenerator } from "./scene-config.js";
+import { openAtlasSceneWorkspace, refreshAtlasSceneWorkspace }
+  from "./atlas-scene-workspace.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { addAtlasExplorerToTokenConfig } from "./atlas-token-config.js";
 import { observeAtlasTokenMovement } from "./atlas-token-exploration.js";
@@ -1781,6 +1783,7 @@ Hooks.once("init", () => {
   registerWorldCheckpointPresets();
   registerWorldRoadAppearance(() => roadCanvas.refresh());
   const roadActions = actions();
+  roadActions.openAtlasWorkspace = scene => openAtlasSceneWorkspace(scene,roadActions);
   roadCanvas.setShortcutHandler((scene, target) => {
     ensureIdle(scene);
     const atlas = readAtlas(scene);
@@ -1809,6 +1812,16 @@ Hooks.once("init", () => {
             if (!scene) return ui.notifications.warn("Open a Scene first.");
             try { navigation.tearDown(); roadActions.begin(scene,()=>refreshAtlasSceneConfig(scene)); }
             catch(error) { ui.notifications.error(error.message); }
+          }
+        },
+        atlasSceneWorkspace: {
+          name: "atlasSceneWorkspace", title: "Atlas Scene Workspace (GM)",
+          icon: "fa-solid fa-map", order: 5, button: true, visible: true,
+          onChange: () => {
+            const scene = canvas?.scene;
+            if (!scene) return ui.notifications.warn("Open a Scene first.");
+            void roadActions.openAtlasWorkspace(scene).catch(error =>
+              ui.notifications.error(error.message ?? String(error)));
           }
         },
         atlasBrushPalette:{
@@ -1901,7 +1914,11 @@ Hooks.once("init", () => {
   });
   Hooks.on("canvasPan", view => { roadCanvas.onCanvasPan(view); navigation.draw(); });
   for(const event of ["createRegion","updateRegion","deleteRegion"]){
-    Hooks.on(event,region=>navigation.onRegionUpdated(region));
+    Hooks.on(event,region=>{
+      navigation.onRegionUpdated(region);
+      void refreshAtlasSceneWorkspace(region.parent).catch(error =>
+        atlasWarn("lifecycle","Atlas Workspace native Region refresh failed",error));
+    });
   }
   Hooks.on("sightRefresh", () => roadCanvas.onFogRefresh());
   Hooks.on("updateFogExploration", () => roadCanvas.onFogRefresh());
