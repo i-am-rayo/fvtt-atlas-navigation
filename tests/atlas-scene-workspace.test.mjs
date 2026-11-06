@@ -64,9 +64,19 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     const territories = buttons(first.result).find(item => item.textContent === "Territories");
     await territories.listeners.get("click")({ preventDefault() {} });
     assert.match(text(first.result), /Millstone/);
-    const smooth = buttons(first.result).find(item => item.textContent === "∿");
+    const row = walk(first.result, item => item.className?.includes?.("atlas-territory-row"))[0];
+    assert.ok(row, "native Region has a compact workspace row");
+    assert.match(row.children[1].className, /atlas-territory-actions/,
+      "actions must be placed underneath the Region details");
+    assert.equal(row.children[1].children.length, 4);
+    assert.ok(row.children[1].children.every(item =>
+      item.className?.includes?.("atlas-ui-icon-button")),
+    "all four actions must share the same icon size");
+    const smooth = buttons(first.result).find(item =>
+      item.title === "Preview smoother native polygon boundary");
     await smooth.listeners.get("click")({ preventDefault() {} });
-    const label = buttons(first.result).find(item => item.textContent === "🏷");
+    const label = buttons(first.result).find(item =>
+      item.title === "Edit public Journey territory label");
     await label.listeners.get("click")({ preventDefault() {} });
     assert.deepEqual(ctx.calls, [["smooth", "region-1"], ["label", "region-1"]]);
     await refreshAtlasSceneWorkspace(ctx.scene);

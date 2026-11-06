@@ -149,30 +149,31 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   if(!manualNative.length)manager.appendChild(node("p",
     "No manually authored Regions yet. Draw one with Foundry's Region tool.","hint"));
   for(const region of manualNative.slice(0,60)){
-    const row=node("div",undefined,"form-group");
+    const row=node("div",undefined,"form-group atlas-territory-row");
     row.setAttribute("data-atlas-native-region-id",region.id);
     const details=node("div");details.style.flex="1 1 auto";
     details.appendChild(node("span",region.name));
+    const published=publicById.get(region.id);
     const status=[region.linked?"Atlas linked":"Native only",
       region.hidden?"Hidden":"Visible",
-      publicById.get(region.id)?.invalid?"Unsupported public label flag":
-        publicById.get(region.id)?.label?"Public: "+publicById.get(region.id).label:
+      published?.invalid?"Unsupported public label flag":
+        published?.label?(published.label===region.name?"Public ✓":"Public: "+published.label):
           "Private (no public label)"];
     details.appendChild(node("div",status.join(" · "),"hint"));
     row.appendChild(details);
-    const controls=node("div",undefined,"form-fields");
-    controls.appendChild(button("⚙","Edit native Region in Foundry",
+    const controls=node("div",undefined,"form-fields atlas-territory-actions");
+    controls.appendChild(iconAction("gear","Edit native Region in Foundry",
       ()=>actions.configureRegion(scene,region.id)));
-    const smooth=button("∿","Preview smoother native polygon boundary",
+    const smooth=iconAction("bezier-curve","Preview smoother native polygon boundary",
       ()=>actions.smoothNativeRegion(scene,region.id,refresh));
     smooth.disabled=!!draft||region.invalidLink;
     controls.appendChild(smooth);
-    const linked=button(region.linked?"⛓":"🔗",
+    const linked=iconAction(region.linked?"link-slash":"link",
       region.linked?"Unlink Atlas association (native Region stays)":"Link this native Region to Atlas",
       ()=>actions.setNativeRegionLink(scene,region.id,!region.linked,refresh));
     linked.disabled=!!draft||region.invalidLink;
     controls.appendChild(linked);
-    const publicLabel=button("🏷","Edit public Journey territory label",
+    const publicLabel=iconAction("tag","Edit public Journey territory label",
       ()=>actions.configurePublicTerritory(scene,refresh,region.id));
     publicLabel.disabled=!!draft;
     controls.appendChild(publicLabel);
@@ -1160,13 +1161,6 @@ export function addAtlasRoadsToSceneConfig(app, element, actions) {
     panel = node("section");
     panel.setAttribute("data-fvtt-atlas-setup", "");
     panel.appendChild(node("p", error.message, "hint"));
-  }
-  if (typeof actions.openAtlasWorkspace === "function") {
-    const launch = button("Open Atlas Scene Workspace",
-      "Open the larger Atlas Scene Workspace for this Scene",
-      () => actions.openAtlasWorkspace(scene));
-    launch.className = "atlas-workspace-launch";
-    panel.prepend(launch);
   }
   target.appendChild(panel);
 }
