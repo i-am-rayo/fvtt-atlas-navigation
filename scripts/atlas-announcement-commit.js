@@ -2,14 +2,17 @@
  * A canvas, animation, progress preview, or pending TokenDocument move cannot. */
 export const ATLAS_JOURNEY_ANNOUNCEMENTS=Object.freeze([
   "journey.started","checkpoint.arrived","destination.reached",
-  "journey.ended","journey.paused","break.started","break.ended"
+  "journey.ended","journey.paused","break.started","break.ended",
+  "journey.awaiting-gm","journey.interrupted"
 ]);
 
 export function committedJourneyAnnouncement(previous,current,{
-  type,manualPause=false,checkpointId=null
+  type,manualPause=false,checkpointId=null,canvasRecovery=false,
+  gmReviewRequired=false
 }={}){
+  const reviewBanner=type==="journey.awaiting-gm"||type==="journey.interrupted";
   if(!ATLAS_JOURNEY_ANNOUNCEMENTS.includes(type)||
-      !current||current.pendingNativeMove||
+      !current||(!reviewBanner&&current.pendingNativeMove)||
       !Array.isArray(current.legs)||!current.legs.length)return null;
   const last=current.legs.at(-1);
   const changed=previous?.status!==current.status;
@@ -32,6 +35,14 @@ export function committedJourneyAnnouncement(previous,current,{
     if(!changed||current.status!=="ended")return null;
   }else if(type==="journey.paused"){
     if(!changed||current.status!=="paused"||!manualPause)return null;
+  }else if(reviewBanner){
+    // Only a separate canvas recovery decision can advertise a GM review.
+    // An unresolved native intent is acceptable for "interrupted" only:
+    // the banner makes no claim of committed movement or a completed leg.
+    if(!canvasRecovery||!gmReviewRequired||
+        (type==="journey.awaiting-gm"&&
+          (current.status!=="paused"||current.pendingNativeMove))||
+        (type==="journey.interrupted"&&current.status!=="interrupted"))return null;
   }else if(type==="break.started"||type==="break.ended"){
     // Both visual phases follow a single approved, persisted rest event. The
     // World clock may already have advanced, but no uncommitted rest is shown.
@@ -55,11 +66,17 @@ export function committedJourneyAnnouncement(previous,current,{
 
 /** Read-only proof of the *saved* Journey status, not a mutable controller
  * cache. Return false when the native Journal is not readable. */
-export function matchesSavedJourneyAnnouncement(expected,stored,{verifyRest=false}={}){
+export function matchesSavedJourneyAnnouncement(expected,stored,{
+  verifyRest=false,allowPendingInterruption=false
+}={}){
   if(!Array.isArray(expected?.legs)||!Array.isArray(stored?.legs)||
       !expected.legs.length||!stored.legs.length)return false;
   const a=expected?.legs?.at?.(-1),b=stored?.legs?.at?.(-1);
-  return Boolean(expected&&stored&&!stored.pendingNativeMove&&
+  return Boolean(expected&&stored&&
+    (!stored.pendingNativeMove||(allowPendingInterruption&&
+      expected.status==="interrupted"&&
+      JSON.stringify(expected.pendingNativeMove)===
+        JSON.stringify(stored.pendingNativeMove)))&&
     expected.createdAt===stored.createdAt&&
     expected.updatedAt===stored.updatedAt&&
     expected.status===stored.status&&

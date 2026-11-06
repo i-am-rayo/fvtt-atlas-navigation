@@ -3,7 +3,7 @@
   "type": "module",
   "title": "FVTT Atlas Navigation",
   "description": "Foundry v14 Scene Atlas with roads, checkpoints, terrain Regions and Atlas terrain-aware Navigation.",
-  "version": "0.3.9-beta.4",
+  "version": "0.3.9-beta.5",
   "authors": [
     {
       "name": "i-am-rayo",
@@ -36,6 +36,6 @@
   "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
   "readme": "README.md",
   "media": [],
-  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feat/v0.3.9-beta.4-automatic-discovery-diagnostics/module.json",
-  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feat/v0.3.9-beta.4-automatic-discovery-diagnostics.zip"
+  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feat/v0.3.9-beta.5-canvas-recovery-announcements/module.json",
+  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feat/v0.3.9-beta.5-canvas-recovery-announcements.zip"
 }

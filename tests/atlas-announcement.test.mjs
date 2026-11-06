@@ -22,7 +22,7 @@ function fakeElement(tagName){
 test("every requested Journey/discovery banner has a distinct validated template",()=>{
   const expected=["checkpoint.discovered","road.discovered","checkpoint.arrived",
     "destination.reached","journey.started","journey.ended","break.started",
-    "break.ended","journey.paused"];
+    "break.ended","journey.paused","journey.awaiting-gm","journey.interrupted"];
   assert.deepEqual(ATLAS_ANNOUNCEMENT_TYPES.map(type=>type.id),expected);
   assert.equal(new Set(ATLAS_ANNOUNCEMENT_TYPES.map(type=>type.id)).size,expected.length);
   for(const type of ATLAS_ANNOUNCEMENT_TYPES){

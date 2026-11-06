@@ -7,6 +7,8 @@ import {AtlasAnnouncementRuntime,validatedAtlasAnnouncementPulse,
   from "../scripts/atlas-announcement-runtime.js";
 import {MODULE_ID} from "../scripts/atlas-storage.js";
 import {JOURNEY_JOURNAL_FLAG} from "../scripts/navigation-journey-state-store.js";
+import {canvasRecoveryAnnouncementType}
+  from "../scripts/navigation-canvas-announcement.js";
 
 function record(status="moving",{
   percent=0,pendingNativeMove=null,transport=null,target=null
@@ -41,6 +43,36 @@ test("Journey banner eligibility follows durable state, not canvas or animation"
     {type:"journey.paused",manualPause:true})?.type,"journey.paused");
 });
 
+test("canvas review announcement is separate from deliberate pause and automatic resume",()=>{
+  const paused=record("paused"),interrupted=record("interrupted");
+  const ask=options=>canvasRecoveryAnnouncementType({reason:"canvasTearDown",
+    phase:"moving",requiresGM:true,record:paused,...options});
+  assert.equal(ask(),"journey.awaiting-gm");
+  assert.equal(ask({record:interrupted}),"journey.interrupted");
+  assert.equal(ask({phase:"paused"}),null,"manual pauses already have a banner");
+  assert.equal(ask({phase:"ending"}),null);
+  assert.equal(ask({reason:"canvasReady"}),"journey.awaiting-gm",
+    "a ready hook may itself interrupt a still-active Journey");
+  assert.equal(ask({reason:"requested"}),null);
+  assert.equal(ask({requiresGM:false}),null);
+  assert.equal(ask({continuing:true}),null);
+  assert.equal(ask({record:record("moving")}),null);
+  assert.equal(ask({record:record("completed",{percent:100})}),null);
+  assert.equal(ask({record:{...paused,pendingNativeMove:{operationId:"p"}}}),null);
+  assert.equal(ask({record:{...interrupted,pendingNativeMove:{operationId:"p"}}}),
+    "journey.interrupted","an unresolved native move needs GM review, not a fake arrival");
+  assert.equal(committedJourneyAnnouncement(paused,paused,{
+    type:"journey.awaiting-gm"}),null,"a raw canvas hook cannot publish");
+  assert.equal(committedJourneyAnnouncement(paused,paused,{
+    type:"journey.awaiting-gm",canvasRecovery:true,gmReviewRequired:true})?.type,
+    "journey.awaiting-gm");
+  assert.equal(committedJourneyAnnouncement(paused,interrupted,{
+    type:"journey.interrupted",canvasRecovery:true,gmReviewRequired:true})?.type,
+    "journey.interrupted");
+  assert.equal(committedJourneyAnnouncement(paused,record("moving"),{
+    type:"journey.interrupted",canvasRecovery:true,gmReviewRequired:true}),null);
+});
+
 test("checkpoint announcement requires native-confirmed terminal and target identity",()=>{
   const before=record("moving",{percent:40});
   const arrived=record("paused",{percent:100,
@@ -67,6 +99,45 @@ test("durable Journal receipt must match status, update revision and final leg",
     ...done,legs:[{completedPercent:99}]}),false);
   assert.equal(matchesSavedJourneyAnnouncement(done,{
     ...done,pendingNativeMove:{operationId:"unconfirmed"}}),false);
+  const interrupted={...done,status:"interrupted",
+    pendingNativeMove:{operationId:"unconfirmed"}};
+  assert.equal(matchesSavedJourneyAnnouncement(interrupted,interrupted),false);
+  assert.equal(matchesSavedJourneyAnnouncement(interrupted,interrupted,{
+    allowPendingInterruption:true}),true);
+  assert.equal(matchesSavedJourneyAnnouncement(interrupted,{
+    ...interrupted,pendingNativeMove:{operationId:"different"}},
+    {allowPendingInterruption:true}),false);
+});
+
+test("GM-only canvas review banner has saved status proof and a generic player pulse",async()=>{
+  const rendered=[],sent=[];
+  let saved=record("paused");
+  const runtime=new AtlasAnnouncementRuntime({
+    settings:{set:async(_module,_key,pulse)=>sent.push(pulse)},
+    renderer:{enqueue:(type,options)=>{rendered.push({type,...options});return true;}},
+    user:()=>({id:"gm",isGM:true}),activeGM:()=>({id:"gm"}),
+    randomID:()=>`recovery-notice-${rendered.length}-abcde`
+  });
+  const journal={id:"private-journal",getFlag:()=>saved};
+  assert.equal(runtime.publish({journal,committed:saved,
+    type:"journey.awaiting-gm"}),false);
+  assert.equal(runtime.publish({journal,committed:saved,
+    type:"journey.awaiting-gm",canvasRecovery:true,gmReviewRequired:true}),true);
+  assert.equal(runtime.publish({journal,committed:saved,
+    type:"journey.awaiting-gm",canvasRecovery:true,gmReviewRequired:true}),false,
+    "duplicate canvasReady does not send a second banner");
+  saved={...record("interrupted"),updatedAt:"2026-11-06T00:00:03.000Z",
+    pendingNativeMove:{operationId:"pending"}};
+  assert.equal(runtime.publish({journal,committed:saved,
+    type:"journey.interrupted",canvasRecovery:true,gmReviewRequired:true}),true);
+  await runtime.publicWrites;
+  assert.deepEqual(rendered.map(item=>item.type),[
+    "journey.awaiting-gm","journey.interrupted"]);
+  assert.deepEqual(sent.map(pulse=>pulse.type),rendered.map(item=>item.type));
+  assert.ok(sent.every(pulse=>Object.keys(pulse).sort().join(",")==="id,schemaVersion,type"));
+  assert.equal(JSON.stringify(sent).includes("private-journal"),false);
+  assert.equal(runtime.publish({journal,committed:{...saved,updatedAt:"outdated"},
+    type:"journey.interrupted",canvasRecovery:true,gmReviewRequired:true}),false);
 });
 
 test("a confirmed Long Rest publishes start/end once, even while already paused",()=>{

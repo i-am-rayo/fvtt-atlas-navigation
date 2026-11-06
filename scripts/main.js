@@ -1755,6 +1755,8 @@ Hooks.once("init", () => {
       catch(error){atlasWarn("journey","Automatic canvas recovery failed",error);}
       try{await navigation.restoreWindowAfterCanvasReady();}
       catch(error){atlasWarn("lifecycle","Navigation window restoration failed",error);}
+      try{await navigation.announceCanvasReviewAfterCanvasReady();}
+      catch(error){atlasWarn("announcement","Canvas review notice failed",error);}
     })();
   });
   // Foundry v14 movement includes origin, passed waypoints and destination.

@@ -229,6 +229,88 @@ test("canvas redraw cannot downgrade a durably confirmed final native dock",asyn
   assert.equal(nativeStops,1);
 });
 
+test("canvas review announcement waits for recovery and a matching saved Journey",async()=>{
+  const prior={game:globalThis.game};
+  try{
+    const scene={id:"review-scene",canUserModify:()=>true};
+    const tokenId="party-token",now="2026-11-06T03:00:00.000Z";
+    const itinerary={schemaVersion:1,
+      scene:{name:"Test Road",units:"mi"},
+      endpoints:{departure:point(0,0),destination:point(100,0)},
+      measurements:{distance:10,travelHours:5,terrainAware:false},
+      travel:{speedPerHour:2},directions:[]};
+    const begun=createJourneyRecord({sceneId:scene.id,tokenId,
+      atlasRevision:3,itinerary,now});
+    let stored={...begun,status:"interrupted",updatedAt:"2026-11-06T03:01:00.000Z"};
+    const journal={id:"private-journal",getFlag:()=>stored};
+    const published=[];
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}}};
+    const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
+      announcementPublisher:payload=>{published.push(payload);return true;}});
+    const notice={reason:"canvasTearDown",phase:"moving",sceneId:scene.id,
+      tokenId,createdAt:now,journal,session:{
+        finished:Promise.resolve(),journalQueue:Promise.resolve()}};
+    nav.canvasRecoveryNotice=notice;
+    nav.autoResumePending={journalId:journal.id};
+    assert.equal(await nav.announceCanvasReviewAfterCanvasReady(),false,
+      "a possible automatic continuation must decide first");
+    assert.deepEqual(published,[]);
+    nav.autoResumePending=null;
+    assert.equal(await nav.announceCanvasReviewAfterCanvasReady(),true);
+    assert.deepEqual(published.map(item=>item.type),["journey.interrupted"]);
+    assert.equal(published[0].canvasRecovery,true);
+    assert.equal(published[0].gmReviewRequired,true);
+    assert.equal(await nav.announceCanvasReviewAfterCanvasReady(),false,
+      "the same ready hook cannot re-announce");
+
+    stored={...begun,status:"paused",updatedAt:"2026-11-06T03:02:00.000Z"};
+    nav.canvasRecoveryNotice={...notice};
+    assert.equal(await nav.announceCanvasReviewAfterCanvasReady(),true);
+    assert.deepEqual(published.map(item=>item.type),[
+      "journey.interrupted","journey.awaiting-gm"]);
+
+    // After a Scene switch, a failed Journal write, or a terminal Journey,
+    // the notification is withheld and no private data is broadcast.
+    nav.canvasRecoveryNotice={...notice,sceneId:"other-scene"};
+    assert.equal(await nav.announceCanvasReviewAfterCanvasReady(),false);
+    nav.canvasRecoveryNotice={...notice};
+    stored={...begun,status:"completed",updatedAt:"2026-11-06T03:03:00.000Z"};
+    assert.equal(await nav.announceCanvasReviewAfterCanvasReady(),false);
+    nav.canvasRecoveryNotice={...notice};
+    journal.getFlag=()=>{throw Error("Journal is unavailable");};
+    assert.equal(await nav.announceCanvasReviewAfterCanvasReady(),false);
+    assert.equal(published.length,2);
+  }finally{globalThis.game=prior.game;}
+});
+
+test("canvas teardown captures a provisional review only for active non-manual travel",()=>{
+  const prior={game:globalThis.game,ui:globalThis.ui};
+  try{
+    globalThis.game={user:{isGM:true},time:{worldTime:0}};
+    globalThis.ui={notifications:{warn(){}}};
+    const scene={id:"scene"};
+    const nav=new AtlasNavigationController();
+    nav.scene=scene;
+    const session={sceneId:scene.id,phase:"rest-choice",journal:{id:"j"},
+      journeyRecord:{createdAt:"2026-11-06T03:00:00Z",tokenId:"t",status:"paused"},
+      completedDistance:2,totalDistance:10};
+    nav.travelSession=session;
+    nav.saveJourneyCheckpoint=async()=>{};
+    nav.tearDown("canvasTearDown");
+    assert.equal(nav.canvasRecoveryNotice.reason,"canvasTearDown");
+    assert.equal(nav.canvasRecoveryNotice.phase,"rest-choice");
+    assert.equal(nav.autoResumePending,null,
+      "an unresolved daily decision cannot start native movement itself");
+    nav.tearDown("canvasReady");
+    assert.equal(nav.canvasRecoveryNotice.phase,"rest-choice",
+      "the second Foundry hook does not erase the first pending notice");
+    nav.scene=scene;nav.travelSession={...session,phase:"paused"};
+    nav.tearDown("canvasTearDown");
+    assert.equal(nav.canvasRecoveryNotice,null,
+      "the already-announced deliberate manual pause cannot be repeated");
+  }finally{globalThis.game=prior.game;globalThis.ui=prior.ui;}
+});
+
 test("late stop and checkpoint callbacks cannot downgrade an arrived Journey Journal",async()=>{
   const saved=[];
   const nav=new AtlasNavigationController({journeyJournalStore:{
@@ -340,6 +422,42 @@ test("canvas recovery restarts only the matching GM-approved Journey after its w
       "an interrupted, uncommitted rest cannot restart token movement");
     assert.equal(started,1);
   }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
+test("successful automatic canvas continuation suppresses pending-GM banners",async()=>{
+  const prior=globalThis.game;
+  try{
+    const scene={id:"auto-continue",canUserModify:()=>true};
+    const token={id:"party"},events=[];
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}}};
+    const nav=new AtlasNavigationController({
+      canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>({revision:12}),partyTokenProvider:()=>token,
+      announcementPublisher:payload=>{events.push(payload.type);return true;}
+    });
+    nav.activate=()=>{nav.scene=scene;nav.recoverableJourney={id:"saved"};};
+    nav.recoverSavedJourney=()=>{
+      nav.recoveryRecord={status:"interrupted",legs:[{completedPercent:45}]};
+      return true;
+    };
+    let finish;
+    nav.startGuidedTravel=()=>new Promise(resolve=>{finish=resolve;});
+    const notice={reason:"canvasTearDown",phase:"moving",sceneId:scene.id,
+      tokenId:token.id,createdAt:"original",journal:{id:"saved"},
+      session:{finished:Promise.resolve(),journalQueue:Promise.resolve()}};
+    nav.canvasRecoveryNotice=notice;
+    nav.autoResumePending={sceneId:scene.id,tokenId:token.id,journalId:"saved",
+      revision:12,session:notice.session};
+    assert.equal(await nav.autoResumeAfterCanvasReady(),true);
+    assert.equal(nav.canvasRecoveryContinuing,notice);
+    assert.equal(await nav.announceCanvasReviewAfterCanvasReady(),false);
+    assert.deepEqual(events,[]);
+    finish(true);
+    await Promise.resolve();
+    assert.equal(nav.canvasRecoveryNotice,null);
+    assert.equal(await nav.announceCanvasReviewAfterCanvasReady(),false);
+    assert.deepEqual(events,[],"an automatically resumed route never says it awaits approval");
+  }finally{globalThis.game=prior;}
 });
 
 test("involuntary canvas redraw restores a confirmed dock without requesting approval to recover or starting a new leg",async()=>{

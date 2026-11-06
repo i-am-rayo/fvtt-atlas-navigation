@@ -25,6 +25,8 @@ const PUBLIC_SUBJECTS=Object.freeze({
   "destination.reached":"your destination",
   "journey.ended":"Until the next adventure",
   "journey.paused":"Travel is on hold",
+  "journey.awaiting-gm":"Travel is on hold",
+  "journey.interrupted":"Travel is on hold",
   "break.started":"a rest",
   "break.ended":"The road awaits"
 });
@@ -182,12 +184,12 @@ export class AtlasAnnouncementRuntime {
   /** GM-only, best-effort presentation AFTER Journal save/verification.
    * A failed visual delivery cannot stop/replay native movement, clock or fares. */
   publish({journal,previous=null,committed,type,subject,manualPause=false,
-    checkpointId=null}={}){
+    checkpointId=null,canvasRecovery=false,gmReviewRequired=false}={}){
     const me=this.user(),active=this.activeGM();
     if(!me?.isGM||me.id!==active?.id||!journal?.id||
         typeof journal.getFlag!=="function")return false;
     const plan=committedJourneyAnnouncement(previous,committed,{
-      type,manualPause,checkpointId});
+      type,manualPause,checkpointId,canvasRecovery,gmReviewRequired});
     if(!plan){
       this.diagnostic({type,subject,from:previous?.status,to:committed?.status,
         method:"Journey Journal",decision:"Rejected: missing approved transition"});
@@ -197,7 +199,8 @@ export class AtlasAnnouncementRuntime {
     try{stored=journal.getFlag(MODULE_ID,JOURNEY_JOURNAL_FLAG);}
     catch(error){this.onWarning(error);return false;}
     if(!matchesSavedJourneyAnnouncement(committed,stored,{
-      verifyRest:type==="break.started"||type==="break.ended"})){
+      verifyRest:type==="break.started"||type==="break.ended",
+      allowPendingInterruption:type==="journey.interrupted"&&canvasRecovery})){
       this.diagnostic({type,subject,from:previous?.status,to:committed?.status,
         method:"Journey Journal",decision:"Rejected: saved Journal receipt mismatch"});
       return false;

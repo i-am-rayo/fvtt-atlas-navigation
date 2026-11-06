@@ -73,6 +73,7 @@ import { journeySummaryDue } from "./navigation-journey-state-store.js";
 import {mayCheckpointJourneyStatus,assessJourneyTeardown,
   mayAttemptCanvasJourneyRecovery,classifyRecoveredJourneyBoundary}
   from "./navigation-journey-lifecycle.js";
+import {canvasRecoveryAnnouncementType} from "./navigation-canvas-announcement.js";
 import {buildJourneyTargets,assessJourneyAnchor,captureJourneyAnchor,
   nextJourneyTarget,isCheckpointBoundContinuation} from "./navigation-route-targets.js";
 import {renderNavigationFooter} from "./navigation-footer.js";
@@ -173,6 +174,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.autoResumeAttempts=new Map();
     this.canvasTeardownClose=Promise.resolve();
     this.windowRestorePending=null;
+    this.canvasRecoveryNotice=null;
+    this.canvasRecoveryContinuing=null;
   }
 
   get active() { return Boolean(this.scene); }
@@ -2362,6 +2365,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       worldTime:game.time?.worldTime??null,
       journalId:session?.journal?.id??null
     });
+    if(session&&["canvasTearDown","canvasReady"].includes(reason)){
+      // The provisional notice is browser-local, never gameplay state. It can
+      // only become public after the canvas is ready and a saved Journal review
+      // shows that a GM decision really is pending. A second teardown without
+      // an active session must NOT erase the earlier provisional notice.
+      this.canvasRecoveryNotice=session?.journal?.id&&
+        session.journeyRecord?.createdAt&&
+        !["paused","ending"].includes(session.phase)?{
+          reason,phase:session.phase,sceneId:session.sceneId,
+          tokenId:session.journeyRecord.tokenId,
+          createdAt:session.journeyRecord.createdAt,
+          journal:session.journal,session
+        }:null;
+      this.canvasRecoveryContinuing=null;
+    }
     if(["canvasTearDown","canvasReady"].includes(reason)&&this.active&&this.rendered){
       this.windowRestorePending={sceneId:this.scene.id,
         session,
@@ -2466,7 +2484,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
       atlasDebug("journey","Automatically continuing after canvas rebuild",{
         sceneId:pending.sceneId,journalId:pending.journalId});
-      void this.startGuidedTravel().catch(error=>{
+      const notice=this.canvasRecoveryNotice;
+      this.canvasRecoveryContinuing=notice;
+      void this.startGuidedTravel().then(success=>{
+        if(this.canvasRecoveryContinuing!==notice)return;
+        this.canvasRecoveryContinuing=null;
+        if(success)this.canvasRecoveryNotice=null;
+        else void this.announceCanvasReviewAfterCanvasReady();
+      }).catch(error=>{
+        if(this.canvasRecoveryContinuing===notice){
+          this.canvasRecoveryContinuing=null;
+          void this.announceCanvasReviewAfterCanvasReady();
+        }
         atlasWarn("journey","Automatic continuation failed; the Journal remains recoverable",error);
         globalThis.ui?.notifications?.warn?.(
           "Atlas could not continue automatically. Open Navigation to recover the journey.");
@@ -2532,6 +2561,56 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       atlasWarn("lifecycle","Navigation window could not reopen after canvas refresh",error);
       return false;
     }
+  }
+
+  /** Best-effort notice after normal canvas recovery has had its chance.
+   * A raw canvasTearDown cannot claim a pause: it may immediately auto-resume
+   * the same approved leg. Only the active Scene GM and matching saved Journal
+   * may notify players that movement is actually waiting for review. */
+  async announceCanvasReviewAfterCanvasReady(){
+    const notice=this.canvasRecoveryNotice;
+    if(!notice||this.canvasRecoveryContinuing===notice||this.travelSession||
+        this.autoResumePending)
+      return false;
+    const view=this.canvasProvider(),me=globalThis.game?.user;
+    if(!me?.isGM||globalThis.game?.users?.activeGM?.id!==me.id||
+        !view?.ready||view.scene?.id!==notice.sceneId||
+        !view.scene.canUserModify?.(me,"update")){
+      if(this.canvasRecoveryNotice===notice)this.canvasRecoveryNotice=null;
+      return false;
+    }
+    let timeout;
+    const settled=await Promise.race([
+      Promise.all([notice.session.finished??Promise.resolve(),
+        notice.session.journalQueue??Promise.resolve(),
+        this.canvasTeardownClose]).then(()=>true,()=>false),
+      new Promise(resolve=>{timeout=setTimeout(()=>resolve(false),8000);})
+    ]).finally(()=>clearTimeout(timeout));
+    if(this.canvasRecoveryNotice!==notice)return false;
+    this.canvasRecoveryNotice=null;
+    if(!settled){
+      atlasWarn("announcement","Canvas review notice withheld: prior Journey writes did not settle",{
+        sceneId:notice.sceneId,journalId:notice.journal.id});
+      return false;
+    }
+    let saved;
+    try{saved=validateJourneyRecord(notice.journal.getFlag(
+      MODULE_ID,JOURNEY_JOURNAL_FLAG));}
+    catch(error){
+      atlasWarn("announcement","Canvas review notice withheld: saved Journal unavailable",error);
+      return false;
+    }
+    if(saved.sceneId!==notice.sceneId||saved.tokenId!==notice.tokenId||
+        saved.createdAt!==notice.createdAt)return false;
+    const type=canvasRecoveryAnnouncementType({reason:notice.reason,
+      phase:notice.phase,record:saved,requiresGM:true});
+    if(!type)return false;
+    atlasDebug("announcement","Canvas recovery requires GM review",{
+      sceneId:notice.sceneId,journalId:notice.journal.id,status:saved.status,
+      pendingNativeMove:Boolean(saved.pendingNativeMove),type});
+    return this.announceCommittedJourney({journal:notice.journal,committed:saved,
+      type,canvasRecovery:true,gmReviewRequired:true,
+      subject:"Travel is on hold"});
   }
 
   /** One canonical speed source for the live summary and itinerary snapshot. */

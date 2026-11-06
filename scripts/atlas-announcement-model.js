@@ -20,7 +20,11 @@ export const ATLAS_ANNOUNCEMENT_TYPES = Object.freeze([
   {id:"break.ended",label:"Break ended",eyebrow:"Rest Complete",
     lead:"The party is ready to travel",subject:"The road awaits",icon:"☀",theme:"rest"},
   {id:"journey.paused",label:"Journey paused",eyebrow:"Journey Paused",
-    lead:"Awaiting the GM's next decision",subject:"Travel is on hold",icon:"Ⅱ",theme:"pause"}
+    lead:"Awaiting the GM's next decision",subject:"Travel is on hold",icon:"Ⅱ",theme:"pause"},
+  {id:"journey.awaiting-gm",label:"Journey awaiting GM",eyebrow:"Journey Paused",
+    lead:"Awaiting the GM's next decision",subject:"Travel is on hold",icon:"Ⅱ",theme:"pause"},
+  {id:"journey.interrupted",label:"Journey interrupted",eyebrow:"Journey Interrupted",
+    lead:"GM review is required",subject:"Travel is on hold",icon:"!",theme:"pause"}
 ].map(item=>Object.freeze(item)));
 
 const LOOKUP = new Map(ATLAS_ANNOUNCEMENT_TYPES.map(item=>[item.id,item]));
