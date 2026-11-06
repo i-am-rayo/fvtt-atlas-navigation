@@ -1,0 +1,36 @@
+/* Shared Atlas action controls. Foundry v14 remains the window/focus authority. */
+.atlas-ui-icon-button {
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  margin: 0;
+  padding: .4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.atlas-ui-icon-button--compact {
+  flex: 0 0 2.5rem;
+  width: 2.5rem;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  min-height: 2.5rem;
+}
+
+.atlas-ui-icon-button--footer {
+  flex: 0 0 auto;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  height: 2.75rem;
+  font-size: 1.1rem;
+}
+
+.atlas-ui-icon-button:focus-visible {
+  outline: 2px solid var(--color-border-highlight, #dcb476);
+  outline-offset: 2px;
+}
+
+.atlas-ui-icon-button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}

@@ -1,0 +1,4 @@
+{
+  "notes": "No known cycles after the beta.7.6 read-only fog boundary extraction. All newly introduced cycles fail architecture:check.",
+  "cycles": []
+}

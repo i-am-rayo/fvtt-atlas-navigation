@@ -1,5 +1,7 @@
 # Phase 1 — Manual installation and Foundry v14 smoke test
 
+> **Historical Phase 1 test notes.** For the current Phase 2a build, use [PHASE2_TESTING.md](PHASE2_TESTING.md).
+
 This is a **development build** of FVTT Atlas Navigation. It contains only a module manifest, startup hooks, translations, and a GM-facing diagnostic setting. It **cannot** draw roads or calculate routes yet.
 
 ## Requirements
