@@ -959,6 +959,54 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
   }
   advanced.appendChild(regionSection);
 
+  // Scene-wide territory authoring is intentionally independent of Road
+  // expansion. Native RegionDocuments remain the geometry authority.
+  const manager=node("fieldset");
+  manager.appendChild(node("legend","Native Regions · Atlas boundary tools"));
+  manager.appendChild(node("p","Manage all Scene Regions here. Native Foundry " +
+    "geometry and Behaviors remain authoritative; smoothing is an explicit " +
+    "previewed edit to one manually drawn polygon. Shared-border snapping " +
+    "and territory hierarchy are separate future tools.","hint"));
+  const publicById=new Map(listPublicTerritorySettings(scene).map(entry=>[entry.id,entry]));
+  const generatedById=new Map(generated.map(entry=>[entry.id,entry]));
+  for(const region of nativeRegions.slice(0,60)){
+    const row=node("div",undefined,"form-group");
+    row.setAttribute("data-atlas-native-region-id",region.id);
+    const details=node("div");details.style.flex="1 1 auto";
+    details.appendChild(node("span",region.name));
+    const status=[region.linked?"Atlas linked":"Native only",
+      generatedById.has(region.id)?"Road-generated":"Manual boundary",
+      region.hidden?"Hidden":"Visible",
+      publicById.get(region.id)?.label?"Public: "+publicById.get(region.id).label:"No public label"];
+    details.appendChild(node("div",status.join(" · "),"hint"));
+    row.appendChild(details);
+    const controls=node("div",undefined,"form-fields");
+    controls.appendChild(button("⚙","Edit native Region in Foundry",
+      ()=>actions.configureRegion(scene,region.id)));
+    const smooth=button("∿","Preview smoother native polygon boundary",
+      ()=>actions.smoothNativeRegion(scene,region.id,refresh));
+    smooth.disabled=!!draft||generatedById.has(region.id)||region.invalidLink;
+    controls.appendChild(smooth);
+    const generatedEntry=generatedById.get(region.id);
+    if(generatedEntry?.metadata){
+      const regen=button("↻","Preview regeneration from the original Atlas Road geometry",
+        ()=>actions.regenerateRegion(scene,generatedEntry,refresh));
+      regen.disabled=!!draft||generatedEntry.modified||generatedEntry.invalid;
+      controls.appendChild(regen);
+    }
+    const linked=button(region.linked?"⛓":"🔗",
+      region.linked?"Unlink Atlas association (native Region stays)":"Link this native Region to Atlas",
+      ()=>actions.setNativeRegionLink(scene,region.id,!region.linked,refresh));
+    linked.disabled=!!draft||region.invalidLink;
+    controls.appendChild(linked);
+    controls.appendChild(button("🏷","Edit public Journey territory label",
+      ()=>actions.configurePublicTerritory(scene,refresh,region.id)));
+    row.appendChild(controls);manager.appendChild(row);
+  }
+  if(nativeRegions.length>60)manager.appendChild(node("p",
+    "First 60 Regions shown; use the native Region tools for the remaining entries.","hint"));
+  root.insertBefore(manager,section);
+
   // Public narration is explicitly opt-in on any native Region, independent
   // of Atlas Road association or a generated terrain/corridor Region.
   const territorySection=node("fieldset");
