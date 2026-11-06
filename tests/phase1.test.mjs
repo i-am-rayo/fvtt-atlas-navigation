@@ -14,17 +14,25 @@ test("module manifest declares a v14 system-agnostic module shell", async () => 
   assert.equal(manifest.version, packageInfo.version);
   assert.equal(manifest.compatibility.minimum, "14");
   assert.equal(manifest.compatibility.verified, undefined);
-  assert.deepEqual(manifest.esmodules, ["scripts/main.js"]);
+  assert.deepEqual(manifest.esmodules, [
+    "scripts/main.js", "scripts/atlas-announcement-settings.js"
+  ], "the optional preview entry is independent of the main gameplay module");
   assert.equal("system" in manifest, false);
   assert.equal("relationships" in manifest, false);
-  assert.equal(
-    manifest.manifest,
-    "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-1-module-shell/module.json"
+  const manifestUrl = new URL(manifest.manifest);
+  const downloadUrl = new URL(manifest.download);
+  assert.equal(manifestUrl.hostname, "raw.githubusercontent.com");
+  assert.equal(downloadUrl.hostname, "github.com");
+  const manifestMatch = manifestUrl.pathname.match(
+    /^\/i-am-rayo\/fvtt-atlas-navigation\/refs\/heads\/(.+)\/module\.json$/
   );
-  assert.equal(
-    manifest.download,
-    "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-1-module-shell.zip"
+  const downloadMatch = downloadUrl.pathname.match(
+    /^\/i-am-rayo\/fvtt-atlas-navigation\/archive\/refs\/heads\/(.+)\.zip$/
   );
+  assert.ok(manifestMatch, "manifest must point to a repository branch");
+  assert.ok(downloadMatch, "download must point to a repository branch");
+  assert.equal(downloadMatch[1], manifestMatch[1],
+    "manifest and download must reference the same branch");
   assert.ok(manifest.manifest.endsWith("/module.json"));
   assert.ok(manifest.download.endsWith(".zip"));
 
@@ -36,18 +44,27 @@ test("module manifest declares a v14 system-agnostic module shell", async () => 
   }
 });
 
-test("startup diagnostic registers during init and only notifies a GM", async () => {
+test("module init registers World travel and appearance menus without an obsolete startup popup", async () => {
   const language = await readJson("../lang/en.json");
   const events = new Map();
   const registrations = [];
+  const menus = [];
   const notices = [];
   const originalHooks = globalThis.Hooks;
   const originalGame = globalThis.game;
   const originalUi = globalThis.ui;
+  const originalFoundry = globalThis.foundry;
 
   try {
+    globalThis.foundry = { applications: { api: {
+      DialogV2: class {}, ApplicationV2: class {}
+    } } };
     globalThis.Hooks = {
       once(name, callback) {
+        assert.equal(events.has(name), false);
+        events.set(name, callback);
+      },
+      on(name, callback) {
         assert.equal(events.has(name), false);
         events.set(name, callback);
       }
@@ -58,11 +75,8 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
       i18n: { localize: (key) => language[key] ?? key },
       settings: {
         register: (...args) => registrations.push(args),
-        get: (namespace, key) => {
-          assert.equal(namespace, "fvtt-atlas-navigation");
-          assert.equal(key, "showStartupNotice");
-          return true;
-        }
+        registerMenu: (...args) => menus.push(args),
+        get: () => null
       }
     };
     globalThis.ui = {
@@ -75,26 +89,32 @@ test("startup diagnostic registers during init and only notifies a GM", async ()
     assert.equal(typeof events.get("ready"), "function");
     events.get("init")();
 
-    assert.equal(registrations.length, 1);
-    const [namespace, key, options] = registrations[0];
-    assert.equal(namespace, "fvtt-atlas-navigation");
-    assert.equal(key, "showStartupNotice");
-    assert.equal(options.scope, "world");
-    assert.equal(options.config, true);
-    assert.equal(options.type, Boolean);
-    assert.equal(options.default, false);
-    assert.ok(language[options.name]);
-    assert.ok(language[options.hint]);
+    const worldKeys = ["guidedTransportationCatalog", "corridorTravelPresets", "checkpointPresets", "roadCurvature", "roadAppearanceDefaults"];
+    for (const key of worldKeys) {
+      const matches = registrations.filter(([, registered]) => registered === key);
+      assert.equal(matches.length, 1, key + " is registered once");
+      const [namespace, , options] = matches[0];
+      assert.equal(namespace, "fvtt-atlas-navigation");
+      assert.equal(options.scope, "world");
+      assert.equal(options.config, key === "roadCurvature");
+      assert.equal(options.type, key === "roadCurvature" ? String : Object);
+    }
+    assert.deepEqual(menus.map(([, key]) => key),
+      ["atlasTransportationPresetsMenu", "atlasTravelPresetsMenu", "checkpointPresetMenu", "atlasRoadAppearanceMenu"]);
+    assert.ok(menus.every(([namespace, , options]) =>
+      namespace === "fvtt-atlas-navigation" && options.restricted));
+    assert.equal(typeof events.get("renderSceneConfig"), "function");
 
     events.get("ready")();
     assert.equal(notices.length, 0);
 
     globalThis.game.user.isGM = true;
     events.get("ready")();
-    assert.deepEqual(notices, [language["FVTTATLAS.Notifications.Ready"]]);
+    assert.deepEqual(notices, [], "no GM startup confirmation is displayed");
   } finally {
     globalThis.Hooks = originalHooks;
     globalThis.game = originalGame;
     globalThis.ui = originalUi;
+    globalThis.foundry = originalFoundry;
   }
 });

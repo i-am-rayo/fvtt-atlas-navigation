@@ -1,0 +1,126 @@
+/* Shared Atlas transportation currency controls.
+ * Keep Foundry Actor/Group currency untouched; mirror its compact coin-row look.
+ */
+.atlas-transport-currency {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: .35rem;
+  width: 100%;
+  min-width: 0;
+  align-items: stretch;
+}
+.atlas-transport-currency .atlas-transport-coin {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .15rem;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.55rem;
+  margin: 0;
+  padding: .25rem .35rem;
+  border: 1px solid var(--dnd5e-color-blue-gray-3, #323640);
+  border-radius: .48rem;
+  background: var(--dnd5e-color-blue-gray-2, #242730);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 12%);
+}
+.atlas-transport-currency .atlas-transport-coin:focus-within {
+  border-color: var(--color-border-highlight, #dcb476);
+  box-shadow: 0 0 0 1px var(--color-border-highlight, #dcb476);
+}
+.atlas-transport-currency .atlas-transport-coin > i.currency {
+  display: inline-block;
+  position: static;
+  flex: 0 0 1.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background-color: #aeb1bd;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 20%);
+  pointer-events: auto;
+}
+.atlas-transport-currency .atlas-transport-coin > i.currency.pp { background-color: #b9bdcc; }
+.atlas-transport-currency .atlas-transport-coin > i.currency.gp { background-color: #d9b050; }
+.atlas-transport-currency .atlas-transport-coin > i.currency.ep { background-color: #8ba6b6; }
+.atlas-transport-currency .atlas-transport-coin > i.currency.sp { background-color: #a7afb7; }
+.atlas-transport-currency .atlas-transport-coin > i.currency.cp { background-color: #b77651; }
+.atlas-transport-currency .atlas-transport-coin > input.uninput {
+  display: block;
+  flex: 1 1 0;
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  height: 2rem;
+  min-height: 0;
+  margin: 0;
+  padding: 0 .1rem 0 0;
+  border: 0;
+  outline: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-text-primary, #e9e2d7);
+  font: inherit;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.atlas-transport-currency .atlas-transport-coin > input.uninput:focus {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
+.atlas-transport-edit-dialog .atlas-transport-row-2,
+.atlas-transport-checkpoint-editor .atlas-transport-row-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+.atlas-transport-edit-dialog .atlas-transport-row-3,
+.atlas-transport-checkpoint-editor .atlas-transport-row-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+.atlas-transport-edit-dialog .atlas-transport-field,
+.atlas-transport-checkpoint-editor .atlas-transport-field {
+  min-width: 0;
+  width: 100%;
+  align-content: start;
+}
+.atlas-transport-edit-dialog .atlas-transport-field > span:first-child,
+.atlas-transport-checkpoint-editor .atlas-transport-field > span:first-child {
+  display: flex;
+  align-items: flex-end;
+  min-height: 2.15rem;
+}
+.atlas-transport-edit-dialog .atlas-transport-toggle,
+.atlas-transport-checkpoint-editor .atlas-transport-toggle {
+  min-width: 0;
+  align-content: start;
+  padding-top: .25rem;
+}
+.atlas-transport-edit-dialog .atlas-transport-upkeep-section,
+.atlas-transport-checkpoint-editor .atlas-transport-upkeep-section {
+  display: grid;
+  gap: .7rem;
+  min-width: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border-light-tertiary, #555);
+}
+.atlas-transport-upkeep-section h3 { margin: 0; }
+.atlas-transport-purchase-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+@media (max-width: 620px) {
+  .atlas-transport-currency { gap: .2rem; }
+  .atlas-transport-currency .atlas-transport-coin {
+    min-height: 2.2rem;
+    padding: .2rem;
+  }
+  .atlas-transport-currency .atlas-transport-coin > i.currency {
+    flex-basis: .95rem;
+    width: .95rem;
+    height: .95rem;
+  }
+}

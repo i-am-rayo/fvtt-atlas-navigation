@@ -2,8 +2,8 @@
   "id": "fvtt-atlas-navigation",
   "type": "module",
   "title": "FVTT Atlas Navigation",
-  "description": "System-agnostic world atlas and road navigation for Foundry VTT. Phase 1 provides a GM-only startup diagnostic; navigation features are in development.",
-  "version": "0.1.0",
+  "description": "Foundry v14 Scene Atlas with roads, checkpoints, terrain Regions and Atlas terrain-aware Navigation.",
+  "version": "0.3.9-beta.7",
   "authors": [
     {
       "name": "i-am-rayo",
@@ -14,7 +14,17 @@
     "minimum": "14"
   },
   "esmodules": [
-    "scripts/main.js"
+    "scripts/main.js",
+    "scripts/atlas-announcement-settings.js"
+  ],
+  "styles": [
+    "styles/atlas-ui.css",
+    "styles/atlas-journey-journal.css",
+    "styles/atlas-announcements.css",
+    "styles/checkpoint-icons.css",
+    "styles/atlas-manual-fog.css",
+    "styles/road-settings-dialog.css",
+    "styles/atlas-transport-currency.css"
   ],
   "languages": [
     {
@@ -26,6 +36,6 @@
   "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
   "readme": "README.md",
   "media": [],
-  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feature/phase-1-module-shell/module.json",
-  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feature/phase-1-module-shell.zip"
+  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feat/v0.3.9-beta.7-player-visible-destination-banners/module.json",
+  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feat/v0.3.9-beta.7-player-visible-destination-banners.zip"
 }
