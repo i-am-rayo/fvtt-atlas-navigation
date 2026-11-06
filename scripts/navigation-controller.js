@@ -74,6 +74,8 @@ import {mayCheckpointJourneyStatus,assessJourneyTeardown,
   mayAttemptCanvasJourneyRecovery,classifyRecoveredJourneyBoundary}
   from "./navigation-journey-lifecycle.js";
 import {canvasRecoveryAnnouncementType} from "./navigation-canvas-announcement.js";
+import {createVisualRestHold,visualRestDurationMs}
+  from "./navigation-rest-playback.js";
 import {buildJourneyTargets,assessJourneyAnchor,captureJourneyAnchor,
   nextJourneyTarget,isCheckpointBoundContinuation} from "./navigation-route-targets.js";
 import {renderNavigationFooter} from "./navigation-footer.js";
@@ -115,6 +117,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     atlasPoint=toAtlasPoint,
     journeyJournalStore={save:saveJourneyJournal,find:findRecoverableJourney},
     announcementPublisher=publishAtlasJourneyAnnouncement,
+    restHoldFactory=createVisualRestHold,
     partyTokenProvider=scene=>{
       const assignment=readPartyExploration(scene);
       return assignment.enabled?scene?.tokens?.get?.(assignment.tokenId):null;
@@ -127,6 +130,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.partyTokenProvider=partyTokenProvider;
     this.journeyJournalStore=journeyJournalStore;
     this.announcementPublisher=announcementPublisher;
+    this.restHoldFactory=restHoldFactory;
     this.scene = null;
     this.sourceMode = "map";
     this.travelMethod = "walking";
@@ -1093,10 +1097,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(["long","short","overnight"].includes(action)){
         const subject=action==="long"?"Long Rest":
           action==="short"?"Short Rest":"Overnight Camp";
-        for(const type of ["break.started","break.ended"])
-          this.announceCommittedJourney({journal:session.journal,previous,
-            committed:saved,type,subject:type==="break.started"?
-              subject:"The road awaits"});
+        this.announceCommittedJourney({journal:session.journal,previous,
+          committed:saved,type:"break.started",subject});
+        const ended={journal:session.journal,previous,committed:saved,
+          type:"break.ended",subject:"The road awaits"};
+        if(status==="moving"&&session.phase==="rest-applying"&&
+            !session.manualRestApplying)
+          session.pendingRestEndedAnnouncement=ended;
+        else this.announceCommittedJourney(ended);
       }
     }
     if(status==="completed")this.announceCommittedJourney({
@@ -1484,6 +1492,31 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     await this.commitGuidedTravelBreak(session,choice,()=>session.phase==="ending"?
       "interrupted":"moving");
     session.restCheckpointed=true;
+    if(choice.hours>0&&this.travelSession===session&&session.phase!=="ending"){
+      // The rest is already committed to World time and the Journey Journal.
+      // Hold *presentation only* before the next TokenDocument.move call.
+      const milliseconds=visualRestDurationMs(choice.hours,
+        session.playbackSecondsPerHour);
+      session.phase="rest-holding";
+      this.travelNotice=`${action==="overnight"?"Overnight camp":
+        action==="long"?"Long rest":"Short rest"} in progress. `+
+        `The party remains here for ${Math.round(milliseconds/1000)}s of visual playback.`;
+      if(this.active)await this.render(true);
+      if(this.travelSession!==session||session.phase==="ending")return false;
+      const hold=this.restHoldFactory(milliseconds);
+      session.visualRestHold=hold;
+      try{
+        if(!await hold.finished)return false;
+      }finally{
+        if(session.visualRestHold===hold)session.visualRestHold=null;
+        hold.cancel();
+      }
+      if(this.travelSession!==session||session.phase==="ending")return false;
+    }
+    if(session.pendingRestEndedAnnouncement){
+      this.announceCommittedJourney(session.pendingRestEndedAnnouncement);
+      session.pendingRestEndedAnnouncement=null;
+    }
     atlasDebug("journey","Rest decision and World-time checkpoint settled",{
       sceneId:session.sceneId,action,interrupted:session.phase==="ending",
       confirmedRestHours:session.schedule.breakHours
@@ -1727,6 +1760,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
+      playbackSecondsPerHour:playback.secondsPerHour,visualRestHold:null,
       transportLeg:guidedLeg,pendingPassengerRest:null,
       completedDistance:0,totalDistance,currentChunk:null,timer:null,clock:null,
       confirmedSegments:0,restCheckpointed:false};
@@ -2071,6 +2105,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw error;
     }finally{
       if(session.timer!==null)clearInterval(session.timer);
+      session.visualRestHold?.cancel();
       session.resumeWaiter?.();
       session.restWaiter?.(null);
       if(this.travelSession===session){
@@ -2217,6 +2252,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session=this.travelSession;
     if(!session)return false;
     session.phase="ending";
+    session.visualRestHold?.cancel();
     atlasDebug("journey","End journey requested",{sceneId:session.sceneId});
     session.resumeWaiter?.();
     session.restWaiter?.(null);

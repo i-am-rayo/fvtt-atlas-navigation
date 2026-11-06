@@ -30,13 +30,16 @@ test("canvas teardown retains only verified arrivals and manual pauses",()=>{
   assert.equal(assessJourneyTeardown(null).confirmedArrival,false);
 });
 
-test("auto recovery is limited to involuntary canvas teardown while moving",()=>{
+test("auto recovery permits a committed visual rest hold, not a manual rest",()=>{
   const session={phase:"moving",manualRestApplying:false,
     journal:{id:"journal"},journeyRecord:{status:"moving"}};
   assert.equal(mayAttemptCanvasJourneyRecovery("canvasTearDown",session),true);
   assert.equal(mayAttemptCanvasJourneyRecovery("canvasReady",session),false);
   session.phase="rest-applying";
   assert.equal(mayAttemptCanvasJourneyRecovery("canvasTearDown",session),true);
+  session.phase="rest-holding";
+  assert.equal(mayAttemptCanvasJourneyRecovery("canvasTearDown",session),true);
+  assert.equal(mayAttemptCanvasJourneyRecovery("requested",session),false);
   session.manualRestApplying=true;
   assert.equal(mayAttemptCanvasJourneyRecovery("canvasTearDown",session),false);
   session.manualRestApplying=false;session.phase="paused";

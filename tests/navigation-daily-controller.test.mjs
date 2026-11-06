@@ -19,7 +19,9 @@ const tickUntil=async condition=>{
   throw Error("Guided journey did not reach its expected state.");
 };
 
-async function journeyFixture({clockEnabled=true,hours=10}={}){
+async function journeyFixture({clockEnabled=true,hours=10,
+  restHoldFactory=()=>({finished:Promise.resolve(true),cancel(){}}),
+  announcementPublisher=()=>true}={}){
   const old={game:globalThis.game,window:globalThis.window,PIXI:globalThis.PIXI,
     ui:globalThis.ui,document:globalThis.document};
   const calls=[];
@@ -61,6 +63,7 @@ async function journeyFixture({clockEnabled=true,hours=10}={}){
     segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[]}]};
   const nav=new AtlasNavigationController({canvasProvider:()=>view,
     atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+    restHoldFactory,announcementPublisher,
     journeyJournalStore:{save:async(record,{journal,updatePage}={})=>{
       journalStates.push(structuredClone(record));
       journalWrites.push({status:record.status,updatePage});
@@ -146,6 +149,87 @@ test("non-continuous Long Rest advances eight World hours without moving the tok
     releaseRest?.();
     f.restore();
   }
+});
+
+test("approved Long Rest visually holds the exact token position before the next stretch",async()=>{
+  let releaseHold=null,heldMs=null,holdCanceled=0;
+  const announcements=[];
+  const f=await journeyFixture({announcementPublisher:p=>{
+    announcements.push(p.type);return true;},restHoldFactory:ms=>{
+    heldMs=ms;
+    return {finished:new Promise(resolve=>{releaseHold=()=>resolve(true);}),
+      cancel(){holdCanceled++;}};
+  }});
+  try{
+    const running=f.nav.startGuidedTravel();
+    await tickUntil(()=>f.nav.travelSession?.phase==="rest-choice");
+    const restingPosition={x:f.token.x,y:f.token.y};
+    const moveCount=f.token.moves.length;
+    assert.equal(f.nav.chooseDailyTravelBreak("long"),true);
+    await tickUntil(()=>f.nav.travelSession?.phase==="rest-holding"&&releaseHold);
+    assert.equal(heldMs,16_000,"eight hours use the selected two seconds per game hour");
+    assert.deepEqual({x:f.token.x,y:f.token.y},restingPosition);
+    assert.equal(f.token.moves.length,moveCount,"token must not move during the rest hold");
+    assert.equal(f.journalStates.at(-1).legs[0].events.at(-1).action,"long");
+    assert.equal(f.calls.reduce((sum,v)=>sum+v,0),16*3600,
+      "World downtime was already saved exactly once before visual waiting");
+    assert.ok(announcements.includes("break.started"));
+    assert.equal(announcements.includes("break.ended"),false,
+      "the end-of-break banner must wait until the token has finished resting");
+    assert.match(f.nav.travelNotice,/party remains here/i);
+    releaseHold();
+    assert.equal(await running,true);
+    assert.ok(announcements.includes("break.ended"));
+    assert.ok(f.token.moves.length>moveCount);
+    assert.equal(holdCanceled,1);
+    assert.equal(f.calls.reduce((sum,v)=>sum+v,0),18*3600,
+      "the visual hold never adds World time a second time");
+  }finally{releaseHold?.();f.restore();}
+});
+
+test("ending a journey during the confirmed visual rest releases the hold",async()=>{
+  let resolveHold=null,holdCanceled=0;
+  const f=await journeyFixture({restHoldFactory:()=>({
+    finished:new Promise(resolve=>{resolveHold=resolve;}),
+    cancel(){holdCanceled++;resolveHold?.(false);}
+  })});
+  try{
+    const running=f.nav.startGuidedTravel();
+    await tickUntil(()=>f.nav.travelSession?.phase==="rest-choice");
+    assert.equal(f.nav.chooseDailyTravelBreak("long"),true);
+    await tickUntil(()=>f.nav.travelSession?.phase==="rest-holding"&&resolveHold);
+    const moveCount=f.token.moves.length;
+    assert.equal(f.nav.stopGuidedTravel(),true);
+    assert.equal(await running,false);
+    assert.equal(holdCanceled>=1,true);
+    assert.equal(f.token.moves.length,moveCount);
+    assert.equal(f.journalStates.at(-1).status,"ended");
+    assert.equal(f.calls.reduce((sum,v)=>sum+v,0),16*3600,
+      "cancelling presentation preserves the already confirmed rest once");
+  }finally{resolveHold?.(false);f.restore();}
+});
+
+test("canvas teardown during a visual rest cancels only presentation, never confirmed downtime",async()=>{
+  let release=null,canceled=0;
+  const f=await journeyFixture({restHoldFactory:()=>({
+    finished:new Promise(resolve=>{release=resolve;}),
+    cancel(){canceled++;release?.(false);}
+  })});
+  try{
+    globalThis.ui.notifications.warn=()=>{};
+    const running=f.nav.startGuidedTravel();
+    await tickUntil(()=>f.nav.travelSession?.phase==="rest-choice");
+    assert.equal(f.nav.chooseDailyTravelBreak("long"),true);
+    await tickUntil(()=>f.nav.travelSession?.phase==="rest-holding"&&release);
+    const moveCount=f.token.moves.length;
+    f.nav.tearDown("canvasTearDown");
+    assert.equal(await running,false);
+    assert.ok(canceled>0,"canvas teardown releases the browser timer");
+    assert.equal(f.token.moves.length,moveCount);
+    assert.equal(f.calls.reduce((sum,v)=>sum+v,0),16*3600,
+      "the earlier saved rest must not be applied again on teardown");
+    assert.equal(f.journalStates.at(-1).legs[0].events.length,1);
+  }finally{release?.(false);f.restore();}
 });
 
 test("short rest then forced march leaves daily hours intact and requires manual checks",async()=>{

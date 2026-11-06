@@ -124,6 +124,11 @@ test("paused Journey footer retains rest, resume, and end accessibility",async()
     const busy=renderNavigationFooter(nav);
     assert.equal(button(busy,"Recording Break…").disabled,true);
     assert.equal(button(busy,"End Journey").disabled,true);
+    nav.travelSession.phase="rest-holding";
+    const visual=renderNavigationFooter(nav);
+    assert.equal(button(visual,"Resting…").disabled,true);
+    assert.equal(button(visual,"End Journey").disabled,false,
+      "a committed visual rest can be ended without repeating the clock write");
   }finally{restore();}
 });
 

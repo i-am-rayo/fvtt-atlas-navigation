@@ -26,7 +26,7 @@ export function assessJourneyTeardown(session){
 /** The automatic continuation attempt never approves a new checkpoint leg. */
 export function mayAttemptCanvasJourneyRecovery(reason,session){
   return reason==="canvasTearDown"&&
-    ["moving","rest-applying"].includes(session?.phase)&&
+    ["moving","rest-applying","rest-holding"].includes(session?.phase)&&
     !session.manualRestApplying&&Boolean(session.journal?.id)&&
     Boolean(session.journeyRecord);
 }

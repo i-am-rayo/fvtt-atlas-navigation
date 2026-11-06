@@ -86,14 +86,17 @@ export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
     }else{
       const moveLabel=phase==="paused"?"Resume Travel":phase==="moving"?
         "Pause Travel":phase==="pausing"?"Pausing…":phase==="ending"?"Ending Journey…":
-        phase==="rest-applying"?"Recording Break…":assistedLegReady?
+        phase==="rest-applying"?"Recording Break…":
+        phase==="rest-holding"?"Resting…":assistedLegReady?
           "Travel to "+transferPlan.legs[0].arrivalCheckpoint.name:"Travel Route";
       const moveIcon=phase==="moving"?"pause":phase==="pausing"||
-        phase==="ending"||phase==="rest-applying"?"hourglass-half":"play";
+        phase==="ending"||phase==="rest-applying"||
+        phase==="rest-holding"?"hourglass-half":"play";
       const move=footerButton(moveLabel,moveIcon);
       move.disabled=pendingNativeReview||nav.journalStarting||(!nav.travelSession&&
         (!methodAssessment?.guided&&!assistedLegReady||repeatingCheckpoint))||
-        phase==="ending"||phase==="pausing"||phase==="rest-applying"||phase==="rest-error";
+        phase==="ending"||phase==="pausing"||phase==="rest-applying"||
+        phase==="rest-holding"||phase==="rest-error";
       move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
         "Pause after the current short road stretch":moveLabel;
       move.addEventListener("click",()=>{
