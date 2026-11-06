@@ -1498,7 +1498,9 @@ function actions() {
       const intro=document.createElement("p");
       intro.textContent="Round an existing manually drawn native polygon. " +
         "This changes the border and may create gaps against neighboring Regions. " +
-        "Do not smooth a shared border independently until Atlas's paired-edge editor is available.";
+        "Do not smooth a shared border independently until Atlas's paired-edge editor is available. " +
+        "Repeated saves round the already smoothed outline, add vertices, and may shrink its area; " +
+        "the 256-vertex preview cap is intentional.";
       choice.appendChild(intro);
       choice.appendChild(createSettingsSelect([["1","Gentle · one smoothing pass"],
         ["2","Moderate · two smoothing passes"]],

@@ -135,6 +135,8 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
   const presetById = new Map(travelPresets.map(p => [p.id, p]));
   const worldRoadAppearance = readWorldRoadAppearance();
   const journalLinks = readAtlasJournalLinks(scene);
+  const publicById = new Map(listPublicTerritorySettings(scene)
+    .map(entry => [entry.id, entry]));
   function linkedJournalIndicator(uuid) {
     const badge=node("span","📖","hint");
     badge.style.cssText="float:right;margin-left:.5rem;white-space:nowrap;font-size:.85em;";
@@ -358,6 +360,8 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       });
       miniActions(child,[
         ["Region settings","Region settings",()=>actions.configureRegion(scene,region.id),"gear"],
+        ["Public name","Public Journey label",
+          ()=>actions.configurePublicTerritory(scene,refresh,region.id),"tag"],
         ["Travel preset" + (presetById.get(region.presetId)?.name ? ": " + presetById.get(region.presetId).name : ": None"),
           "Travel preset",()=>actions.assignGeneratedRegionTravelPreset(scene,region,refresh),"route"],
         ["Regenerate","Regenerate Region",()=>actions.regenerateRegion(scene,region,refresh),"rotate"]
@@ -843,10 +847,18 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       label("FVTTATLAS.Generated.Invalid") :
       region.modified ? label("FVTTATLAS.Generated.Modified") :
       label("FVTTATLAS.Generated.Managed"), "hint"));
+    if(publicById.get(region.id)?.label){
+      detail.appendChild(node("div","Public Journey name: "+
+        publicById.get(region.id).label,"hint"));
+    }
     row.appendChild(detail);
     const controls = node("div", undefined, "form-fields");
     controls.appendChild(button("⚙", label("FVTTATLAS.Regions.Configure"),
       () => actions.configureRegion(scene, region.id)));
+    const publishName=button("🏷","Edit this road Region's public Journey label",
+      ()=>actions.configurePublicTerritory(scene,refresh,region.id));
+    publishName.disabled=!!draft;
+    controls.appendChild(publishName);
     if (!region.invalid) {
       if (region.metadata?.kind === "corridor") {
         controls.appendChild(button("◈", label("FVTTATLAS.Travel.AssignRegion"),
@@ -959,25 +971,29 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
   }
   advanced.appendChild(regionSection);
 
-  // Scene-wide territory authoring is intentionally independent of Road
-  // expansion. Native RegionDocuments remain the geometry authority.
+  // Scene-wide geographic / manually authored Region controls are independent
+  // of Road expansion. Road-generated Regions stay in the Road tools above,
+  // where native corridors and their shape signatures belong.
   const manager=node("fieldset");
-  manager.appendChild(node("legend","Native Regions · Atlas boundary tools"));
-  manager.appendChild(node("p","Manage all Scene Regions here. Native Foundry " +
-    "geometry and Behaviors remain authoritative; smoothing is an explicit " +
-    "previewed edit to one manually drawn polygon. Shared-border snapping " +
-    "and territory hierarchy are separate future tools.","hint"));
-  const publicById=new Map(listPublicTerritorySettings(scene).map(entry=>[entry.id,entry]));
+  manager.appendChild(node("legend","Territories & custom native Regions"));
+  manager.appendChild(node("p","Manage manually authored geographic or custom " +
+    "Regions here, including their public Journey names. Atlas-generated " +
+    "corridors are managed under Roads. Native Foundry geometry and Behaviors " +
+    "remain authoritative; shared-border snapping is planned separately.","hint"));
   const generatedById=new Map(generated.map(entry=>[entry.id,entry]));
-  for(const region of nativeRegions.slice(0,60)){
+  const manualNative=nativeRegions.filter(region=>!generatedById.has(region.id));
+  if(!manualNative.length)manager.appendChild(node("p",
+    "No manually authored Regions yet. Draw one with Foundry's Region tool.","hint"));
+  for(const region of manualNative.slice(0,60)){
     const row=node("div",undefined,"form-group");
     row.setAttribute("data-atlas-native-region-id",region.id);
     const details=node("div");details.style.flex="1 1 auto";
     details.appendChild(node("span",region.name));
     const status=[region.linked?"Atlas linked":"Native only",
-      generatedById.has(region.id)?"Road-generated":"Manual boundary",
       region.hidden?"Hidden":"Visible",
-      publicById.get(region.id)?.label?"Public: "+publicById.get(region.id).label:"No public label"];
+      publicById.get(region.id)?.invalid?"Unsupported public label flag":
+        publicById.get(region.id)?.label?"Public: "+publicById.get(region.id).label:
+          "Private (no public label)"];
     details.appendChild(node("div",status.join(" · "),"hint"));
     row.appendChild(details);
     const controls=node("div",undefined,"form-fields");
@@ -985,51 +1001,22 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
       ()=>actions.configureRegion(scene,region.id)));
     const smooth=button("∿","Preview smoother native polygon boundary",
       ()=>actions.smoothNativeRegion(scene,region.id,refresh));
-    smooth.disabled=!!draft||generatedById.has(region.id)||region.invalidLink;
+    smooth.disabled=!!draft||region.invalidLink;
     controls.appendChild(smooth);
-    const generatedEntry=generatedById.get(region.id);
-    if(generatedEntry?.metadata){
-      const regen=button("↻","Preview regeneration from the original Atlas Road geometry",
-        ()=>actions.regenerateRegion(scene,generatedEntry,refresh));
-      regen.disabled=!!draft||generatedEntry.modified||generatedEntry.invalid;
-      controls.appendChild(regen);
-    }
     const linked=button(region.linked?"⛓":"🔗",
       region.linked?"Unlink Atlas association (native Region stays)":"Link this native Region to Atlas",
       ()=>actions.setNativeRegionLink(scene,region.id,!region.linked,refresh));
     linked.disabled=!!draft||region.invalidLink;
     controls.appendChild(linked);
-    controls.appendChild(button("🏷","Edit public Journey territory label",
-      ()=>actions.configurePublicTerritory(scene,refresh,region.id)));
+    const publicLabel=button("🏷","Edit public Journey territory label",
+      ()=>actions.configurePublicTerritory(scene,refresh,region.id));
+    publicLabel.disabled=!!draft;
+    controls.appendChild(publicLabel);
     row.appendChild(controls);manager.appendChild(row);
   }
-  if(nativeRegions.length>60)manager.appendChild(node("p",
-    "First 60 Regions shown; use the native Region tools for the remaining entries.","hint"));
+  if(manualNative.length>60)manager.appendChild(node("p",
+    "First 60 manual Regions shown; use Foundry's native Region tools for the remaining entries.","hint"));
   root.insertBefore(manager,section);
-
-  // Public narration is explicitly opt-in on any native Region, independent
-  // of Atlas Road association or a generated terrain/corridor Region.
-  const territorySection=node("fieldset");
-  const territoryLegend=node("legend","Public territory names · Journey banners");
-  territorySection.appendChild(territoryLegend);
-  territorySection.appendChild(node("p",
-    "Native Region names are private by default. Explicitly publish a safe " +
-    "territory label for a Region to use it when a Journey ends between checkpoints.",
-    "hint"));
-  const territoryList=listPublicTerritorySettings(scene);
-  const territoryButton=button("⚙","Configure public Region labels",
-    ()=>actions.configurePublicTerritory(scene,refresh));
-  territoryButton.disabled=!territoryList.length||!!draft;
-  territorySection.appendChild(territoryButton);
-  for(const entry of territoryList.filter(item=>item.label||item.invalid).slice(0,30)){
-    territorySection.appendChild(node("p",entry.name+" — "+
-      (entry.invalid?"Unsupported Atlas narration flag":
-        entry.hidden?"Native Region hidden (label inactive)":
-          "Public: "+entry.label),"hint"));
-  }
-  // The legacy `advanced` container is not mounted by the current Road panel;
-  // give this independent, Scene-wide native Region control a visible home.
-  root.insertBefore(territorySection,section);
 
   const measurement = node("fieldset");
   measurement.appendChild(node("legend", label("FVTTATLAS.Atlas.Measurement")));

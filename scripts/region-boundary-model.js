@@ -1,7 +1,9 @@
 /** Pure, bounded native-polygon border assistant. The native Region remains the
  * only source of saved geometry. This model does not infer shared seams. */
 
-const MAX_SOURCE_VERTICES = 64;
+// A Gentle pass doubles vertices; 128 source vertices fit the 256-vertex
+// native-preview ceiling. Moderate may require a simpler source polygon.
+const MAX_SOURCE_VERTICES = 128;
 const MAX_RESULT_VERTICES = 256;
 
 function pointsFromPolygon(shape) {
@@ -22,7 +24,9 @@ function pointsFromPolygon(shape) {
       vertices[0].x === vertices.at(-1).x &&
       vertices[0].y === vertices.at(-1).y) vertices.pop();
   if (vertices.length < 3 || vertices.length > MAX_SOURCE_VERTICES) {
-    throw new Error("Smoothing supports polygons with 3–64 distinct border vertices.");
+    throw new Error("This Region has too many border vertices to smooth again " +
+      "(supported input: 3–128). Simplify its native outline first; " +
+      "repeated smoothing adds vertices and can shrink territory boundaries.");
   }
   return vertices;
 }
@@ -89,7 +93,9 @@ export function smoothClosedBoundary(flatPoints, passes=1) {
       next.push({x:a.x*.75+b.x*.25,y:a.y*.75+b.y*.25},
         {x:a.x*.25+b.x*.75,y:a.y*.25+b.y*.75});
     }
-    if(next.length>MAX_RESULT_VERTICES)throw Error("Too many boundary points to preview safely.");
+    if(next.length>MAX_RESULT_VERTICES)throw Error(
+      "This smoothing pass would exceed 256 border vertices. Choose Gentle " +
+      "or simplify the polygon in Foundry before another pass.");
     assertSimple(next);
     points=next;
   }
