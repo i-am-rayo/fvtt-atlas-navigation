@@ -278,6 +278,67 @@ test("a Journal-verified visible Point B names both GM and player banners",async
   assert.deepEqual(player.at(-1),["destination.reached",{subject:"Dirwest"}]);
 });
 
+test("a GM-published native Region label is a safe mid-road destination fallback",async()=>{
+  const atlas=upgradeAtlasPlayerVisibility({schemaVersion:4,
+    coordinateSpace:"image",revision:12,enabled:true,calibration:null,
+    roads:[{id:"road",name:"Private Road Name"}],
+    nodes:[{id:"a",x:0,y:0},{id:"b",x:100,y:0}],
+    segments:[{id:"s",roadId:"road",from:"a",to:"b",via:[],bidirectional:true}],
+    checkpoints:[]});
+  const region={id:"native-region",parent:{id:"scene"},hidden:false,
+    name:"GM ONLY SECRET NAME",testPoint:point=>point.x===600&&
+      point.y===300&&point.elevation===0,
+    getFlag:(_ns,key)=>key==="publicTerritory"?{
+      schemaVersion:1,enabled:true,label:"Valecor"}:null};
+  const flags={atlas,partyExploration:defaultPartyExploration()};
+  const scene={id:"scene",grid:{size:100},canUserModify:()=>true,
+    tokens:{get:()=>({elevation:0})},regions:{contents:[region]},
+    getFlag:(_namespace,key)=>flags[key]};
+  const canvas={ready:true,scene:{id:"scene"},
+    dimensions:{sceneX:500,sceneY:300}};
+  let saved={...record("moving"),tokenId:"party",sceneId:"scene",
+    atlasRevision:atlas.revision,destination:{x:100,y:0}};
+  const journal={id:"public-region-journal",getFlag:()=>saved};
+  const gm=[],writes=[];let seq=0;
+  const server=new AtlasAnnouncementRuntime({canvasProvider:()=>canvas,
+    settings:{set:async(_ns,_key,pulse)=>writes.push(pulse)},
+    renderer:{enqueue:(type,options)=>{gm.push([type,options]);return true;}},
+    user:()=>({id:"gm",isGM:true}),activeGM:()=>({id:"gm"}),
+    randomID:()=>`region-public-pulse-${++seq}-abcdefgh`});
+  assert.equal(server.publish({journal,scene,previous:null,committed:saved,
+    type:"journey.started",subject:"PRIVATE TARGET"}),true);
+  await server.publicWrites;
+  assert.deepEqual(writes[0],{schemaVersion:2,
+    id:"region-public-pulse-1-abcdefgh",type:"journey.started",
+    publicSubject:"Valecor"});
+  assert.deepEqual(gm[0],["journey.started",{subject:"Valecor"}]);
+  assert.equal(JSON.stringify(writes).includes("SECRET"),false);
+  const seen=[];
+  const player=new AtlasAnnouncementRuntime({settings:{get:()=>null},
+    renderer:{enqueue:(type,options)=>{seen.push([type,options]);return true;}}});
+  player.start();
+  assert.equal(player.receive(writes[0]),true);
+  assert.deepEqual(seen[0],["journey.started",{subject:"Valecor"}]);
+  const before=saved;
+  saved={...saved,status:"completed",updatedAt:"2026-11-06T03:00:00.000Z",
+    lastConfirmedAnchor:{point:{x:100,y:0}},legs:[{completedPercent:100}]};
+  assert.equal(server.publish({journal,scene,previous:before,committed:saved,
+    type:"destination.reached",subject:"GM ONLY"}),true);
+  await server.publicWrites;
+  assert.equal(writes[1].publicSubject,"Valecor");
+  assert.equal(player.receive(writes[1]),true);
+  assert.deepEqual(seen[1],["destination.reached",{subject:"Valecor"}]);
+  region.hidden=true;
+  const second={...record("moving"),tokenId:"party",sceneId:"scene",
+    atlasRevision:atlas.revision,destination:{x:100,y:0}};
+  const anotherJournal={id:"second-journey",getFlag:()=>second};
+  assert.equal(server.publish({journal:anotherJournal,scene,previous:null,
+    committed:second,type:"journey.started",subject:"GM ONLY"}),true);
+  await server.publicWrites;
+  assert.equal(Object.hasOwn(writes[2],"publicSubject"),false);
+  assert.deepEqual(gm[2],["journey.started",{subject:"your destination"}]);
+});
+
 test("a hidden or unmatched destination never leaves the player-safe generic fallback",async()=>{
   const atlas=upgradeAtlasPlayerVisibility({schemaVersion:4,
     coordinateSpace:"image",revision:9,enabled:true,calibration:null,

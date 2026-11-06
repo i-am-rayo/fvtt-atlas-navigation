@@ -1,13 +1,10 @@
 import {playerAtlasOverlay} from "./player-overlay-model.js";
 
-/** Read-only public narration. A checkpoint must be at the original saved
- * Point B, unambiguous unless the approved route names its stable ID, and
- * independently eligible for the existing player overlay projection. */
-export function publicJourneyDestinationName({atlas,exploration,record,
-  gridSize}={}){
+/** Verified original Point B is the only authority for naming the terminus.
+ * A completion with an inconsistent saved native anchor must stay generic. */
+export function verifiedJourneyDestinationPoint(record,gridSize){
   const point=record?.destination;
   if(!Number.isFinite(point?.x)||!Number.isFinite(point?.y)||
-      !Array.isArray(atlas?.checkpoints)||!Array.isArray(atlas?.nodes)||
       !Number.isFinite(gridSize)||gridSize<=0)return null;
   if(record.status==="completed"){
     const anchor=record.lastConfirmedAnchor?.point;
@@ -15,6 +12,17 @@ export function publicJourneyDestinationName({atlas,exploration,record,
         Math.hypot(anchor.x-point.x,anchor.y-point.y)>
           Math.max(2,gridSize*.75))return null;
   }
+  return point;
+}
+
+/** Read-only public narration. A checkpoint must be at the original saved
+ * Point B, unambiguous unless the approved route names its stable ID, and
+ * independently eligible for the existing player overlay projection. */
+export function publicJourneyDestinationName({atlas,exploration,record,
+  gridSize}={}){
+  const point=verifiedJourneyDestinationPoint(record,gridSize);
+  if(!point||!Array.isArray(atlas?.checkpoints)||!Array.isArray(atlas?.nodes))
+    return null;
   const radius=Math.max(2,Math.min(24,gridSize*.2));
   const nodes=new Map(atlas.nodes.map(node=>[node.id,node]));
   const matches=atlas.checkpoints.filter(checkpoint=>{

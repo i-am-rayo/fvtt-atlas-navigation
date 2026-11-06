@@ -641,3 +641,38 @@ test("Atlas exploration panel exposes persistent manual painting controls", asyn
     assert.equal(opened, 1);
   } finally { Object.assign(globalThis, previous); }
 });
+
+test("GM can open public Region naming without changing native Region metadata",async()=>{
+  const previous={document:globalThis.document,game:globalThis.game,
+    ui:globalThis.ui};
+  let mounted=null,opened=null;
+  const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
+  const element={querySelector:selector=>
+    selector==="[data-fvtt-atlas-scene-root]"?nativeRoot:null};
+  const region={id:"territory",name:"Private native Region",hidden:false,
+    behaviors:[],shapes:[],elevation:{bottom:0,top:20},
+    getFlag:()=>null};
+  const scene={id:"territory-scene",grid:{size:100,distance:5,units:"mi"},
+    canUserModify:()=>true,getFlag:()=>null,
+    regions:{contents:[region],values:function*(){yield region;},
+      [Symbol.iterator]:function*(){yield region;}}};
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},settings:{get:()=>null},
+      i18n:{localize:key=>key,lang:"en"}};
+    globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    addAtlasRoadsToSceneConfig({document:scene},element,{
+      draft:()=>null,begin(){},select(){},rename(){},remove(){},
+      configurePublicTerritory:(selected)=>{opened=selected;}});
+    assert.match(textContents(mounted),/Public territory names/);
+    const control=buttons(mounted).find(b=>
+      b.title==="Configure public Region labels");
+    assert.ok(control,"an independent GM control is accessible without a linked Road");
+    assert.equal(control.disabled,false);
+    await control.listeners.get("click")({preventDefault(){}});
+    assert.equal(opened,scene);
+    assert.equal(region.name,"Private native Region");
+    assert.deepEqual(region.shapes,[]);
+    assert.deepEqual(region.behaviors,[]);
+  }finally{Object.assign(globalThis,previous);}
+});

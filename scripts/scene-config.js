@@ -7,6 +7,7 @@ import { checkpointKnowledge } from "./party-exploration-model.js";
 import { readSceneGridScale } from "./scene-grid.js";
 import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
 import { listSceneRegions } from "./region-atlas.js";
+import {listPublicTerritorySettings} from "./region-narration.js";
 import { listRoadCheckpoints } from "./checkpoint-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
@@ -957,6 +958,30 @@ function atlasPanel(scene, atlas, actions, refresh, { generatorOnly = false } = 
     regionSection.appendChild(node("p", label("FVTTATLAS.Regions.InvalidHint"), "hint"));
   }
   advanced.appendChild(regionSection);
+
+  // Public narration is explicitly opt-in on any native Region, independent
+  // of Atlas Road association or a generated terrain/corridor Region.
+  const territorySection=node("fieldset");
+  const territoryLegend=node("legend","Public territory names · Journey banners");
+  territorySection.appendChild(territoryLegend);
+  territorySection.appendChild(node("p",
+    "Native Region names are private by default. Explicitly publish a safe " +
+    "territory label for a Region to use it when a Journey ends between checkpoints.",
+    "hint"));
+  const territoryList=listPublicTerritorySettings(scene);
+  const territoryButton=button("⚙","Configure public Region labels",
+    ()=>actions.configurePublicTerritory(scene,refresh));
+  territoryButton.disabled=!territoryList.length||!!draft;
+  territorySection.appendChild(territoryButton);
+  for(const entry of territoryList.filter(item=>item.label||item.invalid).slice(0,30)){
+    territorySection.appendChild(node("p",entry.name+" — "+
+      (entry.invalid?"Unsupported Atlas narration flag":
+        entry.hidden?"Native Region hidden (label inactive)":
+          "Public: "+entry.label),"hint"));
+  }
+  // The legacy `advanced` container is not mounted by the current Road panel;
+  // give this independent, Scene-wide native Region control a visible home.
+  root.insertBefore(territorySection,section);
 
   const measurement = node("fieldset");
   measurement.appendChild(node("legend", label("FVTTATLAS.Atlas.Measurement")));

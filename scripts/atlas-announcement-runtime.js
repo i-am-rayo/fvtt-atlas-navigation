@@ -12,6 +12,7 @@ import {confirmedAutomaticCheckpointDiscovery,confirmedRoadVisibilityReveal}
   from "./atlas-announcement-discovery.js";
 import {atlasDebug} from "./atlas-debug.js";
 import {publicJourneyDestinationName} from "./atlas-announcement-destination.js";
+import {publicRegionDestinationName} from "./atlas-announcement-region.js";
 
 /** A one-slot, server-permissioned World setting distributes *public-safe*
  * display pulses. It is NOT movement history, an event queue, or recovery
@@ -56,6 +57,7 @@ export function validatedAtlasAnnouncementPulse(value){
 export class AtlasAnnouncementRuntime {
   constructor({settings=globalThis.game?.settings,
     renderer=new AtlasAnnouncementPreviewRenderer(),
+    canvasProvider=()=>globalThis.canvas,
     randomID=()=>globalThis.foundry?.utils?.randomID?.(24),
     user=()=>globalThis.game?.user,
     activeGM=()=>globalThis.game?.users?.activeGM,
@@ -63,6 +65,7 @@ export class AtlasAnnouncementRuntime {
   }={}){
     this.settings=settings;
     this.renderer=renderer;
+    this.canvasProvider=canvasProvider;
     this.randomID=randomID;
     this.user=user;
     this.activeGM=activeGM;
@@ -228,9 +231,14 @@ export class AtlasAnnouncementRuntime {
             JSON.stringify(stored.destination)===JSON.stringify(committed.destination)&&
             JSON.stringify(stored.routeTargets??null)===
               JSON.stringify(committed.routeTargets??null)){
+          const atlas=readAtlas(scene);
           publicSubject=publicJourneyDestinationName({
-            atlas:readAtlas(scene),exploration:readPartyExploration(scene),
+            atlas,exploration:readPartyExploration(scene),
             record:stored,gridSize:scene.grid?.size});
+          // Public Region fallback is explicit GM opt-in and native-contained.
+          // It cannot name an arbitrary unapproved Region or closest POI.
+          if(!publicSubject)publicSubject=publicRegionDestinationName({
+            scene,view:this.canvasProvider(),atlas,record:stored});
           if(publicSubject)displaySubject=publicSubject;
         }
       }catch(error){this.onWarning(error);}

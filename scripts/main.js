@@ -27,6 +27,8 @@ import { getRoadMergeCandidates, suggestRoadName } from "./road-model.js";
 import { sceneImageOrigin, toCanvasPoint } from "./road-coordinates.js";
 import { roadFocusCamera } from "./road-focus-camera.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
+import {listPublicTerritorySettings,readPublicTerritory,savePublicTerritory}
+  from "./region-narration.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
   applyGeneratedRegionPresetColor, updateGeneratedRegionMovementCost,
@@ -1477,6 +1479,70 @@ function actions() {
       await sheet.render({force:true});
       sheet.bringToFront?.();
       return sheet;
+    },
+    async configurePublicTerritory(scene, refresh) {
+      if(!game.user?.isGM||!scene.canUserModify?.(game.user,"update"))
+        throw Error("Only a Scene-authorized GM can publish territory names.");
+      const entries=listPublicTerritorySettings(scene);
+      if(!entries.length)throw Error("Create a native Scene Region first.");
+      const choose=document.createElement("div");
+      const intro=document.createElement("p");
+      intro.textContent="Select the native Region whose public Journey name you want to edit.";
+      choose.appendChild(intro);
+      choose.appendChild(createSettingsSelect(entries.map(item=>[
+        item.id,item.name+(item.label?" · Public: "+item.label:"")+
+          (item.invalid?" · Invalid flag":"")]),
+      {name:"regionId",ariaLabel:"Region to use for public journey narration"}));
+      const chosen=await DialogV2.input({window:{title:"Select public territory"},
+        content:choose,ok:{label:"Edit public name"},rejectClose:false});
+      if(!chosen)return;
+      const regionId=String(chosen.regionId??"");
+      if(!entries.some(item=>item.id===regionId))
+        throw Error("Choose an existing Scene Region.");
+      const region=scene.regions.get(regionId);
+      if(!region||region.parent?.id!==scene.id||
+          !region.canUserModify?.(game.user,"update"))
+        throw Error("That native Region is no longer editable. Refresh Atlas.");
+      const expected=readPublicTerritory(region); // Reject unsupported future flags.
+      const expectedName=region.name,expectedHidden=region.hidden===true;
+      const form=document.createElement("div");
+      const hint=document.createElement("p");
+      hint.textContent="Explicit GM approval: this label is delivered to player " +
+        "clients at a confirmed Journey start/arrival inside the Region. " +
+        "Choose a public-safe name; the native Region name and geometry stay unchanged.";
+      form.appendChild(hint);
+      const row=document.createElement("div");row.className="form-group";
+      const nameLabel=document.createElement("label");
+      nameLabel.textContent="Public territory name";
+      nameLabel.htmlFor="atlasPublicTerritoryName";
+      const field=document.createElement("input");
+      field.type="text";field.id="atlasPublicTerritoryName";
+      field.name="publicName";field.maxLength=120;
+      field.value=expected?.label??"";
+      row.append(nameLabel,field);form.appendChild(row);
+      const toggleLabel=document.createElement("label");
+      const toggle=document.createElement("input");
+      toggle.type="checkbox";toggle.name="publish";toggle.value="true";
+      toggle.checked=!!expected;
+      toggleLabel.append(toggle,document.createTextNode(
+        " Show this name in Journey banners (public to players)"));
+      form.appendChild(toggleLabel);
+      if(expectedHidden){
+        const warning=document.createElement("p");
+        warning.textContent="This native Region is hidden. Unhide it before enabling a public name.";
+        form.appendChild(warning);
+      }
+      const result=await DialogV2.input({window:{title:"Public territory: "+region.name},
+        content:form,ok:{label:"Save public territory setting"},
+        rejectClose:false,modal:true});
+      if(!result)return;
+      const enabled=result.publish===true||
+        result.publish==="true"||result.publish==="on";
+      await savePublicTerritory(scene,regionId,{enabled,
+        label:String(result.publicName??""),expected,expectedName,expectedHidden});
+      refresh();
+      ui.notifications.info(enabled?"Public territory label saved.":
+        "Public territory label disabled.");
     },
     finish: () => roadCanvas.finish(),
     cancel: () => roadCanvas.cancel(),
