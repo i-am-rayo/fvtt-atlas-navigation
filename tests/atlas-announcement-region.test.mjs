@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {publicRegionDestinationName}
+import {publicRegionDestinationName,inspectPublicRegionDestination}
   from "../scripts/atlas-announcement-region.js";
 import {MODULE_ID} from "../scripts/atlas-storage.js";
 import {PUBLIC_TERRITORY_FLAG} from "../scripts/region-narration-model.js";
@@ -46,18 +46,23 @@ test("overlap, unknown elevation, wrong canvas and unsafe completion fail closed
   s.scene.regions.contents.push({...s.region,id:"territory2",
     getFlag:()=>({schemaVersion:1,enabled:true,label:"Reshara"})});
   assert.equal(publicRegionDestinationName(s),null);
+  assert.deepEqual(inspectPublicRegionDestination(s),{
+    name:null,reason:"ambiguous-public-region-overlap",published:2,containing:2});
   s.scene.regions.contents.pop();
   s.view.ready=false;
   assert.equal(publicRegionDestinationName(s),null);
+  assert.equal(inspectPublicRegionDestination(s).reason,"canvas-not-ready");
   s.view.ready=true;s.view.scene.id="other";
   assert.equal(publicRegionDestinationName(s),null);
   s.view.scene.id="scene";
   s.scene.tokens.get=()=>({elevation:NaN});
   assert.equal(publicRegionDestinationName(s),null);
+  assert.equal(inspectPublicRegionDestination(s).reason,"token-elevation-unavailable");
   s.scene.tokens.get=()=>({elevation:10});
   s.record.status="completed";
   s.record.lastConfirmedAnchor.point={x:9999,y:9999};
   assert.equal(publicRegionDestinationName(s),null);
+  assert.equal(inspectPublicRegionDestination(s).reason,"unverified-point-b");
   s.record.lastConfirmedAnchor.point={x:10,y:20};
   assert.equal(publicRegionDestinationName(s),"Valecor");
   s.region.testPoint=()=>{throw Error("Native Region unavailable");};

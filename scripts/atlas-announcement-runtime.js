@@ -12,7 +12,7 @@ import {confirmedAutomaticCheckpointDiscovery,confirmedRoadVisibilityReveal}
   from "./atlas-announcement-discovery.js";
 import {atlasDebug} from "./atlas-debug.js";
 import {publicJourneyDestinationName} from "./atlas-announcement-destination.js";
-import {publicRegionDestinationName} from "./atlas-announcement-region.js";
+import {inspectPublicRegionDestination} from "./atlas-announcement-region.js";
 
 /** A one-slot, server-permissioned World setting distributes *public-safe*
  * display pulses. It is NOT movement history, an event queue, or recovery
@@ -34,7 +34,6 @@ const PUBLIC_SUBJECTS=Object.freeze({
   "break.ended":"The road awaits"
 });
 const MAX_SEEN=128;
-const MAX_DIAGNOSTICS=32;
 
 export function validatedAtlasAnnouncementPulse(value){
   if(!value||typeof value!=="object"||
@@ -74,7 +73,6 @@ export class AtlasAnnouncementRuntime {
     this.sent=new Set();
     this.started=false;
     this.publicWrites=Promise.resolve();
-    this.diagnostics=[];
   }
 
   remember(bucket,id){
@@ -110,18 +108,14 @@ export class AtlasAnnouncementRuntime {
     return queued;
   }
 
-  /** Browser-local, GM-only status history for the preview panel. Never a
-   * persisted flag or transmitted payload. No coordinates or Actor data. */
+  /** GM-only, browser-local verbose console diagnostics. Never persisted or
+   * transmitted to clients; no coordinates or Actor data. */
   diagnostic({type,subject,from,to,method,decision}){
     if(!this.user()?.isGM)return;
-    const item=Object.freeze({at:new Date().toLocaleTimeString(),type,
-      subject:String(subject??"(unnamed)").slice(0,160),from,to,method,decision});
-    this.diagnostics.push(item);
-    if(this.diagnostics.length>MAX_DIAGNOSTICS)this.diagnostics.shift();
+    const item={type,
+      subject:String(subject??"(unnamed)").slice(0,160),from,to,method,decision};
     atlasDebug("announcement","Discovery status / banner decision",item,{level:"verbose"});
   }
-
-  recentDiagnostics(){return this.user()?.isGM?this.diagnostics.map(item=>({...item})):[];}
 
   /** One server-permissioned World setting can only hold the latest pointer;
    * serialize writes so a burst of discoveries is delivered in order. */
@@ -220,38 +214,65 @@ export class AtlasAnnouncementRuntime {
       return false;
     }
     let publicSubject=null,displaySubject=subject;
+    let source="caller",reason="scene-not-provided",territory=null;
     if(NAMED_PUBLIC_EVENTS.has(type)&&scene){
       // Never treat GM's free-form subject or Journal title as player-safe.
       // Re-read the actual Scene and party visibility after Journal verification.
       displaySubject=PUBLIC_SUBJECTS[type];
+      source="generic-fallback";
       try{
-        if(scene.id===stored.sceneId&&scene.id===committed.sceneId&&
-            scene.canUserModify?.(me,"update")&&
-            stored.atlasRevision===committed.atlasRevision&&
-            JSON.stringify(stored.destination)===JSON.stringify(committed.destination)&&
-            JSON.stringify(stored.routeTargets??null)===
-              JSON.stringify(committed.routeTargets??null)){
+        if(scene.id!==stored.sceneId||scene.id!==committed.sceneId)
+          reason="journal-scene-mismatch";
+        else if(!scene.canUserModify?.(me,"update"))
+          reason="scene-update-permission-denied";
+        else if(stored.atlasRevision!==committed.atlasRevision)
+          reason="atlas-revision-mismatch";
+        else if(JSON.stringify(stored.destination)!==JSON.stringify(committed.destination))
+          reason="journal-destination-mismatch";
+        else if(JSON.stringify(stored.routeTargets??null)!==
+            JSON.stringify(committed.routeTargets??null))
+          reason="journal-route-targets-mismatch";
+        else{
           const atlas=readAtlas(scene);
           publicSubject=publicJourneyDestinationName({
             atlas,exploration:readPartyExploration(scene),
             record:stored,gridSize:scene.grid?.size});
+          if(publicSubject){source="public-checkpoint";reason="resolved";}
           // Public Region fallback is explicit GM opt-in and native-contained.
           // It cannot name an arbitrary unapproved Region or closest POI.
-          if(!publicSubject)publicSubject=publicRegionDestinationName({
-            scene,view:this.canvasProvider(),atlas,record:stored});
+          if(!publicSubject){
+            territory=inspectPublicRegionDestination({
+              scene,view:this.canvasProvider(),atlas,record:stored});
+            publicSubject=territory.name;
+            if(publicSubject){source="public-territory";reason="resolved";}
+            else reason=territory.reason;
+          }
           if(publicSubject)displaySubject=publicSubject;
         }
-      }catch(error){this.onWarning(error);}
+      }catch(error){reason="resolver-exception";this.onWarning(error);}
     }
     const key=`${journal.id}|${plan.key}`;
     if(!this.remember(this.sent,key))return false;
     let displayed=false;
     try{displayed=this.dispatch(type,displaySubject,{publicSubject});}
     catch(error){this.onWarning(error);}
-    this.diagnostic({type,subject,from:previous?.status,to:committed?.status,
+    this.diagnostic({type,subject:displaySubject,from:previous?.status,to:committed?.status,
       method:"Journey Journal",decision:displayed?
         "Verified Journal; GM banner queued; public pulse scheduled":
         "Verified Journal; GM renderer unavailable"});
+    if(NAMED_PUBLIC_EVENTS.has(type)){
+      // This is the exact final subject passed to the GM renderer and (when
+      // publicSubject exists) the player-safe World pulse, not the caller's
+      // generic input. No native names, IDs, coordinates, or flags are logged.
+      atlasDebug("announcement","Journey banner name resolution",{
+        type,requestedSubject:typeof subject==="string"?subject:null,
+        finalResolvedName:typeof displaySubject==="string"?displaySubject:null,
+        source,reason,
+        ...(territory?{publishedTerritoryCount:territory.published,
+          containingPublicTerritoryCount:territory.containing}:{}),
+        gmBannerQueued:displayed,playerSafeNamePublished:publicSubject!==null
+      },{level:"verbose"});
+    }
     return true;
   }
 }
