@@ -4,6 +4,7 @@ import {publicRegionDestinationName}
   from "../scripts/atlas-announcement-region.js";
 import {MODULE_ID} from "../scripts/atlas-storage.js";
 import {PUBLIC_TERRITORY_FLAG} from "../scripts/region-narration-model.js";
+import {mostSpecificPublicTerritoryLabel} from "../scripts/region-narration-model.js";
 
 function fixture(){
   const observed=[];
@@ -61,4 +62,51 @@ test("overlap, unknown elevation, wrong canvas and unsafe completion fail closed
   assert.equal(publicRegionDestinationName(s),"Valecor");
   s.region.testPoint=()=>{throw Error("Native Region unavailable");};
   assert.equal(publicRegionDestinationName(s),null);
+});
+
+test("published Hearth's Heart Town wins over published Valecor Continent at Point B",()=>{
+  const s=fixture();
+  const geographical=(id,label,kind,parentRegionId)=>({id,name:"Private "+id,
+    parent:{id:"scene"},hidden:false,
+    testPoint:point=>point.x===510&&point.y===320&&point.elevation===10,
+    getFlag:(_namespace,key)=>key==="publicTerritory"?
+      {schemaVersion:1,enabled:true,label}:
+      key==="atlas"?{schemaVersion:1,linked:true}:
+      key==="territoryGeography"?{schemaVersion:1,kind,parentRegionId,roadOverrides:{}}:null});
+  const continent=geographical("valecor","Valecor","continent",null);
+  const town=geographical("hearth","Hearth's Heart","town","valecor");
+  s.scene.regions.contents=[continent,town];
+  assert.equal(publicRegionDestinationName(s),"Hearth's Heart",
+    "the most specific published descendant takes precedence");
+  s.record.status="completed";
+  s.record.lastConfirmedAnchor.point={x:10,y:20};
+  assert.equal(publicRegionDestinationName(s),"Hearth's Heart",
+    "both Journey start and committed arrival use the same Point B policy");
+  const sibling=geographical("dirwest","Dirwest","town","valecor");
+  s.scene.regions.contents.push(sibling);
+  assert.equal(publicRegionDestinationName(s),null,
+    "overlapping sibling towns cannot be resolved by ID or order");
+  s.scene.regions.contents.pop();
+  town.getFlag=(_namespace,key)=>key==="publicTerritory"?
+    {schemaVersion:1,enabled:true,label:"Hearth's Heart"}:
+    key==="atlas"?{schemaVersion:1,linked:true}:
+    key==="territoryGeography"?{schemaVersion:1,kind:"town",parentRegionId:"missing",roadOverrides:{}}:null;
+  assert.equal(publicRegionDestinationName(s),null,
+    "broken or missing parent classification must not guess a published name");
+});
+
+test("hierarchical label policy rejects unrelated overlap and corrupt cycles",()=>{
+  const entries=new Map([
+    ["a",{linked:true,geography:{kind:"area",parentRegionId:"b"}}],
+    ["b",{linked:true,geography:{kind:"area",parentRegionId:"a"}}]
+  ]);
+  assert.equal(mostSpecificPublicTerritoryLabel([
+    {id:"a",label:"Private A"},{id:"b",label:"Private B"}],entries),null);
+  entries.set("a",{linked:true,geography:{kind:"continent",parentRegionId:null}});
+  entries.set("b",{linked:true,geography:{kind:"area",parentRegionId:"a"}});
+  assert.equal(mostSpecificPublicTerritoryLabel([
+    {id:"a",label:"Valecor"},{id:"b",label:"Hearth's Heart"}],entries),"Hearth's Heart");
+  entries.get("b").linked=false;
+  assert.equal(mostSpecificPublicTerritoryLabel([
+    {id:"a",label:"Valecor"},{id:"b",label:"Private"}],entries),null);
 });
