@@ -1,10 +1,13 @@
 /** Pure, bounded native-polygon border assistant. The native Region remains the
  * only source of saved geometry. This model does not infer shared seams. */
 
-// A Gentle pass doubles vertices; 128 source vertices fit the 256-vertex
-// native-preview ceiling. Moderate may require a simpler source polygon.
-const MAX_SOURCE_VERTICES = 128;
-const MAX_RESULT_VERTICES = 256;
+// Chaikin corner cutting doubles vertices on each pass. Large coastlines and
+// previously smoothed borders instead use a vertex-preserving filter. Bound
+// both paths: native Regions can contain much more geometry than a safe GM
+// preview should process in one synchronous canvas interaction.
+const MAX_CHAIKIN_VERTICES = 256;
+const MAX_DENSE_VERTICES = 2048;
+const MAX_DENSE_AREA_CHANGE = 0.07;
 
 function pointsFromPolygon(shape) {
   if (shape?.type !== "polygon" || shape.hole === true ||
@@ -23,11 +26,10 @@ function pointsFromPolygon(shape) {
   if (vertices.length > 3 &&
       vertices[0].x === vertices.at(-1).x &&
       vertices[0].y === vertices.at(-1).y) vertices.pop();
-  if (vertices.length < 3 || vertices.length > MAX_SOURCE_VERTICES) {
-    throw new Error("This Region has too many border vertices to smooth again " +
-      "(supported input: 3–128). Simplify its native outline first; " +
-      "repeated smoothing adds vertices and can shrink territory boundaries.");
-  }
+  if (vertices.length < 3)throw Error("A native polygon needs at least three vertices.");
+  if (vertices.length > MAX_DENSE_VERTICES)throw Error(
+    "This Region exceeds the safe 2,048-vertex smoothing preview limit. " +
+    "Split or simplify its native polygon; no changes were made.");
   return vertices;
 }
 
@@ -48,6 +50,10 @@ function onSegment(a, b, p) {
 }
 
 function crosses(a, b, c, d) {
+  if(Math.max(a.x,b.x)<Math.min(c.x,d.x)-1e-8 ||
+      Math.max(c.x,d.x)<Math.min(a.x,b.x)-1e-8 ||
+      Math.max(a.y,b.y)<Math.min(c.y,d.y)-1e-8 ||
+      Math.max(c.y,d.y)<Math.min(a.y,b.y)-1e-8)return false;
   const abC=orientation(a,b,c),abD=orientation(a,b,d);
   const cdA=orientation(c,d,a),cdB=orientation(c,d,b);
   if ((abC>1e-8 && abD< -1e-8 || abC< -1e-8 && abD>1e-8) &&
@@ -79,12 +85,37 @@ function assertSimple(vertices) {
   }
 }
 
-/** Chaikin corner cutting stays within each original edge and never invents
- * control handles. Output is a closed path encoded as a native point polygon. */
+/** Dense polygons already contain enough border samples. A bounded Laplacian
+ * pass rounds local corners without exponentially increasing native vertices.
+ * The GM still explicitly previews area loss and must approve the update. */
+function smoothDenseVertices(source,passes) {
+  let points=source;
+  for(let pass=0;pass<passes;pass++){
+    const n=points.length;
+    const next=points.map((p,i)=>{
+      const a=points[(i+n-1)%n],b=points[(i+1)%n];
+      return {x:p.x*.75+(a.x+b.x)*.125,
+        y:p.y*.75+(a.y+b.y)*.125};
+    });
+    assertSimple(next);
+    points=next;
+  }
+  const originalArea=signedArea(source),resultArea=signedArea(points);
+  if(originalArea*resultArea<=0 ||
+      Math.abs(Math.abs(resultArea)/Math.abs(originalArea)-1)>MAX_DENSE_AREA_CHANGE)
+    throw Error("This dense outline would change its territory area by more than 7%. " +
+      "Cancel smoothing and simplify the native shape or choose a gentler outline.");
+  return points;
+}
+
+/** Small polygons use Chaikin corner cutting; detailed polygons use a bounded
+ * vertex-preserving pass. Neither creates a second native Shape or Region. */
 export function smoothClosedBoundary(flatPoints, passes=1) {
   if (![1,2].includes(passes))throw Error("Choose Gentle or Moderate smoothing.");
   const source=pointsFromPolygon({type:"polygon",points:flatPoints});
   assertSimple(source);
+  if(source.length * (2**passes)>MAX_CHAIKIN_VERTICES)
+    return smoothDenseVertices(source,passes).flatMap(p=>[p.x,p.y]);
   let points=source;
   for(let pass=0;pass<passes;pass++) {
     const next=[];
@@ -93,9 +124,6 @@ export function smoothClosedBoundary(flatPoints, passes=1) {
       next.push({x:a.x*.75+b.x*.25,y:a.y*.75+b.y*.25},
         {x:a.x*.25+b.x*.75,y:a.y*.25+b.y*.75});
     }
-    if(next.length>MAX_RESULT_VERTICES)throw Error(
-      "This smoothing pass would exceed 256 border vertices. Choose Gentle " +
-      "or simplify the polygon in Foundry before another pass.");
     assertSimple(next);
     points=next;
   }
@@ -111,9 +139,14 @@ export function planSmoothedNativeRegion(shapes, passes=1) {
   const original=shapes[0];
   const source=pointsFromPolygon(original);
   const smoothed=smoothClosedBoundary(original.points,passes);
+  const areaBefore=Math.abs(signedArea(source));
+  const areaAfter=Math.abs(signedArea(pointsFromPolygon({type:"polygon",points:smoothed})));
   return Object.freeze({
     sourcePoints:source.flatMap(p=>[p.x,p.y]),
     resultPoints:smoothed,
+    sourceVertexCount:source.length,resultVertexCount:smoothed.length/2,
+    smoothingMode:smoothed.length/2===source.length?"vertex-preserving":"chaikin",
+    areaChangePercent:Number((100*(areaAfter/areaBefore-1)).toFixed(2)),
     shapes:[{...original,points:smoothed}],passes
   });
 }

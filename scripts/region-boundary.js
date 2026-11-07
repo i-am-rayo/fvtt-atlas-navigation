@@ -1,6 +1,7 @@
 import {MODULE_ID} from "./atlas-storage.js";
 import {GENERATED_REGION_FLAG} from "./generated-region-model.js";
 import {planSmoothedNativeRegion} from "./region-boundary-model.js";
+import {atlasDebug} from "./atlas-debug.js";
 
 function plainShapes(region) {
   return Array.from(region?.shapes??[],shape=>
@@ -25,9 +26,18 @@ export function planNativeRegionSmoothing(scene,regionId,passes=1) {
   const region=editableRegion(scene,regionId);
   const before=plainShapes(region),shapeSnapshot=JSON.stringify(before);
   const proposal=planSmoothedNativeRegion(before,passes);
-  return Object.freeze({sceneId:scene.id,regionId,regionName:region.name,
+  const plan=Object.freeze({sceneId:scene.id,regionId,regionName:region.name,
     shapeSnapshot,sourcePoints:proposal.sourcePoints,
-    resultPoints:proposal.resultPoints,shapes:proposal.shapes,passes});
+    resultPoints:proposal.resultPoints,shapes:proposal.shapes,passes,
+    smoothingMode:proposal.smoothingMode,
+    sourceVertexCount:proposal.sourceVertexCount,
+    resultVertexCount:proposal.resultVertexCount,
+    areaChangePercent:proposal.areaChangePercent});
+  atlasDebug("territory","Native boundary smoothing preview prepared",{
+    smoothingMode:plan.smoothingMode,passes,
+    sourceVertices:plan.sourceVertexCount,resultVertices:plan.resultVertexCount,
+    areaChangePercent:plan.areaChangePercent},{level:"verbose"});
+  return plan;
 }
 
 /** Update precisely one existing native Region's shapes after a fresh GM
@@ -44,5 +54,9 @@ export async function saveNativeRegionSmoothing(scene,plan) {
   if(JSON.stringify(fresh.shapes)!==JSON.stringify(plan.shapes))
     throw Error("The preview is stale or invalid; no native Region was changed.");
   await region.update({shapes:fresh.shapes});
+  atlasDebug("territory","Native boundary smoothing committed",{
+    smoothingMode:fresh.smoothingMode,passes:plan.passes,
+    sourceVertices:fresh.sourceVertexCount,resultVertices:fresh.resultVertexCount,
+    areaChangePercent:fresh.areaChangePercent},{level:"verbose"});
   return region.id;
 }

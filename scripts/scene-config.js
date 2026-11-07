@@ -200,7 +200,13 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   const draft = actions.draft(scene);
   const manager=node("fieldset");
   manager.setAttribute("data-atlas-territory-manager", "");
-  manager.appendChild(node("legend","Territories & custom native Regions"));
+  const heading=node("legend","Territories & custom native Regions ");
+  const add=button("+","Create a native polygon Region on this Scene",()=>
+    actions.createNativeTerritory(scene,refresh));
+  add.className="atlas-territory-add";
+  add.disabled=!!draft;
+  heading.appendChild(add);
+  manager.appendChild(heading);
   manager.appendChild(node("p","Manage manually authored geographic or custom " +
     "Regions here, including their public Journey names. Atlas-generated " +
     "corridors are managed under Roads. Native Foundry geometry and Behaviors " +
@@ -209,7 +215,7 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   const manualNative=nativeRegions.filter(region=>!generatedById.has(region.id));
   const geographyById=new Map(listSceneGeography(scene).map(entry=>[entry.id,entry]));
   if(!manualNative.length)manager.appendChild(node("p",
-    "No manually authored Regions yet. Draw one with Foundry's Region tool.","hint"));
+    "No manually authored Regions yet. Select [+] to place a native polygon.","hint"));
   for(const region of manualNative.slice(0,60)){
     const row=node("div",undefined,"form-group atlas-territory-row");
     row.setAttribute("data-atlas-native-region-id",region.id);
