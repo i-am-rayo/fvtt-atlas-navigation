@@ -2,10 +2,11 @@
 import { listSceneGeography } from "./territory-geography-storage.js";
 import { regionContainsPoint } from "./navigation-terrain.js";
 import { sampleAtlasRoads,buildTerritoryRoadDirectory } from "./territory-geography-model.js";
+import {withInferredContinentParents} from "./territory-parent-inference.js";
 
 export function readTerritoryRoadDirectory(scene, atlas, view=globalThis.canvas) {
-  const classified = listSceneGeography(scene).filter(entry =>
-    entry.linked && entry.geography && !entry.invalid);
+  const classified = withInferredContinentParents(scene,listSceneGeography(scene),
+    {log:false}).filter(entry =>entry.linked && entry.geography && !entry.invalid);
   const dimensions=view?.dimensions;
   const active=Boolean(view?.ready && view.scene?.id===scene.id &&
     Number.isFinite(dimensions?.sceneX) && Number.isFinite(dimensions?.sceneY) &&

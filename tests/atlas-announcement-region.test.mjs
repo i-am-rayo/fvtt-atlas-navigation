@@ -100,6 +100,30 @@ test("published Hearth's Heart Town wins over published Valecor Continent at Poi
     "broken or missing parent classification must not guess a published name");
 });
 
+test("a town with no saved parent inherits its native majority continent for public banners",()=>{
+  const s=fixture();
+  const continent={id:"valecor",name:"Private continent",parent:{id:"scene"},
+    hidden:false,area:20000,bounds:{x:0,y:0,width:1000,height:1000},
+    polygonTree:{intersectPolygon:()=>({area:80})},
+    testPoint:()=>true,getFlag:(_namespace,key)=>
+      key==="publicTerritory"?{schemaVersion:1,enabled:true,label:"Valecor"}:
+      key==="atlas"?{schemaVersion:1,linked:true}:
+      key==="territoryGeography"?{schemaVersion:1,kind:"continent",
+        parentRegionId:null,roadOverrides:{}}:null};
+  const town={id:"hearth",name:"GM-only town",parent:{id:"scene"},
+    hidden:false,area:100,isSingleShape:true,polygons:[{id:"townPoly"}],
+    bounds:{x:0,y:0,width:100,height:100},testPoint:()=>true,
+    getFlag:(_namespace,key)=>
+      key==="publicTerritory"?{schemaVersion:1,enabled:true,label:"Hearth's Heart"}:
+      key==="atlas"?{schemaVersion:1,linked:true}:
+      key==="territoryGeography"?{schemaVersion:1,kind:"town",
+        parentRegionId:null,roadOverrides:{}}:null};
+  s.scene.regions.contents=[continent,town];
+  assert.equal(inspectPublicRegionDestination(s).name,"Hearth's Heart");
+  assert.equal(town.getFlag(MODULE_ID,"territoryGeography").parentRegionId,null,
+    "no automatic flag persistence");
+});
+
 test("hierarchical label policy rejects unrelated overlap and corrupt cycles",()=>{
   const entries=new Map([
     ["a",{linked:true,geography:{kind:"area",parentRegionId:"b"}}],

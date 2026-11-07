@@ -29,6 +29,7 @@ import {atlasNativeLevelSetup} from "./navigation-native-level-setup.js";
 import { listSceneGeography } from "./territory-geography-storage.js";
 import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
 import { readTerritoryRoadDirectory } from "./territory-road-directory.js";
+import {withInferredContinentParents} from "./territory-parent-inference.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -213,7 +214,8 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     "remain authoritative; shared-border snapping is planned separately.","hint"));
   const generatedById=new Map(generated.map(entry=>[entry.id,entry]));
   const manualNative=nativeRegions.filter(region=>!generatedById.has(region.id));
-  const geographyById=new Map(listSceneGeography(scene).map(entry=>[entry.id,entry]));
+  const geographyById=new Map(withInferredContinentParents(scene,
+    listSceneGeography(scene),{log:false}).map(entry=>[entry.id,entry]));
   if(!manualNative.length)manager.appendChild(node("p",
     "No manually authored Regions yet. Select [+] to place a native polygon.","hint"));
   for(const region of manualNative.slice(0,60)){
@@ -230,6 +232,11 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
       published?.invalid?"Unsupported public label flag":
         published?.label?(published.label===region.name?"Public ✓":"Public: "+published.label):
           "Private (no public label)"];
+    const parent=geographyById.get(region.id)?.geography?.parentRegionId;
+    const entry=geographyById.get(region.id);
+    if(parent&&geographyById.has(parent))status.push("Parent: "+
+      geographyById.get(parent).name+(entry.inferredParent?
+        ` (auto · ${entry.inferredParent.coveragePercent}% overlap)`:" (manual)"));
     details.appendChild(node("div",status.join(" · "),"hint"));
     row.appendChild(details);
     const controls=node("div",undefined,"form-fields atlas-territory-actions");
@@ -248,7 +255,7 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
       ()=>actions.configurePublicTerritory(scene,refresh,region.id));
     publicLabel.disabled=!!draft;
     controls.appendChild(publicLabel);
-    const geography=iconAction("sitemap","Classify territory and correct Road membership",
+    const geography=iconAction("sitemap","Classify territory, override its parent, and correct Road membership",
       ()=>actions.configureGeography(scene,refresh,region.id));
     geography.disabled=!!draft||!region.linked||region.invalidLink||geographyById.get(region.id)?.invalid;
     controls.appendChild(geography);
