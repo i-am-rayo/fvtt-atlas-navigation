@@ -339,6 +339,53 @@ test("a GM-published native Region label is a safe mid-road destination fallback
   assert.deepEqual(gm[2],["journey.started",{subject:"your destination"}]);
 });
 
+test("nested public Town overrides public Continent for committed start and arrival pulses",async()=>{
+  const atlas=upgradeAtlasPlayerVisibility({schemaVersion:4,
+    coordinateSpace:"image",revision:12,enabled:true,calibration:null,
+    roads:[{id:"road",name:"Private Road"}],
+    nodes:[{id:"a",x:0,y:0},{id:"b",x:100,y:0}],
+    segments:[{id:"s",roadId:"road",from:"a",to:"b",via:[],bidirectional:true}],
+    checkpoints:[]});
+  const region=(id,label,kind,parentRegionId)=>({id,name:"GM ONLY "+id,
+    parent:{id:"scene"},hidden:false,
+    testPoint:point=>point.x===600&&point.y===300&&point.elevation===0,
+    getFlag:(_ns,key)=>key==="publicTerritory"?
+      {schemaVersion:1,enabled:true,label}:
+      key==="atlas"?{schemaVersion:1,linked:true}:
+      key==="territoryGeography"?{schemaVersion:1,kind,parentRegionId,roadOverrides:{}}:null});
+  const scene={id:"scene",grid:{size:100},canUserModify:()=>true,
+    tokens:{get:()=>({elevation:0})},
+    regions:{contents:[region("valecor","Valecor","continent",null),
+      region("hearth","Hearth's Heart","town","valecor")]},
+    getFlag:(_ns,key)=>({atlas,partyExploration:defaultPartyExploration()})[key]};
+  let saved={...record("moving"),sceneId:"scene",tokenId:"party",
+    atlasRevision:atlas.revision,destination:{x:100,y:0}};
+  const journal={id:"nested-geography-journal",getFlag:()=>saved};
+  const pulses=[],shown=[];let sequence=0;
+  const runtime=new AtlasAnnouncementRuntime({
+    canvasProvider:()=>({ready:true,scene:{id:"scene"},
+      dimensions:{sceneX:500,sceneY:300}}),
+    settings:{set:async(_ns,_key,pulse)=>pulses.push(pulse)},
+    renderer:{enqueue:(type,options)=>{shown.push([type,options]);return true;}},
+    user:()=>({id:"gm",isGM:true}),activeGM:()=>({id:"gm"}),
+    randomID:()=>`nested-region-pulse-${++sequence}-abcdefgh`
+  });
+  assert.equal(runtime.publish({journal,scene,previous:null,committed:saved,
+    type:"journey.started",subject:"your destination"}),true);
+  await runtime.publicWrites;
+  assert.equal(pulses[0].publicSubject,"Hearth's Heart");
+  assert.deepEqual(shown[0],["journey.started",{subject:"Hearth's Heart"}]);
+  const previous=saved;
+  saved={...saved,status:"completed",updatedAt:"2026-11-07T01:00:00.000Z",
+    lastConfirmedAnchor:{point:{x:100,y:0}},legs:[{completedPercent:100}]};
+  assert.equal(runtime.publish({journal,scene,previous,committed:saved,
+    type:"destination.reached",subject:"your destination"}),true);
+  await runtime.publicWrites;
+  assert.equal(pulses[1].publicSubject,"Hearth's Heart");
+  assert.deepEqual(shown[1],["destination.reached",{subject:"Hearth's Heart"}]);
+  assert.equal(JSON.stringify(pulses).includes("GM ONLY"),false);
+});
+
 test("a hidden or unmatched destination never leaves the player-safe generic fallback",async()=>{
   const atlas=upgradeAtlasPlayerVisibility({schemaVersion:4,
     coordinateSpace:"image",revision:9,enabled:true,calibration:null,
