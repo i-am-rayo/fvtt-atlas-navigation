@@ -9,9 +9,12 @@ function field(title,control){const row=make("label",title);row.className="form-
 
 export function buildTerritoryGeographyForm({region,current,territories,roads}) {
   const form=make("div");
-  form.appendChild(make("p", "Geography controls the GM Road directory only. " +
-    "It does not publish Region names, change native Shapes or Behaviors, " +
-    "or modify Journey/routing costs."));
+  form.appendChild(make("p", "Geography groups the GM Road directory and " +
+    "resolves overlaps between already-public Journey territory names. " +
+    "A clear majority overlap automatically associates a City, Town or " +
+    "Village with a Continent when no parent is selected. An explicitly " +
+    "selected parent overrides that inference. Classification never " +
+    "publishes names, changes native Shapes or Behaviors, or modifies travel costs."));
   form.appendChild(field("Geographic kind",createSettingsSelect([
     ["","Unclassified — remove Atlas geography"],
     ...Object.entries(GEOGRAPHY_KINDS).map(([id,name])=>[id,name])
@@ -19,7 +22,7 @@ export function buildTerritoryGeographyForm({region,current,territories,roads}) 
   const eligible=territories.filter(entry=>entry.id!==region.id && entry.linked &&
     !entry.invalid && ["continent","area"].includes(entry.geography?.kind));
   form.appendChild(field("Parent territory",createSettingsSelect([
-    ["","No parent (root territory)"],
+    ["","Automatic continent (when unassigned)"],
     ...eligible.map(entry=>[entry.id,entry.name+" ("+GEOGRAPHY_KINDS[entry.geography.kind]+")"])
   ],{name:"parentId",selectedId:current?.parentRegionId??"",
     ariaLabel:"Parent Atlas territory"})));

@@ -4,6 +4,7 @@ import {mostSpecificPublicTerritoryLabel} from "./region-narration-model.js";
 import {readRegionGeography} from "./territory-geography-storage.js";
 import {readRegionAtlasLink} from "./region-atlas.js";
 import {verifiedJourneyDestinationPoint} from "./atlas-announcement-destination.js";
+import {withInferredContinentParents} from "./territory-parent-inference.js";
 
 /** Read-only Foundry v14 Region adapter. Native RegionDocument.testPoint is
  * authoritative for compound Shapes, holes, Scene padding and elevation;
@@ -55,7 +56,10 @@ export function inspectPublicRegionDestination({scene,view,atlas,record}={}){
     }catch{invalid=true;}
     geographyById.set(region.id,{linked,geography,invalid});
   }
-  const name=mostSpecificPublicTerritoryLabel(candidates,geographyById);
+  const effective=withInferredContinentParents(scene,[...geographyById].map(
+    ([id,data])=>({id,...data})),{log:true});
+  const name=mostSpecificPublicTerritoryLabel(candidates,new Map(effective.map(
+    entry=>[entry.id,entry])));
   return result(name,name?"resolved":"ambiguous-public-region-overlap",counts);
 }
 

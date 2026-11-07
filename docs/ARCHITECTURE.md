@@ -265,3 +265,17 @@ Atlas does not invent a Region link, public label or Behavior on creation.
 New feature slices should instrument categorized, compact GM-only Verbose
 decision/validation/commit diagnostics without revealing shapes or hidden
 names. See [design and live checklist](TERRITORY_AUTHORING_BETA8_7.md).
+
+## v0.3.9-beta.8.8 — Read-only geographic parent inference
+
+The GM Territory/Road presentation and local GM Journey-name resolver share
+one read-only native Region overlap adapter. For an Atlas-linked City, Town or
+Village without a stored parent, it compares the 2D area of its single native
+polygon against each linked Continent's native polygon tree. Only a strict
+majority with a clear margin over competitors becomes an *effective* parent;
+the region flag remains unchanged and explicit saved parents always win.
+Complex or ambiguous geometry fails closed to manual selection, and expensive
+projections have a fixed comparison budget. This derived hierarchy affects
+directory nesting and public-name ambiguity only, never native Shapes,
+Behaviors, permissions, or Journey authority. See [inference design and live
+checklist](TERRITORY_PARENT_INFERENCE_BETA8_8.md).

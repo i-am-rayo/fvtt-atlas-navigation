@@ -33,3 +33,24 @@ test("Road directory honors image origin and native polygons without writing on 
   assert.equal(inactive.geometryAvailable,false);
   assert.deepEqual(inactive.unclassifiedRoadIds,["millstone-dirwest","sea-road"]);
 });
+
+test("an unassigned city groups under the dominant native continent without a flag write",()=>{
+  const continent=region("valecor","Valecor","continent",null,
+    [100,100,400,100,400,220,100,220]);
+  const city=region("dirwest","Dirwest","city",null,
+    [110,110,150,110,150,140,110,140]);
+  continent.parent={id:"scene"};city.parent={id:"scene"};
+  continent.area=36000;continent.bounds={x:100,y:100,width:300,height:120};
+  continent.polygonTree={intersectPolygon:()=>({area:90})};
+  city.area=100;city.isSingleShape=true;city.polygons=[{id:"city-polygon"}];
+  city.bounds={x:110,y:110,width:40,height:30};
+  const scene={id:"scene",regions:new Map([continent,city].map(item=>[item.id,item]))};
+  let writes=0;scene.setFlag=()=>{writes++;};
+  const view={ready:true,scene,dimensions:{sceneX:100,sceneY:100,size:100}};
+  const result=readTerritoryRoadDirectory(scene,atlas,view);
+  assert.equal(result.tree.length,1);
+  assert.equal(result.tree[0].name,"Valecor");
+  assert.equal(result.tree[0].children[0].name,"Dirwest");
+  assert.equal(writes,0);
+  assert.equal(city.getFlag(null,"territoryGeography").parentRegionId,null);
+});
