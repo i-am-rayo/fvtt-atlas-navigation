@@ -386,6 +386,68 @@ test("nested public Town overrides public Continent for committed start and arri
   assert.equal(JSON.stringify(pulses).includes("GM ONLY"),false);
 });
 
+test("GM Verbose records final banner name, origin, and the precise generic fallback",async()=>{
+  const prior={game:globalThis.game,debug:console.debug};
+  const logs=[],rendered=[],pulses=[];
+  let level="verbose",elevation=0;
+  try{
+    console.debug=(...args)=>logs.push(args);
+    globalThis.game={user:{id:"gm",isGM:true},settings:{get:()=>level}};
+    const atlas=upgradeAtlasPlayerVisibility({schemaVersion:4,
+      coordinateSpace:"image",revision:12,enabled:true,calibration:null,
+      roads:[],nodes:[],segments:[],checkpoints:[]});
+    const region={id:"town",name:"PRIVATE NATIVE NAME",parent:{id:"scene"},
+      hidden:false,testPoint:point=>point.x===510&&point.y===320&&point.elevation===0,
+      getFlag:(_ns,key)=>key==="publicTerritory"?
+        {schemaVersion:1,enabled:true,label:"Hearth's Heart"}:null};
+    const scene={id:"scene",grid:{size:100},canUserModify:()=>true,
+      tokens:{get:()=>({elevation})},regions:{contents:[region]},
+      getFlag:(_ns,key)=>({atlas,partyExploration:defaultPartyExploration()})[key]};
+    let saved={...record("moving"),sceneId:"scene",tokenId:"party",
+      atlasRevision:atlas.revision,destination:{x:10,y:20}};
+    const journal={id:"diagnostic-journey",getFlag:()=>saved};
+    let sequence=0;
+    const runtime=new AtlasAnnouncementRuntime({
+      canvasProvider:()=>({ready:true,scene:{id:"scene"},
+        dimensions:{sceneX:500,sceneY:300}}),
+      settings:{set:async(_ns,_key,pulse)=>pulses.push(pulse)},
+      renderer:{enqueue:(type,options)=>{rendered.push({type,...options});return true;}},
+      user:()=>({id:"gm",isGM:true}),activeGM:()=>({id:"gm"}),
+      randomID:()=>`diagnostic-pulse-${++sequence}-abcdefgh`
+    });
+    const decision=()=>logs.filter(([prefix])=>
+      prefix.includes("Journey banner name resolution")).at(-1)?.[1];
+    assert.equal(runtime.publish({journal,scene,previous:null,committed:saved,
+      type:"journey.started",subject:"your destination"}),true);
+    await runtime.publicWrites;
+    assert.equal(rendered[0].subject,"Hearth's Heart");
+    assert.equal(pulses[0].publicSubject,"Hearth's Heart");
+    assert.deepEqual(decision(),{
+      type:"journey.started",requestedSubject:"your destination",
+      finalResolvedName:"Hearth's Heart",source:"public-territory",reason:"resolved",
+      publishedTerritoryCount:1,containingPublicTerritoryCount:1,
+      gmBannerQueued:true,playerSafeNamePublished:true});
+    elevation=NaN;
+    saved={...saved,createdAt:"new-trip",updatedAt:"2026-11-06T02:00:00.000Z"};
+    assert.equal(runtime.publish({journal,scene,previous:null,committed:saved,
+      type:"journey.started",subject:"your destination"}),true);
+    await runtime.publicWrites;
+    assert.equal(rendered[1].subject,"your destination");
+    assert.equal(Object.hasOwn(pulses[1],"publicSubject"),false);
+    assert.deepEqual(decision(),{
+      type:"journey.started",requestedSubject:"your destination",
+      finalResolvedName:"your destination",source:"generic-fallback",
+      reason:"token-elevation-unavailable",
+      publishedTerritoryCount:0,containingPublicTerritoryCount:0,
+      gmBannerQueued:true,playerSafeNamePublished:false});
+    assert.equal(JSON.stringify(pulses).includes("PRIVATE NATIVE NAME"),false);
+    level="off";
+    runtime.diagnostic({type:"journey.ended",subject:"unused",decision:"suppressed"});
+    assert.equal(logs.filter(([prefix])=>prefix.includes("banner decision")).length,2,
+      "Atlas Debug Off suppresses later console decision logs");
+  }finally{globalThis.game=prior.game;console.debug=prior.debug;}
+});
+
 test("a hidden or unmatched destination never leaves the player-safe generic fallback",async()=>{
   const atlas=upgradeAtlasPlayerVisibility({schemaVersion:4,
     coordinateSpace:"image",revision:9,enabled:true,calibration:null,

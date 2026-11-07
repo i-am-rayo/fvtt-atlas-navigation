@@ -53,11 +53,13 @@ test("pure checkpoint rules require unknown -> visited, automatic and existing",
 });
 
 test("actual saved automatic Scene visit is the only checkpoint banner source",async()=>{
-  const previousGame=globalThis.game;
+  const previousGame=globalThis.game,previousDebug=console.debug,logs=[];
   const {scene,flags,writes:initialWrites}=sceneFixture();
   const {runtime,local,publicPulses,setUser}=runtimeFixture();
   try{
-    globalThis.game={user:{id:"gm",isGM:true},settings:{get:()=>defaultTravelPresets()}};
+    console.debug=(...args)=>logs.push(args);
+    globalThis.game={user:{id:"gm",isGM:true},settings:{get:(_ns,key)=>
+      key==="debugConsoleLevel"?"verbose":defaultTravelPresets()}};
     const before=readPartyExploration(scene);
     assert.deepEqual(await saveAutomaticCheckpointVisits(scene,["bridge"]),["bridge"]);
     const after=readPartyExploration(scene);
@@ -67,7 +69,8 @@ test("actual saved automatic Scene visit is the only checkpoint banner source",a
     assert.deepEqual(local,[{type:"checkpoint.discovered",subject:"SECRET Northern Bridge"}]);
     assert.deepEqual(publicPulses.map(p=>p.type),["checkpoint.discovered"]);
     assert.equal(JSON.stringify(publicPulses).includes("SECRET"),false);
-    assert.match(runtime.recentDiagnostics().at(-1).decision,/queued/);
+    assert.ok(logs.some(([prefix,item])=>prefix.includes("banner decision")&&
+      /queued/.test(item?.decision)),"a confirmed visit logs to GM Verbose");
     // A second move past an already-seen checkpoint is not a new commit.
     const second=readPartyExploration(scene);
     assert.deepEqual(await saveAutomaticCheckpointVisits(scene,["bridge"]),[]);
@@ -75,12 +78,16 @@ test("actual saved automatic Scene visit is the only checkpoint banner source",a
       previous:second,committed:readPartyExploration(scene)}),false);
     assert.equal(publicPulses.length,1);
     setUser({id:"player",isGM:false});
-    assert.deepEqual(runtime.recentDiagnostics(),[],"player cannot inspect GM traces");
+    const logged=logs.length;
+    globalThis.game.user={id:"player",isGM:false};
+    runtime.diagnostic({type:"checkpoint.discovered",subject:"SECRET Bridge",
+      decision:"Denied"});
+    assert.equal(logs.length,logged,"players cannot inspect GM-only verbose traces");
     assert.equal(runtime.publishDiscovery({scene,kind:"checkpoint",recordId:"bridge",
       previous:before,committed:after}),false);
     assert.equal(flags.partyExploration.discoveredCheckpointIds[0],"bridge");
     assert.ok(initialWrites===0);
-  }finally{globalThis.game=previousGame;}
+  }finally{globalThis.game=previousGame;console.debug=previousDebug;}
 });
 
 test("GM road Show to players announces only first saved false -> true",async()=>{

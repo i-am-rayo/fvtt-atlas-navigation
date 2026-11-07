@@ -42,40 +42,6 @@ export class AtlasAnnouncementPreviewSettings extends foundry.applications.api.A
       grid.appendChild(button);
     }
     root.appendChild(grid);
-    const diagnosticHeading=document.createElement("h3");
-    diagnosticHeading.textContent="Recent banner decisions (GM only)";
-    const diagnosticNote=document.createElement("p");
-    diagnosticNote.textContent="In-memory checks from this GM browser only. " +
-      "Checkpoint: Unknown → Seen / Visited, automatic proximity. " +
-      "Road: Hidden → Show to players, saved by GM. " +
-      "Pause and rest require a committed Journey Journal. " +
-      "Enable Atlas Debug → Verbose for console details; refresh to inspect recent events.";
-    const status=document.createElement("ol");
-    status.className="atlas-announcement-diagnostics";
-    status.setAttribute("aria-live","polite");
-    const refresh=document.createElement("button");
-    refresh.type="button";
-    refresh.className="atlas-announcement-sample-button";
-    refresh.textContent="Refresh discovery diagnostics";
-    const display=()=>{
-      if(!globalThis.game?.user?.isGM)return;
-      status.replaceChildren();
-      const events=atlasAnnouncementRuntime.recentDiagnostics().slice(-12).reverse();
-      if(!events.length){
-        const empty=document.createElement("li");
-        empty.textContent="No discovery decisions recorded in this browser yet.";
-        status.appendChild(empty);
-      }
-      for(const event of events){
-        const item=document.createElement("li");
-        item.textContent=`${event.at} · ${event.type}: ${event.subject} · `+
-          `${event.from} → ${event.to} · ${event.method} · ${event.decision}`;
-        status.appendChild(item);
-      }
-    };
-    refresh.addEventListener("click",display);
-    root.append(diagnosticHeading,diagnosticNote,refresh,status);
-    display();
     return root;
   }
 

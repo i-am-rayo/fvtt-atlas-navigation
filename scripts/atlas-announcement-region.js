@@ -8,14 +8,23 @@ import {verifiedJourneyDestinationPoint} from "./atlas-announcement-destination.
 /** Read-only Foundry v14 Region adapter. Native RegionDocument.testPoint is
  * authoritative for compound Shapes, holes, Scene padding and elevation;
  * Atlas never reimplements those native geometry or elevation semantics. */
-export function publicRegionDestinationName({scene,view,atlas,record}={}){
+export function inspectPublicRegionDestination({scene,view,atlas,record}={}){
   const point=verifiedJourneyDestinationPoint(record,scene?.grid?.size);
-  if(!point||!view?.ready||view.scene?.id!==scene?.id||
-      !record?.tokenId||!scene?.tokens?.get)return null;
+  const result=(name,reason,{published=0,containing=0}={})=>({
+    name,reason,published,containing});
+  if(!point)return result(null,"unverified-point-b");
+  if(!view?.ready)return result(null,"canvas-not-ready");
+  if(view.scene?.id!==scene?.id)return result(null,"canvas-scene-mismatch");
+  if(!record?.tokenId||!scene?.tokens?.get)
+    return result(null,"journey-token-unavailable");
   const token=scene.tokens.get(record.tokenId);
-  if(!Number.isFinite(token?.elevation))return null;
+  if(!Number.isFinite(token?.elevation))
+    return result(null,"token-elevation-unavailable");
   const target=toCanvasPoint(view,atlas,point);
+  if(!Number.isFinite(target?.x)||!Number.isFinite(target?.y))
+    return result(null,"canvas-point-unavailable");
   const candidates=[];
+  let published=0;
   for(const region of scene.regions?.contents??[]){
     if(region.parent?.id!==scene.id||region.hidden===true||
         typeof region.testPoint!=="function")continue;
@@ -23,12 +32,17 @@ export function publicRegionDestinationName({scene,view,atlas,record}={}){
     try{flag=readPublicTerritory(region);}
     catch{continue;} // Unknown private/invalid Region flags never leak.
     if(!flag)continue;
+    published++;
     try{
       if(region.testPoint({x:target.x,y:target.y,elevation:token.elevation}))
         candidates.push({id:region.id,label:flag.label});
-    }catch{return null;} // Native containment failure must not guess.
+    }catch{return result(null,"native-region-test-failed",{published});}
+    // Native containment failure must not guess.
   }
-  if(candidates.length<=1)return mostSpecificPublicTerritoryLabel(candidates);
+  const counts={published,containing:candidates.length};
+  if(!candidates.length)return result(null,published?
+    "point-b-outside-published-regions":"no-published-regions",counts);
+  if(candidates.length===1)return result(candidates[0].label,"resolved",counts);
   // The GM has explicitly published multiple overlapping native Regions.
   // Only a valid Atlas parent chain can establish which name is more specific.
   // Geographic kind alone never breaks a tie or publishes a private name.
@@ -41,5 +55,11 @@ export function publicRegionDestinationName({scene,view,atlas,record}={}){
     }catch{invalid=true;}
     geographyById.set(region.id,{linked,geography,invalid});
   }
-  return mostSpecificPublicTerritoryLabel(candidates,geographyById);
+  const name=mostSpecificPublicTerritoryLabel(candidates,geographyById);
+  return result(name,name?"resolved":"ambiguous-public-region-overlap",counts);
+}
+
+/** Preserve the stable, name-only adapter contract for other consumers. */
+export function publicRegionDestinationName(options={}){
+  return inspectPublicRegionDestination(options).name;
 }
