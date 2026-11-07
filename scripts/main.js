@@ -38,6 +38,7 @@ import { buildTerritoryGeographyForm,geographyFromForm }
   from "./territory-geography-form.js";
 import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
   from "./region-boundary.js";
+import {placeNativePolygonTerritory} from "./native-territory-creation.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
   applyGeneratedRegionPresetColor, updateGeneratedRegionMovementCost,
@@ -50,6 +51,7 @@ import { registerWorldTravelPresets, readWorldTravelPresets }
   from "./travel-preset-settings.js";
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
 import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsInput } from "./settings-input.js";
 import { promptNativeMovementAction } from "./native-movement-action-picker.js";
 import { createRoadPresetStage } from "./road-settings-preset.js";
 import { arrangeRoadDialogFooter } from "./road-settings-dialog-footer.js";
@@ -1475,6 +1477,40 @@ function actions() {
       refresh();
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Regions.Unlinked"));
     },
+    async createNativeTerritory(scene,refresh) {
+      ensureIdle(scene);
+      if(navigation.travelSession)
+        throw Error("End the active Journey before creating native territory Regions.");
+      const content=document.createElement("div");
+      const note=document.createElement("p");
+      note.textContent="Create a native Foundry Region with a one-grid polygon starter. " +
+        "After entering a name, click the desired position on the Scene canvas " +
+        "to place it, or cancel to create nothing. Edit its polygon vertices in " +
+        "Foundry's native Region tools. No Atlas link, public name, or Behaviors are added.";
+      const label=document.createElement("label");
+      label.textContent="Region name";
+      const input=createSettingsInput("text","",{name:"name",
+        ariaLabel:"Name for new native polygon Region"});
+      input.maxLength=120;
+      input.setAttribute("required","");
+      label.appendChild(input);content.append(note,label);
+      const result=await DialogV2.input({window:{title:"Place native polygon Region"},
+        content,ok:{label:"Place Polygon"},rejectClose:false,modal:true});
+      if(!result)return;
+      let created;
+      try {created=await placeNativePolygonTerritory(scene,result.name);}
+      catch(error){
+        atlasDebug("territory","Native Region placement rejected",{
+          reason:error.message},{level:"verbose"});
+        throw error;
+      }
+      if(!created)return;
+      refresh();
+      ui.notifications.info("Native polygon Region placed. Edit its outline in Foundry, then link and classify it in Atlas.");
+      const sheet=new foundry.applications.sheets.RegionConfig({document:created});
+      await sheet.render({force:true});
+      sheet.bringToFront?.();
+    },
     async configureRegion(scene, regionId) {
       if (!game.user?.isGM || !scene.canUserModify(game.user, "update")) {
         throw new Error("Only a GM can configure Atlas Regions.");
@@ -1493,6 +1529,8 @@ function actions() {
       ensureIdle(scene);
       if(shouldLink)await linkAtlasRegion(scene,regionId);
       else await unlinkAtlasRegion(scene,regionId);
+      atlasDebug("territory","Native Region Atlas association updated",{
+        linked:shouldLink},{level:"verbose"});
       refresh();
       ui.notifications.info(shouldLink?"Native Region linked to Atlas.":
         "Atlas association removed; native Region unchanged.");
@@ -1506,8 +1544,9 @@ function actions() {
       intro.textContent="Round an existing manually drawn native polygon. " +
         "This changes the border and may create gaps against neighboring Regions. " +
         "Do not smooth a shared border independently until Atlas's paired-edge editor is available. " +
-        "Repeated saves round the already smoothed outline, add vertices, and may shrink its area; " +
-        "the 256-vertex preview cap is intentional.";
+        "Small polygons use Chaikin corner cutting; detailed polygons use a " +
+        "bounded vertex-preserving pass (up to 2,048 native vertices). " +
+        "Repeat smoothing can still shrink land area; inspect the preview each time.";
       choice.appendChild(intro);
       choice.appendChild(createSettingsSelect([["1","Gentle · one smoothing pass"],
         ["2","Moderate · two smoothing passes"]],
@@ -1519,10 +1558,19 @@ function actions() {
       const view=globalThis.canvas;
       if(!view?.ready||view.scene?.id!==scene.id)
         throw Error("Open this Scene on the canvas to preview the Region.");
-      const plan=planNativeRegionSmoothing(scene,regionId,passes);
+      let plan;
+      try {plan=planNativeRegionSmoothing(scene,regionId,passes);}
+      catch(error){
+        atlasDebug("territory","Native boundary smoothing preview rejected",{
+          reason:error.message},{level:"verbose"});
+        throw error;
+      }
       const confirmation=document.createElement("div");
       for(const line of ["Region: "+plan.regionName,
         "Orange: current polygon boundary. Green: proposed smoothed boundary.",
+        `Method: ${plan.smoothingMode}; ${plan.sourceVertexCount} → `+
+          `${plan.resultVertexCount} vertices; estimated area change: `+
+          `${plan.areaChangePercent}%.`,
         "No neighboring Region will be modified. Gaps or overlaps with adjacent territories " +
           "may change. Use Cancel if this Region shares an exact political border.",
         "Save changes only to this Region's native Shapes. Its ID, flags, " +
@@ -1537,7 +1585,12 @@ function actions() {
         if(!approved)return;
         if(!roadCanvas.isRegionPreviewActive(scene,plan))
           throw Error("The canvas preview changed; reopen the boundary editor.");
-        await saveNativeRegionSmoothing(scene,plan);
+        try {await saveNativeRegionSmoothing(scene,plan);}
+        catch(error){
+          atlasDebug("territory","Native boundary smoothing save rejected",{
+            reason:error.message},{level:"verbose"});
+          throw error;
+        }
         refresh();ui.notifications.info("Native Region boundary smoothed; other Regions and Behaviors preserved.");
       }finally{roadCanvas.clearRegionPreview();}
     },
@@ -1579,6 +1632,10 @@ function actions() {
         result.publish==="true"||result.publish==="on";
       await savePublicTerritory(scene,regionId,{enabled,
         label:String(result.publicName??""),expected,expectedName,expectedHidden});
+      atlasDebug("territory","Public Territory label saved",{
+        enabled,changed:Boolean(expected?.enabled)!==enabled ||
+          (enabled&&expected?.label!==String(result.publicName??""))
+      },{level:"verbose"});
       refresh();
       ui.notifications.info(enabled?"Public territory label saved.":
         "Public territory label disabled.");
@@ -1618,6 +1675,11 @@ function actions() {
       if (!confirmed)return;
       const changed=await saveRegionGeography(scene,regionId,{next,expected,
         expectedName,expectedHidden});
+      atlasDebug("territory","Atlas geography classification reviewed",{
+        changed,kind:next?.kind??"unclassified",
+        hasParent:Boolean(next?.parentRegionId),
+        manualRoadCorrections:Object.keys(next?.roadOverrides??{}).length
+      },{level:"verbose"});
       if (changed) ui.notifications.info("Atlas geographic classification saved.");
       refresh();
     },

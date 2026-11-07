@@ -46,6 +46,7 @@ function context() {
     getFlag: () => null, canUserModify: () => true };
   const calls = [];
   const actions = { draft: () => null,
+    createNativeTerritory: () => calls.push(["create-native"]),
     configureRegion: (_scene, id) => calls.push(["native", id]),
     smoothNativeRegion: (_scene, id) => calls.push(["smooth", id]),
     setNativeRegionLink: (_scene, id, linked) => calls.push(["link", id, linked]),
@@ -66,6 +67,10 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     const territories = buttons(first.result).find(item => item.textContent === "Territories");
     await territories.listeners.get("click")({ preventDefault() {} });
     assert.match(text(first.result), /Millstone/);
+    const add=buttons(first.result).find(item=>
+      item.title==="Create a native polygon Region on this Scene");
+    assert.ok(add,"the Territory legend offers a native Polygon [+] button");
+    await add.listeners.get("click")({preventDefault(){}});
     const row = walk(first.result, item => item.className?.includes?.("atlas-territory-row"))[0];
     assert.ok(row, "native Region has a compact workspace row");
     assert.match(row.children[1].className, /atlas-territory-actions/,
@@ -82,7 +87,8 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     const label = buttons(first.result).find(item =>
       item.title === "Edit public Journey territory label");
     await label.listeners.get("click")({ preventDefault() {} });
-    assert.deepEqual(ctx.calls, [["smooth", "region-1"], ["label", "region-1"]]);
+    assert.deepEqual(ctx.calls, [["create-native"],["smooth", "region-1"],
+      ["label", "region-1"]]);
     await refreshAtlasSceneWorkspace(ctx.scene);
     assert.match(text(first.result), /Millstone/);
     await first.close();

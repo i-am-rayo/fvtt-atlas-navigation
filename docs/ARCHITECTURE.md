@@ -252,3 +252,16 @@ The **Journey-owned** manual pause path supplies explicit `manualPause` only aft
 Native canvas destruction may interrupt an approved movement, yet the existing recovery controller can safely resume the remaining distance after the old movement/clock/Journal promises settle. A canvas hook is therefore **not** a `journey.paused` event and never directly broadcasts. On `canvasTearDown`, the GM controller retains only an ephemeral `{Scene, token, Journal, createdAt, original phase}` candidate and reuses the pre-existing recovery sequence: reconcile native writes, try the same approved leg when safe, restore the GM window/decision. A new pure `navigation-canvas-announcement.js` policy discriminates an explicitly pending GM decision from continuation, manual pause, terminal state, and mere Canvas lifecycle noise.
 
 Only after the prior promises settle does the controller re-read and validate the *existing* versioned Journey flag from the original Journal, match the Scene/token/creation ID, and require the active GM's Scene update permission. The authoritative saved state decides between **paused awaiting GM** (`journey.awaiting-gm`, no pending native move) and **interrupted pending review** (`journey.interrupted`); a pending native intent may be *labelled interrupted* but never *approved or completed*. These two types require explicit canvas recovery/GM-review eligibility proof in the pure `atlas-announcement-commit.js` policy. The existing runtime verifies the matching Journal receipt, including a strict pending-intent comparison solely for interrupted notices, before GM display and public dispatch. In-flight or automatically continued travel, mismatched/unsettled Journal writes, repeated CanvasReady, inactive/non-GM or other-Scene clients emit nothing. No replay of old World pulses, and banner delivery remains best-effort/ephemeral; no movement, World time, fare, Actor, native Region, Fog or Journal schema changes. See [beta.5 acceptance](ANNOUNCEMENT_BETA5_CANVAS_RECOVERY.md).
+
+## v0.3.9-beta.8.7 — Native Territory authoring and Verbose diagnostics
+
+The pure native border assistant now selects bounded Chaikin smoothing or
+vertex-preserving smoothing based on polygon density (up to 2,048 vertices),
+rejecting unsafe intersections and excessive area changes before preview.
+The GM-only Foundry adapter rechecks permissions and the native shape snapshot
+before a single explicitly confirmed `shapes` update. The Territory Workspace
+`[+]` uses public v14 `RegionLayer.placeRegion` for a native polygon starter;
+Atlas does not invent a Region link, public label or Behavior on creation.
+New feature slices should instrument categorized, compact GM-only Verbose
+decision/validation/commit diagnostics without revealing shapes or hidden
+names. See [design and live checklist](TERRITORY_AUTHORING_BETA8_7.md).

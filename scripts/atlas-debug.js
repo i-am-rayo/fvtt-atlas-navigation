@@ -5,21 +5,23 @@ export const ATLAS_DEBUG_LEVEL_SETTING="debugConsoleLevel";
 export const ATLAS_DEBUG_LEVELS=Object.freeze({
   off:"Off (warnings and errors only)",
   standard:"Standard (journey milestones)",
-  verbose:"Verbose (movement, clock, exploration, banners)",
+  verbose:"Verbose (feature decisions and actions)",
   trace:"Trace (Scene changes and fog refreshes)"
 });
 const LEVEL_VALUE={off:0,standard:1,info:1,verbose:2,trace:3};
 export const ATLAS_DEBUG_CATEGORIES=Object.freeze({
   journey:"Journey",movement:"Token Movement",clock:"World Time",
   fog:"Exploration & Fog",lifecycle:"Scene & Windows",
-  announcement:"Discovery & Banner Delivery"
+  announcement:"Discovery & Banner Delivery",
+  territory:"Territories & Native Regions"
 });
 
 export function registerAtlasDebugSettings({settings=game.settings}={}){
   settings.register(MODULE_ID,ATLAS_DEBUG_LEVEL_SETTING,{
     name:"Atlas Debug — Console Logging Level",
     hint:"Controls Atlas logs in this browser only. Standard shows major journey events; " +
-      "Verbose adds movement, clock, exploration and announcement decisions; Trace adds Scene and fog refreshes. " +
+      "Verbose adds GM-only feature decisions, territory editing, movement, clock, exploration and announcements; " +
+      "new features should add bounded Verbose diagnostics. Trace adds Scene and fog refreshes. " +
       "Warnings and errors always appear.",
     scope:"client",config:true,type:String,default:"off",choices:ATLAS_DEBUG_LEVELS
   });

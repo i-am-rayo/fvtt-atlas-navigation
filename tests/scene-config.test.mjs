@@ -93,7 +93,7 @@ test("Roads plus opens drawing against the configured Scene; no Configure dialog
     assert.equal(mounted.attributes.has("data-fvtt-atlas-setup"), true);
     assert.ok(buttons(mounted).length >= 2,
       "empty Atlas controls were not rendered: " + textContents(mounted));
-    const plus = buttons(mounted).find(item => item.textContent === "+");
+    const plus = buttons(mounted).find(item => item.title === "FVTTATLAS.Roads.Add");
     assert.ok(plus, "Roads has a creation control");
     assert.equal(plus.type, "button");
     await plus.listeners.get("click")({ preventDefault() {} });
@@ -165,7 +165,7 @@ test("a Scene with roads shows select, rename, delete without activation toggles
       "legacy v1 remains locked behind explicit anchoring");
     assert.match(buttons(mounted).find(b => b.textContent === "FVTTATLAS.Roads.Anchor").textContent,
       /FVTTATLAS.Roads.Anchor/);
-    assert.equal(buttons(mounted).filter(b=>b.textContent==="+" && !b.disabled).length,0,
+    assert.equal(buttons(mounted).filter(b=>b.title==="FVTTATLAS.Roads.Add" && !b.disabled).length,0,
       "legacy v1 cannot add or change roads before anchoring");
     assert.match(textContents(mounted), /North Road/);
     assert.doesNotMatch(textContents(mounted), /Configure Atlas/);
@@ -218,7 +218,7 @@ test("anchored v2 road list explicitly offers organization before new editing", 
     assert.ok(buttons(mounted).some(b => b.textContent === "FVTTATLAS.Roads.Organize"),
       "legacy v2 offers explicit organization before editing");
     assert.equal(buttons(mounted)[0].textContent, "FVTTATLAS.Roads.Organize");
-    assert.ok(!buttons(mounted).some(b=>b.textContent==="+" && !b.disabled));
+    assert.ok(!buttons(mounted).some(b=>b.title==="FVTTATLAS.Roads.Add" && !b.disabled));
     buttons(mounted)[0].listeners.get("click")({ preventDefault() {} });
     assert.equal(organizeScene, scene);
   } finally { Object.assign(globalThis, previous); }
@@ -828,7 +828,7 @@ test("GM edits public Region naming inside territory management without a duplic
 
 test("Scene Atlas manages native Regions across roads and exposes safe boundary preview",async()=>{
   const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
-  let mounted=null,preview=null,opened=null,link=null,publicName=null;
+  let mounted=null,preview=null,opened=null,link=null,publicName=null,created=false;
   const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
   const element={querySelector:selector=>
     selector==="[data-fvtt-atlas-scene-root]"?nativeRoot:null};
@@ -846,6 +846,7 @@ test("Scene Atlas manages native Regions across roads and exposes safe boundary 
     addAtlasRoadsToSceneConfig({document:scene},element,{
       draft:()=>null,begin(){},select(){},rename(){},remove(){},
       configureRegion:(_s,id)=>{opened=id;},
+      createNativeTerritory:()=>{created=true;},
       smoothNativeRegion:(_s,id)=>{preview=id;},
       configurePublicTerritory:(_s,_refresh,id)=>{publicName=id;},
       setNativeRegionLink:(_s,id,enabled)=>{link=[id,enabled];}
@@ -853,6 +854,10 @@ test("Scene Atlas manages native Regions across roads and exposes safe boundary 
     assert.match(textContents(mounted),/Territories & custom native Regions/);
     assert.match(textContents(mounted),/Native only/);
     const controls=buttons(mounted);
+    const plus=controls.find(b=>b.title==="Create a native polygon Region on this Scene");
+    assert.ok(plus,"Territory panel includes the native [+] control");
+    await plus.listeners.get("click")({preventDefault(){}});
+    assert.equal(created,true);
     for(const [title,outcome] of [
       ["Edit native Region in Foundry",()=>opened],
       ["Preview smoother native polygon boundary",()=>preview],
