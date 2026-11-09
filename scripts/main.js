@@ -42,7 +42,8 @@ import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
 import {analyzeSceneTerritoryBorders,planNativeTerritoryTrim,
   saveNativeTerritoryTrim} from "./territory-border-reconciliation.js";
 import {TerritoryAuthoringCanvas} from "./territory-authoring-canvas.js";
-import {readTerritoryDraft,selectedBlankWallBoundary,saveTerritoryDraft}
+import {readTerritoryDraft,selectedBlankWallBoundary,saveTerritoryDraft,
+  planNativeTerritoryAdoption,adoptNativeTerritoryBoundary}
   from "./territory-authoring.js";
 import {GEOGRAPHY_KINDS} from "./territory-geography-model.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
@@ -1518,16 +1519,14 @@ function actions() {
       const parents=listSceneGeography(scene).filter(e=>e.linked&&!e.invalid&&
         ["continent","area"].includes(e.geography?.kind));
       const parentLabel=document.createElement("label");
-      parentLabel.textContent="Contained within (required for settlements when available)";
-      parentLabel.appendChild(createSettingsSelect([["","No parent / Continent"],
+      parentLabel.textContent="Contained within (optional; inferred from overlap when possible)";
+      parentLabel.appendChild(createSettingsSelect([["","No parent (standalone / infer later)"],
         ...parents.map(e=>[e.id,e.name])],
       {name:"parent",ariaLabel:"Parent Territory"}));
       content.appendChild(parentLabel);
       const result=await DialogV2.input({window:{title:"Create Atlas Territory"},
         content,ok:{label:"Edit Boundary"},rejectClose:false,modal:true});
       if(!result)return;
-      if(["city","town","village"].includes(result.kind)&&parents.length&&!result.parent)
-        throw Error("Select the containing Continent or Area before drawing this settlement.");
       if(result.kind==="continent"&&result.parent)
         throw Error("A Continent cannot have a parent.");
       const kind=result.method==="grid"?"grid":"polygon";
@@ -1557,6 +1556,28 @@ function actions() {
         await saveTerritoryDraft(scene,candidate,{regionId});
         refresh();ui.notifications.info("Native Territory boundary updated; Behaviors retained.");
       });
+    },
+    async adoptNativeTerritoryBoundary(scene,regionId,refresh){
+      ensureIdle(scene);
+      if(navigation.travelSession||territoryCanvas.session||manualFog.paletteOpen||manualFog.brush)
+        throw Error("End the Journey or active canvas editor before reconciling this Territory.");
+      const plan=planNativeTerritoryAdoption(scene,regionId);
+      const content=document.createElement("div");
+      for(const message of [
+        `The native Region ${plan.regionName} was changed outside Atlas.`,
+        `Adopt its current ${plan.controls} ${plan.kind==="grid"?"grid cells":"polygon nodes"} `+
+          "as new Atlas editor controls?",
+        "The Region Shape, Behaviors, Levels, ID, visibility, geography and public " +
+          "name will not change. Previous control-node identities, smoothing " +
+          "settings and Blank Wall associations will be replaced.",
+        "This does not move the Region back or correct a map offset. Review the " +
+          "native boundary visually before confirming."
+      ]){const p=document.createElement("p");p.textContent=message;content.appendChild(p);}
+      const approved=await DialogV2.confirm({window:{title:"Adopt Native Territory Boundary"},
+        content,yes:{label:"Adopt Current Native Shape"},rejectClose:false,modal:true});
+      if(!approved)return;
+      await adoptNativeTerritoryBoundary(scene,plan);
+      refresh();ui.notifications.info("Atlas controls now match the authoritative native Region boundary.");
     },
     async configureRegion(scene, regionId) {
       if (!game.user?.isGM || !scene.canUserModify(game.user, "update")) {

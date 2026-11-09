@@ -88,11 +88,17 @@ export class TerritoryAuthoringCanvas{
       const mode=addButton("Brush: Add",()=>{session.brush=session.brush==="add"?"erase":"add";
         mode.textContent="Brush: "+(session.brush==="add"?"Add":"Erase");});
       const radiusLabel=el("label"," Brush radius ");
-      const select=el("select");
-      for(const size of [0,1,2,3]){const opt=el("option",size===0?"1 cell":`${size} rings`);
-        opt.value=String(size);select.appendChild(opt);}
-      select.addEventListener("change",()=>{session.radius=Number(select.value);});
-      radiusLabel.appendChild(select);panel.appendChild(radiusLabel);
+      const radiusValue=el("output","1 cell");
+      const slider=el("input");slider.type="range";
+      slider.min="0";slider.max="4";slider.step="1";slider.value="0";
+      slider.setAttribute("aria-label","Territory paint brush radius in grid rings");
+      slider.addEventListener("input",()=>{
+        session.radius=Number(slider.value);
+        radiusValue.textContent=session.radius===0?"1 cell":
+          `${session.radius} ring${session.radius===1?"":"s"}`;
+      });
+      radiusLabel.appendChild(slider);radiusLabel.appendChild(radiusValue);
+      panel.appendChild(radiusLabel);
     }else{
       const smoothingLabel=el("label"," Smoothing ");
       const smoothingSelect=el("select");

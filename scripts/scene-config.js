@@ -30,6 +30,7 @@ import { listSceneGeography } from "./territory-geography-storage.js";
 import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
 import { readTerritoryRoadDirectory } from "./territory-road-directory.js";
 import {withInferredContinentParents} from "./territory-parent-inference.js";
+import {territoryBoundaryNeedsAdoption} from "./territory-authoring.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -240,6 +241,9 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
           "Private (no public label)"];
     const parent=geographyById.get(region.id)?.geography?.parentRegionId;
     const entry=geographyById.get(region.id);
+    const nativeRegion=scene.regions?.get?.(region.id);
+    const boundaryStale=!!nativeRegion&&territoryBoundaryNeedsAdoption(nativeRegion);
+    if(boundaryStale)status.push("Native boundary changed — adopt before Atlas editing");
     if(parent&&geographyById.has(parent))status.push("Parent: "+
       geographyById.get(parent).name+(entry.inferredParent?
         ` (auto · ${entry.inferredParent.coveragePercent}% overlap)`:" (manual)"));
@@ -254,6 +258,10 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     editBoundary.disabled=!!draft||!region.linked||region.invalidLink||
       !geographyById.get(region.id)?.geography?.kind;
     controls.appendChild(editBoundary);
+    const adopt=iconAction("rotate","Adopt the current native Region boundary as Atlas controls",
+      ()=>actions.adoptNativeTerritoryBoundary(scene,region.id,refresh));
+    adopt.disabled=!!draft||!region.linked||region.invalidLink||!boundaryStale;
+    controls.appendChild(adopt);
     const smooth=iconAction("bezier-curve","Preview smoother native polygon boundary",
       ()=>actions.smoothNativeRegion(scene,region.id,refresh));
     smooth.disabled=!!draft||region.invalidLink||

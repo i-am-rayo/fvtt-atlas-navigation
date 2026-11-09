@@ -45,6 +45,30 @@ export function readBoundarySource(region){
   return clone(data);
 }
 
+/** Native geometry is the source of truth after editing a Region outside Atlas.
+ * Reconciliation never moves the Region; it only refreshes Atlas edit controls. */
+export function territoryBoundaryNeedsAdoption(region){
+  const source=region?.getFlag?.(MODULE_ID,BOUNDARY_SOURCE_FLAG);
+  return source!=null&&source.shapeDigest!==shapeDigest(plainShapes(region));
+}
+
+function draftFromNativeShapes(shapes,digest){
+  if(shapes.length!==1||shapes[0].hole===true)
+    throw Error("Only one simple native polygon or grid Shape can be adopted by Atlas.");
+  if(shapes[0].type==="grid")return {kind:"grid",points:[],
+    offsets:validateGridOffsets(shapes[0].offsets??[]),wallIds:[],smoothing:0,
+    sourceDigest:digest};
+  if(shapes[0].type!=="polygon"||shapes[0].gridBased===true||
+      shapes[0].points?.length%2)
+    throw Error("Select a supported ordinary native polygon or grid Shape.");
+  const origin=shapes[0].origin??{x:0,y:0};
+  const points=[];
+  for(let i=0;i<shapes[0].points.length;i+=2)points.push({id:`adopt_${i/2}`,
+    x:origin.x+shapes[0].points[i],y:origin.y+shapes[0].points[i+1]});
+  validateBoundaryNodes(points);
+  return {kind:"polygon",points,offsets:[],wallIds:[],smoothing:0,sourceDigest:digest};
+}
+
 export function readTerritoryDraft(scene,regionId,{view=globalThis.canvas}={}){
   const region=scene?.regions?.get?.(regionId);
   authorize(scene,region);
@@ -56,21 +80,68 @@ export function readTerritoryDraft(scene,regionId,{view=globalThis.canvas}={}){
     throw Error("Open this Scene on the canvas before editing its native Region.");
   if(source&&source.shapeDigest!==digest)
     throw Error("The native Region was edited outside Atlas. Reconcile its source before continuing.");
-  if(source)return {kind:source.kind,points:(source.nodes??[]).map(node=>({
-      ...node,x:node.x+origin.x,y:node.y+origin.y})),offsets:source.offsets??[],
-    wallIds:source.wallIds,smoothing:source.smoothing??0,sourceDigest:digest};
-  if(shapes.length!==1||shapes[0].hole===true)
-    throw Error("Only one simple native polygon or grid Shape can be adopted by this editor.");
-  if(shapes[0].type==="grid")return {kind:"grid",points:[],
-    offsets:validateGridOffsets(shapes[0].offsets??[]),wallIds:[],smoothing:0,sourceDigest:digest};
-  if(shapes[0].type!=="polygon"||shapes[0].points?.length%2)
-    throw Error("Select a supported native polygon or grid Shape.");
-  const nativeOrigin=shapes[0].origin??{x:0,y:0};
-  const points=[];
-  for(let i=0;i<shapes[0].points.length;i+=2)points.push({id:`adopt_${i/2}`,
-    x:nativeOrigin.x+shapes[0].points[i],y:nativeOrigin.y+shapes[0].points[i+1]});
-  validateBoundaryNodes(points);
-  return {kind:"polygon",points,offsets:[],wallIds:[],smoothing:0,sourceDigest:digest};
+  if(source){
+    const points=(source.nodes??[]).map(node=>({
+      ...node,x:node.x+origin.x,y:node.y+origin.y}));
+    if(source.kind==="polygon"){
+      // A Scene's padding can change independently of a native Region's stored
+      // Shape. Reprojecting Atlas image-relative nodes blindly would shift the
+      // native Region on the next Save. The native Shape always owns position.
+      const projected=shapeForDraft({kind:"polygon",points,smoothing:source.smoothing??0});
+      const native=shapes[0];
+      if(shapes.length!==1||native.type!=="polygon"||
+          native.points.length!==projected.points.length||
+          native.points.some((value,i)=>Math.abs(value-projected.points[i])>0.05))
+        throw Error("Atlas controls cannot be aligned with this native Region Shape. " +
+          "Do not save; inspect the native Region and reconcile its source.");
+      const dx=native.origin.x-projected.origin.x;
+      const dy=native.origin.y-projected.origin.y;
+      for(const point of points){point.x+=dx;point.y+=dy;}
+    }
+    return {kind:source.kind,points,offsets:source.offsets??[],
+      wallIds:source.wallIds,smoothing:source.smoothing??0,sourceDigest:digest};
+  }
+  return draftFromNativeShapes(shapes,digest);
+}
+
+export function planNativeTerritoryAdoption(scene,regionId,{view=globalThis.canvas}={}){
+  const region=scene?.regions?.get?.(regionId);
+  authorize(scene,region);
+  if(!region||region.parent?.id!==scene.id||!readRegionAtlasLink(region))
+    throw Error("Choose an Atlas-linked native Territory in this Scene.");
+  if(!view?.ready||view.scene?.id!==scene.id)
+    throw Error("Open the Region's Scene on the canvas before reconciling.");
+  const original=readBoundarySource(region);
+  if(!original)throw Error("This native Region has no Atlas control source to reconcile.");
+  const shapes=plainShapes(region),digest=shapeDigest(shapes);
+  if(original.shapeDigest===digest)
+    throw Error("Atlas controls already match the native Region; no reconciliation is needed.");
+  const draft=draftFromNativeShapes(shapes,digest);
+  const origin=sceneImageOrigin(view);
+  return {regionId,regionName:region.name,expectedDigest:digest,
+    expectedSource:JSON.stringify(original),kind:draft.kind,
+    controls:draft.kind==="grid"?draft.offsets.length:draft.points.length,
+    source:{schemaVersion:BOUNDARY_SOURCE_VERSION,kind:draft.kind,
+      coordinateSpace:"scene-image",
+      nodes:draft.kind==="polygon"?draft.points.map(p=>({...p,
+        x:p.x-origin.x,y:p.y-origin.y})):undefined,
+      offsets:draft.kind==="grid"?clone(draft.offsets):undefined,
+      wallIds:[],smoothing:0,shapeDigest:digest}};
+}
+
+export async function adoptNativeTerritoryBoundary(scene,plan,{view=globalThis.canvas}={}){
+  const region=scene?.regions?.get?.(plan?.regionId);
+  authorize(scene,region);
+  if(!region||region.parent?.id!==scene.id||!readRegionAtlasLink(region)||
+      !view?.ready||view.scene?.id!==scene.id)
+    throw Error("The native Territory or active Scene changed; reopen reconciliation.");
+  if(shapeDigest(plainShapes(region))!==plan.expectedDigest||
+      JSON.stringify(readBoundarySource(region))!==plan.expectedSource)
+    throw Error("The native Region or Atlas source changed; reopen reconciliation without saving.");
+  // A Shape was edited natively, so the previous Atlas Blank-Wall provenance and
+  // smoothing instructions no longer describe the authoritative Shape.
+  await region.update({[`flags.${MODULE_ID}.${BOUNDARY_SOURCE_FLAG}`]:plan.source});
+  return region;
 }
 
 export function selectedBlankWallBoundary(scene,view=globalThis.canvas){

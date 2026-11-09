@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {saveTerritoryDraft,readTerritoryDraft,selectedBlankWallBoundary}
+import {saveTerritoryDraft,readTerritoryDraft,selectedBlankWallBoundary,
+  territoryBoundaryNeedsAdoption,planNativeTerritoryAdoption,adoptNativeTerritoryBoundary}
   from "../scripts/territory-authoring.js";
 
 const mkDraft=()=>({kind:"polygon",name:"Dirwest",
@@ -89,7 +90,7 @@ test("adopting existing native Regions never edits geometry on read",()=>{
   }finally{globalThis.game=old;}
 });
 
-test("Atlas control nodes round-trip in image-local space without native writes",async()=>{
+test("Atlas controls follow native Region coordinates after a Scene padding change",async()=>{
   const old={game:globalThis.game,PIXI:globalThis.PIXI};
   globalThis.game={user:{isGM:true}};
   globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
@@ -106,7 +107,39 @@ test("Atlas control nodes round-trip in image-local space without native writes"
     assert.deepEqual(first.points,mkDraft().points);
     view.dimensions.sceneX=120;view.dimensions.sceneY=180;
     const shifted=readTerritoryDraft(scene,region.id,{view});
-    assert.deepEqual(shifted.points[0],{id:"a",x:20,y:-20});
+    assert.deepEqual(shifted.points[0],{id:"a",x:0,y:0},
+      "native Region remains authoritative even when Scene image origin changes");
+    region.update=async patch=>{region.shapes=patch.shapes;};
+    const draft={...shifted,name:region.name,geography:mkDraft().geography};
+    await saveTerritoryDraft(scene,draft,{regionId:region.id,view});
+    assert.equal(region.shapes[0].origin.x,0,
+      "explicitly saving an unchanged boundary must not shift the native Shape");
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("smoothed Atlas controls remain aligned to native Region geometry after padding changes",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {created,scene,view}=fixture();
+    const original=mkDraft();original.smoothing=1;
+    await saveTerritoryDraft(scene,original,{view});
+    const data=created[0].payload[0];
+    const region=mockRegion("smoothed","town");
+    region.shapes=structuredClone(data.shapes);
+    region.getFlag=(module,key)=>data.flags[module]?.[key]??null;
+    scene.regions.set(region.id,region);
+    const originalShape=structuredClone(region.shapes[0]);
+    view.dimensions.sceneX+=75;
+    view.dimensions.sceneY-=35;
+    const draft=readTerritoryDraft(scene,region.id,{view});
+    assert.deepEqual(draft.points,original.points);
+    region.update=async patch=>{region.shapes=patch.shapes;};
+    await saveTerritoryDraft(scene,{...draft,name:region.name,
+      geography:original.geography},{regionId:region.id,view});
+    assert.deepEqual(region.shapes[0],originalShape,
+      "smoothing and unchanged controls must reproduce the same native geometry");
   }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
 });
 
@@ -141,5 +174,90 @@ test("stale native Region edits cannot be overwritten by an older Atlas draft",a
     await assert.rejects(saveTerritoryDraft(scene,draft,{regionId:region.id,view}),
       /changed during editing/);
     assert.equal(writes,0);
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("a standalone City can be authored without any Continent",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {scene,view,created}=fixture();
+    const draft=mkDraft();draft.geography.kind="city";
+    await saveTerritoryDraft(scene,draft,{view});
+    assert.equal(created[0].payload[0].flags["fvtt-atlas-navigation"].territoryGeography.parentRegionId,null);
+    assert.equal(created[0].payload[0].flags["fvtt-atlas-navigation"].territoryGeography.kind,"city");
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("reconcile native edits by refreshing Atlas controls without moving the native Shape",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {scene,view,created}=fixture();
+    await saveTerritoryDraft(scene,mkDraft(),{view});
+    const data=created[0].payload[0],flags=data.flags["fvtt-atlas-navigation"];
+    const region=mockRegion("dirwest","town");
+    region.shapes=structuredClone(data.shapes);
+    region.behaviors=[{type:"teleport"}];
+    region.getFlag=(_module,key)=>flags[key]??null;
+    const writes=[];
+    region.update=async patch=>{
+      writes.push(patch);
+      assert.equal(Object.hasOwn(patch,"shapes"),false,"Reconcile never rewrites native geometry");
+      flags.territoryBoundarySource=patch["flags.fvtt-atlas-navigation.territoryBoundarySource"];
+    };
+    scene.regions.set(region.id,region);
+    assert.equal(territoryBoundaryNeedsAdoption(region),false);
+    region.shapes[0].origin={x:50,y:30}; // GM moved the native Region outside Atlas.
+    assert.equal(territoryBoundaryNeedsAdoption(region),true);
+    assert.throws(()=>readTerritoryDraft(scene,region.id,{view}),/Reconcile/);
+    const plan=planNativeTerritoryAdoption(scene,region.id,{view});
+    assert.equal(plan.controls,4);
+    assert.equal(plan.source.nodes[0].x,-50);
+    assert.equal(plan.source.nodes[0].y,-170);
+    await adoptNativeTerritoryBoundary(scene,plan,{view});
+    assert.equal(writes.length,1);
+    assert.equal(region.shapes[0].origin.x,50);
+    assert.deepEqual(region.behaviors,[{type:"teleport"}]);
+    assert.equal(territoryBoundaryNeedsAdoption(region),false);
+    const recovered=readTerritoryDraft(scene,region.id,{view});
+    assert.equal(recovered.points[0].x,50);
+    assert.equal(recovered.points[0].y,30);
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("reconciliation refuses concurrent native geometry changes without writing",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {scene,view,created}=fixture();
+    await saveTerritoryDraft(scene,mkDraft(),{view});
+    const region=mockRegion("dirwest","town");
+    const flags=created[0].payload[0].flags["fvtt-atlas-navigation"];
+    region.getFlag=(_module,key)=>flags[key]??null;
+    region.shapes=structuredClone(created[0].payload[0].shapes);
+    region.shapes[0].origin={x:12,y:18};
+    let writes=0;region.update=async()=>writes++;
+    scene.regions.set(region.id,region);
+    const plan=planNativeTerritoryAdoption(scene,region.id,{view});
+    region.shapes[0].origin.x+=2;
+    await assert.rejects(adoptNativeTerritoryBoundary(scene,plan,{view}),/changed/);
+    assert.equal(writes,0);
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("non-GMs cannot adopt a manually edited native Territory",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:false}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const region=mockRegion("dirwest","town");
+    const {scene,view}=fixture([region]);
+    assert.throws(()=>planNativeTerritoryAdoption(scene,region.id,{view}),/authorized GM/);
+    await assert.rejects(adoptNativeTerritoryBoundary(scene,{regionId:region.id},
+      {view}),/authorized GM/);
   }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
 });
