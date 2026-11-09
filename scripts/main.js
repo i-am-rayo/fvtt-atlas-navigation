@@ -38,6 +38,8 @@ import { buildTerritoryGeographyForm,geographyFromForm }
   from "./territory-geography-form.js";
 import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
   from "./region-boundary.js";
+import {analyzeSceneTerritoryBorders,planNativeTerritoryTrim,
+  saveNativeTerritoryTrim} from "./territory-border-reconciliation.js";
 import {placeNativePolygonTerritory} from "./native-territory-creation.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
@@ -1592,6 +1594,92 @@ function actions() {
           throw error;
         }
         refresh();ui.notifications.info("Native Region boundary smoothed; other Regions and Behaviors preserved.");
+      }finally{roadCanvas.clearRegionPreview();}
+    },
+    async reconcileTerritoryBorders(scene,refresh){
+      ensureIdle(scene);
+      if(navigation.travelSession)
+        throw Error("Finish or safely end the active Journey before reconciling native Territory boundaries.");
+      const view=globalThis.canvas;
+      if(!view?.ready||view.scene?.id!==scene.id)
+        throw Error("Open this Scene on the canvas to analyze its native Territory boundaries.");
+      let analysis;
+      try{analysis=analyzeSceneTerritoryBorders(scene);}
+      catch(error){
+        atlasDebug("territory","Peer boundary analysis rejected",{reason:error.message},
+          {level:"verbose"});throw error;
+      }
+      const choose=document.createElement("div");
+      const description=document.createElement("p");
+      description.textContent=`Analyzed ${analysis.comparedPairs} peer pairs. `+
+        `${analysis.overlaps.length} overlapping pair(s); `+
+        `${analysis.nearby.length} nearby boundary pair(s) (possible gaps); `+
+        `${analysis.unsupportedPairs} unsupported pair(s). `+
+        "Nested Continents and settlements and road-generated corridor Regions are excluded. " +
+        "An overlap correction preserves one Region and trims only the other; " +
+        "native Shapes and Behaviors remain unchanged until you explicitly confirm.";
+      choose.appendChild(description);
+      if(analysis.nearby.length){
+        const nearby=document.createElement("p");
+        nearby.textContent="Nearby borders to inspect in native Foundry (no automatic gap-fill): "+
+          analysis.nearby.slice(0,8).map(pair=>pair.firstName+" / "+
+            pair.secondName+` (${pair.distancePixels}px)`).join(" · ");
+        choose.appendChild(nearby);
+      }
+      if(!analysis.overlaps.length){
+        ui.notifications.info("No supported overlapping geographic peers detected. Review nearby/gap hints in the boundary analysis dialog.");
+        await DialogV2.input({window:{title:"Atlas · Territory Boundary Analysis"},
+          content:choose,ok:{label:"Close"},rejectClose:false,modal:true});
+        return;
+      }
+      const options=analysis.overlaps.flatMap(pair=>[
+        [`${pair.secondId}|${pair.firstId}`,
+          `Keep ${pair.firstName}; trim ${pair.secondName} · ${pair.smallerCoveragePercent}% of smaller Region overlaps`],
+        [`${pair.firstId}|${pair.secondId}`,
+          `Keep ${pair.secondName}; trim ${pair.firstName} · ${pair.smallerCoveragePercent}% of smaller Region overlaps`]
+      ]);
+      choose.appendChild(createSettingsSelect(options,{name:"direction",
+        ariaLabel:"Select the protected Territory and the Territory to trim"}));
+      const selection=await DialogV2.input({window:{title:"Atlas · Analyze Territory Borders"},
+        content:choose,ok:{label:"Preview one-sided correction"},
+        rejectClose:false,modal:true});
+      if(!selection)return;
+      const chosen=options.find(item=>item[0]===selection.direction);
+      if(!chosen)throw Error("Select an available Territory pair; retry the analysis.");
+      const [trimId,keepId]=chosen[0].split("|");
+      let plan;
+      try{plan=planNativeTerritoryTrim(scene,trimId,keepId);}
+      catch(error){
+        atlasDebug("territory","Peer border trim preview rejected",{reason:error.message},
+          {level:"verbose"});throw error;
+      }
+      const confirm=document.createElement("div");
+      for(const line of [
+        `Protected Region (blue): ${plan.keepName} — no changes.`,
+        `Trimmed Region: ${plan.trimName} — orange original, green proposed.`,
+        `Native overlap removed: ${plan.overlapPercent}% of the trimmed Region; `+
+          `area change: -${plan.removedPercent}%; vertices: `+
+          `${plan.sourceVertices} → ${plan.resultVertices}.`,
+        "Only one existing native Region Shape is updated after confirmation. " +
+          "Its ID, Atlas flags, native Behaviors, Levels, visibility and name are preserved.",
+        "Complex splits, holes, large losses and stale native boundaries are refused. " +
+          "Inspect the proposed seam closely at different zoom levels. " +
+          "This operation cannot fill unrelated gaps; use native Region editing for them."
+      ]){const p=document.createElement("p");p.textContent=line;confirm.appendChild(p);}
+      roadCanvas.showTerritoryTrimPreview(scene,plan);
+      try{
+        const approved=await DialogV2.confirm({window:{title:"Confirm one-sided Territory correction"},
+          content:confirm,yes:{label:"Save Trimmed Native Border"},
+          rejectClose:false,modal:true});
+        if(!approved)return;
+        if(!roadCanvas.isRegionPreviewActive(scene,plan))
+          throw Error("The canvas preview changed. Reopen the Territory analysis.");
+        try{await saveNativeTerritoryTrim(scene,plan);}
+        catch(error){
+          atlasDebug("territory","Peer border trim save rejected",{reason:error.message},
+            {level:"verbose"});throw error;
+        }
+        refresh();ui.notifications.info("One native Territory border trimmed; protected Region and Behaviors preserved.");
       }finally{roadCanvas.clearRegionPreview();}
     },
     async configurePublicTerritory(scene, refresh, directRegionId=null) {

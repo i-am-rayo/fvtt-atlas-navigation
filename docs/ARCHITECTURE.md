@@ -279,3 +279,19 @@ projections have a fixed comparison budget. This derived hierarchy affects
 directory nesting and public-name ambiguity only, never native Shapes,
 Behaviors, permissions, or Journey authority. See [inference design and live
 checklist](TERRITORY_PARENT_INFERENCE_BETA8_8.md).
+
+## v0.3.9-beta.8.9 — Bounded peer Territory boundary reconciliation
+
+Atlas uses public native Region polygon-tree intersections to distinguish
+same-tier territorial overlap from valid Continent/settlement nesting. Its
+read-only GM analysis computes supported intersection area and proximity
+hints without writing any data. The first explicitly reviewed correction is
+one-sided: the GM chooses a protected peer, previews the native polygon
+difference and can approve exactly one `RegionDocument.update({shapes})`
+after validating geometry, area loss, permission, generated provenance,
+geography and both source Shapes against stale changes. Split/hole/large-loss
+results and unverifiable native clipping fail closed. There is no speculative
+multi-Region write, shared political-border database, native Wall change or
+Region Behavior/Level/Atlas graph mutation. Full paired-edge synchronization
+and gap filling remain a separately designed follow-up. See [beta.8.9
+scope and acceptance](TERRITORY_BORDER_RECONCILIATION_BETA8_9.md).

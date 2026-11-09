@@ -602,6 +602,18 @@ export class RoadCanvasController {
     this.refresh();
   }
 
+  /** A second read-only overlay: blue is protected native geometry, orange
+   * the source, green the one-sided clipped proposal. */
+  showTerritoryTrimPreview(scene,plan){
+    const view=this.canvasProvider();
+    if(!globalThis.game?.user?.isGM||!view?.ready||view.scene?.id!==scene.id)
+      throw Error("View this Scene as GM to preview Territory reconciliation.");
+    if(this.getDraft(scene))throw Error("Finish or cancel Road editing first.");
+    this.regionPreview={sceneId:scene.id,plan,kind:"territory-trim",
+      source:plan.sourcePoints,result:plan.resultPoints,protected:plan.keepPoints};
+    this.refresh();
+  }
+
   isRegionPreviewActive(scene, plan) {
     return this.regionPreview?.sceneId === scene?.id &&
       this.regionPreview.plan === plan && this.canvasProvider()?.scene?.id === scene.id;
@@ -1719,7 +1731,7 @@ export class RoadCanvasController {
     }
     if (this.regionPreview?.sceneId === canvas.scene.id) {
       const preview = this.regionPreview;
-      if(preview.kind==="territory") {
+      if(preview.kind==="territory"||preview.kind==="territory-trim") {
         const polygon=(flat,color,alpha)=>{
           if(flat.length<6||typeof g.moveTo!=="function"||typeof g.stroke!=="function")return;
           g.moveTo(flat[0],flat[1]);
@@ -1729,10 +1741,12 @@ export class RoadCanvasController {
         };
         polygon(preview.source,0xffa35e,.9);
         polygon(preview.result,0x7bdb9c,1);
+        if(preview.kind==="territory-trim")polygon(preview.protected,0x75bfff,.95);
       } else if (preview.points.length > 1) {
         drawLine(g, preview.points, 0x7bdb9c, preview.radius * 2, 0.38);
       }
-      if(preview.kind!=="territory"&&typeof g.circle === "function" && typeof g.fill === "function") {
+      if(!["territory","territory-trim"].includes(preview.kind)&&
+          typeof g.circle === "function" && typeof g.fill === "function") {
         for (const point of preview.points) g.circle(point.x, point.y, preview.radius)
           .fill({ color: 0x7bdb9c, alpha: 0.22 });
       }
