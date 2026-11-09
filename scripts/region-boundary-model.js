@@ -85,6 +85,17 @@ function assertSimple(vertices) {
   }
 }
 
+/** Shared validation for any proposed single native polygon Shape. This is
+ * geometry-only and never normalizes/persists a Foundry Region. */
+export function inspectNativePolygonShape(shapes) {
+  if(!Array.isArray(shapes)||shapes.length!==1)
+    throw Error("Choose a native Region with one polygon and no holes.");
+  const shape=shapes[0],vertices=pointsFromPolygon(shape);
+  assertSimple(vertices);
+  return {points:vertices.flatMap(point=>[point.x,point.y]),
+    area:Math.abs(signedArea(vertices)),vertexCount:vertices.length};
+}
+
 /** Dense polygons already contain enough border samples. A bounded Laplacian
  * pass rounds local corners without exponentially increasing native vertices.
  * The GM still explicitly previews area loss and must approve the update. */

@@ -47,3 +47,12 @@
   vertical-align: middle;
   font-weight: 700;
 }
+[data-atlas-territory-manager] legend .atlas-territory-borders {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: .5rem;
+  padding: .15rem .5rem;
+  min-height: 1.75rem;
+  font-size: .82rem;
+  vertical-align: middle;
+}

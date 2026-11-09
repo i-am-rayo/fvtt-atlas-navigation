@@ -207,11 +207,17 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   add.className="atlas-territory-add";
   add.disabled=!!draft;
   heading.appendChild(add);
+  const borders=button("Analyze Borders","Analyze peer Territory overlaps and preview a native border correction",()=>
+    actions.reconcileTerritoryBorders(scene,refresh));
+  borders.className="atlas-territory-borders";
+  borders.disabled=!!draft;
+  heading.appendChild(borders);
   manager.appendChild(heading);
   manager.appendChild(node("p","Manage manually authored geographic or custom " +
     "Regions here, including their public Journey names. Atlas-generated " +
     "corridors are managed under Roads. Native Foundry geometry and Behaviors " +
-    "remain authoritative; shared-border snapping is planned separately.","hint"));
+    "remain authoritative. Analyze peer overlaps to preview an optional " +
+    "one-sided native border correction; continent-to-settlement nesting is preserved.","hint"));
   const generatedById=new Map(generated.map(entry=>[entry.id,entry]));
   const manualNative=nativeRegions.filter(region=>!generatedById.has(region.id));
   const geographyById=new Map(withInferredContinentParents(scene,

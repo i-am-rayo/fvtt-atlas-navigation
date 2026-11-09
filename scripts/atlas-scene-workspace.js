@@ -114,8 +114,9 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
         () => this.render(true)));
       main.appendChild(roadContent);
     } else if (this.activeSection === "territories") {
-      main.appendChild(make("p", "Edit territory associations, public Journey labels and " +
-        "preview smoother boundaries. Native Foundry Region shapes and Behaviors remain authoritative.", "hint"));
+      main.appendChild(make("p", "Edit territory associations, public Journey labels, " +
+        "preview smoother boundaries and analyze competing geographic borders. " +
+        "Native Foundry Region shapes and Behaviors remain authoritative.", "hint"));
       main.appendChild(createAtlasTerritoryPanel(this.scene, this.actions,
         () => this.render(true), { generated, nativeRegions,
           publicById: new Map(labels.map(item => [item.id, item])) }));

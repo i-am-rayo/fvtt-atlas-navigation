@@ -828,7 +828,8 @@ test("GM edits public Region naming inside territory management without a duplic
 
 test("Scene Atlas manages native Regions across roads and exposes safe boundary preview",async()=>{
   const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
-  let mounted=null,preview=null,opened=null,link=null,publicName=null,created=false;
+  let mounted=null,preview=null,opened=null,link=null,publicName=null,created=false,
+    analyzed=false;
   const nativeRoot={querySelector:()=>null,appendChild:n=>{mounted=n;}};
   const element={querySelector:selector=>
     selector==="[data-fvtt-atlas-scene-root]"?nativeRoot:null};
@@ -847,6 +848,7 @@ test("Scene Atlas manages native Regions across roads and exposes safe boundary 
       draft:()=>null,begin(){},select(){},rename(){},remove(){},
       configureRegion:(_s,id)=>{opened=id;},
       createNativeTerritory:()=>{created=true;},
+      reconcileTerritoryBorders:()=>{analyzed=true;},
       smoothNativeRegion:(_s,id)=>{preview=id;},
       configurePublicTerritory:(_s,_refresh,id)=>{publicName=id;},
       setNativeRegionLink:(_s,id,enabled)=>{link=[id,enabled];}
@@ -858,6 +860,11 @@ test("Scene Atlas manages native Regions across roads and exposes safe boundary 
     assert.ok(plus,"Territory panel includes the native [+] control");
     await plus.listeners.get("click")({preventDefault(){}});
     assert.equal(created,true);
+    const borders=controls.find(b=>b.title===
+      "Analyze peer Territory overlaps and preview a native border correction");
+    assert.ok(borders,"Territory panel includes the bounded reconciliation action");
+    await borders.listeners.get("click")({preventDefault(){}});
+    assert.equal(analyzed,true);
     for(const [title,outcome] of [
       ["Edit native Region in Foundry",()=>opened],
       ["Preview smoother native polygon boundary",()=>preview],
