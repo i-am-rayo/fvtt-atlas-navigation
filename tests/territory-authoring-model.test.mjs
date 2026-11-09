@@ -13,6 +13,12 @@ test("Atlas control nodes produce one valid native polygon with stable IDs",()=>
   assert.deepEqual(polygonShapeFromNodes(ring),{type:"polygon",
     origin:{x:0,y:0},points:[0,0,15,0,15,15,0,15],hole:false,gridBased:false});
   assert.equal(ring[0].id,"a");
+  const translated=ring.map(p=>({...p,x:p.x+3100,y:p.y+1450}));
+  assert.deepEqual(polygonShapeFromNodes(translated),{type:"polygon",
+    origin:{x:3100,y:1450},
+    points:[3100,1450,3115,1450,3115,1465,3100,1465],
+    hole:false,gridBased:false},
+  "Foundry v14 polygon vertices are already canvas-space, independent of their anchor origin");
   assert.throws(()=>validateBoundaryNodes([{id:"a",x:0,y:0},
     {id:"b",x:10,y:10},{id:"c",x:0,y:10},{id:"d",x:10,y:0}]),/crosses itself|too small/);
   assert.throws(()=>validateBoundaryNodes(ring.map(p=>({...p,id:"same"}))),/duplicate node/);

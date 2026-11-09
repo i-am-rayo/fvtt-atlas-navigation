@@ -46,8 +46,11 @@ export function validateBoundaryNodes(points){
 export function polygonShapeFromNodes(points){
   validateBoundaryNodes(points);
   const origin={x:Math.min(...points.map(p=>p.x)),y:Math.min(...points.map(p=>p.y))};
-  return {type:"polygon",origin,points:points.flatMap(p=>[
-    p.x-origin.x,p.y-origin.y]),hole:false,gridBased:false};
+  // Foundry v14 stores polygon vertices in absolute canvas coordinates. Its
+  // separate origin is an anchor, not an offset to add to or subtract from
+  // every point. Normalizing points against the origin shifts the native Shape.
+  return {type:"polygon",origin,points:points.flatMap(p=>[p.x,p.y]),
+    hole:false,gridBased:false};
 }
 
 /** Require a single simple closed cycle. Snapping only within the requested
