@@ -21,7 +21,10 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
     position:{width:345,height:445,left:110,top:105}
   };
 
-  constructor(controller){super();this.controller=controller;this.updates=Promise.resolve();}
+  constructor(controller){
+    super();this.controller=controller;this.updates=Promise.resolve();
+    this.colorRegionId=null;
+  }
 
   async _renderHTML(){
     if(!globalThis.game?.user?.isGM)
@@ -97,6 +100,40 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
       slider.addEventListener("change",()=>void change({[key]:Number(slider.value)/100}));
       label.append(element("span",title),slider,value);regions.appendChild(label);
     }
+    const colorRegions=this.controller.listColorRegions();
+    if(colorRegions.length){
+      const colors=group("Region colors","Atlas uses each native Foundry Region's " +
+        "Appearance color. Select a Region to edit its color in Foundry; the " +
+        "fill opacity sliders above only affect this client's view.");
+      const selection=element("label","Region to edit","atlas-layers-color-choice");
+      const select=element("select");
+      select.setAttribute("aria-label","Choose Region color to edit");
+      const chosen=colorRegions.some(region=>region.id===this.colorRegionId)?
+        this.colorRegionId:colorRegions[0].id;
+      for(const region of colorRegions){
+        const option=element("option",region.name);option.value=region.id;
+        select.appendChild(option);
+      }
+      select.value=chosen;
+      const preview=element("input");preview.type="color";preview.disabled=true;
+      preview.setAttribute("aria-label","Current native Region color");
+      const edit=element("button","Edit native Region color");edit.type="button";
+      const refreshColor=()=>{
+        this.colorRegionId=select.value;
+        const region=colorRegions.find(item=>item.id===select.value);
+        preview.value=/^#[0-9a-f]{6}$/i.test(region?.color??"")?
+          region.color:"#f4bd69";
+      };
+      select.addEventListener("change",refreshColor);refreshColor();
+      edit.addEventListener("click",async()=>{
+        try{await this.controller.configureColorRegion(select.value);}
+        catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
+      });
+      selection.appendChild(select);
+      const actions=element("div",undefined,"atlas-layers-color-actions");
+      actions.append(preview,edit);
+      colors.append(selection,actions);
+    }
     return root;
   }
 
@@ -110,6 +147,27 @@ export class AtlasLayersController {
     this.regions=new TerritoryViewOverlay();
     this.corridors=new TerritoryViewOverlay();
     this.window=null;
+    this.configureRegion=null;
+  }
+
+  /** A shortcut to Foundry's authoritative Region Appearance sheet. */
+  listColorRegions(){
+    const scene=globalThis.canvas?.scene;
+    if(!game.user?.isGM||!scene)return [];
+    return listSceneGeography(scene).filter(entry=>entry.linked&&!entry.invalid&&
+      entry.geography).map(entry=>({id:entry.id,name:entry.name,
+      color:scene.regions?.get?.(entry.id)?.color??null}));
+  }
+
+  async configureColorRegion(regionId){
+    const scene=globalThis.canvas?.scene,region=scene?.regions?.get?.(regionId);
+    if(!game.user?.isGM||!scene?.canUserModify?.(game.user,"update")||
+        !region||region.parent?.id!==scene.id||
+        !region.canUserModify?.(game.user,"update")||
+        !this.listColorRegions().some(entry=>entry.id===regionId)||
+        typeof this.configureRegion!=="function")
+      throw Error("Only an authorized GM may configure this native Region color.");
+    return this.configureRegion(scene,regionId);
   }
 
   register(){

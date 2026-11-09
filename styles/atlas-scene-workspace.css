@@ -220,3 +220,14 @@
 .atlas-layers-palette .atlas-layers-opacity input { width: 100%; margin: 0; }
 .atlas-layers-palette .atlas-layers-opacity output { text-align: right; font-variant-numeric: tabular-nums; }
 .atlas-layers-palette .atlas-layers-error { color: var(--color-level-error, #ff9a9a); }
+.atlas-layers-palette .atlas-layers-color-choice {
+  display: grid; gap: .3rem; width: 100%; margin: .4rem 0;
+}
+.atlas-layers-palette .atlas-layers-color-choice select { width: 100%; min-width: 0; }
+.atlas-layers-palette .atlas-layers-color-actions {
+  display: flex; align-items: center; gap: .5rem; margin-top: .4rem;
+}
+.atlas-layers-palette .atlas-layers-color-actions input[type="color"] {
+  width: 2.6rem; height: 2rem; flex: none; opacity: 1; cursor: default;
+}
+.atlas-layers-palette .atlas-layers-color-actions button { flex: 1; min-width: 0; }
