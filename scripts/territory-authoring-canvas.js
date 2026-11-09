@@ -63,6 +63,30 @@ function drawGridSpace(graphics,points){
   }else throw Error("Foundry Canvas cannot draw Territory grid cells.");
 }
 
+/** Transient brush footprint; the preview cannot modify draft/native cells. */
+function drawBrushFootprint(graphics,points,erase,zoom){
+  const color=erase?0xff7992:0x8df8e6;
+  const width=2.8/Math.max(.2,zoom);
+  if(typeof graphics.poly==="function"&&typeof graphics.fill==="function"&&
+      typeof graphics.stroke==="function"){
+    graphics.poly(points).fill({color,alpha:.16});
+    graphics.poly(points).stroke({width:width+2.5/Math.max(.2,zoom),
+      color:0x101321,alpha:1,join:"round"});
+    graphics.poly(points).stroke({width,color,alpha:1,join:"round"});
+  }else if(typeof graphics.lineStyle==="function"&&
+      typeof graphics.beginFill==="function"&&typeof graphics.drawPolygon==="function"&&
+      typeof graphics.moveTo==="function"&&typeof graphics.lineTo==="function"){
+    graphics.beginFill(color,.16);graphics.drawPolygon(points);graphics.endFill();
+    for(const [weight,strokeColor] of [[width+2.5/Math.max(.2,zoom),0x101321],
+      [width,color]]){
+      graphics.lineStyle(weight,strokeColor,1);
+      graphics.moveTo(points[0],points[1]);
+      for(let i=2;i<points.length;i+=2)graphics.lineTo(points[i],points[i+1]);
+      graphics.lineTo(points[0],points[1]);
+    }
+  }else throw Error("Foundry Canvas cannot draw Territory brush footprints.");
+}
+
 export class TerritoryAuthoringCanvas{
   session=null;
   async begin(scene,draft,onSave){
@@ -89,13 +113,14 @@ export class TerritoryAuthoringCanvas{
       b.addEventListener("click",handler);actions.appendChild(b);return b;};
     const session={sceneId:scene.id,view,surface,layer,panel,info,draft:copy(draft),
       history:[],brush:"add",radius:0,dragNode:-1,selectedNode:-1,painting:false,saving:false,
-      raf:null,end:null,close:null,onSave};
+      hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave};
     const undo=addButton("Undo",()=>{const prior=session.history.pop();if(prior){
       session.draft=prior;session.smoothingSelect&&(session.smoothingSelect.value=
         String(prior.smoothing??0));this.#draw(session);}});
     if(draft.kind==="grid"){
       const mode=addButton("Brush: Add",()=>{session.brush=session.brush==="add"?"erase":"add";
-        mode.textContent="Brush: "+(session.brush==="add"?"Add":"Erase");});
+        mode.textContent="Brush: "+(session.brush==="add"?"Add":"Erase");
+        this.#scheduleDraw(session);});
       const radiusLabel=el("label"," Brush radius ");
       const radiusValue=el("output","1 cell");
       const slider=el("input");slider.type="range";
@@ -105,6 +130,9 @@ export class TerritoryAuthoringCanvas{
         session.radius=Number(slider.value);
         radiusValue.textContent=session.radius===0?"1 cell":
           `${session.radius} ring${session.radius===1?"":"s"}`;
+        if(session.hoverAnchor)session.hoverOffsets=brushOffsets(session.hoverAnchor)
+          .filter(o=>within(view.grid.getCenterPoint(o)));
+        this.#scheduleDraw(session);
       });
       radiusLabel.appendChild(slider);radiusLabel.appendChild(radiusValue);
       panel.appendChild(radiusLabel);
@@ -171,6 +199,19 @@ export class TerritoryAuthoringCanvas{
       }
       return results;
     };
+    const previewBrush=p=>{
+      const offset=view.grid.getOffset(p);
+      if(!Number.isSafeInteger(offset?.i)||!Number.isSafeInteger(offset?.j))return;
+      if(session.hoverAnchor?.i===offset.i&&session.hoverAnchor?.j===offset.j)return;
+      session.hoverAnchor=offset;
+      session.hoverOffsets=brushOffsets(offset)
+        .filter(o=>within(view.grid.getCenterPoint(o)));
+      this.#scheduleDraw(session);
+    };
+    const clearPreview=()=>{
+      if(!session.hoverAnchor)return;
+      session.hoverAnchor=null;session.hoverOffsets=[];this.#scheduleDraw(session);
+    };
     const applyBrush=p=>{
       const offset=view.grid.getOffset(p);
       if(!Number.isSafeInteger(offset?.i)||!Number.isSafeInteger(offset?.j))return;
@@ -184,7 +225,7 @@ export class TerritoryAuthoringCanvas{
       event.preventDefault();event.stopImmediatePropagation();
       snapshot();
       if(session.draft.kind==="grid"){
-        session.painting=true;applyBrush(p);return;
+        previewBrush(p);session.painting=true;applyBrush(p);return;
       }
       const zoom=Math.max(0.1,view.stage?.scale?.x??1);
       const near=session.draft.points.findIndex(q=>Math.hypot(p.x-q.x,p.y-q.y)<12/zoom);
@@ -205,7 +246,12 @@ export class TerritoryAuthoringCanvas{
     let lastCell="";
     const move=event=>{
       if(!this.#live(session))return;
-      const p=point(event);if(!within(p))return;
+      const onSurface=event.target===surface||surface.contains?.(event.target);
+      const p=point(event);
+      if(!within(p)||(!onSurface&&!session.painting&&session.dragNode<0)){
+        if(session.draft.kind==="grid")clearPreview();return;
+      }
+      if(session.draft.kind==="grid")previewBrush(p);
       if(session.draft.kind==="grid"&&session.painting){
         const offset=view.grid.getOffset(p),k=`${offset.i},${offset.j}`;
         if(k!==lastCell){event.preventDefault();event.stopImmediatePropagation();
@@ -216,11 +262,13 @@ export class TerritoryAuthoringCanvas{
         session.draft.points[session.dragNode].y=p.y;this.#scheduleDraw(session);}
     };
     const up=()=>{session.dragNode=-1;session.painting=false;lastCell="";};
+    const leave=()=>{if(session.draft.kind==="grid"&&!session.painting)clearPreview();};
     const key=event=>{if(event.key==="Escape"&&this.#live(session)&&!session.saving){
       event.preventDefault();session.close(false);}};
     session.close=success=>{
       if(this.session!==session)return;
       surface.removeEventListener("pointerdown",down,true);
+      surface.removeEventListener("pointerleave",leave,true);
       document.removeEventListener("pointermove",move,true);
       document.removeEventListener("pointerup",up,true);
       document.removeEventListener("keydown",key,true);
@@ -230,6 +278,7 @@ export class TerritoryAuthoringCanvas{
       this.session=null;session.end?.(success);
     };
     surface.addEventListener("pointerdown",down,true);
+    surface.addEventListener("pointerleave",leave,true);
     document.addEventListener("pointermove",move,true);
     document.addEventListener("pointerup",up,true);
     document.addEventListener("keydown",key,true);
@@ -281,8 +330,18 @@ export class TerritoryAuthoringCanvas{
         const center=view.grid.getCenterPoint(p);
         drawGridSpace(graphics,shape.flatMap(q=>[center.x+q.x,center.y+q.y]));
       }
+      for(const cell of session.hoverOffsets){
+        const center=view.grid.getCenterPoint(cell);
+        drawBrushFootprint(graphics,shape.flatMap(q=>[center.x+q.x,center.y+q.y]),
+          session.brush==="erase",zoom);
+      }
+      const chosen=new Set(cells.map(c=>`${c.i},${c.j}`));
+      const changing=session.hoverOffsets.filter(c=>
+        chosen.has(`${c.i},${c.j}`)===(session.brush==="erase")).length;
       session.info.textContent=`${cells.length} grid cells · Click/drag to paint; `+
-        "switch brush to erase; Undo or Save when ready.";
+        "switch brush to erase; Undo or Save when ready."+
+        (session.hoverAnchor?` Hover: ${session.brush==="add"?"add":"erase"} `+
+          `${changing} cell${changing===1?"":"s"} (${session.hoverOffsets.length} in brush).`:"");
     }
   }
 }

@@ -8,6 +8,7 @@ import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
 import { openAtlasSceneWorkspace, refreshAtlasSceneWorkspace }
   from "./atlas-scene-workspace.js";
 import { RoadCanvasController } from "./road-canvas.js";
+import {AtlasLayersController} from "./atlas-layers.js";
 import {acquireAtlasCanvasEditorFocus} from "./atlas-canvas-editor-focus.js";
 import { addAtlasExplorerToTokenConfig } from "./atlas-token-config.js";
 import { observeAtlasTokenMovement } from "./atlas-token-exploration.js";
@@ -85,6 +86,7 @@ import { registerAtlasDebugSettings,atlasDebug,atlasWarn } from "./atlas-debug.j
 import {atlasAnnouncementRuntime} from "./atlas-announcement-runtime.js";
 
 const roadCanvas = new RoadCanvasController();
+const atlasLayers = new AtlasLayersController(roadCanvas);
 roadCanvas.onCheckpointCreated=(scene,checkpointId,roadId)=>
   openAtlasRegionGenerator(scene,roadId,actions(),()=>{
     roadCanvas.refresh();refreshAtlasSceneConfig(scene);
@@ -2008,6 +2010,7 @@ function atlasGridChangeNotice(scene, change, options) {
 
 Hooks.once("init", () => {
   registerAtlasDebugSettings();
+  atlasLayers.register();
   registerNavigationWorldSettings({onPlaybackChange:()=>{
     if(navigation.active)void navigation.render(true);
   }});
@@ -2085,15 +2088,11 @@ Hooks.once("init", () => {
           icon:"fa-solid fa-paintbrush",order:1,button:true,visible:true,
           onChange:()=>fogPalette.toggle()
         },
-        atlasRoadLayerView:{
-          name:"atlasRoadLayerView",title:"Toggle Road View / Corridor View (GM only)",
+        atlasLayers:{
+          name:"atlasLayers",title:"Atlas Layers (GM only)",
           icon:"fa-solid fa-layer-group",order:4,button:true,visible:true,
-          onChange:()=>{
-            const mode=roadCanvas.toggleViewMode();
-            ui.notifications.info(mode==="corridors"
-              ?"Atlas Corridor View: roads show the highest-priority terrain preset color."
-              :"Atlas Road View: roads show their authored colors.");
-          }
+          onChange:()=>void atlasLayers.open().catch(error=>
+            ui.notifications.error(error.message??String(error)))
         },
         atlasNavigation:{
           name:"atlasNavigation",title:"Atlas Navigation — choose Point A and Point B",
