@@ -47,6 +47,27 @@ test("Territory save creates a native Region with one opt-in Atlas source and ge
   }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
 });
 
+test("creating a distant native polygon preserves absolute v14 vertex positions",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {created,scene,view}=fixture();
+    const draft=mkDraft();
+    draft.points=draft.points.map(p=>({...p,x:p.x+3167.38,y:p.y+1480.8}));
+    await saveTerritoryDraft(scene,draft,{view});
+    const shape=created[0].payload[0].shapes[0];
+    assert.deepEqual(shape.points,[3167.38,1480.8,3177.38,1480.8,
+      3177.38,1490.8,3167.38,1490.8],
+    "the native Region receives canvas-space vertices without adding its origin");
+    assert.deepEqual(shape.origin,{x:3167.38,y:1480.8});
+    const source=created[0].payload[0].flags["fvtt-atlas-navigation"]
+      .territoryBoundarySource;
+    assert.deepEqual(source.nodes[0],{id:"a",x:3067.38,y:1280.8},
+      "Atlas-only control provenance remains Scene-image relative");
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
 test("non-GMs and overlapping peer Territories cause zero writes",async()=>{
   const old={game:globalThis.game,PIXI:globalThis.PIXI};
   globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
@@ -219,6 +240,8 @@ test("reconcile native edits by refreshing Atlas controls without moving the nat
     scene.regions.set(region.id,region);
     assert.equal(territoryBoundaryNeedsAdoption(region),false);
     region.shapes[0].origin={x:50,y:30}; // GM moved the native Region outside Atlas.
+    region.shapes[0].points=region.shapes[0].points.map((value,index)=>
+      value+(index%2===0?50:30)); // v14 polygon vertices move in canvas space.
     assert.equal(territoryBoundaryNeedsAdoption(region),true);
     assert.throws(()=>readTerritoryDraft(scene,region.id,{view}),/Reconcile/);
     const plan=planNativeTerritoryAdoption(scene,region.id,{view});
@@ -246,8 +269,10 @@ test("adopted native polygon origin need not be its minimum local vertex",async(
     const data=created[0].payload[0];
     const flags=data.flags["fvtt-atlas-navigation"];
     const region=mockRegion("hearths-heart","town");
-    region.shapes=[{type:"polygon",origin:{x:6333.14,y:2966.27},
-      points:[-15,25,25,25,25,65,-15,65],hole:false,gridBased:false}];
+    region.shapes=[{type:"polygon",origin:{x:6333.25,y:2963.39},
+      points:[3167.38,1480.80,3999.07,1480.80,3999.07,2071.49,3167.38,2071.49],
+      hole:false,gridBased:false,
+      bounds:{x:3167.38,y:1480.8,width:831.69,height:590.69}}];
     region.getFlag=(_module,key)=>flags[key]??null;
     region.update=async patch=>{
       if(patch["flags.fvtt-atlas-navigation.territoryBoundarySource"])
@@ -259,19 +284,46 @@ test("adopted native polygon origin need not be its minimum local vertex",async(
     scene.regions.set(region.id,region);
     const plan=planNativeTerritoryAdoption(scene,region.id,{view});
     await adoptNativeTerritoryBoundary(scene,plan,{view});
+    // Simulate the previous test build's wrong adoption of origin+point. A valid
+    // current native Shape and matching digest must still open in the new build.
+    flags.territoryBoundarySource.nodes=flags.territoryBoundarySource.nodes.map(
+      node=>({...node,x:node.x+region.shapes[0].origin.x,
+        y:node.y+region.shapes[0].origin.y}));
     const draft=readTerritoryDraft(scene,region.id,{view});
-    assert.equal(draft.points[0].x,6318.14);
-    assert.equal(draft.points[0].y,2991.27);
-    const absoluteVertices=shape=>shape.points.map((n,i)=>
-      n+(i%2?shape.origin.y:shape.origin.x));
-    const before=absoluteVertices(region.shapes[0]);
+    assert.ok(Math.abs(draft.points[0].x-3167.38)<1e-6);
+    assert.ok(Math.abs(draft.points[0].y-1480.8)<1e-6);
+    const before=structuredClone(region.shapes[0]);
     await saveTerritoryDraft(scene,{...draft,geography:mkDraft().geography,
       name:region.name},{regionId:region.id,view});
-    assert.deepEqual(absoluteVertices(region.shapes[0]),before,
-      "unchanged adopted controls must retain the exact native world boundary");
-    assert.deepEqual(region.shapes[0].origin,{x:6333.14,y:2966.27},
-      "even the native polygon's nonstandard origin must remain unchanged");
+    assert.deepEqual(region.shapes[0],before,
+      "an unchanged Save must preserve the original native raw world vertices and anchor");
+    const repaired=readTerritoryDraft(scene,region.id,{view});
+    assert.ok(Math.abs(repaired.points[0].x-3167.38)<1e-6,
+      "explicit Save corrects erroneous Atlas provenance without moving native geometry");
+    let editedShape;
+    region.update=async patch=>{
+      if(patch.shapes){editedShape=patch.shapes[0];region.shapes=patch.shapes;}
+    };
+    const edited={...repaired,points:repaired.points.map(p=>({...p})),
+      geography:mkDraft().geography,name:region.name};
+    edited.points[0].x+=5;
+    await saveTerritoryDraft(scene,edited,{regionId:region.id,view});
+    assert.equal(editedShape.origin.x,6333.25,
+      "node edits must preserve the native manipulation anchor");
+    assert.ok(Math.abs(editedShape.points[0]-3172.38)<1e-6);
+    assert.ok(Math.abs(editedShape.points[2]-3999.07)<1e-6,
+      "editing a node must not shift the rest of the polygon");
   }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("native bounds discrepancy blocks unsupported polygon coordinate assumptions",()=>{
+  const old=globalThis.game;globalThis.game={user:{isGM:true}};
+  try{
+    const region=mockRegion("unsupported","town");
+    region.shapes[0].bounds={x:9000,y:4000,width:10,height:10};
+    const {scene,view}=fixture([region]);
+    assert.throws(()=>readTerritoryDraft(scene,region.id,{view}),/rendered bounds/);
+  }finally{globalThis.game=old;}
 });
 
 test("reconciliation refuses concurrent native geometry changes without writing",async()=>{

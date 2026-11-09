@@ -13,8 +13,27 @@ import {sceneImageOrigin} from "./road-coordinates.js";
 
 const clone=v=>structuredClone(v);
 const plainShapes=r=>Array.from(r?.shapes??[],s=>s.toObject?.()??clone(s));
-const absolutePolygonPoints=shape=>shape.points.map((value,index)=>
-  value+(index%2===0?shape.origin.x:shape.origin.y));
+// Native v14 polygon points are absolute canvas coordinates; origin is a
+// separately persisted manipulation anchor. Never add it to the vertices.
+const absolutePolygonPoints=shape=>[...shape.points];
+function assertNativePolygonBounds(region,shapes){
+  if(shapes.length!==1||shapes[0]?.type!=="polygon")return;
+  const bounds=Array.from(region?.shapes??[])[0]?.bounds;
+  if(!bounds)return; // Plain-object test adapters may not expose v14 bounds.
+  const p=shapes[0].points??[];
+  if(p.length<6||p.length%2||!p.every(Number.isFinite))
+    throw Error("Native polygon has invalid points; Atlas refused to edit it.");
+  const xs=p.filter((_,index)=>index%2===0);
+  const ys=p.filter((_,index)=>index%2!==0);
+  const x=Math.min(...xs),y=Math.min(...ys);
+  const width=Math.max(...xs)-x,height=Math.max(...ys)-y;
+  if(![bounds.x,bounds.y,bounds.width,bounds.height].every(Number.isFinite)||
+      [Math.abs(bounds.x-x),Math.abs(bounds.y-y),
+        Math.abs(bounds.width-width),Math.abs(bounds.height-height)]
+        .some(delta=>delta>0.5))
+    throw Error("Native polygon points disagree with Foundry's rendered bounds. " +
+      "Atlas blocked editing rather than risking an offset Region.");
+}
 function samePolygonBoundary(a,b,{tolerance=1e-6}={}){
   if(a?.type!=="polygon"||b?.type!=="polygon"||a.hole===true||b.hole===true||
       a.gridBased===true||b.gridBased===true||
@@ -74,10 +93,9 @@ function draftFromNativeShapes(shapes,digest){
   if(shapes[0].type!=="polygon"||shapes[0].gridBased===true||
       shapes[0].points?.length%2)
     throw Error("Select a supported ordinary native polygon or grid Shape.");
-  const origin=shapes[0].origin??{x:0,y:0};
   const points=[];
   for(let i=0;i<shapes[0].points.length;i+=2)points.push({id:`adopt_${i/2}`,
-    x:origin.x+shapes[0].points[i],y:origin.y+shapes[0].points[i+1]});
+    x:shapes[0].points[i],y:shapes[0].points[i+1]});
   validateBoundaryNodes(points);
   return {kind:"polygon",points,offsets:[],wallIds:[],smoothing:0,sourceDigest:digest};
 }
@@ -88,6 +106,7 @@ export function readTerritoryDraft(scene,regionId,{view=globalThis.canvas}={}){
   if(!region||region.parent?.id!==scene.id||!readRegionAtlasLink(region))
     throw Error("Choose an Atlas-linked native Region from this Scene.");
   const source=readBoundarySource(region),shapes=plainShapes(region),digest=shapeDigest(shapes);
+  assertNativePolygonBounds(region,shapes);
   const origin=sceneImageOrigin(view);
   if(view?.scene?.id!==scene.id||!view?.ready)
     throw Error("Open this Scene on the canvas before editing its native Region.");
@@ -131,6 +150,7 @@ export function planNativeTerritoryAdoption(scene,regionId,{view=globalThis.canv
   const original=readBoundarySource(region);
   if(!original)throw Error("This native Region has no Atlas control source to reconcile.");
   const shapes=plainShapes(region),digest=shapeDigest(shapes);
+  assertNativePolygonBounds(region,shapes);
   if(original.shapeDigest===digest)
     throw Error("Atlas controls already match the native Region; no reconciliation is needed.");
   const draft=draftFromNativeShapes(shapes,digest);
@@ -258,7 +278,7 @@ export function validateTerritoryCoverage(scene,draft,shape,{regionId=null,view=
   }else{
     const nativePoints=[];
     for(let i=0;i<shape.points.length;i+=2)nativePoints.push({
-      x:shape.origin.x+shape.points[i],y:shape.origin.y+shape.points[i+1]});
+      x:shape.points[i],y:shape.points[i+1]});
     const area=inspectNativePolygonShape([shape]).area;
     const poly=polygonFor(nativePoints);
     if(parent&&Math.abs(intersectionArea(parent,poly)-area)>Math.max(0.1,area*1e-5))
@@ -287,6 +307,12 @@ export async function saveTerritoryDraft(scene,draft,{regionId=null,
   // An explicit Save may update geography/source flags without normalizing or
   // unnecessarily re-rendering the authoritative Region geometry.
   const nativeShapes=region?plainShapes(region):[];
+  if(draft.kind==="polygon"&&nativeShapes.length===1&&
+      nativeShapes[0].type==="polygon"){
+    // Editing control vertices does not authorize resetting Foundry's native
+    // manipulation anchor, which may not be the minimum bounding corner.
+    projectedShape.origin=clone(nativeShapes[0].origin);
+  }
   const shape=region&&nativeShapes.length===1&&
     samePolygonBoundary(nativeShapes[0],projectedShape)?nativeShapes[0]:projectedShape;
   validateTerritoryCoverage(scene,draft,shape,{regionId,view});
