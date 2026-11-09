@@ -65,7 +65,7 @@ test("GM overlay mounts above fog, draws continents first, and cleans up with no
   }
   try {
     const regions=new Map([
-      ["big",{id:"big",name:"Valecor",color:"#112233",
+      ["big",{id:"big",name:"Valecor",color:new Number(0x4d972b),
         triangulation:{vertices:Float32Array.from([0,0,100,0,100,100]),
           indices:Uint16Array.from([0,1,2])},
         polygons:[{points:[0,0,100,0,100,100,0,100]},
@@ -95,7 +95,7 @@ test("GM overlay mounts above fog, draws continents first, and cleans up with no
     assert.deepEqual(draw.filter(item=>item.points).map(item=>item.points[0]),
       [0,0,200,200,20,20],
       "continent halo/core must draw before settlement halo/core");
-    assert.ok(draw.some(item=>item.points&&item.opts?.color===0x112233),
+    assert.ok(draw.some(item=>item.points&&item.opts?.color===0x4d972b),
       "native Region Appearance color is used for the continental boundary");
     assert.ok(draw.some(item=>item.points&&item.opts?.color===0xaabbcc),
       "nested settlement keeps its own native color");

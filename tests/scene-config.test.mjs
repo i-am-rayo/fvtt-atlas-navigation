@@ -3,7 +3,7 @@ import test from "node:test";
 globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
 const { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
   filteredRoadIds, openAtlasRegionGenerator, createAtlasRoadsPanel,
-  createAtlasTopologyPanel } =
+  createAtlasTopologyPanel,createAtlasTerritoryPanel } =
   await import("../scripts/scene-config.js");
 
 class Element {
@@ -880,6 +880,35 @@ test("Scene Atlas manages native Regions across roads and exposes safe boundary 
     await linked.listeners.get("click")({preventDefault(){}});
     assert.deepEqual(link,["r1",true]);
     assert.deepEqual(region.shapes,[],"rendering and actions cannot rewrite native geometry");
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("selected polygon Region exposes a read-only native hex conversion preview",async()=>{
+  const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
+  const region={id:"Reshara",name:"Reshara",hidden:false,behaviors:[],
+    shapes:[{type:"polygon",points:[0,0,20,0,20,20,0,20]}],
+    getFlag(_scope,key){return key==="atlas"?{schemaVersion:1,linked:true}:
+      key==="territoryGeography"?{schemaVersion:1,kind:"continent",
+        parentRegionId:null,roadOverrides:{}}:null;}};
+  const regions=[region];regions.get=id=>id===region.id?region:null;
+  regions.contents=regions;
+  const scene={id:"scene1",regions,getFlag:()=>null};
+  let selected=null;
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},i18n:{localize:key=>key,lang:"en"}};
+    globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    const panel=createAtlasTerritoryPanel(scene,{draft:()=>null,
+      previewTerritoryGridConversion:(_scene,id)=>{selected=id;}},()=>{},
+    {generated:[],nativeRegions:[{id:region.id,name:region.name,linked:true,
+      invalidLink:false,hidden:false}],publicById:new Map()});
+    const control=buttons(panel).find(b=>b.title===
+      "Preview converting this selected native polygon Region to grid/hex (no changes)");
+    assert.ok(control);
+    assert.equal(control.disabled,false);
+    await control.listeners.get("click")({preventDefault(){},stopPropagation(){}});
+    assert.equal(selected,"Reshara");
+    assert.equal(region.shapes[0].type,"polygon","preview shortcut cannot alter native Shapes");
   }finally{Object.assign(globalThis,previous);}
 });
 

@@ -43,6 +43,8 @@ import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
 import {analyzeSceneTerritoryBorders,planNativeTerritoryTrim,
   saveNativeTerritoryTrim} from "./territory-border-reconciliation.js";
 import {TerritoryAuthoringCanvas} from "./territory-authoring-canvas.js";
+import {planTerritoryGridConversion} from "./territory-grid-conversion.js";
+import {TerritoryGridConversionPreview} from "./territory-grid-conversion-preview.js";
 import {preferredTerritoryCreationMethod} from "./territory-authoring-model.js";
 import {readTerritoryDraft,selectedBlankWallBoundary,saveTerritoryDraft,
   planNativeTerritoryAdoption,adoptNativeTerritoryBoundary}
@@ -108,6 +110,7 @@ const navigation = new AtlasNavigationController();
 const manualFog = new AtlasManualFogController();
 const fogPalette = new AtlasManualFogPalette(manualFog);
 const territoryCanvas = new TerritoryAuthoringCanvas();
+const territoryGridPreview = new TerritoryGridConversionPreview();
 let roadDock = null;
 
 function syncRoadDock(scene, refresh) {
@@ -1568,6 +1571,36 @@ function actions() {
         refresh();ui.notifications.info("Native Territory boundary updated; Behaviors retained.");
       });
     },
+    async previewTerritoryGridConversion(scene,regionId){
+      ensureIdle(scene);
+      if(navigation.travelSession||territoryCanvas.session||
+          manualFog.paletteOpen||manualFog.brush||territoryGridPreview.layer)
+        throw Error("Finish the Journey and other canvas editors before previewing conversion.");
+      const plan=planTerritoryGridConversion(scene,regionId);
+      territoryGridPreview.show(scene,plan);
+      const content=document.createElement("div");
+      const lines=[
+        `Selected Region: ${plan.regionName} (${plan.tier}).`,
+        `Candidate: ${plan.cellCount} native square/hex grid cells. `+
+          `Selection rule: ${plan.inclusionRule}.`,
+        `Net candidate area change: ${plan.netAreaChangePercent}% of original. `+
+          "This is a net area comparison, not an exact boundary-error measurement.",
+        "Cyan fill shows candidate grid cells; orange lines show the unchanged native polygon.",
+        plan.peerCenterOverlaps.length?
+          `Potential same-tier center conflicts: ${plan.peerCenterOverlaps.map(p=>
+            `${p.name} (${p.count} cells)`).join(", ")}. `+
+          "A later transfer must explicitly review and authorize changes to peers.":
+          "No same-tier Region contains a candidate cell center (a later save still requires exact overlap checks).",
+        "PREVIEW ONLY: Closing this window does not convert or edit any Region. " +
+          "Native IDs, geometry, Behaviors, colors, hierarchy, and Journeys are unchanged."
+      ];
+      for(const message of lines){const p=document.createElement("p");
+        p.textContent=message;content.appendChild(p);}
+      try{
+        await DialogV2.confirm({window:{title:"Atlas · Native Grid Conversion Preview"},
+          content,yes:{label:"Close Preview"},rejectClose:false,modal:true});
+      }finally{territoryGridPreview.clear();}
+    },
     async adoptNativeTerritoryBoundary(scene,regionId,refresh){
       ensureIdle(scene);
       if(navigation.travelSession||territoryCanvas.session||manualFog.paletteOpen||manualFog.brush)
@@ -2159,6 +2192,7 @@ Hooks.once("init", () => {
     });
     navigation.tearDown("canvasTearDown");
     territoryCanvas.cancel();
+    territoryGridPreview.clear();
     if (roadDock) {
       roadDock.finished = true;
       void roadDock.close();

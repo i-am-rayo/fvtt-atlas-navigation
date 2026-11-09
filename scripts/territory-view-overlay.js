@@ -4,6 +4,7 @@
  * never changes native Shapes, Highlight Mode, selection, or Behaviors.
  */
 import {projectTerritoryView, territoryTier} from "./territory-view-model.js";
+import {nativeRegionColorNumber} from "./native-region-color.js";
 
 const MAX_REGIONS = 80;
 const MAX_VERTICES = 20000;
@@ -27,11 +28,6 @@ export function readNativeTerritoryPaths(region, {vertexBudget = MAX_VERTICES} =
     remaining -= points.length / 2;
   }
   return result.length ? result : null;
-}
-
-function nativeColor(value) {
-  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ?
-    Number.parseInt(value.slice(1), 16) : 0xf4bd69;
 }
 
 /** Uses native clipped triangulation, so grid islands and holes stay exact. */
@@ -149,9 +145,16 @@ export class TerritoryViewOverlay {
           {vertexBudget:MAX_VERTICES-vertices});
         if (!paths) { skipped++; continue; }
         const count = paths.reduce((n,p)=>n+p.length/2,0);
-        vertices += count;
         const broad = territoryTier(entry)==="continent";
-        const color = nativeColor(region.color);
+        const color = nativeRegionColorNumber(region.color);
+        // No misleading amber substitute for an unavailable native color.
+        // A missing/unsupported color is observable as a skipped Region.
+        if (color === null) {
+          console.warn("Atlas Territory preview skipped unavailable native Region color",{
+            regionId:entry.id,colorType:typeof region.color});
+          skipped++;continue;
+        }
+        vertices += count;
         const fillOpacity=broad?continentFillOpacity:settlementFillOpacity;
         if(Number.isFinite(fillOpacity) && fillOpacity>0 && fillOpacity<=.5){
           const triangles=readNativeTerritoryTriangles(region,
