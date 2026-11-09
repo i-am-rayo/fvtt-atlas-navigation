@@ -310,3 +310,13 @@ and Behaviors remain Foundry-owned. No shared-edge migration, peer clipping,
 cell transfer, Wall synchronization, or multi-document transaction exists in
 this initial slice. See [scope, invariants and owner v14 live checklist](
 TERRITORY_AUTHORING_BETA8_9_1.md).
+
+## v0.3.9-beta.8.9.1.1 — Territory Graphics compatibility
+
+The read-only, transient Territory canvas preview accepts both Foundry
+Graphics surfaces already handled by Atlas Road rendering: modern Graphics
+shape-builder methods and legacy lineStyle/draw* methods. Runtime capability
+checks are inside the canvas presentation layer, with no change to stored
+control-node flags, native Region Shapes/Behaviors, or authoring authority.
+The owner-observed `graphics.stroke` failure remains pending live retest.
+See [hotfix diagnosis and checklist](TERRITORY_GRAPHICS_BETA8_9_1_1.md).
