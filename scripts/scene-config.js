@@ -31,6 +31,7 @@ import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
 import { readTerritoryRoadDirectory } from "./territory-road-directory.js";
 import {withInferredContinentParents} from "./territory-parent-inference.js";
 import {territoryBoundaryNeedsAdoption} from "./territory-authoring.js";
+import {projectTerritoryView} from "./territory-view-model.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -197,7 +198,9 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   generated = listGeneratedRegions(scene),
   nativeRegions = listSceneRegions(scene),
   publicById = new Map(listPublicTerritorySettings(scene)
-    .map(entry => [entry.id, entry]))
+    .map(entry => [entry.id, entry])),
+  displayMode = "combined",
+  onLocate = null
 } = {}) {
   const draft = actions.draft(scene);
   const manager=node("fieldset");
@@ -223,12 +226,25 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   const manualNative=nativeRegions.filter(region=>!generatedById.has(region.id));
   const geographyById=new Map(withInferredContinentParents(scene,
     listSceneGeography(scene),{log:false}).map(entry=>[entry.id,entry]));
+  const viewEntries=projectTerritoryView(manualNative.map(region=>({
+    ...region,geography:geographyById.get(region.id)?.geography,
+    invalid:geographyById.get(region.id)?.invalid??region.invalidLink
+  })),displayMode);
   if(!manualNative.length)manager.appendChild(node("p",
     "No manually authored Regions yet. Select [+] to create a Territory.","hint"));
-  for(const region of manualNative.slice(0,60)){
+  if(manualNative.length && !viewEntries.length)
+    manager.appendChild(node("p","No Regions in this view. Choose Combined to see unclassified native Regions.","hint"));
+  for(const region of viewEntries.slice(0,60)){
     const row=node("div",undefined,"form-group atlas-territory-row");
     row.setAttribute("data-atlas-native-region-id",region.id);
     const details=node("div");details.style.flex="1 1 auto";
+    const nativeRegion=scene.regions?.get?.(region.id);
+    const swatch=node("span",undefined,"atlas-territory-native-color");
+    swatch.style.backgroundColor=/^#[0-9a-f]{6}$/i.test(nativeRegion?.color??"")?
+      nativeRegion.color:"#f4bd69";
+    swatch.setAttribute("aria-hidden","true");
+    swatch.title="Native Region color (Atlas does not alter it)";
+    details.appendChild(swatch);
     details.appendChild(node("span",region.name));
     const published=publicById.get(region.id);
     const status=[region.linked?"Atlas linked":"Native only",
@@ -241,7 +257,6 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
           "Private (no public label)"];
     const parent=geographyById.get(region.id)?.geography?.parentRegionId;
     const entry=geographyById.get(region.id);
-    const nativeRegion=scene.regions?.get?.(region.id);
     const boundaryStale=!!nativeRegion&&territoryBoundaryNeedsAdoption(nativeRegion);
     if(boundaryStale)status.push("Native boundary changed — adopt before Atlas editing");
     if(parent&&geographyById.has(parent))status.push("Parent: "+
@@ -252,6 +267,8 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     const controls=node("div",undefined,"form-fields atlas-territory-actions");
     controls.appendChild(iconAction("gear","Edit native Region in Foundry",
       ()=>actions.configureRegion(scene,region.id)));
+    if(typeof onLocate==="function")controls.appendChild(iconAction("crosshairs",
+      "Locate this native Region on the map",()=>onLocate(region.id)));
     const editBoundary=iconAction("draw-polygon",
       "Edit Atlas Territory control nodes or painted grid cells",
       ()=>actions.editTerritoryBoundary(scene,region.id,refresh));
@@ -282,8 +299,8 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     controls.appendChild(geography);
     row.appendChild(controls);manager.appendChild(row);
   }
-  if(manualNative.length>60)manager.appendChild(node("p",
-    "First 60 manual Regions shown; use Foundry's native Region tools for the remaining entries.","hint"));
+  if(viewEntries.length>60)manager.appendChild(node("p",
+    "First 60 Regions in this view shown; change the view or use Foundry's native Region tools for the remaining entries.","hint"));
   return manager;
 }
 

@@ -61,6 +61,34 @@
 }
 .atlas-scene-workspace .atlas-workspace-stat span { display: block; }
 .atlas-scene-workspace .atlas-workspace-note { margin-top: 1rem; }
+.atlas-scene-workspace .atlas-territory-view-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem 1.1rem;
+  margin: .5rem 0 1rem;
+  padding: .75rem;
+  border: 1px solid var(--color-border-light-tertiary, #6666);
+  border-radius: .4rem;
+}
+.atlas-scene-workspace .atlas-territory-view-controls > label {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  margin: 0;
+  width: auto;
+  cursor: pointer;
+}
+.atlas-scene-workspace .atlas-territory-view-controls select {
+  min-width: 9rem;
+  width: auto;
+}
+.atlas-scene-workspace .atlas-territory-view-controls input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+.atlas-scene-workspace .atlas-territory-view-controls > p { flex-basis: 100%; margin: 0; }
 .atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -78,6 +106,15 @@
   justify-self: end;
   width: auto;
   gap: .35rem;
+}
+.atlas-scene-workspace .atlas-territory-native-color {
+  display: inline-block;
+  width: .75rem;
+  height: .75rem;
+  margin-right: .45rem;
+  border: 1px solid #161923;
+  border-radius: 50%;
+  vertical-align: middle;
 }
 .atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-actions button {
   margin: 0;

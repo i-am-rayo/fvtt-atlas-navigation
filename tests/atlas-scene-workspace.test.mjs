@@ -30,7 +30,8 @@ const buttons = root => walk(root, item => item.tag === "button");
 
 function context() {
   const before = { game: globalThis.game, document: globalThis.document, ui: globalThis.ui,
-    window: globalThis.window };
+    window: globalThis.window, Hooks:globalThis.Hooks, canvas:globalThis.canvas,
+    PIXI:globalThis.PIXI };
   globalThis.document = { createElement: tag => new Element(tag),
     createTextNode: value => ({ textContent: value, children: [] }) };
   globalThis.window = { innerWidth: 1280, innerHeight: 900 };
@@ -75,8 +76,8 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.ok(row, "native Region has a compact workspace row");
     assert.match(row.children[1].className, /atlas-territory-actions/,
       "actions must be placed underneath the Region details");
-    assert.equal(row.children[1].children.length, 7,
-      "native Region reconciliation appears alongside the existing Territory controls");
+    assert.equal(row.children[1].children.length, 8,
+      "Locate joins the existing native Region reconciliation and Territory controls");
     assert.ok(row.children[1].children.every(item =>
       item.className?.includes?.("atlas-ui-icon-button")),
     "all Territory actions must share the same icon size");
@@ -87,6 +88,8 @@ test("GM-only standalone workspace reuses territory actions without writing on r
       item.title==="Classify territory, override its parent, and correct Road membership");
     assert.equal(classify.disabled, true,
       "unlinked Regions cannot be classified as Atlas geography");
+    assert.ok(buttons(row).some(item =>
+      item.title === "Locate this native Region on the map"));
     const smooth = buttons(first.result).find(item =>
       item.title === "Preview smoother native polygon boundary");
     await smooth.listeners.get("click")({ preventDefault() {} });
@@ -160,4 +163,68 @@ test("Territory action row stays right-aligned alongside the Region label", () =
   const css = readFileSync(new URL("../styles/atlas-scene-workspace.css", import.meta.url), "utf8");
   assert.match(css, /\.atlas-territory-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/s);
   assert.match(css, /\.atlas-territory-actions\s*\{[^}]*justify-self:\s*end/s);
+});
+
+test("GM Territory views filter the directory without rewriting native Regions", async () => {
+  const ctx = context();
+  try {
+    const flag = kind => (_scope, key) => key === "atlas" ?
+      {schemaVersion:1,linked:true} : key === "territoryGeography" ?
+        {schemaVersion:1,kind,parentRegionId:null,roadOverrides:{}} : null;
+    ctx.scene.regions[0].name = "Unclassified native Region";
+    ctx.scene.regions.push({id:"continent-1",name:"Valecor",parent:{id:ctx.scene.id},
+      hidden:false,shapes:[],behaviors:[],getFlag:flag("continent")});
+    ctx.scene.regions.push({id:"settlement-1",name:"Dirwest",parent:{id:ctx.scene.id},
+      hidden:false,shapes:[],behaviors:[],getFlag:flag("city")});
+    const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    const territories = buttons(workspace.result).find(item=>item.textContent==="Territories");
+    await territories.listeners.get("click")({preventDefault(){}});
+    const rows = () => walk(workspace.result,item=>item.attributes?.has("data-atlas-native-region-id"));
+    assert.deepEqual(rows().map(item=>item.attributes.get("data-atlas-native-region-id")),
+      ["settlement-1","continent-1","region-1"],
+      "Combined directory puts selectable settlements above broad Regions");
+    const select = walk(workspace.result,item=>item.attributes?.has("data-atlas-territory-view"))[0];
+    assert.deepEqual(select.children.map(item=>item.value),["combined","continents","settlements"]);
+    await select.listeners.get("change")({target:{value:"continents"}});
+    assert.deepEqual(rows().map(item=>item.attributes.get("data-atlas-native-region-id")),
+      ["continent-1"]);
+    const settlements = walk(workspace.result,item=>item.attributes?.has("data-atlas-territory-view"))[0];
+    await settlements.listeners.get("change")({target:{value:"settlements"}});
+    assert.deepEqual(rows().map(item=>item.attributes.get("data-atlas-native-region-id")),
+      ["settlement-1"]);
+    const combined = walk(workspace.result,item=>item.attributes?.has("data-atlas-territory-view"))[0];
+    await combined.listeners.get("change")({target:{value:"combined"}});
+    assert.equal(rows().length,3,"native-only Regions remain available in Combined");
+    assert.deepEqual(ctx.calls,[],"read-only views must never commit native or Atlas data");
+    await workspace.close();
+  } finally { ctx.restore(); }
+});
+
+test("Locate uses public canvas bounds and lifecycle Hooks are unregistered on close", async () => {
+  const ctx=context();
+  try {
+    const subscriptions=new Map(),removed=[];
+    let next=1;
+    globalThis.Hooks={
+      on(event,handler){const id=next++;subscriptions.set(id,{event,handler});return id;},
+      off(event,id){removed.push([event,id]);subscriptions.delete(id);}
+    };
+    const moves=[];
+    ctx.scene.regions[0].parent={id:ctx.scene.id};
+    ctx.scene.regions[0].bounds={x:100,y:240,width:300,height:100};
+    globalThis.canvas={ready:true,scene:ctx.scene,
+      animatePan:async options=>{moves.push(options);}};
+    const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    assert.equal(subscriptions.size,8,"canvas and native document hooks are registered once");
+    await buttons(workspace.result).find(item=>item.textContent==="Territories")
+      .listeners.get("click")({preventDefault(){}});
+    const locate=buttons(workspace.result).find(item=>
+      item.title==="Locate this native Region on the map");
+    await locate.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(moves,[{x:250,y:290,duration:350}]);
+    assert.deepEqual(ctx.calls,[],"Locate never writes a Scene or native Region");
+    await workspace.close();
+    assert.equal(subscriptions.size,0);
+    assert.equal(removed.length,8);
+  } finally {ctx.restore();}
 });

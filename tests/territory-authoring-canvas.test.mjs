@@ -15,11 +15,12 @@ class Element{
     this.parent=null;}
 }
 class Graphics{
+  constructor(){this.strokes=[];this.disks=[];}
   clear(){return this;}
   moveTo(){return this;}
   lineTo(){return this;}
-  stroke(){return this;}
-  circle(){return this;}
+  stroke(style){this.strokes.push(style);return this;}
+  circle(x,y,radius){this.disks.push({x,y,radius});return this;}
   fill(){return this;}
   poly(){return this;}
   destroy(){this.destroyed=true;}
@@ -44,7 +45,8 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
   doc.createElement=tag=>new Element(tag);doc.body=body;
   const group={children:[],addChild(child){this.children.push(child);child.parent=this;},
     removeChild(child){this.children=this.children.filter(c=>c!==child);child.parent=null;}};
-  const view={ready:true,scene:{id:"scene1"},app:{canvas:surface},primary:group,
+  const view={ready:true,scene:{id:"scene1"},app:{canvas:surface},interface:group,
+    primary:{addChild(){throw Error("Territory nodes must never render beneath fog");}},
     stage:{scale:{x:1}},dimensions:{sceneX:0,sceneY:0,sceneWidth:500,sceneHeight:500},
     canvasCoordinatesFromClient:point=>point};
   globalThis.game={user:{isGM:true}};
@@ -57,6 +59,10 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
     const pending=editor.begin(view.scene,draft,async()=>{writes++;});
     assert.equal(body.children.length,1);
     assert.equal(group.children.length,1);
+    assert.deepEqual(editor.session.layer.strokes.map(item=>item.color),
+      [0x121826,0xffe3a2],"dark halo and bright outline stay visible above Atlas fog");
+    assert.equal(editor.session.layer.disks.length,6,
+      "each control node receives a contrast halo and a colored center");
     assert.ok(surface.listeners.has("pointerdown"));
     surface.listeners.get("pointerdown")({button:0,clientX:20,clientY:110,
       preventDefault(){},stopImmediatePropagation(){}});
@@ -87,7 +93,7 @@ test("Foundry legacy Graphics renders edited nodes, new outlines and native grid
   globalThis.PIXI={Graphics:LegacyGraphics};
   globalThis.requestAnimationFrame=undefined;
   globalThis.document=doc;
-  globalThis.canvas={ready:true,scene,app:{canvas:surface},primary:group,
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
     dimensions:{sceneX:0,sceneY:0,sceneWidth:200,sceneHeight:200},
     stage:{scale:{x:1}},canvasCoordinatesFromClient:p=>p,
     grid:{getShape:()=>[{x:-5,y:-5},{x:5,y:-5},{x:0,y:5}],
@@ -97,7 +103,8 @@ test("Foundry legacy Graphics renders edited nodes, new outlines and native grid
     const existing=editor.begin(scene,{kind:"polygon",points:[
       {id:"a",x:10,y:10},{id:"b",x:100,y:10},{id:"c",x:100,y:100}]},async()=>{});
     assert.ok(editor.session.layer.calls.lines>0,"legacy lineStyle draws outlines");
-    assert.equal(editor.session.layer.calls.circles,3,"legacy drawCircle draws nodes");
+    assert.equal(editor.session.layer.calls.circles,6,
+      "legacy drawCircle draws both node halos and centers");
     editor.cancel();assert.equal(await existing,false);
 
     const creation=editor.begin(scene,{kind:"polygon",points:[]},async()=>{});
@@ -142,7 +149,7 @@ test("Preview & Save uses the v14 DialogV2 namespace and commits only on confirm
   }}},instances:new Map()}};
   globalThis.PIXI={Graphics:Graphics};globalThis.requestAnimationFrame=undefined;
   globalThis.document=doc;
-  globalThis.canvas={ready:true,scene,app:{canvas:surface},primary:group,
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
     dimensions:{sceneX:0,sceneY:0,sceneWidth:300,sceneHeight:300},
     stage:{scale:{x:1}},canvasCoordinatesFromClient:p=>p};
   const draft={kind:"polygon",points:[{id:"a",x:5,y:5},
