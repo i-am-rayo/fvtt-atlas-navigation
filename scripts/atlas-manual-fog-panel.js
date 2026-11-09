@@ -1,5 +1,6 @@
 import { readManualFog } from "./atlas-manual-fog-storage.js";
 import { MODULE_ID } from "./atlas-storage.js";
+import {acquireAtlasCanvasEditorFocus} from "./atlas-canvas-editor-focus.js";
 
 import { BRUSH_MODIFIERS as MODIFIERS } from "./atlas-manual-fog-shortcuts.js";
 export const BRUSH_REVEAL_SHORTCUT = "brushRevealShortcut";
@@ -29,7 +30,7 @@ const el=(tag,label,cls)=>{
 };
 const shortcut = key => game.settings.get(MODULE_ID,key);
 export class AtlasManualFogPalette {
-  constructor(controller){this.controller=controller;this.element=null;
+  constructor(controller){this.controller=controller;this.element=null;this.restoreWindows=null;
     this.radius=1;
     this.onKeyDown=event=>{if(event.key==="Escape"&&this.open){event.preventDefault();this.close();}};}
   get open(){return !!this.element?.isConnected;}
@@ -44,6 +45,7 @@ export class AtlasManualFogPalette {
     document.body.appendChild(this.element);
     document.addEventListener("keydown",this.onKeyDown);
     this.controller.paletteOpen=true;
+    this.restoreWindows=acquireAtlasCanvasEditorFocus();
     this.controller.setBrush(this.controller.brush?.mode??null,this.radius);
     this.draw();
   }
@@ -52,6 +54,7 @@ export class AtlasManualFogPalette {
     this.controller.paletteOpen=false;
     this.controller.setBrush(null,this.radius);
     this.element?.remove();this.element=null;
+    this.restoreWindows?.();this.restoreWindows=null;
   }
   draw(){
     const root=this.element;

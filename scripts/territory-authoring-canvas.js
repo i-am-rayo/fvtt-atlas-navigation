@@ -2,6 +2,7 @@
  * pointer input, Undo, brush strokes, and preview graphics are transient. */
 import {paintGridCells,MAX_TERRITORY_NODES} from "./territory-authoring-model.js";
 import {smoothClosedBoundary} from "./region-boundary-model.js";
+import {acquireAtlasCanvasEditorFocus} from "./atlas-canvas-editor-focus.js";
 
 const el=(tag,label)=>{const result=document.createElement(tag);
   if(label!==undefined)result.textContent=label;return result;};
@@ -78,7 +79,7 @@ export class TerritoryAuthoringCanvas{
     const addButton=(label,handler)=>{const b=el("button",label);b.type="button";
       b.addEventListener("click",handler);actions.appendChild(b);return b;};
     const session={sceneId:scene.id,view,surface,layer,panel,info,draft:copy(draft),
-      history:[],brush:"add",radius:0,dragNode:-1,selectedNode:-1,painting:false,
+      history:[],brush:"add",radius:0,dragNode:-1,selectedNode:-1,painting:false,saving:false,
       raf:null,end:null,close:null,onSave};
     const undo=addButton("Undo",()=>{const prior=session.history.pop();if(prior){
       session.draft=prior;session.smoothingSelect&&(session.smoothingSelect.value=
@@ -112,23 +113,25 @@ export class TerritoryAuthoringCanvas{
         session.selectedNode=-1;this.#draw(session);
       });
     }
-    addButton("Cancel",()=>session.close(false));
+    addButton("Cancel",()=>{if(!session.saving)session.close(false);});
     const save=addButton("Preview & Save",async()=>{
       if(save.disabled)return;save.disabled=true;
       try{
         const text=draft.kind==="grid"?
           `Save ${session.draft.offsets.length} native grid cells?`:
           `Save ${session.draft.points.length} editable boundary nodes?`;
-        const accepted=await DialogV2.confirm({window:{title:"Save Territory boundary"},
+        const accepted=await foundry.applications.api.DialogV2.confirm({window:{title:"Save Territory boundary"},
           content:`<p>${text}</p><p>Atlas will verify parent containment, peer overlaps, `+
             `permissions and native geometry before changing a Region. Cancel does not write.</p>`,
           yes:{label:"Save Native Region"},rejectClose:false,modal:true});
         if(!accepted)return;
+        if(!this.#live(session))return;
         if(globalThis.canvas?.scene?.id!==scene.id)
           throw Error("The active Scene changed; reopen the Territory editor.");
+        session.saving=true;
         await onSave(copy(session.draft));session.close(true);
       }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
-      finally{save.disabled=false;}
+      finally{session.saving=false;save.disabled=false;}
     });
     panel.prepend(head,info);panel.appendChild(actions);
     document.body.appendChild(panel);
@@ -198,7 +201,7 @@ export class TerritoryAuthoringCanvas{
         session.draft.points[session.dragNode].y=p.y;this.#scheduleDraw(session);}
     };
     const up=()=>{session.dragNode=-1;session.painting=false;lastCell="";};
-    const key=event=>{if(event.key==="Escape"&&this.#live(session)){
+    const key=event=>{if(event.key==="Escape"&&this.#live(session)&&!session.saving){
       event.preventDefault();session.close(false);}};
     session.close=success=>{
       if(this.session!==session)return;
@@ -208,6 +211,7 @@ export class TerritoryAuthoringCanvas{
       document.removeEventListener("keydown",key,true);
       if(session.raf!==null)globalThis.cancelAnimationFrame?.(session.raf);
       panel.remove();layer.parent?.removeChild?.(layer);layer.destroy?.();
+      session.restoreWindows?.();
       this.session=null;session.end?.(success);
     };
     surface.addEventListener("pointerdown",down,true);
@@ -215,6 +219,7 @@ export class TerritoryAuthoringCanvas{
     document.addEventListener("pointerup",up,true);
     document.addEventListener("keydown",key,true);
     this.session=session;
+    session.restoreWindows=acquireAtlasCanvasEditorFocus();
     try{this.#draw(session);}catch(error){session.close(false);throw error;}
     return new Promise(resolve=>{session.end=resolve;});
   }

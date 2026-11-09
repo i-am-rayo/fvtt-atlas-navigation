@@ -8,6 +8,7 @@ import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
 import { openAtlasSceneWorkspace, refreshAtlasSceneWorkspace }
   from "./atlas-scene-workspace.js";
 import { RoadCanvasController } from "./road-canvas.js";
+import {acquireAtlasCanvasEditorFocus} from "./atlas-canvas-editor-focus.js";
 import { addAtlasExplorerToTokenConfig } from "./atlas-token-config.js";
 import { observeAtlasTokenMovement } from "./atlas-token-exploration.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
@@ -138,14 +139,15 @@ function openRoadDock(scene, refresh) {
       });
     },
     onClosed: () => {
+      restoreEditorWindows?.();
       if (roadDock === dock) roadDock = null;
       refresh();
     }
   });
+  const restoreEditorWindows=acquireAtlasCanvasEditorFocus({exclude:[dock]});
   roadDock = dock;
-  void Promise.resolve(dock.render(true)).then(() => {
-    if (roadDock === dock && sceneSheet?.rendered) void sceneSheet.minimize?.();
-  }).catch(error => {
+  void Promise.resolve(dock.render(true)).catch(error => {
+    restoreEditorWindows();
     if (roadDock === dock) roadDock = null;
     roadCanvas.cancel();
     ui.notifications.error(error.message || String(error));

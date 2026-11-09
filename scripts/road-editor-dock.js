@@ -150,7 +150,6 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
   _onClose(options) {
     super._onClose?.(options);
     if (!this.finished && this.controller.getDraft(this.scene)) this.onCancel();
-    if (this.sceneSheet?.rendered) void this.sceneSheet.maximize?.();
     this.onClosed?.();
   }
 }

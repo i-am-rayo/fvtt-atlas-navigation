@@ -117,3 +117,46 @@ test("Foundry legacy Graphics renders edited nodes, new outlines and native grid
     assert.equal(group.children.length,0);
   }finally{Object.assign(globalThis,saved);}
 });
+
+test("Preview & Save uses the v14 DialogV2 namespace and commits only on confirmation",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    foundry:globalThis.foundry,PIXI:globalThis.PIXI,
+    requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={children:[],addChild(g){this.children.push(g);g.parent=this;},
+    removeChild(g){this.children=this.children.filter(x=>x!==g);g.parent=null;}};
+  const scene={id:"paedor"};let confirm=false,confirmCalls=0,saves=0,savedDraft;
+  globalThis.game={user:{isGM:true}};
+  globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>{
+    confirmCalls++;return confirm;
+  }}},instances:new Map()}};
+  globalThis.PIXI={Graphics:Graphics};globalThis.requestAnimationFrame=undefined;
+  globalThis.document=doc;
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},primary:group,
+    dimensions:{sceneX:0,sceneY:0,sceneWidth:300,sceneHeight:300},
+    stage:{scale:{x:1}},canvasCoordinatesFromClient:p=>p};
+  const draft={kind:"polygon",points:[{id:"a",x:5,y:5},
+    {id:"b",x:100,y:5},{id:"c",x:100,y:100}],smoothing:0};
+  const editor=new TerritoryAuthoringCanvas();
+  try{
+    const pending=editor.begin(scene,draft,async candidate=>{
+      saves++;savedDraft=candidate;
+    });
+    const save=editor.session.panel.children.find(c=>c.tagName==="div")
+      .children.find(c=>c.textContent==="Preview & Save");
+    await save.listeners.get("click")();
+    assert.equal(confirmCalls,1);
+    assert.equal(saves,0,"No unconfirmed native writes");
+    assert.ok(editor.session,"Declined confirmation leaves the draft open");
+    confirm=true;
+    await save.listeners.get("click")();
+    assert.equal(confirmCalls,2);
+    assert.equal(saves,1);
+    assert.deepEqual(savedDraft,draft);
+    assert.equal(await pending,true);
+    assert.equal(group.children.length,0);
+    assert.equal(body.children.length,0);
+    assert.equal(doc.listeners.size,0);
+  }finally{Object.assign(globalThis,saved);}
+});
