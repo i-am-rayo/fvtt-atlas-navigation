@@ -109,7 +109,11 @@ test("Atlas controls follow native Region coordinates after a Scene padding chan
     const shifted=readTerritoryDraft(scene,region.id,{view});
     assert.deepEqual(shifted.points[0],{id:"a",x:0,y:0},
       "native Region remains authoritative even when Scene image origin changes");
-    region.update=async patch=>{region.shapes=patch.shapes;};
+    region.update=async patch=>{
+      assert.equal(Object.hasOwn(patch,"shapes"),false,
+        "unchanged geometry must not be rewritten during a flag-only Save");
+      if(patch.shapes)region.shapes=patch.shapes;
+    };
     const draft={...shifted,name:region.name,geography:mkDraft().geography};
     await saveTerritoryDraft(scene,draft,{regionId:region.id,view});
     assert.equal(region.shapes[0].origin.x,0,
@@ -135,7 +139,11 @@ test("smoothed Atlas controls remain aligned to native Region geometry after pad
     view.dimensions.sceneY-=35;
     const draft=readTerritoryDraft(scene,region.id,{view});
     assert.deepEqual(draft.points,original.points);
-    region.update=async patch=>{region.shapes=patch.shapes;};
+    region.update=async patch=>{
+      assert.equal(Object.hasOwn(patch,"shapes"),false,
+        "an unchanged smoothed boundary must preserve its native Shape");
+      if(patch.shapes)region.shapes=patch.shapes;
+    };
     await saveTerritoryDraft(scene,{...draft,name:region.name,
       geography:original.geography},{regionId:region.id,view});
     assert.deepEqual(region.shapes[0],originalShape,
@@ -225,6 +233,44 @@ test("reconcile native edits by refreshing Atlas controls without moving the nat
     const recovered=readTerritoryDraft(scene,region.id,{view});
     assert.equal(recovered.points[0].x,50);
     assert.equal(recovered.points[0].y,30);
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("adopted native polygon origin need not be its minimum local vertex",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {scene,view,created}=fixture();
+    await saveTerritoryDraft(scene,mkDraft(),{view});
+    const data=created[0].payload[0];
+    const flags=data.flags["fvtt-atlas-navigation"];
+    const region=mockRegion("hearths-heart","town");
+    region.shapes=[{type:"polygon",origin:{x:6333.14,y:2966.27},
+      points:[-15,25,25,25,25,65,-15,65],hole:false,gridBased:false}];
+    region.getFlag=(_module,key)=>flags[key]??null;
+    region.update=async patch=>{
+      if(patch["flags.fvtt-atlas-navigation.territoryBoundarySource"])
+        flags.territoryBoundarySource=patch["flags.fvtt-atlas-navigation.territoryBoundarySource"];
+      assert.equal(Object.hasOwn(patch,"shapes"),false,
+        "adopted and untouched controls must preserve the native Shape representation");
+      if(patch.shapes)region.shapes=patch.shapes;
+    };
+    scene.regions.set(region.id,region);
+    const plan=planNativeTerritoryAdoption(scene,region.id,{view});
+    await adoptNativeTerritoryBoundary(scene,plan,{view});
+    const draft=readTerritoryDraft(scene,region.id,{view});
+    assert.equal(draft.points[0].x,6318.14);
+    assert.equal(draft.points[0].y,2991.27);
+    const absoluteVertices=shape=>shape.points.map((n,i)=>
+      n+(i%2?shape.origin.y:shape.origin.x));
+    const before=absoluteVertices(region.shapes[0]);
+    await saveTerritoryDraft(scene,{...draft,geography:mkDraft().geography,
+      name:region.name},{regionId:region.id,view});
+    assert.deepEqual(absoluteVertices(region.shapes[0]),before,
+      "unchanged adopted controls must retain the exact native world boundary");
+    assert.deepEqual(region.shapes[0].origin,{x:6333.14,y:2966.27},
+      "even the native polygon's nonstandard origin must remain unchanged");
   }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
 });
 

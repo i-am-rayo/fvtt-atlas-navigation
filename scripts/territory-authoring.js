@@ -13,6 +13,19 @@ import {sceneImageOrigin} from "./road-coordinates.js";
 
 const clone=v=>structuredClone(v);
 const plainShapes=r=>Array.from(r?.shapes??[],s=>s.toObject?.()??clone(s));
+const absolutePolygonPoints=shape=>shape.points.map((value,index)=>
+  value+(index%2===0?shape.origin.x:shape.origin.y));
+function samePolygonBoundary(a,b,{tolerance=1e-6}={}){
+  if(a?.type!=="polygon"||b?.type!=="polygon"||a.hole===true||b.hole===true||
+      a.gridBased===true||b.gridBased===true||
+      !Number.isFinite(a.origin?.x)||!Number.isFinite(a.origin?.y)||
+      !Number.isFinite(b.origin?.x)||!Number.isFinite(b.origin?.y)||
+      !Array.isArray(a.points)||!Array.isArray(b.points)||
+      a.points.length!==b.points.length||
+      !a.points.every(Number.isFinite)||!b.points.every(Number.isFinite))return false;
+  const absoluteA=absolutePolygonPoints(a),absoluteB=absolutePolygonPoints(b);
+  return absoluteA.every((value,index)=>Math.abs(value-absoluteB[index])<=tolerance);
+}
 const shapeDigest=s=>JSON.stringify(s.map(v=>({type:v.type,
   origin:v.type==="grid"?null:v.origin??null,
   points:v.points??null,offsets:v.type==="grid"?
@@ -89,13 +102,17 @@ export function readTerritoryDraft(scene,regionId,{view=globalThis.canvas}={}){
       // native Region on the next Save. The native Shape always owns position.
       const projected=shapeForDraft({kind:"polygon",points,smoothing:source.smoothing??0});
       const native=shapes[0];
-      if(shapes.length!==1||native.type!=="polygon"||
-          native.points.length!==projected.points.length||
-          native.points.some((value,i)=>Math.abs(value-projected.points[i])>0.05))
+      const projectedAbsolute=absolutePolygonPoints(projected);
+      const nativeAbsolute=shapes.length===1&&native?.type==="polygon"&&
+        native?.origin&&Array.isArray(native.points)?absolutePolygonPoints(native):[];
+      const dx=nativeAbsolute[0]-projectedAbsolute[0];
+      const dy=nativeAbsolute[1]-projectedAbsolute[1];
+      if(nativeAbsolute.length!==projectedAbsolute.length||
+          !Number.isFinite(dx)||!Number.isFinite(dy)||native.hole===true||
+          native.gridBased===true||nativeAbsolute.some((value,i)=>
+            Math.abs(value-projectedAbsolute[i]-(i%2===0?dx:dy))>0.05))
         throw Error("Atlas controls cannot be aligned with this native Region Shape. " +
           "Do not save; inspect the native Region and reconcile its source.");
-      const dx=native.origin.x-projected.origin.x;
-      const dy=native.origin.y-projected.origin.y;
       for(const point of points){point.x+=dx;point.y+=dy;}
     }
     return {kind:source.kind,points,offsets:source.offsets??[],
@@ -265,7 +282,13 @@ export async function saveTerritoryDraft(scene,draft,{regionId=null,
   if(!view?.ready||view.scene?.id!==scene.id)
     throw Error("Open this Scene on the canvas before saving a native Territory.");
   const imageOrigin=sceneImageOrigin(view);
-  const shape=shapeForDraft(draft);
+  const projectedShape=shapeForDraft(draft);
+  // Keep an unchanged Foundry Shape's native origin and local point encoding.
+  // An explicit Save may update geography/source flags without normalizing or
+  // unnecessarily re-rendering the authoritative Region geometry.
+  const nativeShapes=region?plainShapes(region):[];
+  const shape=region&&nativeShapes.length===1&&
+    samePolygonBoundary(nativeShapes[0],projectedShape)?nativeShapes[0]:projectedShape;
   validateTerritoryCoverage(scene,draft,shape,{regionId,view});
   if(region&&shapeDigest(plainShapes(region))!==draft.sourceDigest)
     throw Error("The native Region changed during editing. Reload the draft; nothing saved.");
@@ -286,7 +309,7 @@ export async function saveTerritoryDraft(scene,draft,{regionId=null,
     [BOUNDARY_SOURCE_FLAG]:source}};
   let saved;
   if(region){
-    await region.update({shapes:[shape],
+    await region.update({...(shape===projectedShape?{shapes:[shape]}:{}),
       [`flags.${MODULE_ID}.${GEOGRAPHY_FLAG}`]:geography,
       [`flags.${MODULE_ID}.${BOUNDARY_SOURCE_FLAG}`]:source});
     saved=region;
