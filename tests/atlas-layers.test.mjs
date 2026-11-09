@@ -94,6 +94,7 @@ test("Atlas Layers modeless palette exposes Road/Region modes, names and fill co
   globalThis.game={user:{isGM:true}};
   globalThis.document={createElement:tag=>new Element(tag)};
   const updates=[],controller={read:()=>({...DEFAULT_ATLAS_LAYERS}),
+    listColorRegions:()=>[],
     async update(change){updates.push(change);}};
   try{
     const window=new AtlasLayersWindow(controller);
@@ -122,6 +123,42 @@ test("Atlas Layers modeless palette exposes Road/Region modes, names and fill co
     await button.listeners.get("click")();
     assert.equal(reset,true,"invalid preferences require an explicit reset click");
     assert.equal(window.rendered,true);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("Region color is edited through native Foundry configuration, not client palette flags",async()=>{
+  const previous={game:globalThis.game,canvas:globalThis.canvas,
+    document:globalThis.document};
+  globalThis.document={createElement:tag=>new Element(tag)};
+  const region={id:"nativeRegion1",name:"Reshara",color:"#5ccc28",behaviors:[],
+    parent:{id:"scene1"},canUserModify:()=>true,
+    getFlag(_scope,key){return key==="atlas"?{schemaVersion:1,linked:true}:
+      key==="territoryGeography"?{schemaVersion:1,kind:"continent",
+        parentRegionId:null,roadOverrides:{}}:null;},
+    update(){throw Error("Viewing colors must not write native Regions");}};
+  const scene={id:"scene1",regions:new Map([[region.id,region]]),
+    canUserModify:()=>true};
+  globalThis.game={user:{isGM:true}};
+  globalThis.canvas={scene,ready:true};
+  let opened=0;
+  const controller=new AtlasLayersController({setViewMode:()=>false});
+  controller.read=()=>({...DEFAULT_ATLAS_LAYERS});
+  controller.configureRegion=(_scene,id)=>{assert.equal(id,"nativeRegion1");opened++;};
+  try{
+    assert.deepEqual(controller.listColorRegions(),
+      [{id:"nativeRegion1",name:"Reshara",color:"#5ccc28"}]);
+    const palette=new AtlasLayersWindow(controller),root=await palette._renderHTML();
+    const color=all(root).find(item=>item.type==="color");
+    assert.equal(color.value,"#5ccc28");
+    assert.equal(color.disabled,true,"swatch is native-owned, not a second writable source");
+    const edit=all(root).find(item=>item.tagName==="button"&&
+      item.textContent==="Edit native Region color");
+    await edit.listeners.get("click")();
+    assert.equal(opened,1,"native RegionConfig is opened on deliberate selection");
+    assert.equal(region.color,"#5ccc28","Atlas never silently alters native color");
+    globalThis.game.user.isGM=false;
+    await assert.rejects(()=>controller.configureColorRegion(region.id),/authorized GM/);
+    assert.equal(opened,1);
   }finally{Object.assign(globalThis,previous);}
 });
 

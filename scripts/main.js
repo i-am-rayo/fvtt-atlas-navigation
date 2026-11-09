@@ -2042,6 +2042,7 @@ Hooks.once("init", () => {
   registerWorldCheckpointPresets();
   registerWorldRoadAppearance(() => roadCanvas.refresh());
   const roadActions = actions();
+  atlasLayers.configureRegion=(scene,regionId)=>roadActions.configureRegion(scene,regionId);
   roadActions.openAtlasWorkspace = scene => openAtlasSceneWorkspace(scene,roadActions);
   roadCanvas.setShortcutHandler((scene, target) => {
     ensureIdle(scene);

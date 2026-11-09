@@ -43,7 +43,7 @@ test("native Region triangulation drives translucent fills without bridging hole
 
 test("GM overlay mounts above fog, draws continents first, and cleans up with no native writes", () => {
   const previous={canvas:globalThis.canvas,PIXI:globalThis.PIXI,game:globalThis.game};
-  const draw=[];
+  const draw=[],graphicInstances=[];
   class Container {
     constructor(){this.children=[];this.parent=null;this.destroyed=false;}
     addChild(c){c.parent=this;this.children.push(c);return c;}
@@ -51,9 +51,10 @@ test("GM overlay mounts above fog, draws continents first, and cleans up with no
     destroy(){this.destroyed=true;}
   }
   class Graphics {
+    constructor(){this.operations=[];graphicInstances.push(this);}
     poly(p){this.points=p;return this;}
-    stroke(opts){draw.push({points:this.points,opts});return this;}
-    fill(opts){draw.push({fillPoints:this.points,opts});return this;}
+    stroke(opts){this.operations.push("stroke");draw.push({points:this.points,opts});return this;}
+    fill(opts){this.operations.push("fill");draw.push({fillPoints:this.points,opts});return this;}
   }
   class Text {
     constructor(value,style){this.text=typeof value==="string"?value:String(value);
@@ -88,9 +89,16 @@ test("GM overlay mounts above fog, draws continents first, and cleans up with no
     assert.deepEqual(result,{shown:2,skipped:0});
     assert.equal(interfaceGroup.children.length,1);
     assert.equal(interfaceGroup.children[0].eventMode,"none");
+    assert.deepEqual(graphicInstances.map(instance=>[...new Set(instance.operations)]),
+      [["fill"],["stroke"]],
+      "fills and borders need isolated GraphicsContexts so triangle edges cannot bleed into strokes");
     assert.deepEqual(draw.filter(item=>item.points).map(item=>item.points[0]),
       [0,0,200,200,20,20],
       "continent halo/core must draw before settlement halo/core");
+    assert.ok(draw.some(item=>item.points&&item.opts?.color===0x112233),
+      "native Region Appearance color is used for the continental boundary");
+    assert.ok(draw.some(item=>item.points&&item.opts?.color===0xaabbcc),
+      "nested settlement keeps its own native color");
     assert.equal(draw.filter(item=>item.fillPoints).length,1,
       "only Regions with public, valid native triangulation receive a fill");
     assert.equal(draw.find(item=>item.fillPoints).opts.alpha,.22);

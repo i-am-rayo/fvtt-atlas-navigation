@@ -129,9 +129,15 @@ export class TerritoryViewOverlay {
       .filter(entry=>territoryTier(entry)!=="unclassified");
     const layer = new pixi.Container();
     layer.eventMode = "none";
-    const graphics = new pixi.Graphics();
-    graphics.eventMode = "none";
-    layer.addChild(graphics);
+    // A filled triangle's GraphicsContext must never share a stroke path with
+    // the Region outline. Isolating the contexts prevents any fill path from
+    // inheriting an outline style (the likely source of the reported fans).
+    const fills = new pixi.Graphics();
+    const borders = new pixi.Graphics();
+    fills.eventMode = "none";
+    borders.eventMode = "none";
+    layer.addChild(fills);
+    layer.addChild(borders);
     let shown = 0, skipped = 0, vertices = 0;
     let fillTriangles=0;
     const labels = [];
@@ -151,13 +157,13 @@ export class TerritoryViewOverlay {
           const triangles=readNativeTerritoryTriangles(region,
             {maxTriangles:MAX_FILL_TRIANGLES-fillTriangles});
           if(triangles){
-            for(const triangle of triangles)fillTriangle(graphics,triangle,color,fillOpacity);
+            for(const triangle of triangles)fillTriangle(fills,triangle,color,fillOpacity);
             fillTriangles+=triangles.length;
           }
         }
         for (const path of paths) {
-          outline(graphics,path,broad?7:9,0x0e1524,broad?.55:.85);
-          outline(graphics,path,broad?3:4,color,broad?.67:1);
+          outline(borders,path,broad?7:9,0x0e1524,broad?.55:.85);
+          outline(borders,path,broad?3:4,color,broad?.67:1);
         }
         shown++;
         if (showNames && labels.length < MAX_LABELS && pixi.Text) {
