@@ -15,13 +15,13 @@ class Element{
     this.parent=null;}
 }
 class Graphics{
-  constructor(){this.strokes=[];this.disks=[];}
+  constructor(){this.strokes=[];this.disks=[];this.fills=[];}
   clear(){return this;}
   moveTo(){return this;}
   lineTo(){return this;}
   stroke(style){this.strokes.push(style);return this;}
   circle(x,y,radius){this.disks.push({x,y,radius});return this;}
-  fill(){return this;}
+  fill(options){this.fills.push(options);return this;}
   poly(){return this;}
   destroy(){this.destroyed=true;}
 }
@@ -78,6 +78,57 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
     assert.equal(group.children.length,0);
     assert.equal(surface.listeners.size,0);
     assert.equal(doc.listeners.size,0);
+  }finally{Object.assign(globalThis,saved);}
+});
+
+test("hex/square brush rings show a live add/erase footprint before any write",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={children:[],addChild(g){this.children.push(g);g.parent=this;},
+    removeChild(g){this.children=this.children.filter(x=>x!==g);g.parent=null;}};
+  const scene={id:"atlas-scene"};let committed=0;
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Graphics};globalThis.requestAnimationFrame=undefined;
+  globalThis.document=doc;
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    dimensions:{sceneX:0,sceneY:0,sceneWidth:400,sceneHeight:400},
+    stage:{scale:{x:2}},canvasCoordinatesFromClient:p=>p,
+    grid:{getShape:()=>[{x:-9,y:-9},{x:9,y:-9},{x:9,y:9},{x:-9,y:9}],
+      getCenterPoint:({i,j})=>({x:i*20+10,y:j*20+10}),
+      getOffset:({x,y})=>({i:Math.floor(x/20),j:Math.floor(y/20)}),
+      getAdjacentOffsets:({i,j})=>[{i:i+1,j},{i:i-1,j},{i,j:j+1},{i,j:j-1}]}};
+  const editor=new TerritoryAuthoringCanvas();
+  try{
+    const pending=editor.begin(scene,{kind:"grid",offsets:[]},async()=>{committed++;});
+    const label=editor.session.panel.children.find(child=>child.tagName==="label"&&
+      child.textContent.includes("Brush radius"));
+    const slider=label.children.find(child=>child.tagName==="input");
+    slider.value="2";slider.listeners.get("input")();
+    const move=doc.listeners.get("pointermove");
+    move({clientX:110,clientY:110,target:surface});
+    assert.equal(editor.session.hoverOffsets.length,13,"two-square-ring footprint previews 13 cells");
+    assert.equal(editor.session.draft.offsets.length,0,
+      "hover must not touch the staged Region geometry");
+    assert.equal(committed,0,"hover cannot commit native Region changes");
+    assert.match(editor.session.info.textContent,/Hover: add 13 cells \(13 in brush\)/);
+    assert.ok(editor.session.layer.fills.some(item=>item?.alpha===.16),
+      "preview uses translucent high-contrast cell outlines");
+    const down=surface.listeners.get("pointerdown");
+    down({button:0,clientX:110,clientY:110,preventDefault(){},stopImmediatePropagation(){}});
+    assert.equal(editor.session.draft.offsets.length,13,"click applies previewed footprint");
+    assert.equal(committed,0,"click edits only the draft");
+    const mode=editor.session.panel.children.find(child=>child.tagName==="div")
+      .children.find(child=>child.textContent==="Brush: Add");
+    mode.listeners.get("click")();
+    assert.match(editor.session.info.textContent,/Hover: erase 13 cells/);
+    doc.listeners.get("pointerup")();
+    surface.listeners.get("pointerleave")();
+    assert.equal(editor.session.hoverOffsets.length,0,"pointer exit clears preview");
+    editor.cancel();assert.equal(await pending,false);
+    assert.equal(committed,0,"Cancel discards painted cells");
+    assert.equal(doc.listeners.size,0);assert.equal(surface.listeners.size,0);
   }finally{Object.assign(globalThis,saved);}
 });
 

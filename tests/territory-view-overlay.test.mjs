@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {projectTerritoryView,territoryTier} from "../scripts/territory-view-model.js";
-import {readNativeTerritoryPaths,TerritoryViewOverlay}
+import {readNativeTerritoryPaths,readNativeTerritoryTriangles,TerritoryViewOverlay}
   from "../scripts/territory-view-overlay.js";
 
 const geo = (id,name,kind,linked=true) =>
@@ -29,6 +29,18 @@ test("native polygon paths are absolute and reject excessive or invalid geometry
   assert.equal(readNativeTerritoryPaths({get polygons(){throw Error("invalid shape");}}),null);
 });
 
+test("native Region triangulation drives translucent fills without bridging holes",()=>{
+  const triangulation={vertices:Float32Array.from([10,20,30,20,30,40,
+    110,120,130,120,130,140]),indices:Uint16Array.from([0,1,2,3,4,5])};
+  assert.deepEqual(readNativeTerritoryTriangles({triangulation}),
+    [[10,20,30,20,30,40],[110,120,130,120,130,140]],
+    "disconnected Region islands remain separate triangles");
+  assert.equal(readNativeTerritoryTriangles({triangulation},{maxTriangles:1}),null);
+  assert.equal(readNativeTerritoryTriangles({triangulation:{...triangulation,
+    indices:Uint16Array.from([0,1,6])}}),null,"out of bounds triangles are rejected");
+  assert.equal(readNativeTerritoryTriangles({get triangulation(){throw Error("unavailable");}}),null);
+});
+
 test("GM overlay mounts above fog, draws continents first, and cleans up with no native writes", () => {
   const previous={canvas:globalThis.canvas,PIXI:globalThis.PIXI,game:globalThis.game};
   const draw=[];
@@ -41,9 +53,11 @@ test("GM overlay mounts above fog, draws continents first, and cleans up with no
   class Graphics {
     poly(p){this.points=p;return this;}
     stroke(opts){draw.push({points:this.points,opts});return this;}
+    fill(opts){draw.push({fillPoints:this.points,opts});return this;}
   }
   class Text {
-    constructor(options){this.text=options.text;this.style=options.style;
+    constructor(value,style){this.text=typeof value==="string"?value:String(value);
+      this.style=style;
       this.anchor={set:(...args)=>{this.anchorSet=args;}};
       this.position={set:(...args)=>{this.positionSet=args;}};
       this.scale={set:value=>{this.scaleSet=value;}};}
@@ -51,6 +65,8 @@ test("GM overlay mounts above fog, draws continents first, and cleans up with no
   try {
     const regions=new Map([
       ["big",{id:"big",name:"Valecor",color:"#112233",
+        triangulation:{vertices:Float32Array.from([0,0,100,0,100,100]),
+          indices:Uint16Array.from([0,1,2])},
         polygons:[{points:[0,0,100,0,100,100,0,100]},
           {points:[200,200,210,200,210,210,200,210]}],
         bounds:{x:0,y:0,width:210,height:210}}],
@@ -67,13 +83,20 @@ test("GM overlay mounts above fog, draws continents first, and cleans up with no
     globalThis.canvas={scene,ready:true,interface:interfaceGroup,stage:{scale:{x:2}}};
     const overlay=new TerritoryViewOverlay();
     const result=overlay.sync(scene,[geo("small","Dirwest","city"),
-      geo("big","Valecor","continent")],{showNames:true});
+      geo("big","Valecor","continent")],{showNames:true,continentFillOpacity:.22,
+      settlementFillOpacity:.11});
     assert.deepEqual(result,{shown:2,skipped:0});
     assert.equal(interfaceGroup.children.length,1);
     assert.equal(interfaceGroup.children[0].eventMode,"none");
-    assert.deepEqual(draw.map(item=>item.points[0]),[0,0,200,200,20,20],
+    assert.deepEqual(draw.filter(item=>item.points).map(item=>item.points[0]),
+      [0,0,200,200,20,20],
       "continent halo/core must draw before settlement halo/core");
+    assert.equal(draw.filter(item=>item.fillPoints).length,1,
+      "only Regions with public, valid native triangulation receive a fill");
+    assert.equal(draw.find(item=>item.fillPoints).opts.alpha,.22);
     assert.deepEqual(overlay.labels.map(item=>item.text),["Valecor","Dirwest"]);
+    assert.equal(overlay.labels.some(item=>item.text==="[object Object]"),false,
+      "v14 positional PIXI.Text signature must receive a string");
     assert.deepEqual(overlay.labels[0].positionSet,[50,50],
       "a disconnected Region's label belongs to its largest island, not the empty overall bounds center");
     assert.equal(overlay.labels[0].scaleSet,.5,"labels keep constant screen size while zoomed");

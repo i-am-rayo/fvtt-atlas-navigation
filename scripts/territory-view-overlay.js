@@ -8,6 +8,7 @@ import {projectTerritoryView, territoryTier} from "./territory-view-model.js";
 const MAX_REGIONS = 80;
 const MAX_VERTICES = 20000;
 const MAX_LABELS = 45;
+const MAX_FILL_TRIANGLES = 5000;
 
 /** Native PIXI Polygon points use absolute canvas coordinates in Foundry v14. */
 export function readNativeTerritoryPaths(region, {vertexBudget = MAX_VERTICES} = {}) {
@@ -31,6 +32,35 @@ export function readNativeTerritoryPaths(region, {vertexBudget = MAX_VERTICES} =
 function nativeColor(value) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ?
     Number.parseInt(value.slice(1), 16) : 0xf4bd69;
+}
+
+/** Uses native clipped triangulation, so grid islands and holes stay exact. */
+export function readNativeTerritoryTriangles(region,{maxTriangles=MAX_FILL_TRIANGLES}={}) {
+  let data;
+  try { data=region?.triangulation; } catch { return null; }
+  const indices=data?.indices,vertices=data?.vertices;
+  if (!indices || !vertices || !Number.isSafeInteger(maxTriangles) || maxTriangles<1 ||
+      indices.length<3 || indices.length%3 || indices.length/3>maxTriangles ||
+      vertices.length<6 || vertices.length%2 ||
+      !Array.from(vertices).every(Number.isFinite) ||
+      !Array.from(indices).every(i=>Number.isSafeInteger(i)&&i>=0&&i*2+1<vertices.length))
+    return null;
+  const result=[];
+  for(let j=0;j<indices.length;j+=3){
+    const triangle=[];
+    for(let k=j;k<j+3;k++)triangle.push(vertices[indices[k]*2],vertices[indices[k]*2+1]);
+    result.push(triangle);
+  }
+  return result;
+}
+
+function fillTriangle(graphics,points,color,alpha) {
+  if (typeof graphics.poly==="function" && typeof graphics.fill==="function")
+    graphics.poly(points).fill({color,alpha});
+  else if(typeof graphics.beginFill==="function" &&
+      typeof graphics.drawPolygon==="function" && typeof graphics.endFill==="function") {
+    graphics.beginFill(color,alpha);graphics.drawPolygon(points);graphics.endFill();
+  }
 }
 
 function outline(graphics, points, width, color, alpha) {
@@ -86,7 +116,8 @@ export class TerritoryViewOverlay {
     layer.destroy?.({children:true});
   }
 
-  sync(scene, entries, {mode="combined", showNames=false} = {}) {
+  sync(scene, entries, {mode="combined", showNames=false,
+    continentFillOpacity=0,settlementFillOpacity=0} = {}) {
     this.clear();
     const view = globalThis.canvas;
     const pixi = globalThis.PIXI;
@@ -102,6 +133,7 @@ export class TerritoryViewOverlay {
     graphics.eventMode = "none";
     layer.addChild(graphics);
     let shown = 0, skipped = 0, vertices = 0;
+    let fillTriangles=0;
     const labels = [];
     try {
       for (const entry of projected) {
@@ -114,6 +146,15 @@ export class TerritoryViewOverlay {
         vertices += count;
         const broad = territoryTier(entry)==="continent";
         const color = nativeColor(region.color);
+        const fillOpacity=broad?continentFillOpacity:settlementFillOpacity;
+        if(Number.isFinite(fillOpacity) && fillOpacity>0 && fillOpacity<=.5){
+          const triangles=readNativeTerritoryTriangles(region,
+            {maxTriangles:MAX_FILL_TRIANGLES-fillTriangles});
+          if(triangles){
+            for(const triangle of triangles)fillTriangle(graphics,triangle,color,fillOpacity);
+            fillTriangles+=triangles.length;
+          }
+        }
         for (const path of paths) {
           outline(graphics,path,broad?7:9,0x0e1524,broad?.55:.85);
           outline(graphics,path,broad?3:4,color,broad?.67:1);
@@ -122,10 +163,12 @@ export class TerritoryViewOverlay {
         if (showNames && labels.length < MAX_LABELS && pixi.Text) {
           const at = location(region,paths);
           if (at && [at.x,at.y].every(Number.isFinite)) {
-            const label = new pixi.Text({text:String(entry.name??"Unnamed Region").slice(0,64),
-              style:{fontFamily:"Signika, sans-serif",fontSize:broad?17:20,
+            // Foundry v14's PIXI.Text expects (text, style). Passing a single
+            // options object is rendered literally as "[object Object]".
+            const label = new pixi.Text(String(entry.name??"Unnamed Region").slice(0,64),
+              {fontFamily:"Signika, sans-serif",fontSize:broad?17:20,
                 fontWeight:"bold",fill:broad?"#f4e0b4":"#ffffff",
-                stroke:{color:"#121827",width:5}}});
+                stroke:"#121827",strokeThickness:5});
             label.eventMode = "none";
             label.anchor?.set?.(.5,.5);
             label.position?.set?.(at.x,at.y);

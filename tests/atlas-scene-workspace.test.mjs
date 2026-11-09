@@ -165,7 +165,7 @@ test("Territory action row stays right-aligned alongside the Region label", () =
   assert.match(css, /\.atlas-territory-actions\s*\{[^}]*justify-self:\s*end/s);
 });
 
-test("GM Territory views filter the directory without rewriting native Regions", async () => {
+test("GM Territory directory remains accessible; Atlas Layers owns persistent map visibility", async () => {
   const ctx = context();
   try {
     const flag = kind => (_scope, key) => key === "atlas" ?
@@ -183,24 +183,16 @@ test("GM Territory views filter the directory without rewriting native Regions",
     assert.deepEqual(rows().map(item=>item.attributes.get("data-atlas-native-region-id")),
       ["settlement-1","continent-1","region-1"],
       "Combined directory puts selectable settlements above broad Regions");
-    const select = walk(workspace.result,item=>item.attributes?.has("data-atlas-territory-view"))[0];
-    assert.deepEqual(select.children.map(item=>item.value),["combined","continents","settlements"]);
-    await select.listeners.get("change")({target:{value:"continents"}});
-    assert.deepEqual(rows().map(item=>item.attributes.get("data-atlas-native-region-id")),
-      ["continent-1"]);
-    const settlements = walk(workspace.result,item=>item.attributes?.has("data-atlas-territory-view"))[0];
-    await settlements.listeners.get("change")({target:{value:"settlements"}});
-    assert.deepEqual(rows().map(item=>item.attributes.get("data-atlas-native-region-id")),
-      ["settlement-1"]);
-    const combined = walk(workspace.result,item=>item.attributes?.has("data-atlas-territory-view"))[0];
-    await combined.listeners.get("change")({target:{value:"combined"}});
+    assert.equal(walk(workspace.result,item=>item.attributes?.has("data-atlas-territory-view")).length,0,
+      "Workspace must not own competing map-view settings");
     assert.equal(rows().length,3,"native-only Regions remain available in Combined");
+    assert.match(text(workspace.result),/Atlas Layers toolbar button/);
     assert.deepEqual(ctx.calls,[],"read-only views must never commit native or Atlas data");
     await workspace.close();
   } finally { ctx.restore(); }
 });
 
-test("Locate uses public canvas bounds and lifecycle Hooks are unregistered on close", async () => {
+test("Locate uses public canvas bounds and workspace does not own canvas preview Hooks", async () => {
   const ctx=context();
   try {
     const subscriptions=new Map(),removed=[];
@@ -215,7 +207,7 @@ test("Locate uses public canvas bounds and lifecycle Hooks are unregistered on c
     globalThis.canvas={ready:true,scene:ctx.scene,
       animatePan:async options=>{moves.push(options);}};
     const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
-    assert.equal(subscriptions.size,8,"canvas and native document hooks are registered once");
+    assert.equal(subscriptions.size,0,"persistent Atlas Layers controller owns canvas hooks");
     await buttons(workspace.result).find(item=>item.textContent==="Territories")
       .listeners.get("click")({preventDefault(){}});
     const locate=buttons(workspace.result).find(item=>
@@ -225,6 +217,6 @@ test("Locate uses public canvas bounds and lifecycle Hooks are unregistered on c
     assert.deepEqual(ctx.calls,[],"Locate never writes a Scene or native Region");
     await workspace.close();
     assert.equal(subscriptions.size,0);
-    assert.equal(removed.length,8);
+    assert.equal(removed.length,0);
   } finally {ctx.restore();}
 });

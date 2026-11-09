@@ -92,6 +92,23 @@ function pointEvent(x, y) {
   };
 }
 
+test("Atlas Road layer modes are distinct and switching never commits Scene state",()=>{
+  const m=setup();let repaints=0;
+  m.controller.refresh=()=>{repaints++;};
+  assert.equal(m.controller.viewMode,"roads");
+  assert.equal(m.controller.setViewMode("terrain"),true);
+  assert.equal(m.controller.viewMode,"terrain");
+  assert.equal(m.controller.setViewMode("corridors"),true);
+  assert.equal(m.controller.viewMode,"corridors");
+  assert.equal(m.controller.setViewMode("corridors"),false);
+  assert.equal(m.controller.setViewMode("roads"),true);
+  assert.throws(()=>m.controller.setViewMode("other"),/Unsupported/);
+  assert.equal(repaints,3,"identical preferences must not trigger redundant repaints");
+  assert.equal(m.scene.getFlag("fvtt-atlas-navigation","atlas"),undefined,
+    "changing the view must never persist Road/Region geometry");
+  m.controller.tearDown();
+});
+
 test("v0.2.22 idle GM Shift-click opens a road without requiring label visibility", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
   const m = setup();

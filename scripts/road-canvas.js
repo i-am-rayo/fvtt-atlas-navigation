@@ -513,9 +513,18 @@ export class RoadCanvasController {
   }
 
   toggleViewMode() {
-    this.viewMode = this.viewMode === "roads" ? "corridors" : "roads";
-    this.refresh();
+    this.setViewMode(this.viewMode === "roads" ? "terrain" : "roads");
     return this.viewMode;
+  }
+
+  /** Presentation preference only; never writes authored Road appearance. */
+  setViewMode(mode) {
+    if (!["roads", "terrain", "corridors"].includes(mode))
+      throw Error("Unsupported Atlas Road layer view.");
+    if (this.viewMode === mode) return false;
+    this.viewMode = mode;
+    this.refresh();
+    return true;
   }
 
   getNewRoadOptions(scene) {
@@ -1787,7 +1796,7 @@ export class RoadCanvasController {
         style.width + 2 / zoom + (highlighted ? 2 : 0),
         highlighted ? 1 : style.opacity, style.pattern, style.width);
       if(highlighted)drawLine(g,path,color,style.width+2,1,style.pattern);
-      else if(this.viewMode==="corridors") {
+      else if(this.viewMode==="terrain") {
         const roadPreset=travelPresets.find(preset=>preset.id===road.travelPresetId);
         const fallbackColor=roadPreset?.color??style.color;
         for(const run of roadSurfaceSpans(path,surfaceRegions,fallbackColor,

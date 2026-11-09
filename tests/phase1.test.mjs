@@ -65,8 +65,9 @@ test("module init registers World travel and appearance menus without an obsolet
         events.set(name, callback);
       },
       on(name, callback) {
-        assert.equal(events.has(name), false);
-        events.set(name, callback);
+        // Foundry Hooks.on supports multiple independent listeners for the
+        // same canvas/document event (including the Atlas Layers observer).
+        if (!events.has(name)) events.set(name, callback);
       }
     };
 
