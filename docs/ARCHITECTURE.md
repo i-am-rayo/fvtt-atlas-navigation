@@ -295,3 +295,18 @@ multi-Region write, shared political-border database, native Wall change or
 Region Behavior/Level/Atlas graph mutation. Full paired-edge synchronization
 and gap filling remain a separately designed follow-up. See [beta.8.9
 scope and acceptance](TERRITORY_BORDER_RECONCILIATION_BETA8_9.md).
+
+## v0.3.9-beta.8.9.1 — GM Territory authoring control sources
+
+Primary: Atlas image-local, versioned polygon control nodes, projected on
+explicit GM Save to one authoritative native Region Shape. Secondary: Foundry
+v14.370+ native square/hex GridShape offsets painted with a GM-only, staged
+brush. Optional: one-time import of selected closed, nonblocking native Blank
+Walls. The domain model validates rings, node IDs and grid cells; the adapter
+checks GM permission, source/Shape revision, geography hierarchy, parent
+containment and peer collisions through native geometry before one-Region
+commit. Smoothing never adds vertices to the source controls; native Shapes
+and Behaviors remain Foundry-owned. No shared-edge migration, peer clipping,
+cell transfer, Wall synchronization, or multi-document transaction exists in
+this initial slice. See [scope, invariants and owner v14 live checklist](
+TERRITORY_AUTHORING_BETA8_9_1.md).

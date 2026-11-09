@@ -66,6 +66,24 @@ test("analysis reports sibling overlap, excludes nested containment, and perform
   }finally{globalThis.game=oldGame;}
 });
 
+test("native grid Territories are counted as overlaps but not offered polygon trim",()=>{
+  const previous=globalThis.game;
+  try{
+    globalThis.game={user:{id:"gm",isGM:true}};
+    const {scene,a,b}=fixture();
+    a.shapes=[{type:"grid",offsets:[{i:2,j:3},{i:2,j:4}],hole:false}];
+    b.shapes=[{type:"grid",offsets:[{i:2,j:3},{i:3,j:3}],hole:false}];
+    a.area=b.area=200;
+    a.bounds=b.bounds={x:0,y:0,width:100,height:100};
+    const result=analyzeSceneTerritoryBorders(scene);
+    assert.equal(result.overlaps.length,1);
+    assert.equal(result.overlaps[0].area,100);
+    assert.equal(result.overlaps[0].canTrim,false);
+    assert.equal(a.updates.length+b.updates.length,0);
+    assert.throws(()=>planNativeTerritoryTrim(scene,a.id,b.id),/polygon|Shape/);
+  }finally{globalThis.game=previous;}
+});
+
 test("small separation produces a non-authoritative gap hint without altering native shapes",()=>{
   const previous=globalThis.game;
   try{

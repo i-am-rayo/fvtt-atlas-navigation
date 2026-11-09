@@ -856,8 +856,9 @@ test("Scene Atlas manages native Regions across roads and exposes safe boundary 
     assert.match(textContents(mounted),/Territories & custom native Regions/);
     assert.match(textContents(mounted),/Native only/);
     const controls=buttons(mounted);
-    const plus=controls.find(b=>b.title==="Create a native polygon Region on this Scene");
-    assert.ok(plus,"Territory panel includes the native [+] control");
+    const plus=controls.find(b=>b.title===
+      "Create a Territory using Atlas nodes, native grid painting, or selected Blank Walls");
+    assert.ok(plus,"Territory panel includes the authoring-method [+] control");
     await plus.listeners.get("click")({preventDefault(){}});
     assert.equal(created,true);
     const borders=controls.find(b=>b.title===

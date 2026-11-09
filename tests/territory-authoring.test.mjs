@@ -1,0 +1,145 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {saveTerritoryDraft,readTerritoryDraft,selectedBlankWallBoundary}
+  from "../scripts/territory-authoring.js";
+
+const mkDraft=()=>({kind:"polygon",name:"Dirwest",
+  points:[{id:"a",x:0,y:0},{id:"b",x:10,y:0},{id:"c",x:10,y:10},
+    {id:"d",x:0,y:10}],offsets:[],wallIds:[],smoothing:0,
+  geography:{schemaVersion:1,kind:"town",parentRegionId:null,roadOverrides:{}}});
+const mockRegion=(id,kind,intersection=0)=>({id,name:"Millstone",parent:{id:"paedor"},
+  canUserModify:()=>true,hidden:false,shapes:[{type:"polygon",origin:{x:0,y:0},
+    points:[0,0,10,0,10,10,0,10],hole:false,gridBased:false}],
+  getFlag:(_module,key)=>key==="atlas"?{schemaVersion:1,linked:true}:
+    key==="territoryGeography"?{schemaVersion:1,kind,parentRegionId:null,
+      roadOverrides:{}}:null,
+  polygonTree:{intersectPolygon:()=>({area:intersection})}});
+
+function fixture(peers=[]){
+  const created=[];
+  const regions=new Map(peers.map(region=>[region.id,region]));
+  const scene={id:"paedor",regions,canUserModify:()=>true,
+    async createEmbeddedDocuments(type,payload){created.push({type,payload});
+      return [{id:"new-region",name:payload[0].name,parent:{id:"paedor"}}];}};
+  const view={ready:true,scene:{id:"paedor"},
+    dimensions:{sceneX:100,sceneY:200,sceneWidth:1000,sceneHeight:1000}};
+  return {created,scene,view};
+}
+
+test("Territory save creates a native Region with one opt-in Atlas source and geography",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {created,scene,view}=fixture();
+    const saved=await saveTerritoryDraft(scene,mkDraft(),{view});
+    assert.equal(saved.id,"new-region");
+    assert.equal(created.length,1);
+    assert.equal(created[0].type,"Region");
+    const data=created[0].payload[0];
+    assert.equal(data.shapes[0].type,"polygon");
+    assert.deepEqual(data.behaviors,[]);
+    assert.equal(data.flags["fvtt-atlas-navigation"].territoryBoundarySource.nodes.length,4);
+    assert.deepEqual(data.flags["fvtt-atlas-navigation"].territoryBoundarySource.nodes[0],
+      {id:"a",x:-100,y:-200});
+    assert.equal(data.flags["fvtt-atlas-navigation"].territoryGeography.kind,"town");
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("non-GMs and overlapping peer Territories cause zero writes",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {created,scene,view}=fixture([mockRegion("peer","village",30)]);
+    globalThis.game={user:{isGM:false}};
+    await assert.rejects(saveTerritoryDraft(scene,mkDraft(),{view}),/authorized GM/);
+    globalThis.game={user:{isGM:true}};
+    await assert.rejects(saveTerritoryDraft(scene,mkDraft(),{view}),/overlaps/);
+    assert.equal(created.length,0);
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("grid native save rejects cells owned by another settlement",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  const peer=mockRegion("peer","town");
+  peer.shapes=[{type:"grid",offsets:[{i:2,j:3}]}];
+  const {scene,created}=fixture([peer]);
+  const draft={...mkDraft(),kind:"grid",points:[],offsets:[{i:2,j:3}]};
+  const view={ready:true,scene:{id:"paedor"},
+    dimensions:{sceneX:0,sceneY:0,sceneWidth:1000,sceneHeight:1000},grid:{
+    getShape:()=>[{x:0,y:0},{x:1,y:0},{x:0,y:1}],
+    getCenterPoint:()=>({x:0,y:0})}};
+  try{
+    await assert.rejects(saveTerritoryDraft(scene,draft,{view}),/already owned/);
+    assert.equal(created.length,0);
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("adopting existing native Regions never edits geometry on read",()=>{
+  const old=globalThis.game;globalThis.game={user:{isGM:true}};
+  try{
+    const region=mockRegion("dirwest","town");
+    let updates=0;region.update=async()=>updates++;
+    const {scene,view}=fixture([region]);
+    const draft=readTerritoryDraft(scene,"dirwest",{view});
+    assert.equal(draft.points.length,4);
+    assert.equal(updates,0);
+  }finally{globalThis.game=old;}
+});
+
+test("Atlas control nodes round-trip in image-local space without native writes",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {created,scene,view}=fixture();
+    await saveTerritoryDraft(scene,mkDraft(),{view});
+    const data=created[0].payload[0];
+    const region=mockRegion("new-region","town");
+    region.name=data.name;
+    region.shapes=data.shapes;
+    region.getFlag=(module,key)=>data.flags[module]?.[key]??null;
+    scene.regions.set(region.id,region);
+    const first=readTerritoryDraft(scene,region.id,{view});
+    assert.deepEqual(first.points,mkDraft().points);
+    view.dimensions.sceneX=120;view.dimensions.sceneY=180;
+    const shifted=readTerritoryDraft(scene,region.id,{view});
+    assert.deepEqual(shifted.points[0],{id:"a",x:20,y:-20});
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("authoring requires full native parent containment, not a majority overlap",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const continent=mockRegion("valecor","continent",80);
+    const {created,scene,view}=fixture([continent]);
+    const draft=mkDraft();draft.geography.parentRegionId="valecor";
+    await assert.rejects(saveTerritoryDraft(scene,draft,{view}),/beyond its designated parent/);
+    assert.equal(created.length,0);
+    continent.polygonTree.intersectPolygon=()=>({area:100});
+    await saveTerritoryDraft(scene,draft,{view});
+    assert.equal(created.length,1);
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("stale native Region edits cannot be overwritten by an older Atlas draft",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const region=mockRegion("dirwest","town");
+    let writes=0;region.update=async()=>{writes++;};
+    const {scene,view}=fixture([region]);
+    const draft={...readTerritoryDraft(scene,region.id,{view}),
+      geography:mkDraft().geography,name:region.name};
+    region.shapes=[{type:"polygon",origin:{x:0,y:0},
+      points:[0,0,20,0,20,10,0,10],hole:false}];
+    await assert.rejects(saveTerritoryDraft(scene,draft,{regionId:region.id,view}),
+      /changed during editing/);
+    assert.equal(writes,0);
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});

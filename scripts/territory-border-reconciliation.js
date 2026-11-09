@@ -5,6 +5,7 @@ import {GENERATED_REGION_FLAG} from "./generated-region-model.js";
 import {listSceneGeography} from "./territory-geography-storage.js";
 import {readRegionAtlasLink} from "./region-atlas.js";
 import {inspectNativePolygonShape} from "./region-boundary-model.js";
+import {validateGridOffsets,BOUNDARY_SOURCE_FLAG} from "./territory-authoring-model.js";
 import {atlasDebug} from "./atlas-debug.js";
 import {competingTerritories,boundsNear,nearestPolygonBorderDistance,
   validateBorderTrim,MAX_BORDER_REGIONS,MAX_NATIVE_OVERLAP_TESTS}
@@ -48,6 +49,32 @@ function nativePolygon(region,{validate=false}={}){
     throw Error("The native polygon projection is unavailable; no changes were made.");
   return {shapes,points};
 }
+function analysisGeometry(region){
+  const shapes=plainShapes(region);
+  if(shapes.length===1&&shapes[0]?.type==="grid"&&
+      shapes[0]?.hole!==true&&Number.isFinite(region.area)&&region.area>0){
+    const offsets=validateGridOffsets(shapes[0].offsets??[]);
+    return {mode:"grid",offsets,region};
+  }
+  return {mode:"polygon",...nativePolygon(region),region};
+}
+function nativePairIntersection(a,b){
+  if(a.mode==="grid"&&b.mode==="grid"){
+    const other=new Set(b.offsets.map(p=>`${p.i},${p.j}`));
+    const count=a.offsets.filter(p=>other.has(`${p.i},${p.j}`)).length;
+    return count*a.region.area/a.offsets.length;
+  }
+  const polygon=a.mode==="polygon"?a:b,other=a.mode==="grid"?a:b;
+  const parts=other.region.polygons??[];
+  if(!parts.length||parts.length>64||
+      typeof polygon.region.polygonTree?.intersectPolygon!=="function")
+    throw Error("Complex native grid/polygon intersection requires a scoped analysis.");
+  return parts.reduce((sum,part)=>{
+    const area=polygon.region.polygonTree.intersectPolygon(part)?.area;
+    if(!Number.isFinite(area)||area<0)throw Error("Invalid native intersection area.");
+    return sum+area;
+  },0);
+}
 
 /** Bounded comparison of peers only. Nearby borders are a diagnostic hint;
  * actual enclosed gaps cannot be proven from two polygons alone. */
@@ -65,7 +92,7 @@ export function analyzeSceneTerritoryBorders(scene,{nearPixels=null}={}){
   const geometry=new Map();
   const readGeometry=region=>{
     if(!geometry.has(region.id)){
-      try{geometry.set(region.id,{value:nativePolygon(region)});}
+      try{geometry.set(region.id,{value:analysisGeometry(region)});}
       catch(error){geometry.set(region.id,{error});}
     }
     const result=geometry.get(region.id);
@@ -83,15 +110,16 @@ export function analyzeSceneTerritoryBorders(scene,{nearPixels=null}={}){
       const ap=readGeometry(first),bp=readGeometry(second);
       if(++checks>MAX_NATIVE_OVERLAP_TESTS)
         throw Error("Too many native Region intersections for one safe synchronous analysis.");
-      const intersection=first.polygonTree.intersectPolygon(second.polygons[0]);
-      const area=intersection?.area;
+      const area=nativePairIntersection(ap,bp);
       if(!Number.isFinite(area)||area< -1e-5||area>Math.min(first.area,second.area)*1.001)
         throw Error("Invalid native Region intersection area.");
       if(area>Math.max(1e-4,Math.min(first.area,second.area)*1e-6)){
         overlaps.push({firstId:a.id,secondId:b.id,firstName:a.name,secondName:b.name,
-          area,smallerCoveragePercent:Number((100*area/Math.min(first.area,second.area)).toFixed(1))});
+          area,smallerCoveragePercent:Number((100*area/Math.min(first.area,second.area)).toFixed(1)),
+          ...(ap.mode==="grid"||bp.mode==="grid"?{canTrim:false}: {})});
       }else{
-        const distance=nearestPolygonBorderDistance(ap.points,bp.points);
+        const distance=ap.mode==="polygon"&&bp.mode==="polygon"?
+          nearestPolygonBorderDistance(ap.points,bp.points):null;
         if(distance!==null&&distance>1e-4&&distance<=tolerance)
           nearby.push({firstId:a.id,secondId:b.id,firstName:a.name,
             secondName:b.name,distancePixels:Number(distance.toFixed(2))});
@@ -115,6 +143,8 @@ function inspectPair(scene,trimId,keepId){
   const trim=eligibleRegion(scene,trimId),keep=eligibleRegion(scene,keepId);
   if(!competingTerritories(trim.entry,keep.entry))
     throw Error("Continent-to-settlement nesting is intentional; choose peer territories.");
+  if(trim.region.getFlag?.(MODULE_ID,BOUNDARY_SOURCE_FLAG)!=null)
+    throw Error("This Territory has an Atlas boundary source. Edit its control nodes or painted cells instead of trimming the native projection.");
   const source=nativePolygon(trim.region,{validate:true});
   const protectedShape=nativePolygon(keep.region,{validate:true});
   return {trim,keep,source,protectedShape};
