@@ -32,6 +32,7 @@ import { readTerritoryRoadDirectory } from "./territory-road-directory.js";
 import {withInferredContinentParents} from "./territory-parent-inference.js";
 import {territoryBoundaryNeedsAdoption} from "./territory-authoring.js";
 import {projectTerritoryView} from "./territory-view-model.js";
+import {nativeRegionColorHex} from "./native-region-color.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -240,8 +241,7 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     const details=node("div");details.style.flex="1 1 auto";
     const nativeRegion=scene.regions?.get?.(region.id);
     const swatch=node("span",undefined,"atlas-territory-native-color");
-    swatch.style.backgroundColor=/^#[0-9a-f]{6}$/i.test(nativeRegion?.color??"")?
-      nativeRegion.color:"#f4bd69";
+    swatch.style.backgroundColor=nativeRegionColorHex(nativeRegion?.color)??"transparent";
     swatch.setAttribute("aria-hidden","true");
     swatch.title="Native Region color (Atlas does not alter it)";
     details.appendChild(swatch);
@@ -275,6 +275,15 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     editBoundary.disabled=!!draft||!region.linked||region.invalidLink||
       !geographyById.get(region.id)?.geography?.kind;
     controls.appendChild(editBoundary);
+    const polygonShapes=Array.from(nativeRegion?.shapes??[]);
+    if(polygonShapes.length===1&&polygonShapes[0]?.type==="polygon"){
+      const convert=iconAction("hexagon",
+        "Preview converting this selected native polygon Region to grid/hex (no changes)",
+        ()=>actions.previewTerritoryGridConversion(scene,region.id));
+      convert.disabled=!!draft||!region.linked||region.invalidLink||
+        !geographyById.get(region.id)?.geography?.kind;
+      controls.appendChild(convert);
+    }
     const adopt=iconAction("rotate","Adopt the current native Region boundary as Atlas controls",
       ()=>actions.adoptNativeTerritoryBoundary(scene,region.id,refresh));
     adopt.disabled=!!draft||!region.linked||region.invalidLink||!boundaryStale;

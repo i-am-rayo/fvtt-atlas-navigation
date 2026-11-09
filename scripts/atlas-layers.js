@@ -3,6 +3,7 @@ import {MODULE_ID} from "./atlas-storage.js";
 import {listSceneGeography} from "./territory-geography-storage.js";
 import {listGeneratedRegions} from "./region-native-read.js";
 import {TerritoryViewOverlay} from "./territory-view-overlay.js";
+import {nativeRegionColorHex} from "./native-region-color.js";
 import {ATLAS_LAYERS_SETTING,DEFAULT_ATLAS_LAYERS,ROAD_LAYER_MODES,
   REGION_LAYER_MODES,validateAtlasLayers,updateAtlasLayers}
   from "./atlas-layer-preferences.js";
@@ -117,12 +118,15 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
       select.value=chosen;
       const preview=element("input");preview.type="color";preview.disabled=true;
       preview.setAttribute("aria-label","Current native Region color");
+      const colorStatus=element("span",undefined,"atlas-layers-native-color-status");
       const edit=element("button","Edit native Region color");edit.type="button";
       const refreshColor=()=>{
         this.colorRegionId=select.value;
         const region=colorRegions.find(item=>item.id===select.value);
-        preview.value=/^#[0-9a-f]{6}$/i.test(region?.color??"")?
-          region.color:"#f4bd69";
+        const nativeHex=nativeRegionColorHex(region?.color);
+        preview.value=nativeHex??"#000000";
+        preview.hidden=!nativeHex;
+        colorStatus.textContent=nativeHex??"Native color unavailable — inspect Region Appearance";
       };
       select.addEventListener("change",refreshColor);refreshColor();
       edit.addEventListener("click",async()=>{
@@ -131,7 +135,7 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
       });
       selection.appendChild(select);
       const actions=element("div",undefined,"atlas-layers-color-actions");
-      actions.append(preview,edit);
+      actions.append(preview,colorStatus,edit);
       colors.append(selection,actions);
     }
     return root;
@@ -192,7 +196,11 @@ export class AtlasLayersController {
     });
     for(const event of ["createRegion","updateRegion","deleteRegion"])
       Hooks.on(event,region=>{
-        if(region?.parent?.id===globalThis.canvas?.scene?.id)this.refresh();
+        if(region?.parent?.id!==globalThis.canvas?.scene?.id)return;
+        this.refresh();
+        if(this.window?.rendered)
+          void Promise.resolve(this.window.render(true)).catch(error=>
+            console.warn("Atlas Layers palette native Region refresh failed",error));
       });
   }
 

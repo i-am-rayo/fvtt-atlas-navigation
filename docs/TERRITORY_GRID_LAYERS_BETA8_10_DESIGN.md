@@ -86,6 +86,56 @@ visibility, Levels and Journey data remain exactly unchanged.
 - A settlement may visually supersede its parent Continent without destroying any parent cells. To change two same-tier Regions, stage an explicit **multi-document transfer with recoverable intent**; do not treat canvas previews as atomic native writes.
 - Unsupported feature versions or grid changes fail closed without any native edits.
 
+### beta.8.12 candidate — Gate C inspection-only slice (automated test; owner live pending)
+
+- The reported Reshara native green `#4d972b` must remain green in Atlas. Atlas
+  now resolves the native Region's public Appearance color for hex strings and
+  Foundry number-backed Color values; unknown values never silently render as
+  the old amber fallback. The GM palette shows the resolved native color or an
+  explicit unavailable message. Atlas does not write/change native colors.
+- A selected, linked, classified native Region with **one ordinary polygon
+  Shape** offers `Preview converting this selected native polygon Region to
+  grid/hex (no changes)` in the Territory directory. This calls native
+  `BaseGrid#getOffsetRange`, `getCenterPoint` and `PolygonTree#testPoint` with
+  an explicit **cell-center inclusion rule**, bounded to 6,000 candidate cells
+  and 30,000 inspected cells. The cyan candidate cells and original orange
+  contour render transiently in `canvas.interface` above fog; they are removed
+  when the dialog closes or the canvas tears down.
+- The preview reports the candidate cell count, **net** native pixel area
+  change (not a symmetric-difference error), and candidate-center conflicts
+  with peers of the **same tier**. Nested parent Continent + settlement overlap
+  remains intentional. Candidate-center checks are only informative: before a
+  later Save, actual native cell/peer intersections and parent containment
+  still need exact validation and reviewed transfer decisions.
+- No conversion writes or peer transfers occur in this candidate. Native
+  Region IDs, Shapes, Levels, Behaviors, colors, flags, Atlas journey state and
+  stored Roads/Checkpoints are not modified. Multi-shape Regions, holes,
+  gridless Scenes, older v14 without GridShapeData and excessive candidates
+  are refused explicitly.
+
+**Owner live checklist for beta.8.12:**
+
+1. Open native Region Reshara with green `#4d972b`; verify both Atlas Region
+   color swatch and map outline/fill show the same green. Change its native
+   Appearance color; verify Atlas updates without requiring a Scene reload.
+2. Select the existing drawn/polygon Region in the Territory directory and
+   use its hexagon conversion-preview action. Cyan native cells should follow
+   center coverage; orange lines should trace original shape; close the dialog
+   and verify no cyan cells remain and no native Shape has changed.
+3. Preview a Continent containing a Town, then a same-tier overlapping peer:
+   Town/Continent nesting must remain allowed; same-tier candidate-center
+   conflicts should be reported rather than transferred.
+4. Confirm the feature is unavailable/refuses gracefully on older v14,
+   gridless Scenes, holes, multiple native Shapes and oversized candidates.
+   Test canvas refresh/switch and non-GM; check that native Behaviors, fog,
+   roads and Journeys remain unaffected.
+
+**Next separate Gate C authoring slice (not implemented):** approved native
+conversion commit with a recoverable backup, exact native-geometry/digest
+revalidation and safe rollback; peer-to-peer transfer requires explicit GM
+approval and a robust multi-document recovery protocol. Do not infer consent
+to transfer from selecting the conversion target.
+
 ## Explicitly out of scope until approved
 
 - Silently converting all existing polygon Regions, automatically deleting parent Continent cells, conflating native Highlight Mode with saved Grid Shape conversion, generating duplicate native Regions, or changing native Behaviors to enforce hierarchy.

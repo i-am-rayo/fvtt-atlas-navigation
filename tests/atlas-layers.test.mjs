@@ -156,6 +156,11 @@ test("Region color is edited through native Foundry configuration, not client pa
     await edit.listeners.get("click")();
     assert.equal(opened,1,"native RegionConfig is opened on deliberate selection");
     assert.equal(region.color,"#5ccc28","Atlas never silently alters native color");
+    region.color=new Number(0x4d972b);
+    const updatedPalette=await palette._renderHTML();
+    const updatedSwatch=all(updatedPalette).find(item=>item.type==="color");
+    assert.equal(updatedSwatch.value,"#4d972b",
+      "native Foundry Color objects display as the selected Region's actual green");
     globalThis.game.user.isGM=false;
     await assert.rejects(()=>controller.configureColorRegion(region.id),/authorized GM/);
     assert.equal(opened,1);
