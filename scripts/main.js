@@ -42,6 +42,7 @@ import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
 import {analyzeSceneTerritoryBorders,planNativeTerritoryTrim,
   saveNativeTerritoryTrim} from "./territory-border-reconciliation.js";
 import {TerritoryAuthoringCanvas} from "./territory-authoring-canvas.js";
+import {preferredTerritoryCreationMethod} from "./territory-authoring-model.js";
 import {readTerritoryDraft,selectedBlankWallBoundary,saveTerritoryDraft,
   planNativeTerritoryAdoption,adoptNativeTerritoryBoundary}
   from "./territory-authoring.js";
@@ -1504,13 +1505,21 @@ function actions() {
       input.maxLength=120;
       input.setAttribute("required","");
       label.appendChild(input);content.append(note,label);
+      const nativeGridShape=Boolean(globalThis.foundry?.data?.GridShapeData)&&
+        Boolean(globalThis.canvas?.grid)&&!globalThis.canvas.grid.isGridless;
       const methodLabel=document.createElement("label");
       methodLabel.textContent="Creation method";
-      methodLabel.appendChild(createSettingsSelect([
-        ["polygon","Draw Atlas Boundary Nodes"],
-        ["grid","Paint Native Hex/Grid Spaces"],
-        ["walls","Import Selected Blank Walls"]],
-      {name:"method",ariaLabel:"Territory creation method"}));
+      const methods=[["polygon","Draw Atlas Boundary Nodes"]];
+      if(nativeGridShape)methods.push(["grid","Paint Native Hex/Grid Spaces (recommended)"]);
+      methods.push(["walls","Import Selected Blank Walls"]);
+      methodLabel.appendChild(createSettingsSelect(methods,{
+        selectedId:preferredTerritoryCreationMethod({nativeGridShape,
+          gridless:globalThis.canvas?.grid?.isGridless===true}),
+        name:"method",ariaLabel:"Territory creation method"}));
+      if(!nativeGridShape){const hint=document.createElement("p");
+        hint.textContent="Native grid painting requires Foundry v14.370+ and a square/hex Scene. " +
+          "Polygon and Blank Wall authoring remain supported.";
+        methodLabel.appendChild(hint);}
       content.appendChild(methodLabel);
       const kindLabel=document.createElement("label");kindLabel.textContent="Territory type";
       kindLabel.appendChild(createSettingsSelect(Object.entries(GEOGRAPHY_KINDS),

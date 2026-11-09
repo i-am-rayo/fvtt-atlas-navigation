@@ -5,6 +5,12 @@ export const BOUNDARY_SOURCE_FLAG="territoryBoundarySource";
 export const MAX_TERRITORY_NODES=256;
 export const MAX_TERRITORY_CELLS=6000;
 
+/** Feature detection keeps the polygon editor usable on earlier v14 builds
+ * and gridless Scenes without treating the newest native shape as mandatory. */
+export function preferredTerritoryCreationMethod({nativeGridShape=false,gridless=false}={}){
+  return nativeGridShape&&!gridless?"grid":"polygon";
+}
+
 const finitePoint=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y);
 const key=p=>`${p.i},${p.j}`;
 

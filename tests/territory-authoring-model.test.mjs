@@ -1,12 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {validateBoundaryNodes,polygonShapeFromNodes,boundaryFromBlankWalls,
-  validateGridOffsets,paintGridCells,gridCellConflicts}
+  validateGridOffsets,paintGridCells,gridCellConflicts,preferredTerritoryCreationMethod}
   from "../scripts/territory-authoring-model.js";
 
 const ring=[{id:"a",x:0,y:0},{id:"b",x:15,y:0},
   {id:"c",x:15,y:15},{id:"d",x:0,y:15}];
 const blank=(id,c)=>({id,c,move:0,sight:0,light:0,sound:0,door:0});
+
+test("native grid is the recommended default only when the Scene supports it",()=>{
+  assert.equal(preferredTerritoryCreationMethod({nativeGridShape:true}),"grid");
+  assert.equal(preferredTerritoryCreationMethod({nativeGridShape:false}),"polygon");
+  assert.equal(preferredTerritoryCreationMethod({nativeGridShape:true,gridless:true}),"polygon");
+  assert.equal(preferredTerritoryCreationMethod(),"polygon");
+});
 
 test("Atlas control nodes produce one valid native polygon with stable IDs",()=>{
   assert.equal(validateBoundaryNodes(ring),225);

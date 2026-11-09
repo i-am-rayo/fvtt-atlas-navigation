@@ -16,39 +16,48 @@ function edgeDistance(p,a,b){
 /** Foundry v14 canvas instances may expose either the modern Graphics shape
  * builder or the legacy lineStyle/draw* surface (as elsewhere in Atlas).
  * Keep preview compatibility entirely in Canvas: native Shapes are untouched. */
-function drawOutline(graphics,points){
+function drawOutline(graphics,points,zoom=1){
   if(typeof graphics.moveTo!=="function"||typeof graphics.lineTo!=="function")
     throw Error("Foundry Canvas cannot draw Territory boundary lines.");
   const modern=typeof graphics.stroke==="function";
-  if(!modern){
-    if(typeof graphics.lineStyle!=="function")
-      throw Error("Foundry Canvas does not support Territory outline styling.");
-    graphics.lineStyle(3,0x8bdbbe,1);
+  if(!modern&&typeof graphics.lineStyle!=="function")
+    throw Error("Foundry Canvas does not support Territory outline styling.");
+  // The editor lives in the interface group above Atlas's PrimaryCanvas fog.
+  // A dark halo and light core remain legible over revealed *and* masked tiles.
+  for(const [width,color] of [[8,0x121826],[3.5,0xffe3a2]]){
+    const pixelWidth=Math.min(40,width/Math.max(0.2,zoom));
+    if(!modern)graphics.lineStyle(pixelWidth,color,1);
+    graphics.moveTo(points[0].x,points[0].y);
+    for(let i=1;i<points.length;i++)graphics.lineTo(points[i].x,points[i].y);
+    if(points.length>=3)graphics.lineTo(points[0].x,points[0].y);
+    if(modern)graphics.stroke({width:pixelWidth,color,alpha:1});
   }
-  graphics.moveTo(points[0].x,points[0].y);
-  for(let i=1;i<points.length;i++)graphics.lineTo(points[i].x,points[i].y);
-  if(points.length>=3)graphics.lineTo(points[0].x,points[0].y);
-  if(modern)graphics.stroke({width:3,color:0x8bdbbe,alpha:1});
 }
 
-function drawControlNode(graphics,point,selected){
-  const color=selected?0xffd45e:0xe6bd81;
+function drawControlNode(graphics,point,selected,zoom=1){
+  const color=selected?0xffc347:0x75f0f4;
+  const radius=Math.min(40,(selected?11:9)/Math.max(0.2,zoom));
+  const halo=Math.min(48,(selected?15:13)/Math.max(0.2,zoom));
   if(typeof graphics.circle==="function"&&typeof graphics.fill==="function"){
-    graphics.circle(point.x,point.y,6).fill({color,alpha:1});
+    graphics.circle(point.x,point.y,halo).fill({color:0x121826,alpha:1});
+    graphics.circle(point.x,point.y,radius).fill({color,alpha:1});
   }else if(typeof graphics.beginFill==="function"&&
       typeof graphics.drawCircle==="function"&&typeof graphics.endFill==="function"){
+    graphics.beginFill(0x121826,1);
+    graphics.drawCircle(point.x,point.y,halo);
+    graphics.endFill();
     graphics.beginFill(color,1);
-    graphics.drawCircle(point.x,point.y,6);
+    graphics.drawCircle(point.x,point.y,radius);
     graphics.endFill();
   }else throw Error("Foundry Canvas cannot draw Territory control nodes.");
 }
 
 function drawGridSpace(graphics,points){
   if(typeof graphics.poly==="function"&&typeof graphics.fill==="function"){
-    graphics.poly(points).fill({color:0x43bca2,alpha:0.28});
+    graphics.poly(points).fill({color:0x43bca2,alpha:0.4});
   }else if(typeof graphics.beginFill==="function"&&
       typeof graphics.drawPolygon==="function"&&typeof graphics.endFill==="function"){
-    graphics.beginFill(0x43bca2,0.28);
+    graphics.beginFill(0x43bca2,0.4);
     graphics.drawPolygon(points);
     graphics.endFill();
   }else throw Error("Foundry Canvas cannot draw Territory grid cells.");
@@ -60,13 +69,13 @@ export class TerritoryAuthoringCanvas{
     if(this.session)throw Error("Finish or cancel the existing Territory draft first.");
     const view=globalThis.canvas;
     if(!globalThis.game?.user?.isGM||!view?.ready||view.scene?.id!==scene?.id||
-        !view.primary?.addChild||!globalThis.PIXI?.Graphics)
+        !view.interface?.addChild||!globalThis.PIXI?.Graphics)
       throw Error("Open this Scene as GM to author its Territory.");
     const surface=view.app?.canvas??view.app?.view;
     if(!surface||typeof view.canvasCoordinatesFromClient!=="function")
       throw Error("Native canvas pointer coordinates are unavailable.");
     const layer=new PIXI.Graphics();layer.eventMode="none";
-    view.primary.addChild(layer);
+    view.interface.addChild(layer);
     const panel=el("section");panel.className="atlas-territory-authoring";
     panel.style.cssText="position:fixed;top:90px;right:24px;z-index:10000;"+
       "max-width:360px;padding:1rem;background:#111019;color:#f4e8d7;"+
@@ -246,6 +255,8 @@ export class TerritoryAuthoringCanvas{
   }
   #draw(session){
     const graphics=session.layer,view=session.view,draft=session.draft;
+    const zoom=Number.isFinite(view.stage?.scale?.x)&&view.stage.scale.x>0?
+      view.stage.scale.x:1;
     graphics.clear();
     if(draft.kind==="polygon"){
       const points=draft.points;
@@ -257,9 +268,10 @@ export class TerritoryAuthoringCanvas{
               contour.push({x:flat[i],y:flat[i+1]});}
           catch{contour=points;}
         }
-        drawOutline(graphics,contour);
+        drawOutline(graphics,contour,zoom);
       }
-      for(const [i,p] of points.entries())drawControlNode(graphics,p,i===session.selectedNode);
+      for(const [i,p] of points.entries())drawControlNode(graphics,p,
+        i===session.selectedNode,zoom);
       session.info.textContent=`${points.length} control nodes · Click to add, `+
         "drag a node to move; click an edge to insert; select and delete a node. " +
         "Smoothing changes the native projection, never the controls.";

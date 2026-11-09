@@ -8,6 +8,9 @@ import { listGeneratedRegions } from "./generated-region.js";
 import { listPublicTerritorySettings } from "./region-narration.js";
 import { createAtlasRoadsPanel, createAtlasTerritoryPanel, createAtlasTopologyPanel }
   from "./scene-config.js";
+import {listSceneGeography} from "./territory-geography-storage.js";
+import {TERRITORY_VIEW_MODES} from "./territory-view-model.js";
+import {TerritoryViewOverlay} from "./territory-view-overlay.js";
 
 const workspaces = new Map();
 
@@ -54,10 +57,63 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     this.actions = actions;
     this.activeSection = "overview";
     this._scrollY = 0;
+    this.territoryView = "combined";
+    this.showTerritoryNames = false;
+    this._territoryOverlay = new TerritoryViewOverlay();
+    this._workspaceHooks = [];
+    const hooks = globalThis.Hooks;
+    if (hooks?.on) {
+      const register = (event, callback) => {
+        const handle = hooks.on(event, callback);
+        this._workspaceHooks.push([event, handle ?? callback]);
+      };
+      register("canvasReady", () => this._syncTerritoryPreview());
+      register("canvasTearDown", () => this._territoryOverlay.clear());
+      register("canvasPan", () => this._territoryOverlay.updateLabelScale());
+      register("updateUser", user => {
+        if (user?.id === globalThis.game?.user?.id) this._syncTerritoryPreview();
+      });
+      register("updateScene", scene => {
+        if (scene?.id === this.scene.id) this._syncTerritoryPreview();
+      });
+      for (const event of ["createRegion", "updateRegion", "deleteRegion"])
+        register(event, region => {
+          if (region?.parent?.id === this.scene.id) this._syncTerritoryPreview();
+        });
+    }
+  }
+
+  _syncTerritoryPreview() {
+    this._territoryOverlay.clear();
+    if (this.activeSection !== "territories" || !globalThis.game?.user?.isGM ||
+        !this.scene?.canUserModify?.(game.user, "update")) return;
+    try {
+      this._territoryOverlay.sync(this.scene, listSceneGeography(this.scene), {
+        mode:this.territoryView, showNames:this.showTerritoryNames
+      });
+    } catch (error) {
+      globalThis.console?.warn?.("Atlas Territory preview unavailable:", error);
+    }
+  }
+
+  async _locateTerritory(regionId) {
+    assertEditable(this.scene);
+    const region = this.scene.regions?.get?.(regionId);
+    const view = globalThis.canvas;
+    if (!region || region.parent?.id !== this.scene.id || !view?.ready ||
+        view.scene?.id !== this.scene.id || typeof view.animatePan !== "function")
+      throw Error("Open this Region's Scene on the canvas to locate it.");
+    const bounds = region.bounds;
+    if (!bounds || ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) ||
+        bounds.width <= 0 || bounds.height <= 0)
+      throw Error("This native Region has no usable bounds to locate.");
+    await view.animatePan({x:bounds.x+bounds.width/2,
+      y:bounds.y+bounds.height/2, duration:350});
   }
 
   async _renderHTML() {
-    assertEditable(this.scene);
+    try { assertEditable(this.scene); }
+    catch (error) { this._territoryOverlay.clear(); throw error; }
     this._scrollY = this.element?.querySelector?.("[data-atlas-workspace-scroll]")?.scrollTop ?? this._scrollY;
     const atlas = readAtlas(this.scene);
     const nativeRegions = listSceneRegions(this.scene);
@@ -117,9 +173,49 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       main.appendChild(make("p", "Edit territory associations, public Journey labels, " +
         "preview smoother boundaries and analyze competing geographic borders. " +
         "Native Foundry Region shapes and Behaviors remain authoritative.", "hint"));
+      const viewControls = make("section", undefined, "atlas-territory-view-controls");
+      viewControls.setAttribute("aria-label", "GM Territory map preview controls");
+      const viewLabel = make("label", "Map view: ");
+      const select = make("select");
+      select.setAttribute("aria-label", "Territory map view");
+      select.setAttribute("data-atlas-territory-view", "");
+      for (const [id, title] of Object.entries(TERRITORY_VIEW_MODES)) {
+        const option = make("option", title);
+        option.value = id;
+        option.selected = this.territoryView === id;
+        select.appendChild(option);
+      }
+      select.value = this.territoryView;
+      select.addEventListener("change", event => {
+        const next = event.target.value;
+        if (!Object.hasOwn(TERRITORY_VIEW_MODES, next)) return;
+        this.territoryView = next;
+        this._scrollY = 0;
+        return this.render(true);
+      });
+      viewLabel.appendChild(select);
+      viewControls.appendChild(viewLabel);
+      const nameLabel = make("label", " Show Region names");
+      const names = make("input");
+      names.type = "checkbox";
+      names.checked = this.showTerritoryNames;
+      names.setAttribute("aria-label", "Show Region names on GM map preview");
+      names.addEventListener("change", event => {
+        this.showTerritoryNames = event.target.checked === true;
+        this._syncTerritoryPreview();
+      });
+      nameLabel.prepend(names);
+      viewControls.appendChild(nameLabel);
+      viewControls.appendChild(make("p", "GM-only canvas outlines above fog. In Combined view, " +
+        "settlements draw above continents; native Region geometry and Behaviors never change. " +
+        "Use Locate on any row to reach Regions obscured by larger boundaries. " +
+        "Unclassified native Regions remain accessible in Combined.", "hint"));
+      main.appendChild(viewControls);
       main.appendChild(createAtlasTerritoryPanel(this.scene, this.actions,
         () => this.render(true), { generated, nativeRegions,
-          publicById: new Map(labels.map(item => [item.id, item])) }));
+          publicById: new Map(labels.map(item => [item.id, item])),
+          displayMode:this.territoryView,
+          onLocate:id=>this._locateTerritory(id) }));
     } else {
       const summary = make("div", undefined, "atlas-workspace-summary");
       for (const [label, value] of [
@@ -149,6 +245,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       main.appendChild(next);
     }
     root.append(sidebar, main);
+    this._syncTerritoryPreview();
     return root;
   }
 
@@ -158,7 +255,15 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     if (scroll) scroll.scrollTop = this._scrollY;
   }
 
+  _disposeTerritoryPreview() {
+    this._territoryOverlay.clear();
+    for (const [event, handle] of this._workspaceHooks)
+      globalThis.Hooks?.off?.(event, handle);
+    this._workspaceHooks.length = 0;
+  }
+
   _onClose(options) {
+    this._disposeTerritoryPreview();
     if (workspaces.get(this.scene.id) === this) workspaces.delete(this.scene.id);
     return super._onClose?.(options);
   }
@@ -173,8 +278,10 @@ export function openAtlasSceneWorkspace(scene, actions) {
     workspaces.set(scene.id, workspace);
   }
   return Promise.resolve(workspace.render(true)).catch(error => {
-    if (workspaces.get(scene.id) === workspace && !workspace.rendered)
+    if (workspaces.get(scene.id) === workspace && !workspace.rendered) {
+      workspace._disposeTerritoryPreview();
       workspaces.delete(scene.id);
+    }
     throw error;
   });
 }
