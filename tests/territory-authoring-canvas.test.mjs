@@ -111,6 +111,15 @@ test("Foundry legacy Graphics renders edited nodes, new outlines and native grid
     const painting=editor.begin(scene,{kind:"grid",offsets:[{i:0,j:0}]},async()=>{});
     assert.equal(editor.session.layer.calls.polygons,1,
       "legacy drawPolygon renders a native grid cell without graphics.poly");
+    const radiusControl=editor.session.panel.children.find(child=>child.tagName==="label"&&
+      child.textContent.includes("Brush radius"));
+    const slider=radiusControl.children.find(child=>child.tagName==="input");
+    const value=radiusControl.children.find(child=>child.tagName==="output");
+    assert.equal(slider.type,"range");
+    assert.equal(slider.max,"4","max ring count stays below the stroke safety budget");
+    slider.value="3";slider.listeners.get("input")();
+    assert.equal(editor.session.radius,3);
+    assert.equal(value.textContent,"3 rings");
     editor.cancel();assert.equal(await painting,false);
     assert.equal(surface.listeners.size,0);
     assert.equal(doc.listeners.size,0);
