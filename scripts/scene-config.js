@@ -1,4 +1,4 @@
-import { readAtlas } from "./atlas-storage.js";
+import { readAtlas,MODULE_ID } from "./atlas-storage.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { readManualFog } from "./atlas-manual-fog-storage.js";
 import { readAtlasJournalLinks, journalUuidFor, openAtlasJournal, canOpenAtlasJournal }
@@ -202,7 +202,7 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   const manager=node("fieldset");
   manager.setAttribute("data-atlas-territory-manager", "");
   const heading=node("legend","Territories & custom native Regions ");
-  const add=button("+","Create a native polygon Region on this Scene",()=>
+  const add=button("+","Create a Territory using Atlas nodes, native grid painting, or selected Blank Walls",()=>
     actions.createNativeTerritory(scene,refresh));
   add.className="atlas-territory-add";
   add.disabled=!!draft;
@@ -223,7 +223,7 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   const geographyById=new Map(withInferredContinentParents(scene,
     listSceneGeography(scene),{log:false}).map(entry=>[entry.id,entry]));
   if(!manualNative.length)manager.appendChild(node("p",
-    "No manually authored Regions yet. Select [+] to place a native polygon.","hint"));
+    "No manually authored Regions yet. Select [+] to create a Territory.","hint"));
   for(const region of manualNative.slice(0,60)){
     const row=node("div",undefined,"form-group atlas-territory-row");
     row.setAttribute("data-atlas-native-region-id",region.id);
@@ -248,9 +248,16 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     const controls=node("div",undefined,"form-fields atlas-territory-actions");
     controls.appendChild(iconAction("gear","Edit native Region in Foundry",
       ()=>actions.configureRegion(scene,region.id)));
+    const editBoundary=iconAction("draw-polygon",
+      "Edit Atlas Territory control nodes or painted grid cells",
+      ()=>actions.editTerritoryBoundary(scene,region.id,refresh));
+    editBoundary.disabled=!!draft||!region.linked||region.invalidLink||
+      !geographyById.get(region.id)?.geography?.kind;
+    controls.appendChild(editBoundary);
     const smooth=iconAction("bezier-curve","Preview smoother native polygon boundary",
       ()=>actions.smoothNativeRegion(scene,region.id,refresh));
-    smooth.disabled=!!draft||region.invalidLink;
+    smooth.disabled=!!draft||region.invalidLink||
+      !!scene.regions?.get?.(region.id)?.getFlag?.(MODULE_ID,"territoryBoundarySource");
     controls.appendChild(smooth);
     const linked=iconAction(region.linked?"link-slash":"link",
       region.linked?"Unlink Atlas association (native Region stays)":"Link this native Region to Atlas",

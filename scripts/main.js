@@ -40,7 +40,10 @@ import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
   from "./region-boundary.js";
 import {analyzeSceneTerritoryBorders,planNativeTerritoryTrim,
   saveNativeTerritoryTrim} from "./territory-border-reconciliation.js";
-import {placeNativePolygonTerritory} from "./native-territory-creation.js";
+import {TerritoryAuthoringCanvas} from "./territory-authoring-canvas.js";
+import {readTerritoryDraft,selectedBlankWallBoundary,saveTerritoryDraft}
+  from "./territory-authoring.js";
+import {GEOGRAPHY_KINDS} from "./territory-geography-model.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
   applyGeneratedRegionPresetColor, updateGeneratedRegionMovementCost,
@@ -99,6 +102,7 @@ roadCanvas.promptCheckpoint = ({ roads, defaultName }) => new Promise(resolve =>
 const navigation = new AtlasNavigationController();
 const manualFog = new AtlasManualFogController();
 const fogPalette = new AtlasManualFogPalette(manualFog);
+const territoryCanvas = new TerritoryAuthoringCanvas();
 let roadDock = null;
 
 function syncRoadDock(scene, refresh) {
@@ -1483,35 +1487,74 @@ function actions() {
       ensureIdle(scene);
       if(navigation.travelSession)
         throw Error("End the active Journey before creating native territory Regions.");
+      if(territoryCanvas.session||manualFog.paletteOpen||manualFog.brush)
+        throw Error("Finish the Territory editor and close the Atlas Fog brush before authoring.");
       const content=document.createElement("div");
       const note=document.createElement("p");
-      note.textContent="Create a native Foundry Region with a one-grid polygon starter. " +
-        "After entering a name, click the desired position on the Scene canvas " +
-        "to place it, or cancel to create nothing. Edit its polygon vertices in " +
-        "Foundry's native Region tools. No Atlas link, public name, or Behaviors are added.";
+      note.textContent="Atlas saves one native Foundry Region. Atlas control nodes and " +
+        "grid cells are editable GM drafts. Blank Walls are imported without changing " +
+        "or deleting them. All methods require an explicit save after boundary checks.";
       const label=document.createElement("label");
       label.textContent="Region name";
       const input=createSettingsInput("text","",{name:"name",
-        ariaLabel:"Name for new native polygon Region"});
+        ariaLabel:"Name for new native Territory"});
       input.maxLength=120;
       input.setAttribute("required","");
       label.appendChild(input);content.append(note,label);
-      const result=await DialogV2.input({window:{title:"Place native polygon Region"},
-        content,ok:{label:"Place Polygon"},rejectClose:false,modal:true});
+      const methodLabel=document.createElement("label");
+      methodLabel.textContent="Creation method";
+      methodLabel.appendChild(createSettingsSelect([
+        ["polygon","Draw Atlas Boundary Nodes"],
+        ["grid","Paint Native Hex/Grid Spaces"],
+        ["walls","Import Selected Blank Walls"]],
+      {name:"method",ariaLabel:"Territory creation method"}));
+      content.appendChild(methodLabel);
+      const kindLabel=document.createElement("label");kindLabel.textContent="Territory type";
+      kindLabel.appendChild(createSettingsSelect(Object.entries(GEOGRAPHY_KINDS),
+        {name:"kind",ariaLabel:"Geographic classification"}));
+      content.appendChild(kindLabel);
+      const parents=listSceneGeography(scene).filter(e=>e.linked&&!e.invalid&&
+        ["continent","area"].includes(e.geography?.kind));
+      const parentLabel=document.createElement("label");
+      parentLabel.textContent="Contained within (required for settlements when available)";
+      parentLabel.appendChild(createSettingsSelect([["","No parent / Continent"],
+        ...parents.map(e=>[e.id,e.name])],
+      {name:"parent",ariaLabel:"Parent Territory"}));
+      content.appendChild(parentLabel);
+      const result=await DialogV2.input({window:{title:"Create Atlas Territory"},
+        content,ok:{label:"Edit Boundary"},rejectClose:false,modal:true});
       if(!result)return;
-      let created;
-      try {created=await placeNativePolygonTerritory(scene,result.name);}
-      catch(error){
-        atlasDebug("territory","Native Region placement rejected",{
-          reason:error.message},{level:"verbose"});
-        throw error;
-      }
-      if(!created)return;
-      refresh();
-      ui.notifications.info("Native polygon Region placed. Edit its outline in Foundry, then link and classify it in Atlas.");
-      const sheet=new foundry.applications.sheets.RegionConfig({document:created});
-      await sheet.render({force:true});
-      sheet.bringToFront?.();
+      if(["city","town","village"].includes(result.kind)&&parents.length&&!result.parent)
+        throw Error("Select the containing Continent or Area before drawing this settlement.");
+      if(result.kind==="continent"&&result.parent)
+        throw Error("A Continent cannot have a parent.");
+      const kind=result.method==="grid"?"grid":"polygon";
+      if(kind==="grid"&&!globalThis.foundry?.data?.GridShapeData)
+        throw Error("This Foundry v14 build lacks native GridShapeData; update to v14.370 to paint Territories.");
+      const imported=result.method==="walls"?selectedBlankWallBoundary(scene):null;
+      const draft={kind,name:result.name,points:imported?.nodes??[],offsets:[],
+        wallIds:imported?.wallIds??[],geography:{schemaVersion:1,kind:result.kind,
+          parentRegionId:result.parent||null,roadOverrides:{}}};
+      const finished=await territoryCanvas.begin(scene,draft,async candidate=>{
+        const created=await saveTerritoryDraft(scene,candidate);
+        refresh();ui.notifications.info(`Atlas Territory ${created.name} created as a native Region.`);
+      });
+      if(!finished)atlasDebug("territory","Territory authoring cancelled",{
+        method:kind},{level:"verbose"});
+    },
+    async editTerritoryBoundary(scene,regionId,refresh){
+      ensureIdle(scene);
+      if(navigation.travelSession||territoryCanvas.session||manualFog.paletteOpen||manualFog.brush)
+        throw Error("End the Journey or other canvas editor before changing this Territory.");
+      const region=scene.regions?.get?.(regionId);
+      const draft=readTerritoryDraft(scene,regionId);
+      const geography=readRegionGeography(region);
+      if(!geography)throw Error("Classify this Atlas-linked Territory before editing its boundary.");
+      draft.name=region.name;draft.geography=geography;
+      await territoryCanvas.begin(scene,draft,async candidate=>{
+        await saveTerritoryDraft(scene,candidate,{regionId});
+        refresh();ui.notifications.info("Native Territory boundary updated; Behaviors retained.");
+      });
     },
     async configureRegion(scene, regionId) {
       if (!game.user?.isGM || !scene.canUserModify(game.user, "update")) {
@@ -1632,12 +1675,25 @@ function actions() {
           content:choose,ok:{label:"Close"},rejectClose:false,modal:true});
         return;
       }
-      const options=analysis.overlaps.flatMap(pair=>[
+      const gridConflicts=analysis.overlaps.filter(pair=>pair.canTrim===false);
+      if(gridConflicts.length){
+        const warning=document.createElement("p");
+        warning.textContent=`${gridConflicts.length} pair(s) contain native painted grid cells. `+
+          "A polygon trim is not safe for Grid Shapes. Use the Atlas Territory " +
+          "boundary editor to remove or transfer the conflicting cells.";
+        choose.appendChild(warning);
+      }
+      const options=analysis.overlaps.filter(pair=>pair.canTrim!==false).flatMap(pair=>[
         [`${pair.secondId}|${pair.firstId}`,
           `Keep ${pair.firstName}; trim ${pair.secondName} · ${pair.smallerCoveragePercent}% of smaller Region overlaps`],
         [`${pair.firstId}|${pair.secondId}`,
           `Keep ${pair.secondName}; trim ${pair.firstName} · ${pair.smallerCoveragePercent}% of smaller Region overlaps`]
       ]);
+      if(!options.length){
+        await DialogV2.input({window:{title:"Atlas · Territory Boundary Analysis"},
+          content:choose,ok:{label:"Close"},rejectClose:false,modal:true});
+        return;
+      }
       choose.appendChild(createSettingsSelect(options,{name:"direction",
         ariaLabel:"Select the protected Territory and the Territory to trim"}));
       const selection=await DialogV2.input({window:{title:"Atlas · Analyze Territory Borders"},
@@ -2070,6 +2126,7 @@ Hooks.once("init", () => {
       sceneId:canvas?.scene?.id??null,journeyActive:Boolean(navigation.travelSession)
     });
     navigation.tearDown("canvasTearDown");
+    territoryCanvas.cancel();
     if (roadDock) {
       roadDock.finished = true;
       void roadDock.close();
