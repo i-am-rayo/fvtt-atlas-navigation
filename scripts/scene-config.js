@@ -242,10 +242,10 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   if(batch?.total){
     const queue=node("div",undefined,"atlas-territory-batch-queue");
     queue.appendChild(node("p",`Hex/Grid batch: ${batch.count} of ${batch.total} `+
-      "Territories staged. Select any unfinished destination below to paint; " +
-      "Stage & Next advances automatically; Stage & Return to Workspace " +
-      "lets you select another target. Both save a local draft only. " +
-      "Review & Apply commits all edits together, including unclaimed cells.","hint"));
+      "Territories staged. Paint handles Stage & Next, switching between " +
+      "selected Territories, and the final Review & Apply without returning here. " +
+      "These Workspace controls remain available as a fallback. Staging is local " +
+      "only; final approval applies all edits together, including unclaimed cells.","hint"));
     for(const target of batch.targets){
       const status=target.staged?"Staged":"Not staged";
       const edit=button(`${target.name} — ${status}`,

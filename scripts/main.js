@@ -44,6 +44,7 @@ import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
 import {analyzeSceneTerritoryBorders,planNativeTerritoryTrim,
   saveNativeTerritoryTrim} from "./territory-border-reconciliation.js";
 import {TerritoryAuthoringCanvas} from "./territory-authoring-canvas.js";
+import {routeTerritoryBatchAfterStage} from "./territory-batch-workflow.js";
 import {createTerritoryRecoveryConfirmationContent}
   from "./territory-recovery-dialog.js";
 import {planTerritoryGridConversion,commitTerritoryGridConversion,
@@ -457,9 +458,10 @@ function actions() {
       for(const line of [
         "Choose two to four destination Territories BEFORE painting. You can add " +
           "unclaimed cells, erase cells, or take cells from an unselected peer Territory.",
-        "Atlas opens the first selection. Stage & Return to Workspace saves a local " +
-          "draft; choose the next selected Territory from the Workspace list. " +
-          "Native Regions remain unchanged until one final Review & Apply Batch.",
+        "Atlas opens the first selection. Stage & Next advances to another destination, " +
+          "Stage & Switch revisits any selected Territory, and Stage & Review Batch " +
+          "opens the final approval directly from Paint. Native Regions remain " +
+          "unchanged until that final approval.",
         "If only one Region needs editing (for example, Millstone receives a " +
           "cell from Dirwest), use its ordinary Paint Territory → Preview & Save instead.",
         "All batch destinations must belong to the same geographic tier. " +
@@ -533,7 +535,7 @@ function actions() {
       ]){const p=document.createElement("p");p.textContent=line;dialog.appendChild(p);}
       const accepted=await DialogV2.confirm({window:{title:"Apply Hex/Grid Batch?"},
         content:dialog,yes:{label:"Apply Native Batch Edits"},rejectClose:false,modal:true});
-      if(!accepted)return;
+      if(!accepted)return false;
       const panel=document.createElement("section");
       panel.className="atlas-territory-transfer-progress";
       panel.style.cssText="position:fixed;top:90px;left:24px;z-index:10001;"+
@@ -554,6 +556,7 @@ function actions() {
         refresh();ui.notifications.info(`Batch saved across ${plan.destinations.length} `+
           `Hex/Grid Territories (${plan.movedCells} transferred, `+
           `${plan.unclaimedAddedCells} unclaimed added, ${plan.removedCells} erased).`);
+        return true;
       }finally{panel.remove();}
     },
     async begin(scene, refresh) {
@@ -1770,8 +1773,10 @@ function actions() {
         refresh();ui.notifications.info("Native Territory boundary updated; Behaviors retained.");
       },{inspectDraft:candidate=>inspectTerritoryGridOwnership(scene,regionId,candidate),
         batchContext:batch?{name:region.name,index:batch.targetIds.indexOf(regionId)+1,
-          total:batch.targetIds.length,nextName:nextUnstaged?
-            scene.regions.get(nextUnstaged)?.name:null}:null,
+          regionId,total:batch.targetIds.length,nextId:nextUnstaged??null,
+          nextName:nextUnstaged?scene.regions.get(nextUnstaged)?.name:null,
+          targets:batch.targetIds.map(id=>({id,name:scene.regions.get(id)?.name??"Unknown",
+            staged:batch.drafts.has(id)}))}:null,
         onStage:batch?candidate=>{
           if(territoryBatchFor(scene)!==batch)
             throw Error("The batch selection changed. Reopen the Workspace.");
@@ -1780,14 +1785,15 @@ function actions() {
             throw Error("Native Territory geometry changed; reopen before staging.");
           batch.drafts.set(regionId,structuredClone(candidate));
           refresh();ui.notifications.info(`${region.name} staged locally. `+
-            (nextUnstaged?"Select the next receiving Territory in the Workspace.":
-              "All selected destinations are staged; review them in the Workspace."));
+            (nextUnstaged?"Continue to the next Territory in Paint.":
+              "All selected destinations are staged; review the guarded batch."));
         }:null,
-        afterStage:batch?async({advance=false}={})=>{
-          if(territoryBatchFor(scene)!==batch)return;
-          if(advance&&nextUnstaged)
-            await this.editTerritoryBoundary(scene,nextUnstaged,refresh);
-          else await restoreAtlasSceneWorkspace(scene);
+        afterStage:batch?async({advance=false,targetId=null,review=false}={})=>{
+          await routeTerritoryBatchAfterStage({batch,regionId,nextUnstaged,
+            decision:{advance,targetId,review},getBatch:()=>territoryBatchFor(scene),
+            openEditor:id=>this.editTerritoryBoundary(scene,id,refresh),
+            reviewAndApply:()=>this.commitTerritoryBatch(scene,refresh),
+            restoreWorkspace:()=>restoreAtlasSceneWorkspace(scene)});
         }:null});
     },
     async resolveTerritoryCellTransfer(scene,refresh){
