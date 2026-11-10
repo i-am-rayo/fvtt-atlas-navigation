@@ -1593,6 +1593,11 @@ function actions() {
             content:dialog,yes:{label:"Transfer Between Two Regions"},
             rejectClose:false,modal:true});
           if(!accepted)return false;
+          reportProgress({step:0,total:4,message:"Validating and preparing native Region transfer…"});
+          // Let the browser paint the initial progress state before a large
+          // native geometry check or asynchronous Scene write begins.
+          if(globalThis.requestAnimationFrame)
+            await new Promise(resolve=>requestAnimationFrame(resolve));
           await commitTerritoryCellTransfer(scene,transfer,{onProgress:reportProgress});
           refresh();ui.notifications.info(`${transfer.movedCells} cells transferred from `+
             `${transfer.sourceName} to ${transfer.targetName}.`);

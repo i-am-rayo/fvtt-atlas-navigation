@@ -55,11 +55,27 @@ test("an unassigned city groups under the dominant native continent without a fl
   assert.equal(city.getFlag(null,"territoryGeography").parentRegionId,null);
 });
 
-test("Road directory asks native Region geometry for grid Shape membership",()=>{
+test("Road directory asks native 2D polygonTree for grid Shape membership despite elevation filters",()=>{
   const native=region("grid","Grid Territory","continent",null,[]);
   native.shapes=[{type:"grid",origin:null,offsets:[{i:0,j:0}]}];
   let calls=0;
-  native.testPoint=point=>{calls++;return point.x>=0&&point.x<100&&point.y<100;};
+  native.polygonTree={testPoint:point=>{calls++;
+    return point.x>=0&&point.x<100&&point.y<100;}};
+  native.testPoint=()=>false; // Native elevated test would reject this road.
+  const scene={id:"scene",regions:new Map([[native.id,native]])};
+  const view={ready:true,scene,dimensions:{sceneX:0,sceneY:0,size:100}};
+  const result=readTerritoryRoadDirectory(scene,atlas,view);
+  assert.ok(calls>0);
+  assert.ok(result.tree[0].roadIds.includes("millstone-dirwest"));
+});
+
+test("native RegionDocument fallback gets an explicit elevation",()=>{
+  const native=region("level","Level Territory","continent",null,[]);
+  native.shapes=[{type:"grid",offsets:[{i:0,j:0}]}];
+  let calls=0;
+  native.testPoint=point=>{calls++;
+    assert.equal(point.elevation,0);
+    return point.x>=0&&point.x<100&&point.y<100;};
   const scene={id:"scene",regions:new Map([[native.id,native]])};
   const view={ready:true,scene,dimensions:{sceneX:0,sceneY:0,size:100}};
   const result=readTerritoryRoadDirectory(scene,atlas,view);

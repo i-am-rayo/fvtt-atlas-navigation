@@ -227,3 +227,50 @@ test("Preview & Save uses the v14 DialogV2 namespace and commits only on confirm
     assert.equal(doc.listeners.size,0);
   }finally{Object.assign(globalThis,saved);}
 });
+
+test("Paint Territory shows a full-sized progress surface and hides brush controls during transfer",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    foundry:globalThis.foundry,PIXI:globalThis.PIXI,
+    requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={addChild(g){g.parent=this;},removeChild(g){g.parent=null;}};
+  const scene={id:"paedor"};
+  globalThis.game={user:{isGM:true}};
+  globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>true}}}};
+  globalThis.PIXI={Graphics};globalThis.document=doc;
+  globalThis.requestAnimationFrame=undefined;
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    dimensions:{sceneX:0,sceneY:0,sceneWidth:200,sceneHeight:200},
+    stage:{scale:{x:1}},canvasCoordinatesFromClient:p=>p,
+    grid:{getShape:()=>[{x:0,y:0},{x:10,y:0},{x:10,y:10}],
+      getCenterPoint:({i,j})=>({x:i*10,y:j*10}),
+      getOffset:()=>({i:0,j:0}),getAdjacentOffsets:()=>[]}};
+  const editor=new TerritoryAuthoringCanvas();let complete;
+  const held=new Promise(resolve=>{complete=resolve;});
+  try{
+    const pending=editor.begin(scene,{kind:"grid",offsets:[]},async (_draft,report)=>{
+      report({step:1,total:4,message:"Updating two native Regions"});
+      await held;
+      throw Error("Simulated transfer failure");
+    });
+    const panel=editor.session.panel;
+    const controls=panel.children.find(child=>child.tagName==="label");
+    const save=panel.children.find(child=>child.tagName==="div"&&
+      child.children.some(c=>c.textContent==="Preview & Save"))
+      .children.find(c=>c.textContent==="Preview & Save");
+    const operation=save.listeners.get("click")();
+    await Promise.resolve();
+    const progress=panel.children.find(c=>c.attributes.role==="status");
+    assert.equal(progress.style.display,"block");
+    assert.equal(progress.children[0].textContent,"Updating two native Regions");
+    assert.equal(progress.children[1].value,1);
+    assert.equal(controls.style.display,"none","brush radius is hidden during transfer");
+    assert.equal(panel.style.minHeight,"190px","progress surface cannot collapse");
+    assert.match(panel.children.find(c=>c.tagName==="h3").textContent,/Transferring/);
+    complete();await operation;
+    assert.equal(progress.style.display,"none","failed transfer restores edit controls");
+    assert.equal(controls.style.display,undefined);
+    editor.cancel();assert.equal(await pending,false);
+  }finally{Object.assign(globalThis,saved);}
+});

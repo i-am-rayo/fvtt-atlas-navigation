@@ -114,16 +114,36 @@ export class TerritoryAuthoringCanvas{
     const session={sceneId:scene.id,view,surface,layer,panel,info,draft:copy(draft),
       history:[],brush:"add",radius:0,dragNode:-1,selectedNode:-1,painting:false,saving:false,
       hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave};
-    const progress=el("div");progress.hidden=true;
+    const progress=el("div");
     progress.setAttribute("role","status");progress.setAttribute("aria-live","polite");
+    progress.className="atlas-territory-transfer-progress";
     const progressLabel=el("p","Preparing transfer…");
     const progressBar=el("progress");progressBar.max=4;progressBar.value=0;
-    progressBar.style.width="100%";
+    progressBar.style.cssText="display:block;width:100%;height:1.2rem;accent-color:#68c8bb;";
     progress.append(progressLabel,progressBar);
+    const priorDisplays=new Map();
     const reportProgress=({step,total,message})=>{
-      progress.style.display="block";actions.style.display="none";info.style.display="none";
+      // Hide ALL paint controls, including brush radius and smoothing, while
+      // keeping a full-size, legible progress surface. Restore on any failure.
+      if(!priorDisplays.size){
+        for(const child of panel.children){
+          if(child===head||child===progress)continue;
+          priorDisplays.set(child,child.style.display);
+          child.style.display="none";
+        }
+        panel.style.minWidth="370px";panel.style.minHeight="190px";
+        head.textContent="Atlas · Transferring Territory";
+      }
+      progress.style.display="block";
       progressBar.max=total;progressBar.value=step;
       progressLabel.textContent=message;
+    };
+    const restoreProgress=()=>{
+      for(const [child,display] of priorDisplays)child.style.display=display;
+      priorDisplays.clear();
+      progress.style.display="none";
+      panel.style.minWidth="";panel.style.minHeight="";
+      head.textContent="Atlas · "+(draft.kind==="grid"?"Paint Territory":"Edit Territory Nodes");
     };
     const undo=addButton("Undo",()=>{const prior=session.history.pop();if(prior){
       session.draft=prior;session.smoothingSelect&&(session.smoothingSelect.value=
@@ -186,8 +206,7 @@ export class TerritoryAuthoringCanvas{
         const saved=await onSave(copy(session.draft),reportProgress);
         if(saved!==false)session.close(true);
       }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
-      finally{session.saving=false;save.disabled=false;
-        progress.style.display="none";actions.style.display="flex";info.style.display="";}
+      finally{session.saving=false;save.disabled=false;restoreProgress();}
     });
     progress.style.display="none";
     panel.prepend(head,info);panel.append(actions,progress);

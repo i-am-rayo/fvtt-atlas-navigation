@@ -105,22 +105,47 @@ export function sampleAtlasRoads(atlas, {origin={x:0,y:0},step=16,maxPerRoad=102
     throw Error("Native Scene geometry is unavailable for Road categorization.");
   const nodes = new Map((atlas.nodes??[]).map(node=>[node.id,node]));
   const samples = new Map((atlas.roads??[]).map(road=>[road.id,[]]));
+  const edges = new Map((atlas.roads??[]).map(road=>[road.id,[]]));
   const truncated = new Set();
   for (const segment of atlas.segments??[]) {
-    const target = samples.get(segment.roadId);
-    if (!target || truncated.has(segment.roadId)) continue;
+    const target = edges.get(segment.roadId);
+    if(!target)continue;
     const route = [nodes.get(segment.from),...(segment.via??[]),nodes.get(segment.to)]
       .filter(point=>Number.isFinite(point?.x)&&Number.isFinite(point?.y));
     for (let i=1;i<route.length;i++) {
       const a=route[i-1],b=route[i];
-      const count=Math.max(1,Math.ceil(Math.hypot(b.x-a.x,b.y-a.y)/step));
-      for(let j=0;j<=count;j++) {
-        if(target.length>=maxPerRoad){truncated.add(segment.roadId);break;}
-        const t=j/count;
-        target.push({x:a.x+(b.x-a.x)*t+origin.x,
-          y:a.y+(b.y-a.y)*t+origin.y});
+      const length=Math.hypot(b.x-a.x,b.y-a.y);
+      if(Number.isFinite(length)&&length>0)target.push({a,b,length});
+    }
+  }
+  for(const [roadId,segments] of edges){
+    const target=samples.get(roadId);
+    const desired=segments.reduce((count,e)=>count+Math.ceil(e.length/step)+1,0);
+    if(!segments.length)continue;
+    if(desired<=maxPerRoad){
+      for(const {a,b,length} of segments){
+        const count=Math.max(1,Math.ceil(length/step));
+        for(let j=0;j<=count;j++){
+          const t=j/count;
+          target.push({x:a.x+(b.x-a.x)*t+origin.x,
+            y:a.y+(b.y-a.y)*t+origin.y});
+        }
       }
-      if(truncated.has(segment.roadId))break;
+      continue;
+    }
+    // A capped Road must still sample its ENTIRE network. Previously the
+    // first 1024 points consumed the budget, hiding distant Region crossings.
+    truncated.add(roadId);
+    const total=segments.reduce((length,e)=>length+e.length,0);
+    if(!Number.isFinite(total)||total<=0)continue;
+    let edge=0,prior=0;
+    for(let i=0;i<maxPerRoad;i++){
+      const distance=maxPerRoad===1?0:total*i/(maxPerRoad-1);
+      while(edge<segments.length-1&&distance>prior+segments[edge].length){
+        prior+=segments[edge].length;edge++;
+      }
+      const {a,b,length}=segments[edge],t=Math.max(0,Math.min(1,(distance-prior)/length));
+      target.push({x:a.x+(b.x-a.x)*t+origin.x,y:a.y+(b.y-a.y)*t+origin.y});
     }
   }
   return {samples,truncated};
