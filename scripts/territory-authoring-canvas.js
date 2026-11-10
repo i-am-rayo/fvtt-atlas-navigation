@@ -3,6 +3,7 @@
 import {paintGridCells,MAX_TERRITORY_NODES} from "./territory-authoring-model.js";
 import {smoothClosedBoundary} from "./region-boundary-model.js";
 import {acquireAtlasCanvasEditorFocus} from "./atlas-canvas-editor-focus.js";
+import {acquireAtlasTerritoryEditorFog} from "./atlas-territory-editor-fog.js";
 
 const el=(tag,label)=>{const result=document.createElement(tag);
   if(label!==undefined)result.textContent=label;return result;};
@@ -112,6 +113,7 @@ function drawOwnershipFootprint(graphics,points,status,zoom){
 }
 
 export class TerritoryAuthoringCanvas{
+  constructor({manualFog=null}={}){this.manualFog=manualFog;}
   session=null;
   async begin(scene,draft,onSave,
     {inspectDraft=null,onStage=null,afterStage=null,batchContext=null}={}){
@@ -499,6 +501,7 @@ export class TerritoryAuthoringCanvas{
       document.removeEventListener("keyup",keyup,true);
       if(session.raf!==null)globalThis.cancelAnimationFrame?.(session.raf);
       panel.remove();layer.parent?.removeChild?.(layer);layer.destroy?.();
+      session.restoreFog?.();
       const restoration=session.restoreWindows?.();
       this.session=null;session.end?.(success);
       return restoration;
@@ -513,7 +516,10 @@ export class TerritoryAuthoringCanvas{
     document.addEventListener("keyup",keyup,true);
     this.session=session;
     session.restoreWindows=acquireAtlasCanvasEditorFocus();
-    try{this.#draw(session);}catch(error){session.close(false);throw error;}
+    try{
+      session.restoreFog=acquireAtlasTerritoryEditorFog({view,manualFog:this.manualFog});
+      this.#draw(session);
+    }catch(error){session.close(false);throw error;}
     return new Promise(resolve=>{session.end=resolve;});
   }
   #live(session){return this.session===session&&

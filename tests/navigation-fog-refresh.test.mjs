@@ -73,6 +73,14 @@ test("explorer fog builds a complete mask before swapping; no solid-black interm
       "the ready replacement is attached before the older fog can disappear");
     assert.equal(primary.children.length,1);
     assert.equal(initial.destroyed,true);
+    const beforeEditing=fog.layer;
+    fog.setEditorHidden(true);
+    assert.equal(beforeEditing.visible,false,"GM editing suppresses the existing mask");
+    fog.refresh();
+    assert.equal(fog.layer,beforeEditing,"a redraw cannot expose the mask mid-edit");
+    fog.setEditorHidden(false);
+    assert.notEqual(fog.layer,beforeEditing,"closing redraws the latest saved fog mask");
+    assert.notEqual(fog.layer.visible,false);
     fog.tearDown();
   }finally{Object.assign(globalThis,old);}
 });
