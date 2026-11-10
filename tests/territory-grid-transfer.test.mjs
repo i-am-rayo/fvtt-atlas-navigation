@@ -76,6 +76,9 @@ test("Hex/Grid ownership review distinguishes unclaimed, single-peer and multi-p
     assert.equal(first.peerOwnedAddedCells,1);
     assert.equal(first.contestedAddedCells,0);
     assert.deepEqual(first.peers.map(p=>[p.name,p.cells]),[["Reshara",1]]);
+    assert.deepEqual(first.previewCells.map(cell=>[cell.i,cell.status]),
+      [[1,"peer"],[4,"unclaimed"]],"visual review marks same-tier ownership without writing");
+    assert.equal(first.previewTruncated,false);
     assert.equal(first.canUseExistingTransferWriter,true);
     const another=f.makeRegion("Third",[{i:4,j:0},{i:6,j:0}]);
     f.scene.regions.set(another.id,another);
@@ -83,6 +86,7 @@ test("Hex/Grid ownership review distinguishes unclaimed, single-peer and multi-p
     assert.equal(multiple.peerOwnedAddedCells,2);
     assert.equal(multiple.requiresMultiRegionReview,true);
     assert.equal(multiple.peers.length,2);
+    assert.deepEqual(multiple.previewCells.map(cell=>cell.status),["peer","peer"]);
     const multiPlan=planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view});
     assert.equal(multiPlan.sourceIds.length,2,"two separate owners create one multi-source plan");
     assert.equal(multiPlan.records.length,3);
@@ -90,10 +94,33 @@ test("Hex/Grid ownership review distinguishes unclaimed, single-peer and multi-p
     const contested=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
     assert.equal(contested.contestedAddedCells,1);
     assert.equal(contested.unclaimedAddedCells,1);
+    assert.deepEqual(contested.previewCells.map(cell=>cell.status),
+      ["contested","unclaimed"],"conflicting cells take priority in the visual preview");
     assert.equal(f.events.length,0,"ownership review and failed plan never write");
     globalThis.game.user.isGM=false;
     assert.throws(()=>inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view}),
       /GM/);
+  }finally{restore();}
+});
+
+test("GM ownership preview marks removed cells and caps large overlays without altering full counts",()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),candidate=draft(f);
+    candidate.offsets=candidate.offsets.filter(cell=>cell.i!==5);
+    const removed=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
+    assert.equal(removed.removedCells,1);
+    assert.deepEqual(removed.previewCells.map(cell=>cell.status),["peer","removed"]);
+    const large=draft(f);
+    for(let i=10;i<550;i++)large.offsets.push({i,j:0});
+    const report=inspectTerritoryGridOwnership(f.scene,f.target.id,large,{view:f.view});
+    assert.equal(report.addedCells,541);
+    assert.equal(report.previewTotalCells,541);
+    assert.equal(report.previewCells.length,500);
+    assert.equal(report.previewTruncated,true);
+    assert.equal(report.previewCells[0].status,"peer",
+      "peer claims remain visible even when the unclaimed overlay is capped");
+    assert.equal(f.events.length,0,"all ownership overlays are strictly read-only");
   }finally{restore();}
 });
 

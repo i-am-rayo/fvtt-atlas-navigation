@@ -16,7 +16,7 @@ class Element{
 }
 class Graphics{
   constructor(){this.strokes=[];this.disks=[];this.fills=[];}
-  clear(){return this;}
+  clear(){this.strokes=[];this.disks=[];this.fills=[];return this;}
   moveTo(){return this;}
   lineTo(){return this;}
   stroke(style){this.strokes.push(style);return this;}
@@ -323,7 +323,10 @@ test("Paint Territory reviews peer Hex/Grid cell ownership and invalidates stale
       {inspectDraft:async()=>{inspections++;return {proposedCells:0,addedCells:2,
         removedCells:0,unclaimedAddedCells:0,peerOwnedAddedCells:2,
         peers:[{name:"Dirwest",cells:1},{name:"Valecor",cells:1}],
-        contestedAddedCells:0,requiresMultiRegionReview:true};}});
+        contestedAddedCells:1,requiresMultiRegionReview:true,
+        previewCells:[{i:1,j:1,status:"peer"},{i:2,j:1,status:"unclaimed"},
+          {i:3,j:1,status:"contested"},{i:4,j:1,status:"removed"}],
+        previewTotalCells:4,previewTruncated:false};}});
     const action=editor.session.panel.children.find(c=>c.tagName==="div"&&
       c.children.some(b=>b.textContent==="Review Shared Cells"))
       .children.find(b=>b.textContent==="Review Shared Cells");
@@ -332,10 +335,18 @@ test("Paint Territory reviews peer Hex/Grid cell ownership and invalidates stale
     assert.equal(inspections,1);
     assert.match(review.textContent,/Dirwest \(1\), Valecor \(1\)/);
     assert.match(review.textContent,/Multiple peers require an explicit multi-Region transfer/);
+    assert.match(review.textContent,/Map preview: gold = peer-owned/);
+    assert.deepEqual(new Set(editor.session.layer.fills.map(fill=>fill.color)),
+      new Set([0xffc66d,0x79d4fa,0xff7187,0xc5a2f4]),
+      "review highlights peer-owned, unclaimed, contested and removed cells on the GM canvas");
     assert.equal(writes,0,"read-only review cannot trigger native writes");
     surface.listeners.get("pointerdown")({button:0,clientX:20,clientY:20,
       preventDefault(){},stopImmediatePropagation(){}});
     assert.match(review.textContent,/Draft changed/);
+    assert.equal(editor.session.ownershipPreview,null,"painting invalidates the old ownership overlay");
+    assert.ok(editor.session.layer.fills.every(fill=>
+      ![0xffc66d,0x79d4fa,0xff7187,0xc5a2f4].includes(fill.color)),
+    "stale ownership colors vanish immediately while the normal brush hover remains");
     editor.cancel();assert.equal(await pending,false);
   }finally{Object.assign(globalThis,saved);}
 });
@@ -374,9 +385,20 @@ test("Foundry legacy Graphics renders edited nodes, new outlines and native grid
     assert.ok(editor.session.layer.calls.lines>0,"new polygon uses legacy outline styling");
     editor.cancel();assert.equal(await creation,false);
 
-    const painting=editor.begin(scene,{kind:"grid",offsets:[{i:0,j:0}]},async()=>{});
+    const painting=editor.begin(scene,{kind:"grid",offsets:[{i:0,j:0}]},async()=>{},
+      {inspectDraft:async()=>({proposedCells:1,addedCells:0,removedCells:0,
+        unclaimedAddedCells:0,peerOwnedAddedCells:0,contestedAddedCells:0,
+        peers:[],requiresMultiRegionReview:false,
+        previewCells:[{i:0,j:0,status:"peer"}],previewTotalCells:1,
+        previewTruncated:false})});
     assert.equal(editor.session.layer.calls.polygons,1,
       "legacy drawPolygon renders a native grid cell without graphics.poly");
+    const review=editor.session.panel.children.find(child=>child.tagName==="div"&&
+      child.children.some(button=>button.textContent==="Review Shared Cells"))
+      .children.find(button=>button.textContent==="Review Shared Cells");
+    await review.listeners.get("click")();
+    assert.ok(editor.session.layer.calls.polygons>=3,
+      "legacy Foundry Graphics can draw the reviewed ownership footprint safely");
     const radiusControl=editor.session.panel.children.find(child=>child.tagName==="label"&&
       child.textContent.includes("Brush radius"));
     const slider=radiusControl.children.find(child=>child.tagName==="input");
