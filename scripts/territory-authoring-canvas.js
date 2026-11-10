@@ -114,6 +114,17 @@ export class TerritoryAuthoringCanvas{
     const session={sceneId:scene.id,view,surface,layer,panel,info,draft:copy(draft),
       history:[],brush:"add",radius:0,dragNode:-1,selectedNode:-1,painting:false,saving:false,
       hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave};
+    const progress=el("div");progress.hidden=true;
+    progress.setAttribute("role","status");progress.setAttribute("aria-live","polite");
+    const progressLabel=el("p","Preparing transfer…");
+    const progressBar=el("progress");progressBar.max=4;progressBar.value=0;
+    progressBar.style.width="100%";
+    progress.append(progressLabel,progressBar);
+    const reportProgress=({step,total,message})=>{
+      progress.style.display="block";actions.style.display="none";info.style.display="none";
+      progressBar.max=total;progressBar.value=step;
+      progressLabel.textContent=message;
+    };
     const undo=addButton("Undo",()=>{const prior=session.history.pop();if(prior){
       session.draft=prior;session.smoothingSelect&&(session.smoothingSelect.value=
         String(prior.smoothing??0));this.#draw(session);}});
@@ -172,12 +183,14 @@ export class TerritoryAuthoringCanvas{
         if(globalThis.canvas?.scene?.id!==scene.id)
           throw Error("The active Scene changed; reopen the Territory editor.");
         session.saving=true;
-        const saved=await onSave(copy(session.draft));
+        const saved=await onSave(copy(session.draft),reportProgress);
         if(saved!==false)session.close(true);
       }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
-      finally{session.saving=false;save.disabled=false;}
+      finally{session.saving=false;save.disabled=false;
+        progress.style.display="none";actions.style.display="flex";info.style.display="";}
     });
-    panel.prepend(head,info);panel.appendChild(actions);
+    progress.style.display="none";
+    panel.prepend(head,info);panel.append(actions,progress);
     document.body.appendChild(panel);
     const snapshot=()=>{session.history.push(copy(session.draft));
       if(session.history.length>40)session.history.shift();};

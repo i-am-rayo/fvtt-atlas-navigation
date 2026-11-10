@@ -157,31 +157,34 @@ function validatePlan(scene,intent,desired,view){
   }
 }
 
-async function finish(scene,intent,mode,view){
+async function finish(scene,intent,mode,view,onProgress=()=>{}){
   const destination=mode==="resume"?"after":"before";
   if(intent.gridIdentity!==nativeSceneGridIdentity(scene,view)||
       !view?.ready||view.scene?.id!==scene.id)
     throw Error("The Scene grid changed. Transfer recovery is blocked; restore the World backup.");
   for(const record of intent.records)checkRecord(scene,record);
   validatePlan(scene,intent,destination,view);
+  onProgress({step:1,total:4,message:"Recovery record verified; updating native Regions"});
   // Forward removes source ownership before target adds it. Reverse removes
   // target ownership before source restores it. No duplicate cell ownership.
   const order=mode==="resume"?intent.records:[...intent.records].reverse();
-  for(const record of order){
+  for(const [index,record] of order.entries()){
     const region=authorize(scene,record.id),current=checkRecord(scene,record);
     if(current===destination)continue;
     const state=record[destination];
     await region.update({shapes:clone(state.shapes),
       ...(state.source===null?{[`flags.${MODULE_ID}.-=${BOUNDARY_SOURCE_FLAG}`]:null}:
         {[flag(BOUNDARY_SOURCE_FLAG)]:clone(state.source)})});
+    onProgress({step:index+2,total:4,message:`Updated ${index+1} of 2 native Regions`});
   }
   // Retain the intent if removing it fails; repeated Resume/Roll Back is safe.
-  await scene.update({[`flags.${MODULE_ID}.-=${GRID_TRANSFER_INTENT_FLAG}`]:null});
+  await scene.unsetFlag(MODULE_ID,GRID_TRANSFER_INTENT_FLAG);
+  onProgress({step:4,total:4,message:"Transfer completed"});
   return destination;
 }
 
 /** The intent is persisted before either native Region update. */
-export async function commitTerritoryCellTransfer(scene,plan,{view=globalThis.canvas}={}){
+export async function commitTerritoryCellTransfer(scene,plan,{view=globalThis.canvas,onProgress=()=>{}}={}){
   if(!plan||plan.sceneId!==scene?.id||!plan.sourceId||!plan.targetId||
       readPendingTerritoryCellTransfer(scene))
     throw Error("Reopen the native cell transfer; resolve any pending transaction first.");
@@ -198,9 +201,10 @@ export async function commitTerritoryCellTransfer(scene,plan,{view=globalThis.ca
   if(JSON.stringify(intent).length>1000000)
     throw Error("Transfer exceeds the safe recovery-record budget. Select fewer cells.");
   await scene.update({[flag(GRID_TRANSFER_INTENT_FLAG)]:intent});
+  onProgress({step:0,total:4,message:"Recovery record saved; validating transfer"});
   if(!same(readPendingTerritoryCellTransfer(scene),intent))
     throw Error("Transfer recovery intent was not persisted. No Region was edited.");
-  return finish(scene,intent,"resume",view);
+  return finish(scene,intent,"resume",view,onProgress);
 }
 
 export async function resolveTerritoryCellTransfer(scene,mode,{view=globalThis.canvas}={}){

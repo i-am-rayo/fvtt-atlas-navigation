@@ -215,7 +215,7 @@
 }
 
 /* Compact, modeless Atlas Layers palette; all choices are client-local. */
-.atlas-layers-palette { display: grid; gap: .55rem; padding: .6rem .8rem .9rem; }
+.atlas-layers-palette { display: grid; gap: .55rem; padding: .6rem .8rem .9rem; overflow-y:auto; min-height:0; max-height:100%; }
 .atlas-layers-palette .atlas-layers-note,
 .atlas-layers-palette .atlas-layers-help {
   margin: 0; line-height: 1.35; font-size: .85em;

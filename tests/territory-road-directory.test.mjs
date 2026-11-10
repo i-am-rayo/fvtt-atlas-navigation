@@ -54,3 +54,15 @@ test("an unassigned city groups under the dominant native continent without a fl
   assert.equal(writes,0);
   assert.equal(city.getFlag(null,"territoryGeography").parentRegionId,null);
 });
+
+test("Road directory asks native Region geometry for grid Shape membership",()=>{
+  const native=region("grid","Grid Territory","continent",null,[]);
+  native.shapes=[{type:"grid",origin:null,offsets:[{i:0,j:0}]}];
+  let calls=0;
+  native.testPoint=point=>{calls++;return point.x>=0&&point.x<100&&point.y<100;};
+  const scene={id:"scene",regions:new Map([[native.id,native]])};
+  const view={ready:true,scene,dimensions:{sceneX:0,sceneY:0,size:100}};
+  const result=readTerritoryRoadDirectory(scene,atlas,view);
+  assert.ok(calls>0);
+  assert.ok(result.tree[0].roadIds.includes("millstone-dirwest"));
+});
