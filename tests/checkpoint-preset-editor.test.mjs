@@ -18,7 +18,9 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
   }
   const all=root=>[root,...root.children.flatMap(all)];
   try{
-    globalThis.foundry={applications:{api:{ApplicationV2:class{constructor(){}}}}};
+    globalThis.foundry={applications:{api:{ApplicationV2:class{
+      constructor(options){this.options=options;}
+    }}}};
     globalThis.document={createElement:tag=>new Element(tag)};
     globalThis.window={innerWidth:1280,innerHeight:900};
     globalThis.game={user:{isGM:true},settings:{get:(_module,key)=>
@@ -27,6 +29,7 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     globalThis.ui={notifications:{error(message){throw Error(message);},info(){}}};
     const {AtlasCheckpointPresetEditor}=await import("../scripts/checkpoint-preset-editor.js");
     const editor=new AtlasCheckpointPresetEditor({preset:defaultCheckpointPresets().presets[0]});
+    assert.equal(editor.options.position.left,24,"preset editor opens from the left edge");
     const root=await editor._renderHTML();
     const labels=all(root).map(item=>item.textContent);
     for(const label of ["General","Marker & labels","Terrain Region",

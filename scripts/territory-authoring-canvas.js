@@ -101,8 +101,9 @@ export class TerritoryAuthoringCanvas{
     const layer=new PIXI.Graphics();layer.eventMode="none";
     view.interface.addChild(layer);
     const panel=el("section");panel.className="atlas-territory-authoring";
-    panel.style.cssText="position:fixed;top:90px;right:24px;z-index:10000;"+
-      "max-width:360px;padding:1rem;background:#111019;color:#f4e8d7;"+
+    panel.style.cssText="position:fixed;top:90px;left:24px;z-index:10000;"+
+      "width:360px;max-width:calc(100vw - 48px);max-height:calc(100vh - 110px);"+
+      "overflow-y:auto;box-sizing:border-box;padding:1rem;background:#111019;color:#f4e8d7;"+
       "border:1px solid #caad83;border-radius:8px;box-shadow:0 8px 24px #0009";
     panel.setAttribute("role","region");
     panel.setAttribute("aria-label","Atlas Territory boundary editor");
@@ -116,6 +117,34 @@ export class TerritoryAuthoringCanvas{
     const actions=el("div");actions.style.cssText="display:flex;flex-wrap:wrap;gap:0.4rem";
     const addButton=(label,handler)=>{const b=el("button",label);b.type="button";
       b.addEventListener("click",handler);actions.appendChild(b);return b;};
+    const shortcuts=el("aside");shortcuts.className="atlas-territory-shortcuts";
+    shortcuts.setAttribute("aria-label","Territory editor shortcuts");
+    shortcuts.style.cssText="border-top:1px solid #6b5e61;padding-top:.6rem;"+
+      "margin:.5rem 0;font-size:.82rem;line-height:1.35;";
+    const shortcutsTitle=el("strong","Shortcuts");
+    shortcutsTitle.style.cssText="display:block;margin-bottom:.35rem;";
+    shortcuts.appendChild(shortcutsTitle);
+    const bindings=draft.kind==="grid"?[
+      ["Click / drag","Paint cells"],
+      ["Shift + click / drag","Erase cells"],
+      ["Scroll","Brush size"],
+      ["Shift + scroll","Zoom map"],
+      ["Cmd / Ctrl + Z","Undo last stroke"],
+      ["Esc","Cancel editing"]
+    ]:[
+      ["Left click","Add / select node"],
+      ["Drag","Move selected node"],
+      ["Right click","Remove last node"],
+      ["Cmd / Ctrl + Z","Undo last node edit"],
+      ["Esc","Cancel editing"]
+    ];
+    for(const [hotkey,description] of bindings){
+      const row=el("div");row.style.cssText="display:flex;gap:.65rem;justify-content:space-between;"+
+        "align-items:baseline;padding:.1rem 0;";
+      const keyLabel=el("kbd",hotkey);keyLabel.style.cssText="color:#f6d99e;white-space:nowrap;";
+      const explanation=el("span",description);
+      row.append(keyLabel,explanation);shortcuts.appendChild(row);
+    }
     const session={sceneId:scene.id,view,surface,layer,panel,info,draft:copy(draft),
       history:[],radius:0,strokeErase:false,hoverErase:false,
       pointerSnapshot:null,dragNode:-1,selectedNode:-1,painting:false,saving:false,
@@ -249,7 +278,7 @@ export class TerritoryAuthoringCanvas{
       finally{session.saving=false;save.disabled=false;restoreProgress();}
     });
     progress.style.display="none";
-    panel.prepend(head,info);panel.append(ownershipReview,actions,progress);
+    panel.prepend(head,info);panel.append(ownershipReview,shortcuts,actions,progress);
     document.body.appendChild(panel);
     const snapshot=()=>{session.history.push(copy(session.draft));
       if(session.history.length>40)session.history.shift();};
@@ -357,7 +386,9 @@ export class TerritoryAuthoringCanvas{
     const contextmenu=event=>{if(session.draft.kind==="polygon"&&this.#live(session)){
       event.preventDefault();event.stopImmediatePropagation();}};
     const wheel=event=>{
-      if(!this.#live(session)||session.saving||session.draft.kind!=="grid"||event.altKey)return;
+      // Modifier-wheel gestures belong to Foundry's map zoom handler, never the brush.
+      if(!this.#live(session)||session.saving||session.draft.kind!=="grid"||
+          event.altKey||event.shiftKey)return;
       if(!Number.isFinite(event.deltaY)||event.deltaY===0)return;
       event.preventDefault();event.stopImmediatePropagation();
       session.setRadius(session.radius+(event.deltaY<0?1:-1));

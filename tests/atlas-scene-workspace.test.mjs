@@ -61,6 +61,7 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     const first = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     assert.ok(first instanceof AtlasSceneWorkspace);
     assert.equal(first.options.id, "atlas-scene-workspace-scene-1");
+    assert.equal(first.options.position.left,24,"Atlas Workspace opens against the left edge");
     assert.match(text(first.result), /Scene Overview/);
     assert.match(text(first.result), /Roads/);
     const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);

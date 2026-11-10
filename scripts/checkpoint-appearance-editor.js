@@ -47,11 +47,12 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-checkpoint-appearance",
     window: { title: "Atlas — Checkpoint Settings", resizable: true },
-    position: { width: 630, height: 540 }
+    position: { width: 630, height: 540, left: 24 }
   };
 
   constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null, onTerrainAction = null, onDelete = null }) {
     super({ position: {
+      left: 24,
       width: Math.min(630, Math.max(360, window.innerWidth - 60)),
       height: Math.min(710, Math.max(440, window.innerHeight - 70))
     } });

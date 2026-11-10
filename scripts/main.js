@@ -389,7 +389,7 @@ async function promptNewRoadSettings(scene) {
   try {
     result=await foundry.applications.api.DialogV2.input({
       window:{title:"Road Settings — New Road",resizable:true},
-      position:{width:Math.min(620,window.innerWidth-50),
+      position:{left:24,width:Math.min(620,window.innerWidth-50),
         height:Math.min(720,Math.max(440,window.innerHeight-70))},
       content,ok:{label:"Draw Road"},rejectClose:false,modal:false
     });
@@ -837,7 +837,7 @@ function actions() {
       try {
         result = await DialogV2.input({
           window: { title: "Road Settings — " + actual.name, resizable: true },
-          position: { width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(740, Math.max(440, window.innerHeight - 70)) },
+          position: { left: 24, width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(740, Math.max(440, window.innerHeight - 70)) },
           content, ok: {label:"",icon:"fa-solid fa-floppy-disk",tooltip:"Save road"},
           render:renderRoadDialog,
           rejectClose: false, modal: false
@@ -2208,7 +2208,7 @@ Hooks.once("init", () => {
       const road = atlas.roads?.find(r => r.id === target.id);
       if (road) return roadActions.editRoadAppearance(scene, road, refresh);
     }
-  }, { isReserved: () => navigation.active });
+  }, { isReserved: () => navigation.active || Boolean(territoryCanvas.session) });
   Hooks.on("getSceneControlButtons", controls => {
     if(!game.user?.isGM)return;
     controls.atlasManualFog={

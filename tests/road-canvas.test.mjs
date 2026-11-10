@@ -139,7 +139,7 @@ test("v0.2.22 idle GM Shift-click opens a road without requiring label visibilit
   } finally { Object.assign(globalThis, previous); }
 });
 
-test("Navigation reserves Shift-click on roads and checkpoints without consuming the pointer", async () => {
+test("Navigation and Paint Territory reserve road/checkpoint Shift-click without consuming the pointer", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
   const m = setup();
   try {
@@ -159,9 +159,10 @@ test("Navigation reserves Shift-click on roads and checkpoints without consuming
     });
     await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
     let navigationActive = true;
+    let territoryPainting = false;
     const hits = [];
     m.controller.setShortcutHandler((scene, target) => hits.push(target), {
-      isReserved: () => navigationActive
+      isReserved: () => navigationActive || territoryPainting
     });
     const click = (x, y) => {
       const event = pointEvent(x, y);
@@ -178,6 +179,16 @@ test("Navigation reserves Shift-click on roads and checkpoints without consuming
     assert.deepEqual(m.notifications.info, [], "Navigation must also reserve cluster warnings");
 
     navigationActive = false;
+    territoryPainting = true;
+    const roadWhilePainting = click(25, 15);
+    const checkpointWhilePainting = click(5, 15);
+    await Promise.resolve();
+    assert.equal(roadWhilePainting.prevented, false);
+    assert.equal(checkpointWhilePainting.prevented, false);
+    assert.deepEqual(hits, [], "Shift+erase must not open road or checkpoint editors");
+    assert.deepEqual(m.notifications.info, [], "painting must not trigger cluster warnings");
+
+    territoryPainting = false;
     assert.equal(click(25, 15).prevented, true);
     assert.equal(click(5, 15).prevented, true);
     await Promise.resolve();

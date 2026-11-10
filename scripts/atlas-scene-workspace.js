@@ -41,12 +41,13 @@ function action(text, title, callback) {
 export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
     window: { title: "Atlas — Scene Workspace", resizable: true },
-    position: { width: 1040, height: 720 }
+    position: { width: 1040, height: 720, left: 24 }
   };
 
   constructor({ scene, actions }) {
     assertEditable(scene);
     super({ id: `atlas-scene-workspace-${scene.id}`, position: {
+      left: 24,
       width: Math.max(450, Math.min(1040, globalThis.window?.innerWidth - 50 || 1040)),
       height: Math.max(360, Math.min(720, globalThis.window?.innerHeight - 90 || 720))
     } });
