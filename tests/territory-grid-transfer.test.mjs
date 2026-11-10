@@ -36,6 +36,7 @@ function fixture(){
   const regions=new Map([[source.id,source],[target.id,target]]);
   const scene={id:"test-scene",grid:{type:1,size:10},width:200,height:200,
     regions,canUserModify:()=>true,getFlag:(_scope,key)=>flags[key]??null,
+    unsetFlag:async (_scope,key)=>{events.push({type:"scene-unset",key});delete flags[key];},
     update:async patch=>{
       events.push({type:"scene"});
       for(const [field,value] of Object.entries(patch)){
@@ -72,8 +73,11 @@ test("GM transfer preflights exact ownership, writes persistent intent first, th
     const plan=planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view});
     assert.equal(plan.movedCells,1);
     assert.equal(f.events.length,0,"preview never writes");
-    await commitTerritoryCellTransfer(f.scene,plan,{view:f.view});
-    assert.deepEqual(f.events.map(e=>e.type),["scene","region","region","scene"]);
+    const progress=[];
+    await commitTerritoryCellTransfer(f.scene,plan,{view:f.view,
+      onProgress:status=>progress.push(status)});
+    assert.deepEqual(progress.map(status=>status.step),[0,1,2,3,4]);
+    assert.deepEqual(f.events.map(e=>e.type),["scene","region","region","scene-unset"]);
     assert.equal(f.events[1].id,f.source.id,"remove ownership before adding it");
     assert.ok(f.events[1].pending&&f.events[2].pending);
     assert.deepEqual(f.source.shapes[0].offsets,[{i:0,j:0},{i:2,j:0}]);

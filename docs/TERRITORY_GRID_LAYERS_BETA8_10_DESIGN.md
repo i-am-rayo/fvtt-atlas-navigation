@@ -277,3 +277,28 @@ to modify a peer from converting the selected Region.
 - Merging the beta.8.10 draft PR or publishing a stable release before owner
   Foundry GM and non-GM acceptance. This is an **owner-authorized test build**,
   not a Foundry-live-verified release.
+### beta.8.15 — Transfer progress, Layers sizing and Road classification (owner test)
+
+- The Paint Territory panel switches from editing actions to a four-stage progress
+  indicator after the GM approves a two-Region transfer. The recovery intent is
+  persisted before native Region writes; errors restore the editor controls and
+  leave any interrupted transfer available for explicit recovery.
+- The Atlas Layers window opens at 430 × 620, with scrollable content. Native
+  Region color editing remains in Foundry Region Configuration and is removed
+  from this display-only palette.
+- The Roads directory samples native RegionDocument.testPoint geometry when
+  available, including native grid Shapes (rather than treating grids as empty).
+- Transfer recovery clears its completed Scene flag through native unsetFlag.
+
+**GM acceptance:** Verify progress is visible while a transferred-cell update is
+pending; a failure leaves the recovery action available; Atlas Layers scrolls on
+short displays; existing polygon and converted grid territories both classify
+Roads correctly. Recheck native Region colors and Behaviors, canvas refresh,
+and Journey continuity. Do not force a partial write in a primary World.
+
+**Deferred:** Player territory geometry requires a separately reviewed GM
+permission/publication contract; Public Territory currently covers a banner
+label only. Polygon/multi-owner transfers and checkpoint–Region linking need
+their own schema and recovery gates. No stable release or merge before owner
+live Foundry v14 acceptance.
+

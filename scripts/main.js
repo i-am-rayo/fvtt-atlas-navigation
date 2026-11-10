@@ -1570,7 +1570,7 @@ function actions() {
       const geography=readRegionGeography(region);
       if(!geography)throw Error("Classify this Atlas-linked Territory before editing its boundary.");
       draft.name=region.name;draft.geography=geography;
-      await territoryCanvas.begin(scene,draft,async candidate=>{
+      await territoryCanvas.begin(scene,draft,async (candidate,reportProgress)=>{
         const transfer=planTerritoryCellTransfer(scene,regionId,candidate);
         if(transfer){
           const dialog=document.createElement("div");
@@ -1593,7 +1593,7 @@ function actions() {
             content:dialog,yes:{label:"Transfer Between Two Regions"},
             rejectClose:false,modal:true});
           if(!accepted)return false;
-          await commitTerritoryCellTransfer(scene,transfer);
+          await commitTerritoryCellTransfer(scene,transfer,{onProgress:reportProgress});
           refresh();ui.notifications.info(`${transfer.movedCells} cells transferred from `+
             `${transfer.sourceName} to ${transfer.targetName}.`);
           return;

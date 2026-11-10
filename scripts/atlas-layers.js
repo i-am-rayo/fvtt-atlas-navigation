@@ -3,7 +3,6 @@ import {MODULE_ID} from "./atlas-storage.js";
 import {listSceneGeography} from "./territory-geography-storage.js";
 import {listGeneratedRegions} from "./region-native-read.js";
 import {TerritoryViewOverlay} from "./territory-view-overlay.js";
-import {nativeRegionColorHex} from "./native-region-color.js";
 import {ATLAS_LAYERS_SETTING,DEFAULT_ATLAS_LAYERS,ROAD_LAYER_MODES,
   REGION_LAYER_MODES,validateAtlasLayers,updateAtlasLayers}
   from "./atlas-layer-preferences.js";
@@ -19,12 +18,11 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS={
     id:"fvtt-atlas-layer-palette",
     window:{title:"Atlas Layers",resizable:true,minimizable:true},
-    position:{width:345,height:445,left:110,top:105}
+    position:{width:430,height:620,left:110,top:105}
   };
 
   constructor(controller){
     super();this.controller=controller;this.updates=Promise.resolve();
-    this.colorRegionId=null;
   }
 
   async _renderHTML(){
@@ -100,43 +98,6 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
       slider.addEventListener("input",()=>{value.textContent=`${slider.value}%`;});
       slider.addEventListener("change",()=>void change({[key]:Number(slider.value)/100}));
       label.append(element("span",title),slider,value);regions.appendChild(label);
-    }
-    const colorRegions=this.controller.listColorRegions();
-    if(colorRegions.length){
-      const colors=group("Region colors","Atlas uses each native Foundry Region's " +
-        "Appearance color. Select a Region to edit its color in Foundry; the " +
-        "fill opacity sliders above only affect this client's view.");
-      const selection=element("label","Region to edit","atlas-layers-color-choice");
-      const select=element("select");
-      select.setAttribute("aria-label","Choose Region color to edit");
-      const chosen=colorRegions.some(region=>region.id===this.colorRegionId)?
-        this.colorRegionId:colorRegions[0].id;
-      for(const region of colorRegions){
-        const option=element("option",region.name);option.value=region.id;
-        select.appendChild(option);
-      }
-      select.value=chosen;
-      const preview=element("input");preview.type="color";preview.disabled=true;
-      preview.setAttribute("aria-label","Current native Region color");
-      const colorStatus=element("span",undefined,"atlas-layers-native-color-status");
-      const edit=element("button","Edit native Region color");edit.type="button";
-      const refreshColor=()=>{
-        this.colorRegionId=select.value;
-        const region=colorRegions.find(item=>item.id===select.value);
-        const nativeHex=nativeRegionColorHex(region?.color);
-        preview.value=nativeHex??"#000000";
-        preview.hidden=!nativeHex;
-        colorStatus.textContent=nativeHex??"Native color unavailable — inspect Region Appearance";
-      };
-      select.addEventListener("change",refreshColor);refreshColor();
-      edit.addEventListener("click",async()=>{
-        try{await this.controller.configureColorRegion(select.value);}
-        catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
-      });
-      selection.appendChild(select);
-      const actions=element("div",undefined,"atlas-layers-color-actions");
-      actions.append(preview,colorStatus,edit);
-      colors.append(selection,actions);
     }
     return root;
   }

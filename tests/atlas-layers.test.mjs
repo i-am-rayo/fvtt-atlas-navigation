@@ -126,7 +126,7 @@ test("Atlas Layers modeless palette exposes Road/Region modes, names and fill co
   }finally{Object.assign(globalThis,previous);}
 });
 
-test("Region color is edited through native Foundry configuration, not client palette flags",async()=>{
+test("Atlas Layers omits native Region color editor without altering native colors",async()=>{
   const previous={game:globalThis.game,canvas:globalThis.canvas,
     document:globalThis.document};
   globalThis.document={createElement:tag=>new Element(tag)};
@@ -148,22 +148,18 @@ test("Region color is edited through native Foundry configuration, not client pa
     assert.deepEqual(controller.listColorRegions(),
       [{id:"nativeRegion1",name:"Reshara",color:"#5ccc28"}]);
     const palette=new AtlasLayersWindow(controller),root=await palette._renderHTML();
-    const color=all(root).find(item=>item.type==="color");
-    assert.equal(color.value,"#5ccc28");
-    assert.equal(color.disabled,true,"swatch is native-owned, not a second writable source");
+    assert.equal(all(root).some(item=>item.type==="color"),false);
     const edit=all(root).find(item=>item.tagName==="button"&&
       item.textContent==="Edit native Region color");
-    await edit.listeners.get("click")();
-    assert.equal(opened,1,"native RegionConfig is opened on deliberate selection");
+    assert.equal(edit,undefined);
+    assert.equal(opened,0);
     assert.equal(region.color,"#5ccc28","Atlas never silently alters native color");
     region.color=new Number(0x4d972b);
     const updatedPalette=await palette._renderHTML();
-    const updatedSwatch=all(updatedPalette).find(item=>item.type==="color");
-    assert.equal(updatedSwatch.value,"#4d972b",
-      "native Foundry Color objects display as the selected Region's actual green");
+    assert.equal(all(updatedPalette).some(item=>item.type==="color"),false);
     globalThis.game.user.isGM=false;
     await assert.rejects(()=>controller.configureColorRegion(region.id),/authorized GM/);
-    assert.equal(opened,1);
+    assert.equal(opened,0);
   }finally{Object.assign(globalThis,previous);}
 });
 

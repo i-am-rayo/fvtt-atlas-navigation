@@ -18,7 +18,13 @@ export function readTerritoryRoadDirectory(scene, atlas, view=globalThis.canvas)
     {samples:new Map(),truncated:new Set()};
   const directory=buildTerritoryRoadDirectory({territories:classified,
     roads:atlas.roads??[],roadSamples:sampled.samples,
-    contains:(territory,point)=>regionContainsPoint(territory.shapes,point),
+    contains:(territory,point)=>{
+      const region=scene.regions?.get?.(territory.id);
+      // v14's native geometry understands grid, polygon and ellipse Shapes.
+      // Do not silently treat an unsupported native Shape as empty geography.
+      if(typeof region?.testPoint==="function")return region.testPoint(point);
+      return regionContainsPoint(territory.shapes,point);
+    },
     geometryAvailable:active});
   return {...directory,geometryAvailable:active,
     truncatedRoadIds:[...sampled.truncated],classifiedCount:classified.length};
