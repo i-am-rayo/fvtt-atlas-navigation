@@ -11,11 +11,15 @@ import { atlasDebug } from "./atlas-debug.js";
 /** Dedicated independent renderer: only persisted manual overrides determine visibility. */
 export class AtlasManualFogController {
   constructor() {
-    this.layer=null;this.view=null;this.preview=true;this.brush=null;
+    this.layer=null;this.view=null;this.preview=true;this.editorHidden=false;this.brush=null;
     this.pointerTarget=null;this.pointerDown=this.onPointerDown.bind(this);
     this.paletteOpen=false;this.radius=1;
   }
   setPreview(enabled) { this.preview=!!enabled;this.refresh(); }
+  setEditorHidden(hidden) {
+    this.editorHidden=!!hidden;
+    this.refresh();
+  }
   setBrush(mode,radius=0) {
     if(mode!==null&&!["reveal","hide","clear"].includes(mode))
       throw new Error("Choose a valid Atlas brush.");
@@ -56,6 +60,7 @@ export class AtlasManualFogController {
   tearDown() {
     this.pointerTarget?.removeEventListener?.("pointerdown",this.pointerDown,true);
     this.pointerTarget=null;this.brush=null;this.paletteOpen=false;
+    this.editorHidden=false;
     this.layer?.parent?.removeChild?.(this.layer);
     this.layer?.destroy?.();
     this.layer=null;this.view=null;
@@ -72,7 +77,8 @@ export class AtlasManualFogController {
       invalidState=error;
       state={enabled:true};
     }
-    const shouldDraw=state.enabled&&(!game.user.isGM||this.preview);
+    const shouldDraw=state.enabled&&(!game.user.isGM||
+      (this.preview&&!this.editorHidden));
     if(!shouldDraw){if(this.layer)this.layer.visible=false;return;}
     if(!globalThis.PIXI?.Graphics||!view.primary?.addChild)return;
     const sort=foundry?.canvas?.groups?.PrimaryCanvasGroup?.SORT_LAYERS;

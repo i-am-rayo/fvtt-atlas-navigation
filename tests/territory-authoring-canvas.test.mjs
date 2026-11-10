@@ -46,13 +46,17 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
   const group={children:[],addChild(child){this.children.push(child);child.parent=this;},
     removeChild(child){this.children=this.children.filter(c=>c!==child);child.parent=null;}};
   const view={ready:true,scene:{id:"scene1"},app:{canvas:surface},interface:group,
+    visibility:{visible:true},
     primary:{addChild(){throw Error("Territory nodes must never render beneath fog");}},
     stage:{scale:{x:1}},dimensions:{sceneX:0,sceneY:0,sceneWidth:500,sceneHeight:500},
     canvasCoordinatesFromClient:point=>point};
   globalThis.game={user:{isGM:true}};
   globalThis.canvas=view;globalThis.document=doc;globalThis.PIXI={Graphics};
   globalThis.requestAnimationFrame=undefined;
-  const editor=new TerritoryAuthoringCanvas();let writes=0;
+  const fogChanges=[];
+  const editor=new TerritoryAuthoringCanvas({manualFog:{setEditorHidden:hidden=>{
+    fogChanges.push(hidden);
+  }}});let writes=0;
   const draft={kind:"polygon",points:[{id:"a",x:10,y:10},
     {id:"b",x:100,y:10},{id:"c",x:100,y:100}],offsets:[],smoothing:0};
   try{
@@ -65,6 +69,8 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
     assert.deepEqual(polygonShortcuts.children.slice(1).map(row=>row.children[0].textContent),
       ["Left click","Drag","Right click","Cmd / Ctrl + Z","Esc"]);
     assert.equal(group.children.length,1);
+    assert.equal(view.visibility.visible,false,"GM native fog is locally hidden while editing");
+    assert.deepEqual(fogChanges,[true],"Atlas manual fog is locally hidden too");
     assert.deepEqual(editor.session.layer.strokes.map(item=>item.color),
       [0x121826,0xffe3a2],"dark halo and bright outline stay visible above Atlas fog");
     assert.equal(editor.session.layer.disks.length,6,
@@ -82,6 +88,8 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
     assert.equal(editor.session.draft.points.length,3);
     editor.cancel();
     assert.equal(await pending,false);
+    assert.equal(view.visibility.visible,true,"Cancel restores native fog without writes");
+    assert.deepEqual(fogChanges,[true,false],"Cancel restores Atlas manual fog");
     assert.equal(writes,0);
     assert.equal(body.children.length,0);
     assert.equal(group.children.length,0);

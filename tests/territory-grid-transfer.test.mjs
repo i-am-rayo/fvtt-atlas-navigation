@@ -29,6 +29,9 @@ function fixture(){
           if(!field.startsWith(prefix))continue;
           const name=field.slice(prefix.length);
           if(name.startsWith("-="))values[name.slice(2)]=null;
+          else if(value?.__forcedReplacement)values[name]=structuredClone(value.data);
+          else if(name==="territoryBoundarySource"&&values[name])
+            values[name]={...values[name],...structuredClone(value)};
           else values[name]=structuredClone(value);
         }
       }};
@@ -60,7 +63,8 @@ function fixture(){
 function globals(){
   const before={game:globalThis.game,foundry:globalThis.foundry,PIXI:globalThis.PIXI};
   globalThis.game={user:{isGM:true}};
-  globalThis.foundry={data:{GridShapeData:class{}}};
+  globalThis.foundry={data:{GridShapeData:class{},operators:{
+    ForcedReplacement:{create:data=>({__forcedReplacement:true,data})}}}};
   globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
   return ()=>Object.assign(globalThis,before);
 }
@@ -146,6 +150,93 @@ test("unclaimed-only batch saves two independent destination edits with no sourc
     assert.deepEqual(f.source.shapes[0].offsets,[{i:0,j:0},{i:1,j:0},{i:2,j:0}]);
     assert.deepEqual(b.source.shapes[0].offsets,[{i:3,j:0},{i:4,j:0}]);
   }finally{restore();}
+});
+
+test("v14 grid writer fully replaces former polygon boundary nodes",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),b=batch(f);
+    // Simulate a converted polygon whose previous edit controls are still in
+    // the boundary-source flag. Native v14 deeply merges ordinary flag maps.
+    const nodes=[{id:"legacy",x:2,y:3}];
+    for(const region of [f.target,b.target]){
+      const original=region.shapes[0];
+      const source={schemaVersion:1,kind:"grid",coordinateSpace:"scene-image",
+        nodes:structuredClone(nodes),offsets:structuredClone(original.offsets),
+        wallIds:[],smoothing:0,
+        shapeDigest:readTerritoryDraft(f.scene,region.id,{view:f.view}).sourceDigest};
+      // The fixture's update models a Foundry deep-merge, so set it first.
+      await region.update({[`flags.${MODULE}.territoryBoundarySource`]:source});
+    }
+    const staged=[draftFor(f,f.target,[{i:14,j:0}]),
+      draftFor(f,b.target,[{i:16,j:0}])];
+    const plan=planMultiDestinationTerritoryCellTransfer(f.scene,staged,{view:f.view});
+    await commitMultiDestinationTerritoryCellTransfer(f.scene,plan,{view:f.view});
+    assert.equal(f.target.getFlag(MODULE,"territoryBoundarySource").nodes,undefined);
+    assert.equal(b.target.getFlag(MODULE,"territoryBoundarySource").nodes,undefined);
+    assert.equal(readPendingTerritoryCellTransfer(f.scene),null);
+  }finally{restore();}
+});
+
+test("recovery refuses new polygon nodes even when every grid cell matches",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),b=batch(f),target=f.target;
+    const nodes=[{id:"before",x:2,y:3}];
+    await target.update({[`flags.${MODULE}.territoryBoundarySource`]:{
+      schemaVersion:1,kind:"grid",coordinateSpace:"scene-image",nodes,
+      offsets:structuredClone(target.shapes[0].offsets),wallIds:[],smoothing:0,
+      shapeDigest:readTerritoryDraft(f.scene,target.id,{view:f.view}).sourceDigest}});
+    const staged=[draftFor(f,target,[{i:14,j:0}]),
+      draftFor(f,b.target,[{i:16,j:0}])];
+    const plan=planMultiDestinationTerritoryCellTransfer(f.scene,staged,{view:f.view});
+    fixture.silentTarget=target.id;
+    await assert.rejects(()=>commitMultiDestinationTerritoryCellTransfer(f.scene,plan,
+      {view:f.view}),/did not retain/);
+    fixture.silentTarget=null;
+    const record=readPendingTerritoryCellTransfer(f.scene).records
+      .find(r=>r.id===target.id);
+    target.shapes=structuredClone(record.after.shapes);
+    await target.update({[`flags.${MODULE}.territoryBoundarySource`]:{
+      ...record.after.source,nodes:[{id:"unknown",x:200,y:200}]}});
+    const review=inspectPendingTerritoryCellTransfer(f.scene,{view:f.view});
+    assert.equal(review.canResume,false);
+    assert.equal(review.canRollback,false);
+    assert.match(review.resumeBlocker,/boundary controls/);
+    assert.ok(readPendingTerritoryCellTransfer(f.scene));
+  }finally{fixture.silentTarget=null;restore();}
+});
+
+test("legacy retained original nodes alone permit a guarded recovery, not arbitrary edits",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),b=batch(f),nodes=[{id:"historic",x:12,y:24}];
+    const target=f.target;
+    const before={schemaVersion:1,kind:"grid",coordinateSpace:"scene-image",
+      nodes,offsets:structuredClone(target.shapes[0].offsets),wallIds:[],smoothing:0,
+      shapeDigest:readTerritoryDraft(f.scene,target.id,{view:f.view}).sourceDigest};
+    await target.update({[`flags.${MODULE}.territoryBoundarySource`]:before});
+    const staged=[draftFor(f,target,[{i:14,j:0}]),
+      draftFor(f,b.target,[{i:16,j:0}])];
+    const plan=planMultiDestinationTerritoryCellTransfer(f.scene,staged,{view:f.view});
+    fixture.silentTarget=target.id;
+    await assert.rejects(()=>commitMultiDestinationTerritoryCellTransfer(f.scene,plan,
+      {view:f.view}),/did not retain|Simulated|after investigating/);
+    fixture.silentTarget=null;
+    const record=readPendingTerritoryCellTransfer(f.scene).records
+      .find(r=>r.id===target.id);
+    target.shapes=structuredClone(record.after.shapes);
+    const retained={...structuredClone(record.after.source),nodes:structuredClone(nodes)};
+    await target.update({[`flags.${MODULE}.territoryBoundarySource`]:retained});
+    const review=inspectPendingTerritoryCellTransfer(f.scene,{view:f.view});
+    assert.equal(review.canResume,true);
+    assert.equal(review.records.find(r=>r.id===target.id).state,"after");
+    const savedWrites=f.events.length;
+    await resolveTerritoryCellTransfer(f.scene,"resume",{view:f.view});
+    assert.ok(f.events.length>savedWrites);
+    assert.equal(target.getFlag(MODULE,"territoryBoundarySource").nodes,undefined);
+    assert.equal(readPendingTerritoryCellTransfer(f.scene),null);
+  }finally{fixture.silentTarget=null;restore();}
 });
 
 test("unclaimed-only v3 batch can roll back after partial native failure",async()=>{

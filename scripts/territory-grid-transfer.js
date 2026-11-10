@@ -31,6 +31,30 @@ const same=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 const sameState=(a,b)=>nativeTerritoryShapeDigest(a.shapes)===
   nativeTerritoryShapeDigest(b.shapes)&&same(a.source,b.source)&&
   same(a.geography,b.geography)&&a.name===b.name;
+/** Foundry v14 merges nested flag objects unless an explicit replacement
+ * operator is used. Preserve the rest of a Region's flags, but fully replace
+ * Atlas's own boundary-source object so polygon nodes cannot survive a grid
+ * update and poison the recovery ledger. */
+function boundarySourceReplacement(source){
+  const replace=globalThis.foundry?.data?.operators?.ForcedReplacement?.create;
+  if(typeof replace!=="function")
+    throw Error("Foundry v14 boundary-source replacement is unavailable; recovery remains protected.");
+  return replace(clone(source));
+}
+/** Accept ONLY a pre-existing, unchanged polygon-node array accidentally
+ * retained by the old grid update. All other fields, native shapes, and
+ * document metadata must still match the durable after-snapshot exactly. */
+function hasRetainedOriginalNodes(current,record){
+  const prior=record.before.source,planned=record.after.source,live=current.source;
+  if(!prior||!planned||!live||planned.kind!=="grid"||live.kind!=="grid"||
+      !Array.isArray(prior.nodes)||!Array.isArray(live.nodes)||
+      Object.hasOwn(planned,"nodes")||!same(live.nodes,prior.nodes))return false;
+  const {nodes:_unused,...withoutNodes}=live;
+  return nativeTerritoryShapeDigest(current.shapes)===
+      nativeTerritoryShapeDigest(record.after.shapes)&&
+    current.name===record.after.name&&
+    same(current.geography,record.after.geography)&&same(withoutNodes,planned);
+}
 /** Diagnostic only: do not relax matching or infer permission to recover. */
 function stateDifferences(current,expected){
   return [
@@ -370,7 +394,8 @@ export function planMultiDestinationTerritoryCellTransfer(scene,staged,
 function checkRecord(scene,record){
   const region=authorize(scene,record.id),current=stateOf(region);
   if(sameState(current,record.before))return "before";
-  if(sameState(current,record.after))return "after";
+  if(sameState(current,record.after)||hasRetainedOriginalNodes(current,record))
+    return "after";
   const before=stateDifferences(current,record.before).join(", ");
   const after=stateDifferences(current,record.after).join(", ");
   throw Error(`Region ${region.name} changed outside the transfer snapshots. `+
@@ -444,7 +469,12 @@ async function finish(scene,intent,mode,view,onProgress=()=>{}){
       const state=record[destination];
       await region.update({shapes:clone(state.shapes),
         ...(state.source===null?{[`flags.${MODULE_ID}.-=${BOUNDARY_SOURCE_FLAG}`]:null}:
-          {[flag(BOUNDARY_SOURCE_FLAG)]:clone(state.source)})});
+          {[flag(BOUNDARY_SOURCE_FLAG)]:boundarySourceReplacement(state.source)})});
+    }else if(destination==="after"&&hasRetainedOriginalNodes(stateOf(region),record)){
+      // Legacy half-committed transactions from before ForcedReplacement need
+      // only an Atlas-flag cleanup; their native grid cells already match.
+      await region.update({[flag(BOUNDARY_SOURCE_FLAG)]:
+        boundarySourceReplacement(record.after.source)});
     }
     onProgress({step:index+2,total,
       message:`Processed ${index+1} of ${intent.records.length} native Regions`});

@@ -116,7 +116,7 @@ roadCanvas.promptCheckpoint = ({ roads, defaultName }) => new Promise(resolve =>
 const navigation = new AtlasNavigationController();
 const manualFog = new AtlasManualFogController();
 const fogPalette = new AtlasManualFogPalette(manualFog);
-const territoryCanvas = new TerritoryAuthoringCanvas();
+const territoryCanvas = new TerritoryAuthoringCanvas({manualFog});
 const territoryGridPreview = new TerritoryGridConversionPreview();
 // Authoring-only, client-local drafts. Never persist staged geometry or expose
 // it to players; native writes begin only after explicit batch confirmation.
