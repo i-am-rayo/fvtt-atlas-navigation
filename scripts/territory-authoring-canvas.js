@@ -113,7 +113,7 @@ function drawOwnershipFootprint(graphics,points,status,zoom){
 
 export class TerritoryAuthoringCanvas{
   session=null;
-  async begin(scene,draft,onSave,{inspectDraft=null}={}){
+  async begin(scene,draft,onSave,{inspectDraft=null,onStage=null}={}){
     if(this.session)throw Error("Finish or cancel the existing Territory draft first.");
     const view=globalThis.canvas;
     if(!globalThis.game?.user?.isGM||!view?.ready||view.scene?.id!==scene?.id||
@@ -291,6 +291,16 @@ export class TerritoryAuthoringCanvas{
         session.selectedNode=-1;this.#draw(session);
       });
     }
+    if(draft.kind==="grid"&&typeof onStage==="function")
+      addButton("Stage for Batch",async()=>{
+        if(session.saving)return;
+        session.saving=true;
+        try{
+          await onStage(copy(session.draft));
+          if(this.#live(session))session.close(true);
+        }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
+        finally{session.saving=false;}
+      });
     addButton("Cancel",()=>{if(!session.saving)session.close(false);});
     const save=addButton("Preview & Save",async()=>{
       if(save.disabled)return;save.disabled=true;

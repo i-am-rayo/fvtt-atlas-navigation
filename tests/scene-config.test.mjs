@@ -989,6 +989,27 @@ test("pending multi-Region transfer exposes an explicit GM recovery action",asyn
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("Territories Workspace offers a local multi-destination batch review and discard",async()=>{
+  const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
+  let reviewed=0,discarded=0;
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},i18n:{localize:key=>key,lang:"en"}};
+    globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    const panel=createAtlasTerritoryPanel({id:"scene1",regions:new Map()},
+      {draft:()=>null,territoryBatchState:()=>({count:2,names:["Dirwest","Valecor"]}),
+        commitTerritoryBatch:()=>{reviewed++;},discardTerritoryBatch:()=>{discarded++;}},
+      ()=>{}, {generated:[],nativeRegions:[],publicById:new Map()});
+    assert.match(textContents(panel),/2 Hex\/Grid destinations staged locally/);
+    const review=buttons(panel).find(button=>button.textContent==="Review & Transfer Batch");
+    const discard=buttons(panel).find(button=>button.textContent==="Discard Staged Batch");
+    assert.ok(review&&!review.disabled&&discard&&!discard.disabled);
+    await review.listeners.get("click")({preventDefault(){}});
+    await discard.listeners.get("click")({preventDefault(){}});
+    assert.equal(reviewed,1);assert.equal(discarded,1);
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("road-generated native Regions are excluded from the geographic boundary manager",()=>{
   const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
   let mounted=null;

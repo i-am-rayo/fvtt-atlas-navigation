@@ -90,6 +90,40 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
   }finally{Object.assign(globalThis,saved);}
 });
 
+test("Stage for Batch closes the paint editor without saving any native Region",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={addChild(child){child.parent=this;},removeChild(){}};
+  const scene={id:"scene1"},view={ready:true,scene,app:{canvas:surface},interface:group,
+    stage:{scale:{x:1}},dimensions:{sceneX:0,sceneY:0,sceneWidth:300,sceneHeight:300},
+    canvasCoordinatesFromClient:point=>point,
+    grid:{getCenterPoint:({i,j})=>({x:i*10+5,y:j*10+5}),
+      getOffset:({x,y})=>({i:Math.floor(x/10),j:Math.floor(y/10)}),
+      getAdjacentOffsets:()=>[],getShape:()=>[{x:-5,y:-5},{x:5,y:-5},
+        {x:5,y:5},{x:-5,y:5}]}};
+  globalThis.game={user:{isGM:true}};globalThis.canvas=view;
+  globalThis.document=doc;globalThis.PIXI={Graphics};
+  globalThis.requestAnimationFrame=undefined;
+  const editor=new TerritoryAuthoringCanvas();
+  let writes=0;const queued=[];
+  try{
+    const pending=editor.begin(scene,{kind:"grid",offsets:[{i:1,j:1}]},
+      async()=>{writes++;},{onStage:draft=>queued.push(draft)});
+    const stage=editor.session.panel.children.find(c=>c.tagName==="div"&&
+      c.children.some(button=>button.textContent==="Stage for Batch"))
+      .children.find(button=>button.textContent==="Stage for Batch");
+    assert.ok(stage);
+    await stage.listeners.get("click")();
+    assert.equal(await pending,true);
+    assert.equal(writes,0);
+    assert.deepEqual(queued[0].offsets,[{i:1,j:1}]);
+    assert.equal(editor.session,null);
+    assert.equal(body.children.length,0);
+  }finally{Object.assign(globalThis,saved);}
+});
+
 test("hex/square brush rings show a live add/erase footprint before any write",async()=>{
   const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
     PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
