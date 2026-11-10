@@ -236,7 +236,9 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
   }
   const all = root => [root, ...root.children.flatMap(child => all(child))];
   try {
-    globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
+    globalThis.foundry = { applications: { api: {
+      ApplicationV2: class { constructor(options) { this.options=options; } }
+    } } };
     globalThis.document = { createElement: tag => new Element(tag) };
     globalThis.game = { user: { isGM: true }, settings: {
       get: (_scope,key) => key === "measuringUnits" ? "metric" : undefined
@@ -254,6 +256,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       setFlag: async (_scope, _key, value) => { stored = value; } };
     const editor = new AtlasCheckpointAppearanceEditor({ scene,
       checkpointId: data.checkpoints[0].id, expectedRevision: data.revision });
+    assert.equal(editor.options.position.left,24,
+      "checkpoint authoring opens at the left of the canvas");
     editor.close = async () => {};
     const root = await editor._renderHTML();
     const buttons = all(root).filter(node => node.tag === "button");

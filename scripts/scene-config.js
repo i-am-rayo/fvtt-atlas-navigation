@@ -1282,10 +1282,11 @@ class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 
   static DEFAULT_OPTIONS = {
     id:"fvtt-atlas-region-generator",
     window:{ title:"Atlas — Generate Terrain Region", resizable:true },
-    position:{width:600,height:620}
+    position:{width:600,height:620,left:24}
   };
   constructor({scene,roadId,checkpointId=null,actions,refresh}) {
     super({ position:{
+      left: 24,
       width:Math.min(600,window.innerWidth-60),
       height:Math.min(620,window.innerHeight-85)
     } });

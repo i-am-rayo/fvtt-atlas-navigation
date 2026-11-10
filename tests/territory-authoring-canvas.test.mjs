@@ -58,6 +58,12 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
   try{
     const pending=editor.begin(view.scene,draft,async()=>{writes++;});
     assert.equal(body.children.length,1);
+    assert.match(editor.session.panel.style.cssText,/left:24px/);
+    assert.doesNotMatch(editor.session.panel.style.cssText,/right:24px/);
+    const polygonShortcuts=editor.session.panel.children.find(child=>
+      child.className==="atlas-territory-shortcuts");
+    assert.deepEqual(polygonShortcuts.children.slice(1).map(row=>row.children[0].textContent),
+      ["Left click","Drag","Right click","Cmd / Ctrl + Z","Esc"]);
     assert.equal(group.children.length,1);
     assert.deepEqual(editor.session.layer.strokes.map(item=>item.color),
       [0x121826,0xffe3a2],"dark halo and bright outline stay visible above Atlas fog");
@@ -105,6 +111,11 @@ test("hex/square brush rings show a live add/erase footprint before any write",a
   const editor=new TerritoryAuthoringCanvas();
   try{
     const pending=editor.begin(scene,{kind:"grid",offsets:[]},async()=>{committed++;});
+    const gridShortcuts=editor.session.panel.children.find(child=>
+      child.className==="atlas-territory-shortcuts");
+    assert.deepEqual(gridShortcuts.children.slice(1).map(row=>row.children[0].textContent),
+      ["Click / drag","Shift + click / drag","Scroll","Shift + scroll",
+        "Cmd / Ctrl + Z","Esc"]);
     const label=editor.session.panel.children.find(child=>child.tagName==="label"&&
       child.textContent.includes("Brush radius"));
     const slider=label.children.find(child=>child.tagName==="input");
@@ -196,7 +207,7 @@ test("polygon right-click deletes the last node and Cmd+Z restores only staged e
   }finally{Object.assign(globalThis,saved);}
 });
 
-test("wheel brush size is clamped and Alt+wheel can pass through to map zoom",async()=>{
+test("wheel brush size is clamped and Shift/Alt+wheel can pass through to map zoom",async()=>{
   const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
     PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
   const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
@@ -224,6 +235,12 @@ test("wheel brush size is clamped and Alt+wheel can pass through to map zoom",as
     wheel({deltaY:-100,altKey:true,preventDefault(){prevented=true;}});
     assert.equal(prevented,false,"Alt+wheel is reserved for default map interaction");
     assert.equal(editor.session.radius,0);
+    let stopped=false;
+    wheel({deltaY:-100,shiftKey:true,preventDefault(){prevented=true;},
+      stopImmediatePropagation(){stopped=true;}});
+    assert.equal(prevented,false,"Shift+wheel must reach Foundry's native zoom handler");
+    assert.equal(stopped,false,"Shift+wheel must propagate to the map");
+    assert.equal(editor.session.radius,0,"zoom gesture must not resize brush");
     editor.cancel();assert.equal(await pending,false);
     assert.equal(surface.listeners.size,0);
   }finally{Object.assign(globalThis,saved);}
@@ -403,6 +420,8 @@ test("Paint Territory shows a full-sized progress surface and hides brush contro
     assert.equal(progress.children[0].textContent,"Updating two native Regions");
     assert.equal(progress.children[1].value,1);
     assert.equal(controls.style.display,"none","brush radius is hidden during transfer");
+    assert.equal(panel.children.find(child=>child.className==="atlas-territory-shortcuts")
+      .style.display,"none","shortcut guide is hidden during transfer");
     assert.equal(panel.style.minHeight,"190px","progress surface cannot collapse");
     assert.match(panel.children.find(c=>c.tagName==="h3").textContent,/Transferring/);
     complete();await operation;

@@ -26,10 +26,10 @@ const el=(tag,label)=>{const n=document.createElement(tag);if(label!==undefined)
 export class AtlasCheckpointPresetEditor extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS={id:"fvtt-atlas-checkpoint-preset-editor",
     window:{title:"Atlas — Edit Checkpoint Preset",resizable:true},
-    position:{width:720,height:740}};
+    position:{width:720,height:740,left:24}};
 
   constructor({preset=null,onSaved}){
-    super({position:{width:Math.min(720,window.innerWidth-60),
+    super({position:{left:24,width:Math.min(720,window.innerWidth-60),
       height:Math.min(740,window.innerHeight-65)}});
     this.preset=preset;this.onSaved=onSaved;this.activeTab="General";
   }
