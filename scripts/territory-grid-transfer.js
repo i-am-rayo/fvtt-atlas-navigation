@@ -15,6 +15,9 @@ import {nativeSceneGridIdentity} from "./territory-grid-conversion.js";
 
 const clone=v=>structuredClone(v);
 const key=p=>`${p.i},${p.j}`;
+// A visual review draws only the highest-priority changes when a very large
+// native grid Region is being edited. Counts always cover the full draft.
+const MAX_OWNERSHIP_PREVIEW_CELLS=500;
 const shapes=region=>Array.from(region.shapes??[],s=>s.toObject?.()??clone(s));
 const gridShape=offsets=>({type:"grid",origin:null,offsets:validateGridOffsets(offsets)});
 const flag=key=>`flags.${MODULE_ID}.${key}`;
@@ -105,10 +108,21 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
   peers.sort((a,b)=>b.cells-a.cells||a.name.localeCompare(b.name));
   const contested=[...owners.values()].filter(ids=>ids.length>1).length;
   const peerOwned=owners.size;
+  const previewCandidates=[...added.map(cell=>{
+    const claimedBy=owners.get(key(cell))??[];
+    return {i:cell.i,j:cell.j,status:claimedBy.length>1?"contested":
+      claimedBy.length===1?"peer":"unclaimed"};
+  }),...removed.map(cell=>({i:cell.i,j:cell.j,status:"removed"}))];
+  const priority={contested:0,peer:1,unclaimed:2,removed:3};
+  // Surface any ownership conflicts first, even when the preview is capped.
+  previewCandidates.sort((a,b)=>priority[a.status]-priority[b.status]);
   return {targetId,targetName:target.name,originalCells:original.offsets.length,
     proposedCells:after.length,addedCells:added.length,removedCells:removed.length,
     unclaimedAddedCells:added.length-peerOwned,peerOwnedAddedCells:peerOwned,
     contestedAddedCells:contested,peers,
+    previewCells:previewCandidates.slice(0,MAX_OWNERSHIP_PREVIEW_CELLS),
+    previewTotalCells:previewCandidates.length,
+    previewTruncated:previewCandidates.length>MAX_OWNERSHIP_PREVIEW_CELLS,
     canUseExistingTransferWriter:peers.length===1&&contested===0,
     requiresMultiRegionReview:peers.length>1||contested>0};
 }

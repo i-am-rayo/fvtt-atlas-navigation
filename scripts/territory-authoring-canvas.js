@@ -87,6 +87,30 @@ function drawBrushFootprint(graphics,points,erase,zoom){
   }else throw Error("Foundry Canvas cannot draw Territory brush footprints.");
 }
 
+/** Explicit, GM-only ownership review. These colors are transient canvas
+ * feedback; the Region Documents and the normal player overlay are untouched. */
+function drawOwnershipFootprint(graphics,points,status,zoom){
+  const colors={contested:0xff7187,peer:0xffc66d,
+    unclaimed:0x79d4fa,removed:0xc5a2f4};
+  const color=colors[status];
+  if(color===undefined)return;
+  const width=2.5/Math.max(.2,zoom);
+  if(typeof graphics.poly==="function"&&typeof graphics.fill==="function"&&
+      typeof graphics.stroke==="function"){
+    graphics.poly(points).fill({color,alpha:.6});
+    graphics.poly(points).stroke({width,color,alpha:1,join:"round"});
+  }else if(typeof graphics.beginFill==="function"&&
+      typeof graphics.drawPolygon==="function"&&typeof graphics.endFill==="function"){
+    graphics.beginFill(color,.6);graphics.drawPolygon(points);graphics.endFill();
+    if(typeof graphics.lineStyle==="function"&&typeof graphics.moveTo==="function"&&
+        typeof graphics.lineTo==="function"){
+      graphics.lineStyle(width,color,1);graphics.moveTo(points[0],points[1]);
+      for(let i=2;i<points.length;i+=2)graphics.lineTo(points[i],points[i+1]);
+      graphics.lineTo(points[0],points[1]);
+    }
+  }else throw Error("Foundry Canvas cannot draw Territory ownership reviews.");
+}
+
 export class TerritoryAuthoringCanvas{
   session=null;
   async begin(scene,draft,onSave,{inspectDraft=null}={}){
@@ -149,7 +173,7 @@ export class TerritoryAuthoringCanvas{
       history:[],radius:0,strokeErase:false,hoverErase:false,
       pointerSnapshot:null,dragNode:-1,selectedNode:-1,painting:false,saving:false,
       hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave,
-      ownershipReview,reviewSignature:null};
+      ownershipReview,reviewSignature:null,ownershipPreview:null};
     const progress=el("div");
     progress.setAttribute("role","status");progress.setAttribute("aria-live","polite");
     progress.className="atlas-territory-transfer-progress";
@@ -211,7 +235,7 @@ export class TerritoryAuthoringCanvas{
           if(!this.#live(session))return;
           if(signature!==JSON.stringify(session.draft.offsets)){
             ownershipReview.textContent="Draft changed during review. Review Shared Cells again.";
-            session.reviewSignature=null;
+            session.reviewSignature=null;session.ownershipPreview=null;
           }else{
             const lines=[`Proposed: ${report.proposedCells} cells (`+
               `+${report.addedCells} / −${report.removedCells}).`,
@@ -226,14 +250,25 @@ export class TerritoryAuthoringCanvas{
               "Multiple peers require an explicit multi-Region transfer with " +
                 "recovery. Preview & Save performs fresh checks; this review never writes.");
             else lines.push("Read-only review. Save still performs a fresh native validation.");
+            if(report.previewCells?.length){
+              lines.push("Map preview: gold = peer-owned; red = contested; " +
+                "blue = unclaimed; purple = removed.");
+              if(report.previewTruncated)lines.push(
+                `Showing ${report.previewCells.length} of ${report.previewTotalCells} changed cells. `+
+                "Conflicts are shown first; counts include all cells.");
+            }
             ownershipReview.textContent=lines.join("\n");
             session.reviewSignature=signature;
+            session.ownershipPreview=Array.isArray(report.previewCells)?
+              report.previewCells.map(cell=>({...cell})):null;
+            this.#scheduleDraw(session);
           }
           ownershipReview.style.display="block";
         }catch(error){
           ownershipReview.textContent=error.message??String(error);
           ownershipReview.style.display="block";
-          session.reviewSignature=null;
+          session.reviewSignature=null;session.ownershipPreview=null;
+          this.#scheduleDraw(session);
         }
       });
     }else{
@@ -468,7 +503,7 @@ export class TerritoryAuthoringCanvas{
     const graphics=session.layer,view=session.view,draft=session.draft;
     if(session.reviewSignature!==null&&
         JSON.stringify(draft.offsets)!==session.reviewSignature){
-      session.reviewSignature=null;
+      session.reviewSignature=null;session.ownershipPreview=null;
       session.ownershipReview.textContent="Draft changed. Review Shared Cells again.";
     }
     const zoom=Number.isFinite(view.stage?.scale?.x)&&view.stage.scale.x>0?
@@ -498,6 +533,11 @@ export class TerritoryAuthoringCanvas{
         const center=view.grid.getCenterPoint(p);
         drawGridSpace(graphics,shape.flatMap(q=>[center.x+q.x,center.y+q.y]));
       }
+      for(const cell of session.ownershipPreview??[]){
+        const center=view.grid.getCenterPoint(cell);
+        drawOwnershipFootprint(graphics,shape.flatMap(q=>
+          [center.x+q.x,center.y+q.y]),cell.status,zoom);
+      }
       for(const cell of session.hoverOffsets){
         const center=view.grid.getCenterPoint(cell);
         drawBrushFootprint(graphics,shape.flatMap(q=>[center.x+q.x,center.y+q.y]),
@@ -507,7 +547,7 @@ export class TerritoryAuthoringCanvas{
       const changing=session.hoverOffsets.filter(c=>
         chosen.has(`${c.i},${c.j}`)===session.hoverErase).length;
       session.info.textContent=`${cells.length} grid cells · Click/drag to paint; `+
-        "Shift+click/drag to erase; wheel changes brush; Cmd/Ctrl+Z to undo."+
+        "Shift+click/drag to erase; Shift+wheel changes brush; Cmd/Ctrl+Z to undo."+
         (session.hoverAnchor?` Hover: ${session.hoverErase?"erase":"add"} `+
           `${changing} cell${changing===1?"":"s"} (${session.hoverOffsets.length} in brush).`:"");
     }
