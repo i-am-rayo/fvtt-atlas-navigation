@@ -3,12 +3,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 class MockApplicationV2 {
-  constructor(options) { this.options = options; this.rendered = false; }
+  constructor(options) { this.options = options; this.rendered = false;
+    this.minimized=false;this.minCalls=0;this.maxCalls=0; }
   async render() { this.result = await this._renderHTML(); this.rendered = true; return this; }
+  async minimize(){this.minimized=true;this.minCalls++;}
+  async maximize(){this.minimized=false;this.maxCalls++;}
   async close() { this.rendered = false; this._onClose(); return this; }
 }
 globalThis.foundry = { applications: { api: { ApplicationV2: MockApplicationV2 } } };
-const { AtlasSceneWorkspace, openAtlasSceneWorkspace, refreshAtlasSceneWorkspace } =
+const { AtlasSceneWorkspace, openAtlasSceneWorkspace, refreshAtlasSceneWorkspace,
+  restoreAtlasSceneWorkspace } =
   await import("../scripts/atlas-scene-workspace.js");
 
 class Element {
@@ -123,6 +127,29 @@ test("workspace refuses non-GM and unauthorized Scenes, including after open", a
     await assert.rejects(() => workspace.render(true), /Only a GM/);
     await workspace.close();
   } finally { ctx.restore(); }
+});
+
+test("returning from batch painting fully restores the existing minimized Workspace",async()=>{
+  const ctx=context();
+  try{
+    const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    workspace.activeSection="territories";
+    await workspace.minimize();
+    await restoreAtlasSceneWorkspace(ctx.scene);
+    assert.equal(workspace.minimized,false);
+    assert.equal(workspace.maxCalls,1);
+    assert.equal(workspace.activeSection,"territories");
+    assert.match(text(workspace.result),/Territories/);
+    await workspace.minimize();
+    const reopened=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    assert.equal(reopened,workspace);
+    assert.equal(workspace.minimized,false);
+    assert.equal(workspace.maxCalls,2);
+    await workspace.close();
+    await restoreAtlasSceneWorkspace(ctx.scene);
+    assert.equal(workspace.rendered,false,
+      "closing a Workspace deliberately must not reopen it");
+  }finally{ctx.restore();}
 });
 
 test("Roads tab is a working Workspace view with legacy Scene settings unaffected", async () => {

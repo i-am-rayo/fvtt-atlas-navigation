@@ -125,6 +125,70 @@ test("confirmed multi-destination batch persists v3 recovery before all native w
   }finally{restore();}
 });
 
+test("unclaimed-only batch saves two independent destination edits with no source owner",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),b=batch(f);
+    b.staged[0].draft.offsets=[{i:5,j:0},{i:14,j:0}];
+    b.staged[1].draft.offsets=[{i:10,j:0},{i:16,j:0}];
+    const plan=planMultiDestinationTerritoryCellTransfer(f.scene,b.staged,{view:f.view});
+    assert.deepEqual(plan.sourceIds,[]);
+    assert.equal(plan.movedCells,0);
+    assert.equal(plan.unclaimedAddedCells,2);
+    assert.equal(plan.removedCells,0);
+    assert.equal(plan.records.length,2);
+    await commitMultiDestinationTerritoryCellTransfer(f.scene,plan,{view:f.view});
+    assert.deepEqual(f.events.map(e=>e.type),
+      ["scene","region","region","scene-unset"]);
+    assert.deepEqual(f.events.filter(e=>e.type==="region").map(e=>e.id),
+      ["Keystone","Valecor"]);
+    assert.equal(readPendingTerritoryCellTransfer(f.scene),null);
+    assert.deepEqual(f.source.shapes[0].offsets,[{i:0,j:0},{i:1,j:0},{i:2,j:0}]);
+    assert.deepEqual(b.source.shapes[0].offsets,[{i:3,j:0},{i:4,j:0}]);
+  }finally{restore();}
+});
+
+test("unclaimed-only v3 batch can roll back after partial native failure",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),b=batch(f);
+    b.staged[0].draft.offsets=[{i:5,j:0},{i:14,j:0}];
+    b.staged[1].draft.offsets=[{i:10,j:0},{i:16,j:0}];
+    const plan=planMultiDestinationTerritoryCellTransfer(f.scene,b.staged,{view:f.view});
+    fixture.failTarget="Valecor";
+    await assert.rejects(()=>commitMultiDestinationTerritoryCellTransfer(f.scene,plan,
+      {view:f.view}),/Simulated native target failure/);
+    const pending=readPendingTerritoryCellTransfer(f.scene);
+    assert.deepEqual(pending.sourceIds,[]);
+    assert.deepEqual(inspectPendingTerritoryCellTransfer(f.scene,{view:f.view})
+      .records.map(r=>[r.role,r.state]),[["target","after"],["target","before"]]);
+    fixture.failTarget=null;
+    await resolveTerritoryCellTransfer(f.scene,"rollback",{view:f.view});
+    assert.equal(readPendingTerritoryCellTransfer(f.scene),null);
+    assert.deepEqual(b.target.shapes[0].offsets,[{i:10,j:0}]);
+    assert.deepEqual(f.target.shapes[0].offsets,[{i:5,j:0}]);
+  }finally{fixture.failTarget=null;restore();}
+});
+
+test("batch permits erasures without peer transfers but rejects all-no-op stages",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),b=batch(f);
+    b.staged[0].draft.offsets=[{i:5,j:0}];
+    b.staged[1].draft.offsets=[{i:10,j:0}];
+    assert.throws(()=>planMultiDestinationTerritoryCellTransfer(f.scene,b.staged,{view:f.view}),
+      /no Hex\/Grid cell changes/);
+    b.target.shapes[0].offsets.push({i:11,j:0});
+    b.staged[1]=draftFor(f,b.target,[]);
+    b.staged[1].draft.offsets=[{i:10,j:0}];
+    const plan=planMultiDestinationTerritoryCellTransfer(f.scene,b.staged,{view:f.view});
+    assert.equal(plan.removedCells,1);
+    assert.equal(plan.unclaimedAddedCells,0);
+    await commitMultiDestinationTerritoryCellTransfer(f.scene,plan,{view:f.view});
+    assert.deepEqual(b.target.shapes[0].offsets,[{i:10,j:0}]);
+  }finally{restore();}
+});
+
 test("interrupted v3 batch keeps all snapshots and explicitly resumes or rolls back",async()=>{
   const restore=globals();
   try{

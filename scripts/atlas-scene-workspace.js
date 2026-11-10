@@ -190,12 +190,22 @@ export function openAtlasSceneWorkspace(scene, actions) {
     workspace = new AtlasSceneWorkspace({ scene, actions });
     workspaces.set(scene.id, workspace);
   }
-  return Promise.resolve(workspace.render(true)).catch(error => {
+  return Promise.resolve(workspace.minimized?workspace.maximize():undefined)
+    .then(()=>workspace.render(true)).catch(error => {
     if (workspaces.get(scene.id) === workspace && !workspace.rendered) {
       workspaces.delete(scene.id);
     }
     throw error;
   });
+}
+
+/** Return to the existing Workspace after a canvas editor releases focus.
+ * Never recreate a Workspace the GM deliberately closed. */
+export async function restoreAtlasSceneWorkspace(scene){
+  const workspace=workspaces.get(scene?.id);
+  if(!workspace?.rendered)return;
+  if(workspace.minimized)await workspace.maximize();
+  await workspace.render(true);
 }
 
 export function refreshAtlasSceneWorkspace(scene) {

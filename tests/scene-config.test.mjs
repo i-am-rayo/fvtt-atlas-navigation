@@ -1002,7 +1002,7 @@ test("Territories Workspace starts batch selection before painting and tracks ea
     const before=createAtlasTerritoryPanel({id:"scene1",regions:new Map()},
       {...common,territoryBatchState:()=>null},()=>{},
       {generated:[],nativeRegions:[],publicById:new Map()});
-    const start=buttons(before).find(button=>button.textContent==="Start Batch Transfer");
+    const start=buttons(before).find(button=>button.textContent==="Start Batch Edit");
     assert.ok(start&&!start.disabled);
     await start.listeners.get("click")({preventDefault(){}});
     assert.equal(started,1);
@@ -1011,8 +1011,8 @@ test("Territories Workspace starts batch selection before painting and tracks ea
         {id:"dirwest",name:"Dirwest",staged:true},
         {id:"valecor",name:"Valecor",staged:false}]})},
       ()=>{}, {generated:[],nativeRegions:[],publicById:new Map()});
-    assert.match(textContents(panel),/1 of 2 receiving Territories staged/);
-    const review=buttons(panel).find(button=>button.textContent==="Review & Transfer Batch");
+    assert.match(textContents(panel),/1 of 2 Territories staged/);
+    const review=buttons(panel).find(button=>button.textContent==="Review & Apply Batch");
     const discard=buttons(panel).find(button=>button.textContent==="Discard Staged Batch");
     const edit=buttons(panel).find(button=>button.textContent==="Valecor — Not staged");
     assert.ok(review&&review.disabled&&discard&&!discard.disabled&&edit);
@@ -1025,7 +1025,7 @@ test("Territories Workspace starts batch selection before painting and tracks ea
         {id:"dirwest",name:"Dirwest",staged:true},
         {id:"valecor",name:"Valecor",staged:true}]})},
       ()=>{}, {generated:[],nativeRegions:[],publicById:new Map()});
-    const readyReview=buttons(ready).find(b=>b.textContent==="Review & Transfer Batch");
+    const readyReview=buttons(ready).find(b=>b.textContent==="Review & Apply Batch");
     assert.ok(readyReview&&!readyReview.disabled);
     await readyReview.listeners.get("click")({preventDefault(){}});
     assert.equal(reviewed,1);

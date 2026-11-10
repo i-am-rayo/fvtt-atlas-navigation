@@ -143,7 +143,7 @@ export function readPendingTerritoryCellTransfer(scene){
       (index<ids.length?ids[index]:value.targetId));
   const targets=value?.targetIds;
   const batch=value?.schemaVersion===3&&Array.isArray(ids)&&
-    ids.length>=1&&ids.length<=4&&ids.every(id=>typeof id==="string"&&id)&&
+    ids.length<=4&&ids.every(id=>typeof id==="string"&&id)&&
     Array.isArray(targets)&&targets.length>=2&&targets.length<=4&&
     targets.every(id=>typeof id==="string"&&id)&&
     new Set([...ids,...targets]).size===ids.length+targets.length&&
@@ -243,9 +243,10 @@ export function planTerritoryCellTransfer(scene,targetId,draft,{view=globalThis.
       movedCells:s.claimed,remainingCells:s.remaining}))};
 }
 
-/** Batch stage 1: two to four distinct destinations may take cells from the
- * same-tier, source-only peers. A Region cannot act as both source and target
- * in this writer: swaps need an intermediate durable state and separate gate.
+/** Batch stage 1: two to four distinct destinations may edit unclaimed cells
+ * and/or take cells from same-tier, source-only peers. A Region cannot be both
+ * source and target in this writer: swaps need an intermediate durable state and
+ * a separate gate.
  * Staged drafts are transient and absolutely no native state is written here. */
 export function planMultiDestinationTerritoryCellTransfer(scene,staged,
   {view=globalThis.canvas}={}){
@@ -277,14 +278,18 @@ export function planMultiDestinationTerritoryCellTransfer(scene,staged,
       additions:offsets.filter(offset=>!original.has(key(offset)))});
   }
   const finalClaims=new Map(),additions=new Map();
+  let removedCells=0;
   for(const [id,target] of targets)for(const offset of target.offsets){
     const k=key(offset),existing=finalClaims.get(k);
     if(existing&&existing!==id)
       throw Error("Two batch destinations claim the same Hex/Grid cell. Remove the overlap first.");
     finalClaims.set(k,id);
   }
-  for(const [id,target] of targets)for(const offset of target.additions)
-    additions.set(key(offset),id);
+  for(const [id,target] of targets){
+    const final=new Set(target.offsets.map(key));
+    removedCells+=target.prior.offsets.filter(offset=>!final.has(key(offset))).length;
+    for(const offset of target.additions)additions.set(key(offset),id);
+  }
   const sourceClaims=new Map();
   let movedCells=0;
   for(const entry of entries){
@@ -295,7 +300,8 @@ export function planMultiDestinationTerritoryCellTransfer(scene,staged,
     const claimed=shapes(source)[0].offsets.filter(offset=>additions.has(key(offset)));
     if(claimed.length){sourceClaims.set(entry.id,claimed);movedCells+=claimed.length;}
   }
-  if(!movedCells)throw Error("No batch destination takes cells from a peer Territory.");
+  if(!additions.size&&!removedCells)
+    throw Error("The staged batch has no Hex/Grid cell changes to save.");
   if(sourceClaims.size>4||movedCells>500)
     throw Error("Batch exceeds four peer sources or 500 transferred cells. Use smaller groups.");
   // No destination may take cells from another staged destination, even if
@@ -333,7 +339,9 @@ export function planMultiDestinationTerritoryCellTransfer(scene,staged,
     targetRecords.push({id,before,after:{...before,shapes:[shape],
       source:gridSource(before.source,shape)}});
     destinations.push({id,name:target.region.name,
-      addedCells:target.additions.length,finalCells:target.offsets.length});
+      addedCells:target.additions.length,
+      removedCells:target.prior.offsets.length+target.additions.length-target.offsets.length,
+      finalCells:target.offsets.length});
   }
   const proposed=virtualScene(scene,changes);
   for(const record of [...sourceRecords,...targetRecords]){
@@ -343,7 +351,8 @@ export function planMultiDestinationTerritoryCellTransfer(scene,staged,
   }
   return {schemaVersion:3,sceneId:scene.id,gridIdentity:nativeSceneGridIdentity(scene,view),
     sourceIds:sources.map(source=>source.id),targetIds:destinations.map(target=>target.id),
-    movedCells,convertedBackupAffected:[...sourceRecords,...targetRecords].some(record=>
+    movedCells,unclaimedAddedCells:additions.size-movedCells,removedCells,
+    convertedBackupAffected:[...sourceRecords,...targetRecords].some(record=>
       scene.regions.get(record.id).getFlag(MODULE_ID,GRID_CONVERSION_BACKUP_FLAG)!=null),
     sources,destinations,records:[...sourceRecords,...targetRecords]};
 }
