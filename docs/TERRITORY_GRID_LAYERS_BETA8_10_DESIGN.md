@@ -302,3 +302,24 @@ label only. Polygon/multi-owner transfers and checkpoint–Region linking need
 their own schema and recovery gates. No stable release or merge before owner
 live Foundry v14 acceptance.
 
+### beta.8.15.1 — Road containment and transfer progress visibility hotfix
+
+- Road hierarchy membership now asks the native Region's 2D `polygonTree`
+  for point containment (including native grid Shapes and holes), not the
+  elevation-aware `RegionDocument.testPoint` with undefined elevation. A
+  compatible fallback supplies an explicit elevation if required.
+- Capped Road sampling now distributes the fixed point budget across the
+  entire polyline instead of ignoring distant sections after the first 1024
+  points. This is read-only and never changes road topology or Region Shapes.
+- Paint Territory's transfer progress now hides every editing control,
+  including brush radius, retains a stable minimum-size panel, and restores
+  the editor on error. Its hidden attribute no longer suppresses the progress
+  display. A visible validation stage starts immediately after confirmation.
+
+**Owner test:** Open Paedor Roads and confirm Valecor/Reshara and their towns
+receive automatically inferred road membership and Unclassified no longer
+shows all 44. Check a long Road crossing more than one Region, plus Road
+membership overrides. Transfer a few cells and confirm a readable progress
+bar replaces the brush controls; cancellation and recovery remain safe.
+Foundry v14 live results and player permissions remain pending.
+

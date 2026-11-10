@@ -75,4 +75,8 @@ test("image-relative Road graph sampling is bounded and non-mutating",()=>{
   assert.equal(capped.samples.get("road").length,2);
   assert.ok(capped.truncated.has("road"));
   assert.throws(()=>sampleAtlasRoads(atlas,{step:0}),/unavailable/);
+  const distant=sampleAtlasRoads(atlas,{origin:{x:0,y:0},step:1,maxPerRoad:5});
+  assert.deepEqual(distant.samples.get("road").at(-1),{x:100,y:0},
+    "a capped sampler must retain the far endpoint, not only the beginning");
+  assert.ok(distant.samples.get("road").some(p=>p.x>80));
 });
