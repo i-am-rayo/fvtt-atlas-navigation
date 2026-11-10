@@ -172,7 +172,8 @@ export class TerritoryAuthoringCanvas{
         if(globalThis.canvas?.scene?.id!==scene.id)
           throw Error("The active Scene changed; reopen the Territory editor.");
         session.saving=true;
-        await onSave(copy(session.draft));session.close(true);
+        const saved=await onSave(copy(session.draft));
+        if(saved!==false)session.close(true);
       }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
       finally{session.saving=false;save.disabled=false;}
     });

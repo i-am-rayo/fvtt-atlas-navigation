@@ -16,7 +16,7 @@ const validBounds=b=>b&&[b.x,b.y,b.width,b.height].every(Number.isFinite)&&
 const nativeShapes=region=>Array.from(region.shapes??[],s=>
   typeof s.toObject==="function"?s.toObject():structuredClone(s));
 
-function gridIdentity(scene,view){
+export function nativeSceneGridIdentity(scene,view){
   const bounds=view?.dimensions;
   return JSON.stringify({type:scene?.grid?.type??view?.grid?.type,
     size:scene?.grid?.size??view?.grid?.size,
@@ -113,7 +113,7 @@ export function planTerritoryGridConversion(scene,regionId,{view=globalThis.canv
   }
   return {
     sceneId:scene.id,regionId,regionName:region.name,tier,
-    gridIdentity:gridIdentity(scene,view),
+    gridIdentity:nativeSceneGridIdentity(scene,view),
     originalShapesSnapshot:JSON.stringify(shapes),
     geographySnapshot:JSON.stringify(geography),
     boundarySourceSnapshot:JSON.stringify(region.getFlag(MODULE_ID,BOUNDARY_SOURCE_FLAG)??null),
@@ -181,7 +181,7 @@ export async function restoreTerritoryPolygonBackup(scene,regionId,{view=globalT
   if(!backup)throw Error("There is no native polygon conversion backup to restore.");
   const currentSource=readBoundarySource(region);
   if(!view?.ready||view.scene?.id!==scene.id||
-      backup.gridIdentity!==gridIdentity(scene,view)||
+      backup.gridIdentity!==nativeSceneGridIdentity(scene,view)||
       nativeTerritoryShapeDigest(nativeShapes(region))!==backup.convertedShapeDigest||
       currentSource?.kind!=="grid"||
       currentSource.shapeDigest!==backup.convertedShapeDigest||

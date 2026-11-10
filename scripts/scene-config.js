@@ -31,9 +31,10 @@ import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
 import { readTerritoryRoadDirectory } from "./territory-road-directory.js";
 import {withInferredContinentParents} from "./territory-parent-inference.js";
 import {territoryBoundaryNeedsAdoption} from "./territory-authoring.js";
-import {projectTerritoryView} from "./territory-view-model.js";
+import {projectTerritoryView,groupTerritoryEntries} from "./territory-view-model.js";
 import {nativeRegionColorHex} from "./native-region-color.js";
 import {GRID_CONVERSION_BACKUP_FLAG} from "./territory-authoring-model.js";
+import {readPendingTerritoryCellTransfer} from "./territory-grid-transfer.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -41,6 +42,7 @@ const junctionFilters = new Map();
 const generatorState = new Map();
 const expandedRoads = new Map();
 const expandedDetails = new Set();
+const collapsedTerritoryGroups = new Set();
 const generatorRoads = new Map();
 const regionLinkRoads = new Map();
 const territoryDirectorySelections = new Map();
@@ -224,6 +226,16 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     "corridors are managed under Roads. Native Foundry geometry and Behaviors " +
     "remain authoritative. Analyze peer overlaps to preview an optional " +
     "one-sided native border correction; continent-to-settlement nesting is preserved.","hint"));
+  const pending=readPendingTerritoryCellTransfer(scene);
+  if(pending){
+    const warning=node("div",undefined,"atlas-territory-transfer-pending");
+    warning.appendChild(node("p","An interrupted two-Region cell transfer needs GM recovery. " +
+      "Do not edit native Territory Shapes until it is resolved."));
+    warning.appendChild(button("Resume / Roll Back Transfer",
+      "Review the persisted native grid transfer recovery plan",
+      ()=>actions.resolveTerritoryCellTransfer(scene,refresh)));
+    manager.appendChild(warning);
+  }
   const generatedById=new Map(generated.map(entry=>[entry.id,entry]));
   const manualNative=nativeRegions.filter(region=>!generatedById.has(region.id));
   const geographyById=new Map(withInferredContinentParents(scene,
@@ -236,7 +248,9 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     "No manually authored Regions yet. Select [+] to create a Territory.","hint"));
   if(manualNative.length && !viewEntries.length)
     manager.appendChild(node("p","No Regions in this view. Choose Combined to see unclassified native Regions.","hint"));
-  for(const region of viewEntries.slice(0,60)){
+  const displayed=viewEntries.slice(0,60);
+  const rows=new Map();
+  for(const region of displayed){
     const row=node("div",undefined,"form-group atlas-territory-row");
     row.setAttribute("data-atlas-native-region-id",region.id);
     const details=node("div");details.style.flex="1 1 auto";
@@ -314,7 +328,45 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
       ()=>actions.configureGeography(scene,refresh,region.id));
     geography.disabled=!!draft||!region.linked||region.invalidLink||geographyById.get(region.id)?.invalid;
     controls.appendChild(geography);
-    row.appendChild(controls);manager.appendChild(row);
+    row.appendChild(controls);rows.set(region.id,row);
+  }
+  const hierarchy=groupTerritoryEntries(displayed);
+  const buildGroup=item=>{
+    const group=node("details",undefined,"atlas-territory-group");
+    group.setAttribute("data-atlas-territory-group",item.entry.id);
+    const key=`${scene.id}:${item.entry.id}`;
+    group.open=!collapsedTerritoryGroups.has(key);
+    group.addEventListener("toggle",()=>{
+      if(group.open)collapsedTerritoryGroups.delete(key);
+      else collapsedTerritoryGroups.add(key);
+    });
+    const summary=node("summary",item.entry.name+(item.children.length?
+      ` (${item.children.length})`:""));
+    summary.setAttribute("aria-label",`Toggle ${item.entry.name} territory group`);
+    group.appendChild(summary);
+    const body=node("div",undefined,"atlas-territory-group-body");
+    body.appendChild(rows.get(item.entry.id));
+    const children=node("div",undefined,"atlas-territory-children");
+    for(const child of item.children)children.appendChild(child.children.length?
+      buildGroup(child):rows.get(child.entry.id));
+    body.appendChild(children);group.appendChild(body);
+    return group;
+  };
+  for(const group of hierarchy.continents)manager.appendChild(buildGroup(group));
+  if(hierarchy.uncategorized.length){
+    const uncategorized=node("details",undefined,"atlas-territory-group");
+    const key=`${scene.id}:uncategorized`;
+    uncategorized.setAttribute("data-atlas-territory-group","uncategorized");
+    uncategorized.open=!collapsedTerritoryGroups.has(key);
+    uncategorized.addEventListener("toggle",()=>{
+      if(uncategorized.open)collapsedTerritoryGroups.delete(key);
+      else collapsedTerritoryGroups.add(key);
+    });
+    uncategorized.appendChild(node("summary",`Uncategorized (${hierarchy.uncategorized.length})`));
+    const children=node("div",undefined,"atlas-territory-group-body");
+    for(const item of hierarchy.uncategorized)children.appendChild(item.children.length?
+      buildGroup(item):rows.get(item.entry.id));
+    uncategorized.appendChild(children);manager.appendChild(uncategorized);
   }
   if(viewEntries.length>60)manager.appendChild(node("p",
     "First 60 Regions in this view shown; change the view or use Foundry's native Region tools for the remaining entries.","hint"));
