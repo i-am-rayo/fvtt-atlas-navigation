@@ -16,15 +16,21 @@ function visibleWindows(excluded){
 /** Share one snapshot across overlapping editor sessions. Release is idempotent;
  * late asynchronous minimizations are awaited before any restoration. */
 export function acquireAtlasCanvasEditorFocus({exclude=[]}={}){
+  const minimizeVisible=state=>Promise.allSettled(
+    visibleWindows(new Set(exclude)).map(async app=>{
+      await app.minimize();
+      if(app.rendered&&app.minimized)state.changed.push(app);
+    }));
   if(!activeFocus){
     const state={holders:0,changed:[],ready:null};
     activeFocus=state;
     // Exclusions matter only to the first editor opening the canvas.
-    const windows=visibleWindows(new Set(exclude));
-    state.ready=Promise.allSettled(windows.map(async app=>{
-      await app.minimize();
-      if(app.rendered&&app.minimized)state.changed.push(app);
-    }));
+    state.ready=minimizeVisible(state);
+  }else if(activeFocus.holders===0){
+    // A new editor may open before the previous release's async restoration
+    // completes. Refresh its snapshot so newly opened windows are not missed.
+    const state=activeFocus;
+    state.ready=state.ready.then(()=>minimizeVisible(state));
   }
   const state=activeFocus;
   state.holders++;

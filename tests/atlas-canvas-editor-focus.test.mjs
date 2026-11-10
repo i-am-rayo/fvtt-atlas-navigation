@@ -60,3 +60,20 @@ test("an editor that closes before minimization completes still restores safely"
     assert.equal(app.maxCalls,1);
   }finally{globalThis.foundry=previous;}
 });
+
+test("immediate editor handoff also minimizes and restores newly opened Workspace",async()=>{
+  const previous=globalThis.foundry,workspace=windowApp();
+  const apps=new Map();
+  globalThis.foundry={applications:{instances:apps}};
+  try{
+    const first=acquireAtlasCanvasEditorFocus();
+    first();
+    apps.set("atlas-workspace",workspace);
+    const second=acquireAtlasCanvasEditorFocus();
+    await tick();
+    assert.equal(workspace.minCalls,1,"newly available Workspace is minimized");
+    second();await tick();
+    assert.equal(workspace.maxCalls,1,"the handoff restores the same Workspace");
+    assert.equal(workspace.minimized,false);
+  }finally{globalThis.foundry=previous;}
+});

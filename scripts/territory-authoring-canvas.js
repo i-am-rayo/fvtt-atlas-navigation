@@ -127,16 +127,16 @@ export class TerritoryAuthoringCanvas{
     const bindings=draft.kind==="grid"?[
       ["Click / drag","Paint cells"],
       ["Shift + click / drag","Erase cells"],
-      ["Scroll","Brush size"],
-      ["Shift + scroll","Zoom map"],
+      ["Scroll","Zoom map (Foundry default)"],
+      ["Shift + scroll","Brush size"],
       ["Cmd / Ctrl + Z","Undo last stroke"],
-      ["Esc","Cancel editing"]
+      ["Esc","Close and return to Atlas Workspace"]
     ]:[
       ["Left click","Add / select node"],
       ["Drag","Move selected node"],
       ["Right click","Remove last node"],
       ["Cmd / Ctrl + Z","Undo last node edit"],
-      ["Esc","Cancel editing"]
+      ["Esc","Close and return to Atlas Workspace"]
     ];
     for(const [hotkey,description] of bindings){
       const row=el("div");row.style.cssText="display:flex;gap:.65rem;justify-content:space-between;"+
@@ -386,12 +386,16 @@ export class TerritoryAuthoringCanvas{
     const contextmenu=event=>{if(session.draft.kind==="polygon"&&this.#live(session)){
       event.preventDefault();event.stopImmediatePropagation();}};
     const wheel=event=>{
-      // Modifier-wheel gestures belong to Foundry's map zoom handler, never the brush.
+      // Only Shift+wheel changes the brush. Leave ordinary wheel/trackpad
+      // scrolling to Foundry's own map zoom handler; some browsers translate
+      // Shift+vertical-wheel into a horizontal delta instead.
       if(!this.#live(session)||session.saving||session.draft.kind!=="grid"||
-          event.altKey||event.shiftKey)return;
-      if(!Number.isFinite(event.deltaY)||event.deltaY===0)return;
+          !event.shiftKey||event.altKey||event.ctrlKey||event.metaKey)return;
+      const delta=Number.isFinite(event.deltaY)&&event.deltaY!==0?
+        event.deltaY:event.deltaX;
+      if(!Number.isFinite(delta)||delta===0)return;
       event.preventDefault();event.stopImmediatePropagation();
-      session.setRadius(session.radius+(event.deltaY<0?1:-1));
+      session.setRadius(session.radius+(delta<0?1:-1));
     };
     const key=event=>{
       if(!this.#live(session)||session.saving)return;
@@ -402,7 +406,12 @@ export class TerritoryAuthoringCanvas{
         if(session.painting||session.dragNode>=0)return;
         event.preventDefault();event.stopImmediatePropagation();undoDraft();return;
       }
-      if(event.key==="Escape"){event.preventDefault();session.close(false);return;}
+      if(event.key==="Escape"){
+        // Foundry also listens for Escape to close ApplicationV2 windows.
+        // Consume it so the minimized Atlas Workspace can be maximized.
+        event.preventDefault();event.stopImmediatePropagation();
+        session.close(false);return;
+      }
       if(event.key==="Shift"&&session.draft.kind==="grid"&&
           !session.painting&&session.hoverAnchor){
         session.hoverErase=true;this.#scheduleDraw(session);}
