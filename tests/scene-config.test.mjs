@@ -927,6 +927,66 @@ test("selected polygon offers staged native grid conversion and saved grid offer
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("Territory Workspace groups children beneath continent rows with all actions retained",()=>{
+  const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
+  const mk=(id,kind,parentRegionId=null)=>({id,name:id,hidden:false,
+    shapes:[],behaviors:[],getFlag:(_scope,key)=>key==="atlas"?
+      {schemaVersion:1,linked:true}:key==="territoryGeography"?
+      {schemaVersion:1,kind,parentRegionId,roadOverrides:{}}:null});
+  const documents=[mk("Valecor","continent"),mk("Dirwest","town","Valecor"),
+    mk("Reshara","continent"),mk("The Eyrie","city","Reshara"),
+    mk("Unassigned","village")];
+  const byId=new Map(documents.map(doc=>[doc.id,doc]));
+  const scene={id:"test-scene",regions:byId,getFlag:()=>null};
+  const nativeRegions=documents.map(doc=>({id:doc.id,name:doc.name,hidden:false,
+    linked:true,invalidLink:false}));
+  const nested=(parent,id)=>{
+    const visit=node=>{
+      if(node.attributes?.get("data-atlas-native-region-id")===id)return true;
+      return node.children.some(visit);
+    };
+    return visit(parent);
+  };
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},i18n:{localize:key=>key,lang:"en"}};
+    globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    const panel=createAtlasTerritoryPanel(scene,{draft:()=>null},()=>{},
+      {generated:[],nativeRegions,publicById:new Map()});
+    const groups=panel.children.filter(n=>n.tag==="details");
+    const valecor=groups.find(g=>g.attributes.get("data-atlas-territory-group")==="Valecor");
+    const resh=groups.find(g=>g.attributes.get("data-atlas-territory-group")==="Reshara");
+    const other=groups.find(g=>g.attributes.get("data-atlas-territory-group")==="uncategorized");
+    assert.ok(valecor&&resh&&other);
+    assert.ok(valecor.open&&resh.open,"continent groups default expanded");
+    assert.ok(nested(valecor,"Valecor")&&nested(valecor,"Dirwest"));
+    assert.ok(nested(resh,"Reshara")&&nested(resh,"The Eyrie"));
+    assert.ok(nested(other,"Unassigned"));
+    assert.equal(buttons(panel).filter(b=>b.title==="Edit native Region in Foundry").length,5);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("pending two-Region transfer exposes an explicit GM recovery action",async()=>{
+  const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
+  const scene={id:"scene1",regions:new Map(),getFlag:(_scope,key)=>
+    key==="territoryGridTransferIntent"?{schemaVersion:1,sceneId:"scene1",
+      sourceId:"a",targetId:"b",gridIdentity:"grid",records:[{id:"a"},{id:"b"}]}:null};
+  let invoked=false;
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},i18n:{localize:key=>key,lang:"en"}};
+    globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    const panel=createAtlasTerritoryPanel(scene,{draft:()=>null,
+      resolveTerritoryCellTransfer:()=>{invoked=true;}},()=>{},
+      {generated:[],nativeRegions:[],publicById:new Map()});
+    const recovery=buttons(panel).find(b=>b.title===
+      "Review the persisted native grid transfer recovery plan");
+    assert.ok(recovery);
+    await recovery.listeners.get("click")({preventDefault(){}});
+    assert.equal(invoked,true);
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("road-generated native Regions are excluded from the geographic boundary manager",()=>{
   const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
   let mounted=null;

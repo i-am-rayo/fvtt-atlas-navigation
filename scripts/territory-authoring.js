@@ -7,7 +7,8 @@ import {validateGeographyFlag,validateGeographyHierarchy} from "./territory-geog
 import {GENERATED_REGION_FLAG} from "./generated-region-model.js";
 import {atlasDebug} from "./atlas-debug.js";
 import {BOUNDARY_SOURCE_FLAG,BOUNDARY_SOURCE_VERSION,boundaryFromBlankWalls,polygonShapeFromNodes,
-  GRID_CONVERSION_BACKUP_FLAG,validateBoundaryNodes,validateGridOffsets,gridCellConflicts}
+  GRID_CONVERSION_BACKUP_FLAG,GRID_TRANSFER_INTENT_FLAG,
+  validateBoundaryNodes,validateGridOffsets,gridCellConflicts}
   from "./territory-authoring-model.js";
 import {smoothClosedBoundary,inspectNativePolygonShape} from "./region-boundary-model.js";
 import {sceneImageOrigin} from "./road-coordinates.js";
@@ -295,6 +296,8 @@ export function validateTerritoryCoverage(scene,draft,shape,{regionId=null,view=
  * Native Behaviors, Levels, visibility and Region IDs are preserved on edit. */
 export async function saveTerritoryDraft(scene,draft,{regionId=null,
   view=globalThis.canvas,conversionBackup=null}={}){
+  if(scene?.getFlag?.(MODULE_ID,GRID_TRANSFER_INTENT_FLAG)!=null)
+    throw Error("Resolve the pending two-Region cell transfer before editing native Shapes.");
   const region=regionId?scene.regions?.get?.(regionId):null;
   authorize(scene,region);
   if(regionId&&(!region||region.parent?.id!==scene.id))throw Error("Native Region changed or is missing.");

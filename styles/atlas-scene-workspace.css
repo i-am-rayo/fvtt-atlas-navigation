@@ -69,6 +69,34 @@
   padding: .7rem .25rem;
   border-bottom: 1px solid var(--color-border-light-tertiary, #6666);
 }
+.atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-group {
+  min-width: 0;
+  margin: .65rem 0;
+  border: 1px solid var(--color-border-light-tertiary, #8a785f66);
+  border-radius: .4rem;
+}
+.atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-group > summary {
+  padding: .6rem .8rem;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: .4rem;
+  background: #a8875620;
+}
+.atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-group-body {
+  padding: .1rem .4rem .4rem;
+}
+.atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-children {
+  margin-left: 1.25rem;
+  border-left: 2px solid #bba27d55;
+  padding-left: .65rem;
+}
+.atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-transfer-pending {
+  margin: .7rem 0;
+  padding: .75rem;
+  border: 2px solid #eb9b58;
+  border-radius: .4rem;
+  background: #7e381b30;
+}
 .atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-actions {
   display: flex;
   flex-direction: row;

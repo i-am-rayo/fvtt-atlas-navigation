@@ -137,7 +137,7 @@ errors; restart succeeded. Reproduce/diagnose the Atlas request before making
 changes to its startup lifecycle. The Workspace obscured the conversion preview;
 the preview intentionally offered no Save in beta.8.12.
 
-### beta.8.13 — Gate C single-Region conversion commit (automated PASS; owner live pending)
+### beta.8.13 — Gate C single-Region conversion commit (automated and owner live tested)
 
 - The conversion preview now uses Atlas's shared ApplicationV2 canvas-editor
   focus helper to **minimize the Workspace and other visible windows**. It
@@ -198,6 +198,77 @@ the preview intentionally offered no Save in beta.8.12.
 cell transfer requires staged multi-document intent, conflict resolution,
 backup/export recovery and idempotent crash recovery; never infer permission
 to modify a peer from converting the selected Region.
+
+### beta.8.14 — Continent hierarchy and recoverable grid-cell transfer (automated; owner live pending)
+
+- The GM's Territories directory uses the **existing Atlas geography hierarchy**
+  (including confirmed automatic continent inference) to group named Continent
+  rows above their Children. Each Continent **retains the complete native Region
+  action row**; children are nested and groups can be collapsed. Regions with
+  missing/unclassified/invalid parents remain reachable under **Uncategorized**.
+  The grouping does not persist inferred parents, rewrite geography or create
+  duplicate native Regions.
+- In **Edit Atlas Territory control nodes or painted grid cells**, adding a
+  grid cell already owned by exactly one **same-tier, linked, manually authored
+  native grid Region** now presents an **additional GM approval** naming the
+  source and target, moved cell count and both proposed totals. This is not a
+  silent subtraction. Only actual newly painted cells can be claimed. A
+  transfer may move at most 500 cells, and cannot empty the source. A candidate
+  spanning multiple same-tier owners, overlapping a polygon peer, exceeding
+  authoring budgets or leaving the selected parent's bounds is rejected.
+- Both proposed native Grid Shapes are checked against Foundry's live grid,
+  other peer Regions and parent containment before an intent is persisted. A
+  **schema-versioned Scene transfer intent** records before/after Shapes and
+  Atlas boundary sources. Atlas writes this intent **first**, then removes
+  cells from the source, then adds them to the selected target; it clears the
+  intent only after both native documents complete. Native ID, Behaviors,
+  colors, Levels, parent geography and unrelated flags are never authored by
+  this workflow.
+- If any write fails or the World is interrupted, the intent remains available
+  as **Resume / Roll Back Transfer** in the Workspace. Neither action runs
+  automatically. Both validate permissions, unchanged Scene grid, unchanged
+  native before/after snapshots, current parent/peer geometry and intended
+  final ownership. Rollback removes target ownership before restoring source
+  ownership. An unexpected native edit fails closed for GM investigation.
+  Regular Atlas native Shape editing refuses to operate while an intent is
+  pending. Manual native Foundry edits remain outside Atlas's control and can
+  prevent safe automatic recovery.
+- **Conversion backup interaction:** an earlier saved polygon-conversion backup
+  is retained, but its Restore operation can be blocked after a transfer.
+  A completed transfer no longer has a pending intent, so it has no one-click
+  Roll Back; any reverse ownership edit requires a new reviewed transfer or
+  recovery from an external World backup before restoring the old polygon.
+  This limitation is explicitly shown in the transfer approval; no backup is
+  silently discarded.
+- **Not a single atomic Foundry transaction:** a Scene and two Region documents
+  are persisted independently. This release deliberately uses durable intent
+  and explicit recovery rather than claiming unavailable multi-document
+  atomicity. Always back up the World before live editing. Transfer intents
+  must not be treated as a player-facing data source; only the GM UI reads
+  them. Per-Scene intent storage and large-region transfer performance should
+  receive owner live stress/permission acceptance before general release.
+
+**Owner live checklist for beta.8.14 (Foundry v14.370+):**
+
+1. Confirm Valecor and Reshara appear as expandable Continent categories,
+   with Dirwest/Millstone under Valecor and The Eyrie under Reshara. Verify
+   native settings, Locate, labels, conversion and other actions still work
+   for each parent and child. An unparented Region belongs to Uncategorized.
+   Reopen the Workspace and confirm that collapsed groups retain their state.
+2. On a **backed-up World**, choose two adjacent native grid Territories of
+   the **same tier**. Edit the intended receiving Region and paint a few cells
+   already belonging to the source Region. Confirm Atlas shows source, target,
+   counts and a separate transfer authorization. Cancel and confirm both
+   native Shapes remain unchanged; approve and verify only the selected cells
+   switch owners. Source and target colors, IDs and Behaviors stay unchanged.
+3. Try adding cells belonging to two different peers in one Save, painting
+   across an unrelated polygon Region, leaving a source empty and crossing
+   parent Continent bounds. Each must refuse safely with no unintended write.
+4. Verify Scene reload, native Regions, Atlas Layers, fog, Roads, Journey data,
+   non-GM permissions and canvas refresh. If a native update fails, stop
+   further editing and use **Resume / Roll Back Transfer** in the Workspace.
+   Test this failure path in a disposable test World; ordinary successful
+   transactions should not leave a recovery banner.
 
 ## Explicitly out of scope until approved
 

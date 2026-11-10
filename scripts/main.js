@@ -46,6 +46,9 @@ import {TerritoryAuthoringCanvas} from "./territory-authoring-canvas.js";
 import {planTerritoryGridConversion,commitTerritoryGridConversion,
   restoreTerritoryPolygonBackup} from "./territory-grid-conversion.js";
 import {TerritoryGridConversionPreview} from "./territory-grid-conversion-preview.js";
+import {planTerritoryCellTransfer,commitTerritoryCellTransfer,
+  readPendingTerritoryCellTransfer,resolveTerritoryCellTransfer}
+  from "./territory-grid-transfer.js";
 import {preferredTerritoryCreationMethod} from "./territory-authoring-model.js";
 import {readTerritoryDraft,selectedBlankWallBoundary,saveTerritoryDraft,
   planNativeTerritoryAdoption,adoptNativeTerritoryBoundary}
@@ -1568,9 +1571,67 @@ function actions() {
       if(!geography)throw Error("Classify this Atlas-linked Territory before editing its boundary.");
       draft.name=region.name;draft.geography=geography;
       await territoryCanvas.begin(scene,draft,async candidate=>{
+        const transfer=planTerritoryCellTransfer(scene,regionId,candidate);
+        if(transfer){
+          const dialog=document.createElement("div");
+          for(const line of [
+            `Transfer ${transfer.movedCells} native grid cells from ${transfer.sourceName} `+
+              `to ${transfer.targetName}?`,
+            `The source will retain ${transfer.sourceCellCount} cells; `+
+              `the selected target will contain ${transfer.targetCellCount}.`,
+            "This makes TWO authoritative native Region updates, removes source cells " +
+              "first, and never changes native Behaviors, IDs, colors or Levels.",
+            "Atlas first persists a Scene recovery record. If either document update " +
+              "fails, the Workspace will offer explicit Resume or Roll Back. " +
+              "Never edit either Region until recovery is complete.",
+            ...(transfer.convertedBackupAffected?["An earlier polygon-conversion Restore " +
+              "may be refused after this transfer. A completed transfer has no " +
+              "one-click Undo: reverse cells in a new reviewed transfer or use " +
+              "an external World backup before restoring that polygon."]:[])
+          ]){const p=document.createElement("p");p.textContent=line;dialog.appendChild(p);}
+          const accepted=await DialogV2.confirm({window:{title:"Transfer Native Territory Cells?"},
+            content:dialog,yes:{label:"Transfer Between Two Regions"},
+            rejectClose:false,modal:true});
+          if(!accepted)return false;
+          await commitTerritoryCellTransfer(scene,transfer);
+          refresh();ui.notifications.info(`${transfer.movedCells} cells transferred from `+
+            `${transfer.sourceName} to ${transfer.targetName}.`);
+          return;
+        }
         await saveTerritoryDraft(scene,candidate,{regionId});
         refresh();ui.notifications.info("Native Territory boundary updated; Behaviors retained.");
       });
+    },
+    async resolveTerritoryCellTransfer(scene,refresh){
+      ensureIdle(scene);
+      if(navigation.travelSession||territoryCanvas.session||manualFog.brush||manualFog.paletteOpen)
+        throw Error("Finish active journeys and editors before recovering native Regions.");
+      const pending=readPendingTerritoryCellTransfer(scene);
+      if(!pending)return;
+      const container=document.createElement("div");
+      const message=document.createElement("p");
+      message.textContent="An interrupted native cell transfer requires GM recovery. " +
+        "Choose whether to complete the planned transfer or restore BOTH original " +
+        "Regions. Atlas will refuse if either native document has unrelated edits.";
+      container.appendChild(message);
+      container.appendChild(createSettingsSelect([
+        ["resume","Resume transfer (finish planned ownership)"],
+        ["rollback","Roll Back (restore both previous Shapes)"]],
+      {name:"mode",ariaLabel:"Native transfer recovery decision"}));
+      const decision=await DialogV2.input({window:{title:"Recover Native Territory Transfer"},
+        content:container,ok:{label:"Review Recovery"},rejectClose:false,modal:true});
+      if(!decision?.mode)return;
+      const confirm=document.createElement("p");
+      confirm.textContent=decision.mode==="resume"?
+        "Complete the interrupted transfer using the saved recovery record?":
+        "Restore both Regions to their pre-transfer Shapes and Atlas controls?";
+      const accepted=await DialogV2.confirm({window:{title:"Confirm Territory Recovery"},
+        content:confirm,yes:{label:decision.mode==="resume"?
+          "Resume Native Transfer":"Roll Back Native Transfer"},
+        rejectClose:false,modal:true});
+      if(!accepted)return;
+      await resolveTerritoryCellTransfer(scene,decision.mode);
+      refresh();ui.notifications.info("Native Territory transfer recovery completed.");
     },
     async previewTerritoryGridConversion(scene,regionId,refresh){
       ensureIdle(scene);

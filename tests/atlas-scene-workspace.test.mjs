@@ -168,21 +168,21 @@ test("Territory action row stays right-aligned alongside the Region label", () =
 test("GM Territory directory remains accessible; Atlas Layers owns persistent map visibility", async () => {
   const ctx = context();
   try {
-    const flag = kind => (_scope, key) => key === "atlas" ?
+    const flag = (kind,parentRegionId=null) => (_scope, key) => key === "atlas" ?
       {schemaVersion:1,linked:true} : key === "territoryGeography" ?
-        {schemaVersion:1,kind,parentRegionId:null,roadOverrides:{}} : null;
+        {schemaVersion:1,kind,parentRegionId,roadOverrides:{}} : null;
     ctx.scene.regions[0].name = "Unclassified native Region";
     ctx.scene.regions.push({id:"continent-1",name:"Valecor",parent:{id:ctx.scene.id},
       hidden:false,shapes:[],behaviors:[],getFlag:flag("continent")});
     ctx.scene.regions.push({id:"settlement-1",name:"Dirwest",parent:{id:ctx.scene.id},
-      hidden:false,shapes:[],behaviors:[],getFlag:flag("city")});
+      hidden:false,shapes:[],behaviors:[],getFlag:flag("city","continent-1")});
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     const territories = buttons(workspace.result).find(item=>item.textContent==="Territories");
     await territories.listeners.get("click")({preventDefault(){}});
     const rows = () => walk(workspace.result,item=>item.attributes?.has("data-atlas-native-region-id"));
     assert.deepEqual(rows().map(item=>item.attributes.get("data-atlas-native-region-id")),
-      ["settlement-1","continent-1","region-1"],
-      "Combined directory puts selectable settlements above broad Regions");
+      ["continent-1","settlement-1","region-1"],
+      "Combined directory groups Continent rows ahead of their children and uncategorized Regions");
     assert.equal(walk(workspace.result,item=>item.attributes?.has("data-atlas-territory-view")).length,0,
       "Workspace must not own competing map-view settings");
     assert.equal(rows().length,3,"native-only Regions remain available in Combined");
