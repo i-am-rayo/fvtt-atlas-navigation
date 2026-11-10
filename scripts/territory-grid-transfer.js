@@ -60,6 +60,59 @@ function gridSource(prior,shape){
     shapeDigest:nativeTerritoryShapeDigest([shape])};
 }
 
+/** Read-only ownership review for a draft Hex/Grid boundary. This can inspect
+ * several peer Regions at once, unlike the deliberately restricted two-Region
+ * commit writer below. Never use these counts as authorization to write. */
+export function inspectTerritoryGridOwnership(scene,targetId,draft,
+  {view=globalThis.canvas}={}){
+  if(draft?.kind!=="grid")throw Error("Review native Hex/Grid cells only.");
+  if(readPendingTerritoryCellTransfer(scene))
+    throw Error("Resolve the interrupted Territory transfer before reviewing new edits.");
+  const target=authorize(scene,targetId);
+  if(!view?.ready||view.scene?.id!==scene.id||view.grid?.isGridless||
+      !globalThis.foundry?.data?.GridShapeData||!isGrid(target))
+    throw Error("The active Scene needs an editable native Grid Region.");
+  const original=readTerritoryDraft(scene,targetId,{view});
+  if(original.kind!=="grid"||original.sourceDigest!==draft.sourceDigest)
+    throw Error("The native Territory changed. Reopen Paint Territory.");
+  const entries=listSceneGeography(scene);
+  const entry=entries.find(e=>e.id===targetId);
+  const tier=territoryTier(entry);
+  if(tier==="unclassified"||!same(entry.geography,draft.geography))
+    throw Error("Review this Territory's geography before inspecting shared cells.");
+  const before=new Set(original.offsets.map(key));
+  const after=validateGridOffsets(draft.offsets);
+  const afterKeys=new Set(after.map(key));
+  const added=after.filter(cell=>!before.has(key(cell)));
+  const removed=original.offsets.filter(cell=>!afterKeys.has(key(cell)));
+  const addedKeys=new Set(added.map(key));
+  const owners=new Map();
+  const peers=[];
+  for(const candidate of entries){
+    if(candidate.id===targetId||!candidate.linked||candidate.invalid||
+        territoryTier(candidate)!==tier)continue;
+    const peer=scene.regions.get(candidate.id);
+    if(!peer||!isGrid(peer))continue;
+    let count=0;
+    for(const offset of shapes(peer)[0].offsets){
+      const cellKey=key(offset);
+      if(!addedKeys.has(cellKey))continue;
+      const list=owners.get(cellKey)??[];
+      list.push(peer.id);owners.set(cellKey,list);count++;
+    }
+    if(count)peers.push({id:peer.id,name:peer.name,cells:count});
+  }
+  peers.sort((a,b)=>b.cells-a.cells||a.name.localeCompare(b.name));
+  const contested=[...owners.values()].filter(ids=>ids.length>1).length;
+  const peerOwned=owners.size;
+  return {targetId,targetName:target.name,originalCells:original.offsets.length,
+    proposedCells:after.length,addedCells:added.length,removedCells:removed.length,
+    unclaimedAddedCells:added.length-peerOwned,peerOwnedAddedCells:peerOwned,
+    contestedAddedCells:contested,peers,
+    canUseExistingTransferWriter:peers.length===1&&contested===0,
+    requiresMultiRegionReview:peers.length>1||contested>0};
+}
+
 export function readPendingTerritoryCellTransfer(scene){
   const value=scene?.getFlag?.(MODULE_ID,GRID_TRANSFER_INTENT_FLAG);
   if(value==null)return null;

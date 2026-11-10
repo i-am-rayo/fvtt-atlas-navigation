@@ -89,7 +89,7 @@ function drawBrushFootprint(graphics,points,erase,zoom){
 
 export class TerritoryAuthoringCanvas{
   session=null;
-  async begin(scene,draft,onSave){
+  async begin(scene,draft,onSave,{inspectDraft=null}={}){
     if(this.session)throw Error("Finish or cancel the existing Territory draft first.");
     const view=globalThis.canvas;
     if(!globalThis.game?.user?.isGM||!view?.ready||view.scene?.id!==scene?.id||
@@ -108,12 +108,18 @@ export class TerritoryAuthoringCanvas{
     panel.setAttribute("aria-label","Atlas Territory boundary editor");
     const head=el("h3","Atlas · "+(draft.kind==="grid"?"Paint Territory":"Edit Territory Nodes"));
     const info=el("p");
+    const ownershipReview=el("p");
+    ownershipReview.setAttribute("role","note");
+    ownershipReview.setAttribute("aria-live","polite");
+    ownershipReview.style.cssText="white-space:pre-line;color:#bce9e3;margin:.5rem 0";
+    ownershipReview.style.display="none";
     const actions=el("div");actions.style.cssText="display:flex;flex-wrap:wrap;gap:0.4rem";
     const addButton=(label,handler)=>{const b=el("button",label);b.type="button";
       b.addEventListener("click",handler);actions.appendChild(b);return b;};
     const session={sceneId:scene.id,view,surface,layer,panel,info,draft:copy(draft),
       history:[],brush:"add",radius:0,dragNode:-1,selectedNode:-1,painting:false,saving:false,
-      hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave};
+      hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave,
+      ownershipReview,reviewSignature:null};
     const progress=el("div");
     progress.setAttribute("role","status");progress.setAttribute("aria-live","polite");
     progress.className="atlas-territory-transfer-progress";
@@ -167,6 +173,37 @@ export class TerritoryAuthoringCanvas{
       });
       radiusLabel.appendChild(slider);radiusLabel.appendChild(radiusValue);
       panel.appendChild(radiusLabel);
+      if(typeof inspectDraft==="function")addButton("Review Shared Cells",async()=>{
+        if(session.saving)return;
+        const signature=JSON.stringify(session.draft.offsets);
+        try{
+          const report=await inspectDraft(copy(session.draft));
+          if(!this.#live(session))return;
+          if(signature!==JSON.stringify(session.draft.offsets)){
+            ownershipReview.textContent="Draft changed during review. Review Shared Cells again.";
+            session.reviewSignature=null;
+          }else{
+            const lines=[`Proposed: ${report.proposedCells} cells (`+
+              `+${report.addedCells} / −${report.removedCells}).`,
+            `${report.unclaimedAddedCells} added cells are unclaimed; `+
+              `${report.peerOwnedAddedCells} are already held by peer Territories.`];
+            if(report.peers.length)lines.push("Peers: "+report.peers.map(p=>
+              `${p.name} (${p.cells})`).join(", ")+".");
+            if(report.contestedAddedCells)lines.push(
+              `⚠ ${report.contestedAddedCells} added cells have multiple peer owners.`);
+            if(report.requiresMultiRegionReview)lines.push(
+              "Multiple peers require a future guarded transfer; this review does not change Regions.");
+            else lines.push("Read-only review. Save still performs a fresh native validation.");
+            ownershipReview.textContent=lines.join("\n");
+            session.reviewSignature=signature;
+          }
+          ownershipReview.style.display="block";
+        }catch(error){
+          ownershipReview.textContent=error.message??String(error);
+          ownershipReview.style.display="block";
+          session.reviewSignature=null;
+        }
+      });
     }else{
       const smoothingLabel=el("label"," Smoothing ");
       const smoothingSelect=el("select");
@@ -209,7 +246,7 @@ export class TerritoryAuthoringCanvas{
       finally{session.saving=false;save.disabled=false;restoreProgress();}
     });
     progress.style.display="none";
-    panel.prepend(head,info);panel.append(actions,progress);
+    panel.prepend(head,info);panel.append(ownershipReview,actions,progress);
     document.body.appendChild(panel);
     const snapshot=()=>{session.history.push(copy(session.draft));
       if(session.history.length>40)session.history.shift();};
@@ -337,6 +374,11 @@ export class TerritoryAuthoringCanvas{
   }
   #draw(session){
     const graphics=session.layer,view=session.view,draft=session.draft;
+    if(session.reviewSignature!==null&&
+        JSON.stringify(draft.offsets)!==session.reviewSignature){
+      session.reviewSignature=null;
+      session.ownershipReview.textContent="Draft changed. Review Shared Cells again.";
+    }
     const zoom=Number.isFinite(view.stage?.scale?.x)&&view.stage.scale.x>0?
       view.stage.scale.x:1;
     graphics.clear();
