@@ -1,5 +1,5 @@
 /** Modeless GM canvas authoring surface. Only Save commits a RegionDocument;
- * pointer input, Undo, brush strokes, and preview graphics are transient. */
+ * pointer input, keyboard Undo, brush strokes and previews are transient. */
 import {paintGridCells,MAX_TERRITORY_NODES} from "./territory-authoring-model.js";
 import {smoothClosedBoundary} from "./region-boundary-model.js";
 import {acquireAtlasCanvasEditorFocus} from "./atlas-canvas-editor-focus.js";
@@ -117,7 +117,8 @@ export class TerritoryAuthoringCanvas{
     const addButton=(label,handler)=>{const b=el("button",label);b.type="button";
       b.addEventListener("click",handler);actions.appendChild(b);return b;};
     const session={sceneId:scene.id,view,surface,layer,panel,info,draft:copy(draft),
-      history:[],brush:"add",radius:0,dragNode:-1,selectedNode:-1,painting:false,saving:false,
+      history:[],radius:0,strokeErase:false,hoverErase:false,
+      pointerSnapshot:null,dragNode:-1,selectedNode:-1,painting:false,saving:false,
       hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave,
       ownershipReview,reviewSignature:null};
     const progress=el("div");
@@ -151,26 +152,26 @@ export class TerritoryAuthoringCanvas{
       panel.style.minWidth="";panel.style.minHeight="";
       head.textContent="Atlas · "+(draft.kind==="grid"?"Paint Territory":"Edit Territory Nodes");
     };
-    const undo=addButton("Undo",()=>{const prior=session.history.pop();if(prior){
+    const undoDraft=()=>{const prior=session.history.pop();if(!prior)return;
       session.draft=prior;session.smoothingSelect&&(session.smoothingSelect.value=
-        String(prior.smoothing??0));this.#draw(session);}});
+        String(prior.smoothing??0));this.#draw(session);};
     if(draft.kind==="grid"){
-      const mode=addButton("Brush: Add",()=>{session.brush=session.brush==="add"?"erase":"add";
-        mode.textContent="Brush: "+(session.brush==="add"?"Add":"Erase");
-        this.#scheduleDraw(session);});
       const radiusLabel=el("label"," Brush radius ");
       const radiusValue=el("output","1 cell");
       const slider=el("input");slider.type="range";
       slider.min="0";slider.max="4";slider.step="1";slider.value="0";
       slider.setAttribute("aria-label","Territory paint brush radius in grid rings");
-      slider.addEventListener("input",()=>{
-        session.radius=Number(slider.value);
+      const setRadius=value=>{
+        session.radius=Math.max(0,Math.min(4,Math.round(Number(value)||0)));
+        slider.value=String(session.radius);
         radiusValue.textContent=session.radius===0?"1 cell":
           `${session.radius} ring${session.radius===1?"":"s"}`;
         if(session.hoverAnchor)session.hoverOffsets=brushOffsets(session.hoverAnchor)
           .filter(o=>within(view.grid.getCenterPoint(o)));
         this.#scheduleDraw(session);
-      });
+      };
+      session.setRadius=setRadius;
+      slider.addEventListener("input",()=>setRadius(slider.value));
       radiusLabel.appendChild(slider);radiusLabel.appendChild(radiusValue);
       panel.appendChild(radiusLabel);
       if(typeof inspectDraft==="function")addButton("Review Shared Cells",async()=>{
@@ -271,11 +272,13 @@ export class TerritoryAuthoringCanvas{
       }
       return results;
     };
-    const previewBrush=p=>{
+    const previewBrush=(p,erase=false)=>{
       const offset=view.grid.getOffset(p);
       if(!Number.isSafeInteger(offset?.i)||!Number.isSafeInteger(offset?.j))return;
-      if(session.hoverAnchor?.i===offset.i&&session.hoverAnchor?.j===offset.j)return;
+      if(session.hoverAnchor?.i===offset.i&&session.hoverAnchor?.j===offset.j&&
+          session.hoverErase===erase)return;
       session.hoverAnchor=offset;
+      session.hoverErase=erase;
       session.hoverOffsets=brushOffsets(offset)
         .filter(o=>within(view.grid.getCenterPoint(o)));
       this.#scheduleDraw(session);
@@ -284,20 +287,29 @@ export class TerritoryAuthoringCanvas{
       if(!session.hoverAnchor)return;
       session.hoverAnchor=null;session.hoverOffsets=[];this.#scheduleDraw(session);
     };
-    const applyBrush=p=>{
+    const applyBrush=(p,erase)=>{
       const offset=view.grid.getOffset(p);
       if(!Number.isSafeInteger(offset?.i)||!Number.isSafeInteger(offset?.j))return;
       const inside=brushOffsets(offset).filter(o=>within(view.grid.getCenterPoint(o)));
       session.draft.offsets=paintGridCells(session.draft.offsets,
-        inside,session.brush==="erase");this.#scheduleDraw(session);
+        inside,erase);this.#scheduleDraw(session);
     };
     const down=event=>{
-      if(event.button!==0||!this.#live(session))return;
+      if(!this.#live(session)||session.saving||
+          (event.button!==0&&!(session.draft.kind==="polygon"&&event.button===2)))return;
       const p=point(event);if(!within(p))return;
       event.preventDefault();event.stopImmediatePropagation();
+      if(event.button===2){
+        if(session.draft.points.length){snapshot();session.draft.points.pop();
+          session.selectedNode=-1;this.#draw(session);}
+        return;
+      }
       snapshot();
+      session.pointerSnapshot=session.history.at(-1);
       if(session.draft.kind==="grid"){
-        previewBrush(p);session.painting=true;applyBrush(p);return;
+        session.strokeErase=!!event.shiftKey;
+        previewBrush(p,session.strokeErase);session.painting=true;
+        applyBrush(p,session.strokeErase);return;
       }
       const zoom=Math.max(0.1,view.stage?.scale?.x??1);
       const near=session.draft.points.findIndex(q=>Math.hypot(p.x-q.x,p.y-q.y)<12/zoom);
@@ -323,37 +335,75 @@ export class TerritoryAuthoringCanvas{
       if(!within(p)||(!onSurface&&!session.painting&&session.dragNode<0)){
         if(session.draft.kind==="grid")clearPreview();return;
       }
-      if(session.draft.kind==="grid")previewBrush(p);
+      if(session.draft.kind==="grid")previewBrush(p,
+        session.painting?session.strokeErase:!!event.shiftKey);
       if(session.draft.kind==="grid"&&session.painting){
         const offset=view.grid.getOffset(p),k=`${offset.i},${offset.j}`;
         if(k!==lastCell){event.preventDefault();event.stopImmediatePropagation();
-          lastCell=k;applyBrush(p);}return;
+          lastCell=k;applyBrush(p,session.strokeErase);}return;
       }
       if(session.dragNode>=0){event.preventDefault();event.stopImmediatePropagation();
         session.draft.points[session.dragNode].x=p.x;
         session.draft.points[session.dragNode].y=p.y;this.#scheduleDraw(session);}
     };
-    const up=()=>{session.dragNode=-1;session.painting=false;lastCell="";};
+    const up=()=>{
+      if(session.pointerSnapshot&&session.history.at(-1)===session.pointerSnapshot&&
+          JSON.stringify(session.pointerSnapshot)===JSON.stringify(session.draft))
+        session.history.pop();
+      session.pointerSnapshot=null;session.dragNode=-1;
+      session.painting=false;lastCell="";
+    };
     const leave=()=>{if(session.draft.kind==="grid"&&!session.painting)clearPreview();};
-    const key=event=>{if(event.key==="Escape"&&this.#live(session)&&!session.saving){
-      event.preventDefault();session.close(false);}};
+    const contextmenu=event=>{if(session.draft.kind==="polygon"&&this.#live(session)){
+      event.preventDefault();event.stopImmediatePropagation();}};
+    const wheel=event=>{
+      if(!this.#live(session)||session.saving||session.draft.kind!=="grid"||event.altKey)return;
+      if(!Number.isFinite(event.deltaY)||event.deltaY===0)return;
+      event.preventDefault();event.stopImmediatePropagation();
+      session.setRadius(session.radius+(event.deltaY<0?1:-1));
+    };
+    const key=event=>{
+      if(!this.#live(session)||session.saving)return;
+      if((event.metaKey||event.ctrlKey)&&!event.altKey&&!event.shiftKey&&
+          String(event.key).toLowerCase()==="z"){
+        const tag=String(event.target?.tagName??"").toLowerCase();
+        if(tag==="input"||tag==="textarea"||event.target?.isContentEditable)return;
+        if(session.painting||session.dragNode>=0)return;
+        event.preventDefault();event.stopImmediatePropagation();undoDraft();return;
+      }
+      if(event.key==="Escape"){event.preventDefault();session.close(false);return;}
+      if(event.key==="Shift"&&session.draft.kind==="grid"&&
+          !session.painting&&session.hoverAnchor){
+        session.hoverErase=true;this.#scheduleDraw(session);}
+    };
+    const keyup=event=>{
+      if(event.key==="Shift"&&this.#live(session)&&!session.painting&&
+          session.draft.kind==="grid"&&session.hoverAnchor){
+        session.hoverErase=false;this.#scheduleDraw(session);}
+    };
     session.close=success=>{
       if(this.session!==session)return;
       surface.removeEventListener("pointerdown",down,true);
+      surface.removeEventListener("contextmenu",contextmenu,true);
+      surface.removeEventListener("wheel",wheel,true);
       surface.removeEventListener("pointerleave",leave,true);
       document.removeEventListener("pointermove",move,true);
       document.removeEventListener("pointerup",up,true);
       document.removeEventListener("keydown",key,true);
+      document.removeEventListener("keyup",keyup,true);
       if(session.raf!==null)globalThis.cancelAnimationFrame?.(session.raf);
       panel.remove();layer.parent?.removeChild?.(layer);layer.destroy?.();
       session.restoreWindows?.();
       this.session=null;session.end?.(success);
     };
     surface.addEventListener("pointerdown",down,true);
+    surface.addEventListener("contextmenu",contextmenu,true);
+    surface.addEventListener("wheel",wheel,{capture:true,passive:false});
     surface.addEventListener("pointerleave",leave,true);
     document.addEventListener("pointermove",move,true);
     document.addEventListener("pointerup",up,true);
     document.addEventListener("keydown",key,true);
+    document.addEventListener("keyup",keyup,true);
     this.session=session;
     session.restoreWindows=acquireAtlasCanvasEditorFocus();
     try{this.#draw(session);}catch(error){session.close(false);throw error;}
@@ -399,7 +449,8 @@ export class TerritoryAuthoringCanvas{
       for(const [i,p] of points.entries())drawControlNode(graphics,p,
         i===session.selectedNode,zoom);
       session.info.textContent=`${points.length} control nodes · Click to add, `+
-        "drag a node to move; click an edge to insert; select and delete a node. " +
+        "drag a node to move; click an edge to insert; right-click removes the last node; " +
+        "Cmd/Ctrl+Z undoes the previous edit. " +
         "Smoothing changes the native projection, never the controls.";
     }else{
       const shape=view.grid.getShape(),cells=draft.offsets;
@@ -410,14 +461,14 @@ export class TerritoryAuthoringCanvas{
       for(const cell of session.hoverOffsets){
         const center=view.grid.getCenterPoint(cell);
         drawBrushFootprint(graphics,shape.flatMap(q=>[center.x+q.x,center.y+q.y]),
-          session.brush==="erase",zoom);
+          session.hoverErase,zoom);
       }
       const chosen=new Set(cells.map(c=>`${c.i},${c.j}`));
       const changing=session.hoverOffsets.filter(c=>
-        chosen.has(`${c.i},${c.j}`)===(session.brush==="erase")).length;
+        chosen.has(`${c.i},${c.j}`)===session.hoverErase).length;
       session.info.textContent=`${cells.length} grid cells · Click/drag to paint; `+
-        "switch brush to erase; Undo or Save when ready."+
-        (session.hoverAnchor?` Hover: ${session.brush==="add"?"add":"erase"} `+
+        "Shift+click/drag to erase; wheel changes brush; Cmd/Ctrl+Z to undo."+
+        (session.hoverAnchor?` Hover: ${session.hoverErase?"erase":"add"} `+
           `${changing} cell${changing===1?"":"s"} (${session.hoverOffsets.length} in brush).`:"");
     }
   }

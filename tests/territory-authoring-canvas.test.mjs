@@ -67,9 +67,12 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
     surface.listeners.get("pointerdown")({button:0,clientX:20,clientY:110,
       preventDefault(){},stopImmediatePropagation(){}});
     assert.equal(editor.session.draft.points.length,4);
-    const undo=editor.session.panel.children.find(child=>child.tagName==="div")
-      .children.find(child=>child.textContent==="Undo");
-    undo.listeners.get("click")();
+    doc.listeners.get("pointerup")();
+    assert.ok(!editor.session.panel.children.find(child=>child.tagName==="div")
+      .children.some(child=>child.textContent==="Undo"),
+    "keyboard shortcut replaces the visible Undo button");
+    doc.listeners.get("keydown")({key:"z",metaKey:true,preventDefault(){},
+      stopImmediatePropagation(){}});
     assert.equal(editor.session.draft.points.length,3);
     editor.cancel();
     assert.equal(await pending,false);
@@ -119,16 +122,110 @@ test("hex/square brush rings show a live add/erase footprint before any write",a
     down({button:0,clientX:110,clientY:110,preventDefault(){},stopImmediatePropagation(){}});
     assert.equal(editor.session.draft.offsets.length,13,"click applies previewed footprint");
     assert.equal(committed,0,"click edits only the draft");
-    const mode=editor.session.panel.children.find(child=>child.tagName==="div")
-      .children.find(child=>child.textContent==="Brush: Add");
-    mode.listeners.get("click")();
+    doc.listeners.get("pointerup")();
+    move({clientX:110,clientY:110,target:surface,shiftKey:true});
     assert.match(editor.session.info.textContent,/Hover: erase 13 cells/);
+    down({button:0,clientX:110,clientY:110,shiftKey:true,
+      preventDefault(){},stopImmediatePropagation(){}});
+    doc.listeners.get("pointerup")();
+    assert.equal(editor.session.draft.offsets.length,0,"Shift+click erases painted cells");
+    doc.listeners.get("keydown")({key:"z",ctrlKey:true,preventDefault(){},
+      stopImmediatePropagation(){}});
+    assert.equal(editor.session.draft.offsets.length,13,
+      "Ctrl+Z undoes an entire erasing stroke");
+    surface.listeners.get("wheel")({deltaY:-120,preventDefault(){},
+      stopImmediatePropagation(){}});
+    assert.equal(editor.session.radius,3,"wheel up increases the brush footprint");
+    assert.equal(slider.value,"3");
+    surface.listeners.get("wheel")({deltaY:120,preventDefault(){},
+      stopImmediatePropagation(){}});
+    assert.equal(editor.session.radius,2,"wheel down decreases the footprint");
     doc.listeners.get("pointerup")();
     surface.listeners.get("pointerleave")();
     assert.equal(editor.session.hoverOffsets.length,0,"pointer exit clears preview");
     editor.cancel();assert.equal(await pending,false);
     assert.equal(committed,0,"Cancel discards painted cells");
     assert.equal(doc.listeners.size,0);assert.equal(surface.listeners.size,0);
+  }finally{Object.assign(globalThis,saved);}
+});
+
+test("polygon right-click deletes the last node and Cmd+Z restores only staged edits",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={addChild(g){g.parent=this;},removeChild(g){g.parent=null;}};
+  const scene={id:"polygon-scene"};let nativeWrites=0;
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Graphics};globalThis.document=doc;
+  globalThis.requestAnimationFrame=undefined;
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    dimensions:{sceneX:0,sceneY:0,sceneWidth:400,sceneHeight:400},
+    stage:{scale:{x:1}},canvasCoordinatesFromClient:p=>p};
+  const draft={kind:"polygon",smoothing:0,points:[
+    {id:"a",x:10,y:10},{id:"b",x:100,y:10},{id:"c",x:100,y:100}]};
+  const editor=new TerritoryAuthoringCanvas();
+  try{
+    const pending=editor.begin(scene,draft,async()=>{nativeWrites++;});
+    const down=surface.listeners.get("pointerdown");
+    down({button:0,clientX:240,clientY:240,preventDefault(){},
+      stopImmediatePropagation(){}});
+    doc.listeners.get("pointerup")();
+    assert.equal(editor.session.draft.points.length,4,"left-click adds a node");
+    const removed=editor.session.draft.points[3];
+    let canceledMenu=false;
+    down({button:2,clientX:240,clientY:240,preventDefault(){},
+      stopImmediatePropagation(){}});
+    surface.listeners.get("contextmenu")({preventDefault(){canceledMenu=true;},
+      stopImmediatePropagation(){}});
+    assert.equal(canceledMenu,true,"native context menu is suppressed while editing polygons");
+    assert.equal(editor.session.draft.points.length,3,"right-click removes only the last node");
+    const key=doc.listeners.get("keydown");
+    key({key:"z",metaKey:true,preventDefault(){},stopImmediatePropagation(){}});
+    assert.equal(editor.session.draft.points.length,4,"Cmd+Z restores the deleted node");
+    assert.deepEqual(editor.session.draft.points[3],removed);
+    key({key:"z",ctrlKey:true,target:{tagName:"TEXTAREA"},preventDefault(){
+      throw Error("Typing text must retain native undo");}});
+    assert.equal(editor.session.draft.points.length,4);
+    key({key:"z",ctrlKey:true,preventDefault(){},stopImmediatePropagation(){}});
+    assert.equal(editor.session.draft.points.length,3,"Ctrl+Z undoes the preceding add");
+    assert.equal(nativeWrites,0,"shortcuts cannot commit native Region changes");
+    editor.cancel();assert.equal(await pending,false);
+    assert.equal(doc.listeners.size,0);
+    assert.equal(surface.listeners.size,0);
+  }finally{Object.assign(globalThis,saved);}
+});
+
+test("wheel brush size is clamped and Alt+wheel can pass through to map zoom",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={addChild(g){g.parent=this;},removeChild(g){g.parent=null;}};
+  const scene={id:"brush-scene"};
+  globalThis.game={user:{isGM:true}};globalThis.PIXI={Graphics};
+  globalThis.document=doc;globalThis.requestAnimationFrame=undefined;
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    dimensions:{sceneX:0,sceneY:0,sceneWidth:400,sceneHeight:400},
+    stage:{scale:{x:1}},canvasCoordinatesFromClient:p=>p,
+    grid:{getShape:()=>[{x:-5,y:-5},{x:5,y:-5},{x:5,y:5}],
+      getCenterPoint:({i,j})=>({x:i*10,y:j*10})}};
+  const editor=new TerritoryAuthoringCanvas();
+  try{
+    const pending=editor.begin(scene,{kind:"grid",offsets:[]},async()=>{});
+    const wheel=surface.listeners.get("wheel");
+    for(let i=0;i<9;i++)wheel({deltaY:-100,preventDefault(){},
+      stopImmediatePropagation(){}});
+    assert.equal(editor.session.radius,4,"wheel size stays within max four rings");
+    for(let i=0;i<9;i++)wheel({deltaY:100,preventDefault(){},
+      stopImmediatePropagation(){}});
+    assert.equal(editor.session.radius,0,"wheel size stays at least one cell");
+    let prevented=false;
+    wheel({deltaY:-100,altKey:true,preventDefault(){prevented=true;}});
+    assert.equal(prevented,false,"Alt+wheel is reserved for default map interaction");
+    assert.equal(editor.session.radius,0);
+    editor.cancel();assert.equal(await pending,false);
+    assert.equal(surface.listeners.size,0);
   }finally{Object.assign(globalThis,saved);}
 });
 
