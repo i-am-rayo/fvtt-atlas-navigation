@@ -272,18 +272,23 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     pageTerrain.style.cssText="min-width:0;";
     const checkpointRegions=this.createDraft?[]:listGeneratedRegions(this.scene).filter(item=>
       item.metadata?.checkpointIds?.includes(this.checkpointId));
-    const linkedTerritories=this.createDraft?[]:territoryCheckpointLinks(this.scene).filter(item=>
-      item.link?.checkpointId===this.checkpointId);
     const presetNames=new Map(checkpointRegions.length?
       readWorldTravelPresets().presets.map(p=>[p.id,p.name]):[]);
     pageTerrain.appendChild(el("p","A checkpoint Region overrides the road's default travel preset where its geometry applies. Higher-priority overlapping Regions win. Native Behaviors are edited separately."));
+    let updateGeographicHint=null;
     if(!this.createDraft){
-      pageTerrain.appendChild(el("p",linkedTerritories.length?
-        `Linked geographic Territory: ${linkedTerritories.map(item=>item.regionName).join(", ")}. `+
+      const hint=el("p");
+      updateGeographicHint=()=>{
+        const linked=territoryCheckpointLinks(this.scene).filter(item=>
+          item.link?.checkpointId===this.checkpointId);
+        hint.textContent=linked.length?
+        `Linked geographic Territory: ${linked.map(item=>item.regionName).join(", ")}. `+
           "Manage this identity association in Atlas Workspace → Territories; " +
           "it does not alter the Checkpoint Journal or native Region geometry.":
         "No geographic Territory is associated with this Checkpoint. " +
-          "Link one from Atlas Workspace → Territories."));
+          "Link one here or from Atlas Workspace → Territories.";
+      };
+      updateGeographicHint();pageTerrain.appendChild(hint);
     }
     const terrainButton=(title,action,regionId=null)=>{
       const button=el("button",title);button.type="button";
@@ -300,14 +305,16 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         button.disabled=true;
         try{
           await this.onTerrainAction?.(action,regionId);
+          if(action==="territory")updateGeographicHint?.();
           // Opening a native sheet is not a data mutation; retain unsaved fields.
-          if(!["create","settings"].includes(action))await this.render(true);
+          if(!["create","settings","territory"].includes(action))await this.render(true);
         }catch(error){ui.notifications.error(error.message||String(error));}
         finally{button.disabled=false;}
       });
       return button;
     };
     if(!this.createDraft && this.onTerrainAction){
+      pageTerrain.appendChild(terrainButton("Link geographic Territory","territory"));
       pageTerrain.appendChild(terrainButton("+ Generate checkpoint Region","create"));
       if(!checkpointRegions.length)pageTerrain.appendChild(el("p","No generated Terrain Regions are linked to this checkpoint."));
       for(const region of checkpointRegions){

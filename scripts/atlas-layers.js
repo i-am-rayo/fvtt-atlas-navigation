@@ -1,5 +1,5 @@
 /** Persistent, GM-local map presentation. Never writes Scene/Region documents. */
-import {MODULE_ID} from "./atlas-storage.js";
+import {MODULE_ID,readAtlas} from "./atlas-storage.js";
 import {listSceneGeography} from "./territory-geography-storage.js";
 import {listGeneratedRegions} from "./region-native-read.js";
 import {TerritoryViewOverlay} from "./territory-view-overlay.js";
@@ -152,8 +152,10 @@ export class AtlasLayersController {
     });
     Hooks.on("updateScene",(scene,changes)=>{
       if(scene?.id===globalThis.canvas?.scene?.id&&
-          ["width","height","padding","grid","background"].some(key=>
-            Object.hasOwn(changes??{},key)))this.refresh();
+          (["width","height","padding","grid","background"].some(key=>
+            Object.hasOwn(changes??{},key))||
+            Object.hasOwn(changes?.flags?.[MODULE_ID]??{},"atlas")||
+            Object.hasOwn(changes??{},`flags.${MODULE_ID}.atlas`)))this.refresh();
     });
     for(const event of ["createRegion","updateRegion","deleteRegion"])
       Hooks.on(event,region=>{
@@ -182,17 +184,26 @@ export class AtlasLayersController {
     await game.settings.set(MODULE_ID,ATLAS_LAYERS_SETTING,{...DEFAULT_ATLAS_LAYERS});
   }
 
-  clear(){this.regions.clear();this.corridors.clear();}
+  clear({resetCheckpointLabels=true,redraw=false}={}){
+    this.regions.clear();this.corridors.clear();
+    if(resetCheckpointLabels)
+      this.roadCanvas.setTerritoryLabelCheckpointIds(new Set(),{redraw});
+  }
 
   refresh(preferences=null){
-    this.clear();
-    if(!game.user?.isGM)return;
+    this.clear({resetCheckpointLabels:false});
+    if(!game.user?.isGM){this.roadCanvas.setTerritoryLabelCheckpointIds(new Set());return;}
     let settings;
     try{settings=validateAtlasLayers(preferences??this.read());}
-    catch(error){console.warn("Atlas Layers settings could not be read",error);return;}
+    catch(error){
+      this.roadCanvas.setTerritoryLabelCheckpointIds(new Set());
+      console.warn("Atlas Layers settings could not be read",error);return;
+    }
     this.roadCanvas.setViewMode(settings.roadMode);
     const scene=globalThis.canvas?.scene;
-    if(!globalThis.canvas?.ready||!scene)return;
+    if(!globalThis.canvas?.ready||!scene){
+      this.roadCanvas.setTerritoryLabelCheckpointIds(new Set());return;
+    }
     try{
       if(settings.roadMode==="corridors"){
         const entries=listGeneratedRegions(scene).filter(entry=>
@@ -205,9 +216,12 @@ export class AtlasLayersController {
         this.regions.sync(scene,listSceneGeography(scene),{
           mode:settings.regionMode,showNames:settings.showRegionNames,
           continentFillOpacity:settings.continentFillOpacity,
-          settlementFillOpacity:settings.settlementFillOpacity
+          settlementFillOpacity:settings.settlementFillOpacity,
+          checkpointsById:new Map((readAtlas(scene).checkpoints??[])
+            .map(checkpoint=>[checkpoint.id,checkpoint]))
         });
-    }catch(error){this.clear();console.warn("Atlas Layers preview failed",error);}
+      this.roadCanvas.setTerritoryLabelCheckpointIds(this.regions.labelCheckpointIds);
+    }catch(error){this.clear({redraw:true});console.warn("Atlas Layers preview failed",error);}
   }
 
   async open(){

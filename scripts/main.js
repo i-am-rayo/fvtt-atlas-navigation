@@ -39,6 +39,8 @@ import { listSceneGeography,readRegionGeography,saveRegionGeography }
 import {territoryTier} from "./territory-view-model.js";
 import {readTerritoryCheckpointLink,territoryCheckpointLinks,
   saveTerritoryCheckpointLink} from "./territory-checkpoint-link.js";
+import {suggestTerritoryCheckpointLinks} from "./territory-checkpoint-presentation.js";
+import {checkpointCategory} from "./checkpoint-types.js";
 import { buildTerritoryGeographyForm,geographyFromForm }
   from "./territory-geography-form.js";
 import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
@@ -1348,6 +1350,8 @@ function actions() {
         onTerrainAction:async (action,regionId)=>{
           if(action==="clearPreview")return roadCanvas.clearRegionPreview();
           const api=actions();
+          if(action==="territory")return api.configureCheckpointTerritory(scene,checkpoint.id,
+            ()=>{atlasLayers.refresh();refresh();});
           const entry=regionId?listGeneratedRegions(scene).find(item=>item.id===regionId):null;
           if(regionId&&!entry)throw new Error("This linked Region no longer exists.");
           if(action==="create")return openAtlasRegionGenerator(scene,checkpoint.roadId,api,
@@ -1991,8 +1995,12 @@ function actions() {
       const claimed=new Set(territoryCheckpointLinks(scene).filter(entry=>
         entry.regionId!==regionId&&entry.link).map(entry=>entry.link.checkpointId));
       const choices=[["","No linked Checkpoint"]];
+      const suggestion=suggestTerritoryCheckpointLinks(listSceneGeography(scene),
+        atlas.checkpoints??[],id=>checkpointCategory(scene,id))
+        .find(match=>match.regionId===regionId&&!claimed.has(match.checkpointId));
       for(const cp of [...(atlas.checkpoints??[])].sort((a,b)=>a.name.localeCompare(b.name)))
-        if(!claimed.has(cp.id))choices.push([cp.id,cp.name]);
+        if(!claimed.has(cp.id))choices.push([cp.id,cp.name+
+          (suggestion?.checkpointId===cp.id?" — Suggested exact name/type match":"")]);
       const content=document.createElement("div");
       const intro=document.createElement("p");
       intro.textContent=`Associate ${region.name} with one Atlas Checkpoint in this Scene. `+
@@ -2000,7 +2008,7 @@ function actions() {
         "Checkpoint, change linked Journals, publish new player data, or alter native Behaviors.";
       content.appendChild(intro);
       const picker=createSettingsSelect(choices,{name:"checkpointId",
-        selectedId:existing?.checkpointId??"",
+        selectedId:existing?.checkpointId??suggestion?.checkpointId??"",
         ariaLabel:"Atlas Checkpoint for native Territory"});
       content.appendChild(picker);
       const answer=await DialogV2.input({window:{title:"Link Territory to Checkpoint"},
@@ -2030,6 +2038,69 @@ function actions() {
         expected:existing,expectedName:region.name,expectedAtlasRevision:atlas.revision});
       refresh();ui.notifications.info(chosen?`Territory linked to ${chosen.name}.`:
         "Territory Checkpoint association removed; native Region unchanged.");
+    },
+    async configureCheckpointTerritory(scene,checkpointId,refresh){
+      ensureIdle(scene);
+      if(navigation.travelSession||territoryCanvas.session||manualFog.paletteOpen||manualFog.brush)
+        throw Error("Close the active Journey and canvas editors before linking a Checkpoint.");
+      const atlas=readAtlas(scene),checkpoint=atlas.checkpoints?.find(cp=>cp.id===checkpointId);
+      if(!checkpoint)throw Error("This Checkpoint is no longer available.");
+      const links=territoryCheckpointLinks(scene);
+      if(links.some(link=>link.invalid))
+        throw Error("Resolve unsupported native Territory checkpoint flags before linking.");
+      const current=links.find(link=>link.link?.checkpointId===checkpointId);
+      const candidates=listSceneGeography(scene).filter(entry=>entry.linked&&!entry.invalid&&
+        entry.geography&&scene.regions?.get?.(entry.id)?.getFlag?.(MODULE_ID,"generatedRegion")==null);
+      const claimed=new Set(links.filter(link=>link.link?.checkpointId!==checkpointId)
+        .map(link=>link.regionId));
+      const suggestions=suggestTerritoryCheckpointLinks(candidates,atlas.checkpoints??[],
+        id=>checkpointCategory(scene,id));
+      const suggestion=suggestions.find(match=>match.checkpointId===checkpointId&&
+        !claimed.has(match.regionId));
+      const choices=[["","No linked Territory"]];
+      for(const entry of [...candidates].sort((a,b)=>a.name.localeCompare(b.name))){
+        if(claimed.has(entry.id)||(current&&entry.id!==current.regionId))continue;
+        choices.push([entry.id,entry.name+
+          (suggestion?.regionId===entry.id?" — Suggested exact name/type match":"")]);
+      }
+      const content=document.createElement("div");
+      const note=document.createElement("p");
+      note.textContent=`Link Checkpoint ${checkpoint.name} to a manually authored geographic `+
+        "Territory. Exact name and geographic type matches are suggestions only; " +
+        "nothing is linked automatically. Existing associations must be removed before switching.";
+      content.appendChild(note);
+      content.appendChild(createSettingsSelect(choices,{name:"regionId",
+        selectedId:current?.regionId??suggestion?.regionId??"",
+        ariaLabel:"Geographic Territory for Atlas Checkpoint"}));
+      const answer=await DialogV2.input({window:{title:"Link Checkpoint to Territory"},
+        content,ok:{label:"Review Association"},rejectClose:false,modal:true});
+      if(!answer)return;
+      const regionId=String(answer.regionId??"")||null;
+      if(regionId!==null&&!choices.some(([id])=>id===regionId))
+        throw Error("Choose an available native geographic Territory.");
+      if(regionId===(current?.regionId??null))return;
+      if(current&&regionId)throw Error("Remove the existing association before selecting another Territory.");
+      const region=scene.regions?.get?.(regionId??current?.regionId);
+      if(!region)throw Error("The native Territory no longer exists.");
+      const prior=readTerritoryCheckpointLink(region);
+      const confirmation=document.createElement("div");
+      const question=document.createElement("p");
+      question.textContent=regionId?
+        `Associate Checkpoint ${checkpoint.name} with Territory ${region.name}?`:
+        `Remove the link between Checkpoint ${checkpoint.name} and Territory ${region.name}?`;
+      confirmation.appendChild(question);
+      const warning=document.createElement("p");
+      warning.textContent="Only the native Territory's Atlas identity flag changes. " +
+        "Checkpoint and Region names, Journal links, player visibility, " +
+        "native Shapes and Behaviors are preserved.";
+      confirmation.appendChild(warning);
+      if(!await DialogV2.confirm({window:{title:"Confirm Geographic Association"},
+        content:confirmation,yes:{label:regionId?"Link Territory":"Remove Association"},
+        rejectClose:false,modal:true}))return;
+      await saveTerritoryCheckpointLink(scene,region.id,{checkpointId:regionId?checkpointId:null,
+        expected:prior,expectedName:region.name,expectedAtlasRevision:atlas.revision});
+      refresh();ui.notifications.info(regionId?`${checkpoint.name} linked to ${region.name}.`:
+        `${checkpoint.name} Territory association removed.`);
     },
     async smoothNativeRegion(scene,regionId,refresh) {
       ensureIdle(scene);

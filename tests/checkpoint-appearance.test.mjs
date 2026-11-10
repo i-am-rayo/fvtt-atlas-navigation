@@ -254,13 +254,19 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const scene = { canUserModify: () => true,
       getFlag: (_scope, key) => key === ATLAS_FLAG ? stored : undefined,
       setFlag: async (_scope, _key, value) => { stored = value; } };
+    const actions=[];
     const editor = new AtlasCheckpointAppearanceEditor({ scene,
-      checkpointId: data.checkpoints[0].id, expectedRevision: data.revision });
+      checkpointId: data.checkpoints[0].id, expectedRevision: data.revision,
+      onTerrainAction:async action=>{actions.push(action);} });
     assert.equal(editor.options.position.left,24,
       "checkpoint authoring opens at the left of the canvas");
     editor.close = async () => {};
     const root = await editor._renderHTML();
     const buttons = all(root).filter(node => node.tag === "button");
+    const geographicLink=buttons.find(node=>node.textContent==="Link geographic Territory");
+    assert.ok(geographicLink,"Checkpoint Settings supports reverse Territory linking");
+    await geographicLink.listeners.get("click")();
+    assert.deepEqual(actions,["territory"]);
     assert.ok(buttons.length < 85,
       "initial icon grid must not render over two thousand buttons");
     const slider = all(root).find(node => node.tag === "input" &&

@@ -41,7 +41,9 @@ test("GM map display persists across controller recreation; updates never write 
     hooks.get(event).push(callback);}};
   globalThis.canvas={scene,ready:true,interface:{addChild(){}}};
   try{
-    const roadCanvas={setViewMode:mode=>viewModes.push(mode)};
+    const suppressed=[];
+    const roadCanvas={setViewMode:mode=>viewModes.push(mode),
+      setTerritoryLabelCheckpointIds:ids=>suppressed.push([...ids])};
     const controller=new AtlasLayersController(roadCanvas);
     controller.register();
     assert.equal(registrations.get(ATLAS_LAYERS_SETTING).scope,"client");
@@ -49,6 +51,7 @@ test("GM map display persists across controller recreation; updates never write 
     let regionOpts=null;
     controller.regions.sync=(_scene,entries,options)=>{
       assert.deepEqual(entries,[]);regionOpts=options;
+      controller.regions.labelCheckpointIds=new Set(["checkpoint1"]);
     };
     await controller.update({roadMode:"terrain",regionMode:"combined",
       showRegionNames:true,continentFillOpacity:.33});
@@ -57,6 +60,8 @@ test("GM map display persists across controller recreation; updates never write 
     assert.equal(regionOpts.showNames,true);
     assert.equal(regionOpts.continentFillOpacity,.33);
     assert.equal(controller.read().continentFillOpacity,.33);
+    assert.deepEqual(suppressed.at(-1),["checkpoint1"],
+      "only currently drawn Territory labels suppress the duplicate Checkpoint Always label");
     hooks.get("canvasReady")[0]();
     assert.equal(viewModes.at(-1),"terrain");
     const recreated=new AtlasLayersController(roadCanvas);
@@ -76,6 +81,8 @@ test("GM map display persists across controller recreation; updates never write 
     await controller.reset();
     assert.deepEqual(controller.read(),DEFAULT_ATLAS_LAYERS,
       "only deliberate GM reset can rewrite an invalid setting");
+    assert.deepEqual(suppressed.at(-1),[],
+      "hiding geographic names restores the Checkpoint's stored label mode");
   }finally{Object.assign(globalThis,previous);}
 });
 
