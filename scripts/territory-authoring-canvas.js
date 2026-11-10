@@ -139,7 +139,7 @@ export class TerritoryAuthoringCanvas{
     const batchNote=batchContext?el("p",`Batch destination ${batchContext.index} of `+
       `${batchContext.total}: ${batchContext.name}. Paint cells INTO this destination. `+
       "Atlas will remove them from their current owner only after the final batch " +
-      "approval. Do not separately erase the source. Stage & Next stores a local draft, " +
+      "approval. Do not separately erase the source. Staging stores a local draft, " +
       "not a native Region update."):null;
     if(batchNote)batchNote.style.cssText="color:#bce9e3;white-space:pre-line;";
     const ownershipReview=el("p");
@@ -301,14 +301,13 @@ export class TerritoryAuthoringCanvas{
       });
     }
     if(draft.kind==="grid"&&typeof onStage==="function")
-      addButton(batchContext?.nextName?`Stage & Next: ${batchContext.nextName}`:
-        "Stage & Return to Workspace",async()=>{
+      addButton("Stage & Return to Workspace",async()=>{
         if(session.saving)return;
         session.saving=true;
         try{
           await onStage(copy(session.draft));
           if(this.#live(session)){
-            session.close(true);
+            await session.close(true);
             await afterStage?.();
           }
         }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
@@ -495,8 +494,9 @@ export class TerritoryAuthoringCanvas{
       document.removeEventListener("keyup",keyup,true);
       if(session.raf!==null)globalThis.cancelAnimationFrame?.(session.raf);
       panel.remove();layer.parent?.removeChild?.(layer);layer.destroy?.();
-      session.restoreWindows?.();
+      const restoration=session.restoreWindows?.();
       this.session=null;session.end?.(success);
+      return restoration;
     };
     surface.addEventListener("pointerdown",down,true);
     surface.addEventListener("contextmenu",contextmenu,true);

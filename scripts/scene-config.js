@@ -229,20 +229,22 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   const pending=readPendingTerritoryCellTransfer(scene);
   const batch=actions.territoryBatchState?.(scene);
   if(!batch&&typeof actions.startTerritoryBatch==="function"){
-    const start=button("Start Batch Transfer",
+    const start=button("Start Batch Edit",
       "Choose receiving Hex/Grid Territories before entering Paint Territory",
       ()=>actions.startTerritoryBatch(scene,refresh));
     start.disabled=!!draft||!!pending;
     manager.appendChild(start);
-    manager.appendChild(node("p","For one receiving Territory, use its normal Paint editor. " +
-      "Batch Transfer starts with a checklist of two or more receiving Territories; " +
-      "Atlas identifies source owners automatically and stages all edits before one Save.","hint"));
+    manager.appendChild(node("p","Batch Edit: select 2–4 Hex/Grid Territories, paint each " +
+      "one at a time, and stage without writing native Regions. Add unclaimed cells, " +
+      "erase, or receive cells from unselected peers. Review all staged changes once; " +
+      "one Territory can be edited with its normal Paint editor.","hint"));
   }
   if(batch?.total){
     const queue=node("div",undefined,"atlas-territory-batch-queue");
     queue.appendChild(node("p",`Hex/Grid batch: ${batch.count} of ${batch.total} `+
-      "receiving Territories staged. Paint the selected destinations below. " +
-      "A staged draft is local only; it does not write native Regions.","hint"));
+      "Territories staged. Select any unfinished destination below to paint; " +
+      "Stage & Return to Workspace saves a local draft only. " +
+      "Review & Apply commits all edits together, including unclaimed cells.","hint"));
     for(const target of batch.targets){
       const status=target.staged?"Staged":"Not staged";
       const edit=button(`${target.name} — ${status}`,
@@ -251,7 +253,7 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
       edit.disabled=!!draft||!!pending;
       queue.appendChild(edit);
     }
-    const commit=button("Review & Transfer Batch","Preview and confirm one recoverable multi-destination transfer",() =>
+    const commit=button("Review & Apply Batch","Preview and confirm one recoverable multi-destination edit",() =>
       actions.commitTerritoryBatch(scene,refresh));
     commit.disabled=!!draft||!!pending||batch.count!==batch.total;
     queue.appendChild(commit);

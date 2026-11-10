@@ -36,10 +36,10 @@ export function acquireAtlasCanvasEditorFocus({exclude=[]}={}){
   state.holders++;
   let released=false;
   return ()=>{
-    if(released)return;
+    if(released)return Promise.resolve();
     released=true;
-    if(--state.holders!==0)return;
-    void state.ready.then(async()=>{
+    if(--state.holders!==0)return Promise.resolve();
+    return state.ready.then(async()=>{
       if(state.holders!==0)return;
       // Only restore windows Atlas actually minimized and which stayed minimized.
       for(const app of state.changed){

@@ -77,3 +77,24 @@ test("immediate editor handoff also minimizes and restores newly opened Workspac
     assert.equal(workspace.minimized,false);
   }finally{globalThis.foundry=previous;}
 });
+
+test("awaiting a focus release fully restores Workspace before the next action",async()=>{
+  const previous=globalThis.foundry,app=windowApp();
+  let finishMaximize;
+  app.maximize=()=>new Promise(resolve=>{
+    finishMaximize=()=>{app.minimized=false;resolve();};
+  });
+  globalThis.foundry={applications:{instances:new Map([["workspace",app]])}};
+  try{
+    const release=acquireAtlasCanvasEditorFocus();
+    await tick();
+    assert.equal(app.minimized,true);
+    let complete=false;
+    const restoring=release().then(()=>{complete=true;});
+    await tick();
+    assert.equal(complete,false,"release waits until maximizing actually completes");
+    finishMaximize();await restoring;
+    assert.equal(complete,true);
+    assert.equal(app.minimized,false);
+  }finally{globalThis.foundry=previous;}
+});

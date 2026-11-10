@@ -90,7 +90,7 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
   }finally{Object.assign(globalThis,saved);}
 });
 
-test("batch destination editor stages and advances without exposing direct native Save",async()=>{
+test("batch destination editor stages and returns to Workspace without native Save",async()=>{
   const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
     PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
   const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
@@ -107,15 +107,15 @@ test("batch destination editor stages and advances without exposing direct nativ
   globalThis.document=doc;globalThis.PIXI={Graphics};
   globalThis.requestAnimationFrame=undefined;
   const editor=new TerritoryAuthoringCanvas();
-  let writes=0,advanced=0;const queued=[];
+  let writes=0,returned=0;const queued=[];
   try{
     const pending=editor.begin(scene,{kind:"grid",offsets:[{i:1,j:1}]},
       async()=>{writes++;},{onStage:draft=>queued.push(draft),
-        afterStage:()=>{advanced++;},
+        afterStage:()=>{returned++;},
         batchContext:{name:"Dirwest",index:1,total:2,nextName:"Millstone"}});
     const stage=editor.session.panel.children.find(c=>c.tagName==="div"&&
-      c.children.some(button=>button.textContent==="Stage & Next: Millstone"))
-      .children.find(button=>button.textContent==="Stage & Next: Millstone");
+      c.children.some(button=>button.textContent==="Stage & Return to Workspace"))
+      .children.find(button=>button.textContent==="Stage & Return to Workspace");
     assert.ok(stage);
     assert.match(editor.session.panel.children.find(c=>c.tagName==="p"&&
       String(c.textContent).includes("Batch destination"))?.textContent??"",/Dirwest/);
@@ -125,7 +125,7 @@ test("batch destination editor stages and advances without exposing direct nativ
     await stage.listeners.get("click")();
     assert.equal(await pending,true);
     assert.equal(writes,0);
-    assert.equal(advanced,1);
+    assert.equal(returned,1);
     assert.deepEqual(queued[0].offsets,[{i:1,j:1}]);
     assert.equal(editor.session,null);
     assert.equal(body.children.length,0);
