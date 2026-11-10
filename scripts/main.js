@@ -47,6 +47,7 @@ import {planTerritoryGridConversion,commitTerritoryGridConversion,
   restoreTerritoryPolygonBackup} from "./territory-grid-conversion.js";
 import {TerritoryGridConversionPreview} from "./territory-grid-conversion-preview.js";
 import {inspectTerritoryGridOwnership,planTerritoryCellTransfer,commitTerritoryCellTransfer,
+  planMultiDestinationTerritoryCellTransfer,commitMultiDestinationTerritoryCellTransfer,
   readPendingTerritoryCellTransfer,inspectPendingTerritoryCellTransfer,
   resolveTerritoryCellTransfer}
   from "./territory-grid-transfer.js";
@@ -116,6 +117,10 @@ const manualFog = new AtlasManualFogController();
 const fogPalette = new AtlasManualFogPalette(manualFog);
 const territoryCanvas = new TerritoryAuthoringCanvas();
 const territoryGridPreview = new TerritoryGridConversionPreview();
+// Authoring-only, client-local drafts. Never persist staged geometry or expose
+// it to players; native writes begin only after explicit batch confirmation.
+const territoryBatchDrafts=new Map();
+const stagedTerritories=scene=>territoryBatchDrafts.get(scene?.id)??new Map();
 let roadDock = null;
 
 function syncRoadDock(scene, refresh) {
@@ -416,6 +421,62 @@ async function promptNewRoadSettings(scene) {
 function actions() {
   const DialogV2 = foundry.applications.api.DialogV2;
   return {
+    territoryBatchState:scene=>{
+      const queued=stagedTerritories(scene);
+      return {count:queued.size,names:[...queued.keys()].map(id=>
+        scene.regions?.get?.(id)?.name??"Unknown Region")};
+    },
+    discardTerritoryBatch(scene,refresh){
+      territoryBatchDrafts.delete(scene.id);refresh();
+      ui.notifications.info("Staged Hex/Grid batch discarded; native Regions unchanged.");
+    },
+    async commitTerritoryBatch(scene,refresh){
+      ensureIdle(scene);
+      if(navigation.travelSession||territoryCanvas.session||manualFog.paletteOpen||manualFog.brush)
+        throw Error("Finish the Journey and canvas editors before transferring a batch.");
+      const queued=stagedTerritories(scene);
+      const plan=planMultiDestinationTerritoryCellTransfer(scene,
+        [...queued].map(([regionId,draft])=>({regionId,draft})));
+      const dialog=document.createElement("div");
+      for(const line of [
+        `Transfer ${plan.movedCells} native Hex/Grid cells from ${plan.sources.length} `+
+          `source Territories to ${plan.destinations.length} destinations?`,
+        "Sources: "+plan.sources.map(s=>`${s.name}: −${s.movedCells}, `+
+          `${s.remainingCells} retained`).join("; "),
+        "Destinations: "+plan.destinations.map(d=>`${d.name}: +${d.addedCells}, `+
+          `${d.finalCells} final cells`).join("; "),
+        "Atlas will persist one recovery ledger before touching any native Region, " +
+          "trim source ownership first, verify all native geometry after writing, " +
+          "and require explicit Resume/Roll Back if interrupted.",
+        "Region IDs, Behaviors, colors, Levels, Journey/World time and other " +
+          "native state remain unchanged. Destination-to-destination swaps are not supported.",
+        ...(plan.convertedBackupAffected?["A previous polygon-conversion Restore may " +
+          "be invalid after this transfer. Completed transfers have no one-click Undo."]:[])
+      ]){const p=document.createElement("p");p.textContent=line;dialog.appendChild(p);}
+      const accepted=await DialogV2.confirm({window:{title:"Transfer Hex/Grid Batch?"},
+        content:dialog,yes:{label:"Transfer Native Regions"},rejectClose:false,modal:true});
+      if(!accepted)return;
+      const panel=document.createElement("section");
+      panel.className="atlas-territory-transfer-progress";
+      panel.style.cssText="position:fixed;top:90px;left:24px;z-index:10001;"+
+        "width:360px;max-width:calc(100vw - 48px);padding:1rem;"+
+        "background:#111019;color:#f4e8d7;border:1px solid #caad83;border-radius:8px";
+      panel.setAttribute("role","status");panel.setAttribute("aria-live","polite");
+      const label=document.createElement("p");label.textContent="Preparing guarded batch…";
+      const bar=document.createElement("progress");bar.max=plan.records.length+3;
+      bar.value=0;bar.style.cssText="display:block;width:100%;height:1.2rem";
+      panel.append(label,bar);document.body.appendChild(panel);
+      try{
+        if(globalThis.requestAnimationFrame)
+          await new Promise(resolve=>requestAnimationFrame(resolve));
+        await commitMultiDestinationTerritoryCellTransfer(scene,plan,{onProgress:progress=>{
+          bar.max=progress.total;bar.value=progress.step;label.textContent=progress.message;
+        }});
+        territoryBatchDrafts.delete(scene.id);
+        refresh();ui.notifications.info(`${plan.movedCells} Hex/Grid cells transferred between `+
+          `${plan.records.length} native Regions.`);
+      }finally{panel.remove();}
+    },
     async begin(scene, refresh) {
       ensureIdle(scene);
       const settings=await promptNewRoadSettings(scene);
@@ -1571,6 +1632,12 @@ function actions() {
       const geography=readRegionGeography(region);
       if(!geography)throw Error("Classify this Atlas-linked Territory before editing its boundary.");
       draft.name=region.name;draft.geography=geography;
+      const previous=stagedTerritories(scene).get(regionId);
+      if(previous){
+        if(draft.sourceDigest!==previous.sourceDigest)
+          throw Error("This staged Territory changed natively. Discard the batch and reopen.");
+        draft.offsets=structuredClone(previous.offsets);
+      }
       await territoryCanvas.begin(scene,draft,async (candidate,reportProgress)=>{
         const transfer=planTerritoryCellTransfer(scene,regionId,candidate);
         if(transfer){
@@ -1617,7 +1684,19 @@ function actions() {
         }
         await saveTerritoryDraft(scene,candidate,{regionId});
         refresh();ui.notifications.info("Native Territory boundary updated; Behaviors retained.");
-      },{inspectDraft:candidate=>inspectTerritoryGridOwnership(scene,regionId,candidate)});
+      },{inspectDraft:candidate=>inspectTerritoryGridOwnership(scene,regionId,candidate),
+        onStage:draft.kind==="grid"?candidate=>{
+          const queued=stagedTerritories(scene);
+          if(!queued.has(regionId)&&queued.size>=4)
+            throw Error("One batch supports at most four destinations.");
+          const latest=readTerritoryDraft(scene,regionId);
+          if(latest.sourceDigest!==candidate.sourceDigest)
+            throw Error("Native Territory geometry changed; reopen before staging.");
+          queued.set(regionId,structuredClone(candidate));
+          territoryBatchDrafts.set(scene.id,queued);
+          refresh();ui.notifications.info(`${region.name} staged locally. `+
+            "Stage another destination, then Review & Transfer Batch in Territories.");
+        }:null});
     },
     async resolveTerritoryCellTransfer(scene,refresh){
       ensureIdle(scene);
@@ -1678,6 +1757,7 @@ function actions() {
       if(!(decision.mode==="resume"?latest?.canResume:latest?.canRollback))
         throw Error("Native Region recovery safety changed during review. Reopen recovery.");
       await resolveTerritoryCellTransfer(scene,decision.mode);
+      territoryBatchDrafts.delete(scene.id);
       refresh();ui.notifications.info("Native Territory transfer recovery completed.");
     },
     async previewTerritoryGridConversion(scene,regionId,refresh){

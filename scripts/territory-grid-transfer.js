@@ -141,7 +141,16 @@ export function readPendingTerritoryCellTransfer(scene){
     records?.length===ids.length+1&&
     records.every((record,index)=>record?.id===
       (index<ids.length?ids[index]:value.targetId));
-  if(typeof value!=="object"||(!single&&!multiple)||
+  const targets=value?.targetIds;
+  const batch=value?.schemaVersion===3&&Array.isArray(ids)&&
+    ids.length>=1&&ids.length<=4&&ids.every(id=>typeof id==="string"&&id)&&
+    Array.isArray(targets)&&targets.length>=2&&targets.length<=4&&
+    targets.every(id=>typeof id==="string"&&id)&&
+    new Set([...ids,...targets]).size===ids.length+targets.length&&
+    records?.length===ids.length+targets.length&&
+    records.every((record,index)=>record?.id===
+      (index<ids.length?ids[index]:targets[index-ids.length]));
+  if(typeof value!=="object"||(!single&&!multiple&&!batch)||
       value.sceneId!==scene?.id||typeof value.gridIdentity!=="string"||
       JSON.stringify(value).length>1000000)
     throw Error("Atlas transfer recovery record is unsupported. Do not edit Region geometry; inspect the Scene backup.");
@@ -234,6 +243,111 @@ export function planTerritoryCellTransfer(scene,targetId,draft,{view=globalThis.
       movedCells:s.claimed,remainingCells:s.remaining}))};
 }
 
+/** Batch stage 1: two to four distinct destinations may take cells from the
+ * same-tier, source-only peers. A Region cannot act as both source and target
+ * in this writer: swaps need an intermediate durable state and separate gate.
+ * Staged drafts are transient and absolutely no native state is written here. */
+export function planMultiDestinationTerritoryCellTransfer(scene,staged,
+  {view=globalThis.canvas}={}){
+  if(readPendingTerritoryCellTransfer(scene))
+    throw Error("Resolve the interrupted native transfer before planning another batch.");
+  if(!Array.isArray(staged)||staged.length<2||staged.length>4)
+    throw Error("Stage two to four distinct destination Territories for one batch.");
+  if(!view?.ready||view.scene?.id!==scene?.id||!view.grid||view.grid.isGridless||
+      !globalThis.foundry?.data?.GridShapeData)
+    throw Error("Open the matching native Hex/Grid Scene to review this batch.");
+  const targets=new Map(),entries=listSceneGeography(scene);
+  let tier=null;
+  for(const {regionId,draft} of staged){
+    if(targets.has(regionId)||draft?.kind!=="grid")
+      throw Error("Each batch destination must have one distinct native Hex/Grid draft.");
+    const region=authorize(scene,regionId),prior=readTerritoryDraft(scene,regionId,{view});
+    const geography=entries.find(entry=>entry.id===regionId);
+    const currentTier=territoryTier(geography);
+    if(!isGrid(region)||prior.kind!=="grid"||
+        prior.sourceDigest!==draft.sourceDigest||currentTier==="unclassified"||
+        !same(geography?.geography,draft.geography)||
+        (tier!==null&&tier!==currentTier))
+      throw Error("A batch destination changed or has a different geographic tier. Reopen its editor.");
+    tier=currentTier;
+    const offsets=validateGridOffsets(draft.offsets);
+    if(!offsets.length)throw Error(`Destination ${region.name} would be empty.`);
+    const original=new Set(prior.offsets.map(key));
+    targets.set(regionId,{region,prior,offsets,
+      additions:offsets.filter(offset=>!original.has(key(offset)))});
+  }
+  const finalClaims=new Map(),additions=new Map();
+  for(const [id,target] of targets)for(const offset of target.offsets){
+    const k=key(offset),existing=finalClaims.get(k);
+    if(existing&&existing!==id)
+      throw Error("Two batch destinations claim the same Hex/Grid cell. Remove the overlap first.");
+    finalClaims.set(k,id);
+  }
+  for(const [id,target] of targets)for(const offset of target.additions)
+    additions.set(key(offset),id);
+  const sourceClaims=new Map();
+  let movedCells=0;
+  for(const entry of entries){
+    if(territoryTier(entry)!==tier||!entry.linked||entry.invalid||
+        targets.has(entry.id))continue;
+    const source=scene.regions.get(entry.id);
+    if(!source||!isGrid(source))continue;
+    const claimed=shapes(source)[0].offsets.filter(offset=>additions.has(key(offset)));
+    if(claimed.length){sourceClaims.set(entry.id,claimed);movedCells+=claimed.length;}
+  }
+  if(!movedCells)throw Error("No batch destination takes cells from a peer Territory.");
+  if(sourceClaims.size>4||movedCells>500)
+    throw Error("Batch exceeds four peer sources or 500 transferred cells. Use smaller groups.");
+  // No destination may take cells from another staged destination, even if
+  // that other Region is being trimmed in this draft. Avoid native swaps.
+  for(const [id,target] of targets){
+    for(const peer of targets.values())if(peer.region.id!==id){
+      const owned=new Set(peer.prior.offsets.map(key));
+      if(target.additions.some(offset=>owned.has(key(offset))))
+        throw Error("Destination-to-destination cell moves need a later guarded swap workflow.");
+    }
+  }
+  const seen=new Set();
+  for(const [id,claimed] of sourceClaims)for(const offset of claimed){
+    const k=key(offset);
+    if(seen.has(k))throw Error("A batch cell has multiple native source owners.");
+    seen.add(k);
+  }
+  const sourceRecords=[],sources=[],changes=new Map();
+  for(const id of [...sourceClaims.keys()].sort()){
+    const region=authorize(scene,id),before=stateOf(region);
+    const claimed=new Set(sourceClaims.get(id).map(key));
+    const remaining=shapes(region)[0].offsets.filter(offset=>!claimed.has(key(offset)));
+    if(!remaining.length)throw Error(`Batch would leave ${region.name} empty.`);
+    const shape=gridShape(remaining);
+    changes.set(id,[shape]);
+    sourceRecords.push({id,before,after:{...before,shapes:[shape],
+      source:gridSource(before.source,shape)}});
+    sources.push({id,name:region.name,movedCells:claimed.size,remainingCells:remaining.length});
+  }
+  const targetRecords=[],destinations=[];
+  for(const id of [...targets.keys()].sort()){
+    const target=targets.get(id),shape=gridShape(target.offsets);
+    const before=stateOf(target.region);
+    changes.set(id,[shape]);
+    targetRecords.push({id,before,after:{...before,shapes:[shape],
+      source:gridSource(before.source,shape)}});
+    destinations.push({id,name:target.region.name,
+      addedCells:target.additions.length,finalCells:target.offsets.length});
+  }
+  const proposed=virtualScene(scene,changes);
+  for(const record of [...sourceRecords,...targetRecords]){
+    const after=record.after;
+    validateTerritoryCoverage(proposed,{geography:after.geography},after.shapes[0],
+      {regionId:record.id,view});
+  }
+  return {schemaVersion:3,sceneId:scene.id,gridIdentity:nativeSceneGridIdentity(scene,view),
+    sourceIds:sources.map(source=>source.id),targetIds:destinations.map(target=>target.id),
+    movedCells,convertedBackupAffected:[...sourceRecords,...targetRecords].some(record=>
+      scene.regions.get(record.id).getFlag(MODULE_ID,GRID_CONVERSION_BACKUP_FLAG)!=null),
+    sources,destinations,records:[...sourceRecords,...targetRecords]};
+}
+
 function checkRecord(scene,record){
   const region=authorize(scene,record.id),current=stateOf(region);
   if(sameState(current,record.before))return "before";
@@ -268,7 +382,8 @@ export function inspectPendingTerritoryCellTransfer(scene,{view=globalThis.canva
     const cells=value=>value?.shapes?.reduce((sum,shape)=>sum+
       (shape.type==="grid"&&Array.isArray(shape.offsets)?shape.offsets.length:0),0)??0;
     return {id:region.id,name:region.name,
-      role:region.id===intent.targetId?"target":"source",state,reason,
+      role:region.id===intent.targetId||intent.targetIds?.includes(region.id)?
+        "target":"source",state,reason,
       beforeCells:cells(record.before),afterCells:cells(record.after)};
   });
   const blocked=records.find(record=>record.state==="blocked");
@@ -347,6 +462,35 @@ export async function commitTerritoryCellTransfer(scene,plan,{view=globalThis.ca
   onProgress({step:0,total,message:"Recovery record saved; validating transfer"});
   if(!same(readPendingTerritoryCellTransfer(scene),intent))
     throw Error("Transfer recovery intent was not persisted. No Region was edited.");
+  return finish(scene,intent,"resume",view,onProgress);
+}
+
+/** Independent batch writer: refuses cross-target swaps and re-derives the
+ * entire plan after the GM confirmation, then persists one v3 recovery ledger. */
+export async function commitMultiDestinationTerritoryCellTransfer(scene,plan,
+  {view=globalThis.canvas,onProgress=()=>{}}={}){
+  if(plan?.schemaVersion!==3||plan.sceneId!==scene?.id||
+      readPendingTerritoryCellTransfer(scene))
+    throw Error("Reopen and review the batch transfer; resolve any pending recovery first.");
+  const staged=plan.targetIds.map(id=>{
+    const region=authorize(scene,id),draft=readTerritoryDraft(scene,id,{view});
+    draft.geography=readRegionGeography(region);
+    draft.offsets=plan.records.find(record=>record.id===id).after.shapes[0].offsets;
+    return {regionId:id,draft};
+  });
+  const refreshed=planMultiDestinationTerritoryCellTransfer(scene,staged,{view});
+  if(!same(refreshed,plan))
+    throw Error("Native batch Regions changed since preview. No changes written.");
+  const intent={schemaVersion:3,sceneId:scene.id,
+    sourceIds:clone(plan.sourceIds),targetIds:clone(plan.targetIds),
+    gridIdentity:plan.gridIdentity,records:clone(plan.records)};
+  if(JSON.stringify(intent).length>1000000)
+    throw Error("Batch exceeds safe recovery storage. Use smaller cell groups.");
+  const total=intent.records.length+3;
+  await scene.update({[flag(GRID_TRANSFER_INTENT_FLAG)]:intent});
+  onProgress({step:0,total,message:"Multi-destination recovery record saved"});
+  if(!same(readPendingTerritoryCellTransfer(scene),intent))
+    throw Error("Batch recovery record was not persisted; no Region was edited.");
   return finish(scene,intent,"resume",view,onProgress);
 }
 

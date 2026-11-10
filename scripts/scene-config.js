@@ -226,6 +226,22 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     "corridors are managed under Roads. Native Foundry geometry and Behaviors " +
     "remain authoritative. Analyze peer overlaps to preview an optional " +
     "one-sided native border correction; continent-to-settlement nesting is preserved.","hint"));
+  const batch=actions.territoryBatchState?.(scene);
+  if(batch?.count){
+    const queue=node("div",undefined,"atlas-territory-batch-queue");
+    queue.appendChild(node("p",`${batch.count} Hex/Grid destination${batch.count===1?"":"s"} `+
+      `staged locally: ${batch.names.join(", ")}. Stage at least two, then review and `+
+      "approve one guarded native transfer. Nothing is written while staging."));
+    const commit=button("Review & Transfer Batch","Preview and confirm one recoverable multi-destination transfer",() =>
+      actions.commitTerritoryBatch(scene,refresh));
+    commit.disabled=!!draft||batch.count<2;
+    queue.appendChild(commit);
+    const clear=button("Discard Staged Batch","Discard local batch drafts without changing native Regions",() =>
+      actions.discardTerritoryBatch(scene,refresh));
+    clear.disabled=!!draft;
+    queue.appendChild(clear);
+    manager.appendChild(queue);
+  }
   const pending=readPendingTerritoryCellTransfer(scene);
   if(pending){
     const warning=node("div",undefined,"atlas-territory-transfer-pending");
