@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readTerritoryDraft} from "../scripts/territory-authoring.js";
-import {planTerritoryCellTransfer,commitTerritoryCellTransfer,
+import {inspectTerritoryGridOwnership,planTerritoryCellTransfer,commitTerritoryCellTransfer,
   readPendingTerritoryCellTransfer,resolveTerritoryCellTransfer}
   from "../scripts/territory-grid-transfer.js";
 
@@ -64,6 +64,49 @@ function draft(f){
   candidate.offsets.push({i:1,j:0});
   return candidate;
 }
+
+test("Hex/Grid ownership review distinguishes unclaimed, single-peer and multi-peer cells without writes",()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),candidate=draft(f);
+    candidate.offsets.push({i:4,j:0});
+    const first=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
+    assert.equal(first.addedCells,2);
+    assert.equal(first.unclaimedAddedCells,1);
+    assert.equal(first.peerOwnedAddedCells,1);
+    assert.equal(first.contestedAddedCells,0);
+    assert.deepEqual(first.peers.map(p=>[p.name,p.cells]),[["Reshara",1]]);
+    assert.equal(first.canUseExistingTransferWriter,true);
+    const another={...f.source,id:"Third",name:"Third",
+      shapes:[{type:"grid",origin:null,offsets:[{i:4,j:0}]}]};
+    f.scene.regions.set(another.id,another);
+    const multiple=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
+    assert.equal(multiple.peerOwnedAddedCells,2);
+    assert.equal(multiple.requiresMultiRegionReview,true);
+    assert.equal(multiple.peers.length,2);
+    assert.throws(()=>planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}),
+      /multiple peer owners/);
+    another.shapes[0].offsets=[{i:1,j:0}];
+    const contested=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
+    assert.equal(contested.contestedAddedCells,1);
+    assert.equal(contested.unclaimedAddedCells,1);
+    assert.equal(f.events.length,0,"ownership review and failed plan never write");
+    globalThis.game.user.isGM=false;
+    assert.throws(()=>inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view}),
+      /GM/);
+  }finally{restore();}
+});
+
+test("Hex/Grid ownership review rejects stale target geometry without writes",()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),candidate=draft(f);
+    f.target.shapes[0].offsets.push({i:8,j:0});
+    assert.throws(()=>inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view}),
+      /changed/);
+    assert.equal(f.events.length,0);
+  }finally{restore();}
+});
 
 test("GM transfer preflights exact ownership, writes persistent intent first, then two Regions",async()=>{
   const restore=globals();

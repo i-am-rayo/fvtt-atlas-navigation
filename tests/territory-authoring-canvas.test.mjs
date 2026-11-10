@@ -132,6 +132,46 @@ test("hex/square brush rings show a live add/erase footprint before any write",a
   }finally{Object.assign(globalThis,saved);}
 });
 
+test("Paint Territory reviews peer Hex/Grid cell ownership and invalidates stale summaries",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={addChild(g){g.parent=this;},removeChild(g){g.parent=null;}};
+  const scene={id:"paedor"};let inspections=0,writes=0;
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Graphics};globalThis.document=doc;
+  globalThis.requestAnimationFrame=undefined;
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    dimensions:{sceneX:0,sceneY:0,sceneWidth:200,sceneHeight:200},
+    stage:{scale:{x:1}},canvasCoordinatesFromClient:p=>p,
+    grid:{getShape:()=>[{x:0,y:0},{x:10,y:0},{x:10,y:10}],
+      getCenterPoint:({i,j})=>({x:i*10+5,y:j*10+5}),
+      getOffset:({x,y})=>({i:Math.floor(x/10),j:Math.floor(y/10)}),
+      getAdjacentOffsets:()=>[]}};
+  const editor=new TerritoryAuthoringCanvas();
+  try{
+    const pending=editor.begin(scene,{kind:"grid",offsets:[]},async()=>{writes++;},
+      {inspectDraft:async()=>{inspections++;return {proposedCells:0,addedCells:2,
+        removedCells:0,unclaimedAddedCells:0,peerOwnedAddedCells:2,
+        peers:[{name:"Dirwest",cells:1},{name:"Valecor",cells:1}],
+        contestedAddedCells:0,requiresMultiRegionReview:true};}});
+    const action=editor.session.panel.children.find(c=>c.tagName==="div"&&
+      c.children.some(b=>b.textContent==="Review Shared Cells"))
+      .children.find(b=>b.textContent==="Review Shared Cells");
+    await action.listeners.get("click")();
+    const review=editor.session.ownershipReview;
+    assert.equal(inspections,1);
+    assert.match(review.textContent,/Dirwest \(1\), Valecor \(1\)/);
+    assert.match(review.textContent,/Multiple peers require a future guarded transfer/);
+    assert.equal(writes,0,"read-only review cannot trigger native writes");
+    surface.listeners.get("pointerdown")({button:0,clientX:20,clientY:20,
+      preventDefault(){},stopImmediatePropagation(){}});
+    assert.match(review.textContent,/Draft changed/);
+    editor.cancel();assert.equal(await pending,false);
+  }finally{Object.assign(globalThis,saved);}
+});
+
 test("Foundry legacy Graphics renders edited nodes, new outlines and native grid cells",async()=>{
   const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
     PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};

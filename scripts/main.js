@@ -46,7 +46,7 @@ import {TerritoryAuthoringCanvas} from "./territory-authoring-canvas.js";
 import {planTerritoryGridConversion,commitTerritoryGridConversion,
   restoreTerritoryPolygonBackup} from "./territory-grid-conversion.js";
 import {TerritoryGridConversionPreview} from "./territory-grid-conversion-preview.js";
-import {planTerritoryCellTransfer,commitTerritoryCellTransfer,
+import {inspectTerritoryGridOwnership,planTerritoryCellTransfer,commitTerritoryCellTransfer,
   readPendingTerritoryCellTransfer,resolveTerritoryCellTransfer}
   from "./territory-grid-transfer.js";
 import {preferredTerritoryCreationMethod} from "./territory-authoring-model.js";
@@ -1605,7 +1605,7 @@ function actions() {
         }
         await saveTerritoryDraft(scene,candidate,{regionId});
         refresh();ui.notifications.info("Native Territory boundary updated; Behaviors retained.");
-      });
+      },{inspectDraft:candidate=>inspectTerritoryGridOwnership(scene,regionId,candidate)});
     },
     async resolveTerritoryCellTransfer(scene,refresh){
       ensureIdle(scene);
