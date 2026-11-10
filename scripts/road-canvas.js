@@ -26,6 +26,7 @@ import { defaultTravelPresets, validateTravelPresets,
 import { validateRoadAppearance } from "./road-appearance.js";
 import { sceneRoadSurfaces, roadSurfaceSpans, roadSurfaceAtPoint } from "./road-surface-overlay.js";
 import { RoadOverlayObservability } from "./road-overlay-observability.js";
+import {effectiveCheckpointLabelMode} from "./territory-checkpoint-presentation.js";
 import { checkpointIconPath, checkpointFontIcon, checkpointMarkerPosition,
   checkpointCanvasSize,
   resolveCheckpointAppearance }
@@ -481,6 +482,7 @@ export class RoadCanvasController {
     this.overlayObservability = new RoadOverlayObservability();
     // GM display preference only; never changes authored road/Region colors.
     this.viewMode = "roads";
+    this.territoryLabelCheckpointIds=new Set();
     this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
       confirmAttach, confirmDetach, chooseBranch, idFactory, refresh: () => this.refresh() });
   }
@@ -524,6 +526,16 @@ export class RoadCanvasController {
     if (this.viewMode === mode) return false;
     this.viewMode = mode;
     this.refresh();
+    return true;
+  }
+
+  /** Only a local GM display preference: never persist a label-mode override. */
+  setTerritoryLabelCheckpointIds(ids,{redraw=true}={}){
+    const next=new Set(ids??[]);
+    if(next.size===this.territoryLabelCheckpointIds.size&&
+        [...next].every(id=>this.territoryLabelCheckpointIds.has(id)))return false;
+    this.territoryLabelCheckpointIds=next;
+    if(redraw)this.refresh();
     return true;
   }
 
@@ -1927,7 +1939,9 @@ export class RoadCanvasController {
       });
       const roadName = roads.get(checkpoint.roadId)?.name;
       const hovered = this.hoveredCheckpointId === checkpoint.id;
-      if (appearance.labelMode === "always" || (appearance.labelMode === "hover" && hovered)) {
+      const labelMode=effectiveCheckpointLabelMode(appearance.labelMode,
+        this.territoryLabelCheckpointIds.has(checkpoint.id));
+      if (labelMode === "always" || (labelMode === "hover" && hovered)) {
         this.#addCheckpointLabels(g, checkpoint.name +
           (journalUuidFor(gmJournals,"checkpoint",checkpoint.id) ? " 📖" : ""),
           roadName, appearance, group, zoom);

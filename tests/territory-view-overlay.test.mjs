@@ -123,3 +123,63 @@ test("GM overlay mounts above fog, draws continents first, and cleans up with no
     assert.equal(interfaceGroup.children.length,0,"non-GM must never get Territory overlay");
   } finally {Object.assign(globalThis,previous);}
 });
+
+test("linked geographic label uses Checkpoint name and double-click opens its authorized Journal",async()=>{
+  const previous={canvas:globalThis.canvas,PIXI:globalThis.PIXI,game:globalThis.game,
+    fromUuid:globalThis.fromUuid,foundry:globalThis.foundry};
+  const handlers=new Map(),removals=[];
+  class Container{
+    constructor(){this.children=[];}
+    addChild(item){item.parent=this;this.children.push(item);return item;}
+    removeChild(item){this.children.splice(this.children.indexOf(item),1);}
+    destroy(){}
+  }
+  class Graphics{poly(){return this;}stroke(){return this;}clear(){} }
+  class Text{
+    constructor(text){this.text=text;this.anchor={set(){}};this.position={set(){}};
+      this.scale={set(){}};}
+  }
+  try{
+    let linked=true;
+    const region={id:"region",name:"Dirwest Region",color:"#abcdef",
+      polygons:[{points:[0,0,100,0,100,100,0,100]}],
+      getFlag(_module,key){return linked&&key==="territoryCheckpoint"?
+        {schemaVersion:1,checkpointId:"checkpoint1"}:null;}};
+    const scene={id:"scene",regions:new Map([[region.id,region]]),
+      getFlag(_module,key){return key==="atlasJournalLinks"?
+        {schemaVersion:1,roads:{},checkpoints:{checkpoint1:"JournalEntry.ABCDEFGHIJKLMNOP"}}:null;}};
+    const canvasElement={addEventListener(name,handler){handlers.set(name,handler);},
+      removeEventListener(name,handler){removals.push(name);if(handlers.get(name)===handler)
+        handlers.delete(name);}};
+    globalThis.PIXI={Container,Graphics,Text};
+    globalThis.game={user:{isGM:true}};
+    globalThis.canvas={scene,ready:true,interface:new Container(),
+      app:{canvas:canvasElement},stage:{scale:{x:1}},
+      canvasCoordinatesFromClient:point=>point};
+    let opened=0;
+    globalThis.foundry={utils:{fromUuid:async()=>({documentName:"JournalEntry",
+      sheet:{render:async()=>{opened++;}}})}};
+    const overlay=new TerritoryViewOverlay();
+    overlay.sync(scene,[geo("region","Dirwest Region","city")],{
+      showNames:true,checkpointsById:new Map([["checkpoint1",
+        {id:"checkpoint1",name:"Dirwest"}]])});
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest"]);
+    assert.deepEqual([...overlay.labelCheckpointIds],["checkpoint1"]);
+    assert.equal(typeof handlers.get("dblclick"),"function");
+    let prevented=0;
+    handlers.get("dblclick")({button:0,clientX:50,clientY:50,
+      preventDefault(){prevented++;},stopImmediatePropagation(){}});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(prevented,1);
+    assert.equal(opened,1);
+    linked=false;
+    handlers.get("dblclick")({button:0,clientX:50,clientY:50,
+      preventDefault(){prevented++;},stopImmediatePropagation(){}});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(prevented,1,"a stale native association never opens its former Journal");
+    assert.equal(opened,1);
+    overlay.clear();
+    assert.ok(removals.includes("dblclick"),"clear always unregisters Journal handlers");
+    assert.equal(handlers.size,0);
+  }finally{Object.assign(globalThis,previous);}
+});

@@ -5,6 +5,9 @@
  */
 import {projectTerritoryView, territoryTier} from "./territory-view-model.js";
 import {nativeRegionColorNumber} from "./native-region-color.js";
+import {readTerritoryCheckpointLink} from "./territory-checkpoint-link.js";
+import {territoryDisplayName} from "./territory-checkpoint-presentation.js";
+import {readAtlasJournalLinks,journalUuidFor,openAtlasJournal} from "./atlas-journal-links.js";
 
 const MAX_REGIONS = 80;
 const MAX_VERTICES = 20000;
@@ -100,20 +103,25 @@ function location(region, paths) {
 }
 
 export class TerritoryViewOverlay {
-  constructor() { this.layer = null; this.view = null; this.labels = []; }
+  constructor() { this.layer = null; this.view = null; this.labels = [];
+    this.labelCheckpointIds=new Set();this.hitLabels=[];
+    this.journalCanvasElement=null;this.journalDoubleClickHandler=null; }
 
   clear() {
+    this.journalCanvasElement?.removeEventListener?.("dblclick",this.journalDoubleClickHandler,true);
+    this.journalCanvasElement=null;this.journalDoubleClickHandler=null;
     const layer = this.layer;
     this.layer = null;
     this.view = null;
     this.labels = [];
+    this.labelCheckpointIds=new Set();this.hitLabels=[];
     if (!layer) return;
     layer.parent?.removeChild?.(layer);
     layer.destroy?.({children:true});
   }
 
   sync(scene, entries, {mode="combined", showNames=false,
-    continentFillOpacity=0,settlementFillOpacity=0} = {}) {
+    continentFillOpacity=0,settlementFillOpacity=0,checkpointsById=new Map()} = {}) {
     this.clear();
     const view = globalThis.canvas;
     const pixi = globalThis.PIXI;
@@ -136,7 +144,7 @@ export class TerritoryViewOverlay {
     layer.addChild(borders);
     let shown = 0, skipped = 0, vertices = 0;
     let fillTriangles=0;
-    const labels = [];
+    const labels = [],hitLabels=[],labelCheckpointIds=new Set();
     try {
       for (const entry of projected) {
         if (shown >= MAX_REGIONS) { skipped++; continue; }
@@ -172,9 +180,16 @@ export class TerritoryViewOverlay {
         if (showNames && labels.length < MAX_LABELS && pixi.Text) {
           const at = location(region,paths);
           if (at && [at.x,at.y].every(Number.isFinite)) {
+            let linkedCheckpoint=null;
+            try{
+              const link=readTerritoryCheckpointLink(region);
+              linkedCheckpoint=link?checkpointsById.get(link.checkpointId)??null:null;
+            }catch{/* Malformed association cannot publish a new label or Journal action. */}
+            const labelName=String(territoryDisplayName(entry.name??"Unnamed Region",
+              linkedCheckpoint)).slice(0,64);
             // Foundry v14's PIXI.Text expects (text, style). Passing a single
             // options object is rendered literally as "[object Object]".
-            const label = new pixi.Text(String(entry.name??"Unnamed Region").slice(0,64),
+            const label = new pixi.Text(labelName,
               {fontFamily:"Signika, sans-serif",fontSize:broad?17:20,
                 fontWeight:"bold",fill:broad?"#f4e0b4":"#ffffff",
                 stroke:"#121827",strokeThickness:5});
@@ -183,6 +198,11 @@ export class TerritoryViewOverlay {
             label.position?.set?.(at.x,at.y);
             layer.addChild(label);
             labels.push(label);
+            if(linkedCheckpoint){
+              labelCheckpointIds.add(linkedCheckpoint.id);
+              hitLabels.push({at,checkpointId:linkedCheckpoint.id,regionId:region.id,
+                name:labelName,fontSize:broad?17:20});
+            }
           }
         }
       }
@@ -190,7 +210,10 @@ export class TerritoryViewOverlay {
       this.layer = layer;
       this.view = view;
       this.labels = labels;
+      this.hitLabels=hitLabels;
+      this.labelCheckpointIds=labelCheckpointIds;
       this.updateLabelScale();
+      this.#trackJournalDoubleClick(scene);
     } catch (error) {
       layer.parent?.removeChild?.(layer);
       layer.destroy?.({children:true});
@@ -203,5 +226,38 @@ export class TerritoryViewOverlay {
     if (!this.layer || this.view !== globalThis.canvas) return;
     const zoom = Math.max(.2, Number(this.view.stage?.scale?.x) || 1);
     for (const label of this.labels) label.scale?.set?.(1/zoom);
+  }
+
+  #trackJournalDoubleClick(scene){
+    const view=this.view;
+    const element=view?.app?.canvas??view?.app?.view;
+    if(!this.hitLabels.length||!element?.addEventListener)return;
+    this.journalCanvasElement=element;
+    this.journalDoubleClickHandler=event=>{
+      if(event.button!==0||event.shiftKey||event.altKey||event.ctrlKey||event.metaKey||
+          !globalThis.game?.user?.isGM||this.view!==globalThis.canvas||
+          view.scene?.id!==scene.id)return;
+      const point=view.canvasCoordinatesFromClient?.({x:event.clientX,y:event.clientY});
+      if(!Number.isFinite(point?.x)||!Number.isFinite(point?.y))return;
+      const zoom=Math.max(.2,Number(view.stage?.scale?.x)||1);
+      // Only a double-click on the visible text opens its Checkpoint Journal.
+      for(const hit of [...this.hitLabels].reverse()){
+        const halfWidth=(Math.max(30,hit.name.length*hit.fontSize*.65)+16)/(2*zoom);
+        const halfHeight=(hit.fontSize+12)/(2*zoom);
+        if(Math.abs(point.x-hit.at.x)>halfWidth||Math.abs(point.y-hit.at.y)>halfHeight)
+          continue;
+        try{
+          const current=scene.regions?.get?.(hit.regionId);
+          if(readTerritoryCheckpointLink(current)?.checkpointId!==hit.checkpointId)continue;
+          const uuid=journalUuidFor(readAtlasJournalLinks(scene),"checkpoint",hit.checkpointId);
+          if(!uuid)continue;
+          event.preventDefault?.();event.stopImmediatePropagation?.();
+          void openAtlasJournal(uuid).catch(error=>
+            globalThis.ui?.notifications?.warn?.(error.message??String(error)));
+          return;
+        }catch{/* Invalid or stale Journal association: leave native canvas alone. */}
+      }
+    };
+    element.addEventListener("dblclick",this.journalDoubleClickHandler,true);
   }
 }
