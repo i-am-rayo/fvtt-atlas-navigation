@@ -44,6 +44,8 @@ import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
 import {analyzeSceneTerritoryBorders,planNativeTerritoryTrim,
   saveNativeTerritoryTrim} from "./territory-border-reconciliation.js";
 import {TerritoryAuthoringCanvas} from "./territory-authoring-canvas.js";
+import {createTerritoryRecoveryConfirmationContent}
+  from "./territory-recovery-dialog.js";
 import {planTerritoryGridConversion,commitTerritoryGridConversion,
   restoreTerritoryPolygonBackup} from "./territory-grid-conversion.js";
 import {TerritoryGridConversionPreview} from "./territory-grid-conversion-preview.js";
@@ -1837,10 +1839,8 @@ function actions() {
       const decision=await DialogV2.input({window:{title:"Recover Native Territory Transfer"},
         content:container,ok:{label:"Review Recovery"},rejectClose:false,modal:true});
       if(!decision?.mode||!choices.some(([value])=>value===decision.mode))return;
-      const confirm=document.createElement("p");
-      confirm.textContent=decision.mode==="resume"?
-        "Complete the interrupted transfer using the saved recovery record?":
-        `Restore all ${pending.records.length} Regions to their pre-transfer Shapes and Atlas controls?`;
+      const confirm=createTerritoryRecoveryConfirmationContent(
+        decision.mode,pending.records.length);
       const accepted=await DialogV2.confirm({window:{title:"Confirm Territory Recovery"},
         content:confirm,yes:{label:decision.mode==="resume"?
           "Resume Native Transfer":"Roll Back Native Transfer"},
