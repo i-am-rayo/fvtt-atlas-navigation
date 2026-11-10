@@ -8,6 +8,7 @@ import { TRAVEL_PRESET_SETTING, validateTravelPresets, validateTravelPresetId } 
 import { ATLAS_FLAG, MODULE_ID, readAtlas } from "./atlas-storage.js";
 import { setRoadPlayerVisibility, setCheckpointPlayerVisibility }
   from "./player-visibility.js";
+import {assertNoDeletedTerritoryCheckpoints} from "./territory-checkpoint-link.js";
 
 /**
  * Scene flag writes are revision-checked, but not atomic compare-and-swap.
@@ -26,6 +27,7 @@ async function saveChange(scene, expectedRevision, update) {
   }
   const updated = update(previous);
   const next = validateAtlas({ ...updated, revision: previous.revision + 1 });
+  assertNoDeletedTerritoryCheckpoints(scene,previous,next);
   await scene.setFlag(MODULE_ID, ATLAS_FLAG, next);
   return next;
 }

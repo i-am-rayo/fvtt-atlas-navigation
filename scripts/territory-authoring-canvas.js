@@ -88,35 +88,11 @@ function drawBrushFootprint(graphics,points,erase,zoom){
   }else throw Error("Foundry Canvas cannot draw Territory brush footprints.");
 }
 
-/** Explicit, GM-only ownership review. These colors are transient canvas
- * feedback; the Region Documents and the normal player overlay are untouched. */
-function drawOwnershipFootprint(graphics,points,status,zoom){
-  const colors={contested:0xff7187,peer:0xffc66d,
-    unclaimed:0x79d4fa,removed:0xc5a2f4};
-  const color=colors[status];
-  if(color===undefined)return;
-  const width=2.5/Math.max(.2,zoom);
-  if(typeof graphics.poly==="function"&&typeof graphics.fill==="function"&&
-      typeof graphics.stroke==="function"){
-    graphics.poly(points).fill({color,alpha:.6});
-    graphics.poly(points).stroke({width,color,alpha:1,join:"round"});
-  }else if(typeof graphics.beginFill==="function"&&
-      typeof graphics.drawPolygon==="function"&&typeof graphics.endFill==="function"){
-    graphics.beginFill(color,.6);graphics.drawPolygon(points);graphics.endFill();
-    if(typeof graphics.lineStyle==="function"&&typeof graphics.moveTo==="function"&&
-        typeof graphics.lineTo==="function"){
-      graphics.lineStyle(width,color,1);graphics.moveTo(points[0],points[1]);
-      for(let i=2;i<points.length;i+=2)graphics.lineTo(points[i],points[i+1]);
-      graphics.lineTo(points[0],points[1]);
-    }
-  }else throw Error("Foundry Canvas cannot draw Territory ownership reviews.");
-}
-
 export class TerritoryAuthoringCanvas{
   constructor({manualFog=null}={}){this.manualFog=manualFog;}
   session=null;
   async begin(scene,draft,onSave,
-    {inspectDraft=null,onStage=null,afterStage=null,batchContext=null}={}){
+    {onStage=null,afterStage=null,batchContext=null}={}){
     if(this.session)throw Error("Finish or cancel the existing Territory draft first.");
     const view=globalThis.canvas;
     if(!globalThis.game?.user?.isGM||!view?.ready||view.scene?.id!==scene?.id||
@@ -141,15 +117,11 @@ export class TerritoryAuthoringCanvas{
     const batchNote=batchContext?el("p",`Batch destination ${batchContext.index} of `+
       `${batchContext.total}: ${batchContext.name}. Paint cells INTO this destination. `+
       "Atlas will remove them from their current owner only after the final batch " +
-      "approval. Do not separately erase the source. Staging stores a local draft, " +
-      "not a native Region update. Stage & Next moves through the selection; " +
-      "Stage & Review Batch opens the final approval without visiting the Workspace."):null;
+      "approval. Do not separately erase the source. Switching destinations " +
+      "keeps the current draft locally; Stage proceeds to the next unfinished " +
+      "destination or opens the final review when all are staged. " +
+      "Only final approval updates native Regions."):null;
     if(batchNote)batchNote.style.cssText="color:#bce9e3;white-space:pre-line;";
-    const ownershipReview=el("p");
-    ownershipReview.setAttribute("role","note");
-    ownershipReview.setAttribute("aria-live","polite");
-    ownershipReview.style.cssText="white-space:pre-line;color:#bce9e3;margin:.5rem 0";
-    ownershipReview.style.display="none";
     const actions=el("div");actions.style.cssText="display:flex;flex-wrap:wrap;gap:0.4rem";
     const addButton=(label,handler)=>{const b=el("button",label);b.type="button";
       b.addEventListener("click",handler);actions.appendChild(b);return b;};
@@ -184,8 +156,7 @@ export class TerritoryAuthoringCanvas{
     const session={sceneId:scene.id,view,surface,layer,panel,info,draft:copy(draft),
       history:[],radius:0,strokeErase:false,hoverErase:false,
       pointerSnapshot:null,dragNode:-1,selectedNode:-1,painting:false,saving:false,
-      hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave,
-      ownershipReview,reviewSignature:null,ownershipPreview:null};
+      hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave};
     const progress=el("div");
     progress.setAttribute("role","status");progress.setAttribute("aria-live","polite");
     progress.className="atlas-territory-transfer-progress";
@@ -239,50 +210,6 @@ export class TerritoryAuthoringCanvas{
       slider.addEventListener("input",()=>setRadius(slider.value));
       radiusLabel.appendChild(slider);radiusLabel.appendChild(radiusValue);
       panel.appendChild(radiusLabel);
-      if(typeof inspectDraft==="function")addButton("Review Shared Cells",async()=>{
-        if(session.saving)return;
-        const signature=JSON.stringify(session.draft.offsets);
-        try{
-          const report=await inspectDraft(copy(session.draft));
-          if(!this.#live(session))return;
-          if(signature!==JSON.stringify(session.draft.offsets)){
-            ownershipReview.textContent="Draft changed during review. Review Shared Cells again.";
-            session.reviewSignature=null;session.ownershipPreview=null;
-          }else{
-            const lines=[`Proposed: ${report.proposedCells} cells (`+
-              `+${report.addedCells} / −${report.removedCells}).`,
-            `${report.unclaimedAddedCells} added cells are unclaimed; `+
-              `${report.peerOwnedAddedCells} are already held by peer Territories.`];
-            if(report.peers.length)lines.push("Peers: "+report.peers.map(p=>
-              `${p.name} (${p.cells})`).join(", ")+".");
-            if(report.contestedAddedCells)lines.push(
-              `⚠ ${report.contestedAddedCells} added cells have multiple peer owners; `+
-                "resolve overlapping claims before saving.");
-            if(report.requiresMultiRegionReview)lines.push(
-              "Multiple peers require an explicit multi-Region transfer with " +
-                "recovery. Preview & Save performs fresh checks; this review never writes.");
-            else lines.push("Read-only review. Save still performs a fresh native validation.");
-            if(report.previewCells?.length){
-              lines.push("Map preview: gold = peer-owned; red = contested; " +
-                "blue = unclaimed; purple = removed.");
-              if(report.previewTruncated)lines.push(
-                `Showing ${report.previewCells.length} of ${report.previewTotalCells} changed cells. `+
-                "Conflicts are shown first; counts include all cells.");
-            }
-            ownershipReview.textContent=lines.join("\n");
-            session.reviewSignature=signature;
-            session.ownershipPreview=Array.isArray(report.previewCells)?
-              report.previewCells.map(cell=>({...cell})):null;
-            this.#scheduleDraw(session);
-          }
-          ownershipReview.style.display="block";
-        }catch(error){
-          ownershipReview.textContent=error.message??String(error);
-          ownershipReview.style.display="block";
-          session.reviewSignature=null;session.ownershipPreview=null;
-          this.#scheduleDraw(session);
-        }
-      });
     }else{
       const smoothingLabel=el("label"," Smoothing ");
       const smoothingSelect=el("select");
@@ -321,24 +248,26 @@ export class TerritoryAuthoringCanvas{
         }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
         finally{await releaseFocus?.();session.saving=false;}
       };
-      if(batchContext?.nextName)addButton(`Stage & Next: ${batchContext.nextName}`,
-        ()=>stage({advance:true}));
-      else addButton("Stage & Review Batch",()=>stage({review:true}));
+      addButton("Stage",()=>stage(batchContext?.nextName?
+        {advance:true}:{review:true}));
       if(Array.isArray(batchContext?.targets)&&batchContext.targets.length>1){
         const picker=el("label","Switch batch destination");
         picker.style.cssText="display:block;margin:.65rem 0 .35rem";
         const select=el("select");
         select.setAttribute("aria-label","Switch to selected batch Territory");
+        const prompt=el("option","Choose another Territory…");
+        prompt.value="";select.appendChild(prompt);
         const otherTargets=batchContext.targets.filter(target=>target.id!==batchContext.regionId);
         for(const target of otherTargets){
           const option=el("option",`${target.name} — ${target.staged?"Staged":"Not staged"}`);
           option.value=target.id;select.appendChild(option);
         }
-        if(batchContext.nextId)select.value=batchContext.nextId;
+        select.value="";
         picker.appendChild(select);panel.appendChild(picker);
-        addButton("Stage & Switch Territory",()=>stage({targetId:select.value}));
+        select.addEventListener("change",()=>{
+          if(select.value)stage({targetId:select.value});
+        });
       }
-      addButton("Stage & Return to Workspace",()=>stage());
     }
     addButton("Cancel",()=>{if(!session.saving)session.close(false);});
     if(!batchContext){
@@ -366,7 +295,7 @@ export class TerritoryAuthoringCanvas{
     progress.style.display="none";
     panel.prepend(head,info);
     if(batchNote)panel.appendChild(batchNote);
-    panel.append(ownershipReview,shortcuts,actions,progress);
+    panel.append(shortcuts,actions,progress);
     document.body.appendChild(panel);
     const snapshot=()=>{session.history.push(copy(session.draft));
       if(session.history.length>40)session.history.shift();};
@@ -559,11 +488,6 @@ export class TerritoryAuthoringCanvas{
   }
   #draw(session){
     const graphics=session.layer,view=session.view,draft=session.draft;
-    if(session.reviewSignature!==null&&
-        JSON.stringify(draft.offsets)!==session.reviewSignature){
-      session.reviewSignature=null;session.ownershipPreview=null;
-      session.ownershipReview.textContent="Draft changed. Review Shared Cells again.";
-    }
     const zoom=Number.isFinite(view.stage?.scale?.x)&&view.stage.scale.x>0?
       view.stage.scale.x:1;
     graphics.clear();
@@ -590,11 +514,6 @@ export class TerritoryAuthoringCanvas{
       for(const p of cells){
         const center=view.grid.getCenterPoint(p);
         drawGridSpace(graphics,shape.flatMap(q=>[center.x+q.x,center.y+q.y]));
-      }
-      for(const cell of session.ownershipPreview??[]){
-        const center=view.grid.getCenterPoint(cell);
-        drawOwnershipFootprint(graphics,shape.flatMap(q=>
-          [center.x+q.x,center.y+q.y]),cell.status,zoom);
       }
       for(const cell of session.hoverOffsets){
         const center=view.grid.getCenterPoint(cell);

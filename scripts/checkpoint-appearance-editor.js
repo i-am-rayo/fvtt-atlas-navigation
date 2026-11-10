@@ -23,6 +23,7 @@ import { readPartyExploration, saveCheckpointKnowledge }
 import { checkpointKnowledge, checkpointRevealRadiusCells }
   from "./party-exploration-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
+import { territoryCheckpointLinks } from "./territory-checkpoint-link.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { CHECKPOINT_TYPE_GROUPS, checkpointCategory, saveCheckpointCategory } from "./checkpoint-types.js";
 import { CHECKPOINT_PRESET_SETTING, upsertCheckpointPreset } from "./checkpoint-preset-model.js";
@@ -271,9 +272,19 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     pageTerrain.style.cssText="min-width:0;";
     const checkpointRegions=this.createDraft?[]:listGeneratedRegions(this.scene).filter(item=>
       item.metadata?.checkpointIds?.includes(this.checkpointId));
+    const linkedTerritories=this.createDraft?[]:territoryCheckpointLinks(this.scene).filter(item=>
+      item.link?.checkpointId===this.checkpointId);
     const presetNames=new Map(checkpointRegions.length?
       readWorldTravelPresets().presets.map(p=>[p.id,p.name]):[]);
     pageTerrain.appendChild(el("p","A checkpoint Region overrides the road's default travel preset where its geometry applies. Higher-priority overlapping Regions win. Native Behaviors are edited separately."));
+    if(!this.createDraft){
+      pageTerrain.appendChild(el("p",linkedTerritories.length?
+        `Linked geographic Territory: ${linkedTerritories.map(item=>item.regionName).join(", ")}. `+
+          "Manage this identity association in Atlas Workspace → Territories; " +
+          "it does not alter the Checkpoint Journal or native Region geometry.":
+        "No geographic Territory is associated with this Checkpoint. " +
+          "Link one from Atlas Workspace → Territories."));
+    }
     const terrainButton=(title,action,regionId=null)=>{
       const button=el("button",title);button.type="button";
       const icon={geometry:"fa-solid fa-ruler-combined",

@@ -98,7 +98,7 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
   }finally{Object.assign(globalThis,saved);}
 });
 
-test("batch destination editor stages and returns to Workspace without native Save",async()=>{
+test("batch destination Stage requests final review without native Save",async()=>{
   const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
     PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
   const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
@@ -119,14 +119,16 @@ test("batch destination editor stages and returns to Workspace without native Sa
   try{
     const pending=editor.begin(scene,{kind:"grid",offsets:[{i:1,j:1}]},
       async()=>{writes++;},{onStage:draft=>queued.push(draft),
-        afterStage:choice=>{returned++;routes.push(choice.advance);},
-        batchContext:{name:"Dirwest",index:1,total:2,nextName:"Millstone"}});
+        afterStage:choice=>{returned++;routes.push(choice.review);},
+        batchContext:{name:"Dirwest",index:2,total:2,nextName:null}});
     const stage=editor.session.panel.children.find(c=>c.tagName==="div"&&
-      c.children.some(button=>button.textContent==="Stage & Return to Workspace"))
-      .children.find(button=>button.textContent==="Stage & Return to Workspace");
+      c.children.some(button=>button.textContent==="Stage"))
+      .children.find(button=>button.textContent==="Stage");
     assert.ok(stage);
-    assert.ok(editor.session.panel.children.find(c=>c.tagName==="div"&&
-      c.children.some(button=>button.textContent==="Stage & Next: Millstone")));
+    const controls=editor.session.panel.children.flatMap(c=>c.children??[])
+      .filter(c=>c.tagName==="button").map(b=>b.textContent);
+    assert.deepEqual(controls,["Stage","Cancel"],
+      "batch editor has only Stage and Cancel buttons");
     assert.match(editor.session.panel.children.find(c=>c.tagName==="p"&&
       String(c.textContent).includes("Batch destination"))?.textContent??"",/Dirwest/);
     assert.ok(!editor.session.panel.children.some(c=>c.tagName==="div"&&
@@ -136,14 +138,14 @@ test("batch destination editor stages and returns to Workspace without native Sa
     assert.equal(await pending,true);
     assert.equal(writes,0);
     assert.equal(returned,1);
-    assert.deepEqual(routes,[false]);
+    assert.deepEqual(routes,[true]);
     assert.deepEqual(queued[0].offsets,[{i:1,j:1}]);
     assert.equal(editor.session,null);
     assert.equal(body.children.length,0);
   }finally{Object.assign(globalThis,saved);}
 });
 
-test("Stage & Next forwards the next destination request after closing Paint",async()=>{
+test("Stage advances to the next unfinished destination after closing Paint",async()=>{
   const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
     PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
   const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
@@ -169,8 +171,8 @@ test("Stage & Next forwards the next destination request after closing Paint",as
           routes.push(choice.advance);
         },batchContext:{name:"Dirwest",index:1,total:2,nextName:"Millstone"}});
     const stage=editor.session.panel.children.find(c=>c.tagName==="div"&&
-      c.children.some(button=>button.textContent==="Stage & Next: Millstone"))
-      .children.find(button=>button.textContent==="Stage & Next: Millstone");
+      c.children.some(button=>button.textContent==="Stage"))
+      .children.find(button=>button.textContent==="Stage");
     await stage.listeners.get("click")();
     assert.equal(await pending,true);
     assert.deepEqual(routes,[true]);
@@ -217,9 +219,8 @@ test("batch painting switches among selected destinations without a Workspace ro
   };
   try{
     const first=open("dirwest");
-    assert.ok(!buttons().some(b=>b.textContent==="Stage & Review Batch"),
-      "review is unavailable before other destinations are staged");
-    await click("Stage & Next: Millstone");
+    assert.deepEqual(buttons().map(b=>b.textContent),["Stage","Cancel"]);
+    await click("Stage");
     assert.equal(await first,true);
     assert.deepEqual(routes.pop(),{advance:true,targetId:null,review:false});
     assert.equal(staged.size,1);
@@ -229,22 +230,23 @@ test("batch painting switches among selected destinations without a Workspace ro
       c.tagName==="label"&&c.textContent==="Switch batch destination");
     const select=picker?.children.find(c=>c.tagName==="select");
     assert.ok(select,"all selected destinations are available in Paint");
-    assert.deepEqual(select.children.map(option=>option.value),["dirwest","neo"]);
+    assert.deepEqual(select.children.map(option=>option.value),["","dirwest","neo"]);
+    assert.equal(select.value,"","a neutral selector lets the GM choose any destination immediately");
     select.value="dirwest";
-    await click("Stage & Switch Territory");
+    await select.listeners.get("change")();
     assert.equal(await second,true);
     assert.deepEqual(routes.pop(),{advance:false,targetId:"dirwest",review:false});
     assert.equal(staged.size,2);
 
     const revisit=open("dirwest");
-    await click("Stage & Next: Neo Lustrum");
+    await click("Stage");
     assert.equal(await revisit,true);
     assert.equal(routes.pop().advance,true);
 
     const last=open("neo");
-    assert.ok(buttons().some(b=>b.textContent==="Stage & Review Batch"),
-      "final destination offers batch approval directly from Paint");
-    await click("Stage & Review Batch");
+    assert.deepEqual(buttons().map(b=>b.textContent),["Stage","Cancel"],
+      "final destination offers one Stage control for approval");
+    await click("Stage");
     assert.equal(await last,true);
     assert.deepEqual(routes.pop(),{advance:false,targetId:null,review:true});
     assert.equal(staged.size,3);
@@ -253,7 +255,7 @@ test("batch painting switches among selected destinations without a Workspace ro
   }finally{editor.cancel();Object.assign(globalThis,saved);}
 });
 
-test("Stage & Next keeps the Workspace minimized until the last Paint editor closes",async()=>{
+test("Stage keeps the Workspace minimized until the last Paint editor closes",async()=>{
   const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
     PIXI:globalThis.PIXI,foundry:globalThis.foundry,
     requestAnimationFrame:globalThis.requestAnimationFrame};
@@ -285,7 +287,7 @@ test("Stage & Next keeps the Workspace minimized until the last Paint editor clo
       },batchContext:{name:"First",regionId:"first",index:1,total:2,
         nextName:"Second",nextId:"second"}});
     const stage=editor.session.panel.children.flatMap(c=>c.children??[])
-      .find(c=>c.tagName==="button"&&c.textContent==="Stage & Next: Second");
+      .find(c=>c.tagName==="button"&&c.textContent==="Stage");
     await stage.listeners.get("click")();
     assert.equal(await first,true);
     assert.ok(secondPending,"second Paint editor opens before the first releases focus");
@@ -510,13 +512,13 @@ test("Escape closes Paint Territory without closing and instead restores minimiz
   }
 });
 
-test("Paint Territory reviews peer Hex/Grid cell ownership and invalidates stale summaries",async()=>{
+test("Paint Territory hides the manual Shared Cells test control",async()=>{
   const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
     PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
   const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
   doc.createElement=tag=>new Element(tag);doc.body=body;
   const group={addChild(g){g.parent=this;},removeChild(g){g.parent=null;}};
-  const scene={id:"paedor"};let inspections=0,writes=0;
+  const scene={id:"paedor"};let writes=0;
   globalThis.game={user:{isGM:true}};
   globalThis.PIXI={Graphics};globalThis.document=doc;
   globalThis.requestAnimationFrame=undefined;
@@ -529,35 +531,15 @@ test("Paint Territory reviews peer Hex/Grid cell ownership and invalidates stale
       getAdjacentOffsets:()=>[]}};
   const editor=new TerritoryAuthoringCanvas();
   try{
-    const pending=editor.begin(scene,{kind:"grid",offsets:[]},async()=>{writes++;},
-      {inspectDraft:async()=>{inspections++;return {proposedCells:0,addedCells:2,
-        removedCells:0,unclaimedAddedCells:0,peerOwnedAddedCells:2,
-        peers:[{name:"Dirwest",cells:1},{name:"Valecor",cells:1}],
-        contestedAddedCells:1,requiresMultiRegionReview:true,
-        previewCells:[{i:1,j:1,status:"peer"},{i:2,j:1,status:"unclaimed"},
-          {i:3,j:1,status:"contested"},{i:4,j:1,status:"removed"}],
-        previewTotalCells:4,previewTruncated:false};}});
-    const action=editor.session.panel.children.find(c=>c.tagName==="div"&&
-      c.children.some(b=>b.textContent==="Review Shared Cells"))
-      .children.find(b=>b.textContent==="Review Shared Cells");
-    await action.listeners.get("click")();
-    const review=editor.session.ownershipReview;
-    assert.equal(inspections,1);
-    assert.match(review.textContent,/Dirwest \(1\), Valecor \(1\)/);
-    assert.match(review.textContent,/Multiple peers require an explicit multi-Region transfer/);
-    assert.match(review.textContent,/Map preview: gold = peer-owned/);
-    assert.deepEqual(new Set(editor.session.layer.fills.map(fill=>fill.color)),
-      new Set([0xffc66d,0x79d4fa,0xff7187,0xc5a2f4]),
-      "review highlights peer-owned, unclaimed, contested and removed cells on the GM canvas");
-    assert.equal(writes,0,"read-only review cannot trigger native writes");
+    const pending=editor.begin(scene,{kind:"grid",offsets:[]},async()=>{writes++;});
+    const buttons=editor.session.panel.children.flatMap(c=>c.children??[])
+      .filter(c=>c.tagName==="button").map(c=>c.textContent);
+    assert.deepEqual(buttons,["Cancel","Preview & Save"]);
     surface.listeners.get("pointerdown")({button:0,clientX:20,clientY:20,
       preventDefault(){},stopImmediatePropagation(){}});
-    assert.match(review.textContent,/Draft changed/);
-    assert.equal(editor.session.ownershipPreview,null,"painting invalidates the old ownership overlay");
-    assert.ok(editor.session.layer.fills.every(fill=>
-      ![0xffc66d,0x79d4fa,0xff7187,0xc5a2f4].includes(fill.color)),
-    "stale ownership colors vanish immediately while the normal brush hover remains");
+    assert.equal(editor.session.draft.offsets.length,1);
     editor.cancel();assert.equal(await pending,false);
+    assert.equal(writes,0);
   }finally{Object.assign(globalThis,saved);}
 });
 
@@ -595,20 +577,9 @@ test("Foundry legacy Graphics renders edited nodes, new outlines and native grid
     assert.ok(editor.session.layer.calls.lines>0,"new polygon uses legacy outline styling");
     editor.cancel();assert.equal(await creation,false);
 
-    const painting=editor.begin(scene,{kind:"grid",offsets:[{i:0,j:0}]},async()=>{},
-      {inspectDraft:async()=>({proposedCells:1,addedCells:0,removedCells:0,
-        unclaimedAddedCells:0,peerOwnedAddedCells:0,contestedAddedCells:0,
-        peers:[],requiresMultiRegionReview:false,
-        previewCells:[{i:0,j:0,status:"peer"}],previewTotalCells:1,
-        previewTruncated:false})});
+    const painting=editor.begin(scene,{kind:"grid",offsets:[{i:0,j:0}]},async()=>{});
     assert.equal(editor.session.layer.calls.polygons,1,
       "legacy drawPolygon renders a native grid cell without graphics.poly");
-    const review=editor.session.panel.children.find(child=>child.tagName==="div"&&
-      child.children.some(button=>button.textContent==="Review Shared Cells"))
-      .children.find(button=>button.textContent==="Review Shared Cells");
-    await review.listeners.get("click")();
-    assert.ok(editor.session.layer.calls.polygons>=3,
-      "legacy Foundry Graphics can draw the reviewed ownership footprint safely");
     const radiusControl=editor.session.panel.children.find(child=>child.tagName==="label"&&
       child.textContent.includes("Brush radius"));
     const slider=radiusControl.children.find(child=>child.tagName==="input");

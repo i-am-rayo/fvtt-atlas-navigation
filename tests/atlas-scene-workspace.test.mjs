@@ -81,8 +81,8 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.ok(row, "native Region has a compact workspace row");
     assert.match(row.children[1].className, /atlas-territory-actions/,
       "actions must be placed underneath the Region details");
-    assert.equal(row.children[1].children.length, 8,
-      "Locate joins the existing native Region reconciliation and Territory controls");
+    assert.equal(row.children[1].children.length, 9,
+      "Locate and Checkpoint association join the native Region and Territory controls");
     assert.ok(row.children[1].children.every(item =>
       item.className?.includes?.("atlas-ui-icon-button")),
     "all Territory actions must share the same icon size");

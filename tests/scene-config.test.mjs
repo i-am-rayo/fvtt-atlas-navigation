@@ -1032,6 +1032,29 @@ test("Territories Workspace starts batch selection before painting and tracks ea
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("Territory rows show stable Checkpoint association with a GM link editor",async()=>{
+  const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},i18n:{localize:key=>key,lang:"en"}};
+    globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    const native={id:"city",name:"Dirwest City",hidden:false,shapes:[],behaviors:[],
+      getFlag:(_module,key)=>key==="atlas"?{schemaVersion:1,linked:true}:
+        key==="territoryCheckpoint"?{schemaVersion:1,checkpointId:"cp-dirwest"}:null};
+    const scene={id:"paedor",regions:new Map([[native.id,native]]),getFlag:()=>null};
+    let opened=null;
+    const panel=createAtlasTerritoryPanel(scene,{draft:()=>null,
+      configureTerritoryCheckpoint:(_scene,id)=>{opened=id;}},()=>{},
+    {generated:[],nativeRegions:[{id:native.id,name:native.name,linked:true,
+      invalidLink:false,hidden:false}],publicById:new Map()});
+    assert.match(textContents(panel),/Linked Checkpoint missing — choose another/);
+    const action=buttons(panel).find(b=>b.title==="Change or remove linked Atlas Checkpoint");
+    assert.ok(action&&!action.disabled);
+    await action.listeners.get("click")({preventDefault(){},stopPropagation(){}});
+    assert.equal(opened,native.id);
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("interrupted native batch disables staged draft discard until recovery",()=>{
   const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
   try{
