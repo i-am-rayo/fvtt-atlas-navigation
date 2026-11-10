@@ -142,8 +142,8 @@ export class TerritoryAuthoringCanvas{
       `${batchContext.total}: ${batchContext.name}. Paint cells INTO this destination. `+
       "Atlas will remove them from their current owner only after the final batch " +
       "approval. Do not separately erase the source. Staging stores a local draft, " +
-      "not a native Region update. Choose Stage & Next to move through the " +
-      "selected destinations, or Stage & Return to Workspace."):null;
+      "not a native Region update. Stage & Next moves through the selection; " +
+      "Stage & Review Batch opens the final approval without visiting the Workspace."):null;
     if(batchNote)batchNote.style.cssText="color:#bce9e3;white-space:pre-line;";
     const ownershipReview=el("p");
     ownershipReview.setAttribute("role","note");
@@ -304,21 +304,41 @@ export class TerritoryAuthoringCanvas{
       });
     }
     if(draft.kind==="grid"&&typeof onStage==="function"){
-      const stage=async advance=>{
+      const stage=async({advance=false,targetId=null,review=false}={})=>{
         if(session.saving)return;
         session.saving=true;
+        let releaseFocus=null;
         try{
           await onStage(copy(session.draft));
           if(this.#live(session)){
+            // Keep the Workspace minimized between consecutive Paint editors
+            // and while reviewing a batch. Release after the next editor opens
+            // or after the GM exits/finishes; do not change saved window state.
+            releaseFocus=acquireAtlasCanvasEditorFocus();
             await session.close(true);
-            await afterStage?.({advance});
+            await afterStage?.({advance,targetId,review});
           }
         }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
-        finally{session.saving=false;}
+        finally{await releaseFocus?.();session.saving=false;}
       };
       if(batchContext?.nextName)addButton(`Stage & Next: ${batchContext.nextName}`,
-        ()=>stage(true));
-      addButton("Stage & Return to Workspace",()=>stage(false));
+        ()=>stage({advance:true}));
+      else addButton("Stage & Review Batch",()=>stage({review:true}));
+      if(Array.isArray(batchContext?.targets)&&batchContext.targets.length>1){
+        const picker=el("label","Switch batch destination");
+        picker.style.cssText="display:block;margin:.65rem 0 .35rem";
+        const select=el("select");
+        select.setAttribute("aria-label","Switch to selected batch Territory");
+        const otherTargets=batchContext.targets.filter(target=>target.id!==batchContext.regionId);
+        for(const target of otherTargets){
+          const option=el("option",`${target.name} — ${target.staged?"Staged":"Not staged"}`);
+          option.value=target.id;select.appendChild(option);
+        }
+        if(batchContext.nextId)select.value=batchContext.nextId;
+        picker.appendChild(select);panel.appendChild(picker);
+        addButton("Stage & Switch Territory",()=>stage({targetId:select.value}));
+      }
+      addButton("Stage & Return to Workspace",()=>stage());
     }
     addButton("Cancel",()=>{if(!session.saving)session.close(false);});
     if(!batchContext){

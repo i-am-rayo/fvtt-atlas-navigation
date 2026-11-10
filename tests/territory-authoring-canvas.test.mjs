@@ -178,6 +178,128 @@ test("Stage & Next forwards the next destination request after closing Paint",as
   }finally{Object.assign(globalThis,saved);}
 });
 
+test("batch painting switches among selected destinations without a Workspace round-trip",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={addChild(child){child.parent=this;},removeChild(){}};
+  const scene={id:"scene1"};
+  globalThis.game={user:{isGM:true}};
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    stage:{scale:{x:1}},dimensions:{sceneX:0,sceneY:0,sceneWidth:300,sceneHeight:300},
+    canvasCoordinatesFromClient:point=>point,
+    grid:{getCenterPoint:({i,j})=>({x:i*10+5,y:j*10+5}),
+      getOffset:({x,y})=>({i:Math.floor(x/10),j:Math.floor(y/10)}),
+      getAdjacentOffsets:()=>[],getShape:()=>[{x:-5,y:-5},{x:5,y:-5},
+        {x:5,y:5},{x:-5,y:5}]}};
+  globalThis.document=doc;globalThis.PIXI={Graphics};
+  globalThis.requestAnimationFrame=undefined;
+  const editor=new TerritoryAuthoringCanvas(),staged=new Map(),routes=[];
+  const targets=[{id:"dirwest",name:"Dirwest"},{id:"millstone",name:"Millstone"},
+    {id:"neo",name:"Neo Lustrum"}];
+  const open=id=>{
+    const next=targets.find(target=>target.id!==id&&!staged.has(target.id));
+    return editor.begin(scene,{kind:"grid",offsets:[{i:1,j:1}]},
+      async()=>{throw Error("Native Save must not run during staging");},{
+        onStage:draft=>{staged.set(id,draft);},afterStage:choice=>{routes.push(choice);},
+        batchContext:{regionId:id,name:targets.find(t=>t.id===id).name,
+          index:targets.findIndex(t=>t.id===id)+1,total:targets.length,
+          nextId:next?.id??null,nextName:next?.name??null,
+          targets:targets.map(target=>({...target,staged:staged.has(target.id)}))}});
+  };
+  const buttons=()=>editor.session.panel.children.flatMap(c=>c.children??[])
+    .filter(c=>c.tagName==="button");
+  const click=async label=>{
+    const button=buttons().find(b=>b.textContent===label);
+    assert.ok(button,`expected ${label}`);
+    await button.listeners.get("click")();
+  };
+  try{
+    const first=open("dirwest");
+    assert.ok(!buttons().some(b=>b.textContent==="Stage & Review Batch"),
+      "review is unavailable before other destinations are staged");
+    await click("Stage & Next: Millstone");
+    assert.equal(await first,true);
+    assert.deepEqual(routes.pop(),{advance:true,targetId:null,review:false});
+    assert.equal(staged.size,1);
+
+    const second=open("millstone");
+    const picker=editor.session.panel.children.find(c=>
+      c.tagName==="label"&&c.textContent==="Switch batch destination");
+    const select=picker?.children.find(c=>c.tagName==="select");
+    assert.ok(select,"all selected destinations are available in Paint");
+    assert.deepEqual(select.children.map(option=>option.value),["dirwest","neo"]);
+    select.value="dirwest";
+    await click("Stage & Switch Territory");
+    assert.equal(await second,true);
+    assert.deepEqual(routes.pop(),{advance:false,targetId:"dirwest",review:false});
+    assert.equal(staged.size,2);
+
+    const revisit=open("dirwest");
+    await click("Stage & Next: Neo Lustrum");
+    assert.equal(await revisit,true);
+    assert.equal(routes.pop().advance,true);
+
+    const last=open("neo");
+    assert.ok(buttons().some(b=>b.textContent==="Stage & Review Batch"),
+      "final destination offers batch approval directly from Paint");
+    await click("Stage & Review Batch");
+    assert.equal(await last,true);
+    assert.deepEqual(routes.pop(),{advance:false,targetId:null,review:true});
+    assert.equal(staged.size,3);
+    assert.equal(editor.session,null,"editor closes before guarded final review");
+    assert.equal(body.children.length,0);
+  }finally{editor.cancel();Object.assign(globalThis,saved);}
+});
+
+test("Stage & Next keeps the Workspace minimized until the last Paint editor closes",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    PIXI:globalThis.PIXI,foundry:globalThis.foundry,
+    requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={addChild(child){child.parent=this;},removeChild(){}};
+  const scene={id:"scene1"};
+  globalThis.game={user:{isGM:true}};
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    stage:{scale:{x:1}},dimensions:{sceneX:0,sceneY:0,sceneWidth:300,sceneHeight:300},
+    canvasCoordinatesFromClient:point=>point,
+    grid:{getCenterPoint:({i,j})=>({x:i*10+5,y:j*10+5}),
+      getOffset:({x,y})=>({i:Math.floor(x/10),j:Math.floor(y/10)}),
+      getAdjacentOffsets:()=>[],getShape:()=>[{x:-5,y:-5},{x:5,y:-5},
+        {x:5,y:5},{x:-5,y:5}]}};
+  globalThis.document=doc;globalThis.PIXI={Graphics};
+  globalThis.requestAnimationFrame=undefined;
+  let minimizes=0,maximizes=0;
+  const workspace={rendered:true,hasFrame:true,minimized:false,
+    async minimize(){minimizes++;this.minimized=true;},
+    async maximize(){maximizes++;this.minimized=false;}};
+  globalThis.foundry={applications:{instances:new Map([["workspace",workspace]])}};
+  const editor=new TerritoryAuthoringCanvas();let secondPending=null;
+  try{
+    const first=editor.begin(scene,{kind:"grid",offsets:[{i:1,j:1}]},async()=>{},
+      {onStage:()=>{},afterStage:()=>{
+        secondPending=editor.begin(scene,{kind:"grid",offsets:[{i:2,j:2}]},
+          async()=>{});
+      },batchContext:{name:"First",regionId:"first",index:1,total:2,
+        nextName:"Second",nextId:"second"}});
+    const stage=editor.session.panel.children.flatMap(c=>c.children??[])
+      .find(c=>c.tagName==="button"&&c.textContent==="Stage & Next: Second");
+    await stage.listeners.get("click")();
+    assert.equal(await first,true);
+    assert.ok(secondPending,"second Paint editor opens before the first releases focus");
+    assert.equal(workspace.minimized,true);
+    assert.equal(minimizes,1,"Workspace is minimized once for the whole editor handoff");
+    assert.equal(maximizes,0,"Workspace must not flash open between destinations");
+    editor.cancel();await secondPending;
+    // Window restoration is asynchronous and uses the same shared focus lease.
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(workspace.minimized,false);
+    assert.equal(maximizes,1);
+  }finally{editor.cancel();Object.assign(globalThis,saved);}
+});
+
 test("hex/square brush rings show a live add/erase footprint before any write",async()=>{
   const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
     PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
