@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {planTerritoryGridConversion} from "../scripts/territory-grid-conversion.js";
+import {planTerritoryGridConversion,commitTerritoryGridConversion,
+  readTerritoryGridConversionBackup,restoreTerritoryPolygonBackup}
+  from "../scripts/territory-grid-conversion.js";
 import {TerritoryGridConversionPreview} from "../scripts/territory-grid-conversion-preview.js";
 
 const region=(id,kind,tree)=>({
@@ -123,5 +125,111 @@ test("read-only conversion overlay shows candidate and original outlines and tea
     preview.clear();
     assert.equal(interfaceLayer.children.length,0);
     assert.equal(preview.layer,null);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+function writableFixture(){
+  const fixtureData=fixture();
+  const {target}=fixtureData;
+  const flags={
+    atlas:{schemaVersion:1,linked:true},
+    territoryGeography:{schemaVersion:1,kind:"continent",
+      parentRegionId:null,roadOverrides:{}},
+    territoryBoundarySource:null,territoryGridConversionBackup:null
+  };
+  const writes=[];
+  target.getFlag=(_scope,key)=>flags[key]??null;
+  target.update=async patch=>{
+    writes.push(structuredClone(patch));
+    if(patch.shapes)target.shapes=structuredClone(patch.shapes);
+    for(const [key,value] of Object.entries(patch)){
+      const prefix="flags.fvtt-atlas-navigation.";
+      if(!key.startsWith(prefix))continue;
+      const flag=key.slice(prefix.length);
+      if(flag.startsWith("-="))flags[flag.slice(2)]=null;
+      else flags[flag]=structuredClone(value);
+    }
+    return target;
+  };
+  return {...fixtureData,flags,writes};
+}
+
+test("GM converts only selected polygon with one native update and an atomic recovery backup",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.foundry={data:{GridShapeData:class{}}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {scene,view,target,settlement,flags,writes}=writableFixture();
+    const originalShapes=structuredClone(target.shapes);
+    const originalColor=target.color,originalBehaviors=target.behaviors;
+    const plan=planTerritoryGridConversion(scene,target.id,{view});
+    assert.equal(writes.length,0);
+    const saved=await commitTerritoryGridConversion(scene,plan,{view});
+    assert.equal(saved.cellCount,4);
+    assert.equal(writes.length,1,"backup and Shape replacement are one native update");
+    assert.equal(writes[0].shapes[0].type,"grid");
+    assert.ok(writes[0]["flags.fvtt-atlas-navigation.territoryGridConversionBackup"]);
+    assert.equal(target.shapes[0].type,"grid");
+    assert.deepEqual(readTerritoryGridConversionBackup(target).originalShapes,originalShapes);
+    assert.equal(target.color,originalColor);
+    assert.equal(target.behaviors,originalBehaviors);
+    assert.equal(flags.territoryGeography.kind,"continent");
+    assert.equal(settlement.shapes[0].type,"polygon",
+      "nested settlement Shape is never subtracted by conversion");
+    assert.equal(settlement.getFlag("fvtt-atlas-navigation","territoryGridConversionBackup"),null);
+    await restoreTerritoryPolygonBackup(scene,target.id,{view});
+    assert.equal(writes.length,2,"restoration is also a single native update");
+    assert.deepEqual(target.shapes,originalShapes);
+    assert.equal(flags.territoryBoundarySource,null);
+    assert.equal(flags.territoryGridConversionBackup,null);
+    assert.equal(target.color,originalColor);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("conversion refuses stale geometry and unsafe same-tier native overlaps without writes",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.foundry={data:{GridShapeData:class{}}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {scene,view,target,writes}=writableFixture();
+    const plan=planTerritoryGridConversion(scene,target.id,{view});
+    target.shapes[0].points[0]=1;
+    await assert.rejects(()=>commitTerritoryGridConversion(scene,plan,{view}),/changed/);
+    assert.equal(writes.length,0);
+    target.shapes[0].points[0]=0;
+    const peer=region("Peer","continent",{area:50,
+      testPoint:({x,y})=>x<10&&y<10,intersectPolygon:()=>({area:25})});
+    scene.regions.set(peer.id,peer);
+    const conflicted=planTerritoryGridConversion(scene,target.id,{view});
+    await assert.rejects(()=>commitTerritoryGridConversion(scene,conflicted,{view}),
+      /overlaps an existing peer Territory/);
+    assert.equal(writes.length,0);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("restoration refuses a manually altered converted Region",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.foundry={data:{GridShapeData:class{}}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {scene,view,target,flags,writes}=writableFixture();
+    const plan=planTerritoryGridConversion(scene,target.id,{view});
+    await commitTerritoryGridConversion(scene,plan,{view});
+    target.shapes[0].offsets.push({i:20,j:20});
+    await assert.rejects(()=>restoreTerritoryPolygonBackup(scene,target.id,{view}),
+      /changed since conversion/);
+    assert.equal(writes.length,1);
+    target.shapes[0].offsets.pop();
+    flags.territoryBoundarySource.wallIds=["other-wall"];
+    await assert.rejects(()=>restoreTerritoryPolygonBackup(scene,target.id,{view}),
+      /changed since conversion/);
+    assert.equal(writes.length,1,"edited Atlas controls must not be silently overwritten");
+    flags.territoryBoundarySource.wallIds=[];
+    globalThis.game.user.isGM=false;
+    await assert.rejects(()=>restoreTerritoryPolygonBackup(scene,target.id,{view}),/as GM/);
+    assert.equal(writes.length,1,"a non-GM cannot invoke native restoration");
   }finally{Object.assign(globalThis,previous);}
 });

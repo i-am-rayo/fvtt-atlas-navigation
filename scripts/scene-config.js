@@ -33,6 +33,7 @@ import {withInferredContinentParents} from "./territory-parent-inference.js";
 import {territoryBoundaryNeedsAdoption} from "./territory-authoring.js";
 import {projectTerritoryView} from "./territory-view-model.js";
 import {nativeRegionColorHex} from "./native-region-color.js";
+import {GRID_CONVERSION_BACKUP_FLAG} from "./territory-authoring-model.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -278,11 +279,18 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     const polygonShapes=Array.from(nativeRegion?.shapes??[]);
     if(polygonShapes.length===1&&polygonShapes[0]?.type==="polygon"){
       const convert=iconAction("hexagon",
-        "Preview converting this selected native polygon Region to grid/hex (no changes)",
-        ()=>actions.previewTerritoryGridConversion(scene,region.id));
+        "Preview then convert this selected native polygon Region to grid/hex",
+        ()=>actions.previewTerritoryGridConversion(scene,region.id,refresh));
       convert.disabled=!!draft||!region.linked||region.invalidLink||
         !geographyById.get(region.id)?.geography?.kind;
       controls.appendChild(convert);
+    }
+    if(nativeRegion?.getFlag?.(MODULE_ID,GRID_CONVERSION_BACKUP_FLAG)!=null){
+      const restore=iconAction("rotate",
+        "Restore backed-up native polygon from Atlas grid conversion",
+        ()=>actions.restoreTerritoryPolygon(scene,region.id,refresh));
+      restore.disabled=!!draft||!region.linked||region.invalidLink;
+      controls.appendChild(restore);
     }
     const adopt=iconAction("rotate","Adopt the current native Region boundary as Atlas controls",
       ()=>actions.adoptNativeTerritoryBoundary(scene,region.id,refresh));

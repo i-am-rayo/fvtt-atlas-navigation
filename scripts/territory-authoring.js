@@ -7,7 +7,8 @@ import {validateGeographyFlag,validateGeographyHierarchy} from "./territory-geog
 import {GENERATED_REGION_FLAG} from "./generated-region-model.js";
 import {atlasDebug} from "./atlas-debug.js";
 import {BOUNDARY_SOURCE_FLAG,BOUNDARY_SOURCE_VERSION,boundaryFromBlankWalls,polygonShapeFromNodes,
-  validateBoundaryNodes,validateGridOffsets,gridCellConflicts} from "./territory-authoring-model.js";
+  GRID_CONVERSION_BACKUP_FLAG,validateBoundaryNodes,validateGridOffsets,gridCellConflicts}
+  from "./territory-authoring-model.js";
 import {smoothClosedBoundary,inspectNativePolygonShape} from "./region-boundary-model.js";
 import {sceneImageOrigin} from "./road-coordinates.js";
 
@@ -49,6 +50,7 @@ const shapeDigest=s=>JSON.stringify(s.map(v=>({type:v.type,
   origin:v.type==="grid"?null:v.origin??null,
   points:v.points??null,offsets:v.type==="grid"?
     [...(v.offsets??[])].sort((a,b)=>a.i-b.i||a.j-b.j):null,hole:v.hole??false})));
+export const nativeTerritoryShapeDigest=shapeDigest;
 const idOk=id=>typeof id==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(id);
 
 function authorize(scene,region=null){
@@ -292,7 +294,7 @@ export function validateTerritoryCoverage(scene,draft,shape,{regionId=null,view=
 /** Single native Region write; no draft data is stored outside this document.
  * Native Behaviors, Levels, visibility and Region IDs are preserved on edit. */
 export async function saveTerritoryDraft(scene,draft,{regionId=null,
-  view=globalThis.canvas}={}){
+  view=globalThis.canvas,conversionBackup=null}={}){
   const region=regionId?scene.regions?.get?.(regionId):null;
   authorize(scene,region);
   if(regionId&&(!region||region.parent?.id!==scene.id))throw Error("Native Region changed or is missing.");
@@ -315,6 +317,18 @@ export async function saveTerritoryDraft(scene,draft,{regionId=null,
   }
   const shape=region&&nativeShapes.length===1&&
     samePolygonBoundary(nativeShapes[0],projectedShape)?nativeShapes[0]:projectedShape;
+  if(conversionBackup!==null){
+    if(!region||draft.kind!=="grid"||nativeShapes.length!==1||
+        nativeShapes[0]?.type!=="polygon"||
+        region.getFlag?.(MODULE_ID,GRID_CONVERSION_BACKUP_FLAG)!=null||
+        conversionBackup?.schemaVersion!==1||
+        JSON.stringify(conversionBackup.originalShapes)!==JSON.stringify(nativeShapes)||
+        conversionBackup.convertedShapeDigest!==shapeDigest([shape])||
+        JSON.stringify(conversionBackup.previousBoundarySource)!==
+          JSON.stringify(readBoundarySource(region))||
+        JSON.stringify(conversionBackup).length>120000)
+      throw Error("This conversion backup is stale or invalid; no native Shapes changed.");
+  }
   validateTerritoryCoverage(scene,draft,shape,{regionId,view});
   if(region&&shapeDigest(plainShapes(region))!==draft.sourceDigest)
     throw Error("The native Region changed during editing. Reload the draft; nothing saved.");
@@ -337,7 +351,9 @@ export async function saveTerritoryDraft(scene,draft,{regionId=null,
   if(region){
     await region.update({...(shape===projectedShape?{shapes:[shape]}:{}),
       [`flags.${MODULE_ID}.${GEOGRAPHY_FLAG}`]:geography,
-      [`flags.${MODULE_ID}.${BOUNDARY_SOURCE_FLAG}`]:source});
+      [`flags.${MODULE_ID}.${BOUNDARY_SOURCE_FLAG}`]:source,
+      ...(conversionBackup!==null?{
+        [`flags.${MODULE_ID}.${GRID_CONVERSION_BACKUP_FLAG}`]:clone(conversionBackup)}:{})});
     saved=region;
   }else{
     const created=await scene.createEmbeddedDocuments("Region",[{name,shapes:[shape],

@@ -2,6 +2,7 @@
  * gameplay geometry: a confirmed Region Shape is always the runtime owner. */
 export const BOUNDARY_SOURCE_VERSION=1;
 export const BOUNDARY_SOURCE_FLAG="territoryBoundarySource";
+export const GRID_CONVERSION_BACKUP_FLAG="territoryGridConversionBackup";
 export const MAX_TERRITORY_NODES=256;
 export const MAX_TERRITORY_CELLS=6000;
 

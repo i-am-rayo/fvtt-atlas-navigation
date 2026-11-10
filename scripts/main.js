@@ -43,7 +43,8 @@ import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
 import {analyzeSceneTerritoryBorders,planNativeTerritoryTrim,
   saveNativeTerritoryTrim} from "./territory-border-reconciliation.js";
 import {TerritoryAuthoringCanvas} from "./territory-authoring-canvas.js";
-import {planTerritoryGridConversion} from "./territory-grid-conversion.js";
+import {planTerritoryGridConversion,commitTerritoryGridConversion,
+  restoreTerritoryPolygonBackup} from "./territory-grid-conversion.js";
 import {TerritoryGridConversionPreview} from "./territory-grid-conversion-preview.js";
 import {preferredTerritoryCreationMethod} from "./territory-authoring-model.js";
 import {readTerritoryDraft,selectedBlankWallBoundary,saveTerritoryDraft,
@@ -1571,35 +1572,76 @@ function actions() {
         refresh();ui.notifications.info("Native Territory boundary updated; Behaviors retained.");
       });
     },
-    async previewTerritoryGridConversion(scene,regionId){
+    async previewTerritoryGridConversion(scene,regionId,refresh){
       ensureIdle(scene);
       if(navigation.travelSession||territoryCanvas.session||
           manualFog.paletteOpen||manualFog.brush||territoryGridPreview.layer)
         throw Error("Finish the Journey and other canvas editors before previewing conversion.");
       const plan=planTerritoryGridConversion(scene,regionId);
-      territoryGridPreview.show(scene,plan);
-      const content=document.createElement("div");
-      const lines=[
-        `Selected Region: ${plan.regionName} (${plan.tier}).`,
-        `Candidate: ${plan.cellCount} native square/hex grid cells. `+
-          `Selection rule: ${plan.inclusionRule}.`,
-        `Net candidate area change: ${plan.netAreaChangePercent}% of original. `+
-          "This is a net area comparison, not an exact boundary-error measurement.",
-        "Cyan fill shows candidate grid cells; orange lines show the unchanged native polygon.",
-        plan.peerCenterOverlaps.length?
-          `Potential same-tier center conflicts: ${plan.peerCenterOverlaps.map(p=>
-            `${p.name} (${p.count} cells)`).join(", ")}. `+
-          "A later transfer must explicitly review and authorize changes to peers.":
-          "No same-tier Region contains a candidate cell center (a later save still requires exact overlap checks).",
-        "PREVIEW ONLY: Closing this window does not convert or edit any Region. " +
-          "Native IDs, geometry, Behaviors, colors, hierarchy, and Journeys are unchanged."
-      ];
-      for(const message of lines){const p=document.createElement("p");
-        p.textContent=message;content.appendChild(p);}
+      // Reversible, shared Foundry ApplicationV2 window focus: the Workspace
+      // and other canvas-obscuring windows return to their prior state.
+      const restoreWindows=acquireAtlasCanvasEditorFocus();
       try{
-        await DialogV2.confirm({window:{title:"Atlas · Native Grid Conversion Preview"},
-          content,yes:{label:"Close Preview"},rejectClose:false,modal:true});
-      }finally{territoryGridPreview.clear();}
+        territoryGridPreview.show(scene,plan);
+        const content=document.createElement("div");
+        const lines=[
+          `Selected Region: ${plan.regionName} (${plan.tier}).`,
+          `Candidate: ${plan.cellCount} native square/hex grid cells. `+
+            `Selection rule: ${plan.inclusionRule}.`,
+          `Net candidate area change: ${plan.netAreaChangePercent}% of original. `+
+            "This is a net area comparison, not an exact boundary-error measurement.",
+          "Cyan fill shows candidate grid cells; orange lines show the unchanged native polygon.",
+          plan.peerCenterOverlaps.length?
+            `Same-tier conflicts: ${plan.peerCenterOverlaps.map(p=>
+              `${p.name} (${p.count} cells)`).join(", ")}. `+
+            "Resolve those boundaries before converting; no other Region will be changed.":
+            "No same-tier Region contains a candidate cell center. A Save will still check exact overlaps.",
+          "This preview is read-only. Changes occur only after a separate GM confirmation."
+        ];
+        for(const message of lines){const p=document.createElement("p");
+          p.textContent=message;content.appendChild(p);}
+        const next=await DialogV2.confirm({window:{title:"Atlas · Native Grid Conversion Preview"},
+          content,yes:{label:plan.peerCenterOverlaps.length?
+            "Close Preview":"Review Conversion"},rejectClose:false,modal:true});
+        if(!next||plan.peerCenterOverlaps.length)return;
+        const confirm=document.createElement("div");
+        for(const message of [
+          `Replace the selected native Region ${plan.regionName}'s polygon with `+
+            `${plan.cellCount} native grid cells?`,
+          "This changes actual Foundry Region geometry, so native Region Behaviors " +
+            "and token membership may be reevaluated. The Region's ID, appearance, " +
+            "Behaviors, geography and public labels stay the same.",
+          "Atlas will save the original polygon and Atlas controls as a backup " +
+            "on this Region, allowing an explicitly confirmed Restore if it remains unchanged.",
+          "All current parent and same-tier overlap checks must pass. " +
+            "No neighboring Region is ever altered by this Save."
+        ]){const p=document.createElement("p");p.textContent=message;confirm.appendChild(p);}
+        const approved=await DialogV2.confirm({window:{title:"Convert Native Region to Grid?"},
+          content:confirm,yes:{label:"Convert Selected Region"},rejectClose:false,modal:true});
+        if(!approved)return;
+        const result=await commitTerritoryGridConversion(scene,plan);
+        refresh();ui.notifications.info(`Native Region converted to ${result.cellCount} grid cells. `+
+          "Original polygon retained for explicit Restore.");
+      }finally{territoryGridPreview.clear();restoreWindows();}
+    },
+    async restoreTerritoryPolygon(scene,regionId,refresh){
+      ensureIdle(scene);
+      if(navigation.travelSession||territoryCanvas.session||
+          manualFog.paletteOpen||manualFog.brush||territoryGridPreview.layer)
+        throw Error("Finish the Journey and other canvas editors before restoring a Region.");
+      const content=document.createElement("div");
+      for(const message of [
+        "Restore this native Region's backed-up polygon and original Atlas boundary controls?",
+        "The current native grid Shape will be replaced, but this Region's ID, " +
+          "Behaviors, appearance, and player visibility will remain unchanged.",
+        "Restoration is refused if the grid, native Shape, or neighboring " +
+          "territory geometry has changed incompatibly. No other Region is edited."
+      ]){const p=document.createElement("p");p.textContent=message;content.appendChild(p);}
+      const approved=await DialogV2.confirm({window:{title:"Restore Native Region Polygon?"},
+        content,yes:{label:"Restore Backed-Up Polygon"},rejectClose:false,modal:true});
+      if(!approved)return;
+      await restoreTerritoryPolygonBackup(scene,regionId);
+      refresh();ui.notifications.info("Original native polygon restored; Atlas conversion backup cleared.");
     },
     async adoptNativeTerritoryBoundary(scene,regionId,refresh){
       ensureIdle(scene);

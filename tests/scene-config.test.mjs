@@ -883,7 +883,7 @@ test("Scene Atlas manages native Regions across roads and exposes safe boundary 
   }finally{Object.assign(globalThis,previous);}
 });
 
-test("selected polygon Region exposes a read-only native hex conversion preview",async()=>{
+test("selected polygon offers staged native grid conversion and saved grid offers restore",async()=>{
   const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
   const region={id:"Reshara",name:"Reshara",hidden:false,behaviors:[],
     shapes:[{type:"polygon",points:[0,0,20,0,20,20,0,20]}],
@@ -893,22 +893,37 @@ test("selected polygon Region exposes a read-only native hex conversion preview"
   const regions=[region];regions.get=id=>id===region.id?region:null;
   regions.contents=regions;
   const scene={id:"scene1",regions,getFlag:()=>null};
-  let selected=null;
+  let selected=null,restored=null;
   try{
     globalThis.document={createElement:tag=>new Element(tag)};
     globalThis.game={user:{isGM:true},i18n:{localize:key=>key,lang:"en"}};
     globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
     const panel=createAtlasTerritoryPanel(scene,{draft:()=>null,
-      previewTerritoryGridConversion:(_scene,id)=>{selected=id;}},()=>{},
+      previewTerritoryGridConversion:(_scene,id)=>{selected=id;},
+      restoreTerritoryPolygon:(_scene,id)=>{restored=id;}},()=>{},
     {generated:[],nativeRegions:[{id:region.id,name:region.name,linked:true,
       invalidLink:false,hidden:false}],publicById:new Map()});
     const control=buttons(panel).find(b=>b.title===
-      "Preview converting this selected native polygon Region to grid/hex (no changes)");
+      "Preview then convert this selected native polygon Region to grid/hex");
     assert.ok(control);
     assert.equal(control.disabled,false);
     await control.listeners.get("click")({preventDefault(){},stopPropagation(){}});
     assert.equal(selected,"Reshara");
-    assert.equal(region.shapes[0].type,"polygon","preview shortcut cannot alter native Shapes");
+    assert.equal(region.shapes[0].type,"polygon","opening the preview shortcut cannot alter native Shapes");
+    region.shapes=[{type:"grid",offsets:[{i:0,j:0}]}];
+    const originalGetFlag=region.getFlag;
+    region.getFlag=(scope,key)=>key==="territoryGridConversionBackup"?
+      {schemaVersion:1}:originalGetFlag(scope,key);
+    const savedPanel=createAtlasTerritoryPanel(scene,{draft:()=>null,
+      restoreTerritoryPolygon:(_scene,id)=>{restored=id;}},()=>{},
+    {generated:[],nativeRegions:[{id:region.id,name:region.name,linked:true,
+      invalidLink:false,hidden:false}],publicById:new Map()});
+    const restore=buttons(savedPanel).find(b=>b.title===
+      "Restore backed-up native polygon from Atlas grid conversion");
+    assert.ok(restore,"the saved grid Region offers explicit restore");
+    await restore.listeners.get("click")({preventDefault(){},stopPropagation(){}});
+    assert.equal(restored,"Reshara");
+    assert.equal(region.shapes[0].type,"grid","rendering restore controls never alters a native Shape");
   }finally{Object.assign(globalThis,previous);}
 });
 
