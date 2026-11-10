@@ -36,6 +36,7 @@ import {listPublicTerritorySettings,readPublicTerritory,savePublicTerritory}
 import { createPublicTerritoryForm } from "./territory-public-form.js";
 import { listSceneGeography,readRegionGeography,saveRegionGeography }
   from "./territory-geography-storage.js";
+import {territoryTier} from "./territory-view-model.js";
 import { buildTerritoryGeographyForm,geographyFromForm }
   from "./territory-geography-form.js";
 import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
@@ -119,8 +120,9 @@ const territoryCanvas = new TerritoryAuthoringCanvas();
 const territoryGridPreview = new TerritoryGridConversionPreview();
 // Authoring-only, client-local drafts. Never persist staged geometry or expose
 // it to players; native writes begin only after explicit batch confirmation.
-const territoryBatchDrafts=new Map();
-const stagedTerritories=scene=>territoryBatchDrafts.get(scene?.id)??new Map();
+const territoryBatchSelections=new Map();
+const territoryBatchFor=scene=>territoryBatchSelections.get(scene?.id)??null;
+const stagedTerritories=scene=>territoryBatchFor(scene)?.drafts??new Map();
 let roadDock = null;
 
 function syncRoadDock(scene, refresh) {
@@ -422,21 +424,89 @@ function actions() {
   const DialogV2 = foundry.applications.api.DialogV2;
   return {
     territoryBatchState:scene=>{
-      const queued=stagedTerritories(scene);
-      return {count:queued.size,names:[...queued.keys()].map(id=>
-        scene.regions?.get?.(id)?.name??"Unknown Region")};
+      const batch=territoryBatchFor(scene);
+      if(!batch)return null;
+      return {count:batch.drafts.size,total:batch.targetIds.length,
+        targets:batch.targetIds.map(id=>({id,
+          name:scene.regions?.get?.(id)?.name??"Unknown Region",
+          staged:batch.drafts.has(id)}))};
+    },
+    async startTerritoryBatch(scene,refresh){
+      ensureIdle(scene);
+      if(readPendingTerritoryCellTransfer(scene))
+        throw Error("Resolve the interrupted native transfer before starting a batch.");
+      if(territoryBatchFor(scene))
+        throw Error("Discard the current Territory batch before selecting new destinations.");
+      if(navigation.travelSession||territoryCanvas.session||manualFog.paletteOpen||manualFog.brush)
+        throw Error("Finish the Journey and other canvas editors before starting a batch.");
+      if(!game.user?.isGM||!scene.canUserModify?.(game.user,"update")||
+          !globalThis.canvas?.ready||globalThis.canvas.scene?.id!==scene.id)
+        throw Error("Open this Scene as an authorized GM to select batch destinations.");
+      const eligible=listSceneGeography(scene).filter(entry=>{
+        const region=scene.regions.get(entry.id),shapes=Array.from(region?.shapes??[]);
+        return entry.linked&&!entry.invalid&&territoryTier(entry)!=="unclassified"&&
+          region?.canUserModify?.(game.user,"update")&&shapes.length===1&&
+          shapes[0]?.type==="grid"&&
+          region.getFlag?.(MODULE_ID,"generatedRegion")==null;
+      }).sort((a,b)=>a.name.localeCompare(b.name));
+      if(eligible.length<2)
+        throw Error("This Scene needs at least two editable native Hex/Grid Territories.");
+      const content=document.createElement("div");
+      for(const line of [
+        "Choose two to four destination Territories BEFORE painting. These are the " +
+          "Regions that will GAIN cells; the source owners are detected automatically.",
+        "After selection Atlas opens each destination in turn. Paint into the destination " +
+          "and choose Stage & Next. Staging never writes native Regions.",
+        "If only one Region needs to gain cells (for example, Millstone receives a " +
+          "cell from Dirwest), use its ordinary Paint Territory → Preview & Save instead.",
+        "All batch destinations must belong to the same geographic tier. " +
+          "Direct exchanges between selected destinations are not yet supported."
+      ]){const p=document.createElement("p");p.textContent=line;content.appendChild(p);}
+      const options=[];
+      const choices=document.createElement("div");
+      choices.style.cssText="max-height:50vh;overflow-y:auto;padding:.25rem;";
+      for(const [index,entry] of eligible.entries()){
+        const row=document.createElement("label");
+        row.style.cssText="display:flex;align-items:center;gap:.5rem;margin:.35rem 0";
+        const box=document.createElement("input");box.type="checkbox";
+        box.name=`batchTarget${index}`;box.value="yes";
+        box.setAttribute("aria-label",`Include ${entry.name} as a batch destination`);
+        row.append(box,document.createTextNode?.(`${entry.name} (${territoryTier(entry)})`)??
+          Object.assign(document.createElement("span"),
+            {textContent:`${entry.name} (${territoryTier(entry)})`}));
+        choices.appendChild(row);options.push({id:entry.id,tier:territoryTier(entry),
+          name:box.name});
+      }
+      content.appendChild(choices);
+      const result=await DialogV2.input({window:{title:"Select Hex/Grid Batch Destinations"},
+        content,ok:{label:"Start Painting Selected Territories"},rejectClose:false,modal:true});
+      if(!result)return;
+      const chosen=options.filter(option=>result[option.name]===true||
+        result[option.name]==="yes"||result[option.name]==="on");
+      if(chosen.length<2||chosen.length>4)
+        throw Error("Select between two and four receiving Territories to start the batch.");
+      if(new Set(chosen.map(option=>option.tier)).size!==1)
+        throw Error("Batch destinations must be on the same geographic tier.");
+      const targetIds=chosen.map(option=>option.id);
+      territoryBatchSelections.set(scene.id,{targetIds,drafts:new Map()});
+      refresh();
+      await this.editTerritoryBoundary(scene,targetIds[0],refresh);
     },
     discardTerritoryBatch(scene,refresh){
-      territoryBatchDrafts.delete(scene.id);refresh();
+      if(territoryCanvas.session)throw Error("Close Paint Territory before discarding the batch.");
+      territoryBatchSelections.delete(scene.id);refresh();
       ui.notifications.info("Staged Hex/Grid batch discarded; native Regions unchanged.");
     },
     async commitTerritoryBatch(scene,refresh){
       ensureIdle(scene);
       if(navigation.travelSession||territoryCanvas.session||manualFog.paletteOpen||manualFog.brush)
         throw Error("Finish the Journey and canvas editors before transferring a batch.");
-      const queued=stagedTerritories(scene);
+      const batch=territoryBatchFor(scene);
+      if(!batch||batch.targetIds.some(id=>!batch.drafts.has(id)))
+        throw Error("Stage each selected destination before reviewing the batch.");
+      const queued=batch.drafts;
       const plan=planMultiDestinationTerritoryCellTransfer(scene,
-        [...queued].map(([regionId,draft])=>({regionId,draft})));
+        batch.targetIds.map(regionId=>({regionId,draft:queued.get(regionId)})));
       const dialog=document.createElement("div");
       for(const line of [
         `Transfer ${plan.movedCells} native Hex/Grid cells from ${plan.sources.length} `+
@@ -472,7 +542,7 @@ function actions() {
         await commitMultiDestinationTerritoryCellTransfer(scene,plan,{onProgress:progress=>{
           bar.max=progress.total;bar.value=progress.step;label.textContent=progress.message;
         }});
-        territoryBatchDrafts.delete(scene.id);
+        territoryBatchSelections.delete(scene.id);
         refresh();ui.notifications.info(`${plan.movedCells} Hex/Grid cells transferred between `+
           `${plan.records.length} native Regions.`);
       }finally{panel.remove();}
@@ -1627,6 +1697,9 @@ function actions() {
       ensureIdle(scene);
       if(navigation.travelSession||territoryCanvas.session||manualFog.paletteOpen||manualFog.brush)
         throw Error("End the Journey or other canvas editor before changing this Territory.");
+      const batch=territoryBatchFor(scene);
+      if(batch&&!batch.targetIds.includes(regionId))
+        throw Error("This Territory is not a selected destination. Finish or discard the batch first.");
       const region=scene.regions?.get?.(regionId);
       const draft=readTerritoryDraft(scene,regionId);
       const geography=readRegionGeography(region);
@@ -1638,7 +1711,9 @@ function actions() {
           throw Error("This staged Territory changed natively. Discard the batch and reopen.");
         draft.offsets=structuredClone(previous.offsets);
       }
+      const nextUnstaged=batch?.targetIds.find(id=>id!==regionId&&!batch.drafts.has(id));
       await territoryCanvas.begin(scene,draft,async (candidate,reportProgress)=>{
+        if(batch)throw Error("Use Stage & Next while the selected batch is active.");
         const transfer=planTerritoryCellTransfer(scene,regionId,candidate);
         if(transfer){
           const multi=Array.isArray(transfer.sourceIds);
@@ -1685,17 +1760,23 @@ function actions() {
         await saveTerritoryDraft(scene,candidate,{regionId});
         refresh();ui.notifications.info("Native Territory boundary updated; Behaviors retained.");
       },{inspectDraft:candidate=>inspectTerritoryGridOwnership(scene,regionId,candidate),
-        onStage:draft.kind==="grid"?candidate=>{
-          const queued=stagedTerritories(scene);
-          if(!queued.has(regionId)&&queued.size>=4)
-            throw Error("One batch supports at most four destinations.");
+        batchContext:batch?{name:region.name,index:batch.targetIds.indexOf(regionId)+1,
+          total:batch.targetIds.length,nextName:nextUnstaged?
+            scene.regions.get(nextUnstaged)?.name:null}:null,
+        onStage:batch?candidate=>{
+          if(territoryBatchFor(scene)!==batch)
+            throw Error("The batch selection changed. Reopen the Workspace.");
           const latest=readTerritoryDraft(scene,regionId);
           if(latest.sourceDigest!==candidate.sourceDigest)
             throw Error("Native Territory geometry changed; reopen before staging.");
-          queued.set(regionId,structuredClone(candidate));
-          territoryBatchDrafts.set(scene.id,queued);
+          batch.drafts.set(regionId,structuredClone(candidate));
           refresh();ui.notifications.info(`${region.name} staged locally. `+
-            "Stage another destination, then Review & Transfer Batch in Territories.");
+            (nextUnstaged?"Opening the next receiving Territory.":
+              "All selected destinations are staged; review them in the Workspace."));
+        }:null,
+        afterStage:batch&&nextUnstaged?async()=>{
+          if(territoryBatchFor(scene)===batch)
+            await this.editTerritoryBoundary(scene,nextUnstaged,refresh);
         }:null});
     },
     async resolveTerritoryCellTransfer(scene,refresh){
@@ -1757,7 +1838,7 @@ function actions() {
       if(!(decision.mode==="resume"?latest?.canResume:latest?.canRollback))
         throw Error("Native Region recovery safety changed during review. Reopen recovery.");
       await resolveTerritoryCellTransfer(scene,decision.mode);
-      territoryBatchDrafts.delete(scene.id);
+      territoryBatchSelections.delete(scene.id);
       refresh();ui.notifications.info("Native Territory transfer recovery completed.");
     },
     async previewTerritoryGridConversion(scene,regionId,refresh){

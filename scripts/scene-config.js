@@ -226,15 +226,34 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     "corridors are managed under Roads. Native Foundry geometry and Behaviors " +
     "remain authoritative. Analyze peer overlaps to preview an optional " +
     "one-sided native border correction; continent-to-settlement nesting is preserved.","hint"));
+  const pending=readPendingTerritoryCellTransfer(scene);
   const batch=actions.territoryBatchState?.(scene);
-  if(batch?.count){
+  if(!batch&&typeof actions.startTerritoryBatch==="function"){
+    const start=button("Start Batch Transfer",
+      "Choose receiving Hex/Grid Territories before entering Paint Territory",
+      ()=>actions.startTerritoryBatch(scene,refresh));
+    start.disabled=!!draft||!!pending;
+    manager.appendChild(start);
+    manager.appendChild(node("p","For one receiving Territory, use its normal Paint editor. " +
+      "Batch Transfer starts with a checklist of two or more receiving Territories; " +
+      "Atlas identifies source owners automatically and stages all edits before one Save.","hint"));
+  }
+  if(batch?.total){
     const queue=node("div",undefined,"atlas-territory-batch-queue");
-    queue.appendChild(node("p",`${batch.count} Hex/Grid destination${batch.count===1?"":"s"} `+
-      `staged locally: ${batch.names.join(", ")}. Stage at least two, then review and `+
-      "approve one guarded native transfer. Nothing is written while staging."));
+    queue.appendChild(node("p",`Hex/Grid batch: ${batch.count} of ${batch.total} `+
+      "receiving Territories staged. Paint the selected destinations below. " +
+      "A staged draft is local only; it does not write native Regions.","hint"));
+    for(const target of batch.targets){
+      const status=target.staged?"Staged":"Not staged";
+      const edit=button(`${target.name} — ${status}`,
+        `Paint ${target.name} as a batch destination`,()=>
+          actions.editTerritoryBoundary(scene,target.id,refresh));
+      edit.disabled=!!draft||!!pending;
+      queue.appendChild(edit);
+    }
     const commit=button("Review & Transfer Batch","Preview and confirm one recoverable multi-destination transfer",() =>
       actions.commitTerritoryBatch(scene,refresh));
-    commit.disabled=!!draft||batch.count<2;
+    commit.disabled=!!draft||!!pending||batch.count!==batch.total;
     queue.appendChild(commit);
     const clear=button("Discard Staged Batch","Discard local batch drafts without changing native Regions",() =>
       actions.discardTerritoryBatch(scene,refresh));
@@ -242,7 +261,6 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     queue.appendChild(clear);
     manager.appendChild(queue);
   }
-  const pending=readPendingTerritoryCellTransfer(scene);
   if(pending){
     const warning=node("div",undefined,"atlas-territory-transfer-pending");
     warning.appendChild(node("p",`An interrupted ${pending.records.length}-Region cell transfer needs GM recovery. ` +
@@ -303,7 +321,9 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     const editBoundary=iconAction("draw-polygon",
       "Edit Atlas Territory control nodes or painted grid cells",
       ()=>actions.editTerritoryBoundary(scene,region.id,refresh));
-    editBoundary.disabled=!!draft||!region.linked||region.invalidLink||
+    editBoundary.disabled=!!draft||!!pending||
+      (batch?.total&&!batch.targets.some(target=>target.id===region.id))||
+      !region.linked||region.invalidLink||
       !geographyById.get(region.id)?.geography?.kind;
     controls.appendChild(editBoundary);
     const polygonShapes=Array.from(nativeRegion?.shapes??[]);

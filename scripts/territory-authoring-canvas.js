@@ -113,7 +113,8 @@ function drawOwnershipFootprint(graphics,points,status,zoom){
 
 export class TerritoryAuthoringCanvas{
   session=null;
-  async begin(scene,draft,onSave,{inspectDraft=null,onStage=null}={}){
+  async begin(scene,draft,onSave,
+    {inspectDraft=null,onStage=null,afterStage=null,batchContext=null}={}){
     if(this.session)throw Error("Finish or cancel the existing Territory draft first.");
     const view=globalThis.canvas;
     if(!globalThis.game?.user?.isGM||!view?.ready||view.scene?.id!==scene?.id||
@@ -131,8 +132,16 @@ export class TerritoryAuthoringCanvas{
       "border:1px solid #caad83;border-radius:8px;box-shadow:0 8px 24px #0009";
     panel.setAttribute("role","region");
     panel.setAttribute("aria-label","Atlas Territory boundary editor");
-    const head=el("h3","Atlas · "+(draft.kind==="grid"?"Paint Territory":"Edit Territory Nodes"));
+    const editorTitle=batchContext?`Atlas · Paint ${batchContext.name}`:
+      "Atlas · "+(draft.kind==="grid"?"Paint Territory":"Edit Territory Nodes");
+    const head=el("h3",editorTitle);
     const info=el("p");
+    const batchNote=batchContext?el("p",`Batch destination ${batchContext.index} of `+
+      `${batchContext.total}: ${batchContext.name}. Paint cells INTO this destination. `+
+      "Atlas will remove them from their current owner only after the final batch " +
+      "approval. Do not separately erase the source. Stage & Next stores a local draft, " +
+      "not a native Region update."):null;
+    if(batchNote)batchNote.style.cssText="color:#bce9e3;white-space:pre-line;";
     const ownershipReview=el("p");
     ownershipReview.setAttribute("role","note");
     ownershipReview.setAttribute("aria-live","polite");
@@ -203,7 +212,7 @@ export class TerritoryAuthoringCanvas{
       priorDisplays.clear();
       progress.style.display="none";
       panel.style.minWidth="";panel.style.minHeight="";
-      head.textContent="Atlas · "+(draft.kind==="grid"?"Paint Territory":"Edit Territory Nodes");
+      head.textContent=editorTitle;
     };
     const undoDraft=()=>{const prior=session.history.pop();if(!prior)return;
       session.draft=prior;session.smoothingSelect&&(session.smoothingSelect.value=
@@ -292,17 +301,22 @@ export class TerritoryAuthoringCanvas{
       });
     }
     if(draft.kind==="grid"&&typeof onStage==="function")
-      addButton("Stage for Batch",async()=>{
+      addButton(batchContext?.nextName?`Stage & Next: ${batchContext.nextName}`:
+        "Stage & Return to Workspace",async()=>{
         if(session.saving)return;
         session.saving=true;
         try{
           await onStage(copy(session.draft));
-          if(this.#live(session))session.close(true);
+          if(this.#live(session)){
+            session.close(true);
+            await afterStage?.();
+          }
         }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
         finally{session.saving=false;}
       });
     addButton("Cancel",()=>{if(!session.saving)session.close(false);});
-    const save=addButton("Preview & Save",async()=>{
+    if(!batchContext){
+      const save=addButton("Preview & Save",async()=>{
       if(save.disabled)return;save.disabled=true;
       try{
         const text=draft.kind==="grid"?
@@ -321,9 +335,12 @@ export class TerritoryAuthoringCanvas{
         if(saved!==false)session.close(true);
       }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
       finally{session.saving=false;save.disabled=false;restoreProgress();}
-    });
+      });
+    }
     progress.style.display="none";
-    panel.prepend(head,info);panel.append(ownershipReview,shortcuts,actions,progress);
+    panel.prepend(head,info);
+    if(batchNote)panel.appendChild(batchNote);
+    panel.append(ownershipReview,shortcuts,actions,progress);
     document.body.appendChild(panel);
     const snapshot=()=>{session.history.push(copy(session.draft));
       if(session.history.length>40)session.history.shift();};
