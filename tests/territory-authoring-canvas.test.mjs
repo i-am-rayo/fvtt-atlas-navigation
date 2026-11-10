@@ -116,6 +116,10 @@ test("hex/square brush rings show a live add/erase footprint before any write",a
     assert.deepEqual(gridShortcuts.children.slice(1).map(row=>row.children[0].textContent),
       ["Click / drag","Shift + click / drag","Scroll","Shift + scroll",
         "Cmd / Ctrl + Z","Esc"]);
+    assert.equal(gridShortcuts.children[3].children[1].textContent,
+      "Zoom map (Foundry default)");
+    assert.equal(gridShortcuts.children[4].children[1].textContent,"Brush size");
+    assert.match(gridShortcuts.children.at(-1).children[1].textContent,/return to Atlas Workspace/);
     const label=editor.session.panel.children.find(child=>child.tagName==="label"&&
       child.textContent.includes("Brush radius"));
     const slider=label.children.find(child=>child.tagName==="input");
@@ -144,11 +148,11 @@ test("hex/square brush rings show a live add/erase footprint before any write",a
       stopImmediatePropagation(){}});
     assert.equal(editor.session.draft.offsets.length,13,
       "Ctrl+Z undoes an entire erasing stroke");
-    surface.listeners.get("wheel")({deltaY:-120,preventDefault(){},
+    surface.listeners.get("wheel")({deltaY:-120,shiftKey:true,preventDefault(){},
       stopImmediatePropagation(){}});
     assert.equal(editor.session.radius,3,"wheel up increases the brush footprint");
     assert.equal(slider.value,"3");
-    surface.listeners.get("wheel")({deltaY:120,preventDefault(){},
+    surface.listeners.get("wheel")({deltaY:120,shiftKey:true,preventDefault(){},
       stopImmediatePropagation(){}});
     assert.equal(editor.session.radius,2,"wheel down decreases the footprint");
     doc.listeners.get("pointerup")();
@@ -207,7 +211,7 @@ test("polygon right-click deletes the last node and Cmd+Z restores only staged e
   }finally{Object.assign(globalThis,saved);}
 });
 
-test("wheel brush size is clamped and Shift/Alt+wheel can pass through to map zoom",async()=>{
+test("only Shift+wheel changes brush size; normal wheel is reserved for Foundry zoom",async()=>{
   const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
     PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
   const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
@@ -225,25 +229,75 @@ test("wheel brush size is clamped and Shift/Alt+wheel can pass through to map zo
   try{
     const pending=editor.begin(scene,{kind:"grid",offsets:[]},async()=>{});
     const wheel=surface.listeners.get("wheel");
-    for(let i=0;i<9;i++)wheel({deltaY:-100,preventDefault(){},
+    for(let i=0;i<9;i++)wheel({deltaY:-100,shiftKey:true,preventDefault(){},
       stopImmediatePropagation(){}});
     assert.equal(editor.session.radius,4,"wheel size stays within max four rings");
-    for(let i=0;i<9;i++)wheel({deltaY:100,preventDefault(){},
+    for(let i=0;i<9;i++)wheel({deltaY:100,shiftKey:true,preventDefault(){},
       stopImmediatePropagation(){}});
     assert.equal(editor.session.radius,0,"wheel size stays at least one cell");
     let prevented=false;
+    let stopped=false;
+    wheel({deltaY:-100,preventDefault(){prevented=true;},
+      stopImmediatePropagation(){stopped=true;}});
+    assert.equal(prevented,false,"normal wheel remains available to Foundry map zoom");
+    assert.equal(stopped,false,"native map wheel event must propagate");
+    assert.equal(editor.session.radius,0);
     wheel({deltaY:-100,altKey:true,preventDefault(){prevented=true;}});
     assert.equal(prevented,false,"Alt+wheel is reserved for default map interaction");
     assert.equal(editor.session.radius,0);
-    let stopped=false;
     wheel({deltaY:-100,shiftKey:true,preventDefault(){prevented=true;},
       stopImmediatePropagation(){stopped=true;}});
-    assert.equal(prevented,false,"Shift+wheel must reach Foundry's native zoom handler");
-    assert.equal(stopped,false,"Shift+wheel must propagate to the map");
-    assert.equal(editor.session.radius,0,"zoom gesture must not resize brush");
+    assert.equal(prevented,true,"Shift+wheel is consumed for brush sizing");
+    assert.equal(stopped,true,"brush wheel must not also zoom the map");
+    assert.equal(editor.session.radius,1);
+    wheel({deltaY:0,deltaX:-80,shiftKey:true,preventDefault(){},
+      stopImmediatePropagation(){}});
+    assert.equal(editor.session.radius,2,
+      "horizontal wheel delta from Shift-scroll also sizes the brush on macOS");
     editor.cancel();assert.equal(await pending,false);
     assert.equal(surface.listeners.size,0);
   }finally{Object.assign(globalThis,saved);}
+});
+
+test("Escape closes Paint Territory without closing and instead restores minimized Atlas Workspace",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    PIXI:globalThis.PIXI,foundry:globalThis.foundry,
+    requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={addChild(g){g.parent=this;},removeChild(g){g.parent=null;}};
+  const scene={id:"workspace-scene"};
+  const workspace={rendered:true,hasFrame:true,minimized:false,minCalls:0,maxCalls:0,
+    async minimize(){this.minCalls++;this.minimized=true;},
+    async maximize(){this.maxCalls++;this.minimized=false;}};
+  globalThis.foundry={applications:{instances:new Map([["atlas-workspace",workspace]])}};
+  globalThis.game={user:{isGM:true}};globalThis.PIXI={Graphics};
+  globalThis.document=doc;globalThis.requestAnimationFrame=undefined;
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    dimensions:{sceneX:0,sceneY:0,sceneWidth:200,sceneHeight:200},
+    stage:{scale:{x:1}},canvasCoordinatesFromClient:p=>p,
+    grid:{getShape:()=>[{x:0,y:0},{x:10,y:0},{x:10,y:10}],
+      getCenterPoint:()=>({x:20,y:20})}};
+  const editor=new TerritoryAuthoringCanvas();
+  try{
+    const pending=editor.begin(scene,{kind:"grid",offsets:[]},async()=>{});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(workspace.minCalls,1,"Atlas minimizes the open Workspace while painting");
+    assert.equal(workspace.minimized,true);
+    let prevented=false,stopped=false;
+    doc.listeners.get("keydown")({key:"Escape",preventDefault(){prevented=true;},
+      stopImmediatePropagation(){stopped=true;}});
+    assert.equal(prevented,true);
+    assert.equal(stopped,true,"Escape must not propagate to Foundry's window-close handler");
+    assert.equal(await pending,false,"Escape discards unsaved Territory edits");
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(workspace.rendered,true,"the Workspace was not closed");
+    assert.equal(workspace.maxCalls,1,"Workspace maximizes when Paint Territory exits");
+    assert.equal(workspace.minimized,false);
+    assert.equal(doc.listeners.size,0,"all editor keyboard listeners are removed");
+  }finally{
+    editor.cancel();Object.assign(globalThis,saved);
+  }
 });
 
 test("Paint Territory reviews peer Hex/Grid cell ownership and invalidates stale summaries",async()=>{
