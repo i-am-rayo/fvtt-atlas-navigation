@@ -37,6 +37,8 @@ import { createPublicTerritoryForm } from "./territory-public-form.js";
 import { listSceneGeography,readRegionGeography,saveRegionGeography }
   from "./territory-geography-storage.js";
 import {territoryTier} from "./territory-view-model.js";
+import {readTerritoryCheckpointLink,territoryCheckpointLinks,
+  saveTerritoryCheckpointLink} from "./territory-checkpoint-link.js";
 import { buildTerritoryGeographyForm,geographyFromForm }
   from "./territory-geography-form.js";
 import {planNativeRegionSmoothing,saveNativeRegionSmoothing}
@@ -50,7 +52,7 @@ import {createTerritoryRecoveryConfirmationContent}
 import {planTerritoryGridConversion,commitTerritoryGridConversion,
   restoreTerritoryPolygonBackup} from "./territory-grid-conversion.js";
 import {TerritoryGridConversionPreview} from "./territory-grid-conversion-preview.js";
-import {inspectTerritoryGridOwnership,planTerritoryCellTransfer,commitTerritoryCellTransfer,
+import {planTerritoryCellTransfer,commitTerritoryCellTransfer,
   planMultiDestinationTerritoryCellTransfer,commitMultiDestinationTerritoryCellTransfer,
   readPendingTerritoryCellTransfer,inspectPendingTerritoryCellTransfer,
   resolveTerritoryCellTransfer}
@@ -458,10 +460,10 @@ function actions() {
       for(const line of [
         "Choose two to four destination Territories BEFORE painting. You can add " +
           "unclaimed cells, erase cells, or take cells from an unselected peer Territory.",
-        "Atlas opens the first selection. Stage & Next advances to another destination, " +
-          "Stage & Switch revisits any selected Territory, and Stage & Review Batch " +
-          "opens the final approval directly from Paint. Native Regions remain " +
-          "unchanged until that final approval.",
+        "Atlas opens the first destination. Choosing another destination from the " +
+          "Paint selector saves the current draft locally and switches instantly. " +
+          "Stage advances if another destination is unfinished, or opens one final " +
+          "review and approval when all selected destinations are staged.",
         "If only one Region needs editing (for example, Millstone receives a " +
           "cell from Dirwest), use its ordinary Paint Territory → Preview & Save instead.",
         "All batch destinations must belong to the same geographic tier. " +
@@ -1725,7 +1727,7 @@ function actions() {
       }
       const nextUnstaged=batch?.targetIds.find(id=>id!==regionId&&!batch.drafts.has(id));
       await territoryCanvas.begin(scene,draft,async (candidate,reportProgress)=>{
-        if(batch)throw Error("Use Stage & Return to Workspace while the selected batch is active.");
+        if(batch)throw Error("Use Stage in Paint while the selected batch is active.");
         const transfer=planTerritoryCellTransfer(scene,regionId,candidate);
         if(transfer){
           const multi=Array.isArray(transfer.sourceIds);
@@ -1771,8 +1773,7 @@ function actions() {
         }
         await saveTerritoryDraft(scene,candidate,{regionId});
         refresh();ui.notifications.info("Native Territory boundary updated; Behaviors retained.");
-      },{inspectDraft:candidate=>inspectTerritoryGridOwnership(scene,regionId,candidate),
-        batchContext:batch?{name:region.name,index:batch.targetIds.indexOf(regionId)+1,
+      },{batchContext:batch?{name:region.name,index:batch.targetIds.indexOf(regionId)+1,
           regionId,total:batch.targetIds.length,nextId:nextUnstaged??null,
           nextName:nextUnstaged?scene.regions.get(nextUnstaged)?.name:null,
           targets:batch.targetIds.map(id=>({id,name:scene.regions.get(id)?.name??"Unknown",
@@ -1977,6 +1978,58 @@ function actions() {
       refresh();
       ui.notifications.info(shouldLink?"Native Region linked to Atlas.":
         "Atlas association removed; native Region unchanged.");
+    },
+    async configureTerritoryCheckpoint(scene,regionId,refresh){
+      ensureIdle(scene);
+      if(navigation.travelSession||territoryCanvas.session||manualFog.paletteOpen||
+          manualFog.brush)
+        throw Error("Close active Journey and canvas editors before linking a Territory.");
+      const region=scene.regions?.get?.(regionId);
+      if(!region)throw Error("This native Territory is no longer available.");
+      const existing=readTerritoryCheckpointLink(region);
+      const atlas=readAtlas(scene);
+      const claimed=new Set(territoryCheckpointLinks(scene).filter(entry=>
+        entry.regionId!==regionId&&entry.link).map(entry=>entry.link.checkpointId));
+      const choices=[["","No linked Checkpoint"]];
+      for(const cp of [...(atlas.checkpoints??[])].sort((a,b)=>a.name.localeCompare(b.name)))
+        if(!claimed.has(cp.id))choices.push([cp.id,cp.name]);
+      const content=document.createElement("div");
+      const intro=document.createElement("p");
+      intro.textContent=`Associate ${region.name} with one Atlas Checkpoint in this Scene. `+
+        "This is a name/identity reference only: it does not move the Region or " +
+        "Checkpoint, change linked Journals, publish new player data, or alter native Behaviors.";
+      content.appendChild(intro);
+      const picker=createSettingsSelect(choices,{name:"checkpointId",
+        selectedId:existing?.checkpointId??"",
+        ariaLabel:"Atlas Checkpoint for native Territory"});
+      content.appendChild(picker);
+      const answer=await DialogV2.input({window:{title:"Link Territory to Checkpoint"},
+        content,ok:{label:"Review Association"},rejectClose:false,modal:true});
+      if(!answer)return;
+      const targetId=String(answer.checkpointId??"")||null;
+      if(targetId!==null&&!choices.some(([id])=>id===targetId))
+        throw Error("Choose an available Atlas Checkpoint.");
+      if(targetId===(existing?.checkpointId??null))return;
+      const chosen=atlas.checkpoints?.find(cp=>cp.id===targetId);
+      const confirmation=document.createElement("div");
+      const message=document.createElement("p");
+      message.textContent=chosen?
+        `Link native Territory ${region.name} to Checkpoint ${chosen.name}?`:
+        `Remove the Checkpoint association from native Territory ${region.name}?`;
+      confirmation.appendChild(message);
+      const note=document.createElement("p");
+      note.textContent="Only this Region's versioned Atlas association flag changes. " +
+        "Native Region geometry, Behaviors, Levels, visibility, Atlas Checkpoint " +
+        "location, linked Journals and player discovery stay unchanged.";
+      confirmation.appendChild(note);
+      const approved=await DialogV2.confirm({window:{title:"Confirm Territory Association"},
+        content:confirmation,yes:{label:chosen?"Link Checkpoint":"Remove Association"},
+        rejectClose:false,modal:true});
+      if(!approved)return;
+      await saveTerritoryCheckpointLink(scene,regionId,{checkpointId:targetId,
+        expected:existing,expectedName:region.name,expectedAtlasRevision:atlas.revision});
+      refresh();ui.notifications.info(chosen?`Territory linked to ${chosen.name}.`:
+        "Territory Checkpoint association removed; native Region unchanged.");
     },
     async smoothNativeRegion(scene,regionId,refresh) {
       ensureIdle(scene);

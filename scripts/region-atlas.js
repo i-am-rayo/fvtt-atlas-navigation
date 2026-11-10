@@ -8,6 +8,7 @@ import { MODULE_ID } from "./atlas-storage.js";
 
 export const REGION_ATLAS_FLAG = "atlas";
 export const REGION_ATLAS_SCHEMA_VERSION = 1;
+export const REGION_CHECKPOINT_FLAG = "territoryCheckpoint";
 
 export function validateRegionAtlasLink(value) {
   if (value == null) return null;
@@ -86,5 +87,7 @@ export async function unlinkAtlasRegion(scene, regionId) {
   const region = editableRegion(scene, regionId);
   const current = readRegionAtlasLink(region);
   if (!current) throw new Error("This Region is no longer linked to Atlas.");
+  if(region.getFlag(MODULE_ID,REGION_CHECKPOINT_FLAG)!=null)
+    throw Error("Remove this Region's Atlas checkpoint association before unlinking it.");
   await region.unsetFlag(MODULE_ID, REGION_ATLAS_FLAG);
 }

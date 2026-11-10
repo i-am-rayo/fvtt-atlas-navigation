@@ -27,6 +27,7 @@ import { availableMovementActions, unavailableMovementActions,
 import {ATLAS_LEVEL_PLANNER_SETTING} from "./navigation-native-level-model.js";
 import {atlasNativeLevelSetup} from "./navigation-native-level-setup.js";
 import { listSceneGeography } from "./territory-geography-storage.js";
+import {readTerritoryCheckpointLink} from "./territory-checkpoint-link.js";
 import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
 import { readTerritoryRoadDirectory } from "./territory-road-directory.js";
 import {withInferredContinentParents} from "./territory-parent-inference.js";
@@ -227,6 +228,8 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     "remain authoritative. Analyze peer overlaps to preview an optional " +
     "one-sided native border correction; continent-to-settlement nesting is preserved.","hint"));
   const pending=readPendingTerritoryCellTransfer(scene);
+  const checkpointById=new Map((scene?.getFlag?readAtlas(scene).checkpoints??[]:[])
+    .map(checkpoint=>[checkpoint.id,checkpoint]));
   const batch=actions.territoryBatchState?.(scene);
   if(!batch&&typeof actions.startTerritoryBatch==="function"){
     const start=button("Start Batch Edit",
@@ -242,9 +245,9 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   if(batch?.total){
     const queue=node("div",undefined,"atlas-territory-batch-queue");
     queue.appendChild(node("p",`Hex/Grid batch: ${batch.count} of ${batch.total} `+
-      "Territories staged. Paint handles Stage & Next, switching between " +
-      "selected Territories, and the final Review & Apply without returning here. " +
-      "These Workspace controls remain available as a fallback. Staging is local " +
+      "Territories staged. The Paint destination selector switches among selected " +
+      "Territories while saving local drafts; Stage advances or opens the final " +
+      "Review & Apply without returning here. Workspace remains a fallback. Staging is local " +
       "only; final approval applies all edits together, including unclaimed cells.","hint"));
     for(const target of batch.targets){
       const status=target.staged?"Staged":"Not staged";
@@ -292,6 +295,9 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     row.setAttribute("data-atlas-native-region-id",region.id);
     const details=node("div");details.style.flex="1 1 auto";
     const nativeRegion=scene.regions?.get?.(region.id);
+    let checkpointLink=null,invalidCheckpointLink=false;
+    try{checkpointLink=readTerritoryCheckpointLink(nativeRegion);}
+    catch{invalidCheckpointLink=true;}
     const swatch=node("span",undefined,"atlas-territory-native-color");
     swatch.style.backgroundColor=nativeRegionColorHex(nativeRegion?.color)??"transparent";
     swatch.setAttribute("aria-hidden","true");
@@ -310,6 +316,12 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     const parent=geographyById.get(region.id)?.geography?.parentRegionId;
     const entry=geographyById.get(region.id);
     const boundaryStale=!!nativeRegion&&territoryBoundaryNeedsAdoption(nativeRegion);
+    if(invalidCheckpointLink)status.push("Unsupported Checkpoint association");
+    else if(checkpointLink){
+      const checkpoint=checkpointById.get(checkpointLink.checkpointId);
+      status.push(checkpoint?`Checkpoint: ${checkpoint.name}`:
+        "Linked Checkpoint missing — choose another");
+    }
     if(boundaryStale)status.push("Native boundary changed — adopt before Atlas editing");
     if(parent&&geographyById.has(parent))status.push("Parent: "+
       geographyById.get(parent).name+(entry.inferredParent?
@@ -359,6 +371,12 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
       ()=>actions.setNativeRegionLink(scene,region.id,!region.linked,refresh));
     linked.disabled=!!draft||region.invalidLink;
     controls.appendChild(linked);
+    const checkpointAction=iconAction("map-pin",
+      checkpointLink?"Change or remove linked Atlas Checkpoint":"Link native Territory to Atlas Checkpoint",
+      ()=>actions.configureTerritoryCheckpoint(scene,region.id,refresh));
+    checkpointAction.disabled=!!draft||!!pending||!region.linked||region.invalidLink||
+      invalidCheckpointLink;
+    controls.appendChild(checkpointAction);
     const publicLabel=iconAction("tag","Edit public Journey territory label",
       ()=>actions.configurePublicTerritory(scene,refresh,region.id));
     publicLabel.disabled=!!draft;
