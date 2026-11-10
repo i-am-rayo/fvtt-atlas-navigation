@@ -49,7 +49,7 @@ function fixture(){
     sceneWidth:200,sceneHeight:200},grid:{type:1,size:10,isGridless:false,
     getShape:()=>[{x:-5,y:-5},{x:5,y:-5},{x:5,y:5},{x:-5,y:5}],
     getCenterPoint:({i,j})=>({x:i*10+5,y:j*10+5})}};
-  return {source,target,scene,view,flags,events};
+  return {source,target,scene,view,flags,events,makeRegion:region};
 }
 function globals(){
   const before={game:globalThis.game,foundry:globalThis.foundry,PIXI:globalThis.PIXI};
@@ -77,15 +77,15 @@ test("Hex/Grid ownership review distinguishes unclaimed, single-peer and multi-p
     assert.equal(first.contestedAddedCells,0);
     assert.deepEqual(first.peers.map(p=>[p.name,p.cells]),[["Reshara",1]]);
     assert.equal(first.canUseExistingTransferWriter,true);
-    const another={...f.source,id:"Third",name:"Third",
-      shapes:[{type:"grid",origin:null,offsets:[{i:4,j:0}]}]};
+    const another=f.makeRegion("Third",[{i:4,j:0},{i:6,j:0}]);
     f.scene.regions.set(another.id,another);
     const multiple=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
     assert.equal(multiple.peerOwnedAddedCells,2);
     assert.equal(multiple.requiresMultiRegionReview,true);
     assert.equal(multiple.peers.length,2);
-    assert.throws(()=>planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}),
-      /multiple peer owners/);
+    const multiPlan=planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view});
+    assert.equal(multiPlan.sourceIds.length,2,"two separate owners create one multi-source plan");
+    assert.equal(multiPlan.records.length,3);
     another.shapes[0].offsets=[{i:1,j:0}];
     const contested=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
     assert.equal(contested.contestedAddedCells,1);
@@ -215,4 +215,144 @@ test("transfer tolerates native RegionShapeData materializing default Shape fiel
     assert.equal(readPendingTerritoryCellTransfer(f.scene),null);
     assert.deepEqual(f.source.shapes[0].offsets,[{i:0,j:0},{i:2,j:0}]);
   }finally{fixture.withNativeDefaults=false;restore();}
+});
+
+test("multi-source Hex/Grid transfer persists v2 intent and removes both sources before target",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),third=f.makeRegion("Millstone",[{i:4,j:0},{i:6,j:0}]);
+    f.scene.regions.set(third.id,third);
+    const candidate=draft(f);candidate.offsets.push({i:4,j:0});
+    const plan=planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view});
+    assert.deepEqual(plan.sourceIds,["Millstone","Reshara"]);
+    assert.equal(plan.movedCells,2);
+    assert.deepEqual(plan.sources.map(s=>[s.id,s.movedCells,s.remainingCells]),
+      [["Millstone",1,1],["Reshara",1,2]]);
+    assert.equal(f.events.length,0,"planning never edits native Regions");
+    const progress=[];
+    await commitTerritoryCellTransfer(f.scene,plan,{view:f.view,
+      onProgress:p=>progress.push(p)});
+    assert.deepEqual(progress.map(p=>p.step),[0,1,2,3,4,5]);
+    assert.deepEqual(f.events.map(e=>e.type),
+      ["scene","region","region","region","scene-unset"]);
+    assert.deepEqual(f.events.filter(e=>e.type==="region").map(e=>e.id),
+      ["Millstone","Reshara","Valecor"]);
+    assert.ok(f.events.filter(e=>e.type==="region").every(e=>e.pending),
+      "durable intent precedes every native update");
+    assert.deepEqual(third.shapes[0].offsets,[{i:6,j:0}]);
+    assert.deepEqual(f.source.shapes[0].offsets,[{i:0,j:0},{i:2,j:0}]);
+    assert.deepEqual(f.target.shapes[0].offsets,
+      [{i:5,j:0},{i:1,j:0},{i:4,j:0}]);
+    assert.equal(readPendingTerritoryCellTransfer(f.scene),null);
+    assert.deepEqual(third.behaviors,[{id:"Millstone-behavior"}]);
+  }finally{restore();}
+});
+
+test("interrupted v2 multi-source transfer rolls back all three Regions with preserved intent",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),third=f.makeRegion("Millstone",[{i:4,j:0},{i:6,j:0}]);
+    f.scene.regions.set(third.id,third);
+    const before=[third,f.source,f.target].map(r=>structuredClone(r.shapes));
+    const candidate=draft(f);candidate.offsets.push({i:4,j:0});
+    const plan=planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view});
+    fixture.failTarget="Reshara";
+    await assert.rejects(()=>commitTerritoryCellTransfer(f.scene,plan,{view:f.view}),
+      /Simulated native target failure/);
+    const pending=readPendingTerritoryCellTransfer(f.scene);
+    assert.equal(pending.schemaVersion,2);
+    assert.deepEqual(pending.sourceIds,["Millstone","Reshara"]);
+    assert.deepEqual(third.shapes[0].offsets,[{i:6,j:0}],
+      "first Region already changed before interruption");
+    fixture.failTarget=null;
+    await resolveTerritoryCellTransfer(f.scene,"rollback",{view:f.view});
+    assert.deepEqual([third,f.source,f.target].map(r=>r.shapes),before);
+    assert.equal(readPendingTerritoryCellTransfer(f.scene),null);
+  }finally{fixture.failTarget=null;restore();}
+});
+
+test("interrupted v2 transfer resumes and rejects third-party edits",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),third=f.makeRegion("Millstone",[{i:4,j:0},{i:6,j:0}]);
+    f.scene.regions.set(third.id,third);
+    const candidate=draft(f);candidate.offsets.push({i:4,j:0});
+    const plan=planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view});
+    fixture.failTarget="Valecor";
+    await assert.rejects(()=>commitTerritoryCellTransfer(f.scene,plan,{view:f.view}),
+      /Simulated native target failure/);
+    fixture.failTarget=null;
+    f.source.shapes[0].offsets.push({i:8,j:0});
+    await assert.rejects(()=>resolveTerritoryCellTransfer(f.scene,"resume",{view:f.view}),
+      /changed outside the transfer/);
+    assert.ok(readPendingTerritoryCellTransfer(f.scene));
+    f.source.shapes[0].offsets.pop();
+    await resolveTerritoryCellTransfer(f.scene,"resume",{view:f.view});
+    assert.equal(readPendingTerritoryCellTransfer(f.scene),null);
+    assert.equal(f.target.shapes[0].offsets.length,3);
+  }finally{fixture.failTarget=null;restore();}
+});
+
+test("multi-source transfer rejects ambiguous duplicate ownership and stale sources before writing",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),third=f.makeRegion("Millstone",[{i:1,j:0},{i:6,j:0}]);
+    f.scene.regions.set(third.id,third);
+    const candidate=draft(f);
+    assert.throws(()=>planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}),
+      /multiple peer Territories/);
+    third.shapes[0].offsets=[{i:4,j:0},{i:6,j:0}];
+    candidate.offsets.push({i:4,j:0});
+    const plan=planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view});
+    third.shapes[0].offsets.push({i:7,j:0});
+    await assert.rejects(()=>commitTerritoryCellTransfer(f.scene,plan,{view:f.view}),
+      /changed since preview/);
+    assert.equal(f.events.length,0);
+  }finally{restore();}
+});
+
+test("multi-source preflight refuses empty source Regions and overlarge peer groups",()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),third=f.makeRegion("Millstone",[{i:4,j:0}]);
+    f.scene.regions.set(third.id,third);
+    const candidate=draft(f);candidate.offsets.push({i:4,j:0});
+    assert.throws(()=>planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}),
+      /leave Millstone empty/);
+    third.shapes[0].offsets.push({i:6,j:0});
+    for(let k=0;k<3;k++){
+      const offset=10+k*2;
+      const peer=f.makeRegion(`Extra-${k}`,[{i:offset,j:0},{i:offset+1,j:0}]);
+      f.scene.regions.set(peer.id,peer);
+      candidate.offsets.push({i:offset,j:0});
+    }
+    assert.throws(()=>planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}),
+      /over four peer Territories/);
+    assert.equal(f.events.length,0);
+  }finally{restore();}
+});
+
+test("malformed v2 recovery intent fails closed without editing native Regions",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),third=f.makeRegion("Millstone",[{i:4,j:0},{i:6,j:0}]);
+    f.scene.regions.set(third.id,third);
+    const candidate=draft(f);candidate.offsets.push({i:4,j:0});
+    const plan=planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view});
+    fixture.failTarget="Valecor";
+    await assert.rejects(()=>commitTerritoryCellTransfer(f.scene,plan,{view:f.view}),
+      /Simulated native target failure/);
+    fixture.failTarget=null;
+    const intent=f.flags.territoryGridTransferIntent;
+    const ids=structuredClone(intent.sourceIds);
+    intent.sourceIds=["Reshara","Reshara"];
+    assert.throws(()=>readPendingTerritoryCellTransfer(f.scene),/unsupported/);
+    await assert.rejects(()=>resolveTerritoryCellTransfer(f.scene,"resume",{view:f.view}),
+      /unsupported/);
+    assert.ok(f.flags.territoryGridTransferIntent,
+      "malformed recovery record is never automatically discarded");
+    intent.sourceIds=ids;
+    await resolveTerritoryCellTransfer(f.scene,"resume",{view:f.view});
+    assert.equal(readPendingTerritoryCellTransfer(f.scene),null);
+  }finally{fixture.failTarget=null;restore();}
 });
