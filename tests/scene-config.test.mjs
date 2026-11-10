@@ -1032,6 +1032,29 @@ test("Territories Workspace starts batch selection before painting and tracks ea
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("interrupted native batch disables staged draft discard until recovery",()=>{
+  const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},i18n:{localize:key=>key,lang:"en"}};
+    globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    const scene={id:"scene1",regions:new Map(),getFlag:(_scope,key)=>
+      key==="territoryGridTransferIntent"?{schemaVersion:3,sceneId:"scene1",
+        sourceIds:[],targetIds:["a","b"],gridIdentity:"grid",
+        records:[{id:"a"},{id:"b"}]}:null};
+    const panel=createAtlasTerritoryPanel(scene,{draft:()=>null,
+      territoryBatchState:()=>({count:2,total:2,targets:[
+        {id:"a",name:"First",staged:true},{id:"b",name:"Second",staged:true}]}),
+      discardTerritoryBatch:()=>{throw Error("must stay disabled");}},()=>{},
+      {generated:[],nativeRegions:[],publicById:new Map()});
+    const controls=buttons(panel);
+    assert.ok(controls.find(b=>b.textContent==="Discard Staged Batch")?.disabled);
+    assert.ok(controls.find(b=>b.textContent==="Review & Apply Batch")?.disabled);
+    assert.ok(controls.find(b=>b.textContent==="Resume / Roll Back Transfer"),
+      "the only active recovery flow remains visible");
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("road-generated native Regions are excluded from the geographic boundary manager",()=>{
   const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
   let mounted=null;

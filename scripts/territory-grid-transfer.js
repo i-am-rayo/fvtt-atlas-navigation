@@ -31,6 +31,16 @@ const same=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 const sameState=(a,b)=>nativeTerritoryShapeDigest(a.shapes)===
   nativeTerritoryShapeDigest(b.shapes)&&same(a.source,b.source)&&
   same(a.geography,b.geography)&&a.name===b.name;
+/** Diagnostic only: do not relax matching or infer permission to recover. */
+function stateDifferences(current,expected){
+  return [
+    ["native Shape",nativeTerritoryShapeDigest(current.shapes)!==
+      nativeTerritoryShapeDigest(expected.shapes)],
+    ["Atlas boundary controls",!same(current.source,expected.source)],
+    ["geography",!same(current.geography,expected.geography)],
+    ["name",current.name!==expected.name]
+  ].filter(([,changed])=>changed).map(([label])=>label);
+}
 const isGrid=region=>{const s=shapes(region);return s.length===1&&s[0].type==="grid";};
 
 function authorize(scene,id){
@@ -361,7 +371,12 @@ function checkRecord(scene,record){
   const region=authorize(scene,record.id),current=stateOf(region);
   if(sameState(current,record.before))return "before";
   if(sameState(current,record.after))return "after";
-  throw Error(`Region ${region.name} changed outside the transfer. Recovery blocked; preserve the Scene backup.`);
+  const before=stateDifferences(current,record.before).join(", ");
+  const after=stateDifferences(current,record.after).join(", ");
+  throw Error(`Region ${region.name} changed outside the transfer snapshots. `+
+    `Differences from original: ${before||"none"}; from planned result: ${after||"none"}. `+
+    "These differences may be native normalization or another edit. " +
+    "Recovery blocked; preserve the Scene backup.");
 }
 
 function validatePlan(scene,intent,desired,view){

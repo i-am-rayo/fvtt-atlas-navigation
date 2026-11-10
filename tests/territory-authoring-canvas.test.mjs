@@ -107,16 +107,18 @@ test("batch destination editor stages and returns to Workspace without native Sa
   globalThis.document=doc;globalThis.PIXI={Graphics};
   globalThis.requestAnimationFrame=undefined;
   const editor=new TerritoryAuthoringCanvas();
-  let writes=0,returned=0;const queued=[];
+  let writes=0,returned=0;const queued=[],routes=[];
   try{
     const pending=editor.begin(scene,{kind:"grid",offsets:[{i:1,j:1}]},
       async()=>{writes++;},{onStage:draft=>queued.push(draft),
-        afterStage:()=>{returned++;},
+        afterStage:choice=>{returned++;routes.push(choice.advance);},
         batchContext:{name:"Dirwest",index:1,total:2,nextName:"Millstone"}});
     const stage=editor.session.panel.children.find(c=>c.tagName==="div"&&
       c.children.some(button=>button.textContent==="Stage & Return to Workspace"))
       .children.find(button=>button.textContent==="Stage & Return to Workspace");
     assert.ok(stage);
+    assert.ok(editor.session.panel.children.find(c=>c.tagName==="div"&&
+      c.children.some(button=>button.textContent==="Stage & Next: Millstone")));
     assert.match(editor.session.panel.children.find(c=>c.tagName==="p"&&
       String(c.textContent).includes("Batch destination"))?.textContent??"",/Dirwest/);
     assert.ok(!editor.session.panel.children.some(c=>c.tagName==="div"&&
@@ -126,8 +128,44 @@ test("batch destination editor stages and returns to Workspace without native Sa
     assert.equal(await pending,true);
     assert.equal(writes,0);
     assert.equal(returned,1);
+    assert.deepEqual(routes,[false]);
     assert.deepEqual(queued[0].offsets,[{i:1,j:1}]);
     assert.equal(editor.session,null);
+    assert.equal(body.children.length,0);
+  }finally{Object.assign(globalThis,saved);}
+});
+
+test("Stage & Next forwards the next destination request after closing Paint",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={addChild(child){child.parent=this;},removeChild(){}};
+  const scene={id:"scene1"};
+  globalThis.game={user:{isGM:true}};
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    stage:{scale:{x:1}},dimensions:{sceneX:0,sceneY:0,sceneWidth:300,sceneHeight:300},
+    canvasCoordinatesFromClient:point=>point,
+    grid:{getCenterPoint:({i,j})=>({x:i*10+5,y:j*10+5}),
+      getOffset:({x,y})=>({i:Math.floor(x/10),j:Math.floor(y/10)}),
+      getAdjacentOffsets:()=>[],getShape:()=>[{x:-5,y:-5},{x:5,y:-5},
+        {x:5,y:5},{x:-5,y:5}]}};
+  globalThis.document=doc;globalThis.PIXI={Graphics};
+  globalThis.requestAnimationFrame=undefined;
+  const editor=new TerritoryAuthoringCanvas(),routes=[];
+  try{
+    const pending=editor.begin(scene,{kind:"grid",offsets:[{i:1,j:1}]},
+      async()=>{throw Error("Native Save must be unavailable during staging");},{
+        onStage:()=>{},afterStage:choice=>{
+          assert.equal(editor.session,null,"previous editor is fully closed before advancing");
+          routes.push(choice.advance);
+        },batchContext:{name:"Dirwest",index:1,total:2,nextName:"Millstone"}});
+    const stage=editor.session.panel.children.find(c=>c.tagName==="div"&&
+      c.children.some(button=>button.textContent==="Stage & Next: Millstone"))
+      .children.find(button=>button.textContent==="Stage & Next: Millstone");
+    await stage.listeners.get("click")();
+    assert.equal(await pending,true);
+    assert.deepEqual(routes,[true]);
     assert.equal(body.children.length,0);
   }finally{Object.assign(globalThis,saved);}
 });
