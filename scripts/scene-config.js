@@ -229,7 +229,7 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   const pending=readPendingTerritoryCellTransfer(scene);
   if(pending){
     const warning=node("div",undefined,"atlas-territory-transfer-pending");
-    warning.appendChild(node("p","An interrupted two-Region cell transfer needs GM recovery. " +
+    warning.appendChild(node("p",`An interrupted ${pending.records.length}-Region cell transfer needs GM recovery. ` +
       "Do not edit native Territory Shapes until it is resolved."));
     warning.appendChild(button("Resume / Roll Back Transfer",
       "Review the persisted native grid transfer recovery plan",

@@ -47,7 +47,8 @@ import {planTerritoryGridConversion,commitTerritoryGridConversion,
   restoreTerritoryPolygonBackup} from "./territory-grid-conversion.js";
 import {TerritoryGridConversionPreview} from "./territory-grid-conversion-preview.js";
 import {inspectTerritoryGridOwnership,planTerritoryCellTransfer,commitTerritoryCellTransfer,
-  readPendingTerritoryCellTransfer,resolveTerritoryCellTransfer}
+  readPendingTerritoryCellTransfer,inspectPendingTerritoryCellTransfer,
+  resolveTerritoryCellTransfer}
   from "./territory-grid-transfer.js";
 import {preferredTerritoryCreationMethod} from "./territory-authoring-model.js";
 import {readTerritoryDraft,selectedBlankWallBoundary,saveTerritoryDraft,
@@ -1602,7 +1603,7 @@ function actions() {
               "Transfer Between Two Regions"},
             rejectClose:false,modal:true});
           if(!accepted)return false;
-          reportProgress({step:0,total:documentCount+2,
+          reportProgress({step:0,total:documentCount+3,
             message:"Validating and preparing native Region transfer…"});
           // Let the browser paint the initial progress state before a large
           // native geometry check or asynchronous Scene write begins.
@@ -1624,20 +1625,44 @@ function actions() {
         throw Error("Finish active journeys and editors before recovering native Regions.");
       const pending=readPendingTerritoryCellTransfer(scene);
       if(!pending)return;
+      const inspection=inspectPendingTerritoryCellTransfer(scene);
       const container=document.createElement("div");
       const message=document.createElement("p");
       message.textContent="An interrupted native cell transfer requires GM recovery. " +
-        `Choose whether to complete the planned transfer or restore all `+
-        `${pending.records.length} original Regions. Atlas will refuse if any `+
-        "native document has unrelated edits.";
+        `Atlas inspected all ${inspection.regionCount} native Regions without changing them. `+
+        "Resume completes the intended cell ownership; Roll Back restores the original Shapes.";
       container.appendChild(message);
-      container.appendChild(createSettingsSelect([
-        ["resume","Resume transfer (finish planned ownership)"],
-        ["rollback","Roll Back (restore both previous Shapes)"]],
-      {name:"mode",ariaLabel:"Native transfer recovery decision"}));
+      const list=document.createElement("ul");
+      for(const record of inspection.records){
+        const item=document.createElement("li");
+        const status=record.state==="after"?"Already applied":
+          record.state==="before"?"Original (not yet applied)":"BLOCKED";
+        item.textContent=`${record.name} (${record.role}): ${status}; `+
+          `${record.beforeCells} → ${record.afterCells} grid cells`+
+          (record.reason?`. ${record.reason}`:"");
+        list.appendChild(item);
+      }
+      container.appendChild(list);
+      const choices=[];
+      if(inspection.canResume)choices.push(["resume","Resume transfer (finish planned ownership)"]);
+      if(inspection.canRollback)choices.push(["rollback","Roll Back (restore original Shapes)"]);
+      if(!inspection.canResume||!inspection.canRollback){
+        const blockers=document.createElement("p");
+        blockers.textContent=[!inspection.canResume?`Resume blocked: ${inspection.resumeBlocker}`:null,
+          !inspection.canRollback?`Roll Back blocked: ${inspection.rollbackBlocker}`:null]
+          .filter(Boolean).join(" ");
+        container.appendChild(blockers);
+      }
+      if(!choices.length){
+        await DialogV2.confirm({window:{title:"Native Territory Recovery Blocked"},
+          content:container,yes:{label:"Close"},rejectClose:false,modal:true});
+        return;
+      }
+      container.appendChild(createSettingsSelect(choices,
+        {name:"mode",ariaLabel:"Native transfer recovery decision"}));
       const decision=await DialogV2.input({window:{title:"Recover Native Territory Transfer"},
         content:container,ok:{label:"Review Recovery"},rejectClose:false,modal:true});
-      if(!decision?.mode)return;
+      if(!decision?.mode||!choices.some(([value])=>value===decision.mode))return;
       const confirm=document.createElement("p");
       confirm.textContent=decision.mode==="resume"?
         "Complete the interrupted transfer using the saved recovery record?":
@@ -1647,6 +1672,11 @@ function actions() {
           "Resume Native Transfer":"Roll Back Native Transfer"},
         rejectClose:false,modal:true});
       if(!accepted)return;
+      if(JSON.stringify(readPendingTerritoryCellTransfer(scene))!==JSON.stringify(pending))
+        throw Error("The persisted recovery record changed during review. Reopen recovery.");
+      const latest=inspectPendingTerritoryCellTransfer(scene);
+      if(!(decision.mode==="resume"?latest?.canResume:latest?.canRollback))
+        throw Error("Native Region recovery safety changed during review. Reopen recovery.");
       await resolveTerritoryCellTransfer(scene,decision.mode);
       refresh();ui.notifications.info("Native Territory transfer recovery completed.");
     },
