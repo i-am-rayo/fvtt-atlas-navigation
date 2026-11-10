@@ -86,7 +86,7 @@ visibility, Levels and Journey data remain exactly unchanged.
 - A settlement may visually supersede its parent Continent without destroying any parent cells. To change two same-tier Regions, stage an explicit **multi-document transfer with recoverable intent**; do not treat canvas previews as atomic native writes.
 - Unsupported feature versions or grid changes fail closed without any native edits.
 
-### beta.8.12 candidate — Gate C inspection-only slice (automated test; owner live pending)
+### beta.8.12 — Gate C inspection-only slice (automated and owner live tested)
 
 - The reported Reshara native green `#4d972b` must remain green in Atlas. Atlas
   now resolves the native Region's public Appearance color for hex strings and
@@ -130,11 +130,74 @@ visibility, Levels and Journey data remain exactly unchanged.
    Test canvas refresh/switch and non-GM; check that native Behaviors, fog,
    roads and Journeys remain unaffected.
 
-**Next separate Gate C authoring slice (not implemented):** approved native
-conversion commit with a recoverable backup, exact native-geometry/digest
-revalidation and safe rollback; peer-to-peer transfer requires explicit GM
-approval and a robust multi-document recovery protocol. Do not infer consent
-to transfer from selecting the conversion target.
+**Owner feedback for beta.8.12:** Native Region colors, candidate coverage and
+the grid preview passed live inspection. The first startup reported an Atlas
+resource request `net::ERR_FAILED` and separate `simple-quest`/`betterroofs`
+errors; restart succeeded. Reproduce/diagnose the Atlas request before making
+changes to its startup lifecycle. The Workspace obscured the conversion preview;
+the preview intentionally offered no Save in beta.8.12.
+
+### beta.8.13 — Gate C single-Region conversion commit (automated PASS; owner live pending)
+
+- The conversion preview now uses Atlas's shared ApplicationV2 canvas-editor
+  focus helper to **minimize the Workspace and other visible windows**. It
+  restores only windows Atlas minimized when the preview/save flow closes;
+  pre-minimized windows stay minimized. The cyan/orange preview remains
+  transient and read-only until the GM explicitly confirms conversion in a
+  second dialog.
+- The **Convert Selected Region** action rechecks GM Scene/Region write
+  permissions, active Scene grid identity, original native Shape, original
+  Atlas boundary source, linked geography, candidate cells and name. The
+  existing native coverage validator checks **full cell geometry** against
+  same-tier peers and containment within a parent Region. A center-only
+  conflict preview is never enough to authorize a Save.
+- If all checks pass, one `RegionDocument.update` replaces only the selected
+  native polygon with a native Grid Shape and stores a schema-versioned backup
+  of the original polygon and Atlas boundary controls **in the same update**.
+  The native Region ID, appearance/color, opacity, Levels, Behaviors, parent
+  association, label and all other Region documents are left intact. Because
+  native geometry changes, Foundry may legitimately re-evaluate native Region
+  Behaviors/token membership after conversion.
+- A converted Region gains a **Restore backed-up native polygon** action. It
+  requires another GM confirmation, the same Scene grid identity, the unchanged
+  native converted Shape/source, and current exact peer/parent validations.
+  One native document update restores the original polygon/source and clears
+  the backup. A changed grid, post-conversion manual geometry/source edit,
+  conflicting peer, invalid backup, missing permission or unsupported version
+  **blocks restoration rather than overwriting later work**.
+- Intentionally **not implemented**: same-tier cell transfers, automatic peer
+  subtraction, multi-Region edits, conversions of Shapes with holes/multiple
+  Shapes, a World export archive, or automatic conversion of a whole Scene.
+  These need an independently approved recoverable multi-document transaction
+  design. A per-Region backup is not a substitute for external World backups.
+
+**Owner live checklist for beta.8.13 (Foundry v14.370+):**
+
+1. Open the Atlas Workspace, Territories, then a drawn/polygon Region such as
+   Hearth's Heart. Click the hexagon. Confirm Atlas Workspace minimizes,
+   cyan cells and orange original contour are visible, and closing the preview
+   restores exactly the windows that Atlas minimized. Cancelling must not edit
+   anything.
+2. Repeat and explicitly approve both dialogs. Confirm the selected native
+   Foundry Region now contains a Grid Shape (not its old Polygon Shape); compare
+   count and contour with the preview. Native ID, color, Behaviors, Levels,
+   visibility and geography remain unchanged. Confirm nested settlement and
+   continent Regions, fog, Roads and Journey data are unaffected.
+3. Use the **Restore backed-up native polygon** action; confirm it brings back
+   the original native Shape and Atlas edit controls. Verify Atlas Layers keep
+   native colors. Check canvas refresh/reload and Window restore/minimize.
+4. Re-preview a Region with same-tier overlap: the Save must refuse any full
+   geometric intersection, even if the candidate centers appear clear. Check
+   an ineligible/older gridless Scene and a non-GM client: they must not gain
+   authoring authority. Test a mid-journey session is blocked.
+5. Re-test first startup and script resource loads with cache disabled: report
+   Atlas `ERR_FAILED` URLs separately from `simple-quest` and `betterroofs`
+   exception stacks, including whether problems recur after restart.
+
+**Next Gate C slice (deferred):** an explicit GM-reviewed peer-to-peer grid
+cell transfer requires staged multi-document intent, conflict resolution,
+backup/export recovery and idempotent crash recovery; never infer permission
+to modify a peer from converting the selected Region.
 
 ## Explicitly out of scope until approved
 
