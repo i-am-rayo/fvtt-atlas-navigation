@@ -163,7 +163,7 @@ test("Paint Territory reviews peer Hex/Grid cell ownership and invalidates stale
     const review=editor.session.ownershipReview;
     assert.equal(inspections,1);
     assert.match(review.textContent,/Dirwest \(1\), Valecor \(1\)/);
-    assert.match(review.textContent,/Multiple peers require a future guarded transfer/);
+    assert.match(review.textContent,/Multiple peers require an explicit multi-Region transfer/);
     assert.equal(writes,0,"read-only review cannot trigger native writes");
     surface.listeners.get("pointerdown")({button:0,clientX:20,clientY:20,
       preventDefault(){},stopImmediatePropagation(){}});

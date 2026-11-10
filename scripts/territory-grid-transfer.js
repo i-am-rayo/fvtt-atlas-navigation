@@ -116,12 +116,20 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
 export function readPendingTerritoryCellTransfer(scene){
   const value=scene?.getFlag?.(MODULE_ID,GRID_TRANSFER_INTENT_FLAG);
   if(value==null)return null;
-  if(typeof value!=="object"||value.schemaVersion!==1||
-      value.sceneId!==scene?.id||!value.sourceId||!value.targetId||
-      value.sourceId===value.targetId||typeof value.gridIdentity!=="string"||
-      !Array.isArray(value.records)||value.records.length!==2||
-      value.records[0]?.id!==value.sourceId||
-      value.records[1]?.id!==value.targetId||
+  const records=Array.isArray(value?.records)?value.records:null;
+  const single=value?.schemaVersion===1&&value?.sourceId&&value?.targetId&&
+    value.sourceId!==value.targetId&&records?.length===2&&
+    records[0]?.id===value.sourceId&&records[1]?.id===value.targetId;
+  const ids=value?.sourceIds;
+  const multiple=value?.schemaVersion===2&&Array.isArray(ids)&&
+    ids.length>=2&&ids.length<=4&&ids.every(id=>typeof id==="string"&&id)&&
+    typeof value.targetId==="string"&&value.targetId&&
+    new Set([...ids,value.targetId]).size===ids.length+1&&
+    records?.length===ids.length+1&&
+    records.every((record,index)=>record?.id===
+      (index<ids.length?ids[index]:value.targetId));
+  if(typeof value!=="object"||(!single&&!multiple)||
+      value.sceneId!==scene?.id||typeof value.gridIdentity!=="string"||
       JSON.stringify(value).length>1000000)
     throw Error("Atlas transfer recovery record is unsupported. Do not edit Region geometry; inspect the Scene backup.");
   return clone(value);
@@ -156,40 +164,61 @@ export function planTerritoryCellTransfer(scene,targetId,draft,{view=globalThis.
     if(claimed.length)owners.push({id:entry.id,claimed});
   }
   if(!owners.length)return null;
-  if(owners.length!==1)
-    throw Error("This stroke crosses multiple peer owners; transfer from one Region at a time.");
-  const owner=owners[0],source=authorize(scene,owner.id);
-  const sourceDraft=readTerritoryDraft(scene,owner.id,{view});
-  if(sourceDraft.kind!=="grid"||territoryTier(entries.find(e=>e.id===source.id))!==tier)
-    throw Error("Both Territories must be editable native grid Shapes of the same geographic tier.");
-  const transferred=new Set(owner.claimed.map(key));
-  const sourceOffsets=sourceDraft.offsets.filter(p=>!transferred.has(key(p)));
-  if(!sourceOffsets.length)
-    throw Error("Transfer would leave the source Region empty. Split or redraw it explicitly first.");
-  if(owner.claimed.length>500)
+  if(owners.length>4)
+    throw Error("Transfer spans over four peer Territories. Review smaller groups first.");
+  owners.sort((a,b)=>a.id.localeCompare(b.id));
+  const ownedKeys=new Set();
+  for(const owner of owners)for(const cell of owner.claimed){
+    const cellKey=key(cell);
+    if(ownedKeys.has(cellKey))
+      throw Error("A painted cell belongs to multiple peer Territories. Resolve ownership before transferring.");
+    ownedKeys.add(cellKey);
+  }
+  if(ownedKeys.size>500)
     throw Error("A single reviewed transfer may move at most 500 cells.");
-  const sourceAfter=gridShape(sourceOffsets),targetAfter=gridShape(targetOffsets);
-  const simulated=virtualScene(scene,new Map([
-    [source.id,[sourceAfter]],[target.id,[targetAfter]]]));
-  // Exact native grid geometry validation: peer offset conflicts plus polygon
-  // intersection and parent containment, in the FINAL two-Region state.
+  const sources=owners.map(owner=>{
+    const source=authorize(scene,owner.id);
+    const sourceDraft=readTerritoryDraft(scene,owner.id,{view});
+    if(sourceDraft.kind!=="grid"||territoryTier(entries.find(e=>e.id===source.id))!==tier)
+      throw Error("All Territories must be editable native grid Shapes of the same geographic tier.");
+    const transferred=new Set(owner.claimed.map(key));
+    const remaining=sourceDraft.offsets.filter(p=>!transferred.has(key(p)));
+    if(!remaining.length)
+      throw Error(owners.length===1?
+        "Transfer would leave the source Region empty. Split or redraw it explicitly first.":
+        `Transfer would leave ${source.name} empty. Split or redraw it explicitly first.`);
+    const after=gridShape(remaining),before=stateOf(source);
+    return {region:source,claimed:owner.claimed.length,remaining:remaining.length,
+      after,record:{id:source.id,before,after:{...before,shapes:[after],
+        source:gridSource(before.source,after)}}};
+  });
+  const targetAfter=gridShape(targetOffsets);
+  const changes=new Map(sources.map(s=>[s.region.id,[s.after]]));
+  changes.set(target.id,[targetAfter]);
+  const simulated=virtualScene(scene,changes);
+  // Validate every native grid Region against the same FINAL N-Region state.
+  // No Source/Target document is updated during this planning phase.
   validateTerritoryCoverage(simulated,{geography:draft.geography},targetAfter,
     {regionId:targetId,view});
-  validateTerritoryCoverage(simulated,{geography:readRegionGeography(source)},sourceAfter,
-    {regionId:source.id,view});
-  const beforeSource=stateOf(source),beforeTarget=stateOf(target);
-  const afterSource={...beforeSource,shapes:[sourceAfter],
-    source:gridSource(beforeSource.source,sourceAfter)};
+  for(const source of sources)validateTerritoryCoverage(simulated,
+    {geography:readRegionGeography(source.region)},source.after,
+    {regionId:source.region.id,view});
+  const beforeTarget=stateOf(target);
   const afterTarget={...beforeTarget,shapes:[targetAfter],
     source:gridSource(beforeTarget.source,targetAfter)};
-  return {sceneId:scene.id,sourceId:source.id,sourceName:source.name,
+  const records=[...sources.map(s=>s.record),
+    {id:target.id,before:beforeTarget,after:afterTarget}];
+  const base={sceneId:scene.id,
     targetId,targetName:target.name,gridIdentity:nativeSceneGridIdentity(scene,view),
-    movedCells:owner.claimed.length,sourceCellCount:sourceAfter.offsets.length,
-    targetCellCount:targetAfter.offsets.length,
-    convertedBackupAffected:[source,target].some(r=>
+    movedCells:ownedKeys.size,targetCellCount:targetAfter.offsets.length,
+    convertedBackupAffected:[...sources.map(s=>s.region),target].some(r=>
       r.getFlag(MODULE_ID,GRID_CONVERSION_BACKUP_FLAG)!=null),
-    records:[{id:source.id,before:beforeSource,after:afterSource},
-      {id:target.id,before:beforeTarget,after:afterTarget}]};
+    records};
+  if(sources.length===1)return {...base,sourceId:sources[0].region.id,
+    sourceName:sources[0].region.name,sourceCellCount:sources[0].remaining};
+  return {...base,sourceIds:sources.map(s=>s.region.id),
+    sources:sources.map(s=>({id:s.region.id,name:s.region.name,
+      movedCells:s.claimed,remainingCells:s.remaining}))};
 }
 
 function checkRecord(scene,record){
@@ -217,7 +246,8 @@ async function finish(scene,intent,mode,view,onProgress=()=>{}){
     throw Error("The Scene grid changed. Transfer recovery is blocked; restore the World backup.");
   for(const record of intent.records)checkRecord(scene,record);
   validatePlan(scene,intent,destination,view);
-  onProgress({step:1,total:4,message:"Recovery record verified; updating native Regions"});
+  const total=intent.records.length+2;
+  onProgress({step:1,total,message:"Recovery record verified; updating native Regions"});
   // Forward removes source ownership before target adds it. Reverse removes
   // target ownership before source restores it. No duplicate cell ownership.
   const order=mode==="resume"?intent.records:[...intent.records].reverse();
@@ -228,33 +258,36 @@ async function finish(scene,intent,mode,view,onProgress=()=>{}){
     await region.update({shapes:clone(state.shapes),
       ...(state.source===null?{[`flags.${MODULE_ID}.-=${BOUNDARY_SOURCE_FLAG}`]:null}:
         {[flag(BOUNDARY_SOURCE_FLAG)]:clone(state.source)})});
-    onProgress({step:index+2,total:4,message:`Updated ${index+1} of 2 native Regions`});
+    onProgress({step:index+2,total,
+      message:`Updated ${index+1} of ${intent.records.length} native Regions`});
   }
   // Retain the intent if removing it fails; repeated Resume/Roll Back is safe.
   await scene.unsetFlag(MODULE_ID,GRID_TRANSFER_INTENT_FLAG);
-  onProgress({step:4,total:4,message:"Transfer completed"});
+  onProgress({step:total,total,message:"Transfer completed"});
   return destination;
 }
 
 /** The intent is persisted before either native Region update. */
 export async function commitTerritoryCellTransfer(scene,plan,{view=globalThis.canvas,onProgress=()=>{}}={}){
-  if(!plan||plan.sceneId!==scene?.id||!plan.sourceId||!plan.targetId||
+  if(!plan||plan.sceneId!==scene?.id||
+      !(plan.sourceId||Array.isArray(plan.sourceIds))||!plan.targetId||
       readPendingTerritoryCellTransfer(scene))
     throw Error("Reopen the native cell transfer; resolve any pending transaction first.");
   const target=authorize(scene,plan.targetId);
   const draft=readTerritoryDraft(scene,target.id,{view});
   const refreshed=planTerritoryCellTransfer(scene,target.id,{...draft,
-    offsets:plan.records[1].after.shapes[0].offsets,
+    offsets:plan.records.at(-1).after.shapes[0].offsets,
     geography:readRegionGeography(target)},{view});
   if(!refreshed||!same(refreshed,plan))
     throw Error("Native Regions, membership or grid changed since preview. No changes written.");
-  const intent={schemaVersion:1,sceneId:scene.id,
-    sourceId:plan.sourceId,targetId:plan.targetId,gridIdentity:plan.gridIdentity,
-    records:clone(plan.records)};
+  const multi=Array.isArray(plan.sourceIds),total=plan.records.length+2;
+  const intent={schemaVersion:multi?2:1,sceneId:scene.id,
+    ...(multi?{sourceIds:clone(plan.sourceIds)}:{sourceId:plan.sourceId}),
+    targetId:plan.targetId,gridIdentity:plan.gridIdentity,records:clone(plan.records)};
   if(JSON.stringify(intent).length>1000000)
     throw Error("Transfer exceeds the safe recovery-record budget. Select fewer cells.");
   await scene.update({[flag(GRID_TRANSFER_INTENT_FLAG)]:intent});
-  onProgress({step:0,total:4,message:"Recovery record saved; validating transfer"});
+  onProgress({step:0,total,message:"Recovery record saved; validating transfer"});
   if(!same(readPendingTerritoryCellTransfer(scene),intent))
     throw Error("Transfer recovery intent was not persisted. No Region was edited.");
   return finish(scene,intent,"resume",view,onProgress);
@@ -264,6 +297,6 @@ export async function resolveTerritoryCellTransfer(scene,mode,{view=globalThis.c
   if(!["resume","rollback"].includes(mode))throw Error("Choose Resume or Roll Back.");
   const intent=readPendingTerritoryCellTransfer(scene);
   if(!intent)throw Error("No interrupted Region transfer needs recovery.");
-  authorize(scene,intent.sourceId);authorize(scene,intent.targetId);
+  for(const record of intent.records)authorize(scene,record.id);
   return finish(scene,intent,mode,view);
 }

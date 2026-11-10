@@ -190,9 +190,11 @@ export class TerritoryAuthoringCanvas{
             if(report.peers.length)lines.push("Peers: "+report.peers.map(p=>
               `${p.name} (${p.cells})`).join(", ")+".");
             if(report.contestedAddedCells)lines.push(
-              `⚠ ${report.contestedAddedCells} added cells have multiple peer owners.`);
+              `⚠ ${report.contestedAddedCells} added cells have multiple peer owners; `+
+                "resolve overlapping claims before saving.");
             if(report.requiresMultiRegionReview)lines.push(
-              "Multiple peers require a future guarded transfer; this review does not change Regions.");
+              "Multiple peers require an explicit multi-Region transfer with " +
+                "recovery. Preview & Save performs fresh checks; this review never writes.");
             else lines.push("Read-only review. Save still performs a fresh native validation.");
             ownershipReview.textContent=lines.join("\n");
             session.reviewSignature=signature;
