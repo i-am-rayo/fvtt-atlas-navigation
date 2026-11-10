@@ -243,7 +243,8 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     const queue=node("div",undefined,"atlas-territory-batch-queue");
     queue.appendChild(node("p",`Hex/Grid batch: ${batch.count} of ${batch.total} `+
       "Territories staged. Select any unfinished destination below to paint; " +
-      "Stage & Return to Workspace saves a local draft only. " +
+      "Stage & Next advances automatically; Stage & Return to Workspace " +
+      "lets you select another target. Both save a local draft only. " +
       "Review & Apply commits all edits together, including unclaimed cells.","hint"));
     for(const target of batch.targets){
       const status=target.staged?"Staged":"Not staged";
@@ -259,7 +260,7 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     queue.appendChild(commit);
     const clear=button("Discard Staged Batch","Discard local batch drafts without changing native Regions",() =>
       actions.discardTerritoryBatch(scene,refresh));
-    clear.disabled=!!draft;
+    clear.disabled=!!draft||!!pending;
     queue.appendChild(clear);
     manager.appendChild(queue);
   }

@@ -140,7 +140,8 @@ export class TerritoryAuthoringCanvas{
       `${batchContext.total}: ${batchContext.name}. Paint cells INTO this destination. `+
       "Atlas will remove them from their current owner only after the final batch " +
       "approval. Do not separately erase the source. Staging stores a local draft, " +
-      "not a native Region update."):null;
+      "not a native Region update. Choose Stage & Next to move through the " +
+      "selected destinations, or Stage & Return to Workspace."):null;
     if(batchNote)batchNote.style.cssText="color:#bce9e3;white-space:pre-line;";
     const ownershipReview=el("p");
     ownershipReview.setAttribute("role","note");
@@ -300,19 +301,23 @@ export class TerritoryAuthoringCanvas{
         session.selectedNode=-1;this.#draw(session);
       });
     }
-    if(draft.kind==="grid"&&typeof onStage==="function")
-      addButton("Stage & Return to Workspace",async()=>{
+    if(draft.kind==="grid"&&typeof onStage==="function"){
+      const stage=async advance=>{
         if(session.saving)return;
         session.saving=true;
         try{
           await onStage(copy(session.draft));
           if(this.#live(session)){
             await session.close(true);
-            await afterStage?.();
+            await afterStage?.({advance});
           }
         }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
         finally{session.saving=false;}
-      });
+      };
+      if(batchContext?.nextName)addButton(`Stage & Next: ${batchContext.nextName}`,
+        ()=>stage(true));
+      addButton("Stage & Return to Workspace",()=>stage(false));
+    }
     addButton("Cancel",()=>{if(!session.saving)session.close(false);});
     if(!batchContext){
       const save=addButton("Preview & Save",async()=>{

@@ -170,6 +170,33 @@ test("unclaimed-only v3 batch can roll back after partial native failure",async(
   }finally{fixture.failTarget=null;restore();}
 });
 
+test("blocked recovery identifies exactly which snapshot fields drifted without writing",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),b=batch(f);
+    b.staged[0].draft.offsets=[{i:5,j:0},{i:14,j:0}];
+    b.staged[1].draft.offsets=[{i:10,j:0},{i:16,j:0}];
+    const plan=planMultiDestinationTerritoryCellTransfer(f.scene,b.staged,{view:f.view});
+    fixture.failTarget="Valecor";
+    await assert.rejects(()=>commitMultiDestinationTerritoryCellTransfer(f.scene,plan,
+      {view:f.view}),/Simulated native target failure/);
+    fixture.failTarget=null;
+    const written=b.target.getFlag(MODULE,"territoryBoundarySource");
+    assert.ok(written);
+    written.offsets.reverse(); // A benign-looking but unapproved flag mutation.
+    const count=f.events.length;
+    const review=inspectPendingTerritoryCellTransfer(f.scene,{view:f.view});
+    const blocked=review.records.find(record=>record.id==="Keystone");
+    assert.equal(blocked.state,"blocked");
+    assert.match(blocked.reason,/Differences from original: native Shape/);
+    assert.match(blocked.reason,/from planned result: Atlas boundary controls/);
+    assert.equal(review.canResume,false);
+    assert.equal(review.canRollback,false);
+    assert.equal(f.events.length,count,"diagnostics may not touch native documents");
+    assert.ok(readPendingTerritoryCellTransfer(f.scene));
+  }finally{fixture.failTarget=null;restore();}
+});
+
 test("batch permits erasures without peer transfers but rejects all-no-op stages",async()=>{
   const restore=globals();
   try{

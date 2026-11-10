@@ -520,15 +520,17 @@ function actions() {
         "Destinations: "+plan.destinations.map(d=>`${d.name}: +${d.addedCells}, `+
           `−${d.removedCells}, ${d.finalCells} final cells`).join("; "),
         "Atlas will persist one recovery ledger before touching any native Region, " +
-          "trim source ownership first, verify all native geometry after writing, " +
+          (plan.sources.length?"trim source ownership first, ":
+            "leave other Regions' ownership unchanged, ")+
+          "verify all native geometry after writing, " +
           "and require explicit Resume/Roll Back if interrupted.",
         "Region IDs, Behaviors, colors, Levels, Journey/World time and other " +
           "native state remain unchanged. Destination-to-destination swaps are not supported.",
         ...(plan.convertedBackupAffected?["A previous polygon-conversion Restore may " +
           "be invalid after this transfer. Completed transfers have no one-click Undo."]:[])
       ]){const p=document.createElement("p");p.textContent=line;dialog.appendChild(p);}
-      const accepted=await DialogV2.confirm({window:{title:"Transfer Hex/Grid Batch?"},
-        content:dialog,yes:{label:"Transfer Native Regions"},rejectClose:false,modal:true});
+      const accepted=await DialogV2.confirm({window:{title:"Apply Hex/Grid Batch?"},
+        content:dialog,yes:{label:"Apply Native Batch Edits"},rejectClose:false,modal:true});
       if(!accepted)return;
       const panel=document.createElement("section");
       panel.className="atlas-territory-transfer-progress";
@@ -1766,7 +1768,8 @@ function actions() {
         refresh();ui.notifications.info("Native Territory boundary updated; Behaviors retained.");
       },{inspectDraft:candidate=>inspectTerritoryGridOwnership(scene,regionId,candidate),
         batchContext:batch?{name:region.name,index:batch.targetIds.indexOf(regionId)+1,
-          total:batch.targetIds.length}:null,
+          total:batch.targetIds.length,nextName:nextUnstaged?
+            scene.regions.get(nextUnstaged)?.name:null}:null,
         onStage:batch?candidate=>{
           if(territoryBatchFor(scene)!==batch)
             throw Error("The batch selection changed. Reopen the Workspace.");
@@ -1778,9 +1781,11 @@ function actions() {
             (nextUnstaged?"Select the next receiving Territory in the Workspace.":
               "All selected destinations are staged; review them in the Workspace."));
         }:null,
-        afterStage:batch?async()=>{
-          if(territoryBatchFor(scene)===batch)
-            await restoreAtlasSceneWorkspace(scene);
+        afterStage:batch?async({advance=false}={})=>{
+          if(territoryBatchFor(scene)!==batch)return;
+          if(advance&&nextUnstaged)
+            await this.editTerritoryBoundary(scene,nextUnstaged,refresh);
+          else await restoreAtlasSceneWorkspace(scene);
         }:null});
     },
     async resolveTerritoryCellTransfer(scene,refresh){
@@ -1794,7 +1799,9 @@ function actions() {
       const message=document.createElement("p");
       message.textContent="An interrupted native cell transfer requires GM recovery. " +
         `Atlas inspected all ${inspection.regionCount} native Regions without changing them. `+
-        "Resume completes the intended cell ownership; Roll Back restores the original Shapes.";
+        "Resume completes the intended cell ownership; Roll Back restores the original Shapes. " +
+        "Blocked records list read-only field differences. Do not manually repair them " +
+        "or clear the recovery record without reviewing a World backup.";
       container.appendChild(message);
       const list=document.createElement("ul");
       for(const record of inspection.records){
@@ -1812,9 +1819,12 @@ function actions() {
       if(inspection.canRollback)choices.push(["rollback","Roll Back (restore original Shapes)"]);
       if(!inspection.canResume||!inspection.canRollback){
         const blockers=document.createElement("p");
-        blockers.textContent=[!inspection.canResume?`Resume blocked: ${inspection.resumeBlocker}`:null,
+        const reasons=[!inspection.canResume?`Resume blocked: ${inspection.resumeBlocker}`:null,
           !inspection.canRollback?`Roll Back blocked: ${inspection.rollbackBlocker}`:null]
-          .filter(Boolean).join(" ");
+          .filter(Boolean);
+        blockers.textContent=inspection.resumeBlocker===inspection.rollbackBlocker?
+          `Both recovery options blocked: ${inspection.resumeBlocker}`:
+          reasons.join(" ");
         container.appendChild(blockers);
       }
       if(!choices.length){
