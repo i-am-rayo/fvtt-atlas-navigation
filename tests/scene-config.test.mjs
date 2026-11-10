@@ -989,24 +989,46 @@ test("pending multi-Region transfer exposes an explicit GM recovery action",asyn
   }finally{Object.assign(globalThis,previous);}
 });
 
-test("Territories Workspace offers a local multi-destination batch review and discard",async()=>{
+test("Territories Workspace starts batch selection before painting and tracks each target",async()=>{
   const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
-  let reviewed=0,discarded=0;
+  let reviewed=0,discarded=0,edited=null,started=0;
   try{
     globalThis.document={createElement:tag=>new Element(tag)};
     globalThis.game={user:{isGM:true},i18n:{localize:key=>key,lang:"en"}};
     globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    const common={draft:()=>null,startTerritoryBatch:()=>{started++;},
+      commitTerritoryBatch:()=>{reviewed++;},discardTerritoryBatch:()=>{discarded++;},
+      editTerritoryBoundary:(_scene,id)=>{edited=id;}};
+    const before=createAtlasTerritoryPanel({id:"scene1",regions:new Map()},
+      {...common,territoryBatchState:()=>null},()=>{},
+      {generated:[],nativeRegions:[],publicById:new Map()});
+    const start=buttons(before).find(button=>button.textContent==="Start Batch Transfer");
+    assert.ok(start&&!start.disabled);
+    await start.listeners.get("click")({preventDefault(){}});
+    assert.equal(started,1);
     const panel=createAtlasTerritoryPanel({id:"scene1",regions:new Map()},
-      {draft:()=>null,territoryBatchState:()=>({count:2,names:["Dirwest","Valecor"]}),
-        commitTerritoryBatch:()=>{reviewed++;},discardTerritoryBatch:()=>{discarded++;}},
+      {...common,territoryBatchState:()=>({count:1,total:2,targets:[
+        {id:"dirwest",name:"Dirwest",staged:true},
+        {id:"valecor",name:"Valecor",staged:false}]})},
       ()=>{}, {generated:[],nativeRegions:[],publicById:new Map()});
-    assert.match(textContents(panel),/2 Hex\/Grid destinations staged locally/);
+    assert.match(textContents(panel),/1 of 2 receiving Territories staged/);
     const review=buttons(panel).find(button=>button.textContent==="Review & Transfer Batch");
     const discard=buttons(panel).find(button=>button.textContent==="Discard Staged Batch");
-    assert.ok(review&&!review.disabled&&discard&&!discard.disabled);
-    await review.listeners.get("click")({preventDefault(){}});
+    const edit=buttons(panel).find(button=>button.textContent==="Valecor — Not staged");
+    assert.ok(review&&review.disabled&&discard&&!discard.disabled&&edit);
+    await edit.listeners.get("click")({preventDefault(){}});
+    assert.equal(edited,"valecor");
     await discard.listeners.get("click")({preventDefault(){}});
-    assert.equal(reviewed,1);assert.equal(discarded,1);
+    assert.equal(reviewed,0);assert.equal(discarded,1);
+    const ready=createAtlasTerritoryPanel({id:"scene1",regions:new Map()},
+      {...common,territoryBatchState:()=>({count:2,total:2,targets:[
+        {id:"dirwest",name:"Dirwest",staged:true},
+        {id:"valecor",name:"Valecor",staged:true}]})},
+      ()=>{}, {generated:[],nativeRegions:[],publicById:new Map()});
+    const readyReview=buttons(ready).find(b=>b.textContent==="Review & Transfer Batch");
+    assert.ok(readyReview&&!readyReview.disabled);
+    await readyReview.listeners.get("click")({preventDefault(){}});
+    assert.equal(reviewed,1);
   }finally{Object.assign(globalThis,previous);}
 });
 
