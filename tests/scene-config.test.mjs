@@ -966,11 +966,12 @@ test("Territory Workspace groups children beneath continent rows with all action
   }finally{Object.assign(globalThis,previous);}
 });
 
-test("pending two-Region transfer exposes an explicit GM recovery action",async()=>{
+test("pending multi-Region transfer exposes an explicit GM recovery action",async()=>{
   const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
   const scene={id:"scene1",regions:new Map(),getFlag:(_scope,key)=>
-    key==="territoryGridTransferIntent"?{schemaVersion:1,sceneId:"scene1",
-      sourceId:"a",targetId:"b",gridIdentity:"grid",records:[{id:"a"},{id:"b"}]}:null};
+    key==="territoryGridTransferIntent"?{schemaVersion:2,sceneId:"scene1",
+      sourceIds:["a","c"],targetId:"b",gridIdentity:"grid",
+      records:[{id:"a"},{id:"c"},{id:"b"}]}:null};
   let invoked=false;
   try{
     globalThis.document={createElement:tag=>new Element(tag)};
@@ -982,6 +983,7 @@ test("pending two-Region transfer exposes an explicit GM recovery action",async(
     const recovery=buttons(panel).find(b=>b.title===
       "Review the persisted native grid transfer recovery plan");
     assert.ok(recovery);
+    assert.match(textContents(panel),/interrupted 3-Region cell transfer/);
     await recovery.listeners.get("click")({preventDefault(){}});
     assert.equal(invoked,true);
   }finally{Object.assign(globalThis,previous);}

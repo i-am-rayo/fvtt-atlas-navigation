@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readTerritoryDraft} from "../scripts/territory-authoring.js";
 import {inspectTerritoryGridOwnership,planTerritoryCellTransfer,commitTerritoryCellTransfer,
-  readPendingTerritoryCellTransfer,resolveTerritoryCellTransfer}
+  readPendingTerritoryCellTransfer,inspectPendingTerritoryCellTransfer,
+  resolveTerritoryCellTransfer}
   from "../scripts/territory-grid-transfer.js";
 
 const MODULE="fvtt-atlas-navigation";
@@ -19,6 +20,7 @@ function fixture(){
       update:async patch=>{
         events.push({type:"region",id,pending:!!flags.territoryGridTransferIntent});
         if(fixture.failTarget===id)throw Error("Simulated native target failure");
+        if(fixture.silentTarget===id)return;
         if(patch.shapes)doc.shapes=structuredClone(patch.shapes).map(shape=>
           fixture.withNativeDefaults?{...shape,hole:false,gridBased:true}:shape);
         for(const [field,value] of Object.entries(patch)){
@@ -36,7 +38,10 @@ function fixture(){
   const regions=new Map([[source.id,source],[target.id,target]]);
   const scene={id:"test-scene",grid:{type:1,size:10},width:200,height:200,
     regions,canUserModify:()=>true,getFlag:(_scope,key)=>flags[key]??null,
-    unsetFlag:async (_scope,key)=>{events.push({type:"scene-unset",key});delete flags[key];},
+    unsetFlag:async (_scope,key)=>{
+      events.push({type:"scene-unset",key});
+      if(!fixture.silentUnset)delete flags[key];
+    },
     update:async patch=>{
       events.push({type:"scene"});
       for(const [field,value] of Object.entries(patch)){
@@ -146,7 +151,8 @@ test("GM transfer preflights exact ownership, writes persistent intent first, th
     const progress=[];
     await commitTerritoryCellTransfer(f.scene,plan,{view:f.view,
       onProgress:status=>progress.push(status)});
-    assert.deepEqual(progress.map(status=>status.step),[0,1,2,3,4]);
+    assert.deepEqual(progress.map(status=>status.step),[0,1,2,3,4,5]);
+    assert.match(progress.at(-2).message,/Verifying native Region geometry/);
     assert.deepEqual(f.events.map(e=>e.type),["scene","region","region","scene-unset"]);
     assert.equal(f.events[1].id,f.source.id,"remove ownership before adding it");
     assert.ok(f.events[1].pending&&f.events[2].pending);
@@ -191,6 +197,90 @@ test("interrupted transfer resumes idempotently and blocks unrelated native edit
   }finally{fixture.failTarget=null;restore();}
 });
 
+test("recovery inspector summarizes v1 partial writes without modifying native documents",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),plan=planTerritoryCellTransfer(f.scene,f.target.id,draft(f),{view:f.view});
+    fixture.failTarget=f.target.id;
+    await assert.rejects(()=>commitTerritoryCellTransfer(f.scene,plan,{view:f.view}),
+      /Simulated native target failure/);
+    fixture.failTarget=null;
+    const before=f.events.length;
+    const review=inspectPendingTerritoryCellTransfer(f.scene,{view:f.view});
+    assert.equal(review.regionCount,2);
+    assert.equal(review.appliedRegions,1);
+    assert.equal(review.originalRegions,1);
+    assert.deepEqual(review.records.map(r=>[r.id,r.role,r.state,r.beforeCells,r.afterCells]),
+      [["Reshara","source","after",3,2],["Valecor","target","before",1,2]]);
+    assert.equal(review.canResume,true);
+    assert.equal(review.canRollback,true);
+    assert.equal(f.events.length,before,"preflight does not write Region or Scene data");
+    globalThis.game.user.isGM=false;
+    assert.throws(()=>inspectPendingTerritoryCellTransfer(f.scene,{view:f.view}),/GM/);
+  }finally{fixture.failTarget=null;restore();}
+});
+
+test("a resolved-but-ignored Region update fails postflight and retains durable intent",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),plan=planTerritoryCellTransfer(f.scene,f.target.id,draft(f),{view:f.view});
+    fixture.silentTarget=f.target.id;
+    await assert.rejects(()=>commitTerritoryCellTransfer(f.scene,plan,{view:f.view}),
+      /did not retain the expected native geometry/);
+    assert.ok(readPendingTerritoryCellTransfer(f.scene));
+    assert.equal(f.events.filter(event=>event.type==="scene-unset").length,0,
+      "postflight prevents removing the recovery record");
+    const review=inspectPendingTerritoryCellTransfer(f.scene,{view:f.view});
+    assert.equal(review.canResume,true,"a retry remains safe after ignored native write");
+    fixture.silentTarget=null;
+    const progress=[];
+    await resolveTerritoryCellTransfer(f.scene,"resume",{view:f.view,
+      onProgress:event=>progress.push(event)});
+    assert.deepEqual(progress.map(event=>event.step),[1,2,3,4,5]);
+    assert.equal(readPendingTerritoryCellTransfer(f.scene),null);
+  }finally{fixture.silentTarget=null;restore();}
+});
+
+test("a silently ignored Scene cleanup remains explicitly recoverable",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),plan=planTerritoryCellTransfer(f.scene,f.target.id,draft(f),{view:f.view});
+    fixture.silentUnset=true;
+    await assert.rejects(()=>commitTerritoryCellTransfer(f.scene,plan,{view:f.view}),
+      /did not clear the recovery record/);
+    assert.ok(readPendingTerritoryCellTransfer(f.scene));
+    const review=inspectPendingTerritoryCellTransfer(f.scene,{view:f.view});
+    assert.deepEqual(review.records.map(r=>r.state),["after","after"]);
+    assert.equal(review.canResume,true);
+    assert.equal(review.canRollback,true);
+    fixture.silentUnset=false;
+    await resolveTerritoryCellTransfer(f.scene,"resume",{view:f.view});
+    assert.equal(readPendingTerritoryCellTransfer(f.scene),null);
+  }finally{fixture.silentUnset=false;restore();}
+});
+
+test("recovery preflight blocks both choices after an active grid identity change",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),plan=planTerritoryCellTransfer(f.scene,f.target.id,draft(f),{view:f.view});
+    fixture.failTarget=f.target.id;
+    await assert.rejects(()=>commitTerritoryCellTransfer(f.scene,plan,{view:f.view}),
+      /Simulated native target failure/);
+    fixture.failTarget=null;
+    const writes=f.events.length;
+    f.scene.grid.size=20;
+    const inspected=inspectPendingTerritoryCellTransfer(f.scene,{view:f.view});
+    assert.equal(inspected.gridMatches,false);
+    assert.equal(inspected.canResume,false);
+    assert.equal(inspected.canRollback,false);
+    assert.match(inspected.resumeBlocker,/Scene grid/);
+    assert.equal(f.events.length,writes);
+    await assert.rejects(()=>resolveTerritoryCellTransfer(f.scene,"rollback",{view:f.view}),
+      /Scene grid changed/);
+    assert.ok(readPendingTerritoryCellTransfer(f.scene));
+  }finally{fixture.failTarget=null;restore();}
+});
+
 test("transfer rejects changed native target and a non-GM without writes",async()=>{
   const restore=globals();
   try{
@@ -213,6 +303,10 @@ test("recovery refuses third-party edits and retains the intent for manual inspe
       /Simulated native target failure/);
     fixture.failTarget=null;
     f.target.shapes[0].offsets.push({i:9,j:9});
+    const inspected=inspectPendingTerritoryCellTransfer(f.scene,{view:f.view});
+    assert.equal(inspected.canResume,false);
+    assert.equal(inspected.canRollback,false);
+    assert.equal(inspected.records.find(record=>record.id===f.target.id).state,"blocked");
     await assert.rejects(()=>resolveTerritoryCellTransfer(f.scene,"resume",{view:f.view}),
       /changed outside the transfer/);
     assert.ok(readPendingTerritoryCellTransfer(f.scene));
@@ -259,7 +353,7 @@ test("multi-source Hex/Grid transfer persists v2 intent and removes both sources
     const progress=[];
     await commitTerritoryCellTransfer(f.scene,plan,{view:f.view,
       onProgress:p=>progress.push(p)});
-    assert.deepEqual(progress.map(p=>p.step),[0,1,2,3,4,5]);
+    assert.deepEqual(progress.map(p=>p.step),[0,1,2,3,4,5,6]);
     assert.deepEqual(f.events.map(e=>e.type),
       ["scene","region","region","region","scene-unset"]);
     assert.deepEqual(f.events.filter(e=>e.type==="region").map(e=>e.id),
@@ -292,6 +386,11 @@ test("interrupted v2 multi-source transfer rolls back all three Regions with pre
     assert.deepEqual(third.shapes[0].offsets,[{i:6,j:0}],
       "first Region already changed before interruption");
     fixture.failTarget=null;
+    const review=inspectPendingTerritoryCellTransfer(f.scene,{view:f.view});
+    assert.equal(review.regionCount,3);
+    assert.deepEqual(review.records.map(record=>record.state),["after","before","before"]);
+    assert.equal(review.canResume,true);
+    assert.equal(review.canRollback,true);
     await resolveTerritoryCellTransfer(f.scene,"rollback",{view:f.view});
     assert.deepEqual([third,f.source,f.target].map(r=>r.shapes),before);
     assert.equal(readPendingTerritoryCellTransfer(f.scene),null);

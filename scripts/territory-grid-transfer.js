@@ -1,4 +1,4 @@
-/** Recoverable GM-owned transfer between exactly two native grid Regions.
+/** Recoverable GM-owned transfer between native grid Regions (up to four sources).
  * A Scene intent is written BEFORE either RegionDocument changes. Incomplete
  * work stays persisted for explicit Resume / Roll Back; it is never replayed
  * automatically on canvas redraw, reconnect or read. */
@@ -64,8 +64,7 @@ function gridSource(prior,shape){
 }
 
 /** Read-only ownership review for a draft Hex/Grid boundary. This can inspect
- * several peer Regions at once, unlike the deliberately restricted two-Region
- * commit writer below. Never use these counts as authorization to write. */
+ * several peer Regions at once. Never use these counts as authorization to write. */
 export function inspectTerritoryGridOwnership(scene,targetId,draft,
   {view=globalThis.canvas}={}){
   if(draft?.kind!=="grid")throw Error("Review native Hex/Grid cells only.");
@@ -253,6 +252,41 @@ function validatePlan(scene,intent,desired,view){
   }
 }
 
+/** Read-only GM recovery preflight. Each Region's actual native state must
+ * match one of the durable snapshots; otherwise both actions fail closed.
+ * Neither the result nor an earlier dialog authorizes a later native write. */
+export function inspectPendingTerritoryCellTransfer(scene,{view=globalThis.canvas}={}){
+  const intent=readPendingTerritoryCellTransfer(scene);
+  if(!intent)return null;
+  const regions=intent.records.map(record=>authorize(scene,record.id));
+  const gridMatches=!!view?.ready&&view.scene?.id===scene.id&&
+    intent.gridIdentity===nativeSceneGridIdentity(scene,view);
+  const records=intent.records.map((record,index)=>{
+    const region=regions[index];
+    let state="blocked",reason=null;
+    try{state=checkRecord(scene,record);}catch(error){reason=error.message;}
+    const cells=value=>value?.shapes?.reduce((sum,shape)=>sum+
+      (shape.type==="grid"&&Array.isArray(shape.offsets)?shape.offsets.length:0),0)??0;
+    return {id:region.id,name:region.name,
+      role:region.id===intent.targetId?"target":"source",state,reason,
+      beforeCells:cells(record.before),afterCells:cells(record.after)};
+  });
+  const blocked=records.find(record=>record.state==="blocked");
+  const gridBlocker="The Scene grid or active canvas changed. Restore the World backup if needed.";
+  const checkMode=mode=>{
+    if(!gridMatches)return gridBlocker;
+    if(blocked)return blocked.reason;
+    try{validatePlan(scene,intent,mode,view);return null;}
+    catch(error){return error.message;}
+  };
+  const resumeBlocker=checkMode("after"),rollbackBlocker=checkMode("before");
+  return {regionCount:records.length,records,gridMatches,
+    appliedRegions:records.filter(record=>record.state==="after").length,
+    originalRegions:records.filter(record=>record.state==="before").length,
+    canResume:!resumeBlocker,canRollback:!rollbackBlocker,
+    resumeBlocker,rollbackBlocker};
+}
+
 async function finish(scene,intent,mode,view,onProgress=()=>{}){
   const destination=mode==="resume"?"after":"before";
   if(intent.gridIdentity!==nativeSceneGridIdentity(scene,view)||
@@ -260,23 +294,32 @@ async function finish(scene,intent,mode,view,onProgress=()=>{}){
     throw Error("The Scene grid changed. Transfer recovery is blocked; restore the World backup.");
   for(const record of intent.records)checkRecord(scene,record);
   validatePlan(scene,intent,destination,view);
-  const total=intent.records.length+2;
+  const total=intent.records.length+3;
   onProgress({step:1,total,message:"Recovery record verified; updating native Regions"});
   // Forward removes source ownership before target adds it. Reverse removes
   // target ownership before source restores it. No duplicate cell ownership.
   const order=mode==="resume"?intent.records:[...intent.records].reverse();
   for(const [index,record] of order.entries()){
     const region=authorize(scene,record.id),current=checkRecord(scene,record);
-    if(current===destination)continue;
-    const state=record[destination];
-    await region.update({shapes:clone(state.shapes),
-      ...(state.source===null?{[`flags.${MODULE_ID}.-=${BOUNDARY_SOURCE_FLAG}`]:null}:
-        {[flag(BOUNDARY_SOURCE_FLAG)]:clone(state.source)})});
+    if(current!==destination){
+      const state=record[destination];
+      await region.update({shapes:clone(state.shapes),
+        ...(state.source===null?{[`flags.${MODULE_ID}.-=${BOUNDARY_SOURCE_FLAG}`]:null}:
+          {[flag(BOUNDARY_SOURCE_FLAG)]:clone(state.source)})});
+    }
     onProgress({step:index+2,total,
-      message:`Updated ${index+1} of ${intent.records.length} native Regions`});
+      message:`Processed ${index+1} of ${intent.records.length} native Regions`});
   }
+  onProgress({step:total-1,total,message:"Verifying native Region geometry before cleanup"});
+  for(const record of intent.records)if(checkRecord(scene,record)!==destination)
+    throw Error(`Region ${record.id} did not retain the expected native geometry. `+
+      "Recovery record preserved; choose Resume or Roll Back after investigating.");
+  validatePlan(scene,intent,destination,view);
   // Retain the intent if removing it fails; repeated Resume/Roll Back is safe.
   await scene.unsetFlag(MODULE_ID,GRID_TRANSFER_INTENT_FLAG);
+  if(readPendingTerritoryCellTransfer(scene))
+    throw Error("The Scene did not clear the recovery record. Native Regions were verified; " +
+      "reopen recovery and retry before editing Territories.");
   onProgress({step:total,total,message:"Transfer completed"});
   return destination;
 }
@@ -294,7 +337,7 @@ export async function commitTerritoryCellTransfer(scene,plan,{view=globalThis.ca
     geography:readRegionGeography(target)},{view});
   if(!refreshed||!same(refreshed,plan))
     throw Error("Native Regions, membership or grid changed since preview. No changes written.");
-  const multi=Array.isArray(plan.sourceIds),total=plan.records.length+2;
+  const multi=Array.isArray(plan.sourceIds),total=plan.records.length+3;
   const intent={schemaVersion:multi?2:1,sceneId:scene.id,
     ...(multi?{sourceIds:clone(plan.sourceIds)}:{sourceId:plan.sourceId}),
     targetId:plan.targetId,gridIdentity:plan.gridIdentity,records:clone(plan.records)};
@@ -307,10 +350,11 @@ export async function commitTerritoryCellTransfer(scene,plan,{view=globalThis.ca
   return finish(scene,intent,"resume",view,onProgress);
 }
 
-export async function resolveTerritoryCellTransfer(scene,mode,{view=globalThis.canvas}={}){
+export async function resolveTerritoryCellTransfer(scene,mode,
+  {view=globalThis.canvas,onProgress=()=>{}}={}){
   if(!["resume","rollback"].includes(mode))throw Error("Choose Resume or Roll Back.");
   const intent=readPendingTerritoryCellTransfer(scene);
   if(!intent)throw Error("No interrupted Region transfer needs recovery.");
   for(const record of intent.records)authorize(scene,record.id);
-  return finish(scene,intent,mode,view);
+  return finish(scene,intent,mode,view,onProgress);
 }
