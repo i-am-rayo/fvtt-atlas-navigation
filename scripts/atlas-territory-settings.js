@@ -10,6 +10,7 @@ import {territoryBoundaryNeedsAdoption} from "./territory-authoring.js";
 import {GRID_CONVERSION_BACKUP_FLAG} from "./territory-authoring-model.js";
 import {readPendingTerritoryCellTransfer} from "./territory-grid-transfer.js";
 import {atlasSettingsTitle} from "./atlas-settings-title.js";
+import {inspectCheckpointTerritoryMembership} from "./territory-checkpoint-membership.js";
 
 const pages=["General","Checkpoint & Journal","Map & Visibility","Boundary & Native"];
 const el=(tag,text,className)=>{
@@ -160,6 +161,22 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
         },{refresh:false});
     }
     if(this.activePage==="Checkpoint & Journal"){
+      const membership=inspectCheckpointTerritoryMembership(this.scene);
+      const spatial=group("Native Hex/Grid membership — read-only",
+        "Derived from each saved Checkpoint node's native Scene grid cell, not from names. " +
+        "A semantic Checkpoint link remains separate and takes no automatic action.");
+      if(!membership.available)spatial.appendChild(el("p",membership.reason,"hint"));
+      else{
+        const rows=membership.items.filter(item=>item.regionId===this.regionId);
+        if(!rows.length)spatial.appendChild(el("p","No Checkpoint occupies these native grid cells.","hint"));
+        for(const item of rows.slice(0,100)){
+          const flags=[item.contains?"Inside native cells":"Outside native cells",
+            item.explicit?"Explicitly linked":"Spatial only",
+            ...(item.ambiguous?["Overlap: review ownership"]:[]),
+            ...(item.invalid?["Invalid link metadata"]:[])];
+          spatial.appendChild(el("p",`${item.checkpointName} — ${flags.join(" · ")}`,"hint"));
+        }
+      }
       const linked=group("Linked Checkpoint",
         checkpointInvalid?"Unsupported Checkpoint association — resolve the existing flag before editing.":
           checkpoint?`Linked to ${checkpoint.name}.`:
