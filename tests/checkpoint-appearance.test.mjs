@@ -260,6 +260,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       onTerrainAction:async action=>{actions.push(action);} });
     assert.equal(editor.options.position.left,24,
       "checkpoint authoring opens at the left of the canvas");
+    assert.equal(editor.options.window.title,"Atlas — Ridge Lookout — Checkpoint Settings",
+      "existing Checkpoint settings identify the edited Checkpoint regardless of tab");
     editor.close = async () => {};
     const root = await editor._renderHTML();
     const buttons = all(root).filter(node => node.tag === "button");

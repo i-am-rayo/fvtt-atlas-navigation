@@ -35,6 +35,7 @@ import { checkpointAssignedPresetId,saveCheckpointPresetAssignment }
 import { CHECKPOINT_MARKER_TYPES,CHECKPOINT_LABEL_MODES,
   CHECKPOINT_DISCOVERY_STATES,CHECKPOINT_DISCOVERY_METHODS }
   from "./checkpoint-field-definitions.js";
+import {atlasSettingsTitle} from "./atlas-settings-title.js";
 
 const el = (tag, label) => {
   const item = document.createElement(tag);
@@ -52,7 +53,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   };
 
   constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null, onTerrainAction = null, onDelete = null }) {
-    super({ position: {
+    const checkpointName=createDraft?null:
+      readAtlas(scene).checkpoints?.find(checkpoint=>checkpoint.id===checkpointId)?.name;
+    super({ window:{title:atlasSettingsTitle("Checkpoint",checkpointName,
+      {creating:Boolean(createDraft)})}, position: {
       left: 24,
       width: Math.min(630, Math.max(360, window.innerWidth - 60)),
       height: Math.min(710, Math.max(440, window.innerHeight - 70))
