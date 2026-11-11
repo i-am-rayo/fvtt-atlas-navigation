@@ -1,7 +1,7 @@
 /** GM-only native Foundry v14 Territory authoring adapter. Editing source
  * controls are Atlas metadata; RegionDocument Shapes remain authoritative. */
-import {MODULE_ID} from "./atlas-storage.js";
-import {readRegionAtlasLink} from "./region-atlas.js";
+import {MODULE_ID,readAtlas} from "./atlas-storage.js";
+import {readRegionAtlasLink,REGION_CHECKPOINT_FLAG} from "./region-atlas.js";
 import {GEOGRAPHY_FLAG,listSceneGeography} from "./territory-geography-storage.js";
 import {validateGeographyFlag,validateGeographyHierarchy} from "./territory-geography-model.js";
 import {GENERATED_REGION_FLAG} from "./generated-region-model.js";
@@ -11,7 +11,9 @@ import {BOUNDARY_SOURCE_FLAG,BOUNDARY_SOURCE_VERSION,boundaryFromBlankWalls,poly
   validateBoundaryNodes,validateGridOffsets,gridCellConflicts}
   from "./territory-authoring-model.js";
 import {smoothClosedBoundary,inspectNativePolygonShape} from "./region-boundary-model.js";
-import {sceneImageOrigin} from "./road-coordinates.js";
+import {sceneImageOrigin,toCanvasPoint} from "./road-coordinates.js";
+import {checkpointCategory} from "./checkpoint-types.js";
+import {territoryCheckpointLinks} from "./territory-checkpoint-link.js";
 
 const clone=v=>structuredClone(v);
 const plainShapes=r=>Array.from(r?.shapes??[],s=>s.toObject?.()??clone(s));
@@ -295,11 +297,13 @@ export function validateTerritoryCoverage(scene,draft,shape,{regionId=null,view=
 /** Single native Region write; no draft data is stored outside this document.
  * Native Behaviors, Levels, visibility and Region IDs are preserved on edit. */
 export async function saveTerritoryDraft(scene,draft,{regionId=null,
-  view=globalThis.canvas,conversionBackup=null}={}){
+  view=globalThis.canvas,conversionBackup=null,checkpointAssociation=null}={}){
   if(scene?.getFlag?.(MODULE_ID,GRID_TRANSFER_INTENT_FLAG)!=null)
     throw Error("Resolve the pending two-Region cell transfer before editing native Shapes.");
   const region=regionId?scene.regions?.get?.(regionId):null;
   authorize(scene,region);
+  if(checkpointAssociation!==null && regionId)
+    throw Error("Checkpoint association can only be created with a new native Territory.");
   if(regionId&&(!region||region.parent?.id!==scene.id))throw Error("Native Region changed or is missing.");
   const name=draft.name?.trim();
   if(!region&&(!name||name.length>120||/[\x00-\x1f\x7f]/.test(name)))
@@ -346,10 +350,32 @@ export async function saveTerritoryDraft(scene,draft,{regionId=null,
     wallIds:clone(draft.wallIds??[]),smoothing:draft.kind==="polygon"?
       draft.smoothing??0:0,shapeDigest:shapeDigest([shape])};
   const geography=validateGeographyFlag(draft.geography);
+  if(checkpointAssociation!==null){
+    const {checkpointId,expectedAtlasRevision}=checkpointAssociation;
+    const atlas=readAtlas(scene);
+    const checkpoint=atlas.checkpoints?.find(item=>item.id===checkpointId);
+    const node=atlas.nodes?.find(item=>item.id===checkpoint?.nodeId);
+    const point=node?toCanvasPoint(view,atlas,node):null;
+    const offset=point?view.grid?.getOffset?.(point):null;
+    if(!Number.isSafeInteger(expectedAtlasRevision)||atlas.revision!==expectedAtlasRevision||
+        !checkpoint||!node||checkpointCategory(scene,checkpointId)!==geography?.kind||
+        draft.kind!=="grid"||name!==checkpoint.name||
+        shape.offsets.length!==1||
+        shape.offsets[0].i!==offset?.i||shape.offsets[0].j!==offset?.j)
+      throw Error("Checkpoint position or type changed during Territory confirmation. Reopen the offer.");
+    const associations=territoryCheckpointLinks(scene);
+    if(associations.some(item=>item.invalid))
+      throw Error("Resolve invalid native Territory checkpoint flags before creating a link.");
+    if(associations.some(item=>item.link?.checkpointId===checkpointId))
+      throw Error("Checkpoint is already linked to a native Territory. Nothing was created.");
+  }
   const flags={[MODULE_ID]:{
     atlas:{schemaVersion:1,linked:true},
     [GEOGRAPHY_FLAG]:geography,
-    [BOUNDARY_SOURCE_FLAG]:source}};
+    [BOUNDARY_SOURCE_FLAG]:source,
+    ...(checkpointAssociation!==null?{
+      [REGION_CHECKPOINT_FLAG]:{schemaVersion:1,checkpointId:checkpointAssociation.checkpointId}
+    }:{})}};
   let saved;
   if(region){
     await region.update({...(shape===projectedShape?{shapes:[shape]}:{}),
