@@ -19,7 +19,8 @@ function sceneFixture(){
   let sceneWrites=0;
   const scene={id:"paedor",canUserModify:()=>true,
     regions:new Map(),
-    getFlag:(_module,key)=>key==="atlas"?atlas:null,
+    getFlag:(_module,key)=>key==="atlas"?atlas:
+      key==="checkpointCategories"?{cp1:"city"}:null,
     async setFlag(_module,key,value){assert.equal(key,"atlas");atlas=value;sceneWrites++;},
     get writes(){return sceneWrites;}};
   const region=(id,name)=>{
@@ -28,7 +29,9 @@ function sceneFixture(){
     const result={id,name,parent:scene,shapes:[{type:"grid",coordinates:[{i:0,j:0}]}],
       behaviors:[{id:"native-behavior",active:true}],levels:{bottom:0,top:5},
       hidden:false,canUserModify:()=>true,
-      getFlag:(_module,key)=>flags.get(key)??null,
+      getFlag:(_module,key)=>key==="territoryGeography"?
+        {schemaVersion:1,kind:"city",parentRegionId:null,roadOverrides:{}}:
+        flags.get(key)??null,
       async setFlag(_module,key,value){writes++;flags.set(key,structuredClone(value));},
       async unsetFlag(_module,key){writes++;flags.delete(key);},
       get writes(){return writes;}};
@@ -96,6 +99,23 @@ test("only one manually authored Region may own a Checkpoint identity",async()=>
       checkpointId,expected:null,expectedName:two.name,
       expectedAtlasRevision:readAtlas(scene).revision}),/already associated/);
     assert.equal(two.writes,0);
+  }finally{globalThis.game=previous;}
+});
+
+test("new links require matching geographic kind at the GM write boundary",async()=>{
+  const previous=globalThis.game;globalThis.game={user:{isGM:true}};
+  try{
+    const {scene,region,checkpointId}=sceneFixture();
+    const town=region("town","Ježibaba");
+    const original=town.getFlag.bind(town);
+    town.getFlag=(scope,key)=>key==="territoryGeography"?
+      {schemaVersion:1,kind:"town",parentRegionId:null,roadOverrides:{}}:
+      original(scope,key);
+    await assert.rejects(saveTerritoryCheckpointLink(scene,town.id,{checkpointId,
+      expected:null,expectedName:town.name,
+      expectedAtlasRevision:readAtlas(scene).revision}),/must match/);
+    assert.equal(town.writes,0);
+    assert.equal(scene.writes,0);
   }finally{globalThis.game=previous;}
 });
 

@@ -60,3 +60,24 @@ test("grouped settings selects serialize one selected option without losing grou
     assert.deepEqual(serializedSelected(select).map(option=>option.value),["clear"]);
   }finally{globalThis.document=previous;}
 });
+
+test("disabled locations stay visible but cannot be selected through the serialized picker",()=>{
+  const previous=globalThis.document;
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    const select=createSettingsGroupedSelect([
+      {label:null,options:[["","No association"]]},
+      {label:"Available",options:[["town","Town"]]},
+      {label:"Already linked",options:[["used","Used Town",{disabled:true}]]}
+    ],{name:"regionId",selectedId:"used"});
+    assert.equal(select.value,"","disabled entries cannot be preselected");
+    const options=flatten(select).filter(item=>item.tag==="option");
+    assert.equal(options.at(-1).attributes.has("disabled"),true,
+      "DialogV2 cloning must retain disabled alternatives");
+    assert.deepEqual(serializedSelected(select).map(option=>option.value),[""]);
+    const available=createSettingsGroupedSelect([
+      {label:null,options:[["used","Used",{disabled:true}],["open","Open"]]}
+    ],{selectedId:"missing"});
+    assert.equal(available.value,"open");
+  }finally{globalThis.document=previous;}
+});
