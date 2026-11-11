@@ -1926,7 +1926,10 @@ export class RoadCanvasController {
         this.clusterHoverGeometry.push({ id: group.id, x: group.x, y: group.y,
           radius: 20 / zoom });
         if (this.hoveredClusterId === group.id) {
-          this.#addQuickInfo(g, clusterQuickInfo(group.members), group, zoom);
+          // GM-only hover text belongs above the Territory border layer, which
+          // may have been added to InterfaceCanvasGroup after the road layer.
+          this.#addQuickInfo(canvas.interface?.addChild?canvas.interface:g,
+            clusterQuickInfo(group.members), group, zoom);
         }
         continue;
       }
@@ -1974,10 +1977,14 @@ export class RoadCanvasController {
       });
       const roadName = roads.get(checkpoint.roadId)?.name;
       const hovered = this.hoveredCheckpointId === checkpoint.id;
+      // A hover label is an interface annotation, not part of the road stroke.
+      // Add it last in the same world-coordinate interface group so later
+      // Territory borders cannot paint over its title, road or elevation.
+      const labelParent=hovered&&canvas.interface?.addChild?canvas.interface:g;
       const labelMode=effectiveCheckpointLabelMode(appearance.labelMode,
         this.territoryLabelCheckpointIds.has(checkpoint.id));
       if (labelMode === "always" || (labelMode === "hover" && hovered)) {
-        this.#addCheckpointLabels(g,checkpoint.name,roadName,appearance,group,zoom,
+        this.#addCheckpointLabels(labelParent,checkpoint.name,roadName,appearance,group,zoom,
           {checkpointId:checkpoint.id,
             journalUuid:journalUuidFor(gmJournals,"checkpoint",checkpoint.id)});
       }
@@ -1987,7 +1994,7 @@ export class RoadCanvasController {
         const preview = appearance.labelMode === "off" ? full : full.split("\n")
           .filter(line => line.startsWith("Elevation:") ||
             (!appearance.showRoadName && line.startsWith("Road:"))).join("\n");
-        if (preview) this.#addQuickInfo(g, preview, group, zoom, {
+        if (preview) this.#addQuickInfo(labelParent, preview, group, zoom, {
           xOffset: checkpointCanvasSize(appearance.size, zoom) * zoom / 2 + 12,
           yOffset: appearance.labelMode === "off" ? 13 :
             appearance.showRoadName && roadName ? 27 : 21

@@ -451,6 +451,58 @@ test("v0.2.23 checkpoint quick info works with labels Off without changing Scene
   }
 });
 
+test("GM checkpoint hover title and elevation render above a later Territory border",async()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+  const m=setup(),stack=[];
+  m.canvas.interface.addChild=function(node){
+    if(node.parent===this)this.removeChild(node);
+    node.parent=this;stack.push(node);
+  };
+  m.canvas.interface.removeChild=function(node){
+    const index=stack.indexOf(node);if(index>=0)stack.splice(index,1);
+    node.parent=null;
+  };
+  class Text{
+    constructor(content){this.text=String(content);this.anchor={set(){}};
+      this.position={set(){}};}
+    destroy(){this.destroyed=true;}
+  }
+  m.Graphics.prototype.addChild=function(node){node.parent=this;};
+  try{
+    globalThis.game={user:{isGM:true}};
+    globalThis.PIXI={Graphics:m.Graphics,Text};
+    m.canvas.stage={scale:{x:1}};
+    let id=0;
+    let atlas=addRoad(createEmptyAtlas(),{name:"Millstone Road",
+      points:[{x:20,y:20},{x:120,y:20}],idFactory:()=>`hover${++id}`});
+    atlas=addRoadCheckpoint(atlas,{roadId:atlas.roads[0].id,
+      candidate:{kind:"node",nodeId:atlas.segments[0].from},
+      name:"Southern Bridge",elevationMeters:110,idFactory:()=>`hover${++id}`});
+    atlas=editCheckpointAppearance(atlas,{checkpointId:atlas.checkpoints[0].id,
+      appearance:{...DEFAULT_CHECKPOINT_APPEARANCE,labelMode:"hover",
+        showRoadName:true}});
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",atlas);
+    m.controller.refresh();
+    const territoryBorder={id:"territory-border"};
+    m.canvas.interface.addChild(territoryBorder);
+    const cp=m.controller.checkpointHoverGeometry[0];
+    m.listeners.get("pointermove")(pointEvent(cp.x/2,cp.y/2));
+    const title=m.controller.labels.find(label=>label.text==="Southern Bridge");
+    const road=m.controller.labels.find(label=>label.text==="Millstone Road");
+    const info=m.controller.labels.find(label=>label.text?.includes("Elevation: 110"));
+    for(const label of [title,road,info]){
+      assert.ok(label,"checkpoint details appear on hover");
+      assert.equal(label.parent,m.canvas.interface,
+        "hover text is directly above native Territory borders, not inside road strokes");
+      assert.ok(stack.indexOf(label)>stack.indexOf(territoryBorder));
+    }
+    assert.ok(stack.indexOf(m.controller.graphics)<stack.indexOf(territoryBorder),
+      "the Road/Checkpoint graphics themselves remain beneath Territory boundaries");
+    m.listeners.get("pointerleave")();
+    assert.equal(stack.includes(title),false,"hover text is removed on pointer leave");
+  }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
+});
+
 test("v0.2.24 GM elevation preview sits below the checkpoint and road labels", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
   const m = setup();
