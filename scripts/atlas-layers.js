@@ -114,6 +114,23 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
       label.append(element("span",title),slider,value);regions.appendChild(label);
     }
     if(gm){
+      const preview=group("Player Territory Preview",
+        "Read-only Atlas Territory projection. This is NOT a full player view: " +
+        "Foundry Fog, vision, Road/Checkpoint overlays, native Region data and " +
+        "per-player Journal permissions are not impersonated.");
+      const toggle=element("button",this.controller.playerPreview?
+        "Exit Territory Preview":"Preview Published Territories");
+      toggle.type="button";
+      toggle.addEventListener("click",async()=>{
+        this.controller.setPlayerPreview(!this.controller.playerPreview);
+        await this.render(true);
+      });
+      preview.appendChild(toggle);
+      if(this.controller.playerPreview)preview.appendChild(element("p",
+        "Preview active — only Atlas-shared boundaries/public labels; " +
+        "GM-native visibility remains active.","atlas-layers-help"));
+    }
+    if(gm){
       const publication=group("Player Publication",
         "Boundary sharing and public Journey names are separate permissions. " +
         "Atlas filters its player overlay, but native Foundry Region documents may " +
@@ -164,6 +181,15 @@ export class AtlasLayersController {
     this.window=null;
     this.configureRegion=null;
     this.configureSharing=null;
+    this.playerPreview=false;
+    this.previewSceneId=null;
+  }
+
+  setPlayerPreview(enabled){
+    if(!game.user?.isGM)throw Error("Only a GM may inspect the player projection.");
+    this.playerPreview=enabled===true;
+    this.previewSceneId=this.playerPreview?globalThis.canvas?.scene?.id??null:null;
+    this.refresh();
   }
 
   listPublicationRegions(){
@@ -220,7 +246,7 @@ export class AtlasLayersController {
     });
     const sync=()=>this.refresh();
     Hooks.on("canvasReady",sync);
-    Hooks.on("canvasTearDown",()=>this.clear());
+    Hooks.on("canvasTearDown",()=>{this.playerPreview=false;this.previewSceneId=null;this.clear();});
     Hooks.on("canvasPan",()=>{
       this.regions.updateLabelScale();this.corridors.updateLabelScale();
     });
@@ -270,6 +296,7 @@ export class AtlasLayersController {
   refresh(preferences=null){
     this.clear({resetCheckpointLabels:false});
     const gm=game.user?.isGM===true;
+    if(!gm){this.playerPreview=false;this.previewSceneId=null;}
     let settings;
     try{settings=validateAtlasLayers(preferences??this.read());}
     catch(error){
@@ -278,24 +305,30 @@ export class AtlasLayersController {
     }
     if(gm)this.roadCanvas.setViewMode(settings.roadMode);
     const scene=globalThis.canvas?.scene;
+    if(this.playerPreview&&scene?.id!==this.previewSceneId){
+      this.playerPreview=false;this.previewSceneId=null;
+    }
     if(!globalThis.canvas?.ready||!scene){
       this.roadCanvas.setTerritoryLabelCheckpointIds(new Set());return;
     }
     try{
-      if(gm&&settings.roadMode==="corridors"){
+      if(gm&&!this.playerPreview&&settings.roadMode==="corridors"){
         const entries=listGeneratedRegions(scene).filter(entry=>
           !entry.invalid&&entry.metadata?.kind==="corridor")
           .map(entry=>({id:entry.id,name:entry.name,linked:true,invalid:false,
             geography:{kind:"area"}}));
         this.corridors.sync(scene,entries,{mode:"continents",continentFillOpacity:.28});
       }
-      if(settings.regionMode!=="off"){
+      if(this.playerPreview||settings.regionMode!=="off"){
         const atlas=readAtlas(scene);
-        const entries=gm?listSceneGeography(scene):listPlayerTerritories(scene);
-        const checkpoints=gm?atlas.checkpoints??[]:
+        const entries=gm&&!this.playerPreview?listSceneGeography(scene):
+          listPlayerTerritories(scene);
+        const checkpoints=gm&&!this.playerPreview?atlas.checkpoints??[]:
           playerAtlasOverlay(atlas,readPartyExploration(scene)).checkpoints;
         this.regions.sync(scene,entries,{
-          mode:settings.regionMode,showNames:settings.showRegionNames,
+          asPlayer:this.playerPreview,
+          mode:this.playerPreview?"combined":settings.regionMode,
+          showNames:this.playerPreview?true:settings.showRegionNames,
           continentFillOpacity:settings.continentFillOpacity,
           settlementFillOpacity:settings.settlementFillOpacity,
           checkpointsById:new Map(checkpoints

@@ -168,7 +168,7 @@ export class TerritoryViewOverlay {
     clearUnusedGmAtlasCanvasLayers(view);
   }
 
-  sync(scene, entries, {mode="combined", showNames=false,
+  sync(scene, entries, {mode="combined", showNames=false,asPlayer=false,
     continentFillOpacity=0,settlementFillOpacity=0,checkpointsById=new Map()} = {}) {
     this.clear();
     const view = globalThis.canvas;
@@ -177,12 +177,15 @@ export class TerritoryViewOverlay {
         view.scene?.id !== scene.id ||
         !pixi?.Graphics || !pixi?.Container) return {shown:0, skipped:0};
     const gm=game.user.isGM===true;
-    const gmLayers=gm?getGmAtlasCanvasLayers(view):null;
+    // A GM can inspect Atlas's player projection, but is never impersonated:
+    // native Foundry fog, scene permissions and vision remain those of the GM.
+    const playerProjection=!gm||asPlayer===true;
+    const gmLayers=playerProjection?null:getGmAtlasCanvasLayers(view);
     // Foundry's interface is above vision/fog. Player Territories must instead
     // live in Primary, behind native vision and Atlas's own Primary fog mask.
-    const parent=gm?(gmLayers?.terrain??view.interface):view.primary;
+    const parent=playerProjection?view.primary:(gmLayers?.terrain??view.interface);
     const sort=globalThis.foundry?.canvas?.groups?.PrimaryCanvasGroup?.SORT_LAYERS;
-    if (!parent?.addChild || (!gm && !Number.isFinite(sort?.TILES)))
+    if (!parent?.addChild || (playerProjection && !Number.isFinite(sort?.TILES)))
       return {shown:0,skipped:0}; // Never fall back to a fog-bypassing interface.
 
     const projected = projectTerritoryView(entries, mode, {drawOrder:true})
@@ -191,7 +194,7 @@ export class TerritoryViewOverlay {
     layer.eventMode = "none";
     const labelLayer=gmLayers?new pixi.Container():null;
     if(labelLayer)labelLayer.eventMode="none";
-    if (!gm) {
+    if (playerProjection) {
       layer.sortLayer=sort.TILES+1;
       layer.elevation=0;
       layer.sort=1e90; // Atlas manual Fog uses this layer with sort=1e100.
@@ -213,7 +216,7 @@ export class TerritoryViewOverlay {
       for (const entry of projected) {
         if (shown >= MAX_REGIONS) { skipped++; continue; }
         const region = scene.regions?.get?.(entry.id);
-        if(!gm){
+        if(playerProjection){
           // Defence in depth: a caller-provided entry never grants visibility.
           if(!entry.playerShared||region?.hidden===true){skipped++;continue;}
           try{
@@ -254,7 +257,7 @@ export class TerritoryViewOverlay {
         shown++;
         if (showNames && labels.length < MAX_LABELS && pixi.Text) {
           let publicName=null;
-          if(!gm){
+          if(playerProjection){
             try{publicName=readPublicTerritory(region)?.label??null;}
             catch{/* A malformed/publicly revoked name cannot be displayed. */}
             if(!publicName)continue;
@@ -266,7 +269,7 @@ export class TerritoryViewOverlay {
               const link=readTerritoryCheckpointLink(region);
               linkedCheckpoint=link?checkpointsById.get(link.checkpointId)??null:null;
             }catch{/* Malformed association cannot publish a new label or Journal action. */}
-            const labelName=gm?
+            const labelName=!playerProjection?
               String(territoryDisplayName(entry.name??"Unnamed Region",linkedCheckpoint)).slice(0,64):
               publicName.slice(0,64);
             // Foundry v14's PIXI.Text expects (text, style). Passing a single
@@ -283,7 +286,7 @@ export class TerritoryViewOverlay {
             if(linkedCheckpoint){
               // A player-facing public alias need not be the same as the
               // Checkpoint title; suppress only genuinely duplicate labels.
-              if(gm||labelName===linkedCheckpoint.name)
+              if(!playerProjection||labelName===linkedCheckpoint.name)
                 labelCheckpointIds.add(linkedCheckpoint.id);
               const hit={at,checkpointId:linkedCheckpoint.id,regionId:region.id,
                 name:labelName,fontSize:broad?17:20};
@@ -291,7 +294,7 @@ export class TerritoryViewOverlay {
               try{
                 const uuid=journalUuidFor(readAtlasJournalLinks(scene),
                   "checkpoint",linkedCheckpoint.id);
-                if(uuid)journalLabelRequests.push({uuid,label,base:labelName,hit,
+              if(uuid&&!asPlayer)journalLabelRequests.push({uuid,label,base:labelName,hit,
                   at,regionId:region.id,checkpointId:linkedCheckpoint.id});
               }catch{/* Invalid Journal mapping must not affect existing labels. */}
             }
@@ -306,12 +309,12 @@ export class TerritoryViewOverlay {
       }
       parent.addChild(layer);
       if(labelLayer)gmLayers.territoryNames.addChild(labelLayer);
-      if (!gm && "renderDirty" in parent)parent.renderDirty=true;
+      if (playerProjection && "renderDirty" in parent)parent.renderDirty=true;
       this.layer = layer;
       this.labelLayer=labelLayer;
       this.view = view;
       this.labels = labels;
-      this.hitLabels=hitLabels;
+      this.hitLabels=asPlayer?[]:hitLabels;
       this.labelCheckpointIds=labelCheckpointIds;
       for(const request of journalLabelRequests){
         const {uuid,label,base,hit,at,regionId,checkpointId}=request;
