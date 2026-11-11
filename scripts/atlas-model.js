@@ -15,6 +15,7 @@ export const APPEARANCE_ATLAS_SCHEMA_VERSION = 6;
 export const TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION = 7;
 export const CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION = 8;
 export const PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION = 9;
+export const INDEPENDENT_CHECKPOINT_ATLAS_SCHEMA_VERSION = 10;
 export const IMAGE_ATLAS_SCHEMA_VERSION = 2;
 export const LEGACY_ATLAS_SCHEMA_VERSION = 1;
 const MAX_NODES = 10000;
@@ -86,7 +87,8 @@ export function validateAtlas(value) {
   const data = record(value, "root");
   const legacy = data.schemaVersion === LEGACY_ATLAS_SCHEMA_VERSION;
   const imageV2 = data.schemaVersion === IMAGE_ATLAS_SCHEMA_VERSION;
-  const withPlayerVisibility = data.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION;
+  const independentCheckpoints = data.schemaVersion === INDEPENDENT_CHECKPOINT_ATLAS_SCHEMA_VERSION;
+  const withPlayerVisibility = data.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION || independentCheckpoints;
   const withCheckpointAppearance = data.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
     withPlayerVisibility;
   const withTextAppearance = data.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
@@ -235,12 +237,15 @@ export function validateAtlas(value) {
       const checkpointId = id(c.id, "checkpoint ID");
       if (checkpointIds.has(checkpointId)) fail("duplicate checkpoint ID " + checkpointId);
       checkpointIds.add(checkpointId);
-      const roadId = id(c.roadId, "checkpoint roadId");
+      const roadId = independentCheckpoints && c.roadId === null
+        ? null : id(c.roadId, "checkpoint roadId");
       const nodeId = id(c.nodeId, "checkpoint nodeId");
-      if (!roadIds.has(roadId) || !attachedRoadNodes.has(roadId + "/" + nodeId)) {
+      if (!nodeIds.has(nodeId) || (roadId !== null &&
+          (!roadIds.has(roadId) || !attachedRoadNodes.has(roadId + "/" + nodeId)))) {
         fail("checkpoint " + checkpointId + " must attach to a node on its named road");
       }
-      const locationKey = roadId + "/" + nodeId;
+      // v10 identifies a Checkpoint by its durable Node, not one chosen Road.
+      const locationKey = independentCheckpoints ? nodeId : roadId + "/" + nodeId;
       if (locations.has(locationKey)) fail("duplicate checkpoint on road node " + locationKey);
       locations.add(locationKey);
       if (typeof c.name !== "string" || !c.name.trim() || c.name.length > 120) {
@@ -330,7 +335,8 @@ export function upgradeAtlasCheckpoints(atlas) {
       old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      old.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return old;
+      old.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === INDEPENDENT_CHECKPOINT_ATLAS_SCHEMA_VERSION) return old;
   if (old.schemaVersion !== ATLAS_SCHEMA_VERSION) {
     throw new Error("Organize named roads before adding checkpoints.");
   }
@@ -348,7 +354,8 @@ export function upgradeAtlasTravelPresets(atlas) {
       old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      old.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return old;
+      old.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === INDEPENDENT_CHECKPOINT_ATLAS_SCHEMA_VERSION) return old;
   const withCheckpoints = old.schemaVersion === ATLAS_SCHEMA_VERSION
     ? upgradeAtlasCheckpoints(old) : old;
   if (withCheckpoints.schemaVersion !== CHECKPOINT_ATLAS_SCHEMA_VERSION) {
@@ -367,7 +374,8 @@ export function upgradeAtlasRoadAppearance(atlas) {
   if (old.schemaVersion === APPEARANCE_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
       old.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      old.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return old;
+      old.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION ||
+      old.schemaVersion === INDEPENDENT_CHECKPOINT_ATLAS_SCHEMA_VERSION) return old;
   const current = upgradeAtlasTravelPresets(old);
   return validateAtlas({
     ...current,
@@ -381,7 +389,8 @@ export function upgradeAtlasRoadTextAppearance(atlas) {
   const current = upgradeAtlasRoadAppearance(atlas);
   if (current.schemaVersion === TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
       current.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      current.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return current;
+      current.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION ||
+      current.schemaVersion === INDEPENDENT_CHECKPOINT_ATLAS_SCHEMA_VERSION) return current;
   return validateAtlas({ ...current, schemaVersion: TEXT_APPEARANCE_ATLAS_SCHEMA_VERSION,
     roads: current.roads.map(road => ({ ...road,
       appearance: road.appearance
@@ -393,7 +402,8 @@ export function upgradeAtlasRoadTextAppearance(atlas) {
 export function upgradeAtlasCheckpointAppearance(atlas) {
   const current = upgradeAtlasRoadTextAppearance(atlas);
   if (current.schemaVersion === CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION ||
-      current.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return current;
+      current.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION ||
+      current.schemaVersion === INDEPENDENT_CHECKPOINT_ATLAS_SCHEMA_VERSION) return current;
   return validateAtlas({
     ...current, schemaVersion: CHECKPOINT_APPEARANCE_ATLAS_SCHEMA_VERSION,
     checkpoints: current.checkpoints.map(checkpoint => ({ ...checkpoint, appearance: null }))
@@ -403,10 +413,27 @@ export function upgradeAtlasCheckpointAppearance(atlas) {
 /** First GM-confirmed reveal/hide saves an explicit hidden-by-default v9 model. */
 export function upgradeAtlasPlayerVisibility(atlas) {
   const current = upgradeAtlasCheckpointAppearance(atlas);
-  if (current.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION) return current;
+  if (current.schemaVersion === PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION ||
+      current.schemaVersion === INDEPENDENT_CHECKPOINT_ATLAS_SCHEMA_VERSION) return current;
   return validateAtlas({
     ...current, schemaVersion: PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION,
     roads: current.roads.map(road => ({ ...road, playerVisible: false })),
     checkpoints: current.checkpoints.map(checkpoint => ({ ...checkpoint, playerVisible: false }))
   });
+}
+
+/** Explicit GM-authorized migration. A read of a legacy Scene never writes v10. */
+export function upgradeAtlasIndependentCheckpoints(atlas) {
+  const current = upgradeAtlasPlayerVisibility(atlas);
+  if (current.schemaVersion === INDEPENDENT_CHECKPOINT_ATLAS_SCHEMA_VERSION) return current;
+  // v9 allowed multiple Checkpoints at a shared junction, one per Road. Such a
+  // Scene must be reconciled deliberately instead of collapsing stable IDs.
+  const locations = new Set();
+  for (const checkpoint of current.checkpoints) {
+    if (locations.has(checkpoint.nodeId)) {
+      throw new Error("Cannot migrate checkpoints sharing a graph node; review their identities first.");
+    }
+    locations.add(checkpoint.nodeId);
+  }
+  return validateAtlas({ ...current, schemaVersion: INDEPENDENT_CHECKPOINT_ATLAS_SCHEMA_VERSION });
 }
