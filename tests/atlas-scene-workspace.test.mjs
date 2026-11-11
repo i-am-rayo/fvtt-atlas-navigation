@@ -101,6 +101,25 @@ test("GM-only standalone workspace reuses territory actions without writing on r
   } finally { ctx.restore(); }
 });
 
+test("Checkpoint Workspace presents independent creation through existing GM actions", async () => {
+  const ctx = context();
+  try {
+    ctx.actions.beginIndependentCheckpoint = () => ctx.calls.push(["independent"]);
+    ctx.actions.beginCheckpoint = () => ctx.calls.push(["road-checkpoint"]);
+    const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    const tab = buttons(workspace.result).find(item => item.textContent === "Checkpoints");
+    assert.ok(tab);
+    await tab.listeners.get("click")({ preventDefault() {} });
+    assert.match(text(workspace.result), /Independent Checkpoint/);
+    const create = buttons(workspace.result).find(item =>
+      item.textContent === "+ Independent Checkpoint");
+    assert.ok(create);
+    await create.listeners.get("click")({ preventDefault() {} });
+    assert.deepEqual(ctx.calls, [["independent"]]);
+    await workspace.close();
+  } finally { ctx.restore(); }
+});
+
 test("workspace refuses non-GM and unauthorized Scenes, including after open", async () => {
   const ctx = context();
   try {

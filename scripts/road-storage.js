@@ -1,4 +1,4 @@
-import { addRoadCheckpoint, editRoadCheckpoint, removeRoadCheckpoint,
+import { addRoadCheckpoint, addIndependentCheckpoint, editRoadCheckpoint, removeRoadCheckpoint,
   editCheckpointAppearance } from "./checkpoint-model.js";
 import { addRoad, removeRoad, renameRoad, reshapeRoad, mergeRoadGroups, applyRoadGeometryEdit } from "./road-model.js";
 import { anchorLegacyAtlas, upgradeAtlasRoadGroups, upgradeAtlasTravelPresets,
@@ -124,6 +124,14 @@ export function saveNewCheckpoint(scene, {
       : editCheckpointAppearance(created, { checkpointId: id, appearance });
     return playerVisible ? setCheckpointPlayerVisibility(styled, { checkpointId: id, visible: true }) : styled;
   });
+}
+
+/** One GM-confirmed image-local standalone Checkpoint in a guarded Scene write. */
+export function saveNewIndependentCheckpoint(scene, {
+  at, name, elevationMeters = null, expectedRevision, idFactory
+}) {
+  return saveChange(scene, expectedRevision, previous =>
+    addIndependentCheckpoint(previous, { at, name, elevationMeters, idFactory }));
 }
 
 export function saveEditedCheckpoint(scene, { checkpointId, name, elevationMeters, expectedRevision }) {

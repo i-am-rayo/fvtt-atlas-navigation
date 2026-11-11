@@ -427,6 +427,86 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   return manager;
 }
 
+/** Scene-wide Checkpoint controls for Atlas Workspace; no second persistence path. */
+export function createAtlasCheckpointPanel(scene, actions, refresh) {
+  const atlas = readAtlas(scene);
+  const party = readPartyExploration(scene);
+  const journals = readAtlasJournalLinks(scene);
+  const section = node("fieldset", undefined, "atlas-workspace-checkpoints");
+  section.appendChild(node("legend", "Checkpoints"));
+  section.appendChild(node("p", "Checkpoints are durable map locations. Independent " +
+    "Checkpoints do not require a Road, but cannot be used for Road routing until connected.", "hint"));
+  const controls = node("div", undefined, "form-fields");
+  controls.appendChild(button("+ Independent Checkpoint", "Choose a map point and confirm a standalone Checkpoint",
+    () => actions.beginIndependentCheckpoint(scene, refresh)));
+  controls.appendChild(button("+ Road Checkpoint", "Choose a named Road node or centerline",
+    () => actions.beginCheckpoint(scene, refresh)));
+  section.appendChild(controls);
+  const draft = actions.draft?.(scene);
+  if (draft?.mode === "checkpoint" || draft?.mode === "independent-checkpoint") {
+    section.appendChild(node("p", "Click the Scene canvas to place the Checkpoint; press Escape to cancel.", "hint"));
+    section.appendChild(button("Cancel placement", "Cancel Checkpoint placement", () => {
+      actions.cancel(); refresh();
+    }));
+  }
+  const entries = listRoadCheckpoints(atlas).sort((a,b)=>a.name.localeCompare(b.name));
+  section.appendChild(node("p", `${entries.length} Checkpoints in this Scene`, "hint"));
+  for (const cp of entries.slice(0, 150)) {
+    const row = node("div", undefined, "form-group");
+    row.setAttribute("data-atlas-checkpoint-id", cp.id);
+    const description = node("div");
+    description.style.cssText = "flex:1 1 auto;min-width:0";
+    description.appendChild(node("strong", cp.name));
+    description.appendChild(node("div", `${cp.roadName} · ${cp.elevationMeters === null ? "unknown height" :
+      format(cp.elevationMeters) + " m"}`, "hint"));
+    description.appendChild(node("div", party.enabled
+      ? `Discovery: ${checkpointKnowledge(party, cp.id)}`
+      : cp.playerVisible ? "Player-visible" : "GM-only", "hint"));
+    const journal = journalUuidFor(journals, "checkpoint", cp.id);
+    const buttons = node("div", undefined, "form-fields");
+    buttons.appendChild(button("◎", "Locate Checkpoint", () => actions.selectCheckpoint(scene, cp.id)));
+    buttons.appendChild(button("✎", "Edit name and elevation", () => actions.editCheckpoint(scene, cp, refresh)));
+    buttons.appendChild(button("⚙", "Checkpoint Settings, Journal and appearance",
+      () => actions.editCheckpointAppearance(scene, cp, refresh)));
+    if (journal) buttons.appendChild(button("📖", "Open linked Journal", () =>
+      void openAtlasJournal(journal).catch(error=>ui.notifications.error(error.message??String(error)))));
+    if (!party.enabled) buttons.appendChild(button(cp.playerVisible ? "👁" : "◌",
+      cp.playerVisible ? "Hide Checkpoint from players" : "Show Checkpoint to players",
+      () => actions.toggleCheckpointPlayerVisibility(scene, cp, refresh)));
+    if (party.enabled) {
+      const select = createSettingsSelect([
+        ["unknown", "Undiscovered"], ["visited", "Seen / Visited"], ["lore", "Known through Lore"]
+      ], { selectedId: checkpointKnowledge(party, cp.id) === "legacy" ? "unknown" :
+        checkpointKnowledge(party, cp.id), ariaLabel: `Knowledge of ${cp.name}` });
+      select.addEventListener("change", () => void actions.setCheckpointKnowledge(scene,
+        { checkpointId: cp.id, knowledge: select.value, expected: party }, refresh)
+        .catch(error => { ui.notifications.error(error.message??String(error)); refresh(); }));
+      buttons.appendChild(select);
+      const radius = createSettingsInput("number",
+        Object.hasOwn(party.checkpointRevealRadiusCells, cp.id)
+          ? party.checkpointRevealRadiusCells[cp.id]
+          : party.defaultRevealRadiusCells,
+        { min: 0, max: 100, step: 1,
+          ariaLabel: `Checkpoint terrain reveal radius for ${cp.name}` });
+      radius.style.width = "5em";
+      radius.title = "Terrain reveal radius in native cells (0 = marker only)";
+      radius.addEventListener("change", () => void actions.setCheckpointKnowledge(scene,
+        { checkpointId: cp.id,
+          knowledge: checkpointKnowledge(party, cp.id) === "legacy" ? "unknown" :
+            checkpointKnowledge(party, cp.id),
+          revealRadiusCells: Number(radius.value), expected: party }, refresh)
+        .catch(error => { ui.notifications.error(error.message??String(error)); refresh(); }));
+      buttons.appendChild(radius);
+    }
+    buttons.appendChild(button("×", `Delete ${cp.name}`, () => actions.removeCheckpoint(scene, cp, refresh)));
+    row.append(description, buttons);
+    section.appendChild(row);
+  }
+  if (entries.length > 150) section.appendChild(node("p",
+    "Showing first 150 Checkpoints; use the legacy Scene Atlas tab for the rest.", "hint"));
+  return section;
+}
+
 function atlasPanel(scene, atlas, actions, refresh,
   { generatorOnly = false, roadsOnly = false } = {}) {
   const root = node("section");
