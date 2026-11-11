@@ -434,6 +434,54 @@ test("Hex/Grid ownership review distinguishes unclaimed, single-peer and multi-p
   }finally{restore();}
 });
 
+test("shared-border inspection uses native square and hex adjacency without writing",()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    const squareNeighbors=({i,j})=>[
+      {i:i-1,j},{i:i+1,j},{i,j:j-1},{i,j:j+1}];
+    f.view.grid.getAdjacentOffsets=squareNeighbors;
+    let review=inspectTerritoryGridOwnership(f.scene,f.target.id,draft(f),{view:f.view});
+    assert.equal(review.seamInspectionAvailable,true);
+    assert.equal(review.sharedBorderEdges,2,
+      "two native edges meet the same source peer while another added cell remains unclaimed");
+    assert.deepEqual(review.adjacentPeers,[{id:"Reshara",name:"Reshara",touchingEdges:2}]);
+    assert.equal(review.existingOverlapCells,0);
+    f.target.shapes[0].offsets.push({i:2,j:0});
+    const unchanged=readTerritoryDraft(f.scene,f.target.id,{view:f.view});
+    unchanged.geography=f.target.getFlag(MODULE,"territoryGeography");
+    review=inspectTerritoryGridOwnership(f.scene,f.target.id,unchanged,{view:f.view});
+    assert.equal(review.existingOverlapCells,1,
+      "existing same-tier overlap is identified even with no draft additions");
+
+    const hex=fixture();
+    hex.target.shapes[0].offsets=[{i:1,j:1}];
+    hex.source.shapes[0].offsets=[{i:2,j:0}];
+    hex.view.grid.getAdjacentOffsets=({i,j})=>[
+      {i:i+1,j:j-1},{i:i-1,j:j+1}];
+    const hexDraft=readTerritoryDraft(hex.scene,hex.target.id,{view:hex.view});
+    hexDraft.geography=hex.target.getFlag(MODULE,"territoryGeography");
+    review=inspectTerritoryGridOwnership(hex.scene,hex.target.id,hexDraft,{view:hex.view});
+    assert.equal(review.sharedBorderEdges,1,
+      "Foundry's hex neighbor offsets are authoritative, not hardcoded square steps");
+    assert.equal(hex.events.length+f.events.length,0);
+  }finally{restore();}
+});
+
+test("shared-border preview reports unavailable topology instead of partial counts",()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    const review=inspectTerritoryGridOwnership(f.scene,f.target.id,draft(f),{view:f.view});
+    assert.equal(review.seamInspectionAvailable,false);
+    assert.equal(review.sharedBorderEdges,null);
+    assert.deepEqual(review.adjacentPeers,[]);
+    assert.equal(review.peerOwnedAddedCells,1,
+      "lack of native adjacency must not alter exact transfer ownership counts");
+    assert.equal(f.events.length,0);
+  }finally{restore();}
+});
+
 test("GM ownership preview marks removed cells and caps large overlays without altering full counts",()=>{
   const restore=globals();
   try{

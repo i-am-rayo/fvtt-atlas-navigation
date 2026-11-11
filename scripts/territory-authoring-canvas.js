@@ -88,11 +88,42 @@ function drawBrushFootprint(graphics,points,erase,zoom){
   }else throw Error("Foundry Canvas cannot draw Territory brush footprints.");
 }
 
+/** Read-only, native-grid ownership report for the existing Preview & Save
+ * confirmation. It never authorizes a write: the Save adapter must recompute
+ * the full geometry/permission/stale preflight after the GM confirms. */
+export function territoryGridReviewLines(review){
+  if(!review)return [];
+  const lines=[
+    `Native cells: ${review.originalCells} → ${review.proposedCells} `+
+      `(+${review.addedCells}, −${review.removedCells}).`,
+    `Proposed additions: ${review.unclaimedAddedCells} unclaimed; `+
+      `${review.peerOwnedAddedCells} claimed by same-tier peers; `+
+      `${review.contestedAddedCells} claimed by multiple peers.`
+  ];
+  if(review.peers?.length)lines.push("Cell owners affected: "+review.peers
+    .map(peer=>`${peer.name} (${peer.cells})`).join("; ")+".");
+  if(review.seamInspectionAvailable){
+    lines.push(`Existing shared border: ${review.sharedBorderEdges} native grid `+
+      `neighbor edge${review.sharedBorderEdges===1?"":"s"}.`);
+    if(review.adjacentPeers?.length)lines.push("Adjacent Territories: "+
+      review.adjacentPeers.map(peer=>`${peer.name} (${peer.touchingEdges} edges)`)
+        .join("; ")+".");
+    if(review.existingOverlapCells)lines.push(`Warning: ${review.existingOverlapCells} `+
+      "previously owned cells also overlap same-tier peers. Review native ownership.");
+  }else lines.push("Shared-border adjacency unavailable or too large to inspect; " +
+    "the native Save preflight remains mandatory.");
+  if(review.contestedAddedCells)lines.push("Conflict: several peer Territories own " +
+    "the same proposed cells. Saving is blocked until ownership is resolved.");
+  lines.push("Preview is read-only. Confirming will recheck native Region ownership, " +
+    "permissions, geometry and recovery state before any write.");
+  return lines;
+}
+
 export class TerritoryAuthoringCanvas{
   constructor({manualFog=null}={}){this.manualFog=manualFog;}
   session=null;
   async begin(scene,draft,onSave,
-    {onStage=null,afterStage=null,batchContext=null}={}){
+    {onStage=null,afterStage=null,batchContext=null,reviewDraft=null}={}){
     if(this.session)throw Error("Finish or cancel the existing Territory draft first.");
     const view=globalThis.canvas;
     if(!globalThis.game?.user?.isGM||!view?.ready||view.scene?.id!==scene?.id||
@@ -277,11 +308,22 @@ export class TerritoryAuthoringCanvas{
         const text=draft.kind==="grid"?
           `Save ${session.draft.offsets.length} native grid cells?`:
           `Save ${session.draft.points.length} editable boundary nodes?`;
+        const review=draft.kind==="grid"&&typeof reviewDraft==="function"?
+          await reviewDraft(copy(session.draft)):null;
+        if(!this.#live(session))return;
+        const content=review?document.createElement("div"):null;
+        if(content){
+          for(const line of [text,...territoryGridReviewLines(review)]){
+            const paragraph=el("p",line);content.appendChild(paragraph);
+          }
+        }
         const accepted=await foundry.applications.api.DialogV2.confirm({window:{title:"Save Territory boundary"},
-          content:`<p>${text}</p><p>Atlas will verify parent containment, peer overlaps, `+
+          content:content??`<p>${text}</p><p>Atlas will verify parent containment, peer overlaps, `+
             `permissions and native geometry before changing a Region. Cancel does not write.</p>`,
           yes:{label:"Save Native Region"},rejectClose:false,modal:true});
         if(!accepted)return;
+        if(review?.contestedAddedCells)
+          throw Error("Resolve multiply owned native grid cells before saving this Territory.");
         if(!this.#live(session))return;
         if(globalThis.canvas?.scene?.id!==scene.id)
           throw Error("The active Scene changed; reopen the Territory editor.");

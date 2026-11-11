@@ -18,6 +18,8 @@ const key=p=>`${p.i},${p.j}`;
 // A visual review draws only the highest-priority changes when a very large
 // native grid Region is being edited. Counts always cover the full draft.
 const MAX_OWNERSHIP_PREVIEW_CELLS=500;
+const MAX_SEAM_TARGET_CELLS=8000;
+const MAX_SEAM_PEER_CELLS=60000;
 const shapes=region=>Array.from(region.shapes??[],s=>s.toObject?.()??clone(s));
 const gridShape=offsets=>({type:"grid",origin:null,offsets:validateGridOffsets(offsets)});
 const flag=key=>`flags.${MODULE_ID}.${key}`;
@@ -124,14 +126,28 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
   const addedKeys=new Set(added.map(key));
   const owners=new Map();
   const peers=[];
+  const peerCells=new Map(),peerNames=new Map();
+  let scannedPeerCells=0;
+  let seamComplete=after.length<=MAX_SEAM_TARGET_CELLS&&
+    typeof view.grid.getAdjacentOffsets==="function";
   for(const candidate of entries){
     if(candidate.id===targetId||!candidate.linked||candidate.invalid||
         territoryTier(candidate)!==tier)continue;
     const peer=scene.regions.get(candidate.id);
     if(!peer||!isGrid(peer))continue;
+    peerNames.set(peer.id,peer.name);
     let count=0;
     for(const offset of shapes(peer)[0].offsets){
       const cellKey=key(offset);
+      if(seamComplete){
+        scannedPeerCells++;
+        if(scannedPeerCells>MAX_SEAM_PEER_CELLS){
+          seamComplete=false;peerCells.clear();
+        }else{
+          const occupants=peerCells.get(cellKey)??[];
+          occupants.push(peer.id);peerCells.set(cellKey,occupants);
+        }
+      }
       if(!addedKeys.has(cellKey))continue;
       const list=owners.get(cellKey)??[];
       list.push(peer.id);owners.set(cellKey,list);count++;
@@ -141,6 +157,37 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
   peers.sort((a,b)=>b.cells-a.cells||a.name.localeCompare(b.name));
   const contested=[...owners.values()].filter(ids=>ids.length>1).length;
   const peerOwned=owners.size;
+  // This is a *read-only* seam inspector: use the native v14 grid's actual
+  // neighboring offsets, never guess that hexes are four-neighbor squares.
+  // Large maps remain reviewable via exact change counts; seam diagnostics
+  // explicitly say unavailable instead of silently presenting partial edges.
+  const adjacentEdges=new Map();
+  let sharedBorderEdges=null,existingOverlapCells=null;
+  if(seamComplete){
+    try{
+      const final=new Set(after.map(key));
+      let edges=0,overlaps=0;
+      for(const cell of after){
+        if(before.has(key(cell))&&peerCells.has(key(cell)))overlaps++;
+        const neighbors=view.grid.getAdjacentOffsets(cell);
+        if(!neighbors||typeof neighbors[Symbol.iterator]!=="function")
+          throw Error("Native adjacency is unavailable");
+        const checked=new Set();
+        for(const neighbor of neighbors){
+          const neighborKey=key(neighbor);
+          if(checked.has(neighborKey)||final.has(neighborKey))continue;
+          checked.add(neighborKey);
+          for(const id of peerCells.get(neighborKey)??[]){
+            edges++;adjacentEdges.set(id,(adjacentEdges.get(id)??0)+1);
+          }
+        }
+      }
+      sharedBorderEdges=edges;existingOverlapCells=overlaps;
+    }catch{adjacentEdges.clear();}
+  }
+  const adjacentPeers=[...adjacentEdges].map(([id,touchingEdges])=>({
+    id,name:peerNames.get(id)??id,touchingEdges
+  })).sort((a,b)=>b.touchingEdges-a.touchingEdges||a.name.localeCompare(b.name));
   const previewCandidates=[...added.map(cell=>{
     const claimedBy=owners.get(key(cell))??[];
     return {i:cell.i,j:cell.j,status:claimedBy.length>1?"contested":
@@ -153,6 +200,8 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
     proposedCells:after.length,addedCells:added.length,removedCells:removed.length,
     unclaimedAddedCells:added.length-peerOwned,peerOwnedAddedCells:peerOwned,
     contestedAddedCells:contested,peers,
+    sharedBorderEdges,existingOverlapCells,adjacentPeers,
+    seamInspectionAvailable:sharedBorderEdges!==null,
     previewCells:previewCandidates.slice(0,MAX_OWNERSHIP_PREVIEW_CELLS),
     previewTotalCells:previewCandidates.length,
     previewTruncated:previewCandidates.length>MAX_OWNERSHIP_PREVIEW_CELLS,
