@@ -1,5 +1,5 @@
 /** Read-only presentation and suggested-link policy for manual geography. */
-const MATCHABLE_KINDS=new Set(["city","town","village"]);
+const MATCHABLE_KINDS=new Set(["city","town","village","settlement"]);
 
 const canonicalName=value=>typeof value==="string"?
   value.normalize("NFKC").trim().replace(/\s+/gu," ").toLocaleLowerCase():"";

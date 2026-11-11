@@ -5,7 +5,7 @@ export const MAX_NATIVE_OVERLAP_TESTS=80;
 export const MAX_GAP_SEGMENT_TESTS=100000;
 export const MAX_TRIM_AREA_FRACTION=.30;
 
-const SETTLEMENTS=new Set(["city","town","village"]);
+const SETTLEMENTS=new Set(["city","town","village","settlement"]);
 export function competingTerritories(a,b){
   const ak=a?.geography?.kind,bk=b?.geography?.kind;
   return ak==="continent"&&bk==="continent" ||

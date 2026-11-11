@@ -14,6 +14,7 @@ const territory=(id,name,kind,parentRegionId=null,roadOverrides={})=>({
 test("geography is a strict versioned Atlas-only description, not native Levels",()=>{
   assert.equal(validateGeographyFlag(null),null);
   assert.deepEqual(validateGeographyFlag(geography("city")),geography("city"));
+  assert.deepEqual(validateGeographyFlag(geography("settlement")),geography("settlement"));
   for(const flag of [[],{}, {schemaVersion:2,kind:"city"},
     {...geography("city"),levels:["surface"]},geography("planet"),
     geography("continent","parent"),geography("town",null,{road1:"unknown"}),
@@ -34,6 +35,21 @@ test("parents require Atlas-linked geographic parent, and cycles are refused",()
     new Map([...map,["area",{...area,geography:geography("area","continent")}]])),
     /cycle/);
   assert.throws(()=>validateGeographyHierarchy("city",geography("city","missing"),map),/Select/);
+  assert.doesNotThrow(()=>validateGeographyHierarchy("settlement",
+    geography("settlement","continent"),map));
+});
+
+test("a Settlement is a first-class Road directory child without modifying source geography",()=>{
+  const territories=[territory("continent","Valecor","continent"),
+    territory("settlement","Hearth's Heart","settlement","continent")];
+  const original=structuredClone(territories);
+  const result=buildTerritoryRoadDirectory({territories,roads:[{id:"riverRoad"}],
+    roadSamples:new Map([["riverRoad",[{x:2,y:3}]]]),
+    contains:(territory,point)=>territory.id==="settlement"&&point.x===2});
+  assert.deepEqual(result.tree[0].roadIds,["riverRoad"]);
+  assert.deepEqual(result.tree[0].children[0].kind,"settlement");
+  assert.deepEqual(result.tree[0].children[0].roadIds,["riverRoad"]);
+  assert.deepEqual(territories,original);
 });
 
 test("Roads are many-to-many; continent includes descendant Roads; overrides win",()=>{

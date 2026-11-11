@@ -36,10 +36,27 @@ test("only peer territories compete; native nested Continents and settlements ca
   const a={geography:{kind:"continent"}},b={geography:{kind:"town"}};
   assert.equal(competingTerritories(a,b),false);
   assert.equal(competingTerritories(b,{geography:{kind:"city"}}),true);
+  assert.equal(competingTerritories(b,{geography:{kind:"settlement"}}),true);
   assert.equal(competingTerritories(a,{geography:{kind:"continent"}}),true);
   assert.equal(boundsNear({x:0,y:0,width:10,height:10},
     {x:12,y:0,width:10,height:10},2),true);
   assert.equal(nearestPolygonBorderDistance(rect(0,0,10,10),rect(12,0,20,10)),2);
+});
+
+test("Settlement Regions are included in the same-tier native overlap analysis",()=>{
+  const oldGame=globalThis.game;
+  try{
+    globalThis.game={user:{id:"gm",isGM:true}};
+    const {scene,a,b}=fixture();
+    b.getFlag=(_namespace,key)=>key==="atlas"?{schemaVersion:1,linked:true}:
+      key==="territoryGeography"?{schemaVersion:1,kind:"settlement",
+        parentRegionId:null,roadOverrides:{}}:null;
+    const result=analyzeSceneTerritoryBorders(scene);
+    assert.equal(result.overlaps.length,1);
+    assert.deepEqual([result.overlaps[0].firstId,result.overlaps[0].secondId].sort(),
+      [a.id,b.id].sort());
+    assert.equal(a.updates.length+b.updates.length,0);
+  }finally{globalThis.game=oldGame;}
 });
 
 test("invalid, hole, split and high-loss native differences fail closed",()=>{

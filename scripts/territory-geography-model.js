@@ -2,7 +2,7 @@
 export const GEOGRAPHY_SCHEMA_VERSION = 1;
 export const GEOGRAPHY_KINDS = Object.freeze({
   continent: "Continent", city: "City", town: "Town",
-  village: "Village", area: "Area"
+  village: "Village", settlement: "Settlement", area: "Area"
 });
 
 const validId = value => typeof value === "string" &&

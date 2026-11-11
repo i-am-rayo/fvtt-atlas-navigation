@@ -7,7 +7,7 @@ import {readPublicTerritory} from "./region-narration.js";
 
 export const PLAYER_TERRITORY_FLAG="playerTerritory";
 export const PLAYER_TERRITORY_SCHEMA=1;
-const KINDS=new Set(["continent","area","city","town","village"]);
+const KINDS=new Set(["continent","area","city","town","village","settlement"]);
 
 export function validatePlayerTerritorySharing(value){
   if(value==null)return null;
