@@ -220,7 +220,22 @@ test("Locate uses public canvas bounds and workspace does not own canvas preview
     const moves=[];
     ctx.scene.regions[0].parent={id:ctx.scene.id};
     ctx.scene.regions[0].bounds={x:100,y:240,width:300,height:100};
+    ctx.scene.regions[0].polygons=[{points:[100,240,400,240,400,340,100,340]}];
+    class Container {
+      constructor(){this.children=[];this.parent=null;this.alpha=1;}
+      addChild(item){this.children.push(item);item.parent=this;return item;}
+      removeChild(item){this.children=this.children.filter(child=>child!==item);item.parent=null;}
+      destroy(){this.destroyed=true;}
+    }
+    class Graphics {
+      poly(){return this;}
+      stroke(){return this;}
+      destroy(){}
+    }
+    globalThis.PIXI={Container,Graphics};
     globalThis.canvas={ready:true,scene:ctx.scene,
+      app:{renderer:{screen:{width:1000,height:800}}},
+      stage:{scale:{x:1}},interface:new Container(),
       animatePan:async options=>{moves.push(options);}};
     const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     assert.equal(subscriptions.size,0,"persistent Atlas Layers controller owns canvas hooks");
@@ -229,7 +244,10 @@ test("Locate uses public canvas bounds and workspace does not own canvas preview
     const locate=buttons(workspace.result).find(item=>
       item.title==="Locate this native Region on the map");
     await locate.listeners.get("click")({preventDefault(){}});
-    assert.deepEqual(moves,[{x:250,y:290,duration:350}]);
+    assert.deepEqual(moves,[{x:250,y:290,scale:2.25,duration:750}]);
+    assert.equal(globalThis.canvas.interface.children.length,1,
+      "Locate draws only the selected Region even when persistent Layers are off");
+    assert.equal(workspace.minimized,true,"map Locate gets the Workspace out of the way");
     assert.deepEqual(ctx.calls,[],"Locate never writes a Scene or native Region");
     await workspace.close();
     assert.equal(subscriptions.size,0);

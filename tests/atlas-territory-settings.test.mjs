@@ -94,9 +94,13 @@ test("single modeless Territory Settings window retains tabs, permissions and al
     assert.ok(action(app,"Link or unlink Checkpoint")?.disabled===false);
     await click(action(app,"Link or unlink Checkpoint"));
     assert.deepEqual(f.calls.at(-1),["checkpoint-link","r1"]);
+    assert.equal(action(app,"Link or unlink Checkpoint").disabled,false,
+      "a successful action must not leave newly rendered buttons greyed out");
     await page(app,"Map & Visibility");
     await click(action(app,"Public Journey name"));
     await click(action(app,"Player boundary sharing"));
+    assert.equal(action(app,"Public Journey name").disabled,false);
+    assert.equal(action(app,"Player boundary sharing").disabled,false);
     assert.deepEqual(f.calls.slice(-2),[["public","r1"],["sharing","r1"]]);
     await page(app,"Boundary & Native");
     assert.ok(action(app,"Convert polygon to hex/grid"));
@@ -107,6 +111,8 @@ test("single modeless Territory Settings window retains tabs, permissions and al
     assert.deepEqual(f.calls.slice(-2),[["paint","r1"],["convert","r1"]]);
     await page(app,"General");
     await click(action(app,"Geographic classification"));
+    assert.equal(action(app,"Geographic classification").disabled,false,
+      "General buttons recover immediately without switching tabs");
     assert.equal(f.calls.at(-1)[0],"geography");
     assert.deepEqual(f.errors,[]);
     await app.close();

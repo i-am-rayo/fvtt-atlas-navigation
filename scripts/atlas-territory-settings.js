@@ -115,9 +115,18 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
         try{
           await run();
           this.externalRefresh?.();
-          if(this.rendered!==false)await this.render(true);
         }catch(error){ui.notifications.error(error.message??String(error));}
-        finally{this.busy=false;btn.disabled=disabled;}
+        finally{
+          // Clear the transient lock BEFORE re-rendering. Otherwise every
+          // newly created button inherits disabled=true and stays grey until
+          // an unrelated tab switch happens.
+          this.busy=false;
+          btn.disabled=disabled;
+          // A Locate action deliberately minimizes this window so the GM can
+          // see the map. Re-rendering a minimized native v14 window is not
+          // needed and must not bring it back in front of the highlight.
+          if(this.rendered!==false&&!this.minimized)await this.render(true);
+        }
       });
       row.append(text,btn);into.appendChild(row);
     };
@@ -142,8 +151,13 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
         "Keep the native Region and its Shapes. Existing Checkpoint associations are protected.",
         ()=>this.actions.setNativeRegionLink(this.scene,this.regionId,!summary?.linked,this.externalRefresh),
         {disabled:!!draft||!!summary?.invalidLink,danger:!!summary?.linked});
-      if(this.onLocate)action(general,"Locate on map","Focus the Scene canvas on this native Region.",
-        ()=>this.onLocate(this.regionId));
+      if(this.onLocate)action(general,"Locate on map",
+        "Fit the whole native Territory, then highlight and pulse its boundary for 30 seconds. " +
+        "The temporary outline works even when Atlas Regions are Hidden.",
+        async()=>{
+          await this.minimize?.();
+          await this.onLocate(this.regionId);
+        });
     }
     if(this.activePage==="Checkpoint & Journal"){
       const linked=group("Linked Checkpoint",

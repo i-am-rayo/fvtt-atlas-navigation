@@ -8,6 +8,7 @@ import { listGeneratedRegions } from "./generated-region.js";
 import { listPublicTerritorySettings } from "./region-narration.js";
 import { createAtlasRoadsPanel, createAtlasTerritoryPanel, createAtlasTopologyPanel }
   from "./scene-config.js";
+import {TerritoryLocateHighlight} from "./territory-locate-highlight.js";
 
 const workspaces = new Map();
 
@@ -55,6 +56,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     this.actions = actions;
     this.activeSection = "overview";
     this._scrollY = 0;
+    this.territoryLocator=new TerritoryLocateHighlight();
   }
 
   async _locateTerritory(regionId) {
@@ -64,12 +66,9 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     if (!region || region.parent?.id !== this.scene.id || !view?.ready ||
         view.scene?.id !== this.scene.id || typeof view.animatePan !== "function")
       throw Error("Open this Region's Scene on the canvas to locate it.");
-    const bounds = region.bounds;
-    if (!bounds || ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) ||
-        bounds.width <= 0 || bounds.height <= 0)
-      throw Error("This native Region has no usable bounds to locate.");
-    await view.animatePan({x:bounds.x+bounds.width/2,
-      y:bounds.y+bounds.height/2, duration:350});
+    await this.territoryLocator.focus(this.scene,region,{view});
+    if(this.rendered&&!this.minimized&&typeof this.minimize==="function")
+      await this.minimize();
   }
 
   async _renderHTML() {
@@ -177,6 +176,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
   }
 
   _onClose(options) {
+    this.territoryLocator.clear();
     if (workspaces.get(this.scene.id) === this) workspaces.delete(this.scene.id);
     return super._onClose?.(options);
   }
