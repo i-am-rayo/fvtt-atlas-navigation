@@ -11,9 +11,16 @@ This change adds a Checkpoints Workspace section and a GM-confirmed standalone p
 5. Start placement and change Scene or Atlas revision before confirmation. The stale action must stop without creating a Checkpoint in the wrong Scene. Repeat with a non-GM client: no Workspace access and no Scene write.
 6. Confirm old Road-bound Checkpoint creation still works. Check that existing Roads, Territories, native Region Shapes/Behaviors, Fog, Journey state, Actor data and World time are unchanged.
 
+## Terminal Road connection follow-up (draft)
+
+7. With a saved independent Checkpoint, choose **+ Road**. The picker shows nearby saved Road *terminal endpoints* (up to 100). Confirm and verify one straight segment joins the Road endpoint to the original Checkpoint Node, while the Checkpoint and all previously saved Road section IDs stay unchanged.
+8. Use **⛓** on the now-terminal Checkpoint, read the deletion warning and Cancel: no write. Confirm: only the terminal link disappears, while Checkpoint ID/Node, Journal, appearance and player discovery remain. Verify routing cannot use the disconnected landmark.
+9. Delete its connected Road using the existing explicit checkpoint-removal confirmation. On schema v10, the Checkpoint must survive as an independent landmark even when the Road is removed.
+10. Test a coincident Node, an already-connected Checkpoint, a multi-link intersection, and stale GM dialog: no implicit merge, duplicated link, topology loss or partial write. Run an existing Journey smoke test before acceptance.
+
 ## Known limits / next slice
 
-- Independent Checkpoints are not routable until a Road actually connects to their Node. Physical graph attach/detach workflow is not implemented by this PR.
+- Independent Checkpoints are not routable until a Road actually connects to their Node. The first connect/disconnect workflow supports only a straight new Road section from an isolated Checkpoint to a saved terminal Road endpoint; it deliberately does not split interior edges, merge coincident Nodes or edit multi-branch junctions.
 - The first Workspace slice reuses existing save/actions and keeps the legacy panel; polish and full control-by-control parity await live testing.
 - Migration from v9 with two different Checkpoint IDs sharing one Node is explicitly blocked. The GM must reconcile those identities in a later reviewed tool.
 - No release manifest/version/archive changes: this is a **draft implementation PR**, not an authorized build.

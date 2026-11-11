@@ -1,4 +1,5 @@
-import { addRoadCheckpoint, addIndependentCheckpoint, editRoadCheckpoint, removeRoadCheckpoint,
+import { addRoadCheckpoint, addIndependentCheckpoint, connectIndependentCheckpoint,
+  disconnectIndependentCheckpoint, editRoadCheckpoint, removeRoadCheckpoint,
   editCheckpointAppearance } from "./checkpoint-model.js";
 import { addRoad, removeRoad, renameRoad, reshapeRoad, mergeRoadGroups, applyRoadGeometryEdit } from "./road-model.js";
 import { anchorLegacyAtlas, upgradeAtlasRoadGroups, upgradeAtlasTravelPresets,
@@ -132,6 +133,20 @@ export function saveNewIndependentCheckpoint(scene, {
 }) {
   return saveChange(scene, expectedRevision, previous =>
     addIndependentCheckpoint(previous, { at, name, elevationMeters, idFactory }));
+}
+
+export function saveConnectedIndependentCheckpoint(scene, {
+  checkpointId, roadId, roadNodeId, expectedRevision, idFactory
+}) {
+  return saveChange(scene, expectedRevision, previous =>
+    connectIndependentCheckpoint(previous, { checkpointId, roadId, roadNodeId, idFactory }));
+}
+
+export function saveDisconnectedIndependentCheckpoint(scene, {
+  checkpointId, segmentId, expectedRevision
+}) {
+  return saveChange(scene, expectedRevision, previous =>
+    disconnectIndependentCheckpoint(previous, { checkpointId, segmentId }));
 }
 
 export function saveEditedCheckpoint(scene, { checkpointId, name, elevationMeters, expectedRevision }) {

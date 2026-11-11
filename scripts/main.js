@@ -24,7 +24,8 @@ import { AtlasManualFogPalette, registerManualBrushSettings }
   from "./atlas-manual-fog-panel.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
-  saveEditedCheckpoint, saveNewIndependentCheckpoint, saveRemovedCheckpoint, saveRemovedCheckpoints, saveRoadTravelPreset,
+  saveEditedCheckpoint, saveNewIndependentCheckpoint, saveConnectedIndependentCheckpoint,
+  saveDisconnectedIndependentCheckpoint, saveRemovedCheckpoint, saveRemovedCheckpoints, saveRoadTravelPreset,
   saveRoadAppearance, saveRoadSettings, saveRoadPlayerVisibility,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
 import { getRoadMergeCandidates, suggestRoadName } from "./road-model.js";
@@ -1384,6 +1385,78 @@ function actions() {
       });
       ui.notifications.info("Click the Scene canvas to place an independent Checkpoint. Escape cancels.");
       refresh();
+    },
+    async manageCheckpointRoad(scene, checkpointId, refresh) {
+      ensureIdle(scene);
+      const atlas = readAtlas(scene);
+      const checkpoint = atlas.checkpoints?.find(cp => cp.id === checkpointId);
+      if (!checkpoint) throw new Error("Checkpoint no longer exists in this Scene.");
+      const incidents = atlas.segments.filter(segment =>
+        segment.from === checkpoint.nodeId || segment.to === checkpoint.nodeId);
+      if (incidents.length === 1 && atlas.schemaVersion >= 10) {
+        const incident = incidents[0];
+        const approved = await DialogV2.confirm({
+          window: { title: `Disconnect ${checkpoint.name}?` },
+          content: `<p>Remove Road section ${incident.id} from this terminal Checkpoint? ` +
+            "The Checkpoint, its stable Node, Journal and metadata remain. " +
+            "This may affect route availability.</p>",
+          yes: { label: "Disconnect Road section" }, no: { label: "Cancel" }
+        });
+        if (!approved) return;
+        await saveDisconnectedIndependentCheckpoint(scene, { checkpointId,
+          segmentId: incident.id, expectedRevision: atlas.revision });
+      } else if (incidents.length === 0) {
+        const nodes = new Map(atlas.nodes.map(node => [node.id, node]));
+        const anchor = nodes.get(checkpoint.nodeId);
+        const roads = new Map(atlas.roads.map(road => [road.id, road]));
+        const degree = new Map();
+        for (const edge of atlas.segments) {
+          degree.set(edge.from, (degree.get(edge.from) ?? 0) + 1);
+          degree.set(edge.to, (degree.get(edge.to) ?? 0) + 1);
+        }
+        // This conservative first pass connects to a terminal endpoint only;
+        // connecting to an interior junction is a separate reviewed graph edit.
+        const choices = atlas.segments.flatMap(segment =>
+          [segment.from, segment.to].filter(nodeId => degree.get(nodeId) === 1)
+            .map(nodeId => ({ roadId: segment.roadId, nodeId,
+              point: nodes.get(nodeId) })))
+          .filter(entry => entry.point && roads.has(entry.roadId) &&
+            entry.nodeId !== checkpoint.nodeId)
+          .sort((a,b) => Math.hypot(a.point.x-anchor.x,a.point.y-anchor.y) -
+            Math.hypot(b.point.x-anchor.x,b.point.y-anchor.y))
+          .slice(0, 100);
+        if (!choices.length) throw new Error("No saved Road endpoints are eligible for this connection.");
+        const content = document.createElement("div");
+        const description = document.createElement("p");
+        description.textContent = "Choose a saved Road endpoint. Atlas will add one straight, " +
+          "explicit Road section to this Checkpoint without moving either Node.";
+        const select = document.createElement("select");
+        select.name = "roadEndpoint";
+        for (const choice of choices) {
+          const option = document.createElement("option");
+          option.value = `${choice.roadId}::${choice.nodeId}`;
+          option.textContent = `${roads.get(choice.roadId).name} — ` +
+            `${choice.nodeId} (${Math.round(Math.hypot(choice.point.x-anchor.x,
+              choice.point.y-anchor.y))} px away)`;
+          select.appendChild(option);
+        }
+        content.append(description, select);
+        const result = await DialogV2.input({
+          window: { title: `Connect ${checkpoint.name} to Road` }, content,
+          ok: { label: "Connect Road" }, rejectClose: false
+        });
+        if (!result) return;
+        const [roadId, roadNodeId] = String(result.roadEndpoint ?? "").split("::");
+        if (!choices.some(option => option.roadId === roadId && option.nodeId === roadNodeId)) {
+          throw new Error("Select an eligible Road endpoint.");
+        }
+        await saveConnectedIndependentCheckpoint(scene, { checkpointId, roadId, roadNodeId,
+          expectedRevision: atlas.revision, idFactory: () => foundry.utils.randomID() });
+      } else {
+        throw new Error("This Checkpoint has multiple Road links. Use reviewed Road editing to change its topology.");
+      }
+      roadCanvas.refresh(); refresh();
+      ui.notifications.info("Checkpoint Road connection updated.");
     },
     selectCheckpoint: async (scene, checkpointId) => {
       await centerAtlasOn(scene,null,checkpointId);

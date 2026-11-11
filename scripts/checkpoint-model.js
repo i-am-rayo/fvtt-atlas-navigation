@@ -137,6 +137,68 @@ export function detachCheckpointRoadHint(atlas, { checkpointId }) {
     c.id === checkpointId ? { ...c, roadId: null } : c) });
 }
 
+/**
+ * Connect an isolated Checkpoint Node to an existing Road endpoint using one
+ * explicit new segment. Neither Node ID changes, and no native Regions move.
+ * This conservative operation refuses already-connected Checkpoints: broader
+ * Road splitting/branching needs a separate geometric preview and approval.
+ */
+export function connectIndependentCheckpoint(atlas, {
+  checkpointId, roadId, roadNodeId, idFactory
+}) {
+  const current = upgradeAtlasIndependentCheckpoints(atlas);
+  const checkpoint = current.checkpoints.find(c => c.id === checkpointId);
+  if (!checkpoint) throw new Error("Checkpoint no longer exists in this Scene.");
+  if (!current.roads.some(road => road.id === roadId)) {
+    throw new Error("Choose an existing Road for this connection.");
+  }
+  const point = current.nodes.find(node => node.id === checkpoint.nodeId);
+  const roadNode = current.nodes.find(node => node.id === roadNodeId);
+  if (!point || !roadNode || point.id === roadNode.id) {
+    throw new Error("Choose a distinct saved Road endpoint.");
+  }
+  const incidents = current.segments.filter(segment =>
+    segment.from === point.id || segment.to === point.id);
+  if (incidents.length) {
+    throw new Error("This Checkpoint already connects to the Road graph. Review its existing links first.");
+  }
+  if (!current.segments.some(segment => segment.roadId === roadId &&
+      (segment.from === roadNodeId || segment.to === roadNodeId))) {
+    throw new Error("The selected endpoint is not on the chosen Road.");
+  }
+  if (Math.hypot(point.x - roadNode.x, point.y - roadNode.y) <= 0) {
+    throw new Error("Coincident Nodes require a separately reviewed merge, not a zero-length Road.");
+  }
+  const segmentId = uniqueId(new Set(current.segments.map(s => s.id)), idFactory);
+  return validateAtlas({ ...current,
+    checkpoints: current.checkpoints.map(c => c.id === checkpointId
+      ? { ...c, roadId } : c),
+    segments: [...current.segments, { id: segmentId, roadId,
+      from: roadNodeId, to: point.id, via: [], bidirectional: true }]
+  });
+}
+
+/** Detach only an explicitly selected terminal link, retaining the Checkpoint. */
+export function disconnectIndependentCheckpoint(atlas, { checkpointId, segmentId }) {
+  const current = validateAtlas(atlas);
+  if (current.schemaVersion < 10) {
+    throw new Error("Upgrade independent Checkpoint topology before disconnecting a Road.");
+  }
+  const checkpoint = current.checkpoints.find(c => c.id === checkpointId);
+  if (!checkpoint) throw new Error("Checkpoint no longer exists in this Scene.");
+  const incidents = current.segments.filter(segment =>
+    segment.from === checkpoint.nodeId || segment.to === checkpoint.nodeId);
+  if (incidents.length !== 1 || incidents[0].id !== segmentId) {
+    throw new Error("Only a single explicit terminal Road link can be safely detached here.");
+  }
+  if (checkpoint.roadId !== null && checkpoint.roadId !== incidents[0].roadId) {
+    throw new Error("Checkpoint Road ownership is ambiguous; review before detaching.");
+  }
+  return validateAtlas({ ...current, segments: current.segments.filter(s => s.id !== segmentId),
+    checkpoints: current.checkpoints.map(c => c.id === checkpointId
+      ? { ...c, roadId: null } : c) });
+}
+
 /** Explicit style update without touching names, elevation, graph or native Regions. */
 export function editCheckpointAppearance(atlas, { checkpointId, appearance }) {
   const previous = validateAtlas(atlas);

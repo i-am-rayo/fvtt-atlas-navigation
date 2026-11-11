@@ -120,6 +120,31 @@ test("Checkpoint Workspace presents independent creation through existing GM act
   } finally { ctx.restore(); }
 });
 
+test("isolated Checkpoint in Workspace offers explicit Road connection action", async () => {
+  const ctx = context();
+  try {
+    ctx.scene.getFlag = (_scope, flag) => flag === "atlas" ? {
+      schemaVersion: 10, coordinateSpace: "image", revision: 3,
+      enabled: false, calibration: null, roads: [], segments: [],
+      nodes: [{ id: "node", x: 10, y: 20 }],
+      checkpoints: [{ id: "cp", roadId: null, nodeId: "node",
+        name: "Free Village", elevationMeters: null,
+        appearance: null, playerVisible: false }]
+    } : null;
+    ctx.actions.manageCheckpointRoad = (_scene, id) => ctx.calls.push(["connect", id]);
+    const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    const tab = buttons(workspace.result).find(item => item.textContent === "Checkpoints");
+    await tab.listeners.get("click")({ preventDefault() {} });
+    assert.match(text(workspace.result), /Free Village/);
+    const connect = buttons(workspace.result).find(item =>
+      item.title === "Connect this isolated Checkpoint to a Road endpoint");
+    assert.ok(connect);
+    await connect.listeners.get("click")({ preventDefault() {} });
+    assert.deepEqual(ctx.calls, [["connect", "cp"]]);
+    await workspace.close();
+  } finally { ctx.restore(); }
+});
+
 test("workspace refuses non-GM and unauthorized Scenes, including after open", async () => {
   const ctx = context();
   try {

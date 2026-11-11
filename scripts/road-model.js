@@ -298,8 +298,14 @@ export function removeRoad(atlas, { roadId, segmentId, removeCheckpoints = false
   // Keep shared and orphaned junctions; removing a Road never cascades to others.
   // Only explicitly confirmed checkpoints are removed. Preserve their graph
   // nodes: shared topology may be used by another named road.
-  const checkpoints = removeCheckpoints
-    ? current.checkpoints?.filter(c => c.roadId !== roadId) : current.checkpoints;
+  // In v10 the Checkpoint entity owns a durable Node independent of Road
+  // membership. A confirmed Road deletion disconnects it, never deletes it.
+  // v9 retains its historical explicit removeCheckpoints contract.
+  const checkpoints = removeCheckpoints && current.schemaVersion < 10
+    ? current.checkpoints?.filter(c => c.roadId !== roadId)
+    : current.schemaVersion >= 10
+      ? current.checkpoints.map(c => c.roadId === roadId ? { ...c, roadId: null } : c)
+      : current.checkpoints;
   return validateAtlas({ ...current, roads, segments,
     ...(Array.isArray(checkpoints) ? {checkpoints} : {}),
     enabled: segments.length > 0 });
