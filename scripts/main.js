@@ -66,6 +66,8 @@ import {preferredTerritoryCreationMethod} from "./territory-authoring-model.js";
 import {readTerritoryDraft,selectedBlankWallBoundary,saveTerritoryDraft,
   planNativeTerritoryAdoption,adoptNativeTerritoryBoundary}
   from "./territory-authoring.js";
+import {atlasSettingsTitle,atlasTerrainRegionSheetClass}
+  from "./atlas-settings-title.js";
 import {GEOGRAPHY_KINDS} from "./territory-geography-model.js";
 import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegions,
   setGeneratedRegionTravelPreset, applyGeneratedRegionMovementCost,
@@ -406,7 +408,7 @@ async function promptNewRoadSettings(scene) {
   let result;
   try {
     result=await foundry.applications.api.DialogV2.input({
-      window:{title:"Road Settings — New Road",resizable:true},
+      window:{title:atlasSettingsTitle("Road",null,{creating:true}),resizable:true},
       position:{left:24,width:Math.min(620,window.innerWidth-50),
         height:Math.min(720,Math.max(440,window.innerHeight-70))},
       content,ok:{label:"Draw Road"},rejectClose:false,modal:false
@@ -987,7 +989,7 @@ function actions() {
       let result;
       try {
         result = await DialogV2.input({
-          window: { title: "Road Settings — " + actual.name, resizable: true },
+          window: { title: atlasSettingsTitle("Road",actual.name), resizable: true },
           position: { left: 24, width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(740, Math.max(440, window.innerHeight - 70)) },
           content, ok: {label:"",icon:"fa-solid fa-floppy-disk",tooltip:"Save road"},
           render:renderRoadDialog,
@@ -1971,7 +1973,9 @@ function actions() {
           !region.canUserModify(game.user, "update")) {
         throw new Error(game.i18n.localize("FVTTATLAS.Regions.Missing"));
       }
-      const sheet=new foundry.applications.sheets.RegionConfig({document:region});
+      const AtlasRegionConfig=atlasTerrainRegionSheetClass(
+        foundry.applications.sheets.RegionConfig);
+      const sheet=new AtlasRegionConfig({document:region});
       await sheet.render({force:true});
       sheet.bringToFront?.();
       return sheet;
@@ -2295,7 +2299,7 @@ function actions() {
       const expectedName=region.name,expectedHidden=region.hidden===true;
       const form=createPublicTerritoryForm({nativeName:region.name,
         published:expected,hidden:expectedHidden});
-      const result=await DialogV2.input({window:{title:"Public territory: "+region.name},
+      const result=await DialogV2.input({window:{title:atlasSettingsTitle("Public Territory",region.name)},
         content:form,ok:{label:"Save public territory setting"},
         rejectClose:false,modal:true});
       if(!result)return;
@@ -2358,7 +2362,7 @@ function actions() {
       const expectedName=region.name,expectedHidden=region.hidden===true;
       const content=buildTerritoryGeographyForm({region,current:expected,
         territories:entries,roads:readAtlas(scene).roads??[]});
-      const result=await DialogV2.input({window:{title:"Geographic territory: "+region.name},
+      const result=await DialogV2.input({window:{title:atlasSettingsTitle("Geographic Territory",region.name)},
         content,ok:{label:"Review and Save Geography"},rejectClose:false,modal:true});
       if (!result) return;
       const next=geographyFromForm(result,expected);
