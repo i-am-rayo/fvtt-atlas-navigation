@@ -3,7 +3,7 @@ export const TERRITORY_VIEW_MODES = Object.freeze({
   combined: "Combined", continents: "Continents", settlements: "Settlements"
 });
 
-const SETTLEMENTS = new Set(["city", "town", "village"]);
+const SETTLEMENTS = new Set(["city", "town", "village", "settlement"]);
 const BROAD = new Set(["continent", "area"]);
 
 export function territoryTier(entry) {

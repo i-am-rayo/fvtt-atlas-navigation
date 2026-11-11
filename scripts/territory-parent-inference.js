@@ -4,7 +4,7 @@
 
 import {atlasDebug} from "./atlas-debug.js";
 
-const CHILD_KINDS=new Set(["city","town","village"]);
+const CHILD_KINDS=new Set(["city","town","village","settlement"]);
 const MAX_COMPARISONS=128;
 const MIN_MAJORITY=.5;
 const MIN_LEAD=.05;

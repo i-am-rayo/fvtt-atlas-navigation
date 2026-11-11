@@ -32,17 +32,21 @@ const snapshot=region=>({expected:readPlayerTerritorySharing(region),
 test("only explicitly shared, visible, classified native Territories enter player projection",()=>{
   const named=mockRegion("named",{shared:true,published:"Dirwest"});
   const unnamed=mockRegion("unnamed",{shared:true});
+  const settlement=mockRegion("settlement",{kind:"settlement",shared:true,
+    published:"Hearth's Heart"});
   const privateRegion=mockRegion("private",{published:"Public but no boundary grant"});
   const hidden=mockRegion("hidden",{shared:true,published:"Hidden",hidden:true});
   const unlinked=mockRegion("unlinked",{shared:true,linked:false});
   const unclassified=mockRegion("unclassified",{shared:true,kind:null});
   const invalid=mockRegion("invalid",{shared:true});
   invalid.flags.set(PLAYER_TERRITORY_FLAG,{schemaVersion:99,visible:true});
-  const projection=listPlayerTerritories(scene(named,unnamed,privateRegion,hidden,
+  const projection=listPlayerTerritories(scene(named,unnamed,settlement,privateRegion,hidden,
     unlinked,unclassified,invalid));
   assert.deepEqual(projection,[
     {id:"named",name:"Dirwest",publicName:"Dirwest",linked:true,invalid:false,
       playerShared:true,geography:{kind:"city"}},
+    {id:"settlement",name:"Hearth's Heart",publicName:"Hearth's Heart",linked:true,
+      invalid:false,playerShared:true,geography:{kind:"settlement"}},
     {id:"unnamed",name:"",publicName:null,linked:true,invalid:false,
       playerShared:true,geography:{kind:"city"}}
   ]);

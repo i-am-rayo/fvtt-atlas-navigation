@@ -81,6 +81,32 @@ test("non-GMs and overlapping peer Territories cause zero writes",async()=>{
   }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
 });
 
+test("a newly authored Settlement cannot overlap an existing village",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {created,scene,view}=fixture([mockRegion("peer","village",30)]);
+    const draft=mkDraft();draft.geography.kind="settlement";
+    await assert.rejects(saveTerritoryDraft(scene,draft,{view}),/overlaps/);
+    assert.equal(created.length,0);
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("a newly authored Settlement saves its kind without extra native Behaviors",async()=>{
+  const old={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {created,scene,view}=fixture();
+    const draft=mkDraft();draft.geography.kind="settlement";
+    await saveTerritoryDraft(scene,draft,{view});
+    const data=created[0].payload[0];
+    assert.equal(data.flags["fvtt-atlas-navigation"].territoryGeography.kind,"settlement");
+    assert.deepEqual(data.behaviors,[]);
+  }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
 test("grid native save rejects cells owned by another settlement",async()=>{
   const old={game:globalThis.game,PIXI:globalThis.PIXI};
   globalThis.game={user:{isGM:true}};

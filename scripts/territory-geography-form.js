@@ -11,8 +11,8 @@ export function buildTerritoryGeographyForm({region,current,territories,roads}) 
   const form=make("div");
   form.appendChild(make("p", "Geography groups the GM Road directory and " +
     "resolves overlaps between already-public Journey territory names. " +
-    "A clear majority overlap automatically associates a City, Town or " +
-    "Village with a Continent when no parent is selected. An explicitly " +
+    "A clear majority overlap automatically associates a City, Town, " +
+    "Village or Settlement with a Continent when no parent is selected. An explicitly " +
     "selected parent overrides that inference. Classification never " +
     "publishes names, changes native Shapes or Behaviors, or modifies travel costs."));
   form.appendChild(field("Geographic kind",createSettingsSelect([

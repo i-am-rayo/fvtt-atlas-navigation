@@ -81,7 +81,7 @@ function nativePairIntersection(a,b){
 export function analyzeSceneTerritoryBorders(scene,{nearPixels=null}={}){
   assertGM(scene);
   const entries=listSceneGeography(scene).filter(e=>e.linked&&!e.invalid&&e.geography&&
-    ["continent","city","town","village"].includes(e.geography.kind));
+    ["continent","city","town","village","settlement"].includes(e.geography.kind));
   if(entries.length>MAX_BORDER_REGIONS)
     throw Error(`This first boundary analyzer supports at most ${MAX_BORDER_REGIONS} classified geographic Regions per Scene. No changes were made; use native Foundry editing for larger sets until scoped analysis is available.`);
   const tolerance=nearPixels??Math.max(2,Math.min(48,Number(scene.grid?.size)||20)/4);

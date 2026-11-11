@@ -10,12 +10,13 @@ const geo = (id,name,kind,linked=true) =>
 
 test("tier projection orders combined map below settlements, while directory is settlement-first", () => {
   const entries=[geo("c","C", "continent"),geo("u","Unknown",null,false),
-    geo("a","A","area"),geo("t","Town","town"),geo("v","Village","village")];
-  assert.deepEqual(projectTerritoryView(entries).map(e=>e.id),["t","v","a","c","u"]);
+    geo("a","A","area"),geo("t","Town","town"),geo("v","Village","village"),
+    geo("s","Settlement","settlement")];
+  assert.deepEqual(projectTerritoryView(entries).map(e=>e.id),["s","t","v","a","c","u"]);
   assert.deepEqual(projectTerritoryView(entries,"combined",{drawOrder:true}).map(e=>e.id),
-    ["a","c","t","v","u"]);
+    ["a","c","s","t","v","u"]);
   assert.deepEqual(projectTerritoryView(entries,"continents").map(e=>e.id),["a","c"]);
-  assert.deepEqual(projectTerritoryView(entries,"settlements").map(e=>e.id),["t","v"]);
+  assert.deepEqual(projectTerritoryView(entries,"settlements").map(e=>e.id),["s","t","v"]);
   assert.equal(territoryTier({...entries[0],invalid:true}),"unclassified");
   assert.throws(()=>projectTerritoryView(entries,"unknown"),/Unknown Atlas Territory view/);
 });

@@ -238,8 +238,8 @@ export function validateTerritoryCoverage(scene,draft,shape,{regionId=null,view=
     throw Error("The selected parent Continent is missing.");
   const peers=entries.filter(e=>e.id!==regionId&&e.linked&&!e.invalid&&e.geography&&
     (geography.kind==="continent"?e.geography.kind==="continent":
-      ["city","town","village"].includes(geography.kind)&&
-      ["city","town","village"].includes(e.geography.kind)));
+      ["city","town","village","settlement"].includes(geography.kind)&&
+      ["city","town","village","settlement"].includes(e.geography.kind)));
   // Grid containment/overlap can be exact on both square and hex Scenes.
   if(shape.type==="grid"){
     const grid=view?.grid;

@@ -48,6 +48,17 @@ test("native percentage overlap is a read-only inferred parent; explicit parent 
   assert.equal(dirwest.entry.geography.parentRegionId,null);
 });
 
+test("a Settlement with no parent inherits the dominant Continent without a write",()=>{
+  const valecor=territory("valecor","continent",{area:5000,
+    overlaps:{hearth:90}});
+  const hearth=territory("hearth","settlement");
+  const byId=new Map([valecor,hearth].map(item=>[item.entry.id,item.entry]));
+  const scene={id:"scene",regions:{contents:[valecor.region,hearth.region]}};
+  assert.deepEqual(inferSceneContinentParents(scene,byId,{log:false}).get("hearth"),
+    {parentId:"valecor",coveragePercent:90});
+  assert.equal(hearth.entry.geography.parentRegionId,null);
+});
+
 test("unsupported, ambiguous or unsafe native geometry does not infer a parent",()=>{
   const valecor=territory("valecor","continent",{
     area:1000,overlaps:{dirwest:85}});
