@@ -7,6 +7,18 @@ import {readTerritoryCheckpointLink} from "./territory-checkpoint-link.js";
 
 const MAX_REGIONS=100,MAX_CHECKPOINTS=500,MAX_CELLS=200000;
 const key=offset=>`${offset.i},${offset.j}`;
+const TIER=Object.freeze({continent:0,area:1,city:2,town:2,village:2,settlement:2});
+
+/** A peer conflict is a same-tier shared cell, not mere co-containment in
+ * geographic levels. Cross-tier without a declared parent is informational. */
+export function classifyCheckpointOverlap(territory,leaf,descendant){
+  if(!leaf.some(t=>t.id===territory.id))return "nested";
+  const others=leaf.filter(t=>t.id!==territory.id);
+  if(!others.length)return "none";
+  if(others.some(t=>TIER[t.geography.kind]===TIER[territory.geography.kind] &&
+      !descendant(t,territory.id)&&!descendant(territory,t.id)))return "peer";
+  return "cross-tier";
+}
 
 /** Returns one candidate per matching native Region, without choosing an
  * arbitrary same-depth winner when several Regions own a Checkpoint cell. */
@@ -19,12 +31,23 @@ export function inspectCheckpointTerritoryMembership(scene,{view=globalThis.canv
   const atlas=readAtlas(scene),checkpoints=atlas.checkpoints??[];
   if(territories.length>MAX_REGIONS||checkpoints.length>MAX_CHECKPOINTS)
     return {available:false,reason:"Territory/Checkpoint count exceeds the safe inspection limit.",items:[]};
-  const owned=[];let inspectedCells=0;
+  const owned=[],issues=[];let inspectedCells=0,unsupported=0;
+  const validCheckpointIds=new Set(checkpoints.map(cp=>cp.id));
   for(const entry of territories){
-    if(entry.invalid||!entry.geography)continue;
+    if(entry.invalid||!entry.geography){
+      if(entry.invalid)issues.push({regionId:entry.id,description:"Unsupported Atlas geography/association metadata"});
+      continue;
+    }
     const region=scene.regions?.get?.(entry.id);
+    let explicit=null,invalid=false;
+    try{explicit=readTerritoryCheckpointLink(region)?.checkpointId??null;}
+    catch{invalid=true;issues.push({regionId:entry.id,description:"Invalid explicit Checkpoint link flag"});}
+    if(explicit&&!validCheckpointIds.has(explicit))issues.push({regionId:entry.id,
+      description:"Explicit link targets a missing Checkpoint; unlink or repair through the GM editor"});
     const shapes=Array.from(region?.shapes??[],s=>s?.toObject?.()??s);
-    if(!shapes.length||shapes.some(s=>s?.type!=="grid"||!Array.isArray(s.offsets)))continue;
+    if(!shapes.length||shapes.some(s=>s?.type!=="grid"||!Array.isArray(s.offsets))){
+      unsupported++;continue;
+    }
     const cells=new Set();
     for(const shape of shapes){
       inspectedCells+=shape.offsets.length;
@@ -36,12 +59,18 @@ export function inspectCheckpointTerritoryMembership(scene,{view=globalThis.canv
         cells.add(key(offset));
       }
     }
-    let explicit=null,invalid=false;
-    try{explicit=readTerritoryCheckpointLink(region)?.checkpointId??null;}
-    catch{invalid=true;}
     owned.push({...entry,cells,explicit,invalid});
   }
   const nodes=new Map((atlas.nodes??[]).map(node=>[node.id,node]));
+  const byId=new Map(owned.map(t=>[t.id,t]));
+  const descendant=(child,parentId)=>{
+    const seen=new Set();let id=child.geography.parentRegionId;
+    while(id&&!seen.has(id)){
+      if(id===parentId)return true;
+      seen.add(id);id=byId.get(id)?.geography.parentRegionId;
+    }
+    return false;
+  };
   const items=[];
   for(const checkpoint of checkpoints){
     const node=nodes.get(checkpoint.nodeId);
@@ -52,26 +81,17 @@ export function inspectCheckpointTerritoryMembership(scene,{view=globalThis.canv
     if(!Number.isSafeInteger(offset?.i)||!Number.isSafeInteger(offset?.j))continue;
     const matches=owned.filter(t=>t.cells.has(key(offset)));
     const ids=new Set(matches.map(t=>t.id));
-    const byId=new Map(owned.map(t=>[t.id,t]));
-    const descendant=(child,parentId)=>{
-      const seen=new Set();let id=child.geography.parentRegionId;
-      while(id&&!seen.has(id)){
-        if(id===parentId)return true;
-        seen.add(id);id=byId.get(id)?.geography.parentRegionId;
-      }
-      return false;
-    };
     const leaf=matches.filter(t=>!matches.some(child=>child.id!==t.id&&
       descendant(child,t.id)));
-    const ambiguity=leaf.length>1;
     for(const territory of owned){
       if(!ids.has(territory.id)&&territory.explicit!==checkpoint.id)continue;
       items.push({checkpointId:checkpoint.id,checkpointName:checkpoint.name,
         regionId:territory.id,regionName:territory.name,
         contains:ids.has(territory.id),explicit:territory.explicit===checkpoint.id,
-        ambiguous:ambiguity&&leaf.some(t=>t.id===territory.id),
+        overlap:classifyCheckpointOverlap(territory,leaf,descendant),
+        ambiguous:classifyCheckpointOverlap(territory,leaf,descendant)==="peer",
         invalid:territory.invalid,cell:{i:offset.i,j:offset.j}});
     }
   }
-  return {available:true,reason:null,items};
+  return {available:true,reason:null,items,unsupported,issues};
 }
