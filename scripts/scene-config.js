@@ -37,6 +37,8 @@ import {projectTerritoryView,groupTerritoryEntries} from "./territory-view-model
 import {nativeRegionColorHex} from "./native-region-color.js";
 import {readPendingTerritoryCellTransfer} from "./territory-grid-transfer.js";
 import {openAtlasTerritorySettings} from "./atlas-territory-settings.js";
+import {territoryCheckpointJournal,territoryJournalBadgeData}
+  from "./territory-journal-indicator.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -231,6 +233,11 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
   const pending=readPendingTerritoryCellTransfer(scene);
   const checkpointById=new Map((scene?.getFlag?readAtlas(scene).checkpoints??[]:[])
     .map(checkpoint=>[checkpoint.id,checkpoint]));
+  let territoryJournals=null;
+  try{territoryJournals=readAtlasJournalLinks(scene);}catch{/* Invalid links fail closed. */}
+  // Multiple settlements may intentionally refer to one Checkpoint/Journal.
+  // Resolve access only once per UUID during this one directory render.
+  const journalBadgeQueries=new Map();
   const batch=actions.territoryBatchState?.(scene);
   if(!batch&&typeof actions.startTerritoryBatch==="function"){
     const start=button("Start Batch Edit",
@@ -308,6 +315,42 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     swatch.title="Native Region color (Atlas does not alter it)";
     details.appendChild(swatch);
     details.appendChild(node("span",region.name));
+    const linkedJournal=territoryCheckpointJournal(nativeRegion,checkpointById,
+      territoryJournals);
+    if(game.user?.isGM&&linkedJournal){
+      const journalSlot=node("span",undefined,"atlas-territory-journal-slot");
+      journalSlot.setAttribute("data-atlas-territory-journal",region.id);
+      details.appendChild(journalSlot);
+      const isCurrent=()=>{
+        // This panel is built off-DOM before Foundry mounts it. An immediate
+        // UUID resolution must not be discarded merely because isConnected
+        // is temporarily false; stale links/documents are checked instead.
+        if(!globalThis.game?.user?.isGM||
+            scene.regions?.get?.(region.id)!==nativeRegion)return false;
+        const activeCanvas=globalThis.canvas;
+        if(activeCanvas?.ready&&activeCanvas.scene?.id!==scene.id)return false;
+        try{
+          const checkpoints=new Map(readAtlas(scene).checkpoints.map(cp=>[cp.id,cp]));
+          return territoryCheckpointJournal(nativeRegion,checkpoints,
+            readAtlasJournalLinks(scene))?.uuid===linkedJournal.uuid;
+        }catch{return false;}
+      };
+      if(!journalBadgeQueries.has(linkedJournal.uuid))
+        journalBadgeQueries.set(linkedJournal.uuid,
+          territoryJournalBadgeData(linkedJournal.uuid));
+      void journalBadgeQueries.get(linkedJournal.uuid).then(data=>{
+        if(!data||!isCurrent())return;
+        const open=button(data.text,
+          `Checkpoint Journal: ${linkedJournal.checkpointName} — ${data.status}`,
+          async()=>{
+            if(!isCurrent())throw Error("This Territory's linked Journal changed. Reopen the directory.");
+            await openAtlasJournal(linkedJournal.uuid);
+          });
+        open.className="atlas-territory-journal-action";
+        open.setAttribute("aria-label",`Open ${linkedJournal.checkpointName} linked Checkpoint Journal`);
+        journalSlot.appendChild(open);
+      }).catch(()=>{/* Never display an unverified Journal link. */});
+    }
     const published=publicById.get(region.id);
     const status=[region.linked?"Atlas linked":"Native only",
       region.hidden?"Hidden":"Visible",

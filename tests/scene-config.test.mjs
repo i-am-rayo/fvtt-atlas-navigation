@@ -1041,6 +1041,70 @@ test("Territory rows show stable Checkpoint association with a GM link editor",a
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("Territory directory shows an accessible, permission-checked Checkpoint Journal action",async()=>{
+  const previous={document:globalThis.document,game:globalThis.game,
+    ui:globalThis.ui,fromUuid:globalThis.foundry.utils?.fromUuid};
+  const journal="JournalEntry.abcdefghijklmnop.JournalEntryPage.ABCDEFGHIJKLMNOP";
+  const gm={id:"gm",isGM:true},observer={id:"p1",isGM:false},guest={id:"p2",isGM:false};
+  const atlas={schemaVersion:4,coordinateSpace:"image",revision:1,enabled:true,
+    calibration:null,roads:[{id:"road",name:"Road"}],
+    nodes:[{id:"a",x:0,y:0},{id:"b",x:10,y:0}],
+    segments:[{id:"segment",roadId:"road",from:"a",to:"b",via:[],bidirectional:true}],
+    checkpoints:[{id:"cp",roadId:"road",nodeId:"a",name:"Genasi Village",elevationMeters:null}]};
+  let linked=true,resolvable=true,opened=0;
+  const native={id:"r1",name:"Genasi Village",hidden:false,shapes:[],behaviors:[],
+    getFlag:(_mod,key)=>key==="atlas"?{schemaVersion:1,linked:true}:
+      key==="territoryGeography"?{schemaVersion:1,kind:"village",
+        parentRegionId:null,roadOverrides:{}}:
+      key==="territoryCheckpoint"&&linked?{schemaVersion:1,checkpointId:"cp"}:null};
+  const scene={id:"scene",regions:new Map([["r1",native]]),
+    getFlag:(_mod,key)=>key==="atlas"?atlas:key==="atlasJournalLinks"?
+      {schemaVersion:1,roads:{},checkpoints:{cp:journal}}:null};
+  const opts={generated:[],nativeRegions:[{id:"r1",name:"Genasi Village",linked:true,
+    hidden:false,invalidLink:false}],publicById:new Map()};
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:gm,users:[gm,observer,guest],
+      i18n:{localize:key=>key,lang:"en"}};
+    globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
+    globalThis.foundry.utils={fromUuid:async uuid=>uuid===journal&&resolvable?
+      {documentName:"JournalEntryPage",testUserPermission:user=>user.id==="p1",
+        id:"ABCDEFGHIJKLMNOP",parent:{sheet:{render:async()=>opened++,goToPage:async()=>{}}}}:null};
+    const panel=createAtlasTerritoryPanel(scene,{draft:()=>null},()=>{},opts);
+    const findSlot=root=>root.attributes?.get("data-atlas-territory-journal")==="r1"?
+      root:root.children.map(findSlot).find(Boolean);
+    findSlot(panel).isConnected=false; // Native ApplicationV2 mounts after rendering.
+    await new Promise(resolve=>setImmediate(resolve));
+    const badge=buttons(panel).find(b=>b.className==="atlas-territory-journal-action");
+    assert.ok(badge,"a resolved Page association gets a direct Journal action");
+    assert.equal(badge.textContent,"📖 ◐");
+    assert.match(badge.title,/1 of 2 players have Observer access/);
+    assert.match(badge.attributes.get("aria-label"),/Open Genasi Village linked Checkpoint Journal/);
+    await badge.listeners.get("click")({preventDefault(){}});
+    assert.equal(opened,1,"the native Journal Page opens without creating a new link");
+    assert.equal(scene.getFlag(null,"atlasJournalLinks").checkpoints.cp,journal);
+    linked=false;
+    await badge.listeners.get("click")({preventDefault(){}}).catch(()=>{});
+    const unlinked=createAtlasTerritoryPanel(scene,{draft:()=>null},()=>{},opts);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(buttons(unlinked).some(b=>b.className==="atlas-territory-journal-action"),false);
+    linked=true;resolvable=false;
+    const missing=createAtlasTerritoryPanel(scene,{draft:()=>null},()=>{},opts);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(buttons(missing).some(b=>b.className==="atlas-territory-journal-action"),false,
+      "stale native Journal links must not display a working-book glyph");
+    resolvable=true;globalThis.game.user=guest;
+    const player=createAtlasTerritoryPanel(scene,{draft:()=>null},()=>{},opts);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(buttons(player).some(b=>b.className==="atlas-territory-journal-action"),false,
+      "GM Directory Journal metadata never appears on a player UI");
+  }finally{
+    Object.assign(globalThis,{document:previous.document,game:previous.game,ui:previous.ui});
+    if(previous.fromUuid)globalThis.foundry.utils.fromUuid=previous.fromUuid;
+    else delete globalThis.foundry.utils.fromUuid;
+  }
+});
+
 test("interrupted native batch disables staged draft discard until recovery",()=>{
   const previous={document:globalThis.document,game:globalThis.game,ui:globalThis.ui};
   try{

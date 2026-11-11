@@ -116,6 +116,20 @@
   border-radius: 50%;
   vertical-align: middle;
 }
+.atlas-scene-workspace .atlas-territory-journal-slot {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-inline-start: .45rem;
+}
+.atlas-scene-workspace .atlas-territory-journal-action {
+  margin: 0;
+  padding: .1rem .3rem;
+  min-width: 2.7rem;
+  min-height: 1.7rem;
+  width: auto;
+  font-size: .8rem;
+  line-height: 1.2;
+}
 .atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-actions button {
   margin: 0;
   padding: .4rem;
