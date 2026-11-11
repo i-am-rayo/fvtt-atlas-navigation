@@ -1,5 +1,5 @@
 /**
- * Disposable GM-only, noninteractive Territory outlines and optional labels.
+ * Disposable GM/player Territory outlines and optional public labels.
  * Native RegionDocument polygons are the geometry source of truth. This preview
  * never changes native Shapes, Highlight Mode, selection, or Behaviors.
  */
@@ -7,6 +7,13 @@ import {projectTerritoryView, territoryTier} from "./territory-view-model.js";
 import {nativeRegionColorNumber} from "./native-region-color.js";
 import {readTerritoryCheckpointLink} from "./territory-checkpoint-link.js";
 import {territoryDisplayName} from "./territory-checkpoint-presentation.js";
+import {readPlayerTerritorySharing} from "./player-territory-sharing.js";
+import {readPublicTerritory} from "./region-narration.js";
+import {readAtlas} from "./atlas-storage.js";
+import {playerAtlasOverlay} from "./player-overlay-model.js";
+import {readPartyExploration} from "./party-exploration-storage.js";
+import {readRegionAtlasLink} from "./region-atlas.js";
+import {readRegionGeography} from "./territory-geography-storage.js";
 import {readAtlasJournalLinks,journalUuidFor,openAtlasJournal} from "./atlas-journal-links.js";
 
 const MAX_REGIONS = 80;
@@ -125,9 +132,10 @@ export class TerritoryViewOverlay {
     this.clear();
     const view = globalThis.canvas;
     const pixi = globalThis.PIXI;
-    if (!globalThis.game?.user?.isGM || !scene?.id || !view?.ready ||
+    if (!globalThis.game?.user || !scene?.id || !view?.ready ||
         view.scene?.id !== scene.id || !view.interface?.addChild ||
         !pixi?.Graphics || !pixi?.Container) return {shown:0, skipped:0};
+    const gm=game.user.isGM===true;
 
     const projected = projectTerritoryView(entries, mode, {drawOrder:true})
       .filter(entry=>territoryTier(entry)!=="unclassified");
@@ -149,6 +157,17 @@ export class TerritoryViewOverlay {
       for (const entry of projected) {
         if (shown >= MAX_REGIONS) { skipped++; continue; }
         const region = scene.regions?.get?.(entry.id);
+        if(!gm){
+          // Defence in depth: a caller-provided entry never grants visibility.
+          if(!entry.playerShared||region?.hidden===true){skipped++;continue;}
+          try{
+            if(!readPlayerTerritorySharing(region)||!readRegionAtlasLink(region)||
+                readRegionGeography(region)?.kind!==entry.geography?.kind){
+              skipped++;continue;
+            }
+          }
+          catch{skipped++;continue;}
+        }
         const paths = readNativeTerritoryPaths(region,
           {vertexBudget:MAX_VERTICES-vertices});
         if (!paths) { skipped++; continue; }
@@ -178,6 +197,12 @@ export class TerritoryViewOverlay {
         }
         shown++;
         if (showNames && labels.length < MAX_LABELS && pixi.Text) {
+          let publicName=null;
+          if(!gm){
+            try{publicName=readPublicTerritory(region)?.label??null;}
+            catch{/* A malformed/publicly revoked name cannot be displayed. */}
+            if(!publicName)continue;
+          }
           const at = location(region,paths);
           if (at && [at.x,at.y].every(Number.isFinite)) {
             let linkedCheckpoint=null;
@@ -185,8 +210,9 @@ export class TerritoryViewOverlay {
               const link=readTerritoryCheckpointLink(region);
               linkedCheckpoint=link?checkpointsById.get(link.checkpointId)??null:null;
             }catch{/* Malformed association cannot publish a new label or Journal action. */}
-            const labelName=String(territoryDisplayName(entry.name??"Unnamed Region",
-              linkedCheckpoint)).slice(0,64);
+            const labelName=gm?
+              String(territoryDisplayName(entry.name??"Unnamed Region",linkedCheckpoint)).slice(0,64):
+              publicName.slice(0,64);
             // Foundry v14's PIXI.Text expects (text, style). Passing a single
             // options object is rendered literally as "[object Object]".
             const label = new pixi.Text(labelName,
@@ -199,12 +225,19 @@ export class TerritoryViewOverlay {
             layer.addChild(label);
             labels.push(label);
             if(linkedCheckpoint){
-              labelCheckpointIds.add(linkedCheckpoint.id);
+              // A player-facing public alias need not be the same as the
+              // Checkpoint title; suppress only genuinely duplicate labels.
+              if(gm||labelName===linkedCheckpoint.name)
+                labelCheckpointIds.add(linkedCheckpoint.id);
               hitLabels.push({at,checkpointId:linkedCheckpoint.id,regionId:region.id,
                 name:labelName,fontSize:broad?17:20});
             }
           }
         }
+      }
+      if(!shown){
+        layer.destroy?.({children:true});
+        return {shown,skipped};
       }
       view.interface.addChild(layer);
       this.layer = layer;
@@ -235,7 +268,7 @@ export class TerritoryViewOverlay {
     this.journalCanvasElement=element;
     this.journalDoubleClickHandler=event=>{
       if(event.button!==0||event.shiftKey||event.altKey||event.ctrlKey||event.metaKey||
-          !globalThis.game?.user?.isGM||this.view!==globalThis.canvas||
+          !globalThis.game?.user||this.view!==globalThis.canvas||
           view.scene?.id!==scene.id)return;
       const point=view.canvasCoordinatesFromClient?.({x:event.clientX,y:event.clientY});
       if(!Number.isFinite(point?.x)||!Number.isFinite(point?.y))return;
@@ -249,6 +282,12 @@ export class TerritoryViewOverlay {
         try{
           const current=scene.regions?.get?.(hit.regionId);
           if(readTerritoryCheckpointLink(current)?.checkpointId!==hit.checkpointId)continue;
+          if(!game.user.isGM){
+            if(current?.hidden===true||!readPlayerTerritorySharing(current)||
+                !readPublicTerritory(current)||!readRegionAtlasLink(current))continue;
+            if(!playerAtlasOverlay(readAtlas(scene),readPartyExploration(scene))
+              .checkpoints.some(checkpoint=>checkpoint.id===hit.checkpointId))continue;
+          }
           const uuid=journalUuidFor(readAtlasJournalLinks(scene),"checkpoint",hit.checkpointId);
           if(!uuid)continue;
           event.preventDefault?.();event.stopImmediatePropagation?.();

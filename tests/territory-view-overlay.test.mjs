@@ -119,7 +119,7 @@ test("GM overlay mounts above fog, draws continents first, and cleans up with no
     assert.equal(writeCount,0);
     globalThis.game.user.isGM=false;
     assert.deepEqual(overlay.sync(scene,[geo("big","Valecor","continent")]),
-      {shown:0,skipped:0});
+      {shown:0,skipped:1});
     assert.equal(interfaceGroup.children.length,0,"non-GM must never get Territory overlay");
   } finally {Object.assign(globalThis,previous);}
 });
@@ -181,5 +181,74 @@ test("linked geographic label uses Checkpoint name and double-click opens its au
     overlay.clear();
     assert.ok(removals.includes("dblclick"),"clear always unregisters Journal handlers");
     assert.equal(handlers.size,0);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("player renders only granted native boundaries and independently published labels",()=>{
+  const previous={canvas:globalThis.canvas,PIXI:globalThis.PIXI,game:globalThis.game};
+  class Container{
+    constructor(){this.children=[];}
+    addChild(item){item.parent=this;this.children.push(item);return item;}
+    removeChild(item){this.children.splice(this.children.indexOf(item),1);}
+    destroy(){}
+  }
+  class Graphics{poly(){return this;}stroke(){return this;}fill(){return this;}}
+  class Text{
+    constructor(value){this.text=value;this.position={set(){}};
+      this.scale={set(){}};this.anchor={set(){}};}
+  }
+  const makeRegion=(id,{share=true,publicName=null,hidden=false}={})=>({
+    id,name:`Secret ${id}`,hidden,color:"#abcdef",parent:{id:"scene"},
+    polygons:[{points:[0,0,100,0,100,100,0,100]}],
+    getFlag(_scope,key){
+      if(key==="playerTerritory")return share?{schemaVersion:1,visible:true}:null;
+      if(key==="publicTerritory")return publicName?
+        {schemaVersion:1,enabled:true,label:publicName}:null;
+      if(key==="atlas")return {schemaVersion:1,linked:true};
+      if(key==="territoryGeography")return {schemaVersion:1,kind:"city",
+        parentRegionId:null,roadOverrides:{}};
+      return null;
+    }
+  });
+  try{
+    const shared=makeRegion("shared",{publicName:"Approved city"});
+    let approvedName="Approved city";
+    const priorFlag=shared.getFlag;
+    shared.getFlag=(scope,key)=>key==="territoryCheckpoint"?
+      {schemaVersion:1,checkpointId:"point"}:key==="publicTerritory"?
+      {schemaVersion:1,enabled:true,label:approvedName}:priorFlag(scope,key);
+    const unnamed=makeRegion("unnamed");
+    const privateRegion=makeRegion("private",{share:false,publicName:"Published name"});
+    const hidden=makeRegion("hidden",{hidden:true,publicName:"Hidden name"});
+    const scene={id:"scene",regions:new Map([shared,unnamed,privateRegion,hidden]
+      .map(region=>[region.id,region]))};
+    globalThis.game={user:{isGM:false}};
+    globalThis.PIXI={Container,Graphics,Text};
+    globalThis.canvas={scene,ready:true,interface:new Container(),stage:{scale:{x:1}}};
+    const overlay=new TerritoryViewOverlay();
+    const entries=[shared,unnamed,privateRegion,hidden].map(region=>({
+      id:region.id,name:region.name,linked:true,invalid:false,
+      geography:{kind:"city"},playerShared:true
+    }));
+    const checkpointsById=new Map([["point",{id:"point",name:"Approved city"}]]);
+    assert.deepEqual(overlay.sync(scene,entries,{showNames:true,checkpointsById}),
+      {shown:2,skipped:2});
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Approved city"]);
+    assert.deepEqual([...overlay.labelCheckpointIds],["point"],
+      "identical shared Territory and Checkpoint labels deduplicate");
+    assert.equal(overlay.labels.some(label=>label.text.includes("Secret")),false);
+    approvedName="Different public alias";
+    overlay.sync(scene,entries,{showNames:true,checkpointsById});
+    assert.deepEqual(overlay.labels.map(label=>label.text),[approvedName]);
+    assert.deepEqual([...overlay.labelCheckpointIds],[],
+      "a different approved public alias must not suppress the Checkpoint name");
+    shared.getFlag=(_scope,key)=>key==="playerTerritory"?null:
+      key==="atlas"?{schemaVersion:1,linked:true}:
+      key==="territoryGeography"?{schemaVersion:1,kind:"city",
+        parentRegionId:null,roadOverrides:{}}:null;
+    assert.deepEqual(overlay.sync(scene,entries,{showNames:true,checkpointsById}),
+      {shown:1,skipped:3},"revoked sharing is rechecked before drawing");
+    assert.deepEqual(overlay.labels,[]);
+    overlay.clear();
   }finally{Object.assign(globalThis,previous);}
 });
