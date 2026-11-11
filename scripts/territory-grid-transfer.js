@@ -20,6 +20,7 @@ const key=p=>`${p.i},${p.j}`;
 const MAX_OWNERSHIP_PREVIEW_CELLS=500;
 const MAX_SEAM_TARGET_CELLS=8000;
 const MAX_SEAM_PEER_CELLS=60000;
+const MAX_SEAM_PICK_CELLS=500;
 const shapes=region=>Array.from(region.shapes??[],s=>s.toObject?.()??clone(s));
 const gridShape=offsets=>({type:"grid",origin:null,offsets:validateGridOffsets(offsets)});
 const flag=key=>`flags.${MODULE_ID}.${key}`;
@@ -97,6 +98,79 @@ function gridSource(prior,shape){
     coordinateSpace:"scene-image",offsets:clone(shape.offsets),
     wallIds:clone(prior?.wallIds??[]),smoothing:0,
     shapeDigest:nativeTerritoryShapeDigest([shape])};
+}
+
+/** Read-only, GM-only native-grid frontier for a peer-filtered paint brush.
+ * The returned cells are UI hints, never a saved transfer plan or permission
+ * to write. A normal Preview & Save rebuilds and reauthorizes all ownership. */
+export function inspectEditableTerritoryGridSeams(scene,targetId,
+  {view=globalThis.canvas}={}){
+  if(readPendingTerritoryCellTransfer(scene))
+    throw Error("Resolve the interrupted Territory transfer before selecting shared cells.");
+  const target=authorize(scene,targetId);
+  if(!view?.ready||view.scene?.id!==scene.id||view.grid?.isGridless||
+      typeof view.grid?.getAdjacentOffsets!=="function"||
+      !globalThis.foundry?.data?.GridShapeData||!isGrid(target))
+    return {available:false,reason:"Native square/hex adjacency is unavailable.",peers:[]};
+  const entries=listSceneGeography(scene);
+  const tier=territoryTier(entries.find(entry=>entry.id===targetId));
+  if(tier==="unclassified")
+    return {available:false,reason:"Classify this Territory before editing shared cells.",peers:[]};
+  const own=shapes(target)[0].offsets;
+  if(own.length>MAX_SEAM_TARGET_CELLS)
+    return {available:false,reason:"Territory exceeds the safe seam-inspection limit.",peers:[]};
+  const ownKeys=new Set(own.map(key)),frontier=new Map();
+  try{
+    for(const cell of own){
+      const adjacent=view.grid.getAdjacentOffsets(cell);
+      if(!adjacent||typeof adjacent[Symbol.iterator]!=="function")
+        throw Error("Native adjacency is unavailable.");
+      for(const neighbor of adjacent){
+        if(!Number.isSafeInteger(neighbor?.i)||!Number.isSafeInteger(neighbor?.j))
+          throw Error("Native adjacency returned an invalid grid offset.");
+        const center=view.grid.getCenterPoint(neighbor),dims=view.dimensions;
+        if(!Number.isFinite(center?.x)||!Number.isFinite(center?.y)||
+            center.x<dims.sceneX||center.y<dims.sceneY||
+            center.x>dims.sceneX+dims.sceneWidth||
+            center.y>dims.sceneY+dims.sceneHeight)continue;
+        const id=key(neighbor);
+        if(!ownKeys.has(id))frontier.set(id,{i:neighbor.i,j:neighbor.j});
+      }
+    }
+  }catch{return {available:false,reason:"Native adjacency could not be inspected.",peers:[]};}
+  const claims=new Map(),eligiblePeers=new Map();
+  let inspected=0;
+  for(const entry of entries){
+    if(entry.id===targetId||!entry.linked||entry.invalid||
+        territoryTier(entry)!==tier)continue;
+    const peer=scene.regions.get(entry.id);
+    if(!peer||!isGrid(peer))continue;
+    const peerOffsets=shapes(peer)[0].offsets;
+    inspected+=peerOffsets.length;
+    if(inspected>MAX_SEAM_PEER_CELLS)
+      return {available:false,reason:"Adjacent Territories exceed the inspection limit.",peers:[]};
+    let editable=true;
+    try{authorize(scene,peer.id);}catch{editable=false;}
+    eligiblePeers.set(peer.id,{id:peer.id,name:peer.name,editable,
+      totalCells:peerOffsets.length,offsets:[]});
+    for(const offset of peerOffsets){
+      const id=key(offset);
+      if(!frontier.has(id))continue;
+      const owners=claims.get(id)??[];
+      owners.push(peer.id);claims.set(id,owners);
+    }
+  }
+  let conflictedCells=0,protectedCells=0;
+  for(const [cellId,ids] of claims){
+    if(ids.length!==1){conflictedCells++;continue;}
+    const peer=eligiblePeers.get(ids[0]);
+    if(!peer.editable||peer.totalCells<=1){protectedCells++;continue;}
+    peer.offsets.push(frontier.get(cellId));
+  }
+  const peers=[...eligiblePeers.values()].filter(peer=>peer.offsets.length)
+    .map(peer=>({...peer,tooLarge:peer.offsets.length>MAX_SEAM_PICK_CELLS}))
+    .sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+  return {available:true,peers,conflictedCells,protectedCells};
 }
 
 /** Read-only ownership review for a draft Hex/Grid boundary. This can inspect

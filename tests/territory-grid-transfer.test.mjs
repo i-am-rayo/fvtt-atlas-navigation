@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readTerritoryDraft} from "../scripts/territory-authoring.js";
-import {inspectTerritoryGridOwnership,planTerritoryCellTransfer,commitTerritoryCellTransfer,
+import {inspectTerritoryGridOwnership,inspectEditableTerritoryGridSeams,
+  planTerritoryCellTransfer,commitTerritoryCellTransfer,
   planMultiDestinationTerritoryCellTransfer,commitMultiDestinationTerritoryCellTransfer,
   readPendingTerritoryCellTransfer,inspectPendingTerritoryCellTransfer,
   resolveTerritoryCellTransfer}
@@ -465,6 +466,77 @@ test("shared-border inspection uses native square and hex adjacency without writ
     assert.equal(review.sharedBorderEdges,1,
       "Foundry's hex neighbor offsets are authoritative, not hardcoded square steps");
     assert.equal(hex.events.length+f.events.length,0);
+  }finally{restore();}
+});
+
+test("interactive shared-seam candidates use native square and hex frontiers without writes",()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    f.source.shapes[0].offsets.push({i:4,j:0},{i:4,j:1});
+    f.view.grid.getAdjacentOffsets=({i,j})=>[
+      {i:i-1,j},{i:i+1,j},{i,j:j-1},{i,j:j+1}];
+    let guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
+    assert.equal(guide.available,true);
+    assert.deepEqual(guide.peers.map(peer=>[peer.name,peer.offsets]),
+      [["Reshara",[{i:4,j:0}]]],"square grid limits candidates to direct neighbors");
+    assert.equal(f.events.length,0);
+
+    const hex=fixture();
+    hex.source.shapes[0].offsets.push({i:4,j:1});
+    hex.view.grid.getAdjacentOffsets=({i,j})=>[
+      {i:i-1,j:j+1},{i:i+1,j:j-1}];
+    guide=inspectEditableTerritoryGridSeams(hex.scene,hex.target.id,{view:hex.view});
+    assert.deepEqual(guide.peers[0].offsets,[{i:4,j:1}],
+      "native hex diagonal is a selectable seam even though square logic would omit it");
+    assert.equal(hex.events.length,0);
+  }finally{restore();}
+});
+
+test("shared seam choices exclude multiply claimed, protected and unauthorized cells",()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    f.view.grid.getAdjacentOffsets=({i,j})=>[
+      {i:i-1,j},{i:i+1,j},{i,j:j-1},{i,j:j+1}];
+    f.source.shapes[0].offsets.push({i:4,j:0});
+    const another=f.makeRegion("Third",[{i:4,j:0},{i:4,j:1}]);
+    f.scene.regions.set(another.id,another);
+    let guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
+    assert.equal(guide.conflictedCells,1);
+    assert.deepEqual(guide.peers,[],"ambiguous native ownership cannot be seam-selected");
+    f.scene.regions.delete(another.id);
+    f.source.canUserModify=()=>false;
+    guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
+    assert.equal(guide.protectedCells,1);
+    assert.deepEqual(guide.peers,[],"read-only peers cannot become transfer candidates");
+    f.source.canUserModify=()=>true;
+    f.source.shapes[0].offsets=[{i:4,j:0}];
+    guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
+    assert.equal(guide.protectedCells,1,
+      "last cell of a native peer must not be offered as a transfer candidate");
+    globalThis.game.user.isGM=false;
+    assert.throws(()=>inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view}),
+      /GM/);
+    assert.equal(f.events.length,0);
+  }finally{restore();}
+});
+
+test("shared-seam selector reports unsupported adjacency and full oversized peer groups",()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    let guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
+    assert.equal(guide.available,false);
+    f.view.grid.getAdjacentOffsets=({i,j})=>[{i:i-1,j}];
+    f.view.dimensions.sceneHeight=6000;
+    f.target.shapes[0].offsets=Array.from({length:510},(_,j)=>({i:5,j}));
+    f.source.shapes[0].offsets=[{i:0,j:0},
+      ...Array.from({length:510},(_,j)=>({i:4,j}))];
+    guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
+    assert.equal(guide.peers[0].offsets.length,510);
+    assert.equal(guide.peers[0].tooLarge,true,
+      "do not show a truncated set as though it were the full selectable seam");
   }finally{restore();}
 });
 

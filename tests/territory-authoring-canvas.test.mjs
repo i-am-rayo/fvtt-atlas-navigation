@@ -708,6 +708,63 @@ test("one existing Preview & Save includes a fresh shared-cell review, not anoth
   }finally{editor.cancel();Object.assign(globalThis,saved);}
 });
 
+test("GM shared-boundary brush stages only selected neighbor cells and remains undoable",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={addChild(g){g.parent=this;},removeChild(g){g.parent=null;}};
+  const scene={id:"paedor"};let writes=0;
+  globalThis.game={user:{isGM:true}};globalThis.PIXI={Graphics};
+  globalThis.document=doc;globalThis.requestAnimationFrame=undefined;
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    dimensions:{sceneX:0,sceneY:0,sceneWidth:200,sceneHeight:200},
+    stage:{scale:{x:1}},canvasCoordinatesFromClient:p=>p,
+    grid:{getShape:()=>[{x:-5,y:-5},{x:5,y:-5},{x:5,y:5},{x:-5,y:5}],
+      getCenterPoint:({i,j})=>({x:i*10+5,y:j*10+5}),
+      getOffset:({x,y})=>({i:Math.floor(x/10),j:Math.floor(y/10)}),
+      getAdjacentOffsets:()=>[]}};
+  const guide={available:true,peers:[{id:"peer",name:"Dirwest",
+    offsets:[{i:4,j:0},{i:4,j:1}],tooLarge:false}]};
+  const editor=new TerritoryAuthoringCanvas();
+  const pointer=(i,j,shiftKey=false)=>{
+    surface.listeners.get("pointerdown")({button:0,shiftKey,clientX:i*10+5,
+      clientY:j*10+5,preventDefault(){},stopImmediatePropagation(){}});
+    doc.listeners.get("pointerup")();
+  };
+  try{
+    const pending=editor.begin(scene,{kind:"grid",offsets:[{i:5,j:0}]},
+      async()=>{writes++;},{seamGuide:guide});
+    const picker=editor.session.panel.children.find(c=>c.tagName==="label"&&
+      c.textContent.includes("Shared boundary"));
+    const select=picker.children.find(c=>c.tagName==="select");
+    assert.ok(select,"native shared neighbor selector is visible in ordinary Paint");
+    select.value="peer";select.listeners.get("change")();
+    assert.ok(editor.session.layer.fills.some(fill=>fill.color===0xffc35a),
+      "eligible native seam cells are drawn in gold without being staged");
+    pointer(3,0);
+    assert.equal(editor.session.draft.offsets.length,1,
+      "non-frontier cell clicks cannot paint in seam-only mode");
+    pointer(4,0);
+    assert.deepEqual(editor.session.draft.offsets,[{i:4,j:0},{i:5,j:0}]);
+    assert.match(editor.session.info.textContent,/1 of 2 eligible cells staged/);
+    pointer(4,0,true);
+    assert.deepEqual(editor.session.draft.offsets,[{i:5,j:0}],
+      "Shift erases only staged seam cells");
+    doc.listeners.get("keydown")({key:"z",metaKey:true,preventDefault(){},
+      stopImmediatePropagation(){}});
+    assert.deepEqual(editor.session.draft.offsets,[{i:4,j:0},{i:5,j:0}],
+      "keyboard Undo works in seam-only mode");
+    select.value="";select.listeners.get("change")();
+    pointer(3,0);
+    assert.equal(editor.session.draft.offsets.length,3,
+      "switching back to free paint retains the ordinary brush");
+    editor.cancel();assert.equal(await pending,false);
+    assert.equal(writes,0,"selection, strokes and Cancel are entirely write-free");
+    assert.equal(surface.listeners.size,0);assert.equal(doc.listeners.size,0);
+  }finally{editor.cancel();Object.assign(globalThis,saved);}
+});
+
 test("multiple native owners are reported but never committed from Paint",async()=>{
   const lines=territoryGridReviewLines({originalCells:3,proposedCells:4,
     addedCells:1,removedCells:0,unclaimedAddedCells:0,peerOwnedAddedCells:1,
