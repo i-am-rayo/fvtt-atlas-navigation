@@ -57,7 +57,7 @@ import {createTerritoryRecoveryConfirmationContent}
 import {planTerritoryGridConversion,commitTerritoryGridConversion,
   restoreTerritoryPolygonBackup} from "./territory-grid-conversion.js";
 import {TerritoryGridConversionPreview} from "./territory-grid-conversion-preview.js";
-import {planTerritoryCellTransfer,commitTerritoryCellTransfer,
+import {inspectTerritoryGridOwnership,planTerritoryCellTransfer,commitTerritoryCellTransfer,
   planMultiDestinationTerritoryCellTransfer,commitMultiDestinationTerritoryCellTransfer,
   readPendingTerritoryCellTransfer,inspectPendingTerritoryCellTransfer,
   resolveTerritoryCellTransfer}
@@ -1853,6 +1853,8 @@ function actions() {
           nextName:nextUnstaged?scene.regions.get(nextUnstaged)?.name:null,
           targets:batch.targetIds.map(id=>({id,name:scene.regions.get(id)?.name??"Unknown",
             staged:batch.drafts.has(id)}))}:null,
+        reviewDraft:!batch&&draft.kind==="grid"?candidate=>
+          inspectTerritoryGridOwnership(scene,regionId,candidate):null,
         onStage:batch?candidate=>{
           if(territoryBatchFor(scene)!==batch)
             throw Error("The batch selection changed. Reopen the Workspace.");

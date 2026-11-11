@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {TerritoryAuthoringCanvas} from "../scripts/territory-authoring-canvas.js";
+import {TerritoryAuthoringCanvas,territoryGridReviewLines}
+  from "../scripts/territory-authoring-canvas.js";
 
 class Element{
   constructor(tag){this.tagName=tag;this.children=[];this.listeners=new Map();
@@ -637,6 +638,84 @@ test("Preview & Save uses the v14 DialogV2 namespace and commits only on confirm
     assert.equal(body.children.length,0);
     assert.equal(doc.listeners.size,0);
   }finally{Object.assign(globalThis,saved);}
+});
+
+test("one existing Preview & Save includes a fresh shared-cell review, not another button",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    foundry:globalThis.foundry,PIXI:globalThis.PIXI,ui:globalThis.ui,
+    requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const group={addChild(g){g.parent=this;},removeChild(g){g.parent=null;}};
+  const scene={id:"paedor"},reviews=[],dialogTexts=[],errors=[];
+  let writes=0,allow=false;
+  globalThis.game={user:{isGM:true}};
+  globalThis.ui={notifications:{error:message=>errors.push(message)}};
+  globalThis.foundry={applications:{api:{DialogV2:{confirm:async data=>{
+    dialogTexts.push(data.content.children.map(p=>p.textContent));return allow;
+  }}}}};
+  globalThis.PIXI={Graphics};globalThis.document=doc;
+  globalThis.requestAnimationFrame=undefined;
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    dimensions:{sceneX:0,sceneY:0,sceneWidth:200,sceneHeight:200},
+    stage:{scale:{x:1}},canvasCoordinatesFromClient:p=>p,
+    grid:{getShape:()=>[{x:0,y:0},{x:10,y:0},{x:10,y:10}],
+      getCenterPoint:()=>({x:20,y:20})}};
+  const reviewDraft=candidate=>{
+    reviews.push(candidate.offsets.length);
+    return {originalCells:1,proposedCells:candidate.offsets.length,
+      addedCells:candidate.offsets.length-1,removedCells:0,
+      unclaimedAddedCells:0,peerOwnedAddedCells:candidate.offsets.length-1,
+      contestedAddedCells:0,peers:[{name:"Reshara",cells:candidate.offsets.length-1}],
+      seamInspectionAvailable:true,sharedBorderEdges:2,existingOverlapCells:0,
+      adjacentPeers:[{name:"Reshara",touchingEdges:2}]};
+  };
+  const editor=new TerritoryAuthoringCanvas();
+  try{
+    const pending=editor.begin(scene,{kind:"grid",offsets:[{i:0,j:0}]},
+      async()=>{writes++;},{reviewDraft});
+    const buttons=editor.session.panel.children.flatMap(p=>p.children??[])
+      .filter(c=>c.tagName==="button").map(c=>c.textContent);
+    assert.deepEqual(buttons,["Cancel","Preview & Save"],
+      "the discontinued manual Review Shared Cells button stays removed");
+    const save=editor.session.panel.children.find(c=>c.tagName==="div"&&
+      c.children.some(b=>b.textContent==="Preview & Save"))
+      .children.find(b=>b.textContent==="Preview & Save");
+    await save.listeners.get("click")();
+    assert.equal(writes,0);
+    assert.ok(dialogTexts[0].some(line=>/Existing shared border: 2 native grid neighbor edges/.test(line)));
+    assert.ok(dialogTexts[0].some(line=>/Reshara/.test(line)));
+    editor.session.draft.offsets.push({i:1,j:0});
+    allow=true;
+    await save.listeners.get("click")();
+    assert.deepEqual(reviews,[1,2],"a fresh draft review follows edits after Cancel");
+    assert.ok(dialogTexts[1].some(line=>/Native cells: 1 → 2/.test(line)));
+    assert.equal(writes,1);
+    assert.equal(await pending,true);
+
+    const blocked=editor.begin(scene,{kind:"grid",offsets:[{i:0,j:0}]},
+      async()=>{writes++;},{reviewDraft:async candidate=>({
+        ...reviewDraft(candidate),contestedAddedCells:1
+      })});
+    const blockedSave=editor.session.panel.children.find(c=>c.tagName==="div"&&
+      c.children.some(b=>b.textContent==="Preview & Save"))
+      .children.find(b=>b.textContent==="Preview & Save");
+    await blockedSave.listeners.get("click")();
+    assert.equal(writes,1,"GM confirmation cannot bypass multiple native cell owners");
+    assert.ok(errors.some(message=>/multiply owned/.test(message)));
+    assert.ok(editor.session,"the blocked draft remains open for correction");
+    editor.cancel();assert.equal(await blocked,false);
+  }finally{editor.cancel();Object.assign(globalThis,saved);}
+});
+
+test("multiple native owners are reported but never committed from Paint",async()=>{
+  const lines=territoryGridReviewLines({originalCells:3,proposedCells:4,
+    addedCells:1,removedCells:0,unclaimedAddedCells:0,peerOwnedAddedCells:1,
+    contestedAddedCells:1,peers:[{name:"Dirwest",cells:1},{name:"Valecor",cells:1}],
+    seamInspectionAvailable:false});
+  assert.ok(lines.some(line=>/Conflict: several peer Territories/.test(line)));
+  assert.ok(lines.some(line=>/adjacency unavailable/.test(line)));
+  assert.ok(lines.some(line=>/Dirwest.*Valecor/.test(line)));
 });
 
 test("Paint Territory shows a full-sized progress surface and hides brush controls during transfer",async()=>{
