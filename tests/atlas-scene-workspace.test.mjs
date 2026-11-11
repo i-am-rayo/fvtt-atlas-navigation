@@ -81,28 +81,16 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.ok(row, "native Region has a compact workspace row");
     assert.match(row.children[1].className, /atlas-territory-actions/,
       "actions must be placed underneath the Region details");
-    assert.equal(row.children[1].children.length, 10,
-      "Locate, Checkpoint association and player sharing join native Region controls");
+    assert.equal(row.children[1].children.length, 2,
+      "Territory Settings consolidates actions while Locate remains immediately accessible");
     assert.ok(row.children[1].children.every(item =>
       item.className?.includes?.("atlas-ui-icon-button")),
     "all Territory actions must share the same icon size");
-    const adopt=buttons(row).find(item=>
-      item.title==="Adopt the current native Region boundary as Atlas controls");
-    assert.ok(adopt?.disabled,"unlinked native Regions cannot adopt Atlas control sources");
-    const classify=buttons(row).find(item=>
-      item.title==="Classify territory, override its parent, and correct Road membership");
-    assert.equal(classify.disabled, true,
-      "unlinked Regions cannot be classified as Atlas geography");
+    assert.ok(buttons(row).some(item=>item.title==="Open Millstone Territory Settings"));
     assert.ok(buttons(row).some(item =>
       item.title === "Locate this native Region on the map"));
-    const smooth = buttons(first.result).find(item =>
-      item.title === "Preview smoother native polygon boundary");
-    await smooth.listeners.get("click")({ preventDefault() {} });
-    const label = buttons(first.result).find(item =>
-      item.title === "Edit public Journey territory label");
-    await label.listeners.get("click")({ preventDefault() {} });
-    assert.deepEqual(ctx.calls, [["create-native"],["smooth", "region-1"],
-      ["label", "region-1"]]);
+    assert.deepEqual(ctx.calls, [["create-native"]],
+      "Opening the Workspace never silently runs Territory actions");
     await refreshAtlasSceneWorkspace(ctx.scene);
     assert.match(text(first.result), /Millstone/);
     await first.close();
