@@ -136,6 +136,22 @@ test("unlinked or unauthorized Territories fail closed without side effects",asy
   }finally{f.restore();}
 });
 
+test("Locate minimizes Territory Settings without refreshing a minimized Workspace",async()=>{
+  const f=fixture();
+  try{
+    let refreshes=0,locates=0;
+    const app=new AtlasTerritorySettings({scene:f.scene,regionId:"r1",
+      actions:f.actions,refresh:()=>refreshes++,onLocate:async()=>{locates++;}});
+    await app.render();
+    await click(action(app,"Locate on map"));
+    assert.equal(locates,1);
+    assert.equal(refreshes,0,"Locate is visual-only and must not restore the Workspace");
+    assert.equal(app.minimized,true);
+    assert.equal(action(app,"Locate on map").disabled,false);
+    assert.deepEqual(f.errors,[]);
+  }finally{f.restore();}
+});
+
 test("auto generator lifecycle closes only the checkpoint that completed a link",async()=>{
   const f=fixture();
   try{

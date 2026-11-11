@@ -5,7 +5,7 @@
 ## Symptoms addressed
 
 - Clicking a Territory Settings action could make every button on the active tab grey and noninteractive until the GM switched to a different tab and back. The action callback re-rendered while `busy` was still true; newly created buttons inherited the transient lock. Reset the lock before any re-render, and do not force a minimized settings window open again.
-- **Locate on map** previously centered on a native Region without guaranteeing its entire shape fitted in view or making its boundary obvious. The action now minimizes the Settings and Workspace windows, computes a native bounds-fit camera target with a margin, animates the native Foundry pan for 750 ms, and displays the selected native Region's polygon outline and optional native triangulated fill.
+- **Locate on map** previously centered on a native Region without guaranteeing its entire shape fitted in view or making its boundary obvious. The action now minimizes the Settings and Workspace windows without refreshing them, computes a native bounds-fit camera target with a margin, animates the native Foundry pan for 750 ms, and displays the selected native Region's polygon outline and optional native triangulated fill.
 - A single gold outline pulses for **30 seconds**. The GM-only temporary canvas overlay is independent of the saved Atlas Layers Regions mode, including **Hidden**. It never switches on other Territories and never changes saved layer modes, native Region settings, Fog or player permissions.
 
 The highlight self-cleans on expiry, a second Locate, a Scene change, replacement/deletion of the native Region, or closing the Workspace. It is a client-side visual aid only. The pulse respects `prefers-reduced-motion`.

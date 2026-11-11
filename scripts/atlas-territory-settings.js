@@ -101,7 +101,7 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
       body.appendChild(fieldset);
       return fieldset;
     };
-    const action=(into,title,detail,run,{disabled=false,danger=false}={})=>{
+    const action=(into,title,detail,run,{disabled=false,danger=false,refresh=true}={})=>{
       const row=el("div",undefined,"atlas-territory-settings-action");
       const text=el("div");text.appendChild(el("strong",title));
       text.appendChild(el("p",detail,"hint"));
@@ -114,7 +114,7 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
         this.busy=true;btn.disabled=true;
         try{
           await run();
-          this.externalRefresh?.();
+          if(refresh)this.externalRefresh?.();
         }catch(error){ui.notifications.error(error.message??String(error));}
         finally{
           // Clear the transient lock BEFORE re-rendering. Otherwise every
@@ -157,7 +157,7 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
         async()=>{
           await this.minimize?.();
           await this.onLocate(this.regionId);
-        });
+        },{refresh:false});
     }
     if(this.activePage==="Checkpoint & Journal"){
       const linked=group("Linked Checkpoint",
