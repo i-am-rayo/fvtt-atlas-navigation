@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {projectTerritoryView,territoryTier} from "../scripts/territory-view-model.js";
-import {readNativeTerritoryPaths,readNativeTerritoryTriangles,TerritoryViewOverlay}
+import {readNativeTerritoryPaths,readNativeTerritoryTriangles,
+  territoryLabelPointExplored,TerritoryViewOverlay}
   from "../scripts/territory-view-overlay.js";
 
 const geo = (id,name,kind,linked=true) =>
@@ -119,8 +120,8 @@ test("GM overlay mounts above fog, draws continents first, and cleans up with no
     assert.equal(writeCount,0);
     globalThis.game.user.isGM=false;
     assert.deepEqual(overlay.sync(scene,[geo("big","Valecor","continent")]),
-      {shown:0,skipped:1});
-    assert.equal(interfaceGroup.children.length,0,"non-GM must never get Territory overlay");
+      {shown:0,skipped:0},"missing player Primary must fail closed, never show above fog");
+    assert.equal(interfaceGroup.children.length,0,"non-GM must never fall back above fog");
   } finally {Object.assign(globalThis,previous);}
 });
 
@@ -184,8 +185,9 @@ test("linked geographic label uses Checkpoint name and double-click opens its au
   }finally{Object.assign(globalThis,previous);}
 });
 
-test("player renders only granted native boundaries and independently published labels",()=>{
-  const previous={canvas:globalThis.canvas,PIXI:globalThis.PIXI,game:globalThis.game};
+test("player renders only granted boundaries below both native and Atlas manual fog",()=>{
+  const previous={canvas:globalThis.canvas,PIXI:globalThis.PIXI,game:globalThis.game,
+    foundry:globalThis.foundry};
   class Container{
     constructor(){this.children=[];}
     addChild(item){item.parent=this;this.children.push(item);return item;}
@@ -223,8 +225,12 @@ test("player renders only granted native boundaries and independently published 
     const scene={id:"scene",regions:new Map([shared,unnamed,privateRegion,hidden]
       .map(region=>[region.id,region]))};
     globalThis.game={user:{isGM:false}};
+    globalThis.foundry={canvas:{groups:{PrimaryCanvasGroup:{SORT_LAYERS:{TILES:500}}}}};
     globalThis.PIXI={Container,Graphics,Text};
-    globalThis.canvas={scene,ready:true,interface:new Container(),stage:{scale:{x:1}}};
+    const primary=new Container(),interfaceGroup=new Container();
+    primary.renderDirty=false;
+    globalThis.canvas={scene,ready:true,primary,interface:interfaceGroup,
+      stage:{scale:{x:1}}};
     const overlay=new TerritoryViewOverlay();
     const entries=[shared,unnamed,privateRegion,hidden].map(region=>({
       id:region.id,name:region.name,linked:true,invalid:false,
@@ -233,6 +239,13 @@ test("player renders only granted native boundaries and independently published 
     const checkpointsById=new Map([["point",{id:"point",name:"Approved city"}]]);
     assert.deepEqual(overlay.sync(scene,entries,{showNames:true,checkpointsById}),
       {shown:2,skipped:2});
+    assert.equal(interfaceGroup.children.length,0,"player boundaries must never mount above fog");
+    assert.equal(primary.children.length,1);
+    assert.equal(primary.children[0].sortLayer,501);
+    assert.equal(primary.children[0].sort,1e90,
+      "Territories must sort below Atlas manual Fog at 1e100");
+    assert.equal(primary.renderDirty,true,"cached Primary is invalidated on mount");
+    primary.renderDirty=false;
     assert.deepEqual(overlay.labels.map(label=>label.text),["Approved city"]);
     assert.deepEqual([...overlay.labelCheckpointIds],["point"],
       "identical shared Territory and Checkpoint labels deduplicate");
@@ -250,5 +263,30 @@ test("player renders only granted native boundaries and independently published 
       {shown:1,skipped:3},"revoked sharing is rechecked before drawing");
     assert.deepEqual(overlay.labels,[]);
     overlay.clear();
+    assert.equal(primary.children.length,0);
+    assert.equal(primary.renderDirty,true,"cached Primary is invalidated on removal");
   }finally{Object.assign(globalThis,previous);}
+});
+
+test("Territory Journal hit points honor both native and manual fog, failing closed",()=>{
+  const state={schemaVersion:1,enabled:false,revealed:[],hidden:[]};
+  const scene={tokenVision:true,fogExploration:true,grid:{size:100},
+    getFlag(_module,key){return key==="manualFog"?state:null;}};
+  const view={scene,fog:{isPointExplored:point=>point.x<50},
+    dimensions:{sceneX:0,sceneY:0},
+    grid:{getOffset:()=>({i:0,j:0}),getCenterPoint:()=>({x:50,y:50})}};
+  assert.equal(territoryLabelPointExplored(view,scene,{x:10,y:10}),true);
+  assert.equal(territoryLabelPointExplored(view,scene,{x:90,y:90}),false);
+  assert.equal(territoryLabelPointExplored({...view,fog:null},scene,{x:10,y:10}),false);
+  state.enabled=true;
+  assert.equal(territoryLabelPointExplored(view,scene,{x:10,y:10}),false,
+    "native fog discovery cannot bypass active Atlas manual fog");
+  state.revealed=[{x:50,y:50}];
+  assert.equal(territoryLabelPointExplored(view,scene,{x:10,y:10}),true);
+  state.hidden=[{x:50,y:50}];
+  state.revealed=[];
+  assert.equal(territoryLabelPointExplored(view,scene,{x:10,y:10}),false);
+  state.revealed=[{x:50,y:50}];
+  assert.equal(territoryLabelPointExplored(view,scene,{x:10,y:10}),false,
+    "invalid overlapping Hide/Reveal metadata must never expose a label");
 });

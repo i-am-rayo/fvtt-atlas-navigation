@@ -84,7 +84,7 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
     }
     const regions=group("Regions",gm?
       "GM outlines and optional translucent fills. Native Region Shapes and Behaviors stay authoritative.":
-      "Choose how to display GM-shared boundaries. Names appear only when " +
+      "Choose how to display explored portions of GM-shared boundaries. Names appear only when " +
       "the GM also publishes a public Territory name. Native Regions are unchanged.");
     for(const [mode,title] of Object.entries(REGION_LAYER_MODES)){
       const label=element("label",undefined,"atlas-layers-choice");
