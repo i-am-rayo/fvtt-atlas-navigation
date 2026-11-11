@@ -2,6 +2,8 @@
 import {MODULE_ID,readAtlas} from "./atlas-storage.js";
 import {listSceneGeography} from "./territory-geography-storage.js";
 import {listPlayerTerritories} from "./player-territory-sharing.js";
+import {readPlayerTerritorySharing} from "./player-territory-sharing.js";
+import {readPublicTerritory} from "./region-narration.js";
 import {playerAtlasOverlay} from "./player-overlay-model.js";
 import {readPartyExploration} from "./party-exploration-storage.js";
 import {listGeneratedRegions} from "./region-native-read.js";
@@ -111,6 +113,42 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
       slider.addEventListener("change",()=>void change({[key]:Number(slider.value)/100}));
       label.append(element("span",title),slider,value);regions.appendChild(label);
     }
+    if(gm){
+      const publication=group("Player Publication",
+        "Boundary sharing and public Journey names are separate permissions. " +
+        "Atlas filters its player overlay, but native Foundry Region documents may " +
+        "still be available in player client data; this is not a secrecy guarantee.");
+      const search=element("input");search.type="search";
+      search.setAttribute("aria-label","Search Territory publication");
+      search.setAttribute("placeholder","Filter Territories by name");
+      publication.appendChild(search);
+      const rows=element("div",undefined,"atlas-layers-publication-list");
+      publication.appendChild(rows);
+      const entries=this.controller.listPublicationRegions?.()??[];
+      const draw=()=>{
+        rows.replaceChildren();
+        const matched=entries.filter(entry=>entry.name.toLocaleLowerCase()
+          .includes(String(search.value??"").trim().toLocaleLowerCase()));
+        if(!matched.length)rows.appendChild(element("p","No matching linked Territories."));
+        for(const entry of matched){
+          const item=element("div",undefined,"atlas-layers-publication-row");
+          item.appendChild(element("strong",entry.name));
+          item.appendChild(element("span",`Boundary: ${entry.shared?"Shared":"Private"} · `+
+            `Journey name: ${entry.publicName?"Public":"Private"}`));
+          if(!entry.eligible)item.appendChild(element("small",entry.reason));
+          const action=element("button",entry.shared?"Revoke Boundary":"Share Boundary");
+          action.type="button";action.disabled=!entry.editable || (!entry.shared&&!entry.eligible);
+          action.addEventListener("click",async()=>{
+            action.disabled=true;
+            try{await this.controller.configurePublication(entry.id);await this.render(true);}
+            catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));
+              await this.render(true);}
+          });
+          item.appendChild(action);rows.appendChild(item);
+        }
+      };
+      search.addEventListener("input",draw);draw();
+    }
     return root;
   }
 
@@ -125,6 +163,33 @@ export class AtlasLayersController {
     this.corridors=new TerritoryViewOverlay();
     this.window=null;
     this.configureRegion=null;
+    this.configureSharing=null;
+  }
+
+  listPublicationRegions(){
+    const scene=globalThis.canvas?.scene,user=globalThis.game?.user;
+    if(!user?.isGM||!scene)return [];
+    return listSceneGeography(scene).filter(entry=>entry.linked).map(entry=>{
+      const region=scene.regions?.get?.(entry.id);
+      let shared=false,publicName=false,valid=true;
+      try{shared=Boolean(readPlayerTerritorySharing(region));}
+      catch{valid=false;}
+      try{publicName=Boolean(readPublicTerritory(region));}
+      catch{valid=false;}
+      const eligible=!entry.invalid&&valid&&!entry.hidden&&Boolean(entry.geography);
+      return {id:entry.id,name:entry.name,shared,publicName,eligible,
+        editable:Boolean(scene.canUserModify?.(user,"update")&&
+          region?.canUserModify?.(user,"update")),
+        reason:!valid||entry.invalid?"Unsupported metadata":entry.hidden?
+          "Native Region is hidden":!entry.geography?"Classify this Territory first":""};
+    });
+  }
+
+  async configurePublication(regionId){
+    const scene=globalThis.canvas?.scene;
+    if(!game.user?.isGM||!scene||typeof this.configureSharing!=="function")
+      throw Error("Only an authorized GM may change publication.");
+    await this.configureSharing(scene,regionId,()=>this.refresh());
   }
 
   /** A shortcut to Foundry's authoritative Region Appearance sheet. */
