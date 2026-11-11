@@ -152,6 +152,30 @@ test("Locate minimizes Territory Settings without refreshing a minimized Workspa
   }finally{f.restore();}
 });
 
+test("open Checkpoint membership report refreshes after saved Region/Scene changes and unhooks on close",async()=>{
+  const f=fixture(),priorHooks=globalThis.Hooks,priorCanvas=globalThis.canvas;
+  const handlers=new Map();let added=0,removed=0;
+  globalThis.Hooks={on(event,fn){handlers.set(event,fn);added++;return fn;},
+    off(event,fn){if(handlers.get(event)===fn){handlers.delete(event);removed++;}}};
+  globalThis.canvas={ready:true,scene:f.scene};
+  try{
+    const app=openAtlasTerritorySettings(f.scene,"r1",f.actions,()=>{});
+    await app.render();await page(app,"Checkpoint & Journal");
+    assert.equal(added,4,"one set of membership lifecycle hooks");
+    let refreshes=0;
+    const original=app.render.bind(app);
+    app.render=async(...args)=>{refreshes++;return original(...args);};
+    handlers.get("updateRegion")({parent:{id:f.scene.id}});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(refreshes,1,"native Region update refreshes the active inspector");
+    handlers.get("updateScene")({id:"another-scene"});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(refreshes,1,"unrelated Scene changes do not refresh");
+    await app.close();
+    assert.equal(removed,4,"closing Settings removes registered hooks");
+  }finally{globalThis.Hooks=priorHooks;globalThis.canvas=priorCanvas;f.restore();}
+});
+
 test("auto generator lifecycle closes only the checkpoint that completed a link",async()=>{
   const f=fixture();
   try{

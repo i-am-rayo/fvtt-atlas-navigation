@@ -41,6 +41,36 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
     this.activePage="General";
     this.busy=false;
     this._scrollY=0;
+    this._membershipHooks=[];
+    this._membershipQueued=false;
+  }
+
+  /** Review open native settings after authoritative Scene/Region commits.
+   * Unsaved brush drafts never enter the membership calculation. */
+  _watchMembership(){
+    if(this._membershipHooks.length||!globalThis.Hooks?.on)return;
+    const changed=doc=>{
+      if(this.activePage!=="Checkpoint & Journal"||!this.rendered||
+          (doc?.id!==this.scene.id&&doc?.parent?.id!==this.scene.id)||
+          this._membershipQueued)return;
+      this._membershipQueued=true;
+      queueMicrotask(()=>{
+        this._membershipQueued=false;
+        if(this.rendered&&this.activePage==="Checkpoint & Journal"&&
+            globalThis.canvas?.scene?.id===this.scene.id)
+          void Promise.resolve(this.render(true)).catch(error=>
+            console.warn("Atlas membership refresh failed",error));
+      });
+    };
+    for(const event of ["updateScene","createRegion","updateRegion","deleteRegion"]){
+      const handle=Hooks.on(event,changed);
+      this._membershipHooks.push({event,handle});
+    }
+  }
+
+  _unwatchMembership(){
+    for(const {event,handle} of this._membershipHooks)globalThis.Hooks?.off?.(event,handle);
+    this._membershipHooks=[];
   }
 
   async _renderHTML(){
@@ -48,6 +78,7 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
       throw Error("Only a Scene-authorized GM can edit Territory settings.");
     const native=this.scene.regions?.get?.(this.regionId);
     if(!native)throw Error("This native Territory no longer exists in the Scene.");
+    this._watchMembership();
     this._scrollY=this.element?.querySelector?.("[data-atlas-territory-settings-body]")?.scrollTop??this._scrollY;
     const summary=listSceneRegions(this.scene).find(item=>item.id===this.regionId);
     const geo=listSceneGeography(this.scene).find(item=>item.id===this.regionId);
@@ -162,20 +193,43 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
     }
     if(this.activePage==="Checkpoint & Journal"){
       const membership=inspectCheckpointTerritoryMembership(this.scene);
-      const spatial=group("Native Hex/Grid membership — read-only",
+      const spatial=group("Checkpoint geographic membership — read-only",
         "Derived from each saved Checkpoint node's native Scene grid cell, not from names. " +
         "A semantic Checkpoint link remains separate and takes no automatic action.");
       if(!membership.available)spatial.appendChild(el("p",membership.reason,"hint"));
       else{
         const rows=membership.items.filter(item=>item.regionId===this.regionId);
+        for(const issue of (membership.issues??[]).filter(item=>item.regionId===this.regionId))
+          spatial.appendChild(el("p",`Review: ${issue.description}`,"hint"));
+        if(membership.unsupported)spatial.appendChild(el("p",
+          `${membership.unsupported} linked Territories use unsupported/mixed native Shapes; no membership is inferred for those.`,"hint"));
         if(!rows.length)spatial.appendChild(el("p","No Checkpoint occupies these native grid cells.","hint"));
         for(const item of rows.slice(0,100)){
           const flags=[item.contains?"Inside native cells":"Outside native cells",
             item.explicit?"Explicitly linked":"Spatial only",
-            ...(item.ambiguous?["Overlap: review ownership"]:[]),
+            ...(item.overlap==="peer"?["Peer overlap: review ownership"]:[]),
+            ...(item.overlap==="cross-tier"?["Cross-tier overlap: review hierarchy"]:[]),
+            ...(item.explicit&&!item.contains?["Link outside boundary: review"]:[]),
             ...(item.invalid?["Invalid link metadata"]:[])];
-          spatial.appendChild(el("p",`${item.checkpointName} — ${flags.join(" · ")}`,"hint"));
+          const row=el("div",undefined,"atlas-territory-settings-action");
+          row.appendChild(el("p",`${item.checkpointName} — ${flags.join(" · ")}`,"hint"));
+          if(typeof this.actions.selectCheckpoint==="function"){
+            const locate=el("button","Locate");locate.type="button";
+            locate.setAttribute("aria-label",`Locate Checkpoint ${item.checkpointName}`);
+            locate.addEventListener("click",async()=>{
+              try{await this.minimize?.();await this.actions.selectCheckpoint(this.scene,item.checkpointId);}
+              catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
+            });
+            row.appendChild(locate);
+          }
+          spatial.appendChild(row);
         }
+        if(rows.some(item=>item.ambiguous||item.explicit&&!item.contains)||
+            membership.issues?.some(item=>item.regionId===this.regionId))
+          action(spatial,"Review semantic association",
+            "Use the existing GM-confirmed link picker; spatial membership will not change by itself.",
+            ()=>this.actions.configureTerritoryCheckpoint(this.scene,this.regionId,this.externalRefresh),
+            {disabled:!!draft||!!pending||!canEdit||checkpointInvalid});
       }
       const linked=group("Linked Checkpoint",
         checkpointInvalid?"Unsupported Checkpoint association — resolve the existing flag before editing.":
@@ -265,6 +319,7 @@ export function openAtlasTerritorySettings(scene,regionId,actions,refresh,onLoca
     windows.set(key,app);
     const originalClose=app.close.bind(app);
     app.close=async options=>{
+      app._unwatchMembership();
       const result=await originalClose(options);
       if(windows.get(key)===app)windows.delete(key);
       return result;
