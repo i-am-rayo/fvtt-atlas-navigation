@@ -468,6 +468,12 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
     buttons.appendChild(button("✎", "Edit name and elevation", () => actions.editCheckpoint(scene, cp, refresh)));
     buttons.appendChild(button("⚙", "Checkpoint Settings, Journal and appearance",
       () => actions.editCheckpointAppearance(scene, cp, refresh)));
+    const incident = atlas.segments.filter(s => s.from === cp.nodeId || s.to === cp.nodeId);
+    if (incident.length <= 1) buttons.appendChild(button(
+      incident.length ? "⛓" : "+ Road",
+      incident.length ? "Review and disconnect this terminal Road section" :
+        "Connect this isolated Checkpoint to a Road endpoint",
+      () => actions.manageCheckpointRoad(scene, cp.id, refresh)));
     if (journal) buttons.appendChild(button("📖", "Open linked Journal", () =>
       void openAtlasJournal(journal).catch(error=>ui.notifications.error(error.message??String(error)))));
     if (!party.enabled) buttons.appendChild(button(cp.playerVisible ? "👁" : "◌",

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEmptyAtlas } from "../scripts/atlas-model.js";
-import { saveNewIndependentCheckpoint } from "../scripts/road-storage.js";
+import { saveNewIndependentCheckpoint, saveConnectedIndependentCheckpoint,
+  saveDisconnectedIndependentCheckpoint } from "../scripts/road-storage.js";
 
 function sceneFixture() {
   let stored = { ...createEmptyAtlas(), revision: 5 };
@@ -45,5 +46,41 @@ test("non-GM standalone Checkpoint attempts never write", async () => {
       idFactory: () => "id"
     }), /Only a GM/);
     assert.equal(scene.writes, 0);
+  } finally { globalThis.game = previous; }
+});
+
+test("explicit terminal Road connection and disconnection use guarded Scene revisions", async () => {
+  const previous = globalThis.game;
+  globalThis.game = { user: { isGM: true } };
+  try {
+    const scene = sceneFixture();
+    let index = 0;
+    const initial = await saveNewIndependentCheckpoint(scene, {
+      at: { x: 40, y: 40 }, name: "Outpost", expectedRevision: 5,
+      idFactory: () => `generated${++index}`
+    });
+    // Add a Road using the existing guarded API; no direct Scene flag mutation.
+    const { saveNewRoad } = await import("../scripts/road-storage.js");
+    const withRoad = await saveNewRoad(scene, { points: [{ x: 0, y: 0 },
+      { x: 20, y: 0 }], name: "Test Road", expectedRevision: 6,
+      idFactory: () => `generated${++index}` });
+    const connected = await saveConnectedIndependentCheckpoint(scene, {
+      checkpointId: initial.checkpoints[0].id, roadId: withRoad.roads[0].id,
+      roadNodeId: withRoad.segments[0].to, expectedRevision: 7,
+      idFactory: () => `generated${++index}`
+    });
+    assert.equal(connected.revision, 8);
+    assert.equal(connected.checkpoints[0].roadId, withRoad.roads[0].id);
+    await assert.rejects(saveDisconnectedIndependentCheckpoint(scene, {
+      checkpointId: connected.checkpoints[0].id, segmentId: connected.segments.at(-1).id,
+      expectedRevision: 7
+    }), /changed since/);
+    const disconnected = await saveDisconnectedIndependentCheckpoint(scene, {
+      checkpointId: connected.checkpoints[0].id, segmentId: connected.segments.at(-1).id,
+      expectedRevision: 8
+    });
+    assert.equal(disconnected.checkpoints[0].roadId, null);
+    assert.equal(disconnected.checkpoints[0].id, initial.checkpoints[0].id);
+    assert.equal(scene.writes, 4);
   } finally { globalThis.game = previous; }
 });
