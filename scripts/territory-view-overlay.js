@@ -15,11 +15,36 @@ import {readPartyExploration} from "./party-exploration-storage.js";
 import {readRegionAtlasLink} from "./region-atlas.js";
 import {readRegionGeography} from "./territory-geography-storage.js";
 import {readAtlasJournalLinks,journalUuidFor,openAtlasJournal} from "./atlas-journal-links.js";
+import {readManualFog} from "./atlas-manual-fog-storage.js";
+import {cellKey} from "./atlas-manual-fog-model.js";
+import {checkpointRevealKeys} from "./checkpoint-exploration.js";
+import {atlasPointExplored} from "./road-fog.js";
 
 const MAX_REGIONS = 80;
 const MAX_VERTICES = 20000;
 const MAX_LABELS = 45;
 const MAX_FILL_TRIANGLES = 5000;
+
+/** Journal hit targets are DOM events, not PIXI interactions. Re-check both
+ * native and Atlas manual exploration so an obscured label cannot open lore. */
+export function territoryLabelPointExplored(view, scene, point) {
+  if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return false;
+  try {
+    const fog=readManualFog(scene);
+    if (!fog.enabled) return atlasPointExplored(view,point);
+    const offset=view?.grid?.getOffset?.(point);
+    if (!offset) return false;
+    const center=view.grid.getCenterPoint?.(offset);
+    const origin={x:Number(view.dimensions?.sceneX),y:Number(view.dimensions?.sceneY)};
+    if (![center?.x,center?.y,origin.x,origin.y].every(Number.isFinite))return false;
+    const cell={x:center.x-origin.x,y:center.y-origin.y};
+    const key=cellKey(cell);
+    if (fog.hidden.some(item=>cellKey(item)===key))return false;
+    if (fog.revealed.some(item=>cellKey(item)===key))return true;
+    return checkpointRevealKeys([cell],readAtlas(scene),readPartyExploration(scene),
+      Number(scene.grid?.size),origin).has(key);
+  }catch{return false;}
+}
 
 /** Native PIXI Polygon points use absolute canvas coordinates in Foundry v14. */
 export function readNativeTerritoryPaths(region, {vertexBudget = MAX_VERTICES} = {}) {
@@ -118,12 +143,15 @@ export class TerritoryViewOverlay {
     this.journalCanvasElement?.removeEventListener?.("dblclick",this.journalDoubleClickHandler,true);
     this.journalCanvasElement=null;this.journalDoubleClickHandler=null;
     const layer = this.layer;
+    const view=this.view;
     this.layer = null;
     this.view = null;
     this.labels = [];
     this.labelCheckpointIds=new Set();this.hitLabels=[];
     if (!layer) return;
-    layer.parent?.removeChild?.(layer);
+    const parent=layer.parent;
+    parent?.removeChild?.(layer);
+    if (parent===view?.primary && "renderDirty" in parent)parent.renderDirty=true;
     layer.destroy?.({children:true});
   }
 
@@ -133,14 +161,25 @@ export class TerritoryViewOverlay {
     const view = globalThis.canvas;
     const pixi = globalThis.PIXI;
     if (!globalThis.game?.user || !scene?.id || !view?.ready ||
-        view.scene?.id !== scene.id || !view.interface?.addChild ||
+        view.scene?.id !== scene.id ||
         !pixi?.Graphics || !pixi?.Container) return {shown:0, skipped:0};
     const gm=game.user.isGM===true;
+    // Foundry's interface is above vision/fog. Player Territories must instead
+    // live in Primary, behind native vision and Atlas's own Primary fog mask.
+    const parent=gm?view.interface:view.primary;
+    const sort=globalThis.foundry?.canvas?.groups?.PrimaryCanvasGroup?.SORT_LAYERS;
+    if (!parent?.addChild || (!gm && !Number.isFinite(sort?.TILES)))
+      return {shown:0,skipped:0}; // Never fall back to a fog-bypassing interface.
 
     const projected = projectTerritoryView(entries, mode, {drawOrder:true})
       .filter(entry=>territoryTier(entry)!=="unclassified");
     const layer = new pixi.Container();
     layer.eventMode = "none";
+    if (!gm) {
+      layer.sortLayer=sort.TILES+1;
+      layer.elevation=0;
+      layer.sort=1e90; // Atlas manual Fog uses this layer with sort=1e100.
+    }
     // A filled triangle's GraphicsContext must never share a stroke path with
     // the Region outline. Isolating the contexts prevents any fill path from
     // inheriting an outline style (the likely source of the reported fans).
@@ -239,7 +278,8 @@ export class TerritoryViewOverlay {
         layer.destroy?.({children:true});
         return {shown,skipped};
       }
-      view.interface.addChild(layer);
+      parent.addChild(layer);
+      if (!gm && "renderDirty" in parent)parent.renderDirty=true;
       this.layer = layer;
       this.view = view;
       this.labels = labels;
@@ -283,6 +323,7 @@ export class TerritoryViewOverlay {
           const current=scene.regions?.get?.(hit.regionId);
           if(readTerritoryCheckpointLink(current)?.checkpointId!==hit.checkpointId)continue;
           if(!game.user.isGM){
+            if(!territoryLabelPointExplored(view,scene,point))continue;
             if(current?.hidden===true||!readPlayerTerritorySharing(current)||
                 !readPublicTerritory(current)||!readRegionAtlasLink(current))continue;
             if(!playerAtlasOverlay(readAtlas(scene),readPartyExploration(scene))
