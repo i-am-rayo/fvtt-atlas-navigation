@@ -57,7 +57,8 @@ import {createTerritoryRecoveryConfirmationContent}
 import {planTerritoryGridConversion,commitTerritoryGridConversion,
   restoreTerritoryPolygonBackup} from "./territory-grid-conversion.js";
 import {TerritoryGridConversionPreview} from "./territory-grid-conversion-preview.js";
-import {inspectTerritoryGridOwnership,planTerritoryCellTransfer,commitTerritoryCellTransfer,
+import {inspectTerritoryGridOwnership,inspectEditableTerritoryGridSeams,
+  planTerritoryCellTransfer,commitTerritoryCellTransfer,
   planMultiDestinationTerritoryCellTransfer,commitMultiDestinationTerritoryCellTransfer,
   readPendingTerritoryCellTransfer,inspectPendingTerritoryCellTransfer,
   resolveTerritoryCellTransfer}
@@ -1855,6 +1856,8 @@ function actions() {
             staged:batch.drafts.has(id)}))}:null,
         reviewDraft:!batch&&draft.kind==="grid"?candidate=>
           inspectTerritoryGridOwnership(scene,regionId,candidate):null,
+        seamGuide:!batch&&draft.kind==="grid"?
+          inspectEditableTerritoryGridSeams(scene,regionId):null,
         onStage:batch?candidate=>{
           if(territoryBatchFor(scene)!==batch)
             throw Error("The batch selection changed. Reopen the Workspace.");

@@ -64,6 +64,25 @@ function drawGridSpace(graphics,points){
   }else throw Error("Foundry Canvas cannot draw Territory grid cells.");
 }
 
+/** Gold ghost cells are suggested native shared-frontier candidates, not
+ * authoritative ownership or a write. The GM must paint to stage them. */
+function drawSeamHint(graphics,points,zoom){
+  const width=1.7/Math.max(.2,zoom),color=0xffc35a;
+  if(typeof graphics.poly==="function"&&typeof graphics.fill==="function"&&
+      typeof graphics.stroke==="function"){
+    graphics.poly(points).fill({color,alpha:.12});
+    graphics.poly(points).stroke({width,color,alpha:.85,join:"round"});
+  }else if(typeof graphics.lineStyle==="function"&&
+      typeof graphics.beginFill==="function"&&typeof graphics.drawPolygon==="function"&&
+      typeof graphics.moveTo==="function"&&typeof graphics.lineTo==="function"){
+    graphics.beginFill(color,.12);graphics.drawPolygon(points);graphics.endFill();
+    graphics.lineStyle(width,color,.85);
+    graphics.moveTo(points[0],points[1]);
+    for(let i=2;i<points.length;i+=2)graphics.lineTo(points[i],points[i+1]);
+    graphics.lineTo(points[0],points[1]);
+  }else throw Error("Foundry Canvas cannot draw a shared-boundary hint.");
+}
+
 /** Transient brush footprint; the preview cannot modify draft/native cells. */
 function drawBrushFootprint(graphics,points,erase,zoom){
   const color=erase?0xff7992:0x8df8e6;
@@ -102,6 +121,9 @@ export function territoryGridReviewLines(review){
   ];
   if(review.peers?.length)lines.push("Cell owners affected: "+review.peers
     .map(peer=>`${peer.name} (${peer.cells})`).join("; ")+".");
+  if(review.peers?.length)lines.push("Proposed native ownership transfer: "+review.peers
+    .map(peer=>`${peer.name} → ${review.targetName??"target Territory"} (${peer.cells} cells)`)
+    .join("; ")+". Source removal requires the separate transfer confirmation.");
   if(review.seamInspectionAvailable){
     lines.push(`Existing shared border: ${review.sharedBorderEdges} native grid `+
       `neighbor edge${review.sharedBorderEdges===1?"":"s"}.`);
@@ -123,7 +145,7 @@ export class TerritoryAuthoringCanvas{
   constructor({manualFog=null}={}){this.manualFog=manualFog;}
   session=null;
   async begin(scene,draft,onSave,
-    {onStage=null,afterStage=null,batchContext=null,reviewDraft=null}={}){
+    {onStage=null,afterStage=null,batchContext=null,reviewDraft=null,seamGuide=null}={}){
     if(this.session)throw Error("Finish or cancel the existing Territory draft first.");
     const view=globalThis.canvas;
     if(!globalThis.game?.user?.isGM||!view?.ready||view.scene?.id!==scene?.id||
@@ -187,7 +209,8 @@ export class TerritoryAuthoringCanvas{
     const session={sceneId:scene.id,view,surface,layer,panel,info,draft:copy(draft),
       history:[],radius:0,strokeErase:false,hoverErase:false,
       pointerSnapshot:null,dragNode:-1,selectedNode:-1,painting:false,saving:false,
-      hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave};
+      hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave,
+      selectedSeam:null,seamCellKeys:null};
     const progress=el("div");
     progress.setAttribute("role","status");progress.setAttribute("aria-live","polite");
     progress.className="atlas-territory-transfer-progress";
@@ -234,13 +257,59 @@ export class TerritoryAuthoringCanvas{
         radiusValue.textContent=session.radius===0?"1 cell":
           `${session.radius} ring${session.radius===1?"":"s"}`;
         if(session.hoverAnchor)session.hoverOffsets=brushOffsets(session.hoverAnchor)
-          .filter(o=>within(view.grid.getCenterPoint(o)));
+          .filter(o=>within(view.grid.getCenterPoint(o))&&
+            (!session.seamCellKeys||session.seamCellKeys.has(`${o.i},${o.j}`)));
         this.#scheduleDraw(session);
       };
       session.setRadius=setRadius;
       slider.addEventListener("input",()=>setRadius(slider.value));
       radiusLabel.appendChild(slider);radiusLabel.appendChild(radiusValue);
       panel.appendChild(radiusLabel);
+      if(!batchContext&&seamGuide?.available&&seamGuide.peers?.length){
+        const picker=el("label"," Shared boundary ");
+        picker.style.cssText="display:block;margin:.65rem 0;";
+        const select=el("select");select.setAttribute("aria-label",
+          "Select a neighboring Territory for seam-only painting");
+        const regular=el("option","Free paint — all cells");
+        regular.value="";select.appendChild(regular);
+        for(const peer of seamGuide.peers){
+          const option=el("option",`${peer.name} — ${peer.offsets.length} edge cells`+
+            (peer.tooLarge?" (use smaller free-paint strokes)":""));
+          option.value=peer.id;option.disabled=!!peer.tooLarge;
+          select.appendChild(option);
+        }
+        select.addEventListener("change",()=>{
+          session.selectedSeam=seamGuide.peers.find(peer=>peer.id===select.value&&
+            !peer.tooLarge)??null;
+          session.seamCellKeys=session.selectedSeam?
+            new Set(session.selectedSeam.offsets.map(cell=>`${cell.i},${cell.j}`)):null;
+          session.hoverAnchor=null;session.hoverOffsets=[];
+          this.#scheduleDraw(session);
+        });
+        picker.appendChild(select);panel.appendChild(picker);
+        const guidance=el("p","Choose an adjacent Territory to highlight its direct shared-edge " +
+          "cells. Click/drag to stage ONLY those cells; Shift+click removes staged " +
+          "edge additions. Free paint keeps the normal brush. Preview & Save " +
+          "still checks actual native ownership before any transfer.");
+        guidance.style.cssText="font-size:.82rem;color:#e3d1b8;margin:.4rem 0;";
+        panel.appendChild(guidance);
+      }
+      if(!batchContext&&seamGuide){
+        const warnings=[];
+        if(!seamGuide.available)warnings.push(seamGuide.reason);
+        else{
+          if(!seamGuide.peers?.length)warnings.push("No editable directly adjacent peer cells.");
+          if(seamGuide.conflictedCells)warnings.push(`${seamGuide.conflictedCells} `+
+            "multiply owned frontier cells excluded.");
+          if(seamGuide.protectedCells)warnings.push(`${seamGuide.protectedCells} `+
+            "protected frontier cells excluded.");
+        }
+        if(warnings.length){
+          const note=el("p",`Shared boundary assistance: ${warnings.join(" ")}`);
+          note.style.cssText="font-size:.82rem;color:#f4c998;";
+          panel.appendChild(note);
+        }
+      }
     }else{
       const smoothingLabel=el("label"," Smoothing ");
       const smoothingSelect=el("select");
@@ -368,7 +437,8 @@ export class TerritoryAuthoringCanvas{
       session.hoverAnchor=offset;
       session.hoverErase=erase;
       session.hoverOffsets=brushOffsets(offset)
-        .filter(o=>within(view.grid.getCenterPoint(o)));
+        .filter(o=>within(view.grid.getCenterPoint(o))&&
+          (!session.seamCellKeys||session.seamCellKeys.has(`${o.i},${o.j}`)));
       this.#scheduleDraw(session);
     };
     const clearPreview=()=>{
@@ -378,7 +448,9 @@ export class TerritoryAuthoringCanvas{
     const applyBrush=(p,erase)=>{
       const offset=view.grid.getOffset(p);
       if(!Number.isSafeInteger(offset?.i)||!Number.isSafeInteger(offset?.j))return;
-      const inside=brushOffsets(offset).filter(o=>within(view.grid.getCenterPoint(o)));
+      const inside=brushOffsets(offset).filter(o=>within(view.grid.getCenterPoint(o))&&
+        (!session.seamCellKeys||session.seamCellKeys.has(`${o.i},${o.j}`)));
+      if(!inside.length)return;
       session.draft.offsets=paintGridCells(session.draft.offsets,
         inside,erase);this.#scheduleDraw(session);
     };
@@ -553,6 +625,14 @@ export class TerritoryAuthoringCanvas{
         "Smoothing changes the native projection, never the controls.";
     }else{
       const shape=view.grid.getShape(),cells=draft.offsets;
+      if(session.selectedSeam){
+        const chosen=new Set(cells.map(c=>`${c.i},${c.j}`));
+        for(const cell of session.selectedSeam.offsets){
+          if(chosen.has(`${cell.i},${cell.j}`))continue;
+          const center=view.grid.getCenterPoint(cell);
+          drawSeamHint(graphics,shape.flatMap(q=>[center.x+q.x,center.y+q.y]),zoom);
+        }
+      }
       for(const p of cells){
         const center=view.grid.getCenterPoint(p);
         drawGridSpace(graphics,shape.flatMap(q=>[center.x+q.x,center.y+q.y]));
@@ -567,6 +647,9 @@ export class TerritoryAuthoringCanvas{
         chosen.has(`${c.i},${c.j}`)===session.hoverErase).length;
       session.info.textContent=`${cells.length} grid cells · Click/drag to paint; `+
         "Shift+click/drag to erase; Shift+wheel changes brush; Cmd/Ctrl+Z to undo."+
+        (session.selectedSeam?` Shared boundary: ${session.selectedSeam.name}, `+
+          `${session.selectedSeam.offsets.filter(c=>chosen.has(`${c.i},${c.j}`)).length}`+
+          ` of ${session.selectedSeam.offsets.length} eligible cells staged.`:"")+
         (session.hoverAnchor?` Hover: ${session.hoverErase?"erase":"add"} `+
           `${changing} cell${changing===1?"":"s"} (${session.hoverOffsets.length} in brush).`:"");
     }
