@@ -815,11 +815,10 @@ test("GM edits public Region naming inside territory management without a duplic
     assert.match(textContents(mounted),/Territories & custom native Regions/);
     assert.doesNotMatch(textContents(mounted),/Public territory names · Journey banners/);
     const control=buttons(mounted).find(b=>
-      b.title==="Edit public Journey territory label");
-    assert.ok(control,"public naming belongs to the selected native Region");
-    assert.equal(control.disabled,false);
-    await control.listeners.get("click")({preventDefault(){}});
-    assert.deepEqual(opened,[scene,"territory"]);
+      b.title==="Open Private native Region Territory Settings");
+    assert.ok(control,"one Territory Settings entry replaces inline public-name editing");
+    assert.ok(!control.disabled);
+    assert.equal(opened,null,"the public-name editor opens from the settings window, not on render");
     assert.equal(region.name,"Private native Region");
     assert.deepEqual(region.shapes,[]);
     assert.deepEqual(region.behaviors,[]);
@@ -866,19 +865,11 @@ test("Scene Atlas manages native Regions across roads and exposes safe boundary 
     assert.ok(borders,"Territory panel includes the bounded reconciliation action");
     await borders.listeners.get("click")({preventDefault(){}});
     assert.equal(analyzed,true);
-    for(const [title,outcome] of [
-      ["Edit native Region in Foundry",()=>opened],
-      ["Preview smoother native polygon boundary",()=>preview],
-      ["Edit public Journey territory label",()=>publicName]]){
-      const control=controls.find(b=>b.title===title);
-      assert.ok(control,title);
-      await control.listeners.get("click")({preventDefault(){}});
-      assert.equal(outcome(),"r1");
-    }
-    const linked=controls.find(b=>b.title==="Link this native Region to Atlas");
-    assert.ok(linked);
-    await linked.listeners.get("click")({preventDefault(){}});
-    assert.deepEqual(link,["r1",true]);
+    const settings=controls.find(b=>b.title==="Open Valecor Territory Settings");
+    assert.ok(settings,"the native, boundary, public and link editors share one Settings entry");
+    assert.equal(controls.some(b=>b.title==="Link this native Region to Atlas"),false);
+    assert.equal(opened,null);assert.equal(preview,null);
+    assert.equal(publicName,null);assert.equal(link,null);
     assert.deepEqual(region.shapes,[],"rendering and actions cannot rewrite native geometry");
   }finally{Object.assign(globalThis,previous);}
 });
@@ -903,12 +894,10 @@ test("selected polygon offers staged native grid conversion and saved grid offer
       restoreTerritoryPolygon:(_scene,id)=>{restored=id;}},()=>{},
     {generated:[],nativeRegions:[{id:region.id,name:region.name,linked:true,
       invalidLink:false,hidden:false}],publicById:new Map()});
-    const control=buttons(panel).find(b=>b.title===
-      "Preview then convert this selected native polygon Region to grid/hex");
-    assert.ok(control);
-    assert.equal(control.disabled,false);
-    await control.listeners.get("click")({preventDefault(){},stopPropagation(){}});
-    assert.equal(selected,"Reshara");
+    const control=buttons(panel).find(b=>b.title==="Open Reshara Territory Settings");
+    assert.ok(control,"grid conversion is available in the consolidated Territory Settings");
+    assert.ok(!control.disabled);
+    assert.equal(selected,null,"Settings is read-only until an explicit conversion is chosen");
     assert.equal(region.shapes[0].type,"polygon","opening the preview shortcut cannot alter native Shapes");
     region.shapes=[{type:"grid",offsets:[{i:0,j:0}]}];
     const originalGetFlag=region.getFlag;
@@ -918,11 +907,9 @@ test("selected polygon offers staged native grid conversion and saved grid offer
       restoreTerritoryPolygon:(_scene,id)=>{restored=id;}},()=>{},
     {generated:[],nativeRegions:[{id:region.id,name:region.name,linked:true,
       invalidLink:false,hidden:false}],publicById:new Map()});
-    const restore=buttons(savedPanel).find(b=>b.title===
-      "Restore backed-up native polygon from Atlas grid conversion");
-    assert.ok(restore,"the saved grid Region offers explicit restore");
-    await restore.listeners.get("click")({preventDefault(){},stopPropagation(){}});
-    assert.equal(restored,"Reshara");
+    const restore=buttons(savedPanel).find(b=>b.title==="Open Reshara Territory Settings");
+    assert.ok(restore,"the saved grid Region keeps a Settings entry for restoring its polygon");
+    assert.equal(restored,null,"no Restore runs on panel render");
     assert.equal(region.shapes[0].type,"grid","rendering restore controls never alters a native Shape");
   }finally{Object.assign(globalThis,previous);}
 });
@@ -962,7 +949,7 @@ test("Territory Workspace groups children beneath continent rows with all action
     assert.ok(nested(valecor,"Valecor")&&nested(valecor,"Dirwest"));
     assert.ok(nested(resh,"Reshara")&&nested(resh,"The Eyrie"));
     assert.ok(nested(other,"Unassigned"));
-    assert.equal(buttons(panel).filter(b=>b.title==="Edit native Region in Foundry").length,5);
+    assert.equal(buttons(panel).filter(b=>b.title?.endsWith(" Territory Settings")).length,5);
   }finally{Object.assign(globalThis,previous);}
 });
 
@@ -1048,10 +1035,9 @@ test("Territory rows show stable Checkpoint association with a GM link editor",a
     {generated:[],nativeRegions:[{id:native.id,name:native.name,linked:true,
       invalidLink:false,hidden:false}],publicById:new Map()});
     assert.match(textContents(panel),/Linked Checkpoint missing — choose another/);
-    const action=buttons(panel).find(b=>b.title==="Change or remove linked Atlas Checkpoint");
+    const action=buttons(panel).find(b=>b.title==="Open Dirwest City Territory Settings");
     assert.ok(action&&!action.disabled);
-    await action.listeners.get("click")({preventDefault(){},stopPropagation(){}});
-    assert.equal(opened,native.id);
+    assert.equal(opened,null,"the link picker waits until opened from Territory Settings");
   }finally{Object.assign(globalThis,previous);}
 });
 

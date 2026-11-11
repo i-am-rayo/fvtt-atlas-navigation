@@ -1,4 +1,4 @@
-import { readAtlas,MODULE_ID } from "./atlas-storage.js";
+import { readAtlas } from "./atlas-storage.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import { readManualFog } from "./atlas-manual-fog-storage.js";
 import { readAtlasJournalLinks, journalUuidFor, openAtlasJournal, canOpenAtlasJournal }
@@ -35,8 +35,8 @@ import {withInferredContinentParents} from "./territory-parent-inference.js";
 import {territoryBoundaryNeedsAdoption} from "./territory-authoring.js";
 import {projectTerritoryView,groupTerritoryEntries} from "./territory-view-model.js";
 import {nativeRegionColorHex} from "./native-region-color.js";
-import {GRID_CONVERSION_BACKUP_FLAG} from "./territory-authoring-model.js";
 import {readPendingTerritoryCellTransfer} from "./territory-grid-transfer.js";
+import {openAtlasTerritorySettings} from "./atlas-territory-settings.js";
 
 const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
@@ -335,71 +335,10 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     details.appendChild(node("div",status.join(" · "),"hint"));
     row.appendChild(details);
     const controls=node("div",undefined,"form-fields atlas-territory-actions");
-    controls.appendChild(iconAction("gear","Edit native Region in Foundry",
-      ()=>actions.configureRegion(scene,region.id)));
+    controls.appendChild(iconAction("gear",`Open ${region.name} Territory Settings`,
+      ()=>openAtlasTerritorySettings(scene,region.id,actions,refresh,onLocate)));
     if(typeof onLocate==="function")controls.appendChild(iconAction("crosshairs",
       "Locate this native Region on the map",()=>onLocate(region.id)));
-    const editBoundary=iconAction("draw-polygon",
-      "Edit Atlas Territory control nodes or painted grid cells",
-      ()=>actions.editTerritoryBoundary(scene,region.id,refresh));
-    editBoundary.disabled=!!draft||!!pending||
-      (batch?.total&&!batch.targets.some(target=>target.id===region.id))||
-      !region.linked||region.invalidLink||
-      !geographyById.get(region.id)?.geography?.kind;
-    controls.appendChild(editBoundary);
-    const polygonShapes=Array.from(nativeRegion?.shapes??[]);
-    if(polygonShapes.length===1&&polygonShapes[0]?.type==="polygon"){
-      const convert=iconAction("hexagon",
-        "Preview then convert this selected native polygon Region to grid/hex",
-        ()=>actions.previewTerritoryGridConversion(scene,region.id,refresh));
-      convert.disabled=!!draft||!region.linked||region.invalidLink||
-        !geographyById.get(region.id)?.geography?.kind;
-      controls.appendChild(convert);
-    }
-    if(nativeRegion?.getFlag?.(MODULE_ID,GRID_CONVERSION_BACKUP_FLAG)!=null){
-      const restore=iconAction("rotate",
-        "Restore backed-up native polygon from Atlas grid conversion",
-        ()=>actions.restoreTerritoryPolygon(scene,region.id,refresh));
-      restore.disabled=!!draft||!region.linked||region.invalidLink;
-      controls.appendChild(restore);
-    }
-    const adopt=iconAction("rotate","Adopt the current native Region boundary as Atlas controls",
-      ()=>actions.adoptNativeTerritoryBoundary(scene,region.id,refresh));
-    adopt.disabled=!!draft||!region.linked||region.invalidLink||!boundaryStale;
-    controls.appendChild(adopt);
-    const smooth=iconAction("bezier-curve","Preview smoother native polygon boundary",
-      ()=>actions.smoothNativeRegion(scene,region.id,refresh));
-    smooth.disabled=!!draft||region.invalidLink||
-      !!scene.regions?.get?.(region.id)?.getFlag?.(MODULE_ID,"territoryBoundarySource");
-    controls.appendChild(smooth);
-    const linked=iconAction(region.linked?"link-slash":"link",
-      region.linked?"Unlink Atlas association (native Region stays)":"Link this native Region to Atlas",
-      ()=>actions.setNativeRegionLink(scene,region.id,!region.linked,refresh));
-    linked.disabled=!!draft||region.invalidLink;
-    controls.appendChild(linked);
-    const checkpointAction=iconAction("map-pin",
-      checkpointLink?"Change or remove linked Atlas Checkpoint":"Link native Territory to Atlas Checkpoint",
-      ()=>actions.configureTerritoryCheckpoint(scene,region.id,refresh));
-    checkpointAction.disabled=!!draft||!!pending||!region.linked||region.invalidLink||
-      invalidCheckpointLink;
-    controls.appendChild(checkpointAction);
-    const publicLabel=iconAction("tag","Edit public Journey territory label",
-      ()=>actions.configurePublicTerritory(scene,refresh,region.id));
-    publicLabel.disabled=!!draft;
-    controls.appendChild(publicLabel);
-    const playerBoundary=iconAction(playerShared?"eye-slash":"eye",
-      playerShared?"Stop sharing this Territory's boundary with players":
-        "Share this Territory boundary with players (name is a separate permission)",
-      ()=>actions.configureTerritorySharing(scene,region.id,refresh));
-    playerBoundary.disabled=!!draft||!!pending||invalidSharing||
-      (!playerShared&&(!region.linked||region.invalidLink||region.hidden||
-        !geographyById.get(region.id)?.geography?.kind||
-        geographyById.get(region.id)?.invalid));
-    controls.appendChild(playerBoundary);
-    const geography=iconAction("sitemap","Classify territory, override its parent, and correct Road membership",
-      ()=>actions.configureGeography(scene,refresh,region.id));
-    geography.disabled=!!draft||!region.linked||region.invalidLink||geographyById.get(region.id)?.invalid;
-    controls.appendChild(geography);
     row.appendChild(controls);rows.set(region.id,row);
   }
   const hierarchy=groupTerritoryEntries(displayed);
@@ -1353,7 +1292,7 @@ export function createAtlasTopologyPanel(scene, refresh) {
 class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
     id:"fvtt-atlas-region-generator",
-    window:{ title:"Atlas — Generate Terrain Region", resizable:true },
+    window:{ title:"Atlas — Generate Terrain Region", resizable:true,minimizable:true },
     position:{width:600,height:620,left:24}
   };
   constructor({scene,roadId,checkpointId=null,actions,refresh}) {
@@ -1382,7 +1321,18 @@ class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 
         presetEdited:false,applyNativeCost:false,movementAction:""
       });
     }
-    const body=atlasPanel(this.scene,readAtlas(this.scene),this.actions,
+    const scopedActions={...this.actions,generateRegion:async(...args)=>{
+      // Let the GM inspect the live canvas without the editor obscuring the
+      // preview. Cancel restores the form; a committed Region closes it.
+      await this.minimize?.();
+      try{
+        const saved=await this.actions.generateRegion(...args);
+        if(saved?.created)await this.close();
+        else await this.maximize?.();
+        return saved;
+      }catch(error){await this.maximize?.();throw error;}
+    }};
+    const body=atlasPanel(this.scene,readAtlas(this.scene),scopedActions,
       ()=>{this.externalRefresh?.();void this.render(true);},{generatorOnly:true});
     const root=node("div");
     root.dataset.atlasGeneratorScroll = "";
@@ -1399,9 +1349,37 @@ class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 
   }
 }
 
+const checkpointGenerators=new Map();
+const generatorKey=(scene,checkpointId)=>`${scene.id}:${checkpointId}`;
+
+/** Closing one checkpoint's automatic generator never affects other generators. */
+export async function closeCheckpointRegionGenerator(scene,checkpointId){
+  if(!scene?.id||!checkpointId)return false;
+  const key=generatorKey(scene,checkpointId);
+  const app=checkpointGenerators.get(key);
+  if(!app)return false;
+  await app.close();
+  return true;
+}
+
 export function openAtlasRegionGenerator(scene,roadId,actions,refresh,checkpointId=null) {
   if (!game.user?.isGM) throw Error("Only the GM can generate terrain Regions.");
-  new AtlasRegionGeneratorWindow({scene,roadId,checkpointId,actions,refresh}).render(true);
+  const key=checkpointId?generatorKey(scene,checkpointId):null;
+  let app=key?checkpointGenerators.get(key):null;
+  if(!app){
+    app=new AtlasRegionGeneratorWindow({scene,roadId,checkpointId,actions,refresh});
+    if(key){
+      checkpointGenerators.set(key,app);
+      const baseClose=app.close.bind(app);
+      app.close=async options=>{
+        const result=await baseClose(options);
+        if(checkpointGenerators.get(key)===app)checkpointGenerators.delete(key);
+        return result;
+      };
+    }
+  }
+  void app.render(true);
+  return app;
 }
 
 /**

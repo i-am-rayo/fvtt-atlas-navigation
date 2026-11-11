@@ -4,7 +4,7 @@
  */
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
   getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig,
-  openAtlasRegionGenerator } from "./scene-config.js";
+  openAtlasRegionGenerator,closeCheckpointRegionGenerator } from "./scene-config.js";
 import { openAtlasSceneWorkspace, refreshAtlasSceneWorkspace, restoreAtlasSceneWorkspace }
   from "./atlas-scene-workspace.js";
 import { RoadCanvasController } from "./road-canvas.js";
@@ -160,12 +160,18 @@ roadCanvas.onCheckpointSaved=async (scene,checkpointId)=>{
     });
     if(choice==="create"){
       const saved=await createCheckpointTerritory(scene,plan,{view});
+      await closeCheckpointRegionGenerator(scene,checkpointId);
       roadCanvas.refresh();atlasLayers.refresh();refreshAtlasSceneConfig(scene);
       ui.notifications.info(`Native Territory ${saved.name} created and linked to Checkpoint ${plan.name}.`);
     }else if(choice==="link"){
       await actions().configureCheckpointTerritory(scene,checkpointId,()=>{
         roadCanvas.refresh();atlasLayers.refresh();refreshAtlasSceneConfig(scene);
       });
+      // The association picker can be cancelled. Close the legacy generator
+      // only when a native Territory actually became linked to this Checkpoint.
+      if(territoryCheckpointLinks(scene).some(item=>
+        item.link?.checkpointId===checkpointId))
+        await closeCheckpointRegionGenerator(scene,checkpointId);
     }
   }finally{preview.clear();}
 };
@@ -374,6 +380,7 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
         ? "Atlas created one native corridor Region with the selected movement-cost Behavior."
         : "Atlas created one linked native Region without Behaviors; preset metadata was saved."
       : "Atlas regenerated the Region geometry; native Behaviors were preserved.");
+    return result;
   } finally {
     roadCanvas.clearRegionPreview();
   }
@@ -634,8 +641,9 @@ function actions() {
     },
     draft: scene => roadCanvas.getDraft(scene),
     async generateRegion(scene, settings, refresh) {
-      await previewAndSaveRegion(scene, settings);
+      const result=await previewAndSaveRegion(scene, settings);
       refresh();
+      return result;
     },
     async assignRoadTravelPreset(scene, road, refresh) {
       ensureIdle(scene);
@@ -2107,6 +2115,7 @@ function actions() {
       if(!approved)return;
       await saveTerritoryCheckpointLink(scene,regionId,{checkpointId:targetId,
         expected:existing,expectedName:region.name,expectedAtlasRevision:atlas.revision});
+      if(targetId)await closeCheckpointRegionGenerator(scene,targetId);
       refresh();ui.notifications.info(chosen?`Territory linked to ${chosen.name}.`:
         "Territory Checkpoint association removed; native Region unchanged.");
     },
@@ -2166,6 +2175,7 @@ function actions() {
         rejectClose:false,modal:true}))return;
       await saveTerritoryCheckpointLink(scene,region.id,{checkpointId:regionId?checkpointId:null,
         expected:prior,expectedName:region.name,expectedAtlasRevision:atlas.revision});
+      if(regionId)await closeCheckpointRegionGenerator(scene,checkpointId);
       refresh();ui.notifications.info(regionId?`${checkpoint.name} linked to ${region.name}.`:
         `${checkpoint.name} Territory association removed.`);
     },
