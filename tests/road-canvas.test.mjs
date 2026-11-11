@@ -496,6 +496,57 @@ test("v0.2.24 GM elevation preview sits below the checkpoint and road labels", a
   } finally { m.controller.tearDown(); Object.assign(globalThis, previous); }
 });
 
+test("GM checkpoint hover label displays the same live Journal access state as Territories",async()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI,
+    foundry:globalThis.foundry};
+  const m=setup();
+  class Text{
+    constructor(text,style){this.text=String(text);this.style=style;
+      this.anchor={set(){}};this.position={set(){}};}
+    destroy(){this.destroyed=true;}
+  }
+  m.Graphics.prototype.addChild=function(label){label.parent=this;};
+  try{
+    const gm={id:"gm",isGM:true},reader={id:"reader",isGM:false},
+      other={id:"other",isGM:false};
+    globalThis.game={user:gm,users:[gm,reader,other]};
+    globalThis.PIXI={Graphics:m.Graphics,Text};
+    let x=0;
+    let atlas=addRoad(createEmptyAtlas(),{
+      points:[{x:20,y:30},{x:170,y:30}],name:"Millstone-Dirwest Road",
+      idFactory:()=>"journal"+(++x)});
+    atlas=addRoadCheckpoint(atlas,{
+      candidate:{kind:"node",nodeId:atlas.segments[0].from},
+      roadId:atlas.roads[0].id,name:"Dirwest",elevationMeters:null,
+      idFactory:()=>"journal"+(++x)});
+    atlas=editCheckpointAppearance(atlas,{checkpointId:atlas.checkpoints[0].id,
+      appearance:{...DEFAULT_CHECKPOINT_APPEARANCE,
+        labelMode:"always",showRoadName:true}});
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",atlas);
+    const id=atlas.checkpoints[0].id;
+    const uuid="JournalEntry.abcdefghijklmnop";
+    const originalGetFlag=m.scene.getFlag;
+    m.scene.getFlag=(scope,key)=>key==="atlasJournalLinks"?
+      {schemaVersion:1,roads:{},checkpoints:{[id]:uuid}}:
+      originalGetFlag(scope,key);
+    globalThis.foundry={utils:{fromUuid:async key=>key===uuid?{
+      documentName:"JournalEntry",testUserPermission:user=>user.id==="reader"}:null}};
+    m.controller.refresh();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.ok(m.controller.labels.some(label=>label.text==="Dirwest 📖 ◐"),
+      "Checkpoint label shows current GM Observer status beside the name");
+    assert.ok(m.controller.labels.some(label=>label.text==="Millstone-Dirwest Road"),
+      "the Road subtitle is unchanged");
+    m.controller.checkpointJournalStatuses.clear();
+    globalThis.foundry.utils.fromUuid=async()=>null;
+    m.controller.refresh();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.ok(m.controller.labels.some(label=>label.text==="Dirwest"),
+      "a stale Journal no longer adds an unverified book icon");
+    assert.equal(m.controller.labels.some(label=>String(label.text??"").includes("📖")),false);
+  }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
+});
+
 test("v0.2.24.2 ordinary player sees only revealed geometry, with no hidden metadata or editing", async () => {
   const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
   const m = setup();

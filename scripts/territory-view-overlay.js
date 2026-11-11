@@ -16,6 +16,8 @@ import {readRegionAtlasLink} from "./region-atlas.js";
 import {readRegionGeography} from "./territory-geography-storage.js";
 import {readAtlasJournalLinks,journalUuidFor,openAtlasJournal} from "./atlas-journal-links.js";
 import {readManualFog} from "./atlas-manual-fog-storage.js";
+import {OverlayJournalStatusCache,attachOverlayJournalSuffix}
+  from "./overlay-journal-label.js";
 import {cellKey} from "./atlas-manual-fog-model.js";
 import {checkpointRevealKeys} from "./checkpoint-exploration.js";
 import {atlasPointExplored} from "./road-fog.js";
@@ -137,6 +139,7 @@ function location(region, paths) {
 export class TerritoryViewOverlay {
   constructor() { this.layer = null; this.view = null; this.labels = [];
     this.labelCheckpointIds=new Set();this.hitLabels=[];
+    this.journalStatuses=new OverlayJournalStatusCache();
     this.journalCanvasElement=null;this.journalDoubleClickHandler=null; }
 
   clear() {
@@ -192,6 +195,7 @@ export class TerritoryViewOverlay {
     let shown = 0, skipped = 0, vertices = 0;
     let fillTriangles=0;
     const labels = [],hitLabels=[],labelCheckpointIds=new Set();
+    const journalLabelRequests=[];
     try {
       for (const entry of projected) {
         if (shown >= MAX_REGIONS) { skipped++; continue; }
@@ -268,8 +272,15 @@ export class TerritoryViewOverlay {
               // Checkpoint title; suppress only genuinely duplicate labels.
               if(gm||labelName===linkedCheckpoint.name)
                 labelCheckpointIds.add(linkedCheckpoint.id);
-              hitLabels.push({at,checkpointId:linkedCheckpoint.id,regionId:region.id,
-                name:labelName,fontSize:broad?17:20});
+              const hit={at,checkpointId:linkedCheckpoint.id,regionId:region.id,
+                name:labelName,fontSize:broad?17:20};
+              hitLabels.push(hit);
+              try{
+                const uuid=journalUuidFor(readAtlasJournalLinks(scene),
+                  "checkpoint",linkedCheckpoint.id);
+                if(uuid)journalLabelRequests.push({uuid,label,base:labelName,hit,
+                  at,regionId:region.id,checkpointId:linkedCheckpoint.id});
+              }catch{/* Invalid Journal mapping must not affect existing labels. */}
             }
           }
         }
@@ -285,6 +296,33 @@ export class TerritoryViewOverlay {
       this.labels = labels;
       this.hitLabels=hitLabels;
       this.labelCheckpointIds=labelCheckpointIds;
+      for(const request of journalLabelRequests){
+        const {uuid,label,base,hit,at,regionId,checkpointId}=request;
+        const eligible=()=>{
+          if(this.layer!==layer||this.view!==view||layer.parent!==parent||
+              view.scene?.id!==scene.id||game.user?.isGM!==gm||
+              label.destroyed)return false;
+          try{
+            const current=scene.regions?.get?.(regionId);
+            if(readTerritoryCheckpointLink(current)?.checkpointId!==checkpointId||
+                journalUuidFor(readAtlasJournalLinks(scene),"checkpoint",checkpointId)!==uuid)
+              return false;
+            if(!gm){
+              if(current?.hidden||!readPlayerTerritorySharing(current)||
+                  !readRegionAtlasLink(current)||!readPublicTerritory(current)||
+                  !territoryLabelPointExplored(view,scene,at))return false;
+              if(!playerAtlasOverlay(readAtlas(scene),readPartyExploration(scene))
+                .checkpoints.some(cp=>cp.id===checkpointId))return false;
+            }
+            return true;
+          }catch{return false;}
+        };
+        attachOverlayJournalSuffix(this.journalStatuses,uuid,label,base,eligible,
+          suffix=>{
+            hit.name=base+suffix;
+            if(!gm&&"renderDirty" in parent)parent.renderDirty=true;
+          });
+      }
       this.updateLabelScale();
       this.#trackJournalDoubleClick(scene);
     } catch (error) {

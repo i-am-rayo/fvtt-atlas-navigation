@@ -4,6 +4,10 @@ import {projectTerritoryView,territoryTier} from "../scripts/territory-view-mode
 import {readNativeTerritoryPaths,readNativeTerritoryTriangles,
   territoryLabelPointExplored,TerritoryViewOverlay}
   from "../scripts/territory-view-overlay.js";
+import {createEmptyAtlas} from "../scripts/atlas-model.js";
+import {addRoad} from "../scripts/road-model.js";
+import {addRoadCheckpoint} from "../scripts/checkpoint-model.js";
+import {setCheckpointPlayerVisibility} from "../scripts/player-visibility.js";
 
 const geo = (id,name,kind,linked=true) =>
   ({id,name,linked,invalid:false,geography:kind?{kind}:null});
@@ -154,18 +158,25 @@ test("linked geographic label uses Checkpoint name and double-click opens its au
       removeEventListener(name,handler){removals.push(name);if(handlers.get(name)===handler)
         handlers.delete(name);}};
     globalThis.PIXI={Container,Graphics,Text};
-    globalThis.game={user:{isGM:true}};
+    globalThis.game={user:{id:"gm",isGM:true},users:[
+      {id:"gm",isGM:true},{id:"visible",isGM:false},{id:"private",isGM:false}]};
     globalThis.canvas={scene,ready:true,interface:new Container(),
       app:{canvas:canvasElement},stage:{scale:{x:1}},
       canvasCoordinatesFromClient:point=>point};
     let opened=0;
     globalThis.foundry={utils:{fromUuid:async()=>({documentName:"JournalEntry",
+      testUserPermission:user=>user.id==="visible",
       sheet:{render:async()=>{opened++;}}})}};
     const overlay=new TerritoryViewOverlay();
     overlay.sync(scene,[geo("region","Dirwest Region","city")],{
       showNames:true,checkpointsById:new Map([["checkpoint1",
         {id:"checkpoint1",name:"Dirwest"}]])});
     assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest"]);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest 📖 ◐"],
+      "the geographic Territory overlay uses the linked Checkpoint's live Journal status");
+    assert.equal(overlay.hitLabels[0].name,"Dirwest 📖 ◐",
+      "Journal status remains inside the label double-click hit area");
     assert.deepEqual([...overlay.labelCheckpointIds],["checkpoint1"]);
     assert.equal(typeof handlers.get("dblclick"),"function");
     let prevented=0;
@@ -266,6 +277,79 @@ test("player renders only granted boundaries below both native and Atlas manual 
     overlay.clear();
     assert.equal(primary.children.length,0);
     assert.equal(primary.renderDirty,true,"cached Primary is invalidated on removal");
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("player Territory overlay shows only their own readable Journal glyph, beneath fog",async()=>{
+  const previous={canvas:globalThis.canvas,PIXI:globalThis.PIXI,game:globalThis.game,
+    foundry:globalThis.foundry};
+  class Container{
+    constructor(){this.children=[];this.parent=null;}
+    addChild(item){item.parent=this;this.children.push(item);return item;}
+    removeChild(item){this.children.splice(this.children.indexOf(item),1);item.parent=null;}
+    destroy(){}
+  }
+  class Graphics{poly(){return this;}stroke(){return this;}}
+  class Text{
+    constructor(value){this.text=value;this.position={set(){}};
+      this.scale={set(){}};this.anchor={set(){}};}
+  }
+  let sequence=0;
+  let atlas=addRoad(createEmptyAtlas(),{
+    points:[{x:0,y:0},{x:100,y:0}],name:"Dirwest Road",
+    idFactory:()=>`j${++sequence}`});
+  atlas=addRoadCheckpoint(atlas,{
+    roadId:atlas.roads[0].id,candidate:{kind:"node",nodeId:atlas.segments[0].from},
+    name:"Dirwest",idFactory:()=>`j${++sequence}`});
+  const id=atlas.checkpoints[0].id;
+  atlas=setCheckpointPlayerVisibility(atlas,{checkpointId:id,visible:true});
+  const uuid="JournalEntry.abcdefghijklmnop";
+  try{
+    const region={id:"region",name:"GM Secret Territory",color:"#abcdef",
+      polygons:[{points:[0,0,100,0,100,100,0,100]}],
+      getFlag(_module,key){return {
+        playerTerritory:{schemaVersion:1,visible:true},
+        publicTerritory:{schemaVersion:1,enabled:true,label:"Dirwest"},
+        atlas:{schemaVersion:1,linked:true},
+        territoryGeography:{schemaVersion:1,kind:"city",parentRegionId:null,
+          roadOverrides:{}},
+        territoryCheckpoint:{schemaVersion:1,checkpointId:id}
+      }[key]??null;}};
+    const scene={id:"scene",regions:new Map([[region.id,region]]),
+      getFlag(_module,key){return {
+        atlas,atlasJournalLinks:{schemaVersion:1,roads:{},checkpoints:{[id]:uuid}}
+      }[key]??null;}};
+    const reader={id:"reader",isGM:false},other={id:"other",isGM:false};
+    globalThis.game={user:reader,users:[reader,other]};
+    globalThis.foundry={canvas:{groups:{PrimaryCanvasGroup:{SORT_LAYERS:{TILES:500}}}},
+      utils:{fromUuid:async()=>({documentName:"JournalEntry",
+        testUserPermission:user=>user.id==="reader"})}};
+    globalThis.PIXI={Container,Graphics,Text};
+    const primary=new Container();primary.renderDirty=false;
+    globalThis.canvas={scene,ready:true,primary,interface:new Container(),
+      stage:{scale:{x:1}}};
+    const overlay=new TerritoryViewOverlay();
+    const entries=[{id:region.id,name:region.name,linked:true,invalid:false,
+      geography:{kind:"city"},playerShared:true}];
+    const options={showNames:true,checkpointsById:new Map([[id,{id,name:"Dirwest"}]])};
+    overlay.sync(scene,entries,options);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest 📖"],
+      "Observer may see their own Journal glyph, never global access status");
+    assert.equal(primary.renderDirty,true,"Primary canvas redraws asynchronous glyph");
+    assert.equal(globalThis.canvas.interface.children.length,0,
+      "player Journal glyph remains below native and Atlas fog");
+    globalThis.game.user=other;
+    overlay.sync(scene,entries,options);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest"],
+      "no Observer permission means no Journal indicator");
+    globalThis.game.user=reader;
+    scene.tokenVision=true;scene.fogExploration=true;
+    overlay.sync(scene,entries,options);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest"],
+      "unexplored territory cannot reveal a Journal glyph");
   }finally{Object.assign(globalThis,previous);}
 });
 
