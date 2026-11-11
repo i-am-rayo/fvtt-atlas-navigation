@@ -24,7 +24,7 @@ import { AtlasManualFogPalette, registerManualBrushSettings }
   from "./atlas-manual-fog-panel.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
-  saveEditedCheckpoint, saveRemovedCheckpoint, saveRemovedCheckpoints, saveRoadTravelPreset,
+  saveEditedCheckpoint, saveNewIndependentCheckpoint, saveRemovedCheckpoint, saveRemovedCheckpoints, saveRoadTravelPreset,
   saveRoadAppearance, saveRoadSettings, saveRoadPlayerVisibility,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
 import { getRoadMergeCandidates, suggestRoadName } from "./road-model.js";
@@ -1351,6 +1351,39 @@ function actions() {
       });
       openRoadDock(scene,refresh);
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.StartNotice"));
+    },
+    beginIndependentCheckpoint(scene, refresh) {
+      ensureIdle(scene);
+      roadCanvas.startIndependentCheckpoint(scene, {
+        confirm: async ({ name: defaultName }) => {
+          const content = document.createElement("div");
+          const nameLabel = document.createElement("label");
+          nameLabel.textContent = "Checkpoint name";
+          const name = document.createElement("input");
+          name.name = "checkpointName"; name.type = "text";
+          name.required = true; name.maxLength = 120; name.value = defaultName;
+          nameLabel.appendChild(name);
+          const elevationLabel = document.createElement("label");
+          elevationLabel.textContent = "Elevation in meters (optional)";
+          const height = document.createElement("input");
+          height.name = "checkpointElevation"; height.type = "number";
+          height.step = "any";
+          elevationLabel.appendChild(height);
+          content.append(nameLabel, elevationLabel);
+          const result = await DialogV2.input({
+            window: { title: "Create Independent Checkpoint" }, content,
+            ok: { label: "Create Checkpoint" }, rejectClose: false
+          });
+          if (!result) return null;
+          const raw = String(result.checkpointElevation ?? "").trim();
+          return { name: String(result.checkpointName ?? ""),
+            elevationMeters: raw === "" ? null : Number(raw) };
+        },
+        save: args => saveNewIndependentCheckpoint(scene, args),
+        onChange: () => { roadCanvas.refresh(); refresh(); }
+      });
+      ui.notifications.info("Click the Scene canvas to place an independent Checkpoint. Escape cancels.");
+      refresh();
     },
     selectCheckpoint: async (scene, checkpointId) => {
       await centerAtlasOn(scene,null,checkpointId);

@@ -880,6 +880,83 @@ export class RoadCanvasController {
     this.#changed();
   }
 
+  /** Workspace standalone placement; a canvas click is a preview until GM confirmation. */
+  startIndependentCheckpoint(scene, { confirm, save, onChange } = {}) {
+    if (!globalThis.game?.user?.isGM || !scene?.canUserModify?.(game.user, "update")) {
+      throw new Error("Only a GM may place Atlas checkpoints.");
+    }
+    if (this.saving || this.draft || this.pointEditor.session) {
+      throw new Error("Finish or cancel the current road edits first.");
+    }
+    if (typeof confirm !== "function" || typeof save !== "function") {
+      throw new Error("Standalone checkpoint placement needs confirmation and a guarded save.");
+    }
+    const canvas = this.canvasProvider();
+    if (!canvas?.ready || canvas.scene?.id !== scene.id) {
+      throw new Error("View this Scene on the canvas before placing a checkpoint.");
+    }
+    const element = canvas.app?.canvas ?? canvas.app?.view;
+    if (!element?.addEventListener || typeof canvas.canvasCoordinatesFromClient !== "function") {
+      throw new Error("The Foundry canvas is not ready for checkpoint placement.");
+    }
+    const atlas = readAtlas(scene);
+    if (atlas.schemaVersion < 3) {
+      throw new Error("Organize the Scene's Atlas Roads before creating independent checkpoints.");
+    }
+    const draft = { scene, sceneId: scene.id, mode: "independent-checkpoint",
+      element, onChange, expectedRevision: atlas.revision, confirming: false,
+      onPointer: null, onKeydown: null };
+    draft.onPointer = async event => {
+      if (event.button !== 0 || this.saving || draft.confirming || this.draft !== draft) return;
+      if (this.canvasProvider()?.scene?.id !== draft.sceneId) { this.cancel(); return; }
+      const position = canvas.canvasCoordinatesFromClient({ x: event.clientX, y: event.clientY });
+      if (!Number.isFinite(position?.x) || !Number.isFinite(position?.y)) return;
+      const rect = canvas.dimensions?.sceneRect;
+      if (typeof rect?.contains === "function" && !rect.contains(position.x, position.y)) return;
+      const current = readAtlas(scene);
+      if (current.revision !== draft.expectedRevision) {
+        this.cancel(); this.notify()?.error?.("Atlas changed. Reopen standalone placement."); return;
+      }
+      const at = toAtlasPoint(canvas, current, position);
+      event.preventDefault?.();
+      event.stopImmediatePropagation?.();
+      draft.confirming = true;
+      try {
+        const details = await confirm({ at, name: `Checkpoint ${(current.checkpoints?.length ?? 0) + 1}` });
+        if (!details || this.draft !== draft) return;
+        if (readAtlas(scene).revision !== draft.expectedRevision) {
+          throw new Error("Atlas changed during confirmation. Restart placement.");
+        }
+        this.saving = true;
+        const result = await save({ at, name: details.name,
+          elevationMeters: details.elevationMeters, expectedRevision: draft.expectedRevision,
+          idFactory: this.idFactory });
+        if (this.draft !== draft) return;
+        const callback = draft.onChange;
+        this.#detach(); this.draft = null;
+        this.selectedCheckpointId = result.checkpoints.at(-1)?.id ?? null;
+        this.notify()?.info?.("Independent Checkpoint saved.");
+        this.refresh(); callback?.();
+      } catch (error) {
+        this.notify()?.error?.(error.message ?? String(error));
+      } finally {
+        this.saving = false;
+        draft.confirming = false;
+        if (this.draft === draft) this.#changed();
+      }
+    };
+    draft.onKeydown = event => {
+      if (event.key === "Escape" && !draft.confirming) {
+        event.preventDefault?.(); this.cancel();
+      }
+    };
+    this.draft = draft;
+    this.selectedCheckpointId = null;
+    element.addEventListener("pointerdown", draft.onPointer, true);
+    this.doc()?.addEventListener?.("keydown", draft.onKeydown, true);
+    this.refresh(); this.#changed();
+  }
+
   selectCheckpoint(scene, checkpointId) {
     const canvas = this.canvasProvider();
     if (!canvas?.ready || canvas.scene?.id !== scene?.id) {

@@ -6,7 +6,8 @@ import { readAtlas } from "./atlas-storage.js";
 import { listSceneRegions } from "./region-atlas.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { listPublicTerritorySettings } from "./region-narration.js";
-import { createAtlasRoadsPanel, createAtlasTerritoryPanel, createAtlasTopologyPanel }
+import { createAtlasRoadsPanel, createAtlasTerritoryPanel, createAtlasTopologyPanel,
+  createAtlasCheckpointPanel }
   from "./scene-config.js";
 import {TerritoryLocateHighlight} from "./territory-locate-highlight.js";
 
@@ -86,6 +87,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     sidebar.setAttribute("aria-label", "Atlas workspace sections");
     sidebar.appendChild(make("h3", "Atlas"));
     for (const [id, title] of [["overview", "Overview"], ["roads", "Roads"],
+      ["checkpoints", "Checkpoints"],
       ["territories", "Territories"], ["topology", "Topology & Levels"]]) {
       const tab = action(title, `Show ${title}`, () => {
         if (this.activeSection !== id) {
@@ -100,13 +102,14 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       sidebar.appendChild(tab);
     }
     sidebar.appendChild(make("p", "Coming in later phases", "hint"));
-    sidebar.appendChild(make("p", "Checkpoints · Surfaces · Exploration · Navigation", "hint"));
+    sidebar.appendChild(make("p", "Surfaces · Exploration · Navigation", "hint"));
     const main = make("main", undefined, "atlas-workspace-content");
     main.setAttribute("data-atlas-workspace-scroll", "");
     const heading = make("header", undefined, "atlas-workspace-heading");
     const title = make("div");
     title.appendChild(make("h2", this.activeSection === "territories" ? "Territories" :
       this.activeSection === "roads" ? "Roads" :
+        this.activeSection === "checkpoints" ? "Checkpoints" :
         this.activeSection === "topology" ? "Topology & Levels" : "Scene Overview"));
     title.appendChild(make("p", `Scene: ${this.scene.name ?? this.scene.id}`, "hint"));
     heading.appendChild(title);
@@ -120,6 +123,9 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       const topology = make("section", undefined, "atlas-workspace-topology");
       topology.appendChild(createAtlasTopologyPanel(this.scene, () => this.render(true)));
       main.appendChild(topology);
+    } else if (this.activeSection === "checkpoints") {
+      main.appendChild(createAtlasCheckpointPanel(this.scene, this.actions,
+        () => this.render(true)));
     } else if (this.activeSection === "roads") {
       main.appendChild(make("p", "Manage authored roads, their graph connections, " +
         "per-road checkpoints and generated corridor Regions. Existing editors, " +
@@ -154,8 +160,8 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       main.appendChild(summary);
       const next = make("section", undefined, "atlas-workspace-note");
       next.appendChild(make("h3", "A gradual migration"));
-      next.appendChild(make("p", "Roads, Territories and native Topology/Levels are " +
-        "available in this Workspace. Standalone checkpoint, surface and " +
+      next.appendChild(make("p", "Roads, Checkpoints, Territories and native Topology/Levels are " +
+        "available in this Workspace. Surface and " +
         "exploration settings remain in Scene " +
         "Configuration → Atlas until their dedicated views pass live testing."));
       next.appendChild(action("Manage Territories", "Open territory management", () => {
