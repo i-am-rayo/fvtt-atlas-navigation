@@ -1,4 +1,5 @@
-import { validateAtlas, upgradeAtlasCheckpoints, upgradeAtlasCheckpointAppearance } from "./atlas-model.js";
+import { validateAtlas, upgradeAtlasCheckpoints, upgradeAtlasCheckpointAppearance,
+  upgradeAtlasIndependentCheckpoints } from "./atlas-model.js";
 import { validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { applyRoadGeometryEdit } from "./road-model.js";
 
@@ -99,6 +100,43 @@ export function addRoadCheckpoint(atlas, {
   });
 }
 
+/**
+ * Create a standalone, Node-anchored Checkpoint without inventing a Road.
+ * `at` is already converted to image-local Scene coordinates by the caller.
+ * The caller owns permission checking and a revision-guarded Scene flag write.
+ */
+export function addIndependentCheckpoint(atlas, {
+  at, name, elevationMeters = null, idFactory
+}) {
+  if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.y)) {
+    throw new Error("Choose a finite point on the Scene image for this checkpoint.");
+  }
+  const current = upgradeAtlasIndependentCheckpoints(atlas);
+  const nodeId = uniqueId(new Set(current.nodes.map(node => node.id)), idFactory);
+  const checkpointId = uniqueId(new Set(current.checkpoints.map(c => c.id)), idFactory);
+  return validateAtlas({ ...current,
+    nodes: [...current.nodes, { id: nodeId, x: at.x, y: at.y }],
+    checkpoints: [...current.checkpoints, {
+      id: checkpointId, roadId: null, nodeId, name: cleanName(name),
+      elevationMeters: elevation(elevationMeters), appearance: null, playerVisible: false
+    }]
+  });
+}
+
+/**
+ * Detach the legacy Road ownership hint without removing a topology edge.
+ * This is permitted only after the Node exists in v10; Road connectivity
+ * remains derived from actual segments and is never edited by this action.
+ */
+export function detachCheckpointRoadHint(atlas, { checkpointId }) {
+  const current = upgradeAtlasIndependentCheckpoints(atlas);
+  if (!current.checkpoints.some(c => c.id === checkpointId)) {
+    throw new Error("Checkpoint no longer exists in this Scene.");
+  }
+  return validateAtlas({ ...current, checkpoints: current.checkpoints.map(c =>
+    c.id === checkpointId ? { ...c, roadId: null } : c) });
+}
+
 /** Explicit style update without touching names, elevation, graph or native Regions. */
 export function editCheckpointAppearance(atlas, { checkpointId, appearance }) {
   const previous = validateAtlas(atlas);
@@ -157,9 +195,9 @@ export function listRoadCheckpoints(atlas, { roadId = null, scope = "scene" } = 
   }
   const names = new Map(current.roads.map(r => [r.id, r.name]));
   const nodes = new Map(current.nodes.map(n => [n.id, n]));
-  return current.checkpoints.filter(c => allowed.has(c.roadId))
+  return current.checkpoints.filter(c => scope === "scene" || allowed.has(c.roadId))
     .map(c => ({
-      ...c, roadName: names.get(c.roadId),
+      ...c, roadName: c.roadId === null ? "Independent checkpoint" : names.get(c.roadId),
       x: nodes.get(c.nodeId).x, y: nodes.get(c.nodeId).y
     }));
 }
