@@ -94,6 +94,8 @@ import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
 import { AtlasCheckpointAppearanceEditor } from "./checkpoint-appearance-editor.js";
+import {planCheckpointTerritory,createCheckpointTerritory,
+  CheckpointTerritoryCellPreview} from "./checkpoint-territory-creation.js";
 import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
   validJournalUuid } from "./atlas-journal-links.js";
 import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.js";
@@ -112,6 +114,61 @@ roadCanvas.onCheckpointCreated=(scene,checkpointId,roadId)=>
   openAtlasRegionGenerator(scene,roadId,actions(),()=>{
     roadCanvas.refresh();refreshAtlasSceneConfig(scene);
   },checkpointId);
+roadCanvas.onCheckpointSaved=async (scene,checkpointId)=>{
+  if(!["city","town","village","settlement"].includes(checkpointCategory(scene,checkpointId)))
+    return;
+  const view=globalThis.canvas;
+  const plan=planCheckpointTerritory(scene,checkpointId,{view});
+  if(!plan)return; // Already linked, or no longer a settlement Checkpoint.
+  const content=document.createElement("div");
+  const intro=document.createElement("p");
+  intro.textContent=`Checkpoint ${plan.name} (${plan.kind}) was saved. Create a `+
+    `matching native geographic Territory in the single Scene grid cell `+
+    `(${plan.offset.i}, ${plan.offset.j}) where it landed?`;
+  content.appendChild(intro);
+  const details=document.createElement("p");
+  details.textContent="Create is optional and GM-only. Its name, geographic kind, " +
+    "native grid Shape and Checkpoint association are saved together. " +
+    "No native Region Behaviors, movement costs or player visibility will be changed.";
+  content.appendChild(details);
+  const matching=plan.compatible.filter(item=>item.onCell||item.nameMatch);
+  if(matching.length){
+    const hint=document.createElement("p");
+    hint.textContent="Possible existing Territories: " + matching.slice(0,5)
+      .map(item=>item.name+(item.onCell?" (same cell)":"")).join(", ")+
+      ". You may choose Link Existing to review all compatible Territories.";
+    content.appendChild(hint);
+  }
+  if(plan.createBlocked){
+    const warning=document.createElement("p");
+    warning.textContent="Native creation unavailable: "+plan.createBlocked+
+      " You may still review an existing association or skip.";
+    content.appendChild(warning);
+  }
+  const preview=new CheckpointTerritoryCellPreview();
+  try{
+    preview.show(scene,plan,{view});
+    const choice=await foundry.applications.api.DialogV2.wait({
+      window:{title:`Atlas — ${plan.name} — Territory Creation`,minimizable:true},
+      content,
+      buttons:[
+        ...(!plan.createBlocked?[{action:"create",label:"Create One-Cell Territory",
+          icon:"fa-solid fa-draw-polygon"}]:[]),
+        {action:"link",label:"Link Existing…",icon:"fa-solid fa-link"},
+        {action:"skip",label:"Skip",default:true}
+      ],rejectClose:false,modal:false
+    });
+    if(choice==="create"){
+      const saved=await createCheckpointTerritory(scene,plan,{view});
+      roadCanvas.refresh();atlasLayers.refresh();refreshAtlasSceneConfig(scene);
+      ui.notifications.info(`Native Territory ${saved.name} created and linked to Checkpoint ${plan.name}.`);
+    }else if(choice==="link"){
+      await actions().configureCheckpointTerritory(scene,checkpointId,()=>{
+        roadCanvas.refresh();atlasLayers.refresh();refreshAtlasSceneConfig(scene);
+      });
+    }
+  }finally{preview.clear();}
+};
 roadCanvas.promptCheckpoint = ({ roads, defaultName }) => new Promise(resolve => {
   const scene = globalThis.canvas?.scene;
   if (!scene) { resolve(null); return; }
@@ -989,7 +1046,8 @@ function actions() {
       let result;
       try {
         result = await DialogV2.input({
-          window: { title: atlasSettingsTitle("Road",actual.name), resizable: true },
+          window: { title: atlasSettingsTitle("Road",actual.name), resizable: true,
+            minimizable: true },
           position: { left: 24, width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(740, Math.max(440, window.innerHeight - 70)) },
           content, ok: {label:"",icon:"fa-solid fa-floppy-disk",tooltip:"Save road"},
           render:renderRoadDialog,

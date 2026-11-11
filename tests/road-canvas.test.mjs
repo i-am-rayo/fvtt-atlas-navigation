@@ -783,6 +783,11 @@ test("GM checkpoint placement commits the graph split in one revision, then clos
       assert.deepEqual(roads.map(road => road.id), [initial.roads[0].id]);
       return { roadId: roads[0].id, name: "Bridge", elevationMeters: 0 };
     };
+    let postCommit=null;
+    m.controller.onCheckpointSaved=async (scene,checkpointId)=>{
+      postCommit={checkpointId,sceneId:scene.id,saving:m.controller.saving,
+        draft:m.controller.getDraft(scene)};
+    };
     m.controller.startCheckpoint(m.scene, () => {});
     const click = pointEvent(20, 15);
     await m.listeners.get("pointerdown")(click);
@@ -797,6 +802,10 @@ test("GM checkpoint placement commits the graph split in one revision, then clos
       [[initial.roads[0].id, "Bridge"]]);
     assert.equal(m.controller.getDraft(m.scene), null);
     assert.equal(m.listeners.has("pointerdown"), false);
+    await Promise.resolve();await Promise.resolve();
+    assert.deepEqual(postCommit,{checkpointId:saved.checkpoints[0].id,
+      sceneId:m.scene.id,saving:false,draft:null},
+    "optional native Territory offer starts after Checkpoint creation releases its authoring lock");
   } finally {
     m.controller.tearDown();
     Object.assign(globalThis, previous);

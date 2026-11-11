@@ -840,10 +840,19 @@ export class RoadCanvasController {
         this.notify()?.info?.(game.i18n.localize("FVTTATLAS.Checkpoints.Saved"));
         this.refresh();
         callback?.(config.roadId);
+        // Run optional post-commit UI after the authoring session is detached
+        // and saving is released. The Checkpoint remains committed even if an
+        // independent native Region prompt/write later fails or is skipped.
+        let generatedRegionTask=null;
         if(config.generateTerrainRegion){
-          try{this.onCheckpointCreated?.(scene,newId,config.roadId);}
+          try{generatedRegionTask=this.onCheckpointCreated?.(scene,newId,config.roadId);}
           catch(error){this.notify()?.error?.(error.message??String(error));}
         }
+        void Promise.resolve(generatedRegionTask)
+          .catch(error=>this.notify()?.error?.(error.message??String(error)))
+          .then(()=>this.onCheckpointSaved?.(scene,newId))
+          .catch(error=>this.notify()?.error?.("Checkpoint saved, but the optional Territory offer failed: "+
+            (error.message??String(error))));
       } catch (error) {
         this.notify()?.error?.(error.message);
       } finally {
