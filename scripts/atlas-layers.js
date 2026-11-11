@@ -1,6 +1,9 @@
-/** Persistent, GM-local map presentation. Never writes Scene/Region documents. */
+/** Persistent, client-local map presentation. Never writes Scene/Region documents. */
 import {MODULE_ID,readAtlas} from "./atlas-storage.js";
 import {listSceneGeography} from "./territory-geography-storage.js";
+import {listPlayerTerritories} from "./player-territory-sharing.js";
+import {playerAtlasOverlay} from "./player-overlay-model.js";
+import {readPartyExploration} from "./party-exploration-storage.js";
 import {listGeneratedRegions} from "./region-native-read.js";
 import {TerritoryViewOverlay} from "./territory-view-overlay.js";
 import {ATLAS_LAYERS_SETTING,DEFAULT_ATLAS_LAYERS,ROAD_LAYER_MODES,
@@ -26,8 +29,8 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
   }
 
   async _renderHTML(){
-    if(!globalThis.game?.user?.isGM)
-      throw Error("Only a GM can open Atlas Layers.");
+    if(!globalThis.game?.user)throw Error("Sign in to view Atlas Layers.");
+    const gm=game.user.isGM===true;
     let current,invalid=null;
     try{current=this.controller.read();}
     catch(error){invalid=error;current={...DEFAULT_ATLAS_LAYERS};}
@@ -45,7 +48,9 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
       return root;
     }
     root.appendChild(element("p","Choose what appears on your map. Preferences are " +
-      "saved for this client; no native Region or Road data is changed.","atlas-layers-note"));
+      "saved for this client; no native Region or Road data is changed."+
+      (gm?"":" Only Territories explicitly shared by the GM can be displayed."),
+      "atlas-layers-note"));
     const change=patch=>{
       // Sequence preference writes so rapid toggles never overwrite each other
       // with stale settings snapshots or silently drop a selected choice.
@@ -62,18 +67,25 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
       root.appendChild(fieldset);
       return fieldset;
     };
-    const roads=group("Roads","Choose authored Road colors, the terrain sampled " +
-      "under Roads, or native generated corridor boundaries.");
-    for(const [mode,title] of Object.entries(ROAD_LAYER_MODES)){
-      const label=element("label",undefined,"atlas-layers-choice");
-      const input=element("input");
-      input.type="radio";input.name="atlas-road-layer-mode";input.value=mode;
-      input.checked=current.roadMode===mode;
-      input.addEventListener("change",()=>{if(input.checked)void change({roadMode:mode});});
-      label.append(input,element("span",title));roads.appendChild(label);
+    if(gm){
+      const roads=group("Roads","Choose authored Road colors, the terrain sampled " +
+        "under Roads, or native generated corridor boundaries.");
+      for(const [mode,title] of Object.entries(ROAD_LAYER_MODES)){
+        const label=element("label",undefined,"atlas-layers-choice");
+        const input=element("input");
+        input.type="radio";input.name="atlas-road-layer-mode";input.value=mode;
+        input.checked=current.roadMode===mode;
+        input.addEventListener("change",()=>{if(input.checked)void change({roadMode:mode});});
+        label.append(input,element("span",title));roads.appendChild(label);
+      }
+    }else{
+      group("Roads","The GM controls which Roads and Checkpoints are revealed. " +
+        "Their display remains unchanged by Territory settings.");
     }
-    const regions=group("Regions","GM-only outlines and optional translucent fills. " +
-      "Native Region Shapes, geometry and Behaviors stay authoritative.");
+    const regions=group("Regions",gm?
+      "GM outlines and optional translucent fills. Native Region Shapes and Behaviors stay authoritative.":
+      "Choose how to display GM-shared boundaries. Names appear only when " +
+      "the GM also publishes a public Territory name. Native Regions are unchanged.");
     for(const [mode,title] of Object.entries(REGION_LAYER_MODES)){
       const label=element("label",undefined,"atlas-layers-choice");
       const input=element("input");
@@ -172,7 +184,7 @@ export class AtlasLayersController {
   }
 
   async update(patch){
-    if(!game.user?.isGM)throw Error("Only a GM may change Atlas Layers.");
+    if(!game.user)throw Error("Sign in before changing Atlas Layers.");
     const next=updateAtlasLayers(this.read(),patch);
     await game.settings.set(MODULE_ID,ATLAS_LAYERS_SETTING,next);
     return next;
@@ -180,7 +192,7 @@ export class AtlasLayersController {
 
   /** Invalid/obsolete client data is replaced only after a deliberate GM click. */
   async reset(){
-    if(!game.user?.isGM)throw Error("Only a GM may reset Atlas Layers.");
+    if(!game.user)throw Error("Sign in before resetting Atlas Layers.");
     await game.settings.set(MODULE_ID,ATLAS_LAYERS_SETTING,{...DEFAULT_ATLAS_LAYERS});
   }
 
@@ -192,40 +204,45 @@ export class AtlasLayersController {
 
   refresh(preferences=null){
     this.clear({resetCheckpointLabels:false});
-    if(!game.user?.isGM){this.roadCanvas.setTerritoryLabelCheckpointIds(new Set());return;}
+    const gm=game.user?.isGM===true;
     let settings;
     try{settings=validateAtlasLayers(preferences??this.read());}
     catch(error){
       this.roadCanvas.setTerritoryLabelCheckpointIds(new Set());
       console.warn("Atlas Layers settings could not be read",error);return;
     }
-    this.roadCanvas.setViewMode(settings.roadMode);
+    if(gm)this.roadCanvas.setViewMode(settings.roadMode);
     const scene=globalThis.canvas?.scene;
     if(!globalThis.canvas?.ready||!scene){
       this.roadCanvas.setTerritoryLabelCheckpointIds(new Set());return;
     }
     try{
-      if(settings.roadMode==="corridors"){
+      if(gm&&settings.roadMode==="corridors"){
         const entries=listGeneratedRegions(scene).filter(entry=>
           !entry.invalid&&entry.metadata?.kind==="corridor")
           .map(entry=>({id:entry.id,name:entry.name,linked:true,invalid:false,
             geography:{kind:"area"}}));
         this.corridors.sync(scene,entries,{mode:"continents",continentFillOpacity:.28});
       }
-      if(settings.regionMode!=="off")
-        this.regions.sync(scene,listSceneGeography(scene),{
+      if(settings.regionMode!=="off"){
+        const atlas=readAtlas(scene);
+        const entries=gm?listSceneGeography(scene):listPlayerTerritories(scene);
+        const checkpoints=gm?atlas.checkpoints??[]:
+          playerAtlasOverlay(atlas,readPartyExploration(scene)).checkpoints;
+        this.regions.sync(scene,entries,{
           mode:settings.regionMode,showNames:settings.showRegionNames,
           continentFillOpacity:settings.continentFillOpacity,
           settlementFillOpacity:settings.settlementFillOpacity,
-          checkpointsById:new Map((readAtlas(scene).checkpoints??[])
+          checkpointsById:new Map(checkpoints
             .map(checkpoint=>[checkpoint.id,checkpoint]))
         });
+      }
       this.roadCanvas.setTerritoryLabelCheckpointIds(this.regions.labelCheckpointIds);
     }catch(error){this.clear({redraw:true});console.warn("Atlas Layers preview failed",error);}
   }
 
   async open(){
-    if(!game.user?.isGM)throw Error("Only a GM can open Atlas Layers.");
+    if(!game.user)throw Error("Sign in before opening Atlas Layers.");
     if(!this.window)this.window=new AtlasLayersWindow(this);
     return this.window.render(true);
   }

@@ -8,6 +8,7 @@ import { readSceneGridScale } from "./scene-grid.js";
 import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
 import { listSceneRegions } from "./region-atlas.js";
 import {listPublicTerritorySettings} from "./region-narration.js";
+import {readPlayerTerritorySharing} from "./player-territory-sharing.js";
 import { listRoadCheckpoints } from "./checkpoint-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
@@ -295,6 +296,9 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     row.setAttribute("data-atlas-native-region-id",region.id);
     const details=node("div");details.style.flex="1 1 auto";
     const nativeRegion=scene.regions?.get?.(region.id);
+    let playerShared=false,invalidSharing=false;
+    try{playerShared=Boolean(readPlayerTerritorySharing(nativeRegion));}
+    catch{invalidSharing=true;}
     let checkpointLink=null,invalidCheckpointLink=false;
     try{checkpointLink=readTerritoryCheckpointLink(nativeRegion);}
     catch{invalidCheckpointLink=true;}
@@ -312,7 +316,9 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
           GEOGRAPHY_KINDS[geographyById.get(region.id).geography.kind] : "Unclassified",
       published?.invalid?"Unsupported public label flag":
         published?.label?(published.label===region.name?"Public ✓":"Public: "+published.label):
-          "Private (no public label)"];
+          "Private (no public label)",
+      invalidSharing?"Unsupported player boundary permission":
+        playerShared?"Player boundary ✓":"Player boundary hidden"];
     const parent=geographyById.get(region.id)?.geography?.parentRegionId;
     const entry=geographyById.get(region.id);
     const boundaryStale=!!nativeRegion&&territoryBoundaryNeedsAdoption(nativeRegion);
@@ -381,6 +387,15 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
       ()=>actions.configurePublicTerritory(scene,refresh,region.id));
     publicLabel.disabled=!!draft;
     controls.appendChild(publicLabel);
+    const playerBoundary=iconAction(playerShared?"eye-slash":"eye",
+      playerShared?"Stop sharing this Territory's boundary with players":
+        "Share this Territory boundary with players (name is a separate permission)",
+      ()=>actions.configureTerritorySharing(scene,region.id,refresh));
+    playerBoundary.disabled=!!draft||!!pending||invalidSharing||
+      (!playerShared&&(!region.linked||region.invalidLink||region.hidden||
+        !geographyById.get(region.id)?.geography?.kind||
+        geographyById.get(region.id)?.invalid));
+    controls.appendChild(playerBoundary);
     const geography=iconAction("sitemap","Classify territory, override its parent, and correct Road membership",
       ()=>actions.configureGeography(scene,refresh,region.id));
     geography.disabled=!!draft||!region.linked||region.invalidLink||geographyById.get(region.id)?.invalid;

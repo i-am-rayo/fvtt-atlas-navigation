@@ -1544,7 +1544,9 @@ export class RoadCanvasController {
           radius: Math.max(10 / zoom,
             checkpointCanvasSize(appearance.size, zoom) / 2 + 5 / zoom)
         });
-        if (appearance.labelMode === "always" ||
+        const labelMode=effectiveCheckpointLabelMode(appearance.labelMode,
+          this.territoryLabelCheckpointIds.has(checkpoint.id));
+        if (labelMode === "always" ||
             this.playerHoveredCheckpointId === checkpoint.id) {
           const roadName = roads.get(checkpoint.roadId)?.name;
           this.#addCheckpointLabels(graphics, checkpoint.name +

@@ -36,6 +36,8 @@ import {listPublicTerritorySettings,readPublicTerritory,savePublicTerritory}
 import { createPublicTerritoryForm } from "./territory-public-form.js";
 import { listSceneGeography,readRegionGeography,saveRegionGeography }
   from "./territory-geography-storage.js";
+import {readPlayerTerritorySharing,savePlayerTerritorySharing}
+  from "./player-territory-sharing.js";
 import {territoryTier} from "./territory-view-model.js";
 import {readTerritoryCheckpointLink,territoryCheckpointLinks,
   saveTerritoryCheckpointLink} from "./territory-checkpoint-link.js";
@@ -2306,6 +2308,38 @@ function actions() {
       ui.notifications.info(enabled?"Public territory label saved.":
         "Public territory label disabled.");
     },
+    async configureTerritorySharing(scene,regionId,refresh){
+      if(!game.user?.isGM||!scene.canUserModify?.(game.user,"update"))
+        throw Error("Only a Scene-authorized GM may share Territory boundaries.");
+      const region=scene.regions?.get?.(regionId);
+      if(!region||region.parent?.id!==scene.id||
+          !region.canUserModify?.(game.user,"update"))
+        throw Error("The native Territory is no longer editable.");
+      const expected=readPlayerTerritorySharing(region);
+      const expectedName=region.name,expectedHidden=region.hidden===true;
+      const enable=!expected;
+      const content=document.createElement("div");
+      const message=document.createElement("p");
+      message.textContent=enable?
+        `Share the native boundary of ${region.name} with players? Players may choose `+
+        "to display this Territory in Atlas Layers, even where the map is unexplored. " +
+        "Its name remains hidden unless separately published as a public Journey name. " +
+        "Native Region Shapes and Behaviors will not change.":
+        `Stop sharing the native boundary of ${region.name} with players? `+
+        "Its public Journey name and other native Region data will remain unchanged.";
+      content.appendChild(message);
+      const approved=await DialogV2.confirm({
+        window:{title:enable?"Share Territory with players":"Hide Territory from players"},
+        content,yes:{label:enable?"Share Boundary":"Hide Boundary"},
+        rejectClose:false,modal:true
+      });
+      if(!approved)return;
+      await savePlayerTerritorySharing(scene,regionId,{visible:enable,expected,
+        expectedName,expectedHidden});
+      atlasLayers.refresh();refresh();
+      ui.notifications.info(enable?"Territory boundary shared with players.":
+        "Territory boundary hidden from players.");
+    },
     async configureGeography(scene,refresh,regionId) {
       ensureIdle(scene);
       if (!game.user?.isGM || !scene.canUserModify?.(game.user,"update"))
@@ -2545,7 +2579,17 @@ Hooks.once("init", () => {
     }
   }, { isReserved: () => navigation.active || Boolean(territoryCanvas.session) });
   Hooks.on("getSceneControlButtons", controls => {
-    if(!game.user?.isGM)return;
+    if(!game.user?.isGM){
+      controls.atlasPlayerLayers={
+        name:"atlasPlayerLayers",title:"Atlas Layers",icon:"fa-solid fa-layer-group",
+        order:Object.keys(controls).length,visible:true,
+        tools:{atlasLayers:{name:"atlasLayers",title:"Atlas Layers",
+          icon:"fa-solid fa-layer-group",order:0,button:true,visible:true,
+          onChange:()=>void atlasLayers.open().catch(error=>
+            ui.notifications.error(error.message??String(error)))}}
+      };
+      return;
+    }
     controls.atlasManualFog={
       name:"atlasManualFog",title:"Atlas Exploration",
       icon:"fa-solid fa-map",order:Object.keys(controls).length,
@@ -2578,7 +2622,7 @@ Hooks.once("init", () => {
           onChange:()=>fogPalette.toggle()
         },
         atlasLayers:{
-          name:"atlasLayers",title:"Atlas Layers (GM only)",
+          name:"atlasLayers",title:"Atlas Layers",
           icon:"fa-solid fa-layer-group",order:4,button:true,visible:true,
           onChange:()=>void atlasLayers.open().catch(error=>
             ui.notifications.error(error.message??String(error)))
