@@ -336,6 +336,16 @@ test("player Territory overlay shows only their own readable Journal glyph, bene
     await new Promise(resolve=>setImmediate(resolve));
     assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest 📖"],
       "Observer may see their own Journal glyph, never global access status");
+    globalThis.game.user={id:"gm",isGM:true};
+    overlay.sync(scene,entries,{...options,asPlayer:true});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest"],
+      "GM player-projection preview never adds privileged Journal glyphs");
+    assert.equal(overlay.hitLabels.length,0,
+      "GM preview labels cannot open a Journal using GM permissions");
+    assert.equal(overlay.layer.parent,primary,
+      "GM player projection stays in fog-compatible Primary, not Interface");
+    globalThis.game.user=reader;
     assert.equal(primary.renderDirty,true,"Primary canvas redraws asynchronous glyph");
     assert.equal(globalThis.canvas.interface.children.length,0,
       "player Journal glyph remains below native and Atlas fog");

@@ -244,6 +244,41 @@ test("player Atlas Layers projects only shared Territories and leaves Road rende
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("GM preview reuses shared-only player projection without changing client preferences",()=>{
+  const previous={game:globalThis.game,canvas:globalThis.canvas};
+  try{
+    const region={id:"dirwest",name:"GM secret",hidden:false,parent:{id:"scene"},
+      getFlag(_scope,key){return {
+        atlas:{schemaVersion:1,linked:true},territoryGeography:{schemaVersion:1,kind:"city",
+          parentRegionId:null,roadOverrides:{}},playerTerritory:{schemaVersion:1,visible:true},
+        publicTerritory:{schemaVersion:1,enabled:true,label:"Public Dirwest"}
+      }[key]??null;}};
+    const scene={id:"scene",regions:new Map([[region.id,region]]),getFlag:()=>null};
+    const values={...DEFAULT_ATLAS_LAYERS,regionMode:"off",showRegionNames:false};
+    globalThis.game={user:{isGM:true},settings:{get:()=>values}};
+    globalThis.canvas={scene,ready:true,interface:{addChild(){}}};
+    const controller=new AtlasLayersController({setViewMode(){},
+      setTerritoryLabelCheckpointIds(){}});
+    let drawn=null;
+    controller.regions.sync=(_scene,entries,options)=>{drawn={entries,options};};
+    controller.setPlayerPreview(true);
+    assert.equal(drawn.options.asPlayer,true);
+    assert.equal(drawn.options.mode,"combined");
+    assert.equal(drawn.options.showNames,true);
+    assert.equal(drawn.entries.length,1);
+    assert.equal(drawn.entries[0].name,"Public Dirwest");
+    assert.equal(drawn.entries.every(entry=>entry.playerShared),true);
+    assert.equal(controller.read().regionMode,"off","preview never persists a layer preference");
+    region.hidden=true;controller.refresh();
+    assert.deepEqual(drawn.entries,[],"revoked/hidden Regions disappear from GM preview");
+    globalThis.canvas.scene={id:"other",regions:new Map(),getFlag:()=>null};
+    controller.refresh();
+    assert.equal(controller.playerPreview,false,"scene change ends the ephemeral preview");
+    globalThis.game.user.isGM=false;
+    assert.throws(()=>controller.setPlayerPreview(true),/Only a GM/);
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("layer tool supersedes the one-click Road/Corridor toggle",()=>{
   const main=readFileSync(new URL("../scripts/main.js",import.meta.url),"utf8");
   assert.match(main,/name:"atlasLayers",title:"Atlas Layers"/);
