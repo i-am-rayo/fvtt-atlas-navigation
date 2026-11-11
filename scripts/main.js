@@ -2645,6 +2645,8 @@ Hooks.once("init", () => {
   registerWorldRoadAppearance(() => roadCanvas.refresh());
   const roadActions = actions();
   atlasLayers.configureRegion=(scene,regionId)=>roadActions.configureRegion(scene,regionId);
+  atlasLayers.configureSharing=(scene,regionId,refresh)=>
+    roadActions.configureTerritorySharing(scene,regionId,refresh);
   roadActions.openAtlasWorkspace = scene => openAtlasSceneWorkspace(scene,roadActions);
   roadCanvas.setShortcutHandler((scene, target) => {
     ensureIdle(scene);

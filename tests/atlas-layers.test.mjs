@@ -97,6 +97,7 @@ class Element {
     this.textContent="";this.attributes={};}
   append(...children){this.children.push(...children);}
   appendChild(child){this.children.push(child);return child;}
+  replaceChildren(...children){this.children=[...children];}
   setAttribute(k,v){this.attributes[k]=v;}
   addEventListener(k,fn){this.listeners.set(k,fn);}
 }
@@ -136,6 +137,34 @@ test("Atlas Layers modeless palette exposes Road/Region modes, names and fill co
     await button.listeners.get("click")();
     assert.equal(reset,true,"invalid preferences require an explicit reset click");
     assert.equal(window.rendered,true);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("GM publication overview separates boundaries and Journey names; player cannot see roster",async()=>{
+  const previous={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document};
+  globalThis.document={createElement:tag=>new Element(tag)};
+  const region={id:"r1",name:"Dirwest",hidden:false,parent:{id:"s1"},
+    canUserModify:()=>true,getFlag:(_scope,key)=>key==="regionAtlas"?null:null};
+  globalThis.canvas={scene:{id:"s1",regions:new Map([["r1",region]]),
+    canUserModify:()=>true}};
+  globalThis.game={user:{isGM:true}};
+  const changes=[];
+  const controller={read:()=>({...DEFAULT_ATLAS_LAYERS}),
+    listPublicationRegions:()=>[{id:"r1",name:"Dirwest",shared:false,
+      publicName:true,eligible:true,editable:true}],
+    configurePublication:async id=>changes.push(id),update:async()=>{}};
+  try{
+    const window=new AtlasLayersWindow(controller);
+    const gm=await window._renderHTML();
+    assert.match(all(gm).map(e=>e.textContent).join(" "),/Boundary: Private · Journey name: Public/);
+    assert.match(all(gm).map(e=>e.textContent).join(" "),/not a secrecy guarantee/);
+    const button=all(gm).find(e=>e.textContent==="Share Boundary");
+    await button.listeners.get("click")();
+    assert.deepEqual(changes,["r1"]);
+    globalThis.game.user.isGM=false;
+    const player=await window._renderHTML();
+    assert.equal(all(player).some(e=>e.textContent==="Player Publication"),false);
+    assert.equal(all(player).some(e=>e.textContent==="Share Boundary"),false);
   }finally{Object.assign(globalThis,previous);}
 });
 
