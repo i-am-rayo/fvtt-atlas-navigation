@@ -10,7 +10,7 @@ const create=(tag,text)=>{
   return element;
 };
 
-/** Groups use {label: null|string, options: [[id, label], ...]}. */
+/** Groups use {label: null|string, options: [[id, label, {disabled?}], ...]}. */
 export function createSettingsGroupedSelect(groups,{
   selectedId=null,name=null,ariaLabel=null,onChange=null
 }={}){
@@ -21,18 +21,20 @@ export function createSettingsGroupedSelect(groups,{
   for(const group of groups){
     const parent=group.label==null?select:create("optgroup");
     if(parent!==select)parent.label=group.label;
-    for(const [id,label] of group.options){
+    for(const [id,label,metadata] of group.options){
       const option=create("option",label);
       const key=String(id);
       option.value=key;
-      options.push({element:option,key});
+      const disabled=metadata?.disabled===true;
+      if(disabled)option.setAttribute("disabled","");
+      options.push({element:option,key,disabled});
       parent.appendChild(option);
     }
     if(parent!==select)select.appendChild(parent);
   }
   const requested=String(selectedId??"");
-  const active=options.some(option=>option.key===requested)
-    ?requested:(options[0]?.key??"");
+  const active=options.some(option=>option.key===requested&&!option.disabled)
+    ?requested:(options.find(option=>!option.disabled)?.key??"");
   for(const option of options)option.element.defaultSelected=option.key===active;
   select.value=active;
   select.addEventListener("change",()=>{

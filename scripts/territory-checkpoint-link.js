@@ -4,6 +4,8 @@
  */
 import {MODULE_ID,readAtlas} from "./atlas-storage.js";
 import {REGION_CHECKPOINT_FLAG,readRegionAtlasLink} from "./region-atlas.js";
+import {readRegionGeography} from "./territory-geography-storage.js";
+import {checkpointCategory} from "./checkpoint-types.js";
 
 const ID=/^[A-Za-z0-9_-]{1,128}$/;
 
@@ -71,6 +73,8 @@ export async function saveTerritoryCheckpointLink(scene,regionId,{
   if(checkpointId!==null&&(!ID.test(checkpointId)||
       !atlas.checkpoints?.some(cp=>cp.id===checkpointId)))
     throw Error("Choose a Checkpoint that still exists in this Scene Atlas.");
+  if(checkpointId!==null&&readRegionGeography(region)?.kind!==checkpointCategory(scene,checkpointId))
+    throw Error("Checkpoint type and geographic Territory kind must match. Reopen the association editor.");
   const next=checkpointId===null?null:{schemaVersion:1,checkpointId};
   if(next){
     for(const entry of territoryCheckpointLinks(scene)){
