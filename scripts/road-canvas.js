@@ -26,6 +26,8 @@ import { defaultTravelPresets, validateTravelPresets,
 import { validateRoadAppearance } from "./road-appearance.js";
 import { sceneRoadSurfaces, roadSurfaceSpans, roadSurfaceAtPoint } from "./road-surface-overlay.js";
 import { RoadOverlayObservability } from "./road-overlay-observability.js";
+import {getGmAtlasCanvasLayers,clearUnusedGmAtlasCanvasLayers}
+  from "./atlas-gm-canvas-stack.js";
 import {effectiveCheckpointLabelMode} from "./territory-checkpoint-presentation.js";
 import {OverlayJournalStatusCache,attachOverlayJournalSuffix}
   from "./overlay-journal-label.js";
@@ -1713,6 +1715,7 @@ export class RoadCanvasController {
     this.overlayObservability.noteGraphicsDestroyed();
     this.graphics = null;
     this.graphicsCanvas = null;
+    clearUnusedGmAtlasCanvasLayers(this.canvasProvider());
   }
 
   /** Read-only counters/timings for diagnosing Canvas overlay redraw costs. */
@@ -1738,6 +1741,18 @@ export class RoadCanvasController {
   #renderOverlay() {
     const canvas = this.canvasProvider();
     if (!canvas?.ready || !canvas.scene || !globalThis.game?.user) return;
+    if (this.graphics && (this.graphicsCanvas!==canvas || this.graphics.destroyed)) {
+      const previousView=this.graphicsCanvas;
+      this.#clearLabels();
+      if(!this.graphics.destroyed){
+        this.graphics.parent?.removeChild?.(this.graphics);
+        this.graphics.destroy?.();
+        this.overlayObservability.noteGraphicsDestroyed();
+      }
+      this.graphics=null;
+      this.graphicsCanvas=null;
+      clearUnusedGmAtlasCanvasLayers(previousView);
+    }
     if (!game.user.isGM) {
       let revealed,atlasMapMode;
       try {
@@ -1755,13 +1770,18 @@ export class RoadCanvasController {
         return;
       }
     }
+    const gmLayers=game.user.isGM?getGmAtlasCanvasLayers(canvas):null;
+    const graphicsParent=gmLayers?.roads??canvas.interface;
     if (!this.graphics || this.graphicsCanvas !== canvas || this.graphics.destroyed) {
       if (!globalThis.PIXI?.Graphics || !canvas.interface?.addChild) return;
       this.graphics = new PIXI.Graphics();
       this.graphics.eventMode = "none";
-      canvas.interface.addChild(this.graphics);
+      graphicsParent.addChild(this.graphics);
       this.graphicsCanvas = canvas;
       this.overlayObservability.noteGraphicsCreated();
+    } else if (this.graphics.parent!==graphicsParent) {
+      this.graphics.parent?.removeChild?.(this.graphics);
+      graphicsParent.addChild(this.graphics);
     }
     const g = this.graphics;
     const zoom = Number.isFinite(canvas.stage?.scale?.x) && canvas.stage.scale.x > 0
@@ -1897,7 +1917,8 @@ export class RoadCanvasController {
         const surface=this.hoveredRoadId===roadId
           ?roadSurfaceAtPoint(this.hoveredRoadPoint,surfaceRegions) ??
             travelPresets.find(p=>p.id===item.road.travelPresetId)?.name:null;
-        if (opacity > 0) this.#addLabel(g, item.road.name +
+        const labelLayer=this.hoveredRoadId===roadId?gmLayers?.hover:gmLayers?.roadLabels;
+        if (opacity > 0) this.#addLabel(labelLayer??g, item.road.name +
           (journalUuidFor(gmJournals,"road",roadId) ? " 📖" : ""),
           { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity,surface);
       }
@@ -1926,9 +1947,7 @@ export class RoadCanvasController {
         this.clusterHoverGeometry.push({ id: group.id, x: group.x, y: group.y,
           radius: 20 / zoom });
         if (this.hoveredClusterId === group.id) {
-          // GM-only hover text belongs above the Territory border layer, which
-          // may have been added to InterfaceCanvasGroup after the road layer.
-          this.#addQuickInfo(canvas.interface?.addChild?canvas.interface:g,
+          this.#addQuickInfo(gmLayers?.hover??canvas.interface??g,
             clusterQuickInfo(group.members), group, zoom);
         }
         continue;
@@ -1977,10 +1996,9 @@ export class RoadCanvasController {
       });
       const roadName = roads.get(checkpoint.roadId)?.name;
       const hovered = this.hoveredCheckpointId === checkpoint.id;
-      // A hover label is an interface annotation, not part of the road stroke.
-      // Add it last in the same world-coordinate interface group so later
-      // Territory borders cannot paint over its title, road or elevation.
-      const labelParent=hovered&&canvas.interface?.addChild?canvas.interface:g;
+      // Keep static labels above geometry and hovered labels above every other
+      // Atlas presentation slot, regardless of either subsystem's refresh order.
+      const labelParent=hovered?gmLayers?.hover??canvas.interface??g:gmLayers?.roadLabels??g;
       const labelMode=effectiveCheckpointLabelMode(appearance.labelMode,
         this.territoryLabelCheckpointIds.has(checkpoint.id));
       if (labelMode === "always" || (labelMode === "hover" && hovered)) {
@@ -2101,6 +2119,7 @@ export class RoadCanvasController {
     }
     this.graphics = null;
     this.graphicsCanvas = null;
+    clearUnusedGmAtlasCanvasLayers(this.canvasProvider());
     this.selectedRoadId = null;
     this.selectedJunctionId = null;
     this.selectedCheckpointId = null;

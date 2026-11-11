@@ -21,6 +21,8 @@ import {OverlayJournalStatusCache,attachOverlayJournalSuffix}
 import {cellKey} from "./atlas-manual-fog-model.js";
 import {checkpointRevealKeys} from "./checkpoint-exploration.js";
 import {atlasPointExplored} from "./road-fog.js";
+import {getGmAtlasCanvasLayers,clearUnusedGmAtlasCanvasLayers}
+  from "./atlas-gm-canvas-stack.js";
 
 const MAX_REGIONS = 80;
 const MAX_VERTICES = 20000;
@@ -137,7 +139,7 @@ function location(region, paths) {
 }
 
 export class TerritoryViewOverlay {
-  constructor() { this.layer = null; this.view = null; this.labels = [];
+  constructor() { this.layer = null; this.labelLayer=null;this.view = null; this.labels = [];
     this.labelCheckpointIds=new Set();this.hitLabels=[];
     this.journalStatuses=new OverlayJournalStatusCache();
     this.journalCanvasElement=null;this.journalDoubleClickHandler=null; }
@@ -146,16 +148,24 @@ export class TerritoryViewOverlay {
     this.journalCanvasElement?.removeEventListener?.("dblclick",this.journalDoubleClickHandler,true);
     this.journalCanvasElement=null;this.journalDoubleClickHandler=null;
     const layer = this.layer;
+    const labelLayer=this.labelLayer;
     const view=this.view;
     this.layer = null;
+    this.labelLayer=null;
     this.view = null;
     this.labels = [];
     this.labelCheckpointIds=new Set();this.hitLabels=[];
-    if (!layer) return;
-    const parent=layer.parent;
-    parent?.removeChild?.(layer);
-    if (parent===view?.primary && "renderDirty" in parent)parent.renderDirty=true;
-    layer.destroy?.({children:true});
+    if(labelLayer){
+      labelLayer.parent?.removeChild?.(labelLayer);
+      labelLayer.destroy?.({children:true});
+    }
+    if(layer){
+      const parent=layer.parent;
+      parent?.removeChild?.(layer);
+      if (parent===view?.primary && "renderDirty" in parent)parent.renderDirty=true;
+      layer.destroy?.({children:true});
+    }
+    clearUnusedGmAtlasCanvasLayers(view);
   }
 
   sync(scene, entries, {mode="combined", showNames=false,
@@ -167,9 +177,10 @@ export class TerritoryViewOverlay {
         view.scene?.id !== scene.id ||
         !pixi?.Graphics || !pixi?.Container) return {shown:0, skipped:0};
     const gm=game.user.isGM===true;
+    const gmLayers=gm?getGmAtlasCanvasLayers(view):null;
     // Foundry's interface is above vision/fog. Player Territories must instead
     // live in Primary, behind native vision and Atlas's own Primary fog mask.
-    const parent=gm?view.interface:view.primary;
+    const parent=gm?(gmLayers?.terrain??view.interface):view.primary;
     const sort=globalThis.foundry?.canvas?.groups?.PrimaryCanvasGroup?.SORT_LAYERS;
     if (!parent?.addChild || (!gm && !Number.isFinite(sort?.TILES)))
       return {shown:0,skipped:0}; // Never fall back to a fog-bypassing interface.
@@ -178,6 +189,8 @@ export class TerritoryViewOverlay {
       .filter(entry=>territoryTier(entry)!=="unclassified");
     const layer = new pixi.Container();
     layer.eventMode = "none";
+    const labelLayer=gmLayers?new pixi.Container():null;
+    if(labelLayer)labelLayer.eventMode="none";
     if (!gm) {
       layer.sortLayer=sort.TILES+1;
       layer.elevation=0;
@@ -265,7 +278,7 @@ export class TerritoryViewOverlay {
             label.eventMode = "none";
             label.anchor?.set?.(.5,.5);
             label.position?.set?.(at.x,at.y);
-            layer.addChild(label);
+            (labelLayer??layer).addChild(label);
             labels.push(label);
             if(linkedCheckpoint){
               // A player-facing public alias need not be the same as the
@@ -287,11 +300,15 @@ export class TerritoryViewOverlay {
       }
       if(!shown){
         layer.destroy?.({children:true});
+        labelLayer?.destroy?.({children:true});
+        clearUnusedGmAtlasCanvasLayers(view);
         return {shown,skipped};
       }
       parent.addChild(layer);
+      if(labelLayer)gmLayers.territoryNames.addChild(labelLayer);
       if (!gm && "renderDirty" in parent)parent.renderDirty=true;
       this.layer = layer;
+      this.labelLayer=labelLayer;
       this.view = view;
       this.labels = labels;
       this.hitLabels=hitLabels;
@@ -328,6 +345,9 @@ export class TerritoryViewOverlay {
     } catch (error) {
       layer.parent?.removeChild?.(layer);
       layer.destroy?.({children:true});
+      labelLayer?.parent?.removeChild?.(labelLayer);
+      labelLayer?.destroy?.({children:true});
+      clearUnusedGmAtlasCanvasLayers(view);
       throw error;
     }
     return {shown, skipped};
