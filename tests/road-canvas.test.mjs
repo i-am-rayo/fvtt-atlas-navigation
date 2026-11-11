@@ -2,6 +2,8 @@ import { nativeFogCells } from "../scripts/atlas-manual-fog-geometry.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { RoadCanvasController } from "../scripts/road-canvas.js";
+import {TerritoryViewOverlay} from "../scripts/territory-view-overlay.js";
+import {getGmAtlasCanvasLayers} from "../scripts/atlas-gm-canvas-stack.js";
 import { readAtlas } from "../scripts/atlas-storage.js";
 import { createEmptyAtlas, upgradeAtlasRoadAppearance } from "../scripts/atlas-model.js";
 import { addRoad } from "../scripts/road-model.js";
@@ -501,6 +503,91 @@ test("GM checkpoint hover title and elevation render above a later Territory bor
     m.listeners.get("pointerleave")();
     assert.equal(stack.includes(title),false,"hover text is removed on pointer leave");
   }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
+});
+
+test("GM Atlas canvas stack keeps Territory names above Roads after either renderer refreshes",async()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI,canvas:globalThis.canvas};
+  const m=setup();
+  class Container{
+    constructor(){this.children=[];this.parent=null;this.destroyed=false;}
+    addChild(item){
+      item.parent?.removeChild?.(item);
+      this.children.push(item);item.parent=this;return item;
+    }
+    removeChild(item){
+      const index=this.children.indexOf(item);
+      if(index>=0)this.children.splice(index,1);
+      item.parent=null;
+    }
+    destroy(){this.destroyed=true;}
+  }
+  class Text{
+    constructor(content){this.text=String(content);this.anchor={set(){}};
+      this.position={set(){}};this.scale={set(){}};}
+    destroy(){this.destroyed=true;}
+  }
+  m.Graphics.prototype.poly=function(){return this;};
+  m.Graphics.prototype.addChild=function(item){item.parent=this;return item;};
+  try{
+    globalThis.game={user:{id:"gm",isGM:true}};
+    globalThis.PIXI={Container,Graphics:m.Graphics,Text};
+    m.canvas.interface=new Container();
+    m.canvas.stage={scale:{x:1}};
+    globalThis.canvas=m.canvas;
+    const region={id:"region1",name:"Some Village",color:"#e55bba",
+      polygons:[{points:[0,0,200,0,200,200,0,200]}]};
+    m.scene.regions=new Map([[region.id,region]]);
+    let serial=0;
+    let atlas=addRoad(createEmptyAtlas(),{name:"Main Road",
+      points:[{x:20,y:20},{x:140,y:20}],idFactory:()=>`stack${++serial}`});
+    atlas=addRoadCheckpoint(atlas,{roadId:atlas.roads[0].id,
+      candidate:{kind:"node",nodeId:atlas.segments[0].from},
+      name:"Bridge",idFactory:()=>`stack${++serial}`});
+    atlas=editCheckpointAppearance(atlas,{checkpointId:atlas.checkpoints[0].id,
+      appearance:{...DEFAULT_CHECKPOINT_APPEARANCE,labelMode:"always"}});
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",atlas);
+
+    // Road first, Territory second: labels are not tied to insertion order.
+    m.controller.refresh();
+    const overlay=new TerritoryViewOverlay();
+    const entries=[{id:region.id,name:region.name,linked:true,invalid:false,
+      geography:{kind:"village"}}];
+    assert.equal(overlay.sync(m.scene,entries,{showNames:true}).shown,1);
+    const stack=getGmAtlasCanvasLayers(m.canvas);
+    const root=stack.terrain.parent;
+    assert.equal(root.parent,m.canvas.interface);
+    assert.deepEqual(root.children,[stack.terrain,stack.roads,
+      stack.territoryNames,stack.roadLabels,stack.hover]);
+    assert.equal(overlay.layer.parent,stack.terrain);
+    assert.equal(m.controller.graphics.parent,stack.roads);
+    assert.equal(overlay.labels[0].parent,overlay.labelLayer);
+    assert.equal(overlay.labelLayer.parent,stack.territoryNames);
+    assert.ok(m.controller.labels.some(label=>label.parent===stack.roadLabels),
+      "the road text uses a separate annotation tier above Territory names");
+
+    // Territory first, Road refreshed later: same hierarchy and text order.
+    overlay.sync(m.scene,entries,{showNames:true});
+    m.controller.refresh();
+    assert.equal(stack.terrain.parent,root);
+    assert.equal(root.children.indexOf(stack.territoryNames)>
+      root.children.indexOf(stack.roads),true);
+    const checkpoint=m.controller.checkpointHoverGeometry[0];
+    m.listeners.get("pointermove")(pointEvent(checkpoint.x/2,checkpoint.y/2));
+    const hovered=m.controller.labels.find(label=>label.text==="Bridge");
+    assert.equal(hovered.parent,stack.hover,
+      "the active Checkpoint title remains in the highest Atlas tier");
+    m.listeners.get("pointerleave")();
+    assert.equal(stack.hover.children.includes(hovered),false);
+
+    m.controller.tearDown();
+    assert.equal(root.parent,m.canvas.interface,"the Territory renderer still owns labels");
+    overlay.clear();
+    assert.equal(root.parent,null,"the shared GM stack is released after both unmount");
+    assert.equal(root.destroyed,true);
+  }finally{
+    m.controller.tearDown();
+    Object.assign(globalThis,previous);
+  }
 });
 
 test("v0.2.24 GM elevation preview sits below the checkpoint and road labels", async () => {
