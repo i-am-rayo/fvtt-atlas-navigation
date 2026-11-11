@@ -27,6 +27,8 @@ import { validateRoadAppearance } from "./road-appearance.js";
 import { sceneRoadSurfaces, roadSurfaceSpans, roadSurfaceAtPoint } from "./road-surface-overlay.js";
 import { RoadOverlayObservability } from "./road-overlay-observability.js";
 import {effectiveCheckpointLabelMode} from "./territory-checkpoint-presentation.js";
+import {OverlayJournalStatusCache,attachOverlayJournalSuffix}
+  from "./overlay-journal-label.js";
 import { checkpointIconPath, checkpointFontIcon, checkpointMarkerPosition,
   checkpointCanvasSize,
   resolveCheckpointAppearance }
@@ -470,6 +472,7 @@ export class RoadCanvasController {
     this.journalDoubleClickHandler = null;
     this.playerJournalDoubleClickHandler = null;
     this.journalAccessCache = new Map();
+    this.checkpointJournalStatuses=new OverlayJournalStatusCache();
     this.draft = null;
     this.selectedRoadId = null;
     this.selectedJunctionId = null;
@@ -1288,7 +1291,8 @@ export class RoadCanvasController {
     }
   }
 
-  #addCheckpointLabels(graphics, checkpointName, roadName, appearance, point, zoom) {
+  #addCheckpointLabels(graphics, checkpointName, roadName, appearance, point, zoom,
+    {journalUuid=null,checkpointId=null}={}) {
     if (!globalThis.PIXI?.Text || !graphics.addChild) return;
     const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
     const fill = Number.parseInt(appearance.textColor.slice(1), 16);
@@ -1309,12 +1313,32 @@ export class RoadCanvasController {
       label.eventMode = "none";
       graphics.addChild(label);
       this.labels.push(label);
+      return label;
     };
     const secondLine = Boolean(appearance.showRoadName && roadName);
-    add(checkpointName, point.y - (secondLine ? 9 * textScale : 0),
+    const nameLabel=add(checkpointName, point.y - (secondLine ? 9 * textScale : 0),
       nameScreenSize * textScale, "bold", "normal");
     if (secondLine) add(roadName, point.y + 10 * textScale,
       roadScreenSize * textScale, "normal", "italic");
+    if(journalUuid&&nameLabel){
+      const viewerId=game.user?.id;
+      const view=this.canvasProvider();
+      const sceneId=view?.scene?.id;
+      const epoch=this.overlayEpoch;
+      attachOverlayJournalSuffix(this.checkpointJournalStatuses,journalUuid,
+        nameLabel,checkpointName,()=>{
+          if(this.overlayEpoch!==epoch||!this.labels.includes(nameLabel)||
+              nameLabel.destroyed||this.canvasProvider()!==view||!view?.ready||
+              view.scene?.id!==sceneId||game.user?.id!==viewerId)return false;
+          if(!game.user.isGM&&checkpointId){
+            try{
+              if(!playerAtlasOverlay(readAtlas(view.scene),readPartyExploration(view.scene))
+                .checkpoints.some(cp=>cp.id===checkpointId))return false;
+            }catch{return false;}
+          }
+          return true;
+        });
+    }
   }
 
   #addQuickInfo(graphics, content, point, zoom, { xOffset = 24, yOffset = 8 } = {}) {
@@ -1558,9 +1582,9 @@ export class RoadCanvasController {
         if (labelMode === "always" ||
             this.playerHoveredCheckpointId === checkpoint.id) {
           const roadName = roads.get(checkpoint.roadId)?.name;
-          this.#addCheckpointLabels(graphics, checkpoint.name +
-            (this.#journalCanView(journalUuidFor(journals,"checkpoint",checkpoint.id)) ? " 📖" : ""), roadName,
-            appearance, group, zoom);
+          this.#addCheckpointLabels(graphics,checkpoint.name,roadName,
+            appearance,group,zoom,{checkpointId:checkpoint.id,
+              journalUuid:journalUuidFor(journals,"checkpoint",checkpoint.id)});
         }
       }
     }
@@ -1953,9 +1977,9 @@ export class RoadCanvasController {
       const labelMode=effectiveCheckpointLabelMode(appearance.labelMode,
         this.territoryLabelCheckpointIds.has(checkpoint.id));
       if (labelMode === "always" || (labelMode === "hover" && hovered)) {
-        this.#addCheckpointLabels(g, checkpoint.name +
-          (journalUuidFor(gmJournals,"checkpoint",checkpoint.id) ? " 📖" : ""),
-          roadName, appearance, group, zoom);
+        this.#addCheckpointLabels(g,checkpoint.name,roadName,appearance,group,zoom,
+          {checkpointId:checkpoint.id,
+            journalUuid:journalUuidFor(gmJournals,"checkpoint",checkpoint.id)});
       }
       if (hovered) {
         const full = checkpointQuickInfo(checkpoint, roads.get(checkpoint.roadId)) +
@@ -2047,6 +2071,8 @@ export class RoadCanvasController {
 
   tearDown() {
     this.overlayEpoch++;
+    this.checkpointJournalStatuses.clear();
+    this.journalAccessCache.clear();
     this.overlayObservability.noteTeardown();
     if (this.focusTimer !== null) clearInterval(this.focusTimer);
     this.focusTimer = null;
