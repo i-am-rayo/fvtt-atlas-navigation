@@ -31,6 +31,7 @@ import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
   navigationHours, formatNavigationDuration }
   from "./navigation-time.js";
 import { buildNavigationSteps } from "./navigation-instructions.js";
+import {contextualDestinationRoadName} from "./navigation-road-naming.js";
 import { navigationPointIntent } from "./navigation-selection.js";
 import { createNavigationItinerary } from "./navigation-itinerary.js";
 import { REGION_ROUTING_ORDER_FLAG } from "./navigation-terrain.js";
@@ -226,6 +227,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     target.addEventListener("pointerdown", this.pointerDown, true);
   }
 
+  /** Presentation-only names. Keep stored road names and journey targets authoritative. */
+  roadNaming(atlas,route,destination=this.recoveryRecord?.destination??this.end){
+    const permanent=id=>atlas.roads?.find(road=>road.id===id)?.name??"Road";
+    let contextual=null;
+    try{
+      contextual=contextualDestinationRoadName({atlas,route,destination,
+        exploration:readPartyExploration(this.scene)});
+    }catch{ /* Invalid or absent knowledge state: never reveal the destination. */ }
+    return {roadName:permanent,
+      directionRoadName:contextual?()=>contextual:permanent,
+      preferRoadName:Boolean(contextual)};
+  }
+
   /** Use one route calculation for both map-point and live party departures. */
   calculateRoute(view,atlas) {
     this.routeRevision=atlas.revision;
@@ -251,7 +265,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.itinerary=createNavigationItinerary({
           sceneId:this.scene.id,sceneName:this.scene.name??"",
           sceneUnits:this.scene.grid?.units??"",atlasRevision:atlas.revision,
-          route:this.result,roadName:id=>atlas.roads.find(road=>road.id===id)?.name??"Road",
+          route:this.result,...this.roadNaming(atlas,this.result),
           travel:this.resolveTravel().travel
         });
       }
@@ -1713,7 +1727,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const snapshot=createNavigationItinerary({
       sceneId:this.scene.id,sceneName:this.scene.name??"",
       sceneUnits:this.scene.grid?.units??"",atlasRevision:atlas.revision,
-      route,roadName:id=>atlas.roads.find(road=>road.id===id)?.name??"Road",travel
+      route,...this.roadNaming(atlas,route),travel
     });
     const itinerary=guidedLeg?{...snapshot,transport:guidedLeg.transport}:{
       ...snapshot,
@@ -2859,8 +2873,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       body.append(renderJourneyTargets(session.journeyRecord.routeTargets));
     const routeLegs=leg?.legs??this.result?.legs??[];
     const atlas=this.atlasProvider(this.scene);
-    const steps=buildNavigationSteps(routeLegs,
-      id=>atlas.roads?.find(road=>road.id===id)?.name??"Road");
+    const naming=this.roadNaming(atlas,leg??this.result);
+    const steps=buildNavigationSteps(routeLegs,naming.directionRoadName,naming);
     const journeySpeed=hours>0?
       (leg?.terrainAware?leg.cost:leg?.distance)/hours:speed;
     const annotated=this.journeySchedule?.events?.length?
@@ -3450,12 +3464,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Overlapping Regions follow GM priority; short checkpoint Regions are included. " +
           "Travel time is an estimate and never changes native Token movement.":
           "No compatible terrain cost was available, so travel time uses physical distance."));
+      const naming=this.roadNaming(this.atlasProvider(this.scene),this.result);
       const baseSteps=transferPlan?.hasTransitions?
         buildNavigationSteps(this.result.legs.slice(0,
           (transferPlan.legs[0]?.lastRouteLeg??0)+1),
-          id=>this.atlasProvider(this.scene).roads.find(road=>road.id===id)?.name??"Road"):
+          naming.directionRoadName,naming):
         this.itinerary?.directions??buildNavigationSteps(this.result.legs,
-          id=>this.atlasProvider(this.scene).roads.find(road=>road.id===id)?.name??"Road");
+          naming.directionRoadName,naming);
       const guidedTimeline=this.travelSession?.transportLeg;
       const journeyHours=guidedTimeline?this.travelSession.schedule.travelHours:
         navigationHours(this.result.terrainAware?this.result.cost:
