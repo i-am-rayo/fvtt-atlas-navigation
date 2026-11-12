@@ -23,6 +23,7 @@ class Element {
   setAttribute(key, value) { this.attributes.set(key, String(value)); }
   appendChild(child) { this.children.push(child); child.parentNode = this; return child; }
   append(...children) { for (const child of children) this.appendChild(child); }
+  replaceChildren(...children) { this.children=[]; this.append(...children); }
   prepend(...children) { this.children.unshift(...children); }
   insertBefore(child,reference){
     const index=this.children.indexOf(reference);
@@ -44,6 +45,12 @@ function walk(root, predicate) {
 }
 const text = root => [root.textContent ?? "", ...root.children.map(text)].join(" ");
 const buttons = root => walk(root, item => item.tag === "button");
+
+async function enter(workspace,label) {
+  const button=buttons(workspace.result).find(item=>item.textContent===label);
+  assert.ok(button,"Workspace exposes "+label);
+  await button.listeners.get("click")({preventDefault(){}});
+}
 
 function context() {
   const before = { game: globalThis.game, document: globalThis.document, ui: globalThis.ui,
@@ -83,11 +90,12 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.match(text(first.result), /Roads/);
     const tasks=walk(first.result,item=>item.className==="atlas-workspace-note")[0];
     assert.deepEqual(buttons(tasks).map(item=>item.textContent),
-      ["Manage Roads","Manage Checkpoints","Manage Territories"]);
+      ["Browse map","Plan a route","Add territory","Add road","Add checkpoint"]);
     assert.ok(buttons(first.result).find(item=>item.textContent==="Plan a route").disabled);
     assert.deepEqual(ctx.calls,[]);
     const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     assert.equal(first, again, "per-Scene instance must be reused");
+    await enter(first,"Map directory");
     const territories = buttons(first.result).find(item => item.textContent === "Territories");
     await territories.listeners.get("click")({ preventDefault() {} });
     assert.match(text(first.result), /Millstone/);
@@ -128,6 +136,7 @@ test("Workspace Exploration reuses Scene manual Fog handler without writing on r
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     assert.ok(!buttons(ws.result).some(item=>item.textContent==="Exploration"));
     assert.equal(ws.activeSection,"overview");
+    await enter(ws,"Settings & transfer");
     const panel=walk(ws.result,item=>
       item.attributes?.has("data-atlas-exploration-panel"))[0];
     assert.ok(panel,"Exploration is a dedicated Scene panel");
@@ -147,6 +156,7 @@ test("Workspace Surfaces exposes existing native generator without creating Regi
     ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
     ctx.actions.linkRegion=()=>ctx.calls.push(["link-native"]);
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Settings & transfer");
     await buttons(ws.result).find(item=>item.textContent==="Surfaces")
       .listeners.get("click")({preventDefault(){}});
     assert.equal(ws.activeSection,"surfaces");
@@ -191,6 +201,7 @@ test("Workspace Navigation launches the existing controller without committing o
     assert.equal(workspace.minimized,true);
     await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     assert.equal(workspace.minimized,false);
+    await enter(workspace,"Settings & transfer");
     const settings=buttons(workspace.result).find(item=>
       item.textContent==="World travel settings");
     await settings.listeners.get("click")({preventDefault(){}});
@@ -205,6 +216,7 @@ test("Workspace Import / Export reports native dependencies without starting a m
     ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
     ctx.scene.background={src:"worlds/paedor/background.webp"};
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Settings & transfer");
     const tab=buttons(ws.result).find(item=>item.textContent==="Import / Export");
     assert.ok(tab);
     await tab.listeners.get("click")({preventDefault(){}});
@@ -276,6 +288,7 @@ test("Checkpoint Workspace has one [+] placement action and compact searchable r
     ctx.actions.manageCheckpointRoad = () => ctx.calls.push(["link"]);
     ctx.actions.removeCheckpoint = () => ctx.calls.push(["remove"]);
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    await enter(workspace,"Map directory");
     const tab = buttons(workspace.result).find(item => item.textContent === "Checkpoints");
     assert.ok(tab);
     await tab.listeners.get("click")({ preventDefault() {} });
@@ -321,6 +334,7 @@ test("isolated Checkpoint in Workspace offers explicit Road connection action", 
     } : null;
     ctx.actions.manageCheckpointRoad = (_scene, id) => ctx.calls.push(["connect", id]);
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    await enter(workspace,"Map directory");
     const tab = buttons(workspace.result).find(item => item.textContent === "Checkpoints");
     await tab.listeners.get("click")({ preventDefault() {} });
     assert.match(text(workspace.result), /Free Village/);
@@ -376,6 +390,7 @@ test("Roads tab is a working Workspace view with legacy Scene settings unaffecte
   const ctx = context();
   try {
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    await enter(workspace,"Map directory");
     const roads = buttons(workspace.result).find(item => item.textContent === "Roads");
     assert.ok(roads, "Roads has its own Workspace navigation entry");
     await roads.listeners.get("click")({ preventDefault() {} });
@@ -394,12 +409,14 @@ test("native Levels are isolated in Topology and never constructed inside Roads"
     globalThis.game.settings.get = (_scope, key) =>
       key === "nativeLevelPlannerEnabled" ? true : null;
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    await enter(workspace,"Settings & transfer");
     const topology = buttons(workspace.result).find(item => item.textContent === "Topology & Levels");
     assert.ok(topology);
     await topology.listeners.get("click")({ preventDefault() {} });
     assert.equal(workspace.activeSection, "topology");
     assert.match(text(workspace.result), /Native Scene Levels/);
     assert.doesNotMatch(text(workspace.result), /Territories & custom native Regions/);
+    await enter(workspace,"Map directory");
     const roads = buttons(workspace.result).find(item => item.textContent === "Roads");
     await roads.listeners.get("click")({ preventDefault() {} });
     assert.doesNotMatch(text(workspace.result), /Native Scene Levels/);
@@ -425,6 +442,7 @@ test("GM Territory directory remains accessible; Atlas Layers owns persistent ma
     ctx.scene.regions.push({id:"settlement-1",name:"Dirwest",parent:{id:ctx.scene.id},
       hidden:false,shapes:[],behaviors:[],getFlag:flag("city","continent-1")});
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    await enter(workspace,"Map directory");
     const territories = buttons(workspace.result).find(item=>item.textContent==="Territories");
     await territories.listeners.get("click")({preventDefault(){}});
     const rows = () => walk(workspace.result,item=>item.attributes?.has("data-atlas-native-region-id"));
@@ -471,6 +489,7 @@ test("Locate uses public canvas bounds and workspace does not own canvas preview
       animatePan:async options=>{moves.push(options);}};
     const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     assert.equal(subscriptions.size,0,"persistent Atlas Layers controller owns canvas hooks");
+    await enter(workspace,"Map directory");
     await buttons(workspace.result).find(item=>item.textContent==="Territories")
       .listeners.get("click")({preventDefault(){}});
     const locate=buttons(workspace.result).find(item=>
@@ -484,5 +503,57 @@ test("Locate uses public canvas bounds and workspace does not own canvas preview
     await workspace.close();
     assert.equal(subscriptions.size,0);
     assert.equal(removed.length,0);
+  } finally {ctx.restore();}
+});
+
+test("Directory filters keep independent choices and row expansion across refresh",async()=>{
+  const ctx=context();
+  try {
+    const graph={schemaVersion:10,coordinateSpace:"image",revision:2,enabled:true,calibration:null,
+      roads:[{id:"road",name:"Coast Road",travelPresetId:null,appearance:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:10,y:10}],
+      segments:[{id:"s",roadId:"road",from:"a",to:"b",via:[],bidirectional:true}],checkpoints:[]};
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    assert.match(text(ws.result),/Outside classified territories/);
+    await enter(ws,"All roads");
+    let row=walk(ws.result,e=>e.tag==="details" && e.children[0]?.textContent==="Coast Road · land · Hidden")[0];
+    row.open=true;
+    row.listeners.get("toggle")();
+    await ws.render(true);
+    row=walk(ws.result,e=>e.tag==="details" && e.children[0]?.textContent==="Coast Road · land · Hidden")[0];
+    assert.equal(row.open,true);
+    const type=walk(ws.result,e=>e.tag==="select")[0];
+    type.value="air";
+    type.listeners.get("change")();
+    assert.doesNotMatch(text(ws.result),/Coast Road/);
+    assert.match(text(ws.result),/No matching entries/);
+    await enter(ws,"All checkpoints");
+    await enter(ws,"All roads");
+    assert.equal(walk(ws.result,e=>e.tag==="select")[0].value,"air");
+    assert.deepEqual(ctx.calls,[]);
+    await ws.close();
+  } finally {ctx.restore();}
+});
+
+test("Named destination resolves current coordinates and blocks a stale selection during travel",async()=>{
+  const ctx=context();
+  try {
+    const {checkpointDestinationControl}=await import("../scripts/navigation-checkpoint-destination.js");
+    const graph={nodes:[{id:"n",x:12,y:34}], checkpoints:[{id:"c",nodeId:"n",name:"Pier"}]};
+    const view={ready:true,scene:ctx.scene};
+    const calls=[];
+    const planner={scene:ctx.scene,start:{x:0,y:0},atlasProvider:()=>graph,canvasProvider:()=>view,
+      calculateRoute:(v,a)=>calls.push(v===view && a===graph),draw:()=>{},render:()=>{}};
+    const select=checkpointDestinationControl(planner).children[0];
+    select.value="c";
+    graph.nodes[0].x=99;
+    await select.listeners.get("change")();
+    assert.deepEqual(planner.end,{x:99,y:34});
+    planner.travelSession={};
+    await select.listeners.get("change")();
+    assert.deepEqual(calls,[true]);
+    assert.equal(checkpointDestinationControl(planner),null);
   } finally {ctx.restore();}
 });

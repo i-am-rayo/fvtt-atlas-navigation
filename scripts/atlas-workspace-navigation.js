@@ -35,7 +35,7 @@ export function createAtlasWorkspaceNavigationPanel(scene,{
   const grid=readSceneGridScale(scene);
   const section=element("section");
   section.setAttribute("data-atlas-navigation-workspace","");
-  section.appendChild(element("h3","Travel"));
+
   const controls=element("div");
   controls.className="atlas-workspace-navigation-actions";
   if(typeof onOpenNavigation==="function"){

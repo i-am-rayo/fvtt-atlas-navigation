@@ -1,3 +1,4 @@
+import {checkpointDestinationControl} from "./navigation-checkpoint-destination.js";
 import { MODULE_ID,readAtlas } from "./atlas-storage.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 import { calculateSceneRoadRoute } from "./navigation-foundry.js";
@@ -2907,7 +2908,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const body=el("div");
     body.style.cssText="display:flex;flex-direction:column;gap:.85rem;padding:1rem;flex:1;min-height:0;overflow-y:auto;";
     body.append(...renderNavigationStageIntro({title:"Choose destination",
-      description:"Select Point B on the map. Once a route is available, review transport and confirm travel; a checkpoint directory can be added without changing this workflow."}));
+      description:"Choose a checkpoint or select Point B on the map, then review your route."}));
     const partyMode=this.sourceMode==="party";
     const status=this.pendingTransfer?
       "Checkpoint reached at "+this.pendingTransfer.checkpoint.name+
@@ -2939,6 +2940,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       onSourceChange:mode=>this.setSourceMode(mode),
       onRefresh:()=>this.refreshPartyDeparture()
     }));
+    const destination = checkpointDestinationControl(this);
+    if (destination) body.appendChild(destination);
     // An unresolved native checkpoint is still an approved Journal leg. Do
     // not present the default Walking selection or an unrelated recalculated
     // route as permission to replay a failed vessel movement.

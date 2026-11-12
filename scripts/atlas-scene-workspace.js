@@ -13,6 +13,12 @@ import {TerritoryLocateHighlight} from "./territory-locate-highlight.js";
 import {createAtlasWorkspaceNavigationPanel} from "./atlas-workspace-navigation.js";
 import {createAtlasWorkspacePortabilityPanel} from "./atlas-workspace-portability.js";
 
+import {createMapDirectory} from "./atlas-map-directory.js";
+import {readPartyExploration} from "./party-exploration-storage.js";
+
+const directoryViews = [["directory","By territory"],["allRoads","All roads"],["allCheckpoints","All checkpoints"]];
+const managers = [["territories","Territories"],["roads","Roads"],["checkpoints","Checkpoints"]];
+const settingsViews = [["settings","Exploration & travel"],["surfaces","Surfaces"],["topology","Topology & Levels"],["portability","Import / Export"]];
 const workspaces = new Map();
 
 function assertEditable(scene) {
@@ -59,6 +65,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     this.actions = actions;
     this.activeSection = "overview";
     this._scrollY = 0;
+    this.directoryState = {open:new Set(), filters:{}};
     this.territoryLocator=new TerritoryLocateHighlight();
   }
 
@@ -95,15 +102,14 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     const sidebar = make("nav", undefined, "atlas-workspace-nav");
     sidebar.setAttribute("aria-label", "Atlas workspace sections");
     sidebar.appendChild(make("h3", "Atlas"));
-    for (const [id, title] of [["overview", "Overview"], ["roads", "Roads"],
-      ["checkpoints", "Checkpoints"],
-      ["territories", "Territories"], ["surfaces", "Surfaces"],
-      ["topology", "Topology & Levels"], ["portability","Import / Export"]]) {
+    const directoryActive = [...directoryViews,...managers].some(([id])=>id===this.activeSection);
+    const section = directoryActive ? "directory" : this.activeSection==="overview" ? "overview" : "settings";
+    for (const [id,title] of [["overview","Overview"],["directory","Map directory"],["settings","Settings & transfer"]]) {
       const tab = action(title, `Show ${title}`, () => {
         return this._showSection(id);
       });
       tab.className = "atlas-workspace-tab";
-      tab.setAttribute("aria-current", this.activeSection === id ? "page" : "false");
+      tab.setAttribute("aria-current", section === id ? "page" : "false");
       tab.setAttribute("data-atlas-workspace-tab", id);
       sidebar.appendChild(tab);
     }
@@ -111,18 +117,54 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     main.setAttribute("data-atlas-workspace-scroll", "");
     const heading = make("header", undefined, "atlas-workspace-heading");
     const title = make("div");
-    title.appendChild(make("h2", this.activeSection === "territories" ? "Territories" :
-      this.activeSection === "roads" ? "Roads" :
-        this.activeSection === "checkpoints" ? "Checkpoints" :
-        this.activeSection === "surfaces" ? "Surfaces" :
-        this.activeSection === "portability" ? "Import / Export" :
-        this.activeSection === "topology" ? "Topology & Levels" : "Scene Overview"));
+    title.appendChild(make("h2",section==="directory"?"Map directory":section==="settings"?"Settings & transfer":"Scene Overview"));
     title.appendChild(make("p", `Scene: ${this.scene.name ?? this.scene.id}`, "hint"));
     heading.appendChild(title);
     heading.appendChild(action("Refresh", "Read current Scene and native Region records", () => this.render(true)));
     main.appendChild(heading);
 
-    if(this.activeSection==="portability"){
+    const refresh = () => this.minimized ? Promise.resolve() : this.render(true);
+    const addControls = container => {
+      for (const [label,handler] of [["Add territory","createNativeTerritory"],["Add road","begin"],["Add checkpoint","beginCheckpoint"]]) {
+        const button = action(label,label,()=>this.actions[handler](this.scene,refresh));
+        button.disabled = Boolean(this.actions.draft(this.scene)) || (handler==="begin" && atlas.schemaVersion<=2 && Boolean(atlas.segments.length || atlas.nodes.length));
+        container.appendChild(button);
+      }
+    };
+    const links = (container, entries) => {
+      for (const [id,label] of entries) {
+        const control = action(label,label,()=>this._showSection(id));
+        control.setAttribute("aria-current",this.activeSection===id?"page":"false");
+        container.appendChild(control);
+      }
+    };
+    if (directoryActive) {
+      const toolbar = make("div",undefined,"atlas-directory-filters");
+      addControls(toolbar);
+      main.appendChild(toolbar);
+      const views = make("nav",undefined,"atlas-directory-filters");
+      views.setAttribute("aria-label","Directory views");
+      links(views,directoryViews);
+      main.appendChild(views);
+      const advanced = make("details");
+      advanced.open = managers.some(([id])=>id===this.activeSection);
+      advanced.appendChild(make("summary","Manage map records"));
+      links(advanced,managers);
+      main.appendChild(advanced);
+    } else if (section==="settings") {
+      const views = make("nav",undefined,"atlas-directory-filters");
+      views.setAttribute("aria-label","Atlas settings");
+      links(views,settingsViews);
+      main.appendChild(views);
+    }
+
+    if (directoryViews.some(([id])=>id===this.activeSection)) {
+      main.appendChild(createMapDirectory({scene:this.scene, atlas, actions:this.actions, refresh,
+        locate:id=>this._locateTerritory(id), state:this.directoryState, view:this.activeSection}));
+    } else if (this.activeSection==="settings") {
+      main.appendChild(createAtlasExplorationPanel(this.scene,this.actions,refresh));
+      main.appendChild(action("World travel settings","World travel settings",()=>this.actions.openWorldTravelSettings()));
+    } else if(this.activeSection==="portability"){
       main.appendChild(createAtlasWorkspacePortabilityPanel(this.scene));
     } else if(this.activeSection==="surfaces"){
       main.appendChild(make("p","Generate or manage native Road corridor and " +
@@ -159,15 +201,9 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
           onLocate:id=>this._locateTerritory(id) }));
     } else {
       const tasks = make("section", undefined, "atlas-workspace-note");
-      tasks.appendChild(make("h3", "Map tasks"));
-      for (const [label, section] of [
-        ["Manage Roads", "roads"], ["Manage Checkpoints", "checkpoints"],
-        ["Manage Territories", "territories"]
-      ]) {
-        tasks.appendChild(action(label, label, () => this._showSection(section)));
-      }
-      main.appendChild(tasks);
-      main.appendChild(createAtlasWorkspaceNavigationPanel(this.scene,{
+      tasks.appendChild(make("h3","Map actions"));
+      tasks.appendChild(action("Browse map","Browse map",()=>this._showSection("directory")));
+      tasks.appendChild(createAtlasWorkspaceNavigationPanel(this.scene,{
         onOpenNavigation:async()=>{
           // Navigation uses the existing JourneyController; this is a view
           // hand-off, never a hidden Journey approval.
@@ -178,23 +214,26 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
             if(!wasMinimized&&this.rendered)await this.maximize();
             throw error;
           }
-        },
-        onOpenWorldTravelSettings:()=>this.actions.openWorldTravelSettings()
+        }
       }));
-      main.appendChild(createAtlasExplorationPanel(this.scene,this.actions,
-        ()=>this.render(true)));
-      main.appendChild(make("h3", "On this map"));
-      const summary = make("div", undefined, "atlas-workspace-summary");
-      for (const [label, value] of [
-        ["Roads", atlas.roads?.length ?? 0],
-        ["Checkpoints", atlas.checkpoints?.length ?? 0],
-        ["Territory / custom Regions", nativeRegions.filter(region => !generatedIds.has(region.id)).length],
-        ["Road-generated Regions", generated.length],
-        ["Published territory names", labels.filter(entry => entry.label && !entry.invalid).length]
+      addControls(tasks);
+      main.appendChild(tasks);
+      main.appendChild(make("h3","Party discoveries"));
+      const summary = make("div",undefined,"atlas-workspace-summary");
+      const checkpointCount = atlas.checkpoints?.length ?? 0;
+      let known = "Unavailable";
+      try {
+        const party = readPartyExploration(this.scene);
+        const ids = new Set([...party.discoveredCheckpointIds,...party.loreKnownCheckpointIds]);
+        known = String((atlas.checkpoints??[]).filter(cp=>ids.has(cp.id)).length);
+      } catch (error) { main.appendChild(make("p",error.message,"hint")); }
+      for (const [label,value] of [
+        ["Checkpoints known to the party",known+" / "+checkpointCount],
+        ["Roads on this map",atlas.roads?.length??0],
+        ["Territories / custom Regions",nativeRegions.filter(region=>!generatedIds.has(region.id)).length]
       ]) {
-        const card = make("section", undefined, "atlas-workspace-stat");
-        card.appendChild(make("strong", String(value)));
-        card.appendChild(make("span", label));
+        const card = make("section",undefined,"atlas-workspace-stat");
+        card.append(make("strong",String(value)),make("span",label));
         summary.appendChild(card);
       }
       main.appendChild(summary);
