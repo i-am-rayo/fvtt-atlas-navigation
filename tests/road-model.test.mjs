@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEmptyAtlas } from "../scripts/atlas-model.js";
+import {addIndependentCheckpoint} from "../scripts/checkpoint-model.js";
+import {independentCheckpointRoadCandidates} from "../scripts/road-checkpoint-attachments.js";
 import { addRoad, renameRoad, removeRoad, reshapeRoad, findRoadSnap, suggestRoadName, mergeRoadGroups, getRoadMergeCandidates, applyRoadGeometryEdit, findJunctionAttachment, attachmentRoadNames, listRoadJunctions } from "../scripts/road-model.js";
 
 function makeIds() {
@@ -606,4 +608,111 @@ test("junction inspector excludes endpoints and same-road pass-through nodes, an
   assert.deepEqual(ids({roadId:"remote",scope:"selected"}),["r2"]);
   assert.deepEqual(ids({roadId:"missing",scope:"selected"}),[]);
   assert.throws(()=>ids({scope:"all"}),/Unknown/);
+});
+
+test("new Road candidate review finds multiple independent Checkpoints along an interior",()=>{
+  let index=0;
+  const ids=()=> "candidate"+ ++index;
+  let atlas=addIndependentCheckpoint(createEmptyAtlas(),{
+    at:{x:40,y:3},name:"Bridge",idFactory:ids
+  });
+  atlas=addIndependentCheckpoint(atlas,{
+    at:{x:90,y:0},name:"Waystation",idFactory:ids
+  });
+  atlas=addIndependentCheckpoint(atlas,{
+    at:{x:140,y:40},name:"Far village",idFactory:ids
+  });
+  const points=[{x:0,y:0},{x:120,y:0}];
+  const eligible=independentCheckpointRoadCandidates(atlas,points);
+  assert.deepEqual(eligible.map(c=>c.name),["Bridge","Waystation"]);
+  assert.ok(eligible[0].distance<=3);
+  const saved=addRoad(atlas,{
+    points,name:"Route",idFactory:ids,
+    checkpointIds:eligible.map(c=>c.checkpointId)
+  });
+  const created=saved.roads.at(-1);
+  const sections=saved.segments.filter(s=>s.roadId===created.id);
+  assert.equal(sections.length,3,"two interior attachments divide the new Road");
+  assert.equal(saved.nodes.length,atlas.nodes.length+2,
+    "only the two new Road endpoints allocate Nodes");
+  assert.equal(sections[0].to,eligible[0].nodeId);
+  assert.equal(sections[1].from,eligible[0].nodeId);
+  assert.equal(sections[1].to,eligible[1].nodeId);
+  assert.equal(sections[2].from,eligible[1].nodeId);
+  assert.deepEqual(saved.checkpoints.map(c=>c.id),atlas.checkpoints.map(c=>c.id));
+  assert.deepEqual(saved.checkpoints.map(c=>c.roadId),
+    [created.id,created.id,null]);
+  assert.equal(atlas.roads.length,0,"original Scene graph remains unchanged");
+});
+
+test("new Road attaches a selected independent endpoint without zero-length sections",()=>{
+  let index=0;const ids=()=> "terminal"+ ++index;
+  let atlas=addIndependentCheckpoint(createEmptyAtlas(),{
+    at:{x:0,y:0},name:"Start",idFactory:ids
+  });
+  const checkpoint=atlas.checkpoints[0];
+  const points=[{x:0,y:0},{x:60,y:0},{x:120,y:0}];
+  const candidates=independentCheckpointRoadCandidates(atlas,points);
+  assert.equal(candidates[0].endpoint,"start");
+  const saved=addRoad(atlas,{points,name:"New Road",idFactory:ids,
+    checkpointIds:[checkpoint.id]});
+  assert.equal(saved.segments.length,1);
+  assert.equal(saved.segments[0].from,checkpoint.nodeId);
+  assert.deepEqual(saved.segments[0].via,[{x:60,y:0}]);
+  assert.equal(saved.checkpoints[0].roadId,saved.roads[0].id);
+});
+
+test("unselected and invalid candidates cannot modify topology",()=>{
+  let index=0;const ids=()=> "guard"+ ++index;
+  let atlas=addIndependentCheckpoint(createEmptyAtlas(),{
+    at:{x:50,y:0},name:"Optional",idFactory:ids
+  });
+  const points=[{x:0,y:0},{x:100,y:0}];
+  const untouched=addRoad(atlas,{points,idFactory:ids,checkpointIds:[]});
+  assert.equal(untouched.segments.length,1);
+  assert.equal(untouched.checkpoints[0].roadId,null);
+  assert.throws(()=>addRoad(atlas,{points,idFactory:ids,
+    checkpointIds:["missing"]}),/no longer eligible/);
+  assert.throws(()=>addRoad(atlas,{points,idFactory:ids,
+    checkpointIds:[atlas.checkpoints[0].id,atlas.checkpoints[0].id]}),/distinct/);
+});
+
+test("looping Road drafts do not offer ambiguous independent Node links",()=>{
+  let index=0;const ids=()=> "loop"+ ++index;
+  const atlas=addIndependentCheckpoint(createEmptyAtlas(),{
+    at:{x:50,y:0},name:"Ambiguous",idFactory:ids
+  });
+  const candidates=independentCheckpointRoadCandidates(atlas,
+    [{x:0,y:0},{x:100,y:0},{x:100,y:50},{x:0,y:50},{x:0,y:0}]);
+  assert.equal(candidates.length,1,
+    "corner-safe nearest projection still returns one unique closest pass");
+});
+
+test("Road that doubles back over a Checkpoint is ambiguous and never offers a silent merge",()=>{
+  let n=0;
+  const atlas=addIndependentCheckpoint(createEmptyAtlas(),{
+    at:{x:50,y:0},name:"Repeated passage",idFactory:()=>"repeat"+ ++n
+  });
+  const points=[{x:0,y:0},{x:100,y:0},{x:0,y:0}];
+  const options=independentCheckpointRoadCandidates(atlas,points);
+  assert.deepEqual(options,[],"twice-crossed Node is not an eligible connection");
+  assert.throws(()=>addRoad(atlas,{points,idFactory:()=>"road"+ ++n,
+    checkpointIds:[atlas.checkpoints[0].id]}),/no longer eligible/);
+});
+
+test("existing Road endpoint snap cannot be silently replaced by isolated Checkpoint attachment",()=>{
+  let n=0;const ids=()=>"conflict"+ ++n;
+  const road=addRoad(createEmptyAtlas(),{points:[{x:0,y:0},{x:100,y:0}],
+    name:"Old Road",idFactory:ids});
+  const atlas=addIndependentCheckpoint(road,{at:{x:0,y:1},
+    name:"Nearby Landmark",idFactory:ids});
+  const cp=atlas.checkpoints[0];
+  const points=[{x:0,y:1},{x:50,y:80}];
+  assert.throws(()=>addRoad(atlas,{points,name:"New Road",idFactory:ids,
+    checkpointIds:[cp.id]}),/already snaps to an existing Road/);
+  const detached=addRoad(atlas,{points,name:"New Road",idFactory:ids,
+    snapEndpoints:[false,true],checkpointIds:[cp.id]});
+  assert.equal(detached.segments.at(-1).from,cp.nodeId);
+  assert.equal(detached.checkpoints[0].roadId,detached.roads.at(-1).id);
+  assert.equal(road.segments[0].id,atlas.segments[0].id);
 });

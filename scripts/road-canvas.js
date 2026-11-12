@@ -5,6 +5,7 @@ import { checkpointCandidateRoads } from "./checkpoint-model.js";
 import { RoadPointEditor } from "./road-point-editor.js";
 import { roadHandles } from "./road-hit.js";
 import { attachmentRoadNames, findRoadSnap, suggestRoadName } from "./road-model.js";
+import {independentCheckpointRoadCandidates} from "./road-checkpoint-attachments.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 import { atlasShortcutTarget } from "./atlas-canvas-hit.js";
 import { groupCheckpointMarkers, checkpointQuickInfo,
@@ -1205,7 +1206,30 @@ export class RoadCanvasController {
     }
     try {
       const atlas = readAtlas(draft.scene);
-      // Only endpoints ever snap; crossings and bends stay independent.
+      // Independent Node connections are offered for the entire Road shape,
+      // including interiors. A geometric pass is never a graph link on its own.
+      const candidates=independentCheckpointRoadCandidates(atlas,draft.points);
+      let checkpointIds=[];
+      if(candidates.length){
+        if(typeof this.reviewIndependentCheckpointConnections!=="function")
+          throw Error("Road-to-Checkpoint connection review is unavailable; cancel and retry.");
+        draft.confirming=true;this.#changed();
+        const selected=await this.reviewIndependentCheckpointConnections({
+          roadName:draft.options.name.trim(),candidates
+        });
+        if(this.draft!==draft)return false;
+        draft.confirming=false;
+        if(selected===null){
+          this.#changed();return false;
+        }
+        if(!Array.isArray(selected)||selected.some(id=>
+          !candidates.some(c=>c.checkpointId===id))||
+          new Set(selected).size!==selected.length)
+          throw Error("Checkpoint connection review returned invalid selections.");
+        checkpointIds=selected;
+      }
+      // Existing Road attachment prompts remain unchanged. Only endpoints
+      // snap to the existing Road graph; unrelated crossings remain isolated.
       const connections = [];
       if (atlas.schemaVersion >= 3) {
         for (const index of [0, draft.points.length - 1]) {
@@ -1238,6 +1262,7 @@ export class RoadCanvasController {
         playerVisible: draft.options.playerVisible === true,
         expectedRevision: draft.expectedRevision,
         snapEndpoints: [draft.snap[0], draft.snap.at(-1)],
+        checkpointIds,
         idFactory: this.idFactory, journalUuid: draft.options.journalUuid
       });
       if (journalError) {

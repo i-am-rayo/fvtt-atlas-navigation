@@ -34,7 +34,7 @@ async function saveChange(scene, expectedRevision, update) {
 }
 
 export function saveNewRoad(scene, { points, name, expectedRevision, idFactory, snapEndpoints,
-  presetId = null, appearance = null, playerVisible = false }) {
+  checkpointIds = [], presetId = null, appearance = null, playerVisible = false }) {
   const style = appearance === null ? null : validateRoadAppearance(appearance);
   if (presetId !== null) {
     validateTravelPresetId(presetId);
@@ -52,7 +52,7 @@ export function saveNewRoad(scene, { points, name, expectedRevision, idFactory, 
       ? anchorLegacyAtlas(previous, { x: 0, y: 0 }) : previous;
     const modern = local.schemaVersion === 2 && !local.nodes.length && !local.segments.length
       ? upgradeAtlasRoadGroups(local) : local;
-    const created = addRoad(modern, { points, name, idFactory, snapEndpoints });
+    const created = addRoad(modern, { points, name, idFactory, snapEndpoints, checkpointIds });
     if (presetId === null && style === null && !playerVisible) return created;
     const upgraded = style !== null
       ? upgradeAtlasRoadTextAppearance(created)

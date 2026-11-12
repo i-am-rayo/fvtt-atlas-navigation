@@ -1,4 +1,5 @@
 import { validateAtlas } from "./atlas-model.js";
+import {independentCheckpointRoadCandidates} from "./road-checkpoint-attachments.js";
 
 const MAX_NAME = 120;
 const SNAP_PIXELS = 14;
@@ -189,7 +190,8 @@ export function listRoadJunctions(atlas, { roadId = null, scope = "scene" } = {}
 }
 
 export function addRoad(atlas, {
-  points, name, idFactory, snapPixels = SNAP_PIXELS, snapEndpoints = [true, true]
+  points, name, idFactory, snapPixels = SNAP_PIXELS, snapEndpoints = [true, true],
+  checkpointIds = []
 }) {
   const current = validateAtlas(atlas);
   if (current.schemaVersion < 3) {
@@ -208,6 +210,20 @@ export function addRoad(atlas, {
       throw new Error("Each road point must be at least 1 Scene pixel from the previous point.");
     }
   }
+  if(!Array.isArray(checkpointIds)||checkpointIds.length>100||
+     checkpointIds.some(id=>typeof id!=="string")||
+     new Set(checkpointIds).size!==checkpointIds.length)
+    throw Error("Choose at most 100 distinct independent Checkpoints.");
+  const candidates=checkpointIds.length?
+    independentCheckpointRoadCandidates(current,path,{tolerance:SNAP_PIXELS}):[];
+  const byId=new Map(candidates.map(c=>[c.checkpointId,c]));
+  const selections=checkpointIds.map(id=>{
+    const candidate=byId.get(id);
+    if(!candidate)throw Error("Checkpoint connection is no longer eligible; review the Road draft again.");
+    return candidate;
+  }).sort((a,b)=>a.along-b.along);
+  if(selections.some((c,i)=>i>0&&c.along-selections[i-1].along<1))
+    throw Error("Selected Checkpoints are too close for separate Road sections.");
   const roadIds = new Set(current.roads.map(r => r.id));
   const nodeIds = new Set(current.nodes.map(n => n.id));
   const segmentIds = new Set(current.segments.map(s => s.id));
@@ -225,22 +241,63 @@ export function addRoad(atlas, {
     return id;
   };
 
-  const from = chooseEndpoint(path[0], snapEndpoints[0] !== false);
-  const to = chooseEndpoint(path.at(-1), snapEndpoints[1] !== false, from);
-  if (from === to) throw new Error("Road endpoints must be different junctions.");
+  const firstSelection=selections.find(c=>c.endpoint==="start");
+  const lastSelection=selections.find(c=>c.endpoint==="end");
+  // A Road endpoint may already be snapping to the saved network. Selecting a
+  // different isolated Node at the same location must never silently replace
+  // that existing junction. The GM can explicitly Alt-detach and retry.
+  if(firstSelection&&snapEndpoints[0]!==false&&
+     findRoadSnap(current,path[0],snapPixels))
+    throw Error("The Road start already snaps to an existing Road. " +
+      "Cancel the standalone connection or Alt-detach that endpoint.");
+  if(lastSelection&&snapEndpoints[1]!==false&&
+     findRoadSnap(current,path.at(-1),snapPixels))
+    throw Error("The Road end already snaps to an existing Road. " +
+      "Cancel the standalone connection or Alt-detach that endpoint.");
 
-  const roadId = uniqueId(roadIds, idFactory);
-  const road = { id: roadId, name: cleanedName(name ?? suggestRoadName(current)),
-    ...(current.schemaVersion >= 5 ? { travelPresetId: null } : {}),
-    ...(current.schemaVersion >= 6 ? { appearance: null } : {}),
-    ...(current.schemaVersion >= 9 ? { playerVisible: false } : {}) };
-  const segment = {
-    id: uniqueId(segmentIds, idFactory), roadId,
-    from, to, via: path.slice(1, -1), bidirectional: true
-  };
-  return validateAtlas({
-    ...current, enabled: true, nodes,
-    roads: [...current.roads, road], segments: [...segments, segment]
+  const from=firstSelection?.nodeId??
+    chooseEndpoint(path[0],snapEndpoints[0]!==false);
+  const to=lastSelection?.nodeId??
+    chooseEndpoint(path.at(-1),snapEndpoints[1]!==false,from);
+  if(from===to)throw Error("Road endpoints must be different junctions.");
+
+  const roadId=uniqueId(roadIds,idFactory);
+  const road={id:roadId,name:cleanedName(name??suggestRoadName(current)),
+    ...(current.schemaVersion>=5?{travelPresetId:null}:{}),
+    ...(current.schemaVersion>=6?{appearance:null}:{}),
+    ...(current.schemaVersion>=9?{playerVisible:false}:{})};
+
+  // Preserve all existing segment IDs. The NEW Road alone is divided into
+  // sections at each explicitly selected existing Checkpoint Node.
+  const lengths=[0];
+  for(let i=1;i<path.length;i++)lengths.push(lengths[i-1]+
+    Math.hypot(path[i].x-path[i-1].x,path[i].y-path[i-1].y));
+  const middle=selections.filter(c=>!c.endpoint);
+  const cuts=[{along:0,nodeId:from},...middle.map(c=>({
+    along:c.along,nodeId:c.nodeId
+  })),{along:lengths.at(-1),nodeId:to}];
+  const additions=[];
+  for(let i=1;i<cuts.length;i++){
+    const start=cuts[i-1],end=cuts[i];
+    if(end.along-start.along<1||start.nodeId===end.nodeId)
+      throw Error("Checkpoint attachment would create a zero-length Road section.");
+    const via=path.slice(1,-1).filter((_,index)=>
+      lengths[index+1]>start.along+1e-6&&
+      lengths[index+1]<end.along-1e-6);
+    const positions=new Map(nodes.map(n=>[n.id,n]));
+    const a=positions.get(start.nodeId),b=positions.get(end.nodeId);
+    if(!a||!b||Math.hypot(a.x-b.x,a.y-b.y)<1)
+      throw Error("Selected Nodes are coincident; graph attachment requires review.");
+    additions.push({
+      id:uniqueId(segmentIds,idFactory),roadId,
+      from:start.nodeId,to:end.nodeId,via,bidirectional:true
+    });
+  }
+  const selectedIds=new Set(checkpointIds);
+  return validateAtlas({...current,enabled:true,nodes,
+    roads:[...current.roads,road],segments:[...segments,...additions],
+    ...(selectedIds.size?{checkpoints:current.checkpoints.map(cp=>
+      selectedIds.has(cp.id)?{...cp,roadId}:cp)}:{})
   });
 }
 

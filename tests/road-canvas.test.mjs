@@ -7,9 +7,9 @@ import {getGmAtlasCanvasLayers} from "../scripts/atlas-gm-canvas-stack.js";
 import { readAtlas } from "../scripts/atlas-storage.js";
 import { createEmptyAtlas, upgradeAtlasRoadAppearance } from "../scripts/atlas-model.js";
 import { addRoad } from "../scripts/road-model.js";
-import { addRoadCheckpoint, editCheckpointAppearance } from "../scripts/checkpoint-model.js";
+import { addRoadCheckpoint, addIndependentCheckpoint, editCheckpointAppearance } from "../scripts/checkpoint-model.js";
 import { DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
-import { saveNewIndependentCheckpoint } from "../scripts/road-storage.js";
+import { saveNewIndependentCheckpoint, saveRelocatedIndependentCheckpoint } from "../scripts/road-storage.js";
 import { setRoadPlayerVisibility, setCheckpointPlayerVisibility }
   from "../scripts/player-visibility.js";
 import { defaultPartyExploration, setCheckpointKnowledge }
@@ -1068,6 +1068,49 @@ test("one checkpoint placement chooses standalone when clicked away from Road ge
     m.controller.tearDown();
     Object.assign(globalThis, previous);
   }
+});
+
+test("isolated Checkpoint Move previews and cancels before a guarded one-write save",async()=>{
+  const prev={game:globalThis.game,PIXI:globalThis.PIXI};
+  const m=setup();
+  try{
+    globalThis.game={user:{isGM:true},i18n:{localize:key=>key}};
+    globalThis.PIXI={Graphics:m.Graphics};
+    let seq=0;
+    const atlas=addIndependentCheckpoint(createEmptyAtlas(),{
+      at:{x:90,y:90},name:"Standalone",idFactory:()=>"move"+ ++seq
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",atlas);
+    let writes=0;
+    const priorSave=m.scene.setFlag;
+    m.scene.setFlag=async(...args)=>{writes++;return priorSave(...args);};
+    m.controller.refresh=()=>{};
+    const id=atlas.checkpoints[0].id;
+    let approve=false,reviewed=0;
+    m.controller.startCheckpointRelocation(m.scene,id,{
+      confirm:async({name,from,at})=>{
+        reviewed++;assert.equal(name,"Standalone");
+        assert.deepEqual(from,{x:90,y:90});
+        assert.ok(Number.isFinite(at.x)&&Number.isFinite(at.y));
+        return approve;
+      },
+      save:args=>saveRelocatedIndependentCheckpoint(m.scene,args),
+      onChange:()=>{}
+    });
+    await m.listeners.get("pointerdown")(pointEvent(60,70));
+    assert.equal(reviewed,1);
+    assert.equal(writes,0,"Cancel does not write the Scene flag");
+    assert.equal(m.controller.getDraft(m.scene).mode,"checkpoint-relocate");
+    approve=true;
+    await m.listeners.get("pointerdown")(pointEvent(65,75));
+    const moved=readAtlas(m.scene);
+    assert.equal(writes,1);
+    assert.equal(moved.checkpoints[0].id,id);
+    assert.equal(moved.checkpoints[0].nodeId,atlas.checkpoints[0].nodeId);
+    assert.notDeepEqual(moved.nodes,atlas.nodes);
+    assert.equal(m.controller.getDraft(m.scene),null);
+    assert.equal(m.listeners.has("pointerdown"),false);
+  }finally{m.controller.tearDown();Object.assign(globalThis,prev);}
 });
 
 test("non-GM checkpoint placement cannot begin or mutate a Scene", () => {
