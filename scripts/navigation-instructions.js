@@ -18,8 +18,9 @@ export function navigationInstruction({kind,roadId,regionName,direction,first,ne
   const road=roadId?roadName(roadId):null;
   const namedRegion=regionName && !regionName.includes(" → ") ? regionName : null;
   const destination=preferRoadName&&road?road:namedRegion??road;
-  if(kind==="road")return `${first?"Head":"Continue"}${direction?" "+direction:""} ${first?"to":"on"} ${destination}`;
-  return `${first?"Head":"Continue"}${direction?" "+direction:""} to ${nextRoadId?roadName(nextRoadId):"the destination"}`;
+  if(kind==="road")return `${first?"Head":"Continue"}${direction?" "+direction:""} ${preferRoadName&&road?"on":first?"to":"on"} ${destination}`;
+  const next=nextRoadId?roadName(nextRoadId):null;
+  return `${first?"Head":"Continue"}${direction?" "+direction:""} ${preferRoadName&&next?"on":"to"} ${next??"the destination"}`;
 }
 
 /** Split meaningful turns and terrain transitions; merge only straight-enough repeats. */
