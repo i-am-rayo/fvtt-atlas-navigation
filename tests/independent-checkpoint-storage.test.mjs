@@ -365,3 +365,54 @@ test("Road edit Save snaps near-miss selected Checkpoint to exact Road centerlin
     assert.equal(scene.writes,3);
   }finally{globalThis.game=prior;}
 });
+
+test("GM-approved exact merge to a saved multi-Road junction selects the Road without rebuilding the network",async()=>{
+  const prev=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    const scene=sceneFixture();
+    let n=0;const idFactory=()=>"multijoin"+ ++n;
+    const first=await saveNewRoad(scene,{
+      name:"To North",points:[{x:0,y:0},{x:100,y:0}],
+      expectedRevision:5,idFactory
+    });
+    const second=await saveNewRoad(scene,{
+      name:"To East",points:[{x:100,y:0},{x:100,y:100}],
+      expectedRevision:6,idFactory
+    });
+    const junction=first.segments[0].to;
+    assert.equal(second.segments[1].from,junction);
+    const created=await saveNewIndependentCheckpoint(scene,{
+      at:{x:107,y:7},name:"Temple",expectedRevision:7,idFactory
+    });
+    const cp=created.checkpoints[0];
+    const merged=await saveRelocatedIndependentCheckpoint(scene,{
+      checkpointId:cp.id,at:{x:101,y:1},expectedRevision:8,
+      connection:{
+        kind:"node",nodeId:junction,roadId:second.roads[1].id,
+        x:100,y:0
+      },idFactory
+    });
+    assert.equal(merged.revision,9);
+    assert.equal(scene.writes,4,"single authoritative merge commit");
+    assert.equal(merged.checkpoints[0].id,cp.id);
+    assert.equal(merged.checkpoints[0].nodeId,junction);
+    assert.equal(merged.checkpoints[0].roadId,second.roads[1].id);
+    assert.deepEqual(merged.segments,second.segments,
+      "the exact saved Road graph remains unchanged");
+    assert.deepEqual(merged.roads.map(road=>({id:road.id,name:road.name})),
+      second.roads.map(road=>({id:road.id,name:road.name})),
+      "Road identity and names stay unchanged; v10 may normalize optional metadata");
+    assert.ok(merged.roads.every(road=>
+      Object.hasOwn(road,"appearance") && Object.hasOwn(road,"playerVisible")),
+      "schema normalization retains the canonical style and visibility fields");
+    assert.equal(merged.nodes.some(node=>node.id===cp.nodeId),false);
+    await assert.rejects(saveRelocatedIndependentCheckpoint(scene,{
+      checkpointId:cp.id,at:{x:101,y:1},expectedRevision:8,
+      connection:{
+        kind:"node",nodeId:junction,roadId:first.roads[0].id,x:100,y:0
+      },idFactory
+    }),/changed since/);
+    assert.equal(scene.writes,4);
+  }finally{globalThis.game=prev;}
+});

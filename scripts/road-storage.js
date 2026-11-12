@@ -182,9 +182,15 @@ export function saveRelocatedIndependentCheckpoint(scene,{
         throw Error("Road endpoint changed; review the connection again.");
       const edge=previous.segments.filter(s=>
         s.from===roadNode.id||s.to===roadNode.id);
-      if(edge.length!==1)throw Error("Only an unshared terminal Road endpoint can be merged.");
+      const incidentRoads=new Set(edge.map(s=>s.roadId));
+      // Keep the v8.39.2 single-Road endpoint contract readable; when
+      // multiple Roads meet, the GM MUST choose an explicit Road association.
+      const selectedRoadId=connection.roadId??
+        (incidentRoads.size===1?[...incidentRoads][0]:null);
+      if(!incidentRoads.size||!incidentRoads.has(selectedRoadId))
+        throw Error("Select a Road incident to this junction before connecting.");
       return attachIndependentCheckpointToRoadEndpoint(previous,{
-        checkpointId,roadId:edge[0].roadId,roadNodeId:roadNode.id
+        checkpointId,roadId:selectedRoadId,roadNodeId:roadNode.id
       });
     }
     if(connection.kind!=="edge"&&connection.kind!==undefined)

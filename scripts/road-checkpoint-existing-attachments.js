@@ -81,16 +81,16 @@ export function roadCheckpointEditCandidates(atlas,{roadId,tolerance=CHECKPOINT_
 }
 
 /**
- * An isolated Checkpoint can join a saved Road's terminal Node by sharing that
- * exact graph Node. This is a *merge*, not a new zero-length edge.
+ * An isolated Checkpoint can join any saved Road graph Node (terminal or
+ * junction) by sharing that exact graph Node. This is a *merge*, not a new edge.
  *
  * Preserve the established Road endpoint ID and Checkpoint ID. The isolated
  * Node ID is intentionally retired after confirmation, because retaining two
  * distinct coincident Nodes would not make them graph-connected.
  *
- * For the Sunday private beta this is strictly terminal-only: shared junctions,
- * Roads already containing a Checkpoint at the endpoint, and non-isolated
- * sources require a separate topology review rather than implicit rewiring.
+ * At a multi-Road junction a roadId MUST be selected explicitly by the GM.
+ * Road/segment IDs and coordinates are never rewritten. Nodes already owned
+ * by another Checkpoint and non-isolated source Nodes require separate review.
  */
 export function attachIndependentCheckpointToRoadEndpoint(atlas,{
   checkpointId,roadId,roadNodeId
@@ -109,14 +109,19 @@ export function attachIndependentCheckpointToRoadEndpoint(atlas,{
   if(current.checkpoints.some(c=>c.nodeId===destination.id))
     throw Error("The Road endpoint already has a Checkpoint; review shared ownership separately.");
   const incident=current.segments.filter(s=>s.from===destination.id||s.to===destination.id);
-  if(incident.length!==1||incident[0].roadId!==roadId)
-    throw Error("Only a terminal Node on the selected Road is eligible for exact merge.");
+  const roadIds=new Set(incident.map(s=>s.roadId));
+  if(!roadIds.size||!roadIds.has(roadId))
+    throw Error("Choose a Road actually incident to this saved graph Node.");
   return validateAtlas({
     ...current,
     nodes:current.nodes.filter(node=>node.id!==source.id),
     checkpoints:current.checkpoints.map(c=>c.id===checkpointId
       ? {...c,nodeId:destination.id,roadId}:c)
   });
+}
+
+export function attachIndependentCheckpointToRoadNode(atlas,options={}) {
+  return attachIndependentCheckpointToRoadEndpoint(atlas,options);
 }
 
 /** Split only affected Road sections, retaining the upstream original ID and

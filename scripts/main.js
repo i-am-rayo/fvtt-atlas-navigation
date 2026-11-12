@@ -1402,52 +1402,68 @@ function actions() {
           if(candidate){
             let eligible=candidate.kind==="edge";
             let blockedReason="";
+            const roadOptions=[];
             if(candidate.kind==="node"){
-              // Pure dry-run: never authorize a merge from proximity alone.
-              // Shared junctions and pre-owned endpoints remain blocked.
               const incident=atlas.segments.filter(edge=>
                 edge.from===candidate.nodeId||edge.to===candidate.nodeId);
-              try {
-                attachIndependentCheckpointToRoadEndpoint(atlas,{
-                  checkpointId,
-                  roadId:incident.length===1?incident[0].roadId:null,
-                  roadNodeId:candidate.nodeId
-                });
-                eligible=true;
-              } catch(error){
-                blockedReason=error.message??String(error);
+              const selectedRoadIds=[...new Set(incident.map(edge=>edge.roadId))];
+              for(const roadId of selectedRoadIds){
+                try {
+                  // A pure dry-run: topology changes only after an explicit
+                  // GM choice and a revision-checked Scene write.
+                  attachIndependentCheckpointToRoadEndpoint(atlas,{
+                    checkpointId,roadId,roadNodeId:candidate.nodeId
+                  });
+                  const road=atlas.roads.find(item=>item.id===roadId);
+                  roadOptions.push({roadId,name:road?.name??"Unnamed Road"});
+                }catch(error){blockedReason=error.message??String(error);}
               }
+              eligible=roadOptions.length>0;
             }
             const hint=document.createElement("p");
             hint.textContent=candidate.kind==="edge"
-              ? "This position is near a saved Road interior. Connect will " +
-                "snap the Checkpoint Node to the exact Road centerline and " +
-                "split that section. Move Only remains independent."
+              ? "The destination is near a saved Road interior. Connect " +
+                "snaps the Checkpoint Node to its exact centerline and " +
+                "splits the Road section. Move Only remains independent."
               : eligible
-                ? "This is an eligible terminal Road Node. Connect will " +
-                  "use the exact existing Road endpoint as the Checkpoint's " +
-                  "authoritative Node, retire the former isolated Node ID, " +
-                  "and preserve the Road endpoint and Checkpoint IDs."
-                : "Road endpoint connection is not safe here: "+blockedReason+
+                ? roadOptions.length>1
+                  ? "This is a multi-Road junction. Choose the Road that " +
+                    "will own the Checkpoint's Road association. The graph " +
+                    "Node is shared by all incident Roads; no Road is moved."
+                  : "This saved Road Node is eligible for exact connection. " +
+                    "The Checkpoint ID and existing junction Node ID stay; " +
+                    "its former isolated Node is retired."
+                : "Road junction connection is unsafe here: "+blockedReason+
                   ". Move Only retains an independent Checkpoint.";
             content.appendChild(hint);
+            const choices=candidate.kind==="node"
+              ? roadOptions.map((option,index)=>({
+                  action:"connect-"+index,
+                  label:roadOptions.length===1
+                    ? "Move & Connect to Road"
+                    : "Connect to "+option.name
+                }))
+              : [{action:"connect",label:"Move & Connect to Road"}];
             const answer=await DialogV2.wait({
               window:{title:"Relocate "+name+" — Road Connection"},
               content,modal:true,rejectClose:false,
               buttons:[
-                ...(eligible?[{
-                  action:"connect",label:"Move & Connect to Road"
-                }]:[]),
+                ...choices,
                 {action:"move",label:"Move Only (Independent)"},
                 {action:"cancel",label:"Cancel",default:true}
               ]
             });
-            if(answer==="connect"&&eligible)
-              return {connection:candidate.kind==="node"
-                ? {kind:"node",nodeId:candidate.nodeId,
-                  x:candidate.x,y:candidate.y}
-                : {kind:"edge",segmentId:candidate.segmentId,
-                  x:candidate.x,y:candidate.y}};
+            if(candidate.kind==="edge"&&answer==="connect"&&eligible)
+              return {connection:{kind:"edge",segmentId:candidate.segmentId,
+                x:candidate.x,y:candidate.y}};
+            if(candidate.kind==="node"&&typeof answer==="string"){
+              const match=/^connect-([0-9]+)$/.exec(answer);
+              const option=match?roadOptions[Number(match[1])]:null;
+              if(option)return {connection:{
+                kind:"node",roadId:option.roadId,nodeId:candidate.nodeId,
+                x:candidate.x,y:candidate.y
+              }};
+            }
             if(answer==="move")return {connection:null};
             return null;
           }
