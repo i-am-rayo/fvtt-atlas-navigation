@@ -32,6 +32,8 @@ import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveRoadAppearance, saveRoadSettings, saveRoadPlayerVisibility,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
 import { getRoadMergeCandidates, suggestRoadName, findRoadSnap } from "./road-model.js";
+import {attachIndependentCheckpointToRoadEndpoint}
+  from "./road-checkpoint-existing-attachments.js";
 import { sceneImageOrigin, toCanvasPoint } from "./road-coordinates.js";
 import { roadFocusCamera } from "./road-focus-camera.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
@@ -1398,30 +1400,54 @@ function actions() {
             "transportation and Territory associations remain unchanged.";
           content.appendChild(description);
           if(candidate){
+            let eligible=candidate.kind==="edge";
+            let blockedReason="";
+            if(candidate.kind==="node"){
+              // Pure dry-run: never authorize a merge from proximity alone.
+              // Shared junctions and pre-owned endpoints remain blocked.
+              const incident=atlas.segments.filter(edge=>
+                edge.from===candidate.nodeId||edge.to===candidate.nodeId);
+              try {
+                attachIndependentCheckpointToRoadEndpoint(atlas,{
+                  checkpointId,
+                  roadId:incident.length===1?incident[0].roadId:null,
+                  roadNodeId:candidate.nodeId
+                });
+                eligible=true;
+              } catch(error){
+                blockedReason=error.message??String(error);
+              }
+            }
             const hint=document.createElement("p");
             hint.textContent=candidate.kind==="edge"
-              ? "This position is near a saved Road. Move & Connect snaps " +
-                "the existing Checkpoint Node onto that Road, splitting one " +
-                "Road section. Move Only retains an independent Checkpoint."
-              : "This position is near an existing Road graph endpoint. " +
-                "Coincident graph Nodes cannot be automatically merged; " +
-                "Move Only keeps the Checkpoint independent.";
+              ? "This position is near a saved Road interior. Connect will " +
+                "snap the Checkpoint Node to the exact Road centerline and " +
+                "split that section. Move Only remains independent."
+              : eligible
+                ? "This is an eligible terminal Road Node. Connect will " +
+                  "use the exact existing Road endpoint as the Checkpoint's " +
+                  "authoritative Node, retire the former isolated Node ID, " +
+                  "and preserve the Road endpoint and Checkpoint IDs."
+                : "Road endpoint connection is not safe here: "+blockedReason+
+                  ". Move Only retains an independent Checkpoint.";
             content.appendChild(hint);
             const answer=await DialogV2.wait({
               window:{title:"Relocate "+name+" — Road Connection"},
               content,modal:true,rejectClose:false,
               buttons:[
-                ...(candidate.kind==="edge"?[{
+                ...(eligible?[{
                   action:"connect",label:"Move & Connect to Road"
                 }]:[]),
                 {action:"move",label:"Move Only (Independent)"},
                 {action:"cancel",label:"Cancel",default:true}
               ]
             });
-            if(answer==="connect"&&candidate.kind==="edge")
-              return {connection:{
-                segmentId:candidate.segmentId,x:candidate.x,y:candidate.y
-              }};
+            if(answer==="connect"&&eligible)
+              return {connection:candidate.kind==="node"
+                ? {kind:"node",nodeId:candidate.nodeId,
+                  x:candidate.x,y:candidate.y}
+                : {kind:"edge",segmentId:candidate.segmentId,
+                  x:candidate.x,y:candidate.y}};
             if(answer==="move")return {connection:null};
             return null;
           }

@@ -193,9 +193,13 @@ test("GM-approved Move & Connect snaps existing Checkpoint Node to Road interior
     assert.equal(moved.checkpoints[0].id,cp.id);
     assert.equal(moved.checkpoints[0].nodeId,cp.nodeId);
     assert.equal(moved.checkpoints[0].roadId,road.roads[0].id);
-    assert.deepEqual(moved.nodes.find(n=>n.id===cp.nodeId),{
-      id:cp.nodeId,x:55,y:0
-    });
+    const anchored=moved.nodes.find(n=>n.id===cp.nodeId);
+    assert.equal(anchored.id,cp.nodeId);
+    assert.ok(Math.abs(anchored.x-55)<1e-9 && Math.abs(anchored.y)<1e-9,
+      "the saved graph Node must coincide with the Road centerline within floating-point precision");
+    assert.equal(moved.segments[0].to,anchored.id);
+    assert.equal(moved.segments[1].from,anchored.id,
+      "both sides of the Road reference the exact same authoritative Node");
     assert.equal(moved.segments.length,2);
     assert.equal(moved.segments[0].id,road.segments[0].id);
     await assert.rejects(saveRelocatedIndependentCheckpoint(scene,{
@@ -257,4 +261,107 @@ test("Road point Save can review and attach an independent Checkpoint in the sam
     assert.equal(saved.segments.length,2);
     assert.equal(saved.segments[0].id,road.segments[0].id);
   }finally{globalThis.game=prev;}
+});
+
+test("GM Move & Connect to Road beginning performs exact terminal merge in one write",async()=>{
+  const prior=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    const scene=sceneFixture();
+    let seq=0;
+    const idFactory=()=>"endpoint"+ ++seq;
+    const road=await saveNewRoad(scene,{
+      name:"Causeway",points:[{x:200,y:300},{x:400,y:300}],
+      expectedRevision:5,idFactory
+    });
+    const cpAtlas=await saveNewIndependentCheckpoint(scene,{
+      at:{x:188,y:293},name:"Port",elevationMeters:9,
+      expectedRevision:6,idFactory
+    });
+    const cp=cpAtlas.checkpoints[0];
+    const roadNodeId=road.segments[0].from;
+    const result=await saveRelocatedIndependentCheckpoint(scene,{
+      checkpointId:cp.id,
+      at:{x:199,y:302},expectedRevision:7,
+      connection:{kind:"node",nodeId:roadNodeId,x:200,y:300},
+      idFactory
+    });
+    assert.equal(scene.writes,3);
+    assert.equal(result.revision,8);
+    assert.equal(result.checkpoints[0].id,cp.id);
+    assert.equal(result.checkpoints[0].nodeId,roadNodeId);
+    assert.equal(result.checkpoints[0].name,"Port");
+    assert.equal(result.checkpoints[0].elevationMeters,9);
+    assert.equal(result.checkpoints[0].roadId,road.roads[0].id);
+    assert.equal(result.segments.length,1);
+    assert.equal(result.segments[0].id,road.segments[0].id);
+    assert.deepEqual(result.nodes.find(n=>n.id===roadNodeId),{
+      id:roadNodeId,x:200,y:300
+    });
+    assert.equal(result.nodes.some(n=>n.id===cp.nodeId),false);
+    await assert.rejects(saveRelocatedIndependentCheckpoint(scene,{
+      checkpointId:cp.id,at:{x:200,y:300},expectedRevision:7,
+      connection:{kind:"node",nodeId:roadNodeId,x:200,y:300}
+    }),/changed since/);
+    assert.equal(scene.writes,3);
+  }finally{globalThis.game=prior;}
+});
+
+test("relocated Checkpoint cannot claim fabricated Road endpoint or stale coordinate",async()=>{
+  const prior=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    const scene=sceneFixture();
+    let seq=0;const idFactory=()=>"guard"+ ++seq;
+    const road=await saveNewRoad(scene,{
+      name:"Main",points:[{x:0,y:0},{x:100,y:0}],
+      expectedRevision:5,idFactory
+    });
+    const graph=await saveNewIndependentCheckpoint(scene,{
+      at:{x:5,y:5},name:"A",expectedRevision:6,idFactory
+    });
+    const cp=graph.checkpoints[0];
+    for(const connection of [
+      {kind:"node",nodeId:"nonexistent",x:0,y:0},
+      {kind:"node",nodeId:road.segments[0].from,x:1,y:0}
+    ]) {
+      await assert.rejects(saveRelocatedIndependentCheckpoint(scene,{
+        checkpointId:cp.id,at:{x:0,y:0},
+        connection,expectedRevision:7,idFactory
+      }),/endpoint|unavailable|changed/);
+    }
+    assert.equal(scene.writes,2);
+    assert.equal(scene.current.checkpoints[0].nodeId,cp.nodeId);
+  }finally{globalThis.game=prior;}
+});
+
+test("Road edit Save snaps near-miss selected Checkpoint to exact Road centerline",async()=>{
+  const prior=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    const scene=sceneFixture();
+    let seq=0;const idFactory=()=>"align"+ ++seq;
+    const road=await saveNewRoad(scene,{
+      name:"Road",points:[{x:0,y:0},{x:100,y:0}],
+      expectedRevision:5,idFactory
+    });
+    const graph=await saveNewIndependentCheckpoint(scene,{
+      at:{x:50,y:5},name:"Near Road",expectedRevision:6,idFactory
+    });
+    // The Road edit changes a bend away from its earlier path, creating a
+    // reviewed near intersection without an exact native-grid coincidence.
+    const before=graph.checkpoints[0];
+    const initial=await savePointEdits(scene,{
+      roadId:road.roads[0].id,operations:[
+        {kind:"create-junction",segmentId:road.segments[0].id,
+          edgeIndex:0,atVertex:false,x:25,y:0,
+          newNodeId:"alignJunction",newSegmentId:"alignSection"}
+      ],
+      checkpointIds:[before.id],expectedRevision:7,idFactory
+    });
+    const anchored=initial.nodes.find(node=>node.id===before.nodeId);
+    assert.deepEqual(anchored,{id:before.nodeId,x:50,y:0});
+    assert.equal(initial.checkpoints[0].roadId,road.roads[0].id);
+    assert.equal(scene.writes,3);
+  }finally{globalThis.game=prior;}
 });
