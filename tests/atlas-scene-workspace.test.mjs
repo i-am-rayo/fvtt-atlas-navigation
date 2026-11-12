@@ -83,10 +83,8 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.match(text(first.result), /Roads/);
     const tasks=walk(first.result,item=>item.className==="atlas-workspace-note")[0];
     assert.deepEqual(buttons(tasks).map(item=>item.textContent),
-      ["Manage Roads","Manage Checkpoints","Manage Territories","Plan a route"]);
-    await buttons(tasks).find(item=>item.textContent==="Plan a route")
-      .listeners.get("click")({preventDefault(){}});
-    assert.equal(first.activeSection,"navigation");
+      ["Manage Roads","Manage Checkpoints","Manage Territories"]);
+    assert.ok(buttons(first.result).find(item=>item.textContent==="Plan a route").disabled);
     assert.deepEqual(ctx.calls,[]);
     const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     assert.equal(first, again, "per-Scene instance must be reused");
@@ -128,9 +126,8 @@ test("Workspace Exploration reuses Scene manual Fog handler without writing on r
     ctx.actions.saveManualFog=(scene,enabled)=>ctx.calls.push(["manual-fog",scene.id,enabled]);
     ctx.actions.openManualBrushPalette=()=>ctx.calls.push(["brush"]);
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
-    await buttons(ws.result).find(item=>item.textContent==="Exploration")
-      .listeners.get("click")({preventDefault(){}});
-    assert.equal(ws.activeSection,"exploration");
+    assert.ok(!buttons(ws.result).some(item=>item.textContent==="Exploration"));
+    assert.equal(ws.activeSection,"overview");
     const panel=walk(ws.result,item=>
       item.attributes?.has("data-atlas-exploration-panel"))[0];
     assert.ok(panel,"Exploration is a dedicated Scene panel");
@@ -182,12 +179,10 @@ test("Workspace Navigation launches the existing controller without committing o
     ctx.actions.openNavigation=()=>ctx.calls.push(["navigation"]);
     ctx.actions.openWorldTravelSettings=()=>ctx.calls.push(["world-rules"]);
     const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
-    const navigation=buttons(workspace.result).find(item=>item.textContent==="Navigation");
-    await navigation.listeners.get("click")({preventDefault(){}});
-    assert.equal(workspace.activeSection,"navigation");
-    assert.match(text(workspace.result),/Navigation & Journey/);
+    assert.ok(!buttons(workspace.result).some(item=>item.textContent==="Navigation"));
+    assert.equal(workspace.activeSection,"overview");
     assert.deepEqual(ctx.calls,[],"opening navigation's read model never approves travel");
-    const launch=buttons(workspace.result).find(item=>item.textContent==="Open Atlas Navigation");
+    const launch=buttons(workspace.result).find(item=>item.textContent==="Plan a route");
     assert.ok(launch);
     assert.notEqual(launch.disabled,true,
       "valid graph and native Scene Grid allow the navigation launcher");
@@ -197,7 +192,7 @@ test("Workspace Navigation launches the existing controller without committing o
     await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     assert.equal(workspace.minimized,false);
     const settings=buttons(workspace.result).find(item=>
-      item.textContent==="World Travel & Transportation Settings");
+      item.textContent==="World travel settings");
     await settings.listeners.get("click")({preventDefault(){}});
     assert.deepEqual(ctx.calls,[["navigation"],["world-rules"]]);
     await workspace.close();

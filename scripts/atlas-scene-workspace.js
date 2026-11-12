@@ -98,7 +98,6 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     for (const [id, title] of [["overview", "Overview"], ["roads", "Roads"],
       ["checkpoints", "Checkpoints"],
       ["territories", "Territories"], ["surfaces", "Surfaces"],
-      ["exploration", "Exploration"], ["navigation", "Navigation"],
       ["topology", "Topology & Levels"], ["portability","Import / Export"]]) {
       const tab = action(title, `Show ${title}`, () => {
         return this._showSection(id);
@@ -116,8 +115,6 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       this.activeSection === "roads" ? "Roads" :
         this.activeSection === "checkpoints" ? "Checkpoints" :
         this.activeSection === "surfaces" ? "Surfaces" :
-        this.activeSection === "exploration" ? "Exploration" :
-        this.activeSection === "navigation" ? "Navigation" :
         this.activeSection === "portability" ? "Import / Export" :
         this.activeSection === "topology" ? "Topology & Levels" : "Scene Overview"));
     title.appendChild(make("p", `Scene: ${this.scene.name ?? this.scene.id}`, "hint"));
@@ -127,26 +124,6 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
 
     if(this.activeSection==="portability"){
       main.appendChild(createAtlasWorkspacePortabilityPanel(this.scene));
-    } else if(this.activeSection==="navigation"){
-      main.appendChild(createAtlasWorkspaceNavigationPanel(this.scene,{
-        onOpenNavigation:async()=>{
-          // Navigation uses the existing JourneyController; this is a view
-          // hand-off, never a hidden Journey approval.
-          const wasMinimized=this.minimized;
-          if(!wasMinimized)await this.minimize();
-          try{await this.actions.openNavigation(this.scene);}
-          catch(error){
-            if(!wasMinimized&&this.rendered)await this.maximize();
-            throw error;
-          }
-        },
-        onOpenWorldTravelSettings:()=>this.actions.openWorldTravelSettings()
-      }));
-    } else if(this.activeSection==="exploration"){
-      main.appendChild(make("p","Atlas manual map exploration is Scene-owned. " +
-        "Painting, revealing and hiding cells does not replace native Foundry Fog.","hint"));
-      main.appendChild(createAtlasExplorationPanel(this.scene,this.actions,
-        ()=>this.render(true)));
     } else if(this.activeSection==="surfaces"){
       main.appendChild(make("p","Generate or manage native Road corridor and " +
         "Checkpoint Regions. Atlas previews and confirms every native Region " +
@@ -185,11 +162,27 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       tasks.appendChild(make("h3", "Map tasks"));
       for (const [label, section] of [
         ["Manage Roads", "roads"], ["Manage Checkpoints", "checkpoints"],
-        ["Manage Territories", "territories"], ["Plan a route", "navigation"]
+        ["Manage Territories", "territories"]
       ]) {
         tasks.appendChild(action(label, label, () => this._showSection(section)));
       }
       main.appendChild(tasks);
+      main.appendChild(createAtlasWorkspaceNavigationPanel(this.scene,{
+        onOpenNavigation:async()=>{
+          // Navigation uses the existing JourneyController; this is a view
+          // hand-off, never a hidden Journey approval.
+          const wasMinimized=this.minimized;
+          if(!wasMinimized)await this.minimize();
+          try{await this.actions.openNavigation(this.scene);}
+          catch(error){
+            if(!wasMinimized&&this.rendered)await this.maximize();
+            throw error;
+          }
+        },
+        onOpenWorldTravelSettings:()=>this.actions.openWorldTravelSettings()
+      }));
+      main.appendChild(createAtlasExplorationPanel(this.scene,this.actions,
+        ()=>this.render(true)));
       main.appendChild(make("h3", "On this map"));
       const summary = make("div", undefined, "atlas-workspace-summary");
       for (const [label, value] of [
