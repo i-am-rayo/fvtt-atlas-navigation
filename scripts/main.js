@@ -712,6 +712,7 @@ function actions() {
       const mode = roadAppearanceMode(actual, readWorldTravelPresets().presets);
       const name = document.createElement("input");
       name.type = "text"; name.name = "atlasRoadName"; name.maxLength = 120;
+      name.autofocus = true;
       name.required = true; name.value = actual.name; name.defaultValue = actual.name;
       const nameRow=createSettingsFieldRow("Road name",name);
       const visibility = document.createElement("input");
@@ -890,9 +891,7 @@ function actions() {
         const nativeSave=arrangeRoadDialogFooter(dialog);
         if(nativeSave){
           roadSaveButton=nativeSave;
-          nativeSave.title="Save road";
-          nativeSave.setAttribute("aria-label","Save road");
-          nativeSave.style.cssText="width:2.5rem;min-width:2.5rem;height:2.5rem;flex:0 0 2.5rem;";
+          nativeSave.removeAttribute("autofocus");
           nativeSave.addEventListener("click",()=>{
             if(dialog.form?.checkValidity?.()===false)return;
             roadSaveRequested=true;
@@ -903,6 +902,7 @@ function actions() {
         // Track the actual live inputs inside Atlas's own content wrapper.
         roadDirty=trackSettingsChanges(liveRoadForm??dialog.form??dialog.element);
         if(dialog._atlasCloseGuard)return;
+        liveRoadForm?.querySelector('input[name="atlasRoadName"]')?.focus();
         dialog._atlasCloseGuard=true;
         const baseClose=dialog.close.bind(dialog);
         dialog.close=async options=>{
@@ -1058,7 +1058,7 @@ function actions() {
           window: { title: atlasSettingsTitle("Road",actual.name), resizable: true,
             minimizable: true },
           position: { left: 24, width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(740, Math.max(440, window.innerHeight - 70)) },
-          content, ok: {label:"",icon:"fa-solid fa-floppy-disk",tooltip:"Save road"},
+          content, ok: {label:"Save Road",icon:"fa-solid fa-floppy-disk"},
           render:renderRoadDialog,
           rejectClose: false, modal: false
         });

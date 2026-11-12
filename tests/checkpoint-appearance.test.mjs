@@ -316,12 +316,13 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     elevation.value = "640";
     playerVisible.checked = true;
     const save = all(root).find(node => node.tag === "button" &&
-      node.title === "Save Checkpoint Settings");
+      node.textContent === "Save Checkpoint");
     assert.ok(save);
     assert.ok(all(root).some(node=>node.tag==="button"&&node.title==="Save as preset"),
       "preset saving is an icon beside the preset selector");
-    assert.ok(!all(root).some(node=>node.textContent==="Reset to default dot"||
-      node.textContent==="Cancel"),"checkpoint footer has no reset or cancel buttons");
+    const footer = all(root).find(node=>node.className==="atlas-checkpoint-form-actions");
+    assert.deepEqual(footer.children.slice(-2).map(node=>node.textContent),["Cancel","Save Checkpoint"]);
+    assert.equal(name.autofocus,true);
     save.listeners.get("click")();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(stored.schemaVersion, 9);

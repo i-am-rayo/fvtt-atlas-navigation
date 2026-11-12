@@ -116,6 +116,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const select=(choices,value)=>createSettingsSelect(choices,{selectedId:value});
     const name = el("input");
     name.type = "text"; name.maxLength = 120; name.required = true; name.value = current.name;
+    name.autofocus = this.activePage === "General";
     name.setAttribute("aria-label", "Checkpoint name");
     field("Checkpoint name", name);
     const category=field("Checkpoint type",createSettingsGroupedSelect(
@@ -389,9 +390,12 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     root.append(pageGeneral,pageMarker,pageTerrain,pageTransport);
     const journalInput = journalControls.querySelector('input[name="atlasJournalUuid"]');
     const controls = el("div");
-    controls.style.cssText = "position:sticky;bottom:0;z-index:2;display:flex;gap:0.5rem;justify-content:flex-end;background:#100f17;padding:.4rem 0;";
-    const save = this.createDraft ? el("button", "Create Checkpoint") :
-      createSettingsIconButton({icon:"floppy-disk",label:"Save Checkpoint Settings"});
+    controls.className = "atlas-checkpoint-form-actions";
+    controls.style.cssText = "position:sticky;bottom:0;z-index:2;background:#100f17;padding:.4rem 0;";
+    const cancel = el("button", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => this.close());
+    const save = el("button", this.createDraft ? "Create Checkpoint" : "Save Checkpoint");
     save.type = "button";
     const remove = !this.createDraft && this.onDelete ?
       createSettingsIconButton({icon:"trash",label:"Delete checkpoint",danger:true}):null;
@@ -536,12 +540,17 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     };
     save.addEventListener("click", () => void saveValue(undefined));
     if(remove)controls.appendChild(remove);
-    controls.appendChild(save);
+    controls.append(cancel, save);
     root.appendChild(controls);
     this._saveDraft=()=>saveValue(undefined);
     this._isDirty=trackSettingsChanges(root,()=>({selected,terrainSuggestion,
       transportation:transportEditor.getOffers()}));
     return root;
+  }
+
+  _onFirstRender(context, options) {
+    super._onFirstRender(context, options);
+    this.element.querySelector('input[aria-label="Checkpoint name"]')?.focus();
   }
 
   _replaceHTML(result, content) { content.replaceChildren(result); }
