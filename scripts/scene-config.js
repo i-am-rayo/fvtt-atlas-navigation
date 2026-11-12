@@ -432,84 +432,138 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
   const atlas = readAtlas(scene);
   const party = readPartyExploration(scene);
   const journals = readAtlasJournalLinks(scene);
-  const section = node("fieldset", undefined, "atlas-workspace-checkpoints");
-  section.appendChild(node("legend", "Checkpoints"));
-  section.appendChild(node("p", "Checkpoints are durable map locations. Independent " +
-    "Checkpoints do not require a Road, but cannot be used for Road routing until connected.", "hint"));
-  const controls = node("div", undefined, "form-fields");
-  controls.appendChild(button("+ Independent Checkpoint", "Choose a map point and confirm a standalone Checkpoint",
-    () => actions.beginIndependentCheckpoint(scene, refresh)));
-  controls.appendChild(button("+ Road Checkpoint", "Choose a named Road node or centerline",
-    () => actions.beginCheckpoint(scene, refresh)));
-  section.appendChild(controls);
   const draft = actions.draft?.(scene);
+  const section = node("fieldset", undefined, "atlas-workspace-checkpoints");
+  section.setAttribute("data-atlas-checkpoint-manager", "");
+  const heading = node("legend", "Checkpoints ");
+  const create = button("+", "Create a Checkpoint on a Road or independently on the Scene",
+    () => actions.beginCheckpoint(scene, refresh));
+  create.className = "atlas-checkpoint-add";
+  create.disabled = !!draft;
+  heading.appendChild(create);
+  section.appendChild(heading);
+  section.appendChild(node("p", "Click a Road to create a connected Checkpoint. " +
+    "Click anywhere else on the map to create an independent landmark; " +
+    "Atlas asks for confirmation before saving.", "hint"));
+
   if (draft?.mode === "checkpoint" || draft?.mode === "independent-checkpoint") {
-    section.appendChild(node("p", "Click the Scene canvas to place the Checkpoint; press Escape to cancel.", "hint"));
-    section.appendChild(button("Cancel placement", "Cancel Checkpoint placement", () => {
+    const placement = node("div", undefined, "atlas-checkpoint-placement");
+    placement.appendChild(node("span",
+      "Placement active — click a map location, or press Escape to cancel."));
+    placement.appendChild(button("Cancel placement", "Cancel Checkpoint placement", () => {
       actions.cancel(); refresh();
     }));
+    section.appendChild(placement);
   }
-  const entries = listRoadCheckpoints(atlas).sort((a,b)=>a.name.localeCompare(b.name));
-  section.appendChild(node("p", `${entries.length} Checkpoints in this Scene`, "hint"));
+
+  const entries = listRoadCheckpoints(atlas).sort((a, b) =>
+    a.name.localeCompare(b.name));
+  const toolbar = node("div", undefined, "atlas-checkpoint-toolbar");
+  const total = node("strong", `${entries.length} Checkpoints`, "atlas-checkpoint-count");
+  toolbar.appendChild(total);
+  const searchLabel = node("label", undefined, "atlas-checkpoint-search");
+  searchLabel.appendChild(node("span", "Search", "atlas-visually-hidden"));
+  const search = node("input");
+  search.type = "search";
+  search.placeholder = "Find a Checkpoint…";
+  search.setAttribute("aria-label", "Filter Checkpoints by name or Road");
+  searchLabel.appendChild(search);
+  toolbar.appendChild(searchLabel);
+  section.appendChild(toolbar);
+  const list = node("div", undefined, "atlas-checkpoint-list");
+  const rows = [];
   for (const cp of entries.slice(0, 150)) {
-    const row = node("div", undefined, "form-group");
+    const row = node("article", undefined, "atlas-checkpoint-row");
     row.setAttribute("data-atlas-checkpoint-id", cp.id);
-    const description = node("div");
-    description.style.cssText = "flex:1 1 auto;min-width:0";
-    description.appendChild(node("strong", cp.name));
-    description.appendChild(node("div", `${cp.roadName} · ${cp.elevationMeters === null ? "unknown height" :
-      format(cp.elevationMeters) + " m"}`, "hint"));
-    description.appendChild(node("div", party.enabled
+    const description = node("div", undefined, "atlas-checkpoint-info");
+    description.appendChild(node("strong", cp.name, "atlas-checkpoint-name"));
+    const status = node("div", undefined, "atlas-checkpoint-metadata");
+    status.appendChild(node("span", cp.roadName || "Independent", "atlas-checkpoint-road"));
+    status.appendChild(node("span", cp.elevationMeters === null
+      ? "Elevation unspecified" : format(cp.elevationMeters) + " m", "hint"));
+    status.appendChild(node("span", party.enabled
       ? `Discovery: ${checkpointKnowledge(party, cp.id)}`
       : cp.playerVisible ? "Player-visible" : "GM-only", "hint"));
+    description.appendChild(status);
     const journal = journalUuidFor(journals, "checkpoint", cp.id);
-    const buttons = node("div", undefined, "form-fields");
-    buttons.appendChild(button("◎", "Locate Checkpoint", () => actions.selectCheckpoint(scene, cp.id)));
-    buttons.appendChild(button("✎", "Edit name and elevation", () => actions.editCheckpoint(scene, cp, refresh)));
-    buttons.appendChild(button("⚙", "Checkpoint Settings, Journal and appearance",
+    const controls = node("div", undefined, "atlas-checkpoint-actions");
+    controls.appendChild(iconAction("crosshairs", `Locate ${cp.name}`,
+      () => actions.selectCheckpoint(scene, cp.id)));
+    controls.appendChild(iconAction("pen", `Edit ${cp.name} name and elevation`,
+      () => actions.editCheckpoint(scene, cp, refresh)));
+    controls.appendChild(iconAction("gear", `Open ${cp.name} Checkpoint Settings`,
       () => actions.editCheckpointAppearance(scene, cp, refresh)));
-    const incident = atlas.segments.filter(s => s.from === cp.nodeId || s.to === cp.nodeId);
-    if (incident.length <= 1) buttons.appendChild(button(
-      incident.length ? "⛓" : "+ Road",
+    const incident = atlas.segments.filter(s =>
+      s.from === cp.nodeId || s.to === cp.nodeId);
+    if (incident.length <= 1) controls.appendChild(iconAction(
+      incident.length ? "unlink" : "link",
       incident.length ? "Review and disconnect this terminal Road section" :
         "Connect this isolated Checkpoint to a Road endpoint",
       () => actions.manageCheckpointRoad(scene, cp.id, refresh)));
-    if (journal) buttons.appendChild(button("📖", "Open linked Journal", () =>
-      void openAtlasJournal(journal).catch(error=>ui.notifications.error(error.message??String(error)))));
-    if (!party.enabled) buttons.appendChild(button(cp.playerVisible ? "👁" : "◌",
+    if (journal) controls.appendChild(iconAction("book-open", "Open linked Journal",
+      () => openAtlasJournal(journal)));
+    if (!party.enabled) controls.appendChild(iconAction(
+      cp.playerVisible ? "eye-slash" : "eye",
       cp.playerVisible ? "Hide Checkpoint from players" : "Show Checkpoint to players",
       () => actions.toggleCheckpointPlayerVisibility(scene, cp, refresh)));
+    row.append(description, controls);
+
+    const details = node("details", undefined, "atlas-checkpoint-details");
+    details.appendChild(node("summary", "Discovery, reveal radius & removal"));
+    const detailBody = node("div", undefined, "atlas-checkpoint-detail-body");
     if (party.enabled) {
+      const discovery = node("label", undefined, "atlas-checkpoint-field");
+      discovery.appendChild(node("span", "Discovery status"));
       const select = createSettingsSelect([
-        ["unknown", "Undiscovered"], ["visited", "Seen / Visited"], ["lore", "Known through Lore"]
+        ["unknown", "Undiscovered"], ["visited", "Seen / Visited"],
+        ["lore", "Known through Lore"]
       ], { selectedId: checkpointKnowledge(party, cp.id) === "legacy" ? "unknown" :
         checkpointKnowledge(party, cp.id), ariaLabel: `Knowledge of ${cp.name}` });
       select.addEventListener("change", () => void actions.setCheckpointKnowledge(scene,
         { checkpointId: cp.id, knowledge: select.value, expected: party }, refresh)
-        .catch(error => { ui.notifications.error(error.message??String(error)); refresh(); }));
-      buttons.appendChild(select);
+        .catch(error => { ui.notifications.error(error.message ?? String(error)); refresh(); }));
+      discovery.appendChild(select);
+      detailBody.appendChild(discovery);
+      const radiusField = node("label", undefined, "atlas-checkpoint-field");
+      radiusField.appendChild(node("span", "Reveal radius (native cells)"));
       const radius = createSettingsInput("number",
         Object.hasOwn(party.checkpointRevealRadiusCells, cp.id)
           ? party.checkpointRevealRadiusCells[cp.id]
           : party.defaultRevealRadiusCells,
         { min: 0, max: 100, step: 1,
           ariaLabel: `Checkpoint terrain reveal radius for ${cp.name}` });
-      radius.style.width = "5em";
       radius.title = "Terrain reveal radius in native cells (0 = marker only)";
       radius.addEventListener("change", () => void actions.setCheckpointKnowledge(scene,
         { checkpointId: cp.id,
           knowledge: checkpointKnowledge(party, cp.id) === "legacy" ? "unknown" :
             checkpointKnowledge(party, cp.id),
           revealRadiusCells: Number(radius.value), expected: party }, refresh)
-        .catch(error => { ui.notifications.error(error.message??String(error)); refresh(); }));
-      buttons.appendChild(radius);
+        .catch(error => { ui.notifications.error(error.message ?? String(error)); refresh(); }));
+      radiusField.appendChild(radius);
+      detailBody.appendChild(radiusField);
     }
-    buttons.appendChild(button("×", `Delete ${cp.name}`, () => actions.removeCheckpoint(scene, cp, refresh)));
-    row.append(description, buttons);
-    section.appendChild(row);
+    detailBody.appendChild(button("Delete Checkpoint", `Delete ${cp.name}`,
+      () => actions.removeCheckpoint(scene, cp, refresh)));
+    details.appendChild(detailBody);
+    row.appendChild(details);
+    list.appendChild(row);
+    rows.push({ row, filter: (cp.name + " " + (cp.roadName || "independent")).toLowerCase() });
   }
+  search.addEventListener("input", () => {
+    const filter = search.value.trim().toLowerCase();
+    let shown = 0;
+    for (const entry of rows) {
+      entry.row.hidden = !entry.filter.includes(filter);
+      if (!entry.row.hidden) shown++;
+    }
+    total.textContent = filter ? `${shown} of ${entries.length} Checkpoints`
+      : `${entries.length} Checkpoints`;
+  });
+  if (!entries.length) list.appendChild(node("p",
+    "No Checkpoints yet. Choose [+] and click a map location.", "hint"));
+  section.appendChild(list);
   if (entries.length > 150) section.appendChild(node("p",
-    "Showing first 150 Checkpoints; use the legacy Scene Atlas tab for the rest.", "hint"));
+    "Showing the first 150 Checkpoints; filter this list or use the legacy editor for the remainder.", "hint"));
   return section;
 }
 

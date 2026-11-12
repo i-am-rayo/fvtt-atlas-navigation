@@ -1344,20 +1344,19 @@ function actions() {
     },
     selectJunction: (scene, nodeId) => roadCanvas.selectJunction(scene, nodeId),
     beginCheckpoint(scene, refresh) {
-      roadCanvas.startCheckpoint(scene, () => {
-        syncRoadDock(scene,refresh);
-        const id=roadCanvas.selectedCheckpointId;
-        const checkpoint=readAtlas(scene).checkpoints?.find(item=>item.id===id);
-        if (checkpoint) { roadCanvas.refresh(); refresh(); }
-      });
-      openRoadDock(scene,refresh);
-      ui.notifications.info(game.i18n.localize("FVTTATLAS.Checkpoints.StartNotice"));
-    },
-    beginIndependentCheckpoint(scene, refresh) {
       ensureIdle(scene);
-      roadCanvas.startIndependentCheckpoint(scene, {
-        confirm: async ({ name: defaultName }) => {
+      // One authoring entrypoint: a hit inside the bounded Road snap radius
+      // uses the existing Road-linked confirmation; every other Scene click
+      // creates a standalone Node-anchored Checkpoint after GM approval.
+      roadCanvas.startCheckpoint(scene, () => {
+        roadCanvas.refresh();
+        refresh();
+      }, {
+        confirmIndependent: async ({ name: defaultName }) => {
           const content = document.createElement("div");
+          const instructions = document.createElement("p");
+          instructions.textContent = "No eligible Road was selected. Create this " +
+            "Checkpoint as an independent landmark? It can be connected to a Road later.";
           const nameLabel = document.createElement("label");
           nameLabel.textContent = "Checkpoint name";
           const name = document.createElement("input");
@@ -1370,21 +1369,27 @@ function actions() {
           height.name = "checkpointElevation"; height.type = "number";
           height.step = "any";
           elevationLabel.appendChild(height);
-          content.append(nameLabel, elevationLabel);
+          content.append(instructions, nameLabel, elevationLabel);
           const result = await DialogV2.input({
             window: { title: "Create Independent Checkpoint" }, content,
             ok: { label: "Create Checkpoint" }, rejectClose: false
           });
           if (!result) return null;
           const raw = String(result.checkpointElevation ?? "").trim();
-          return { name: String(result.checkpointName ?? ""),
-            elevationMeters: raw === "" ? null : Number(raw) };
+          return {
+            name: String(result.checkpointName ?? ""),
+            elevationMeters: raw === "" ? null : Number(raw)
+          };
         },
-        save: args => saveNewIndependentCheckpoint(scene, args),
-        onChange: () => { roadCanvas.refresh(); refresh(); }
+        saveIndependent: args => saveNewIndependentCheckpoint(scene, args)
       });
-      ui.notifications.info("Click the Scene canvas to place an independent Checkpoint. Escape cancels.");
+      ui.notifications.info("Click a Road to create a linked Checkpoint, " +
+        "or click away from Roads for an independent Checkpoint. Escape cancels.");
       refresh();
+    },
+    // Retained as a legacy API alias. The Workspace presents one [+] control.
+    beginIndependentCheckpoint(scene, refresh) {
+      return this.beginCheckpoint(scene, refresh);
     },
     async manageCheckpointRoad(scene, checkpointId, refresh) {
       ensureIdle(scene);

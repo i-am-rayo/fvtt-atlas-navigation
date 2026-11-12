@@ -101,21 +101,53 @@ test("GM-only standalone workspace reuses territory actions without writing on r
   } finally { ctx.restore(); }
 });
 
-test("Checkpoint Workspace presents independent creation through existing GM actions", async () => {
+test("Checkpoint Workspace has one [+] placement action and compact searchable rows", async () => {
   const ctx = context();
   try {
-    ctx.actions.beginIndependentCheckpoint = () => ctx.calls.push(["independent"]);
-    ctx.actions.beginCheckpoint = () => ctx.calls.push(["road-checkpoint"]);
+    ctx.actions.beginCheckpoint = () => ctx.calls.push(["checkpoint"]);
+    ctx.actions.beginIndependentCheckpoint = () => ctx.calls.push(["unexpected-legacy"]);
+    ctx.scene.getFlag = (_scope, flag) => flag === "atlas" ? {
+      schemaVersion: 10, coordinateSpace: "image", revision: 3,
+      enabled: false, calibration: null, roads: [], segments: [],
+      nodes: [{ id: "node", x: 10, y: 20 }],
+      checkpoints: [{ id: "cp", roadId: null, nodeId: "node",
+        name: "Free Village", elevationMeters: null,
+        appearance: null, playerVisible: false }]
+    } : null;
+    ctx.actions.selectCheckpoint = (_scene, id) => ctx.calls.push(["locate", id]);
+    ctx.actions.editCheckpoint = () => ctx.calls.push(["edit"]);
+    ctx.actions.editCheckpointAppearance = () => ctx.calls.push(["settings"]);
+    ctx.actions.manageCheckpointRoad = () => ctx.calls.push(["link"]);
+    ctx.actions.removeCheckpoint = () => ctx.calls.push(["remove"]);
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     const tab = buttons(workspace.result).find(item => item.textContent === "Checkpoints");
     assert.ok(tab);
     await tab.listeners.get("click")({ preventDefault() {} });
-    assert.match(text(workspace.result), /Independent Checkpoint/);
-    const create = buttons(workspace.result).find(item =>
-      item.textContent === "+ Independent Checkpoint");
-    assert.ok(create);
-    await create.listeners.get("click")({ preventDefault() {} });
-    assert.deepEqual(ctx.calls, [["independent"]]);
+    const panel = walk(workspace.result, item =>
+      item.attributes?.get("data-atlas-checkpoint-manager") === "")[0];
+    assert.ok(panel, "Checkpoint Workspace is a dedicated manager");
+    const add = buttons(panel).filter(item => item.textContent === "+");
+    assert.equal(add.length, 1, "there is one Checkpoints [+] authoring entrypoint");
+    assert.equal(buttons(panel).filter(item => item.textContent === "+ Independent Checkpoint" ||
+      item.textContent === "+ Road Checkpoint").length, 0);
+    await add[0].listeners.get("click")({ preventDefault() {} });
+    assert.deepEqual(ctx.calls, [["checkpoint"]]);
+    const row = walk(panel, item => item.className === "atlas-checkpoint-row")[0];
+    assert.ok(row);
+    assert.equal(row.children[0].className, "atlas-checkpoint-info");
+    assert.equal(row.children[1].className, "atlas-checkpoint-actions");
+    assert.equal(row.children[2].className, "atlas-checkpoint-details");
+    assert.equal(row.children[1].children.every(item =>
+      item.className?.includes?.("atlas-ui-icon-button")), true);
+    const search = walk(panel, item => item.tag === "input" &&
+      item.type === "search")[0];
+    assert.ok(search);
+    search.value = "not present";
+    search.listeners.get("input")();
+    assert.equal(row.hidden, true);
+    search.value = "Free Village";
+    search.listeners.get("input")();
+    assert.equal(row.hidden, false);
     await workspace.close();
   } finally { ctx.restore(); }
 });
