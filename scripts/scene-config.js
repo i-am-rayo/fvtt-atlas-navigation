@@ -486,9 +486,16 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
       : cp.playerVisible ? "Player-visible" : "GM-only", "hint"));
     description.appendChild(status);
     const journal = journalUuidFor(journals, "checkpoint", cp.id);
+    const incidentCount=atlas.segments.filter(segment=>
+      segment.from===cp.nodeId||segment.to===cp.nodeId).length;
+    const sharedNode=atlas.checkpoints.some(other=>
+      other.id!==cp.id&&other.nodeId===cp.nodeId);
     const controls = node("div", undefined, "atlas-checkpoint-actions");
     controls.appendChild(iconAction("crosshairs", `Locate ${cp.name}`,
       () => actions.selectCheckpoint(scene, cp.id)));
+    if(incidentCount===0&&!sharedNode)controls.appendChild(iconAction(
+      "arrows-up-down-left-right",`Move ${cp.name} to another map location`,
+      ()=>actions.moveCheckpoint(scene,cp.id,refresh)));
     controls.appendChild(iconAction("pen", `Edit ${cp.name} name and elevation`,
       () => actions.editCheckpoint(scene, cp, refresh)));
     controls.appendChild(iconAction("gear", `Open ${cp.name} Checkpoint Settings`,

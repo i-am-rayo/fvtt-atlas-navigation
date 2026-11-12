@@ -24,7 +24,7 @@ import { AtlasManualFogPalette, registerManualBrushSettings }
   from "./atlas-manual-fog-panel.js";
 import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveOrganizedRoads, saveMergedRoads,
-  saveEditedCheckpoint, saveNewIndependentCheckpoint, saveConnectedIndependentCheckpoint,
+  saveEditedCheckpoint, saveNewIndependentCheckpoint, saveRelocatedIndependentCheckpoint, saveConnectedIndependentCheckpoint,
   saveDisconnectedIndependentCheckpoint, saveRemovedCheckpoint, saveRemovedCheckpoints, saveRoadTravelPreset,
   saveRoadAppearance, saveRoadSettings, saveRoadPlayerVisibility,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
@@ -1390,6 +1390,33 @@ function actions() {
     // Retained as a legacy API alias. The Workspace presents one [+] control.
     beginIndependentCheckpoint(scene, refresh) {
       return this.beginCheckpoint(scene, refresh);
+    },
+    moveCheckpoint(scene,checkpointId,refresh){
+      ensureIdle(scene);
+      roadCanvas.startCheckpointRelocation(scene,checkpointId,{
+        confirm:async ({name,at,from})=>{
+          const content=document.createElement("div");
+          for(const message of [
+            `Move ${name} from (${from.x.toFixed(1)}, ${from.y.toFixed(1)}) to `+
+              `(${at.x.toFixed(1)}, ${at.y.toFixed(1)})?`,
+            "Only this isolated Checkpoint's saved Node will move. Its ID, Journal, " +
+              "discovery, transportation and Territory associations remain unchanged. " +
+              "No Road or native Region will be moved."
+          ]){
+            const p=document.createElement("p");p.textContent=message;
+            content.appendChild(p);
+          }
+          return DialogV2.confirm({
+            window:{title:`Relocate ${name}?`},content,
+            yes:{label:"Save New Position"},no:{label:"Cancel"},
+            rejectClose:false,modal:false
+          });
+        },
+        save:args=>saveRelocatedIndependentCheckpoint(scene,args),
+        onChange:()=>{roadCanvas.refresh();refresh();}
+      });
+      ui.notifications.info("Click the new map location for this independent Checkpoint. Escape cancels.");
+      refresh();
     },
     async manageCheckpointRoad(scene, checkpointId, refresh) {
       ensureIdle(scene);

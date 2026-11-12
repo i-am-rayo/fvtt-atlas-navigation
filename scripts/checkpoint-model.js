@@ -124,6 +124,31 @@ export function addIndependentCheckpoint(atlas, {
 }
 
 /**
+ * Move only the private, unshared Node belonging to an isolated Checkpoint.
+ * This does not modify Road geometry, semantic Territory links, or Journals.
+ * Shared Nodes and incident Roads must use a separately reviewed graph edit.
+ */
+export function relocateIndependentCheckpoint(atlas,{checkpointId,at}) {
+  if(!Number.isFinite(at?.x)||!Number.isFinite(at?.y))
+    throw Error("Choose a finite map point for Checkpoint relocation.");
+  const current=upgradeAtlasIndependentCheckpoints(atlas);
+  const checkpoint=current.checkpoints.find(item=>item.id===checkpointId);
+  if(!checkpoint)throw Error("Checkpoint no longer exists in this Scene.");
+  if(current.segments.some(segment=>segment.from===checkpoint.nodeId||
+      segment.to===checkpoint.nodeId))
+    throw Error("Connected Checkpoint cannot be moved without reviewing its Road geometry.");
+  if(current.checkpoints.some(item=>item.id!==checkpointId&&
+      item.nodeId===checkpoint.nodeId))
+    throw Error("This Node is shared by multiple Checkpoints; move requires explicit detachment.");
+  const node=current.nodes.find(item=>item.id===checkpoint.nodeId);
+  if(!node)throw Error("Checkpoint's saved Node is missing.");
+  if(node.x===at.x&&node.y===at.y)
+    throw Error("Checkpoint is already at this position.");
+  return validateAtlas({...current,nodes:current.nodes.map(item=>
+    item.id===node.id?{...item,x:at.x,y:at.y}:item)});
+}
+
+/**
  * Detach the legacy Road ownership hint without removing a topology edge.
  * This is permitted only after the Node exists in v10; Road connectivity
  * remains derived from actual segments and is never edited by this action.

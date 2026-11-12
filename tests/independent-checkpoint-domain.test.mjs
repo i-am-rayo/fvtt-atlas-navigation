@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createEmptyAtlas, validateAtlas, upgradeAtlasIndependentCheckpoints,
   upgradeAtlasPlayerVisibility } from "../scripts/atlas-model.js";
-import { addIndependentCheckpoint, detachCheckpointRoadHint,
+import { addIndependentCheckpoint, relocateIndependentCheckpoint, detachCheckpointRoadHint,
   editRoadCheckpoint, listRoadCheckpoints } from "../scripts/checkpoint-model.js";
 
 const source = () => upgradeAtlasPlayerVisibility({ ...createEmptyAtlas(), revision: 23,
@@ -87,4 +87,41 @@ test("duplicate legacy Road-bound Checkpoints sharing a Node block migration", (
   ] };
   assert.equal(validateAtlas(twoRoads).schemaVersion, 9);
   assert.throws(() => upgradeAtlasIndependentCheckpoints(twoRoads), /sharing a graph node/);
+});
+
+test("isolated Checkpoint relocation preserves its Node ID, metadata and Roads",()=>{
+  const initial=addIndependentCheckpoint(source(),{
+    at:{x:90,y:110},name:"Waystation",idFactory:generated()
+  });
+  const cp=initial.checkpoints[0];
+  const relocated=relocateIndependentCheckpoint(initial,{
+    checkpointId:cp.id,at:{x:125,y:150}
+  });
+  assert.equal(relocated.schemaVersion,10);
+  assert.deepEqual(relocated.checkpoints,initial.checkpoints);
+  assert.deepEqual(relocated.roads,initial.roads);
+  assert.deepEqual(relocated.segments,initial.segments);
+  assert.equal(relocated.nodes.find(n=>n.id===cp.nodeId).x,125);
+  assert.equal(relocated.nodes.find(n=>n.id===cp.nodeId).y,150);
+  assert.equal(initial.nodes.find(n=>n.id===cp.nodeId).x,90);
+  assert.throws(()=>relocateIndependentCheckpoint(initial,{
+    checkpointId:cp.id,at:{x:90,y:110}
+  }),/already at/);
+  assert.throws(()=>relocateIndependentCheckpoint(initial,{
+    checkpointId:cp.id,at:{x:Infinity,y:0}
+  }),/finite map point/);
+});
+
+test("relocation refuses Road-connected or unknown Checkpoint Nodes",()=>{
+  const old=source();
+  const connected=validateAtlas({...old,checkpoints:[{
+    id:"oldCp",roadId:"road",nodeId:"a",name:"Road",
+    elevationMeters:null,appearance:null,playerVisible:false
+  }]});
+  assert.throws(()=>relocateIndependentCheckpoint(connected,{
+    checkpointId:"oldCp",at:{x:100,y:200}
+  }),/Connected Checkpoint/);
+  assert.throws(()=>relocateIndependentCheckpoint(connected,{
+    checkpointId:"missing",at:{x:100,y:200}
+  }),/no longer exists/);
 });
