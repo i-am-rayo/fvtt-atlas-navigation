@@ -80,6 +80,45 @@ export function roadCheckpointEditCandidates(atlas,{roadId,tolerance=CHECKPOINT_
       a.along-b.along||a.checkpointId.localeCompare(b.checkpointId));
 }
 
+/**
+ * An isolated Checkpoint can join a saved Road's terminal Node by sharing that
+ * exact graph Node. This is a *merge*, not a new zero-length edge.
+ *
+ * Preserve the established Road endpoint ID and Checkpoint ID. The isolated
+ * Node ID is intentionally retired after confirmation, because retaining two
+ * distinct coincident Nodes would not make them graph-connected.
+ *
+ * For the Sunday private beta this is strictly terminal-only: shared junctions,
+ * Roads already containing a Checkpoint at the endpoint, and non-isolated
+ * sources require a separate topology review rather than implicit rewiring.
+ */
+export function attachIndependentCheckpointToRoadEndpoint(atlas,{
+  checkpointId,roadId,roadNodeId
+}={}){
+  const current=validateAtlas(atlas);
+  if(current.schemaVersion<10)throw Error("Endpoint Checkpoint attachment requires schema v10.");
+  const checkpoint=current.checkpoints.find(c=>c.id===checkpointId);
+  if(!checkpoint)throw Error("Checkpoint no longer exists.");
+  const source=current.nodes.find(node=>node.id===checkpoint.nodeId);
+  const destination=current.nodes.find(node=>node.id===roadNodeId);
+  if(!source||!destination||source.id===destination.id)
+    throw Error("Choose distinct existing Checkpoint and Road Nodes.");
+  if(current.segments.some(s=>s.from===source.id||s.to===source.id)||
+      current.checkpoints.some(c=>c.id!==checkpointId&&c.nodeId===source.id))
+    throw Error("Only an isolated, unshared Checkpoint can merge into a Road endpoint.");
+  if(current.checkpoints.some(c=>c.nodeId===destination.id))
+    throw Error("The Road endpoint already has a Checkpoint; review shared ownership separately.");
+  const incident=current.segments.filter(s=>s.from===destination.id||s.to===destination.id);
+  if(incident.length!==1||incident[0].roadId!==roadId)
+    throw Error("Only a terminal Node on the selected Road is eligible for exact merge.");
+  return validateAtlas({
+    ...current,
+    nodes:current.nodes.filter(node=>node.id!==source.id),
+    checkpoints:current.checkpoints.map(c=>c.id===checkpointId
+      ? {...c,nodeId:destination.id,roadId}:c)
+  });
+}
+
 /** Split only affected Road sections, retaining the upstream original ID and
  * all existing Node IDs, via shapes, Roads and Checkpoint metadata. */
 export function attachIndependentCheckpointsToRoad(atlas,{
@@ -101,7 +140,15 @@ export function attachIndependentCheckpointsToRoad(atlas,{
     const list=groups.get(candidate.segmentId)??[];
     list.push(candidate);groups.set(candidate.segmentId,list);
   }
-  const nodes=new Map(current.nodes.map(n=>[n.id,n]));
+  // The graph Node is authoritative for both the Road junction and the
+  // Checkpoint marker. Project each chosen independent Node onto the saved
+  // Road polyline BEFORE splitting, eliminating near-miss visual offsets.
+  // Non-selected Checkpoints retain their authored coordinates.
+  const selectedNodes=new Map([...groups.values()].flatMap(list=>
+    list.map(item=>[item.nodeId,{x:item.projected.x,y:item.projected.y}])));
+  const alignedNodes=current.nodes.map(node=>selectedNodes.has(node.id)
+    ? {...node,...selectedNodes.get(node.id)}:node);
+  const nodes=new Map(alignedNodes.map(n=>[n.id,n]));
   const used=new Set(current.segments.map(s=>s.id));
   const segments=current.segments.flatMap(segment=>{
     const selected=groups.get(segment.id);
@@ -132,7 +179,7 @@ export function attachIndependentCheckpointsToRoad(atlas,{
     return result;
   });
   const chosen=new Set(checkpointIds);
-  return validateAtlas({...current,segments,
+  return validateAtlas({...current,nodes:alignedNodes,segments,
     checkpoints:current.checkpoints.map(cp=>chosen.has(cp.id)
       ? {...cp,roadId}:cp)});
 }

@@ -10,7 +10,8 @@ import { ATLAS_FLAG, MODULE_ID, readAtlas } from "./atlas-storage.js";
 import { setRoadPlayerVisibility, setCheckpointPlayerVisibility }
   from "./player-visibility.js";
 import {assertNoDeletedTerritoryCheckpoints} from "./territory-checkpoint-link.js";
-import { attachIndependentCheckpointsToRoad, roadCheckpointEditCandidates }
+import { attachIndependentCheckpointToRoadEndpoint,
+  attachIndependentCheckpointsToRoad, roadCheckpointEditCandidates }
   from "./road-checkpoint-existing-attachments.js";
 
 /**
@@ -171,11 +172,25 @@ export function saveRelocatedIndependentCheckpoint(scene,{
 }) {
   return saveChange(scene,expectedRevision,previous=>{
     if(!connection)return relocateIndependentCheckpoint(previous,{checkpointId,at});
-    const segment=previous.segments.find(s=>s.id===connection.segmentId);
-    if(!segment || !Number.isFinite(connection.x)||!Number.isFinite(connection.y))
+    if(!Number.isFinite(connection.x)||!Number.isFinite(connection.y))
       throw Error("Selected Road attachment is no longer available.");
     if(Math.hypot(at.x-connection.x,at.y-connection.y)>14)
       throw Error("Selected Road attachment is too far from the destination.");
+    if(connection.kind==="node"){
+      const roadNode=previous.nodes.find(n=>n.id===connection.nodeId);
+      if(!roadNode||roadNode.x!==connection.x||roadNode.y!==connection.y)
+        throw Error("Road endpoint changed; review the connection again.");
+      const edge=previous.segments.filter(s=>
+        s.from===roadNode.id||s.to===roadNode.id);
+      if(edge.length!==1)throw Error("Only an unshared terminal Road endpoint can be merged.");
+      return attachIndependentCheckpointToRoadEndpoint(previous,{
+        checkpointId,roadId:edge[0].roadId,roadNodeId:roadNode.id
+      });
+    }
+    if(connection.kind!=="edge"&&connection.kind!==undefined)
+      throw Error("Unsupported Road attachment type.");
+    const segment=previous.segments.find(s=>s.id===connection.segmentId);
+    if(!segment)throw Error("Selected Road section is no longer available.");
     const checkpoint=previous.checkpoints?.find(c=>c.id===checkpointId);
     const node=previous.nodes.find(n=>n.id===checkpoint?.nodeId);
     if(!node)throw Error("Checkpoint Node no longer exists.");
