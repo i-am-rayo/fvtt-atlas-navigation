@@ -193,9 +193,13 @@ test("GM-approved Move & Connect snaps existing Checkpoint Node to Road interior
     assert.equal(moved.checkpoints[0].id,cp.id);
     assert.equal(moved.checkpoints[0].nodeId,cp.nodeId);
     assert.equal(moved.checkpoints[0].roadId,road.roads[0].id);
-    assert.deepEqual(moved.nodes.find(n=>n.id===cp.nodeId),{
-      id:cp.nodeId,x:55,y:0
-    });
+    const anchored=moved.nodes.find(n=>n.id===cp.nodeId);
+    assert.equal(anchored.id,cp.nodeId);
+    assert.ok(Math.abs(anchored.x-55)<1e-9 && Math.abs(anchored.y)<1e-9,
+      "the saved graph Node must coincide with the Road centerline within floating-point precision");
+    assert.equal(moved.segments[0].to,anchored.id);
+    assert.equal(moved.segments[1].from,anchored.id,
+      "both sides of the Road reference the exact same authoritative Node");
     assert.equal(moved.segments.length,2);
     assert.equal(moved.segments[0].id,road.segments[0].id);
     await assert.rejects(saveRelocatedIndependentCheckpoint(scene,{
