@@ -23,7 +23,7 @@ export function atlasPortabilitySnapshot(scene) {
   // Foundry Scene JSON; collecting paths cannot prove they exist elsewhere.
   const assets=new Set();
   for(const path of [
-    scene.background?.src,scene.foreground,
+    scene.background?.src,scene.foreground,scene.thumb,
     ...(atlas.checkpoints??[]).map(cp=>cp.appearance?.type==="image"
       ? cp.appearance.image:null)
   ]){
@@ -120,7 +120,8 @@ export function createAtlasWorkspacePortabilityPanel(scene) {
         throw Error("Foundry Journal UUID resolution is unavailable.");
       const missing=[];
       for(const uuid of snapshot.journals){
-        const document=await lookup(uuid).catch(()=>null);
+        let document=null;
+        try{document=await lookup(uuid);}catch{/* Broken UUID; report below. */}
         if(!document||!["JournalEntry","JournalEntryPage"].includes(document.documentName))
           missing.push(uuid);
       }
