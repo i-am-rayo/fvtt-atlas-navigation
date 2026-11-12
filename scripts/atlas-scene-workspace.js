@@ -10,6 +10,8 @@ import { createAtlasRoadsPanel, createAtlasTerritoryPanel, createAtlasTopologyPa
   createAtlasCheckpointPanel,createAtlasExplorationPanel,createAtlasSurfacesPanel }
   from "./scene-config.js";
 import {TerritoryLocateHighlight} from "./territory-locate-highlight.js";
+import {createAtlasWorkspaceNavigationPanel} from "./atlas-workspace-navigation.js";
+import {createAtlasWorkspacePortabilityPanel} from "./atlas-workspace-portability.js";
 
 const workspaces = new Map();
 
@@ -89,7 +91,8 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     for (const [id, title] of [["overview", "Overview"], ["roads", "Roads"],
       ["checkpoints", "Checkpoints"],
       ["territories", "Territories"], ["surfaces", "Surfaces"],
-      ["exploration", "Exploration"], ["topology", "Topology & Levels"]]) {
+      ["exploration", "Exploration"], ["navigation", "Navigation"],
+      ["topology", "Topology & Levels"], ["portability","Import / Export"]]) {
       const tab = action(title, `Show ${title}`, () => {
         if (this.activeSection !== id) {
           this.activeSection = id;
@@ -112,13 +115,32 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
         this.activeSection === "checkpoints" ? "Checkpoints" :
         this.activeSection === "surfaces" ? "Surfaces" :
         this.activeSection === "exploration" ? "Exploration" :
+        this.activeSection === "navigation" ? "Navigation" :
+        this.activeSection === "portability" ? "Import / Export" :
         this.activeSection === "topology" ? "Topology & Levels" : "Scene Overview"));
     title.appendChild(make("p", `Scene: ${this.scene.name ?? this.scene.id}`, "hint"));
     heading.appendChild(title);
     heading.appendChild(action("Refresh", "Read current Scene and native Region records", () => this.render(true)));
     main.appendChild(heading);
 
-    if(this.activeSection==="exploration"){
+    if(this.activeSection==="portability"){
+      main.appendChild(createAtlasWorkspacePortabilityPanel(this.scene));
+    } else if(this.activeSection==="navigation"){
+      main.appendChild(createAtlasWorkspaceNavigationPanel(this.scene,{
+        onOpenNavigation:async()=>{
+          // Navigation uses the existing JourneyController; this is a view
+          // hand-off, never a hidden Journey approval.
+          const wasMinimized=this.minimized;
+          if(!wasMinimized)await this.minimize();
+          try{await this.actions.openNavigation(this.scene);}
+          catch(error){
+            if(!wasMinimized&&this.rendered)await this.maximize();
+            throw error;
+          }
+        },
+        onOpenWorldTravelSettings:()=>this.actions.openWorldTravelSettings()
+      }));
+    } else if(this.activeSection==="exploration"){
       main.appendChild(make("p","Atlas manual map exploration is Scene-owned. " +
         "Painting, revealing and hiding cells does not replace native Foundry Fog.","hint"));
       main.appendChild(createAtlasExplorationPanel(this.scene,this.actions,
@@ -174,9 +196,10 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       const next = make("section", undefined, "atlas-workspace-note");
       next.appendChild(make("h3","Scene Workspace consolidation"));
       next.appendChild(make("p","Roads, Checkpoints, Territories, Surfaces, " +
-        "Exploration and Topology/Levels use the existing authorized Atlas " +
-        "handlers. Until GM and player acceptance, Scene Configuration → Atlas " +
-        "remains available as a non-destructive comparison view."));
+        "Exploration, Navigation and Topology/Levels use the existing authorized " +
+        "Atlas handlers. Import / Export provides the native Foundry Scene " +
+        "transfer preflight. Until GM/player acceptance, Scene Configuration → " +
+        "Atlas remains available for parity comparison."));
       next.appendChild(action("Manage Territories", "Open territory management", () => {
         this.activeSection = "territories";
         this._scrollY = 0;

@@ -109,6 +109,7 @@ import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.j
 import { AtlasRoadEditorDock, activeRoadDockForSceneConfig } from "./road-editor-dock.js";
 import { AtlasNavigationController } from "./navigation-controller.js";
 import { registerNavigationWorldSettings } from "./navigation-world-settings.js";
+import { AtlasTransportationSettings } from "./navigation-transport-settings.js";
 import { addAtlasGroupTransportationControl } from "./navigation-group-transport-settings.js";
 import { ATLAS_MEASURING_UNITS_SETTING,ATLAS_MEASURING_UNITS_CHOICES,
   resolveAtlasMeasuringUnits,atlasDisplayElevation } from "./navigation-measure-units.js";
@@ -2844,6 +2845,31 @@ Hooks.once("init", () => {
   registerWorldCheckpointPresets();
   registerWorldRoadAppearance(() => roadCanvas.refresh());
   const roadActions = actions();
+  // Workspace Navigation is only a launcher of the existing authoritative
+  // Journey controller. Opening a panel never approves movement or World time.
+  roadActions.openNavigation=async scene=>{
+    if(!game.user?.isGM||!scene?.canUserModify?.(game.user,"update"))
+      throw Error("Only a Scene-authorized GM can open Atlas Navigation.");
+    if(!canvas?.ready||canvas.scene?.id!==scene.id)
+      throw Error("Open this Scene on the canvas before navigating.");
+    if(navigation.active){
+      if(navigation.scene?.id!==scene.id)
+        throw Error("A Journey is already active on another Scene.");
+      if(!navigation.rendered)await navigation.render(true);
+      else navigation.bringToFront?.();
+      return;
+    }
+    if(roadCanvas.getDraft(scene))
+      throw Error("Save or cancel the Road/Checkpoint editor before navigating.");
+    manualFog.setBrush(null);
+    fogPalette.close();
+    navigation.activate();
+  };
+  roadActions.openWorldTravelSettings=async()=>{
+    if(!game.user?.isGM)throw Error("World Travel Settings require GM authority.");
+    const app=new AtlasTransportationSettings();
+    return app.render(true);
+  };
   atlasLayers.configureRegion=(scene,regionId)=>roadActions.configureRegion(scene,regionId);
   atlasLayers.configureSharing=(scene,regionId,refresh)=>
     roadActions.configureTerritorySharing(scene,regionId,refresh);

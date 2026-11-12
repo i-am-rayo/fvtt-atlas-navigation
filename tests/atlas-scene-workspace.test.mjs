@@ -155,6 +155,62 @@ test("Workspace Surfaces exposes existing native generator without creating Regi
   }finally{ctx.restore();}
 });
 
+test("Workspace Navigation launches the existing controller without committing or replacing drafts",async()=>{
+  const ctx=context();
+  try{
+    ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?
+      {schemaVersion:10,coordinateSpace:"image",revision:2,
+        enabled:true,calibration:null,roads:[{id:"road",name:"Main",travelPresetId:null,
+          appearance:null,playerVisible:false}],
+        nodes:[{id:"start",x:0,y:0},{id:"end",x:100,y:0}],
+        segments:[{id:"segment",roadId:"road",from:"start",to:"end",
+          via:[],bidirectional:true}],checkpoints:[]}:null;
+    ctx.actions.openNavigation=()=>ctx.calls.push(["navigation"]);
+    ctx.actions.openWorldTravelSettings=()=>ctx.calls.push(["world-rules"]);
+    const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    const navigation=buttons(workspace.result).find(item=>item.textContent==="Navigation");
+    await navigation.listeners.get("click")({preventDefault(){}});
+    assert.equal(workspace.activeSection,"navigation");
+    assert.match(text(workspace.result),/Navigation & Journey/);
+    assert.deepEqual(ctx.calls,[],"opening navigation's read model never approves travel");
+    const launch=buttons(workspace.result).find(item=>item.textContent==="Open Atlas Navigation");
+    assert.ok(launch);
+    assert.notEqual(launch.disabled,true,
+      "valid graph and native Scene Grid allow the navigation launcher");
+    await launch.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,[["navigation"]]);
+    assert.equal(workspace.minimized,true);
+    await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    assert.equal(workspace.minimized,false);
+    const settings=buttons(workspace.result).find(item=>
+      item.textContent==="World Travel & Transportation Settings");
+    await settings.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,[["navigation"],["world-rules"]]);
+    await workspace.close();
+  }finally{ctx.restore();}
+});
+
+test("Workspace Import / Export reports native dependencies without starting a migration",async()=>{
+  const ctx=context();
+  try{
+    ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
+    ctx.scene.background={src:"worlds/paedor/background.webp"};
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    const tab=buttons(ws.result).find(item=>item.textContent==="Import / Export");
+    assert.ok(tab);
+    await tab.listeners.get("click")({preventDefault(){}});
+    const panel=walk(ws.result,item=>
+      item.attributes?.has("data-atlas-portability-panel"))[0];
+    assert.ok(panel);
+    assert.match(text(panel),/native Scene/);
+    assert.match(text(panel),/background.webp/);
+    assert.match(text(panel),/external assets and Journal documents are NOT included/i);
+    assert.deepEqual(ctx.calls,[],"a dependency audit does not write to either World");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
 test("Checkpoint authoring minimizes existing Workspace; side tool restores without recreating or writing",async()=>{
   const ctx=context();
   try{
