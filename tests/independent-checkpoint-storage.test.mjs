@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createEmptyAtlas } from "../scripts/atlas-model.js";
 import { saveNewIndependentCheckpoint, saveConnectedIndependentCheckpoint,
-  saveDisconnectedIndependentCheckpoint, saveRelocatedIndependentCheckpoint } from "../scripts/road-storage.js";
+  saveDisconnectedIndependentCheckpoint, saveRelocatedIndependentCheckpoint, saveNewRoad } from "../scripts/road-storage.js";
 
 function sceneFixture() {
   let stored = { ...createEmptyAtlas(), revision: 5 };
@@ -113,6 +113,33 @@ test("relocation uses one authorized revision-checked Scene flag write",async()=
     await assert.rejects(saveRelocatedIndependentCheckpoint(scene,{
       checkpointId,at:{x:55,y:66},expectedRevision:7
     }),/Only a GM/);
+    assert.equal(scene.writes,2);
+  }finally{globalThis.game=prev;}
+});
+
+test("new Road and selected independent Checkpoint attachments save in one Scene revision",async()=>{
+  const prev=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    const scene=sceneFixture();
+    let count=0;const ids=()=>"batch"+ ++count;
+    const standalone=await saveNewIndependentCheckpoint(scene,{
+      at:{x:45,y:0},name:"Crossing",expectedRevision:5,idFactory:ids
+    });
+    const checkpointId=standalone.checkpoints[0].id;
+    const saved=await saveNewRoad(scene,{
+      points:[{x:0,y:0},{x:100,y:0}],name:"Market Road",
+      checkpointIds:[checkpointId],
+      expectedRevision:6,idFactory:ids
+    });
+    assert.equal(saved.revision,7);
+    assert.equal(scene.writes,2,"one Road write also attaches the Checkpoint");
+    assert.equal(saved.segments.length,2);
+    assert.equal(saved.checkpoints[0].roadId,saved.roads[0].id);
+    await assert.rejects(saveNewRoad(scene,{
+      points:[{x:0,y:10},{x:100,y:10}],name:"Stale Road",
+      checkpointIds:[checkpointId],expectedRevision:6,idFactory:ids
+    }),/changed since/);
     assert.equal(scene.writes,2);
   }finally{globalThis.game=prev;}
 });

@@ -190,6 +190,57 @@ roadCanvas.promptCheckpoint = ({ roads, defaultName }) => new Promise(resolve =>
     resolve(null);
   });
 });
+// GM review of independent Nodes near a new Road; no write during preview.
+roadCanvas.reviewIndependentCheckpointConnections=async ({roadName,candidates})=>{
+  if(!game.user?.isGM)throw Error("Only a GM can approve Checkpoint connections.");
+  if(candidates.length>100)throw Error("Too many Checkpoints for one Road review.");
+  const body=document.createElement("section");
+  const info=document.createElement("p");
+  info.textContent="The new Road "+roadName+" passes near "+candidates.length+
+    " independent Checkpoint(s). Choose real graph connections. Only the NEW " +
+    "Road is divided into sections; unselected Checkpoints stay independent.";
+  body.appendChild(info);
+  const rows=[];
+  for(const candidate of candidates){
+    const row=document.createElement("label");
+    row.style.cssText="display:flex;align-items:center;gap:.55rem;margin:.4rem 0;";
+    const check=document.createElement("input");
+    check.type="checkbox";check.checked=true;
+    check.setAttribute("aria-label","Connect "+candidate.name+" to new Road");
+    const caption=document.createElement("span");
+    caption.textContent=candidate.name+" — "+candidate.distance.toFixed(1)+
+      " image px from Road"+(candidate.endpoint?" ("+candidate.endpoint+" endpoint)":"");
+    row.append(check,caption);body.appendChild(row);rows.push({check,candidate});
+  }
+  const all=document.createElement("button");
+  all.type="button";all.textContent="Select All";
+  all.addEventListener("click",()=>rows.forEach(r=>r.check.checked=true));
+  const none=document.createElement("button");
+  none.type="button";none.textContent="Select None";
+  none.addEventListener("click",()=>rows.forEach(r=>r.check.checked=false));
+  const buttons=document.createElement("div");
+  buttons.style.cssText="display:flex;gap:.6rem;margin-top:.7rem;";
+  buttons.append(all,none);body.appendChild(buttons);
+  const warning=document.createElement("p");
+  warning.textContent="Connected Road sections may bend by up to 14 image pixels " +
+    "to use an existing Checkpoint Node. No existing Road or native Region is " +
+    "changed by this review. Confirm only intended graph links.";
+  body.appendChild(warning);
+  const choice=await foundry.applications.api.DialogV2.wait({
+    window:{title:"Atlas — Connect independent Checkpoints?"},
+    content:body,modal:true,rejectClose:false,
+    buttons:[
+      {action:"connect",label:"Create Road + Selected Connections",
+        icon:"fa-solid fa-link"},
+      {action:"none",label:"Create Road Without Connections"},
+      {action:"cancel",label:"Cancel Road Save",default:true}
+    ]
+  });
+  if(choice==="none")return [];
+  if(choice!=="connect")return null;
+  return rows.filter(row=>row.check.checked).map(row=>row.candidate.checkpointId);
+};
+
 const navigation = new AtlasNavigationController();
 const manualFog = new AtlasManualFogController();
 const fogPalette = new AtlasManualFogPalette(manualFog);
