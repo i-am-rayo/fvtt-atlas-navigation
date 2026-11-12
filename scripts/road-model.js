@@ -243,6 +243,18 @@ export function addRoad(atlas, {
 
   const firstSelection=selections.find(c=>c.endpoint==="start");
   const lastSelection=selections.find(c=>c.endpoint==="end");
+  // A Road endpoint may already be snapping to the saved network. Selecting a
+  // different isolated Node at the same location must never silently replace
+  // that existing junction. The GM can explicitly Alt-detach and retry.
+  if(firstSelection&&snapEndpoints[0]!==false&&
+     findRoadSnap(current,path[0],snapPixels))
+    throw Error("The Road start already snaps to an existing Road. " +
+      "Cancel the standalone connection or Alt-detach that endpoint.");
+  if(lastSelection&&snapEndpoints[1]!==false&&
+     findRoadSnap(current,path.at(-1),snapPixels))
+    throw Error("The Road end already snaps to an existing Road. " +
+      "Cancel the standalone connection or Alt-detach that endpoint.");
+
   const from=firstSelection?.nodeId??
     chooseEndpoint(path[0],snapEndpoints[0]!==false);
   const to=lastSelection?.nodeId??

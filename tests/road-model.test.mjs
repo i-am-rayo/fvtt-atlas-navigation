@@ -699,3 +699,20 @@ test("Road that doubles back over a Checkpoint is ambiguous and never offers a s
   assert.throws(()=>addRoad(atlas,{points,idFactory:()=>"road"+ ++n,
     checkpointIds:[atlas.checkpoints[0].id]}),/no longer eligible/);
 });
+
+test("existing Road endpoint snap cannot be silently replaced by isolated Checkpoint attachment",()=>{
+  let n=0;const ids=()=>"conflict"+ ++n;
+  const road=addRoad(createEmptyAtlas(),{points:[{x:0,y:0},{x:100,y:0}],
+    name:"Old Road",idFactory:ids});
+  const atlas=addIndependentCheckpoint(road,{at:{x:0,y:1},
+    name:"Nearby Landmark",idFactory:ids});
+  const cp=atlas.checkpoints[0];
+  const points=[{x:0,y:1},{x:50,y:80}];
+  assert.throws(()=>addRoad(atlas,{points,name:"New Road",idFactory:ids,
+    checkpointIds:[cp.id]}),/already snaps to an existing Road/);
+  const detached=addRoad(atlas,{points,name:"New Road",idFactory:ids,
+    snapEndpoints:[false,true],checkpointIds:[cp.id]});
+  assert.equal(detached.segments.at(-1).from,cp.nodeId);
+  assert.equal(detached.checkpoints[0].roadId,detached.roads.at(-1).id);
+  assert.equal(road.segments[0].id,atlas.segments[0].id);
+});
