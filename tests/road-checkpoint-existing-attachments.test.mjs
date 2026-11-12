@@ -142,7 +142,7 @@ test("eligible terminal Road Node can merge with isolated Checkpoint, with exact
     "prior unconfirmed graph stays intact");
 });
 
-test("endpoint merge refuses junction/shared endpoint or another Checkpoint ownership",()=>{
+test("junction merge preserves other Road segments and refuses duplicate Checkpoint ownership",()=>{
   const factory=ids();
   let atlas=addRoad(createEmptyAtlas(),{
     name:"Main Road",points:[{x:0,y:0},{x:100,y:0}],idFactory:factory
@@ -166,7 +166,49 @@ test("endpoint merge refuses junction/shared endpoint or another Checkpoint owne
     ...atlas.segments[0],id:"anotherSection",
     from:roadNode,to:atlas.segments[0].to
   }]};
-  assert.throws(()=>attachIndependentCheckpointToRoadEndpoint(junction,{
+  const mergedJunction=attachIndependentCheckpointToRoadEndpoint(junction,{
     checkpointId:cp.id,roadId,roadNodeId:roadNode
-  }),/terminal Node/);
+  });
+  assert.equal(mergedJunction.checkpoints[0].nodeId,roadNode);
+  assert.deepEqual(mergedJunction.segments,junction.segments,
+    "multi-section graph geometry must be preserved after exact Node sharing");
+});
+
+test("multi-Road junction merge requires explicit selected Road ownership while retaining all Road branches",()=>{
+  const factory=ids();
+  let graph=addRoad(createEmptyAtlas(),{
+    name:"East Road",points:[{x:0,y:0},{x:100,y:0}],idFactory:factory
+  });
+  graph=addRoad(graph,{
+    name:"North Road",points:[{x:100,y:0},{x:100,y:100}],idFactory:factory
+  });
+  const east=graph.roads[0],north=graph.roads[1];
+  const junction=graph.segments[0].to;
+  assert.equal(graph.segments[1].from,junction);
+  graph=addIndependentCheckpoint(graph,{
+    at:{x:105,y:5},name:"Khar-Duramel Temple",idFactory:factory
+  });
+  const checkpoint=graph.checkpoints[0];
+  const merged=attachIndependentCheckpointToRoadEndpoint(graph,{
+    checkpointId:checkpoint.id,roadId:north.id,roadNodeId:junction
+  });
+  assert.equal(merged.checkpoints[0].id,checkpoint.id);
+  assert.equal(merged.checkpoints[0].nodeId,junction);
+  assert.equal(merged.checkpoints[0].roadId,north.id);
+  assert.deepEqual(merged.roads,graph.roads);
+  assert.deepEqual(merged.segments,graph.segments);
+  assert.deepEqual(merged.nodes.find(n=>n.id===junction),
+    graph.nodes.find(n=>n.id===junction));
+  assert.equal(merged.nodes.some(n=>n.id===checkpoint.nodeId),false);
+  assert.throws(()=>attachIndependentCheckpointToRoadEndpoint(graph,{
+    checkpointId:checkpoint.id,roadNodeId:junction
+  }),/Road actually incident/);
+  assert.throws(()=>attachIndependentCheckpointToRoadEndpoint(graph,{
+    checkpointId:checkpoint.id,roadId:"fabricated",roadNodeId:junction
+  }),/Road actually incident/);
+  const eastSelected=attachIndependentCheckpointToRoadEndpoint(graph,{
+    checkpointId:checkpoint.id,roadId:east.id,roadNodeId:junction
+  });
+  assert.equal(eastSelected.checkpoints[0].roadId,east.id);
+  assert.deepEqual(eastSelected.segments,graph.segments);
 });
