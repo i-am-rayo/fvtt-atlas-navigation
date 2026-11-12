@@ -213,6 +213,14 @@ test("Workspace Import / Export reports native dependencies without starting a m
     assert.match(text(panel),/background.webp/);
     assert.match(text(panel),/external assets and Journal documents are NOT included/i);
     assert.deepEqual(ctx.calls,[],"a dependency audit does not write to either World");
+    ctx.scene.getFlag=(_scope,key)=>key==="territoryGridTransferIntent"
+      ? {schemaVersion:999,records:[]} : null;
+    await ws.render(true);
+    const blocked=walk(ws.result,item=>
+      item.attributes?.has("data-atlas-portability-blocked"))[0];
+    assert.ok(blocked,"invalid native Region recovery ledger must block handoff");
+    assert.match(text(blocked),/STOP: The native Region recovery state is invalid/);
+    assert.deepEqual(ctx.calls,[],"invalid recovery reporting never clears the ledger");
     await ws.close();
   }finally{ctx.restore();}
 });
