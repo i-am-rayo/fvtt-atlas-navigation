@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 globalThis.foundry = { applications: { api: { ApplicationV2: class {} } } };
-const { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
+const { addAtlasRoadsToSceneConfig,
   filteredRoadIds, openAtlasRegionGenerator, createAtlasRoadsPanel,
   createAtlasTopologyPanel,createAtlasTerritoryPanel } =
   await import("../scripts/scene-config.js");
@@ -46,24 +46,27 @@ function textContents(root) {
   return [root.textContent ?? "", ...root.children.map(textContents)].join(" ");
 }
 
-test("registers one Atlas tab/part via v14 SceneConfig TABS/PARTS", () => {
+test("Scene Config remains native: Atlas no longer exports a tab installer",async()=>{
+  // Foundry Scene Configuration owns the Scene Grid, Level, dimensions and
+  // native PARTS. Atlas Workspace must not modify that class on module import.
   class SceneConfig {}
-  SceneConfig.TABS = { sheet: { initial: "basics", tabs: [
-    { id: "basics" }, { id: "grid" }, { id: "levels" }, { id: "misc" }
-  ] } };
-  SceneConfig.PARTS = {
-    tabs: { template: "tabs" }, basics: { template: "basics" },
-    grid: { template: "grid" }, levels: { template: "levels" },
-    misc: { template: "misc" }, footer: { template: "footer" }
+  SceneConfig.TABS={sheet:{initial:"basics",tabs:[
+    {id:"basics"},{id:"grid"},{id:"levels"},{id:"misc"}
+  ]}};
+  SceneConfig.PARTS={
+    tabs:{template:"tabs"},basics:{template:"basics"},
+    grid:{template:"grid"},levels:{template:"levels"},
+    misc:{template:"misc"},footer:{template:"footer"}
   };
-  assert.equal(registerAtlasSceneTab(SceneConfig), true);
-  assert.deepEqual(SceneConfig.TABS.sheet.tabs.map(t => t.id),
-    ["basics", "grid", "levels", "atlas", "misc"]);
-  assert.ok(SceneConfig.PARTS.atlas.template.endsWith("templates/scene-atlas-tab.hbs"));
-  assert.equal(Object.keys(SceneConfig.PARTS).at(-1), "footer");
-  assert.equal(registerAtlasSceneTab(SceneConfig), true);
-  assert.equal(SceneConfig.TABS.sheet.tabs.filter(t => t.id === "atlas").length, 1);
-  assert.equal(registerAtlasSceneTab(null), false);
+  const beforeTabs=JSON.stringify(SceneConfig.TABS);
+  const beforeParts=JSON.stringify(SceneConfig.PARTS);
+  const sceneConfig=await import("../scripts/scene-config.js");
+  assert.equal(sceneConfig.registerAtlasSceneTab,undefined,
+    "there must be no public Atlas SceneConfig tab installer");
+  assert.equal(JSON.stringify(SceneConfig.TABS),beforeTabs);
+  assert.equal(JSON.stringify(SceneConfig.PARTS),beforeParts);
+  assert.equal(SceneConfig.TABS.sheet.tabs.some(tab=>tab.id==="atlas"),false);
+  assert.equal(Object.hasOwn(SceneConfig.PARTS,"atlas"),false);
 });
 
 test("Roads plus opens drawing against the configured Scene; no Configure dialog", async () => {
