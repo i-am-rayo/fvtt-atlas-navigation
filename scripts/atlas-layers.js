@@ -70,6 +70,20 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
       return fieldset;
     };
     if(gm){
+      const preview=group("Player Territory Preview",
+        "Preview shared boundaries and published names on your GM map.");
+      const toggle=element("button",this.controller.playerPreview?
+        "Exit Territory Preview":"Preview Published Territories");
+      toggle.type="button";
+      toggle.addEventListener("click",async()=>{
+        this.controller.setPlayerPreview(!this.controller.playerPreview);
+        await this.render(true);
+      });
+      preview.appendChild(toggle);
+      if(this.controller.playerPreview)preview.appendChild(element("p",
+        "Territory preview is active.","atlas-layers-help"));
+    }
+    if(gm){
       const roads=group("Roads","Choose authored Road colors, the terrain sampled " +
         "under Roads, or native generated corridor boundaries.");
       for(const [mode,title] of Object.entries(ROAD_LAYER_MODES)){
@@ -112,59 +126,6 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
       slider.addEventListener("input",()=>{value.textContent=`${slider.value}%`;});
       slider.addEventListener("change",()=>void change({[key]:Number(slider.value)/100}));
       label.append(element("span",title),slider,value);regions.appendChild(label);
-    }
-    if(gm){
-      const preview=group("Player Territory Preview",
-        "Read-only Atlas Territory projection. This is NOT a full player view: " +
-        "Foundry Fog, vision, Road/Checkpoint overlays, native Region data and " +
-        "per-player Journal permissions are not impersonated.");
-      const toggle=element("button",this.controller.playerPreview?
-        "Exit Territory Preview":"Preview Published Territories");
-      toggle.type="button";
-      toggle.addEventListener("click",async()=>{
-        this.controller.setPlayerPreview(!this.controller.playerPreview);
-        await this.render(true);
-      });
-      preview.appendChild(toggle);
-      if(this.controller.playerPreview)preview.appendChild(element("p",
-        "Preview active — only Atlas-shared boundaries/public labels; " +
-        "GM-native visibility remains active.","atlas-layers-help"));
-    }
-    if(gm){
-      const publication=group("Player Publication",
-        "Boundary sharing and public Journey names are separate permissions. " +
-        "Atlas filters its player overlay, but native Foundry Region documents may " +
-        "still be available in player client data; this is not a secrecy guarantee.");
-      const search=element("input");search.type="search";
-      search.setAttribute("aria-label","Search Territory publication");
-      search.setAttribute("placeholder","Filter Territories by name");
-      publication.appendChild(search);
-      const rows=element("div",undefined,"atlas-layers-publication-list");
-      publication.appendChild(rows);
-      const entries=this.controller.listPublicationRegions?.()??[];
-      const draw=()=>{
-        rows.replaceChildren();
-        const matched=entries.filter(entry=>entry.name.toLocaleLowerCase()
-          .includes(String(search.value??"").trim().toLocaleLowerCase()));
-        if(!matched.length)rows.appendChild(element("p","No matching linked Territories."));
-        for(const entry of matched){
-          const item=element("div",undefined,"atlas-layers-publication-row");
-          item.appendChild(element("strong",entry.name));
-          item.appendChild(element("span",`Boundary: ${entry.shared?"Shared":"Private"} · `+
-            `Journey name: ${entry.publicName?"Public":"Private"}`));
-          if(!entry.eligible)item.appendChild(element("small",entry.reason));
-          const action=element("button",entry.shared?"Revoke Boundary":"Share Boundary");
-          action.type="button";action.disabled=!entry.editable || (!entry.shared&&!entry.eligible);
-          action.addEventListener("click",async()=>{
-            action.disabled=true;
-            try{await this.controller.configurePublication(entry.id);await this.render(true);}
-            catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));
-              await this.render(true);}
-          });
-          item.appendChild(action);rows.appendChild(item);
-        }
-      };
-      search.addEventListener("input",draw);draw();
     }
     return root;
   }

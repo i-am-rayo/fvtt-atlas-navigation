@@ -243,42 +243,15 @@ export class AtlasTransportationSettings extends ApplicationBase {
     window:{title:"Atlas — Transportation Presets",resizable:true},
     position:{width:810,height:690}
   };
-  constructor(...args){
-    super(...args);this.activeTab="methods";
-    // Stable random sample trips; speed changes update times, not distances.
-    this.exampleDistancesMi=Array.from({length:3},()=>Math.floor(5+Math.random()*120));
-  }
-
   async _renderHTML(){
     const root=element("section");
     root.style.cssText="padding:1rem;display:flex;flex-direction:column;gap:1rem;"+
       "height:100%;overflow:auto;box-sizing:border-box;";
     const top=heading("Transportation Presets",
-      "Manage travel speeds, transport costs and journey rules for this Foundry World. "+
+      "Manage travel speeds and transport costs for this Foundry World. "+
       "Changes affect future estimates; no Actor resources or currency are changed.");
     root.appendChild(top);
-    const tabs=element("nav");tabs.setAttribute("role","tablist");
-    tabs.setAttribute("aria-label","Atlas transportation settings sections");
-    tabs.style.cssText="display:flex;gap:.25rem;flex-wrap:wrap;"+
-      "border-bottom:2px solid var(--color-border-light-tertiary,#555);padding:.25rem .25rem 0;";
-    for(const [id,label] of [["methods","Transportation"],["rules","Travel rules"],
-      ["journey","Journey & playback"]]){
-      const control=button(label,async()=>{this.activeTab=id;await this.render();});
-      control.setAttribute("role","tab");
-      control.setAttribute("aria-selected",String(id===this.activeTab));
-      control.setAttribute("tabindex",id===this.activeTab?"0":"-1");
-      control.style.cssText="padding:.65rem .9rem;border-radius:8px 8px 0 0;"+
-        "border:1px solid var(--color-border-light-primary,#666);border-bottom:3px solid "+
-        (id===this.activeTab?"var(--color-border-highlight,#a78bfa)":"transparent")+";"+
-        (id===this.activeTab?
-          "background:var(--color-bg-option,#30283d);font-weight:750;"+
-          "color:var(--color-text-primary,#f8f2e9);":"opacity:.75;");
-      tabs.appendChild(control);
-    }
-    root.appendChild(tabs);
-    if(this.activeTab==="methods")this._renderMethods(root);
-    else if(this.activeTab==="rules")this._renderRules(root);
-    else this._renderJourney(root);
+    this._renderMethods(root);
     return root;
   }
   _replaceHTML(result,content){content.replaceChildren(result);}
@@ -727,7 +700,26 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const next=addOptionalTirelessExamples(readTransportationCatalog(game.settings));
     await game.settings.set(MODULE_ID,TRANSPORT_CATALOG_SETTING,next);await this.render();
   }
-  _renderRules(root){
+
+
+}
+
+/** Opens the one World transportation editor for a non-World scope.
+ * Callers own the Save callback; this helper never changes World settings.
+ */
+export async function openTransportationMethodEditor({method,scope,onSave,onReset=null,
+  onSaveCheckpoint=null,checkpointName=null,journeyOperation=null}={}){
+  if(!method||!["checkpoint","journey"].includes(scope)||
+      typeof onSave!=="function"||
+      (onSaveCheckpoint!==null&&typeof onSaveCheckpoint!=="function"))
+    throw Error("Invalid transportation editor context.");
+  const app=new AtlasTransportationSettings();
+  return app._edit(method,method.surface,{scope,onSave,onReset,
+    onSaveCheckpoint,checkpointName,journeyOperation});
+}
+
+
+export function renderTravelRules(root){
     root.appendChild(heading("Travel rules",
       "These values control how Atlas offers GM-approved travel-day rests. "+
       "Changing the profile also selects the matching transportation reference list."));
@@ -756,11 +748,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
       });
       for(const [key,val] of values)await game.settings.set(MODULE_ID,key,val);
       await game.settings.set(MODULE_ID,NAVIGATION_RULES_PROFILE_SETTING,profile);
-      ui.notifications.info("Atlas travel rules saved.");await this.render();
+      ui.notifications.info("Atlas travel rules saved.");
     }));
     root.appendChild(panel);
   }
-  _renderJourney(root){
+export function renderJourneyPlayback(root,exampleDistancesMi=[6,30,90]){
     root.appendChild(heading("Journey and playback",
       "World time and visual playback are independent. Atlas never applies Actor rests, exhaustion or transport fares."));
     const panel=element("div");panel.style.cssText="display:grid;gap:.85rem;max-width:48rem;";
@@ -793,7 +785,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const thead=element("thead");thead.appendChild(header);table.appendChild(thead);
     const tbody=element("tbody");
     const preview=[];
-    for(const distanceMi of this.exampleDistancesMi){
+    for(const distanceMi of exampleDistancesMi){
       const row=element("tr"),distance=element("td",
         atlasFormatMeasure(atlasDisplayDistance(distanceMi,"mi"),1));
       const hours=element("td"),duration=element("td");
@@ -824,24 +816,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
         throw new Error("Animation speed must use half-second steps.");
       await game.settings.set(MODULE_ID,NAVIGATION_PLAYBACK_SETTING,playback);
       await game.settings.set(MODULE_ID,NAVIGATION_WORLD_CLOCK_SETTING,clock.checked);
-      ui.notifications.info("Atlas journey options saved.");await this.render();
+      ui.notifications.info("Atlas journey options saved.");
     }));
     root.appendChild(panel);
   }
-
-}
-
-/** Opens the one World transportation editor for a non-World scope.
- * Callers own the Save callback; this helper never changes World settings.
- */
-export async function openTransportationMethodEditor({method,scope,onSave,onReset=null,
-  onSaveCheckpoint=null,checkpointName=null,journeyOperation=null}={}){
-  if(!method||!["checkpoint","journey"].includes(scope)||
-      typeof onSave!=="function"||
-      (onSaveCheckpoint!==null&&typeof onSaveCheckpoint!=="function"))
-    throw Error("Invalid transportation editor context.");
-  const app=new AtlasTransportationSettings();
-  return app._edit(method,method.surface,{scope,onSave,onReset,
-    onSaveCheckpoint,checkpointName,journeyOperation});
-}
-

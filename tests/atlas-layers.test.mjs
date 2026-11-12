@@ -140,7 +140,7 @@ test("Atlas Layers modeless palette exposes Road/Region modes, names and fill co
   }finally{Object.assign(globalThis,previous);}
 });
 
-test("GM publication overview separates boundaries and Journey names; player cannot see roster",async()=>{
+test("GM palette starts with player preview and omits the publication roster",async()=>{
   const previous={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document};
   globalThis.document={createElement:tag=>new Element(tag)};
   const region={id:"r1",name:"Dirwest",hidden:false,parent:{id:"s1"},
@@ -156,11 +156,9 @@ test("GM publication overview separates boundaries and Journey names; player can
   try{
     const window=new AtlasLayersWindow(controller);
     const gm=await window._renderHTML();
-    assert.match(all(gm).map(e=>e.textContent).join(" "),/Boundary: Private · Journey name: Public/);
-    assert.match(all(gm).map(e=>e.textContent).join(" "),/not a secrecy guarantee/);
-    const button=all(gm).find(e=>e.textContent==="Share Boundary");
-    await button.listeners.get("click")();
-    assert.deepEqual(changes,["r1"]);
+    assert.equal(all(gm).find(e=>e.tagName==="legend")?.textContent,"Player Territory Preview");
+    assert.equal(all(gm).some(e=>e.textContent==="Player Publication"),false);
+    assert.deepEqual(changes,[]);
     globalThis.game.user.isGM=false;
     const player=await window._renderHTML();
     assert.equal(all(player).some(e=>e.textContent==="Player Publication"),false);

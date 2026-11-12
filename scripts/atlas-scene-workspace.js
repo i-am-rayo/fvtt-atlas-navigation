@@ -13,6 +13,7 @@ import {TerritoryLocateHighlight} from "./territory-locate-highlight.js";
 import {createAtlasWorkspaceNavigationPanel} from "./atlas-workspace-navigation.js";
 import {createAtlasWorkspacePortabilityPanel} from "./atlas-workspace-portability.js";
 
+import {renderTravelRules,renderJourneyPlayback} from "./navigation-transport-settings.js";
 import {createMapDirectory} from "./atlas-map-directory.js";
 import {readPartyExploration} from "./party-exploration-storage.js";
 
@@ -65,6 +66,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     this.actions = actions;
     this.activeSection = "overview";
     this._scrollY = 0;
+    this.surfaceExpansion = new Set();
     this.directoryState = {open:new Set(), filters:{}};
     this.territoryLocator=new TerritoryLocateHighlight();
   }
@@ -84,8 +86,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
         view.scene?.id !== this.scene.id || typeof view.animatePan !== "function")
       throw Error("Open this Region's Scene on the canvas to locate it.");
     await this.territoryLocator.focus(this.scene,region,{view});
-    if(this.rendered&&!this.minimized&&typeof this.minimize==="function")
-      await this.minimize();
+
   }
 
   async _renderHTML() {
@@ -104,7 +105,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     sidebar.appendChild(make("h3", "Atlas"));
     const directoryActive = [...directoryViews,...managers].some(([id])=>id===this.activeSection);
     const section = directoryActive ? "directory" : this.activeSection==="overview" ? "overview" : "settings";
-    for (const [id,title] of [["overview","Overview"],["directory","Map directory"],["settings","Settings & transfer"]]) {
+    for (const [id,title] of [["overview","Overview"],["directory","Map directory"],["settings","Settings"]]) {
       const tab = action(title, `Show ${title}`, () => {
         return this._showSection(id);
       });
@@ -117,7 +118,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     main.setAttribute("data-atlas-workspace-scroll", "");
     const heading = make("header", undefined, "atlas-workspace-heading");
     const title = make("div");
-    title.appendChild(make("h2",section==="directory"?"Map directory":section==="settings"?"Settings & transfer":"Scene Overview"));
+    title.appendChild(make("h2",section==="directory"?"Map directory":section==="settings"?"Settings":"Scene Overview"));
     title.appendChild(make("p", `Scene: ${this.scene.name ?? this.scene.id}`, "hint"));
     heading.appendChild(title);
     heading.appendChild(action("Refresh", "Read current Scene and native Region records", () => this.render(true)));
@@ -163,7 +164,18 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
         locate:id=>this._locateTerritory(id), state:this.directoryState, view:this.activeSection}));
     } else if (this.activeSection==="settings") {
       main.appendChild(createAtlasExplorationPanel(this.scene,this.actions,refresh));
-      main.appendChild(action("World travel settings","World travel settings",()=>this.actions.openWorldTravelSettings()));
+      main.appendChild(make("h3","World travel settings"));
+      for (const [title,renderForm] of [["Travel rules",renderTravelRules],["Journey & playback",renderJourneyPlayback]]) {
+        const group = make("details",undefined,"atlas-workspace-settings-group");
+        group.appendChild(make("summary",title));
+        const fields = make("div");
+        group.appendChild(fields);
+        group.addEventListener("toggle",()=>{
+          if (group.open && !fields.children.length) renderForm(fields);
+        });
+        main.appendChild(group);
+      }
+      main.appendChild(action("Transportation presets","Transportation presets",()=>this.actions.openWorldTravelSettings()));
     } else if(this.activeSection==="portability"){
       main.appendChild(createAtlasWorkspacePortabilityPanel(this.scene));
     } else if(this.activeSection==="surfaces"){
@@ -171,7 +183,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
         "Checkpoint Regions. Atlas previews and confirms every native Region " +
         "change; existing native Shapes and Behaviors remain Foundry-owned.","hint"));
       main.appendChild(createAtlasSurfacesPanel(this.scene,this.actions,
-        ()=>this.render(true)));
+        ()=>this.render(true),this.surfaceExpansion));
     } else if (this.activeSection === "topology") {
       main.appendChild(make("p", "Native Foundry Levels describe elevation ranges, " +
         "not political or geographic territories. Preview and approve proposed " +

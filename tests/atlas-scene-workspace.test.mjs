@@ -136,7 +136,7 @@ test("Workspace Exploration reuses Scene manual Fog handler without writing on r
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     assert.ok(!buttons(ws.result).some(item=>item.textContent==="Exploration"));
     assert.equal(ws.activeSection,"overview");
-    await enter(ws,"Settings & transfer");
+    await enter(ws,"Settings");
     const panel=walk(ws.result,item=>
       item.attributes?.has("data-atlas-exploration-panel"))[0];
     assert.ok(panel,"Exploration is a dedicated Scene panel");
@@ -156,14 +156,15 @@ test("Workspace Surfaces exposes existing native generator without creating Regi
     ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
     ctx.actions.linkRegion=()=>ctx.calls.push(["link-native"]);
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
-    await enter(ws,"Settings & transfer");
+    await enter(ws,"Settings");
     await buttons(ws.result).find(item=>item.textContent==="Surfaces")
       .listeners.get("click")({preventDefault(){}});
     assert.equal(ws.activeSection,"surfaces");
     const panel=walk(ws.result,item=>
       item.attributes?.has("data-atlas-surfaces-panel"))[0];
     assert.ok(panel,"Surfaces reuses legacy generator and Region-cost control family");
-    assert.match(text(panel),/Native Regions/);
+    assert.match(text(panel),/Create a native Region/);
+    assert.match(text(panel),/Generated Regions/);
     assert.match(text(panel),/FVTTATLAS.Generated.NoCheckpoints/);
     assert.deepEqual(ctx.calls,[],"displaying Surfaces does not authorize native Region writes");
     const link=buttons(panel).find(item=>item.title==="FVTTATLAS.Regions.Link");
@@ -201,9 +202,9 @@ test("Workspace Navigation launches the existing controller without committing o
     assert.equal(workspace.minimized,true);
     await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     assert.equal(workspace.minimized,false);
-    await enter(workspace,"Settings & transfer");
+    await enter(workspace,"Settings");
     const settings=buttons(workspace.result).find(item=>
-      item.textContent==="World travel settings");
+      item.textContent==="Transportation presets");
     await settings.listeners.get("click")({preventDefault(){}});
     assert.deepEqual(ctx.calls,[["navigation"],["world-rules"]]);
     await workspace.close();
@@ -216,7 +217,7 @@ test("Workspace Import / Export reports native dependencies without starting a m
     ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
     ctx.scene.background={src:"worlds/paedor/background.webp"};
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
-    await enter(ws,"Settings & transfer");
+    await enter(ws,"Settings");
     const tab=buttons(ws.result).find(item=>item.textContent==="Import / Export");
     assert.ok(tab);
     await tab.listeners.get("click")({preventDefault(){}});
@@ -409,7 +410,7 @@ test("native Levels are isolated in Topology and never constructed inside Roads"
     globalThis.game.settings.get = (_scope, key) =>
       key === "nativeLevelPlannerEnabled" ? true : null;
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
-    await enter(workspace,"Settings & transfer");
+    await enter(workspace,"Settings");
     const topology = buttons(workspace.result).find(item => item.textContent === "Topology & Levels");
     assert.ok(topology);
     await topology.listeners.get("click")({ preventDefault() {} });
@@ -443,6 +444,17 @@ test("GM Territory directory remains accessible; Atlas Layers owns persistent ma
       hidden:false,shapes:[],behaviors:[],getFlag:flag("city","continent-1")});
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     await enter(workspace,"Map directory");
+    const boundary=buttons(workspace.result).find(item=>item.title==="Show boundary to players: Dirwest");
+    assert.ok(boundary);
+    assert.equal(boundary.disabled,true,"Region permission is required to offer sharing");
+    ctx.scene.regions.get("settlement-1").canUserModify=()=>true;
+    await workspace.render(true);
+    let sharedId;
+    ctx.actions.configureTerritorySharing=(_scene,id)=>{sharedId=id;};
+    const allowed=buttons(workspace.result).find(item=>item.title==="Show boundary to players: Dirwest");
+    assert.equal(allowed.disabled,false);
+    await allowed.listeners.get("click")({preventDefault(){}});
+    assert.equal(sharedId,"settlement-1");
     const territories = buttons(workspace.result).find(item=>item.textContent==="Territories");
     await territories.listeners.get("click")({preventDefault(){}});
     const rows = () => walk(workspace.result,item=>item.attributes?.has("data-atlas-native-region-id"));
@@ -498,7 +510,7 @@ test("Locate uses public canvas bounds and workspace does not own canvas preview
     assert.deepEqual(moves,[{x:250,y:290,scale:2.25,duration:750}]);
     assert.equal(globalThis.canvas.interface.children.length,1,
       "Locate draws only the selected Region even when persistent Layers are off");
-    assert.equal(workspace.minimized,true,"map Locate gets the Workspace out of the way");
+    assert.equal(workspace.minimized,false,"Locate preserves the expanded Workspace");
     assert.deepEqual(ctx.calls,[],"Locate never writes a Scene or native Region");
     await workspace.close();
     assert.equal(subscriptions.size,0);

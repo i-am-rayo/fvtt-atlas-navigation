@@ -666,7 +666,7 @@ function createAtlasNativeRegionLinks(scene,atlas,generated,actions,refresh,acti
 }
 
 function atlasPanel(scene, atlas, actions, refresh,
-  { generatorOnly = false, roadsOnly = false, surfacesOnly = false } = {}) {
+  { generatorOnly = false, roadsOnly = false, surfacesOnly = false, surfaceExpansion } = {}) {
   const root = node("section");
   root.setAttribute("data-fvtt-atlas-setup", "");
   const travelPresets = readWorldTravelPresets().presets;
@@ -1138,11 +1138,12 @@ function atlasPanel(scene, atlas, actions, refresh,
   const generatedSection = node("fieldset");
   if(surfacesOnly)generatedSection.setAttribute("data-atlas-surfaces-panel","");
   generatedSection.appendChild(node("legend", generatorOnly
-    ? "Generation settings" : label("FVTTATLAS.Generated.Title") + " · Native Regions"));
+    ? "Generation settings" : surfacesOnly ? "Create a native Region" : label("FVTTATLAS.Generated.Title") + " · Native Regions"));
   if (generatorOnly) generatedSection.appendChild(node("p",
     "Create one native Foundry Region centered on a checkpoint or following the path between two checkpoints.", "hint"));
+  else if (surfacesOnly) generatedSection.appendChild(node("p","Choose a road and checkpoints to preview a Region.","hint"));
   else generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.Hint"), "hint"));
-  if (!generatorOnly) generatedSection.appendChild(node("p",
+  if (!generatorOnly && !surfacesOnly) generatedSection.appendChild(node("p",
     "REGION SETTINGS — Preset colors and movement costs affect native Foundry Regions only " +
     "after a separate GM-confirmed action. They do not change Atlas road lines or labels.", "hint"));
   const available = atlas.schemaVersion >= 4 ? atlas.roads.filter(r =>
@@ -1332,8 +1333,10 @@ function atlasPanel(scene, atlas, actions, refresh,
   if (generatorOnly) return generatedSection;
   const visibleGenerated = generated.filter(region => !region.metadata ||
     shownRoads.has(region.metadata.roadId));
+  const records = surfacesOnly ? node("section",undefined,"atlas-surface-records") : generatedSection;
+  if (surfacesOnly) records.appendChild(node("h3","Generated Regions"));
   if (generated.length) {
-    generatedSection.appendChild(node("p",
+    records.appendChild(node("p",
       visibleGenerated.length + " / " + generated.length + " " +
       label("FVTTATLAS.Generated.Existing"), "hint"));
   }
@@ -1341,7 +1344,7 @@ function atlasPanel(scene, atlas, actions, refresh,
     const row = node("div", undefined, "form-group");
     const detail = node("div");
     detail.style.flex = "1 1 auto";
-    detail.appendChild(node("span", region.name));
+    if (!surfacesOnly) detail.appendChild(node("span", region.name));
     if (region.metadata?.kind === "corridor") {
       const preset = region.presetId ? presetById.get(region.presetId) : null;
       detail.appendChild(node("div", region.invalidPreset
@@ -1428,9 +1431,20 @@ function atlasPanel(scene, atlas, actions, refresh,
       controls.appendChild(regenerate);
     }
     row.appendChild(controls);
-    generatedSection.appendChild(row);
+    if (surfacesOnly) {
+      const entry = node("details");
+      entry.appendChild(node("summary",region.name));
+      entry.appendChild(row);
+      entry.open = surfaceExpansion?.has(region.id) ?? false;
+      entry.addEventListener("toggle",()=>{
+        if (!entry.isConnected) return;
+        if (entry.open) surfaceExpansion?.add(region.id);
+        else surfaceExpansion?.delete(region.id);
+      });
+      records.appendChild(entry);
+    } else generatedSection.appendChild(row);
   }
-  if (visibleGenerated.length > 50) generatedSection.appendChild(node("p",
+  if (visibleGenerated.length > 50) records.appendChild(node("p",
     label("FVTTATLAS.Generated.Limit"), "hint"));
   if(surfacesOnly){
     const roadId=generatorState.get(scene.id)?.roadId??null;
@@ -1438,7 +1452,8 @@ function atlasPanel(scene, atlas, actions, refresh,
       scene,atlas,generated,actions,refresh,roadId);
     const panel=node("section");
     panel.setAttribute("data-atlas-surfaces-panel","");
-    panel.append(generatedSection,links.regionSection);
+    panel.className="atlas-workspace-surfaces";
+    panel.append(generatedSection,records,links.regionSection);
     return panel;
   }
   advanced.appendChild(generatedSection);
@@ -1484,11 +1499,11 @@ export function createAtlasRoadsPanel(scene, actions, refresh) {
 
 /** Reuses the existing native Region generator, travel preset and movement-cost
  * controls; viewing Workspace never creates or mutates a Foundry Region. */
-export function createAtlasSurfacesPanel(scene,actions,refresh){
+export function createAtlasSurfacesPanel(scene,actions,refresh,surfaceExpansion){
   if(!game.user?.isGM||!scene?.id||
       !scene.canUserModify?.(game.user,"update"))
     throw Error("Only a Scene-authorized GM can manage Atlas Surfaces.");
-  return atlasPanel(scene,readAtlas(scene),actions,refresh,{surfacesOnly:true});
+  return atlasPanel(scene,readAtlas(scene),actions,refresh,{surfacesOnly:true,surfaceExpansion});
 }
 
 /** Native elevation setup is distinct from geographic territory hierarchy.
