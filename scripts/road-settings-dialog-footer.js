@@ -12,10 +12,14 @@ export function arrangeRoadDialogFooter(dialog) {
   const connection=bar?.querySelector?.('[data-atlas-road-tool="connection"]');
   const remove=bar?.querySelector?.('[data-atlas-road-tool="delete"]');
   if(!footer||!save||!edit||!connection||!remove)return null;
+  const cancel = dialog.element.ownerDocument.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", () => dialog.close());
+  footer.insertBefore(remove,save);
   footer.insertBefore(edit,save);
   footer.insertBefore(connection,save);
-  footer.appendChild(remove);
-  footer.style.cssText="display:flex;align-items:center;justify-content:flex-end;gap:.4rem;";
+  footer.insertBefore(cancel,save);
   bar.style.display="none";
   return save;
 }
