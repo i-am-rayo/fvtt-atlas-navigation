@@ -141,6 +141,7 @@ test("Workspace Surfaces exposes existing native generator without creating Regi
   const ctx=context();
   try{
     ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
+    ctx.actions.linkRegion=()=>ctx.calls.push(["link-native"]);
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     await buttons(ws.result).find(item=>item.textContent==="Surfaces")
       .listeners.get("click")({preventDefault(){}});
@@ -151,6 +152,11 @@ test("Workspace Surfaces exposes existing native generator without creating Regi
     assert.match(text(panel),/Native Regions/);
     assert.match(text(panel),/FVTTATLAS.Generated.NoCheckpoints/);
     assert.deepEqual(ctx.calls,[],"displaying Surfaces does not authorize native Region writes");
+    const link=buttons(panel).find(item=>item.title==="FVTTATLAS.Regions.Link");
+    assert.ok(link,"Surfaces must retain the legacy native Region linking action");
+    await link.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,[["link-native"]],
+      "the Workspace uses the existing native Region association handler");
     await ws.close();
   }finally{ctx.restore();}
 });
@@ -207,6 +213,14 @@ test("Workspace Import / Export reports native dependencies without starting a m
     assert.match(text(panel),/background.webp/);
     assert.match(text(panel),/external assets and Journal documents are NOT included/i);
     assert.deepEqual(ctx.calls,[],"a dependency audit does not write to either World");
+    ctx.scene.getFlag=(_scope,key)=>key==="territoryGridTransferIntent"
+      ? {schemaVersion:999,records:[]} : null;
+    await ws.render(true);
+    const blocked=walk(ws.result,item=>
+      item.attributes?.has("data-atlas-portability-blocked"))[0];
+    assert.ok(blocked,"invalid native Region recovery ledger must block handoff");
+    assert.match(text(blocked),/STOP: The native Region recovery state is invalid/);
+    assert.deepEqual(ctx.calls,[],"invalid recovery reporting never clears the ledger");
     await ws.close();
   }finally{ctx.restore();}
 });

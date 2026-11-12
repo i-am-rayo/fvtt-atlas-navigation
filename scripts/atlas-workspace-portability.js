@@ -23,14 +23,17 @@ export function atlasPortabilitySnapshot(scene) {
   // Foundry Scene JSON; collecting paths cannot prove they exist elsewhere.
   const assets=new Set();
   for(const path of [
-    scene.background?.src,scene.foreground,
+    scene.background?.src,scene.foreground,scene.thumb,
     ...(atlas.checkpoints??[]).map(cp=>cp.appearance?.type==="image"
       ? cp.appearance.image:null)
   ]){
     if(typeof path==="string"&&path.trim())assets.add(path.trim());
   }
   // Fail closed when pending native batch recovery is invalid or unresolved.
-  const pending=readPendingTerritoryCellTransfer(scene);
+  let pending=null;
+  let recoveryError=null;
+  try{pending=readPendingTerritoryCellTransfer(scene);}
+  catch(error){recoveryError=error.message??String(error);}
   const journalUUIDs=[...new Set([
     ...Object.values(links.roads),...Object.values(links.checkpoints)
   ])];
@@ -43,8 +46,9 @@ export function atlasPortabilitySnapshot(scene) {
       sum+(region.behaviors?.contents?.length??region.behaviors?.length??0),0),
     journals:journalUUIDs,
     assets:[...assets],
-    pendingRecovery:Boolean(pending),
-    pendingRecoveryCount:pending?.records?.length??0
+    pendingRecovery:Boolean(pending)||Boolean(recoveryError),
+    pendingRecoveryCount:pending?.records?.length??0,
+    recoveryError
   };
 }
 
@@ -71,8 +75,11 @@ export function createAtlasWorkspacePortabilityPanel(scene) {
   }
   root.appendChild(details);
   if(snapshot.pendingRecovery){
-    const alert=elem("p","STOP: "+snapshot.pendingRecoveryCount+
-      " native Region recovery record(s) require GM review before export.");
+    const alert=elem("p",snapshot.recoveryError
+      ? "STOP: The native Region recovery state is invalid: "+
+        snapshot.recoveryError+". Preserve the source World and review recovery."
+      : "STOP: "+snapshot.pendingRecoveryCount+
+        " native Region recovery record(s) require GM review before export.");
     alert.setAttribute("role","alert");
     alert.setAttribute("data-atlas-portability-blocked","");
     root.appendChild(alert);
@@ -113,7 +120,8 @@ export function createAtlasWorkspacePortabilityPanel(scene) {
         throw Error("Foundry Journal UUID resolution is unavailable.");
       const missing=[];
       for(const uuid of snapshot.journals){
-        const document=await lookup(uuid).catch(()=>null);
+        let document=null;
+        try{document=await lookup(uuid);}catch{/* Broken UUID; report below. */}
         if(!document||!["JournalEntry","JournalEntryPage"].includes(document.documentName))
           missing.push(uuid);
       }
