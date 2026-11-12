@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AtlasTransportationSettings } from "../scripts/navigation-transport-settings.js";
+import { AtlasTransportationSettings, renderTravelRules, renderJourneyPlayback } from "../scripts/navigation-transport-settings.js";
 
 class FakeElement {
   constructor(tag){
@@ -25,7 +25,7 @@ const setup=({isGM=true}={})=>{
   return {changes,restore(){globalThis.document=old.document;globalThis.game=old.game;}};
 };
 
-test("Transportation World window renders three discoverable tabs without writing settings",async()=>{
+test("Transport catalog and Workspace travel forms render without writing settings",async()=>{
   const ctx=setup();
   try{
     const app=new AtlasTransportationSettings();
@@ -40,14 +40,13 @@ test("Transportation World window renders three discoverable tabs without writin
     assert.match(text,/Water travel/);
     assert.match(text,/Air travel/);
     assert.match(text,/Import optional workbook examples/);
-    assert.ok(flatten(defaults).some(e=>e.attributes?.get("role")==="tab"),
-      "tabs use accessible tab roles");
-    app.activeTab="rules";
-    const rules=flatten(await app._renderHTML()).map(e=>e.textContent??"").join(" ");
+    assert.equal(flatten(defaults).some(e=>e.textContent==="Travel rules"),false);
+    const rulePanel=new FakeElement("section");renderTravelRules(rulePanel);
+    const rules=flatten(rulePanel).map(e=>e.textContent??"").join(" ");
     assert.match(rules,/Rules Profile/);
     assert.match(rules,/Overnight downtime/);
-    app.activeTab="journey";
-    const journey=flatten(await app._renderHTML()).map(e=>e.textContent??"").join(" ");
+    const journeyPanel=new FakeElement("section");renderJourneyPlayback(journeyPanel);
+    const journey=flatten(journeyPanel).map(e=>e.textContent??"").join(" ");
     assert.match(journey,/Advance World time/);
     assert.match(journey,/Animation speed/);
     assert.deepEqual(ctx.changes,[],"opening tabs never writes or migrates settings");
@@ -90,12 +89,12 @@ test("Travel rules and Journey playback expose synchronized range + numeric inpu
   const ctx=setup();
   try{
     const app=new AtlasTransportationSettings();
-    app.activeTab="rules";
-    const rules=flatten(await app._renderHTML());
+    const rulePanel=new FakeElement("section");renderTravelRules(rulePanel);
+    const rules=flatten(rulePanel);
     assert.equal(rules.filter(node=>node.type==="range").length,4);
     assert.equal(rules.filter(node=>node.type==="number").length,4);
-    app.activeTab="journey";
-    const journey=flatten(await app._renderHTML());
+    const journeyPanel=new FakeElement("section");renderJourneyPlayback(journeyPanel);
+    const journey=flatten(journeyPanel);
     assert.equal(journey.filter(node=>node.type==="range").length,1);
     assert.equal(journey.filter(node=>node.type==="number").length,1);
   }finally{ctx.restore();}
@@ -104,9 +103,8 @@ test("Travel rules and Journey playback expose synchronized range + numeric inpu
 test("Journey controls put World-clock checkbox first and show three live speed examples",async()=>{
   const ctx=setup();
   try{
-    const app=new AtlasTransportationSettings();app.activeTab="journey";
-    app.exampleDistancesMi=[6,30,90];
-    const nodes=flatten(await app._renderHTML());
+    const app=new AtlasTransportationSettings();const journeyPanel=new FakeElement("section");renderJourneyPlayback(journeyPanel);
+    const nodes=flatten(journeyPanel);
     assert.ok(nodes.findIndex(n=>n.type==="checkbox")<
       nodes.findIndex(n=>n.type==="range"),"clock checkbox is before the speed slider");
     assert.equal(nodes.filter(n=>n.tagName==="TBODY").length,1);

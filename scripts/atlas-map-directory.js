@@ -1,6 +1,7 @@
 import { readTerritoryRoadDirectory } from "./territory-road-directory.js";
 import { inspectCheckpointTerritoryMembership } from "./territory-checkpoint-membership.js";
 import { territoryCheckpointLinks } from "./territory-checkpoint-link.js";
+import { readPlayerTerritorySharing } from "./player-territory-sharing.js";
 import { readPendingTerritoryCellTransfer } from "./territory-grid-transfer.js";
 import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
 import { CHECKPOINT_TYPES, CHECKPOINT_TYPE_FLAG, validateCheckpointCategories } from "./checkpoint-types.js";
@@ -98,6 +99,14 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     }
     if (type === "territory") {
       add("location-dot","Locate",()=>locate(item.id));
+      const region = scene.regions?.get?.(item.id);
+      let shared = false, valid = true;
+      try { shared = Boolean(readPlayerTerritorySharing(region)); }
+      catch { valid = false; }
+      const visibility = add(shared?"eye-slash":"eye",shared?"Hide boundary from players:":"Show boundary to players:",
+        ()=>actions.configureTerritorySharing(scene,item.id,refresh));
+      visibility.disabled = !valid || !region?.canUserModify?.(game.user,"update") ||
+        Boolean(actions.draft(scene) || pending || (!shared && region.hidden));
       add("gear","Settings for",()=>openAtlasTerritorySettings(scene,item.id,actions,refresh,locate));
       const edit = add("draw-polygon","Edit boundary of",()=>actions.editTerritoryBoundary(scene,item.id,refresh));
       edit.disabled = Boolean(actions.draft(scene) || pending || (batch?.total && !batch.targets.some(t=>t.id===item.id)));
