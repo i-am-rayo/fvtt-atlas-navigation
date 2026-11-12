@@ -2,9 +2,7 @@
  * FVTT Atlas Navigation — Foundry v14 bootstrap.
  * v0.2.22 adds GM-only authoring shortcuts and a floating road editor.
  */
-import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
-  getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig,
-  openAtlasRegionGenerator,closeCheckpointRegionGenerator } from "./scene-config.js";
+import { openAtlasRegionGenerator,closeCheckpointRegionGenerator } from "./scene-config.js";
 import { openAtlasSceneWorkspace, minimizeAtlasSceneWorkspace,
   refreshAtlasSceneWorkspace, restoreAtlasSceneWorkspace }
   from "./atlas-scene-workspace.js";
@@ -106,7 +104,7 @@ import {planCheckpointTerritory,createCheckpointTerritory,
 import { readAtlasJournalLinks, journalUuidFor, saveAtlasJournalLink,
   validJournalUuid } from "./atlas-journal-links.js";
 import { journalLinkFields, journalUuidFromForm } from "./atlas-journal-fields.js";
-import { AtlasRoadEditorDock, activeRoadDockForSceneConfig } from "./road-editor-dock.js";
+import { AtlasRoadEditorDock } from "./road-editor-dock.js";
 import { AtlasNavigationController } from "./navigation-controller.js";
 import { registerNavigationWorldSettings } from "./navigation-world-settings.js";
 import { AtlasTransportationSettings } from "./navigation-transport-settings.js";
@@ -120,7 +118,7 @@ const roadCanvas = new RoadCanvasController();
 const atlasLayers = new AtlasLayersController(roadCanvas);
 roadCanvas.onCheckpointCreated=(scene,checkpointId,roadId)=>
   openAtlasRegionGenerator(scene,roadId,actions(),()=>{
-    roadCanvas.refresh();refreshAtlasSceneConfig(scene);
+    roadCanvas.refresh();refreshAtlasWorkspaceFromAuthoring(scene);
   },checkpointId);
 roadCanvas.onCheckpointSaved=async (scene,checkpointId)=>{
   if(!["city","town","village","settlement"].includes(checkpointCategory(scene,checkpointId)))
@@ -169,11 +167,11 @@ roadCanvas.onCheckpointSaved=async (scene,checkpointId)=>{
     if(choice==="create"){
       const saved=await createCheckpointTerritory(scene,plan,{view});
       await closeCheckpointRegionGenerator(scene,checkpointId);
-      roadCanvas.refresh();atlasLayers.refresh();refreshAtlasSceneConfig(scene);
+      roadCanvas.refresh();atlasLayers.refresh();refreshAtlasWorkspaceFromAuthoring(scene);
       ui.notifications.info(`Native Territory ${saved.name} created and linked to Checkpoint ${plan.name}.`);
     }else if(choice==="link"){
       await actions().configureCheckpointTerritory(scene,checkpointId,()=>{
-        roadCanvas.refresh();atlasLayers.refresh();refreshAtlasSceneConfig(scene);
+        roadCanvas.refresh();atlasLayers.refresh();refreshAtlasWorkspaceFromAuthoring(scene);
       });
       // The association picker can be cancelled. Close the legacy generator
       // only when a native Territory actually became linked to this Checkpoint.
@@ -210,6 +208,14 @@ const territoryBatchFor=scene=>territoryBatchSelections.get(scene?.id)??null;
 const stagedTerritories=scene=>territoryBatchFor(scene)?.drafts??new Map();
 let roadDock = null;
 
+// Authoring callbacks no longer refresh a SceneConfig-injected Atlas pane.
+// Workspace is the single visible Scene authoring surface. Never convert a
+// presentation refresh failure into a second persistence/write operation.
+function refreshAtlasWorkspaceFromAuthoring(scene) {
+  void refreshAtlasSceneWorkspace(scene).catch(error =>
+    atlasWarn("lifecycle","Atlas Workspace authoring refresh failed",error));
+}
+
 function syncRoadDock(scene, refresh) {
   refresh();
   if (roadDock?.scene?.id !== scene.id) return;
@@ -227,9 +233,8 @@ function openRoadDock(scene, refresh) {
     void previous.close();
     roadDock = null;
   }
-  const sceneSheet = getAtlasSceneConfig(scene);
   const dock = new AtlasRoadEditorDock({
-    scene, controller: roadCanvas, sceneSheet,
+    scene, controller: roadCanvas, sceneSheet: null,
     onFinish: () => roadCanvas.finish(),
     onCancel: () => roadCanvas.cancel(),
     onFocus: async () => {
@@ -264,21 +269,6 @@ function beginRoadDock(scene, refresh, start) {
   openRoadDock(scene, refresh);
 }
 
-const atlasFocusFades = new WeakMap();
-function fadeSceneSheet(scene) {
-  const app=getAtlasSceneConfig(scene);
-  const element=app?.element?.[0]??app?.element;
-  if (!(element instanceof HTMLElement)) return;
-  const prior=atlasFocusFades.get(element);
-  if (prior) clearTimeout(prior.timer);
-  const original=prior?.opacity??element.style.opacity;
-  element.style.opacity="0.25";
-  const timer=setTimeout(()=>{
-    element.style.opacity=original;
-    atlasFocusFades.delete(element);
-  },3650);
-  atlasFocusFades.set(element,{opacity:original,timer});
-}
 async function centerAtlasOn(scene, roadId, checkpointId=null,
   {atlasOverride=null,pointsOverride=null,zoomIntoRoad=false}={}) {
   const view=globalThis.canvas;
@@ -302,7 +292,8 @@ async function centerAtlasOn(scene, roadId, checkpointId=null,
   if (!points.length) throw Error("This map location no longer exists.");
   const target=roadFocusCamera(view,atlas,points,{zoomIntoRoad});
   const currentZoom=view.stage?.scale?.x??1;
-  fadeSceneSheet(scene);
+  // The modeless Atlas Workspace owns canvas focus; the native Scene
+  // Configuration window is no longer used for Atlas authoring.
   roadCanvas.focusOn(scene,checkpointId?"checkpoint":roadId?"road":"draft",
     checkpointId??roadId);
   await view.animatePan({...target,
@@ -2877,7 +2868,7 @@ Hooks.once("init", () => {
   roadCanvas.setShortcutHandler((scene, target) => {
     ensureIdle(scene);
     const atlas = readAtlas(scene);
-    const refresh = () => refreshAtlasSceneConfig(scene);
+    const refresh = () => refreshAtlasWorkspaceFromAuthoring(scene);
     if (target.kind === "checkpoint") {
       const checkpoint = atlas.checkpoints?.find(c => c.id === target.id);
       if (checkpoint) roadActions.editCheckpointAppearance(scene, checkpoint, refresh);
@@ -2910,7 +2901,7 @@ Hooks.once("init", () => {
           onChange:()=>{
             const scene=canvas?.scene;
             if (!scene) return ui.notifications.warn("Open a Scene first.");
-            try { navigation.tearDown(); roadActions.begin(scene,()=>refreshAtlasSceneConfig(scene)); }
+            try { navigation.tearDown(); roadActions.begin(scene,()=>refreshAtlasWorkspaceFromAuthoring(scene)); }
             catch(error) { ui.notifications.error(error.message); }
           }
         },
@@ -2967,17 +2958,6 @@ Hooks.once("init", () => {
   Hooks.on("renderTokenConfig", addAtlasExplorerToTokenConfig);
   // Foundry v14 public ApplicationV2 render hook; only GM D&D5e Group sheets match.
   Hooks.on("renderApplicationV2", addAtlasGroupTransportationControl);
-  Hooks.on("renderSceneConfig", (app, element) => {
-    addAtlasRoadsToSceneConfig(app, element, roadActions);
-  });
-  Hooks.on("closeSceneConfig", app => {
-    // The floating dock owns an active edit even after its parent Scene sheet closes.
-    // Save Points / Cancel, not the sheet lifecycle, must resolve that edit.
-    if (!activeRoadDockForSceneConfig(app, roadDock, roadCanvas)) {
-      roadCanvas.endEditor(app?.document);
-    }
-    forgetAtlasSceneConfig(app);
-  });
   Hooks.on("canvasReady", () => {
     atlasDebug("lifecycle","Foundry canvasReady",{sceneId:canvas?.scene?.id??null});
     navigation.tearDown("canvasReady");
@@ -3040,12 +3020,7 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
-  if (!game.user?.isGM) return;
-  try {
-    const installed = registerAtlasSceneTab(foundry.applications.sheets.SceneConfig);
-    if (!installed) console.warn("[" + MODULE_ID + "] Scene Atlas tab registration unavailable; using in-sheet fallback.");
-  } catch (error) {
-    console.warn("[" + MODULE_ID + "] Scene Atlas tab unavailable; using in-sheet fallback.", error);
-  }
+  // Atlas authoring lives in the modeless GM Workspace. Native SceneConfig
+  // retains all of Foundry's own tabs, fields, Grid and Scene settings.
   console.info("[" + MODULE_ID + "] Module ready");
 });

@@ -104,13 +104,19 @@ test("module init registers World travel and appearance menus without an obsolet
       ["atlasTransportationPresetsMenu", "atlasTravelPresetsMenu", "checkpointPresetMenu", "atlasRoadAppearanceMenu"]);
     assert.ok(menus.every(([namespace, , options]) =>
       namespace === "fvtt-atlas-navigation" && options.restricted));
-    assert.equal(typeof events.get("renderSceneConfig"), "function");
+    // Atlas Workspace is the only Scene authoring entrypoint. Neither
+    // native SceneConfig tab registration nor an in-sheet Atlas injection
+    // should be installed, even for GMs.
+    assert.equal(events.has("renderSceneConfig"),false);
+    assert.equal(events.has("closeSceneConfig"),false);
 
     events.get("ready")();
     assert.equal(notices.length, 0);
 
     globalThis.game.user.isGM = true;
     events.get("ready")();
+    assert.equal(events.has("renderSceneConfig"),false,
+      "GM ready must not register a native Atlas Scene tab");
     assert.deepEqual(notices, [], "no GM startup confirmation is displayed");
   } finally {
     globalThis.Hooks = originalHooks;

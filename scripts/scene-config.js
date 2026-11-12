@@ -40,7 +40,6 @@ import {openAtlasTerritorySettings} from "./atlas-territory-settings.js";
 import {territoryCheckpointJournal,territoryJournalBadgeData}
   from "./territory-journal-indicator.js";
 
-const TAB_ID = "atlas";
 const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
 const junctionFilters = new Map();
 const generatorState = new Map();
@@ -132,40 +131,10 @@ function junctionFilterFor(scene, atlas) {
   return state;
 }
 
-/**
- * Extend Foundry v14's documented public TABS/PARTS configuration.
- * Do this once, before Scene Configuration is first rendered.
- * Do not override private SceneConfig handlers or core templates.
- */
-export function registerAtlasSceneTab(SceneConfig) {
-  const group = SceneConfig?.TABS?.sheet;
-  const parts = SceneConfig?.PARTS;
-  if (!group || !Array.isArray(group.tabs) || !parts) return false;
-  if (group.tabs.some(tab => tab.id === TAB_ID)) return true;
-
-  const tabs = [...group.tabs];
-  const after = tabs.findIndex(tab => tab.id === "levels");
-  tabs.splice(after < 0 ? tabs.length : after + 1, 0, {
-    id: TAB_ID,
-    icon: "fa-solid fa-route",
-    label: "FVTTATLAS.Atlas.Tab"
-  });
-
-  const entries = Object.entries(parts);
-  const footerIndex = entries.findIndex(([key]) => key === "footer");
-  entries.splice(footerIndex < 0 ? entries.length : footerIndex, 0, [
-    TAB_ID,
-    {
-      template: "modules/fvtt-atlas-navigation/templates/scene-atlas-tab.hbs",
-      scrollable: [".scrollable"]
-    }
-  ]);
-
-  SceneConfig.PARTS = Object.fromEntries(entries);
-  SceneConfig.TABS = { ...SceneConfig.TABS, sheet: { ...group, tabs } };
-  return true;
-}
-
+// No native SceneConfig tabs or PARTS are registered by Atlas.
+// Foundry owns Scene Settings; these reusable editor functions are consumed
+// by the GM Atlas Scene Workspace. The isolated legacy renderer below remains
+// temporarily for regression coverage and does not inject UI at runtime.
 
 const label = key => game.i18n.localize(key);
 const node = (tag, text, className) => {
@@ -1656,6 +1625,9 @@ export function forgetAtlasSceneConfig(app) {
   }
 }
 
+/** The legacy SceneConfig renderer is deliberately NOT registered.
+ * Retained for tests of shared Road/Region controls until the owner accepts
+ * parity across all Workspace panels. Do not restore a renderSceneConfig hook. */
 export function addAtlasRoadsToSceneConfig(app, element, actions) {
   const scene = app?.document;
   if (!globalThis.game?.user?.isGM ||
