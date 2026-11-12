@@ -10,6 +10,8 @@ import { ATLAS_FLAG, MODULE_ID, readAtlas } from "./atlas-storage.js";
 import { setRoadPlayerVisibility, setCheckpointPlayerVisibility }
   from "./player-visibility.js";
 import {assertNoDeletedTerritoryCheckpoints} from "./territory-checkpoint-link.js";
+import { attachIndependentCheckpointsToRoad, roadCheckpointEditCandidates }
+  from "./road-checkpoint-existing-attachments.js";
 
 /**
  * Scene flag writes are revision-checked, but not atomic compare-and-swap.
@@ -103,13 +105,19 @@ export function saveMergedRoads(scene, { keepRoadId, mergeRoadId, expectedRevisi
 }
 
 /** Apply only a reviewed sequence of geometry operations to one road. */
-export function savePointEdits(scene, { roadId, operations, expectedRevision }) {
+export function savePointEdits(scene, {
+  roadId, operations, checkpointIds = [], idFactory, expectedRevision
+}) {
   if (!Array.isArray(operations) || !operations.length || operations.length > 5000) {
     throw new Error("No valid point edits to save.");
   }
-  return saveChange(scene, expectedRevision, previous =>
-    operations.reduce((atlas, operation) =>
-      applyRoadGeometryEdit(atlas, { roadId, operation }), previous));
+  return saveChange(scene, expectedRevision, previous => {
+    const edited=operations.reduce((atlas, operation) =>
+      applyRoadGeometryEdit(atlas, { roadId, operation }), previous);
+    return checkpointIds.length
+      ? attachIndependentCheckpointsToRoad(edited,{roadId,checkpointIds,idFactory})
+      : edited;
+  });
 }
 
 /** One atomic versioned Scene flag write can add a checkpoint AND split an edge. */
@@ -158,9 +166,30 @@ export function saveDisconnectedIndependentCheckpoint(scene, {
     disconnectIndependentCheckpoint(previous, { checkpointId, segmentId }));
 }
 
-export function saveRelocatedIndependentCheckpoint(scene,{checkpointId,at,expectedRevision}) {
-  return saveChange(scene,expectedRevision,previous=>
-    relocateIndependentCheckpoint(previous,{checkpointId,at}));
+export function saveRelocatedIndependentCheckpoint(scene,{
+  checkpointId,at,connection=null,idFactory,expectedRevision
+}) {
+  return saveChange(scene,expectedRevision,previous=>{
+    if(!connection)return relocateIndependentCheckpoint(previous,{checkpointId,at});
+    const segment=previous.segments.find(s=>s.id===connection.segmentId);
+    if(!segment || !Number.isFinite(connection.x)||!Number.isFinite(connection.y))
+      throw Error("Selected Road attachment is no longer available.");
+    if(Math.hypot(at.x-connection.x,at.y-connection.y)>14)
+      throw Error("Selected Road attachment is too far from the destination.");
+    const checkpoint=previous.checkpoints?.find(c=>c.id===checkpointId);
+    const node=previous.nodes.find(n=>n.id===checkpoint?.nodeId);
+    if(!node)throw Error("Checkpoint Node no longer exists.");
+    const snapped={x:connection.x,y:connection.y};
+    const moved=node.x===snapped.x&&node.y===snapped.y
+      ? previous : relocateIndependentCheckpoint(previous,{checkpointId,at:snapped});
+    const candidate=roadCheckpointEditCandidates(moved,{roadId:segment.roadId})
+      .find(c=>c.checkpointId===checkpointId&&
+        c.segmentId===segment.id&&c.distance<0.01);
+    if(!candidate)throw Error("Road attachment is ambiguous; move without connecting instead.");
+    return attachIndependentCheckpointsToRoad(moved,{
+      roadId:segment.roadId,checkpointIds:[checkpointId],idFactory
+    });
+  });
 }
 
 export function saveEditedCheckpoint(scene, { checkpointId, name, elevationMeters, expectedRevision }) {

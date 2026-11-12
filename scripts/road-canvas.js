@@ -491,6 +491,11 @@ export class RoadCanvasController {
     this.territoryLabelCheckpointIds=new Set();
     this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
       confirmAttach, confirmDetach, chooseBranch, idFactory, refresh: () => this.refresh() });
+    this.pointEditor.reviewIndependentCheckpointConnections = options => {
+      if(typeof this.reviewIndependentCheckpointConnections!=="function")
+        throw Error("Checkpoint connection review is unavailable.");
+      return this.reviewIndependentCheckpointConnections(options);
+    };
   }
 
   getDraft(scene) {
@@ -1047,7 +1052,12 @@ export class RoadCanvasController {
            readAtlas(scene).revision!==draft.expectedRevision)
           throw Error("Atlas or active Scene changed. Restart relocation.");
         this.saving=true;
-        await save({checkpointId,at,expectedRevision:draft.expectedRevision});
+        await save({
+          checkpointId,at,
+          connection:typeof approved==="object"?approved.connection??null:null,
+          idFactory:this.idFactory,
+          expectedRevision:draft.expectedRevision
+        });
         if(this.draft!==draft)return;
         const changed=draft.onChange;
         this.#detach();this.draft=null;
