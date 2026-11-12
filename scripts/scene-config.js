@@ -620,6 +620,82 @@ function createManualFogControls(scene,actions,refresh) {
   return fogPanel;
 }
 
+/** Shared native Region link/unlink/configure controls. The native Region
+ * Document owns Shapes and Behaviors; Atlas stores only an association. */
+function createAtlasNativeRegionLinks(scene,atlas,generated,actions,refresh,activeRoadId){
+  const regionSection = node("fieldset");
+  const regionLegend = node("legend");
+  const regionHeader = node("span");
+  regionHeader.style.display = "inline-flex";
+  regionHeader.style.alignItems = "center";
+  regionHeader.style.gap = "0.35rem";
+  regionHeader.appendChild(node("span", label("FVTTATLAS.Regions.Title")));
+  const regionBadge = node("span", "· Foundry Region Documents");
+  regionBadge.style.cssText = "font-size:0.75em;opacity:0.75;";
+  regionHeader.appendChild(regionBadge);
+  const nativeRegions = listSceneRegions(scene);
+  const roadByGeneratedRegionId = new Map(generated.filter(r => r.metadata)
+    .map(r => [r.id, r.metadata.roadId]));
+  const candidates = nativeRegions.filter(region => !region.linked && !region.invalidLink);
+  const link = button("+", label("FVTTATLAS.Regions.Link"),
+    () => actions.linkRegion(scene, refresh));
+  link.style.flex = "0 0 auto";
+  link.style.width = "1.65rem";
+  link.style.minWidth = "1.65rem";
+  link.style.padding = "0";
+  link.disabled = candidates.length === 0;
+  regionHeader.appendChild(link);
+  regionHeader.appendChild(button("↻", label("FVTTATLAS.Regions.Refresh"), refresh));
+  regionLegend.appendChild(regionHeader);
+  regionSection.appendChild(regionLegend);
+  // Native Region links are shown directly under the expanded road.
+  const activeRoad=atlas.roads?.find(road=>road.id===activeRoadId);
+  const visibleNative = nativeRegions.filter(region =>
+    activeRoad && !roadByGeneratedRegionId.has(region.id) &&
+    region.name?.startsWith?.(activeRoad.name + " —"));
+  const linkedRegions = visibleNative.filter(region => region.linked);
+  if (!nativeRegions.length) {
+    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.NoNative"), "hint"));
+  } else if (!linkedRegions.length) {
+    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.None"), "hint"));
+  }
+  for (const region of visibleNative.filter(region => region.linked || region.invalidLink)) {
+    const row = node("div", undefined, "form-group");
+    row.setAttribute("data-atlas-region-id", region.id);
+    const description = node("div");
+    description.style.flex = "1 1 auto";
+    description.style.minWidth = "0";
+    description.appendChild(node("span", region.name));
+    if (region.hidden) {
+      description.appendChild(node("div", label("FVTTATLAS.Regions.Hidden"), "hint"));
+    }
+    if (region.invalidLink) {
+      description.appendChild(node("div", label("FVTTATLAS.Regions.Invalid"), "hint"));
+    } else if (region.behaviors.length) {
+      const summary = region.behaviors.map(behavior =>
+        `${behavior.name} (${label(behavior.active ?
+          "FVTTATLAS.Regions.Active" : "FVTTATLAS.Regions.Inactive")})`).join(" · ");
+      description.appendChild(node("div", summary, "hint"));
+    } else {
+      description.appendChild(node("div", label("FVTTATLAS.Regions.NoBehaviors"), "hint"));
+    }
+    row.appendChild(description);
+    const controls = node("div", undefined, "form-fields");
+    controls.appendChild(button("⚙", label("FVTTATLAS.Regions.Configure"),
+      () => actions.configureRegion(scene, region.id)));
+    if (region.linked) {
+      controls.appendChild(button("×", label("FVTTATLAS.Regions.Unlink"),
+        () => actions.unlinkRegion(scene, region.id, refresh)));
+    }
+    row.appendChild(controls);
+    regionSection.appendChild(row);
+  }
+  if (nativeRegions.some(region => region.invalidLink)) {
+    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.InvalidHint"), "hint"));
+  }
+  return {regionSection,nativeRegions,visibleNative};
+}
+
 function atlasPanel(scene, atlas, actions, refresh,
   { generatorOnly = false, roadsOnly = false, surfacesOnly = false } = {}) {
   const root = node("section");
@@ -1387,82 +1463,22 @@ function atlasPanel(scene, atlas, actions, refresh,
   }
   if (visibleGenerated.length > 50) generatedSection.appendChild(node("p",
     label("FVTTATLAS.Generated.Limit"), "hint"));
-  if(surfacesOnly)return generatedSection;
+  if(surfacesOnly){
+    const roadId=generatorState.get(scene.id)?.roadId??null;
+    const links=createAtlasNativeRegionLinks(
+      scene,atlas,generated,actions,refresh,roadId);
+    const panel=node("section");
+    panel.setAttribute("data-atlas-surfaces-panel","");
+    panel.append(generatedSection,links.regionSection);
+    return panel;
+  }
   advanced.appendChild(generatedSection);
 
   // Phase 2d associates existing native RegionDocuments. No Atlas geometry or
   // terrain modifiers are stored here; Foundry's Region editor stays canonical.
-  const regionSection = node("fieldset");
-  const regionLegend = node("legend");
-  const regionHeader = node("span");
-  regionHeader.style.display = "inline-flex";
-  regionHeader.style.alignItems = "center";
-  regionHeader.style.gap = "0.35rem";
-  regionHeader.appendChild(node("span", label("FVTTATLAS.Regions.Title")));
-  const regionBadge = node("span", "· Foundry Region Documents");
-  regionBadge.style.cssText = "font-size:0.75em;opacity:0.75;";
-  regionHeader.appendChild(regionBadge);
-  const nativeRegions = listSceneRegions(scene);
-  const roadByGeneratedRegionId = new Map(generated.filter(r => r.metadata)
-    .map(r => [r.id, r.metadata.roadId]));
-  const candidates = nativeRegions.filter(region => !region.linked && !region.invalidLink);
-  const link = button("+", label("FVTTATLAS.Regions.Link"),
-    () => actions.linkRegion(scene, refresh));
-  link.style.flex = "0 0 auto";
-  link.style.width = "1.65rem";
-  link.style.minWidth = "1.65rem";
-  link.style.padding = "0";
-  link.disabled = candidates.length === 0;
-  regionHeader.appendChild(link);
-  regionHeader.appendChild(button("↻", label("FVTTATLAS.Regions.Refresh"), refresh));
-  regionLegend.appendChild(regionHeader);
-  regionSection.appendChild(regionLegend);
-  // Native Region links are shown directly under the expanded road.
-  const activeRoadId=expandedRoads.get(scene.id);
-  const activeRoad=atlas.roads?.find(road=>road.id===activeRoadId);
-  const visibleNative = nativeRegions.filter(region =>
-    activeRoad && !roadByGeneratedRegionId.has(region.id) &&
-    region.name?.startsWith?.(activeRoad.name + " —"));
-  const linkedRegions = visibleNative.filter(region => region.linked);
-  if (!nativeRegions.length) {
-    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.NoNative"), "hint"));
-  } else if (!linkedRegions.length) {
-    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.None"), "hint"));
-  }
-  for (const region of visibleNative.filter(region => region.linked || region.invalidLink)) {
-    const row = node("div", undefined, "form-group");
-    row.setAttribute("data-atlas-region-id", region.id);
-    const description = node("div");
-    description.style.flex = "1 1 auto";
-    description.style.minWidth = "0";
-    description.appendChild(node("span", region.name));
-    if (region.hidden) {
-      description.appendChild(node("div", label("FVTTATLAS.Regions.Hidden"), "hint"));
-    }
-    if (region.invalidLink) {
-      description.appendChild(node("div", label("FVTTATLAS.Regions.Invalid"), "hint"));
-    } else if (region.behaviors.length) {
-      const summary = region.behaviors.map(behavior =>
-        `${behavior.name} (${label(behavior.active ?
-          "FVTTATLAS.Regions.Active" : "FVTTATLAS.Regions.Inactive")})`).join(" · ");
-      description.appendChild(node("div", summary, "hint"));
-    } else {
-      description.appendChild(node("div", label("FVTTATLAS.Regions.NoBehaviors"), "hint"));
-    }
-    row.appendChild(description);
-    const controls = node("div", undefined, "form-fields");
-    controls.appendChild(button("⚙", label("FVTTATLAS.Regions.Configure"),
-      () => actions.configureRegion(scene, region.id)));
-    if (region.linked) {
-      controls.appendChild(button("×", label("FVTTATLAS.Regions.Unlink"),
-        () => actions.unlinkRegion(scene, region.id, refresh)));
-    }
-    row.appendChild(controls);
-    regionSection.appendChild(row);
-  }
-  if (nativeRegions.some(region => region.invalidLink)) {
-    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.InvalidHint"), "hint"));
-  }
+  const {regionSection,nativeRegions,visibleNative}=
+    createAtlasNativeRegionLinks(scene,atlas,generated,actions,refresh,
+      expandedRoads.get(scene.id));
   advanced.appendChild(regionSection);
 
   // Reuse exactly the same native Region controls in both Scene tab and Workspace.

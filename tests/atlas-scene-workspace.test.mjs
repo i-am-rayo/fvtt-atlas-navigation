@@ -141,6 +141,7 @@ test("Workspace Surfaces exposes existing native generator without creating Regi
   const ctx=context();
   try{
     ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
+    ctx.actions.linkRegion=()=>ctx.calls.push(["link-native"]);
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     await buttons(ws.result).find(item=>item.textContent==="Surfaces")
       .listeners.get("click")({preventDefault(){}});
@@ -151,6 +152,11 @@ test("Workspace Surfaces exposes existing native generator without creating Regi
     assert.match(text(panel),/Native Regions/);
     assert.match(text(panel),/FVTTATLAS.Generated.NoCheckpoints/);
     assert.deepEqual(ctx.calls,[],"displaying Surfaces does not authorize native Region writes");
+    const link=buttons(panel).find(item=>item.title==="FVTTATLAS.Regions.Link");
+    assert.ok(link,"Surfaces must retain the legacy native Region linking action");
+    await link.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,[["link-native"]],
+      "the Workspace uses the existing native Region association handler");
     await ws.close();
   }finally{ctx.restore();}
 });
