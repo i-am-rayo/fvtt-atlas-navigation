@@ -96,6 +96,6 @@ test("contextual priorities are opt-in and keep existing public instruction beha
   assert.equal(steps[0].instruction,"Head east to Valecor");
   const contextual=buildNavigationSteps(route().legs,()=> "Road to The Eyrie",
     {preferRoadName:true});
-  assert.equal(contextual[0].instruction,"Head east to Road to The Eyrie");
+  assert.equal(contextual[0].instruction,"Head east on Road to The Eyrie");
   assert.equal(contextual[1].instruction,"Continue east on Road to The Eyrie");
 });
