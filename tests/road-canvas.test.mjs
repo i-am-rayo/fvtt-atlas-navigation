@@ -9,6 +9,7 @@ import { createEmptyAtlas, upgradeAtlasRoadAppearance } from "../scripts/atlas-m
 import { addRoad } from "../scripts/road-model.js";
 import { addRoadCheckpoint, editCheckpointAppearance } from "../scripts/checkpoint-model.js";
 import { DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
+import { saveNewIndependentCheckpoint } from "../scripts/road-storage.js";
 import { setRoadPlayerVisibility, setCheckpointPlayerVisibility }
   from "../scripts/player-visibility.js";
 import { defaultPartyExploration, setCheckpointKnowledge }
@@ -996,6 +997,73 @@ test("GM checkpoint placement commits the graph split in one revision, then clos
     assert.deepEqual(postCommit,{checkpointId:saved.checkpoints[0].id,
       sceneId:m.scene.id,saving:false,draft:null},
     "optional native Territory offer starts after Checkpoint creation releases its authoring lock");
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, previous);
+  }
+});
+
+test("standalone authoring draft redraws safely without Road points", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: true }, i18n: { localize: key => key } };
+    globalThis.PIXI = { Graphics: m.Graphics };
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", createEmptyAtlas());
+    assert.doesNotThrow(() => m.controller.startIndependentCheckpoint(m.scene, {
+      confirm: async () => null, save: async () => null, onChange: () => {}
+    }), "standalone placement must not crash while refreshing its overlay");
+    assert.equal(m.controller.getDraft(m.scene).points, 0,
+      "standalone draft should report no Road drawing points");
+    assert.doesNotThrow(() => m.controller.refresh(),
+      "subsequent canvas refresh must also tolerate a standalone draft");
+    m.controller.cancel();
+    assert.equal(m.controller.getDraft(m.scene), null);
+  } finally {
+    m.controller.tearDown();
+    Object.assign(globalThis, previous);
+  }
+});
+
+test("one checkpoint placement chooses standalone when clicked away from Road geometry", async () => {
+  const previous = { game: globalThis.game, PIXI: globalThis.PIXI };
+  const m = setup();
+  try {
+    globalThis.game = { user: { isGM: true }, i18n: { localize: key => key } };
+    globalThis.PIXI = { Graphics: m.Graphics };
+    let next = 0;
+    const initial = addRoad(createEmptyAtlas(), {
+      name: "Main Road", points: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
+      idFactory: () => "initial" + ++next
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation", "atlas", initial);
+    let writes = 0;
+    const originalSave = m.scene.setFlag;
+    m.scene.setFlag = async (...args) => { writes++; return originalSave(...args); };
+    let promptedForRoad = false;
+    m.controller.promptCheckpoint = async () => { promptedForRoad = true; return null; };
+    let confirmations = 0;
+    m.controller.startCheckpoint(m.scene, () => {}, {
+      confirmIndependent: async ({ at }) => {
+        assert.ok(at.y > 50, "off-Road position remains image-local");
+        confirmations++;
+        return { name: "Outpost", elevationMeters: null };
+      },
+      saveIndependent: args => saveNewIndependentCheckpoint(m.scene, args)
+    });
+    const click = pointEvent(80, 85);
+    await m.listeners.get("pointerdown")(click);
+    const saved = readAtlas(m.scene);
+    assert.equal(click.prevented, true);
+    assert.equal(confirmations, 1);
+    assert.equal(promptedForRoad, false);
+    assert.equal(writes, 1, "standalone Checkpoint must use one guarded Scene flag write");
+    assert.equal(saved.checkpoints.length, 1);
+    assert.equal(saved.checkpoints[0].name, "Outpost");
+    assert.equal(saved.checkpoints[0].roadId, null);
+    assert.equal(saved.roads.length, initial.roads.length);
+    assert.deepEqual(saved.segments.map(s => s.id), initial.segments.map(s => s.id));
+    assert.equal(m.controller.getDraft(m.scene), null);
   } finally {
     m.controller.tearDown();
     Object.assign(globalThis, previous);

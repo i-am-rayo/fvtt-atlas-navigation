@@ -497,7 +497,7 @@ export class RoadCanvasController {
     if (editing) return editing;
     if (!scene || this.draft?.sceneId !== scene.id) return null;
     return {
-      points: this.draft.points.length,
+      points: this.draft.points?.length ?? 0,
       saving: this.saving,
       mode: this.draft.mode
     };
@@ -771,7 +771,7 @@ export class RoadCanvasController {
    * An interior click inserts one stable graph node and checkpoint together
    * in ONE revision-checked Scene flag update, never as separate writes.
    */
-  startCheckpoint(scene, onChange) {
+  startCheckpoint(scene, onChange, { confirmIndependent = null, saveIndependent = null } = {}) {
     if (!globalThis.game?.user?.isGM ||
         !scene?.canUserModify?.(game.user, "update")) {
       throw new Error("Only a GM may place Atlas checkpoints.");
@@ -784,8 +784,9 @@ export class RoadCanvasController {
       throw new Error("View this Scene on the canvas before adding a checkpoint.");
     }
     const atlas = readAtlas(scene);
-    if (atlas.schemaVersion < 3 || !atlas.segments.length) {
-      throw new Error("Create and organize named roads before adding checkpoints.");
+    if (atlas.schemaVersion < 3 || (!atlas.segments.length &&
+        (typeof confirmIndependent !== "function" || typeof saveIndependent !== "function"))) {
+      throw new Error("Organize Atlas Roads or enable standalone placement before adding checkpoints.");
     }
     const element = canvas.app?.canvas ?? canvas.app?.view;
     if (!element?.addEventListener || typeof canvas.canvasCoordinatesFromClient !== "function") {
@@ -810,17 +811,46 @@ export class RoadCanvasController {
         return;
       }
       const local = toAtlasPoint(canvas, current, position);
-      const candidate = findRoadSnap(current, local);
-      if (!candidate) {
+      const candidate = current.segments.length ? findRoadSnap(current, local) : null;
+      const standalone = !candidate && typeof confirmIndependent === "function" &&
+        typeof saveIndependent === "function";
+      if (!candidate && !standalone) {
         this.notify()?.warn?.(game.i18n.localize("FVTTATLAS.Checkpoints.ClickRoad"));
         return;
       }
+      const roads = candidate ? checkpointCandidateRoads(current, candidate) : [];
+      if (candidate && !roads.length) return;
       event.preventDefault?.();
       event.stopImmediatePropagation?.();
-      const roads = checkpointCandidateRoads(current, candidate);
-      if (!roads.length) return;
       draft.confirming = true;
       try {
+        if (standalone) {
+          const details = await confirmIndependent({
+            at: local, name: "Checkpoint " + ((current.checkpoints?.length ?? 0) + 1)
+          });
+          if (!details || this.draft !== draft) return;
+          if (this.canvasProvider()?.scene?.id !== draft.sceneId ||
+              readAtlas(scene).revision !== draft.expectedRevision) {
+            throw new Error("Atlas or the active Scene changed during confirmation. Restart placement.");
+          }
+          this.saving = true;
+          const saved = await saveIndependent({
+            at: local, name: details.name,
+            elevationMeters: details.elevationMeters,
+            expectedRevision: draft.expectedRevision, idFactory: this.idFactory
+          });
+          if (this.draft !== draft) return;
+          const callback = draft.onChange;
+          this.#detach();
+          this.draft = null;
+          this.selectedRoadId = null;
+          this.selectedJunctionId = null;
+          this.selectedCheckpointId = saved.checkpoints.at(-1)?.id ?? null;
+          this.notify()?.info?.("Independent Checkpoint saved.");
+          this.refresh();
+          callback?.();
+          return;
+        }
         const config = await this.promptCheckpoint({
           roads,
           defaultName: "Checkpoint " + ((current.checkpoints?.length ?? 0) + 1)
@@ -2108,7 +2138,7 @@ export class RoadCanvasController {
       const draft = this.draft;
       const visualAtlas = atlas.schemaVersion >= 3 ? atlas :
         { ...atlas, schemaVersion: 3, coordinateSpace: "image", roads: [] };
-      let points = draft.points;
+      let points = Array.isArray(draft.points) ? draft.points : [];
       if (draft.mode === "new" && points.length > 1 && draft.snap.at(-1)) {
         const hit = findRoadSnap(visualAtlas, points.at(-1));
         if (hit) points = [...points.slice(0, -1), { x: hit.x, y: hit.y }];

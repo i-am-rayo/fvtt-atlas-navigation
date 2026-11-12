@@ -228,6 +228,183 @@
   }
 }
 
+/* Checkpoints share the Road/Territory directory layout, not the native
+   form-group column stack. All rules are Workspace-scoped and presentational. */
+.atlas-scene-workspace .atlas-workspace-checkpoints {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: .8rem .95rem 1rem;
+  border: 1px solid var(--color-border-light-tertiary, #766e72);
+  border-radius: .4rem;
+}
+.atlas-scene-workspace .atlas-workspace-checkpoints > legend {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+  padding: 0 .45rem;
+  font-weight: 700;
+}
+.atlas-scene-workspace .atlas-checkpoint-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2rem;
+  min-width: 2rem;
+  min-height: 1.8rem;
+  padding: 0;
+  margin: 0;
+  font-weight: 700;
+}
+.atlas-scene-workspace .atlas-checkpoint-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .65rem;
+  padding: .65rem 0;
+  margin-top: .35rem;
+  border-bottom: 1px solid var(--color-border-light-tertiary, #766e7255);
+}
+.atlas-scene-workspace .atlas-checkpoint-search {
+  min-width: min(100%, 13rem);
+  flex: 0 1 20rem;
+  margin: 0;
+}
+.atlas-scene-workspace .atlas-checkpoint-search input {
+  width: 100%;
+  min-height: 2rem;
+  min-width: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+.atlas-scene-workspace .atlas-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.atlas-scene-workspace .atlas-checkpoint-placement {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .7rem;
+  flex-wrap: wrap;
+  border: 1px solid #b68f52;
+  border-radius: .4rem;
+  padding: .65rem .8rem;
+  margin: .5rem 0;
+  background: #a887561c;
+}
+.atlas-scene-workspace .atlas-checkpoint-placement button { margin: 0; width: auto; }
+.atlas-scene-workspace .atlas-checkpoint-list {
+  display: grid;
+  gap: .45rem;
+  min-width: 0;
+  padding-top: .6rem;
+}
+.atlas-scene-workspace .atlas-checkpoint-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .4rem .85rem;
+  min-width: 0;
+  border: 1px solid var(--color-border-light-tertiary, #766e7255);
+  border-radius: .4rem;
+  padding: .65rem .75rem;
+}
+.atlas-scene-workspace .atlas-checkpoint-row[hidden] { display: none !important; }
+.atlas-scene-workspace .atlas-checkpoint-info { min-width: 0; }
+.atlas-scene-workspace .atlas-checkpoint-name {
+  display: block;
+  font-size: 1rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.atlas-scene-workspace .atlas-checkpoint-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem .75rem;
+  align-items: center;
+  margin-top: .22rem;
+  font-size: .86em;
+  opacity: .87;
+}
+.atlas-scene-workspace .atlas-checkpoint-road { font-weight: 600; }
+.atlas-scene-workspace .atlas-checkpoint-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .3rem;
+  min-width: 0;
+}
+.atlas-scene-workspace .atlas-checkpoint-actions .atlas-ui-icon-button {
+  box-sizing: border-box;
+  flex: 0 0 2.15rem;
+  width: 2.15rem;
+  min-width: 2.15rem;
+  height: 2.15rem;
+  min-height: 2.15rem;
+  margin: 0;
+  padding: .25rem;
+}
+.atlas-scene-workspace .atlas-checkpoint-details {
+  grid-column: 1 / -1;
+  margin: .1rem 0 0;
+  min-width: 0;
+}
+.atlas-scene-workspace .atlas-checkpoint-details > summary {
+  cursor: pointer;
+  width: fit-content;
+  font-size: .86rem;
+  padding: .25rem 0;
+  opacity: .88;
+}
+.atlas-scene-workspace .atlas-checkpoint-detail-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: .65rem;
+  padding: .65rem 0 .15rem;
+  border-top: 1px solid var(--color-border-light-tertiary, #766e7244);
+}
+.atlas-scene-workspace .atlas-checkpoint-field {
+  display: grid;
+  gap: .25rem;
+  min-width: 10rem;
+  flex: 1 1 11rem;
+  margin: 0;
+  font-size: .9rem;
+}
+.atlas-scene-workspace .atlas-checkpoint-field :is(select,input) {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  min-height: 2.1rem;
+  margin: 0;
+}
+.atlas-scene-workspace .atlas-checkpoint-detail-body > button {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 2.1rem;
+  margin: 0;
+  color: var(--color-level-error, #e8a099);
+}
+@media (max-width: 830px) {
+  .atlas-scene-workspace .atlas-checkpoint-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .atlas-scene-workspace .atlas-checkpoint-actions {
+    justify-content: flex-start;
+  }
+  .atlas-scene-workspace .atlas-checkpoint-details { grid-column: 1; }
+}
+
 /* Compact, modeless Atlas Layers palette; all choices are client-local. */
 .atlas-layers-palette { display: grid; gap: .55rem; padding: .6rem .8rem .9rem; overflow-y:auto; min-height:0; max-height:100%; }
 .atlas-layers-palette .atlas-layers-note,
