@@ -62,6 +62,13 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     this.territoryLocator=new TerritoryLocateHighlight();
   }
 
+  _showSection(id) {
+    if (this.activeSection === id) return;
+    this.activeSection = id;
+    this._scrollY = 0;
+    return this.render(true);
+  }
+
   async _locateTerritory(regionId) {
     assertEditable(this.scene);
     const region = this.scene.regions?.get?.(regionId);
@@ -94,18 +101,13 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       ["exploration", "Exploration"], ["navigation", "Navigation"],
       ["topology", "Topology & Levels"], ["portability","Import / Export"]]) {
       const tab = action(title, `Show ${title}`, () => {
-        if (this.activeSection !== id) {
-          this.activeSection = id;
-          this._scrollY = 0;
-          return this.render(true);
-        }
+        return this._showSection(id);
       });
       tab.className = "atlas-workspace-tab";
       tab.setAttribute("aria-current", this.activeSection === id ? "page" : "false");
       tab.setAttribute("data-atlas-workspace-tab", id);
       sidebar.appendChild(tab);
     }
-    sidebar.appendChild(make("p","Scene-owned controls stay in their dedicated panels.","hint"));
     const main = make("main", undefined, "atlas-workspace-content");
     main.setAttribute("data-atlas-workspace-scroll", "");
     const heading = make("header", undefined, "atlas-workspace-heading");
@@ -179,6 +181,16 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
           publicById: new Map(labels.map(item => [item.id, item])),
           onLocate:id=>this._locateTerritory(id) }));
     } else {
+      const tasks = make("section", undefined, "atlas-workspace-note");
+      tasks.appendChild(make("h3", "Map tasks"));
+      for (const [label, section] of [
+        ["Manage Roads", "roads"], ["Manage Checkpoints", "checkpoints"],
+        ["Manage Territories", "territories"], ["Plan a route", "navigation"]
+      ]) {
+        tasks.appendChild(action(label, label, () => this._showSection(section)));
+      }
+      main.appendChild(tasks);
+      main.appendChild(make("h3", "On this map"));
       const summary = make("div", undefined, "atlas-workspace-summary");
       for (const [label, value] of [
         ["Roads", atlas.roads?.length ?? 0],
@@ -193,19 +205,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
         summary.appendChild(card);
       }
       main.appendChild(summary);
-      const next = make("section", undefined, "atlas-workspace-note");
-      next.appendChild(make("h3","Scene Workspace consolidation"));
-      next.appendChild(make("p","Roads, Checkpoints, Territories, Surfaces, " +
-        "Exploration, Navigation and Topology/Levels use the existing authorized " +
-        "Atlas handlers. Import / Export provides the native Foundry Scene " +
-        "transfer preflight. Until GM/player acceptance, Scene Configuration → " +
-        "Atlas remains available for parity comparison."));
-      next.appendChild(action("Manage Territories", "Open territory management", () => {
-        this.activeSection = "territories";
-        this._scrollY = 0;
-        return this.render(true);
-      }));
-      main.appendChild(next);
+
     }
     root.append(sidebar, main);
     return root;

@@ -56,24 +56,7 @@ export function createAtlasWorkspacePortabilityPanel(scene) {
   const snapshot=atlasPortabilitySnapshot(scene);
   const root=elem("section");
   root.setAttribute("data-atlas-portability-panel","");
-  root.appendChild(elem("h3","Native Scene export & import preflight"));
-  root.appendChild(elem("p","Export this Scene using Foundry's native Scene " +
-    "directory Export Data action, then import into a backed-up destination " +
-    "World. Atlas Scene flags, native Regions and Shapes are owned by Foundry. " +
-    "External assets and Journal documents are NOT included in this export."));
-  const details=elem("dl");
-  for(const [label,value] of [
-    ["Atlas graph revision",String(snapshot.revision)],
-    ["Schema version",String(snapshot.schemaVersion)],
-    ["Roads / Checkpoints",snapshot.roads+" / "+snapshot.checkpoints],
-    ["Native Regions / Behaviors",snapshot.regions+" / "+snapshot.regionBehaviors],
-    ["Referenced Journals / Pages",String(snapshot.journals.length)],
-    ["External map/icon asset paths",String(snapshot.assets.length)]
-  ]){
-    const row=elem("div");row.className="atlas-workspace-stat";
-    row.append(elem("dt",label),elem("dd",value));details.appendChild(row);
-  }
-  root.appendChild(details);
+  root.appendChild(elem("h3","Transfer this Scene"));
   if(snapshot.pendingRecovery){
     const alert=elem("p",snapshot.recoveryError
       ? "STOP: The native Region recovery state is invalid: "+
@@ -87,6 +70,12 @@ export function createAtlasWorkspacePortabilityPanel(scene) {
     root.appendChild(elem("p","No pending Atlas native Region transfer " +
       "recovery was detected. Back up the World before proceeding."));
   }
+  root.appendChild(elem("p","In the Scenes directory, choose Export Data on this Scene. " +
+    "Use Foundry’s native Scene import in a backed-up destination World. " +
+    "Import into a new Scene to protect existing maps."));
+  root.appendChild(elem("h4","Transfer dependencies"));
+  root.appendChild(elem("p","Provide external map assets and linked Journals separately. " +
+    "Foundry’s Scene export includes the Atlas Scene data and native Regions."));
   const assets=elem("details");
   assets.appendChild(elem("summary","Referenced external asset paths ("+
     snapshot.assets.length+")"));
@@ -98,7 +87,7 @@ export function createAtlasWorkspacePortabilityPanel(scene) {
     "on both GM and player clients."));
   root.appendChild(assets);
   const journalDetails=elem("details");
-  journalDetails.appendChild(elem("summary","Referenced Journal UUIDs ("+
+  journalDetails.appendChild(elem("summary","Linked Journals and Pages ("+
     snapshot.journals.length+")"));
   for(const uuid of snapshot.journals){
     journalDetails.appendChild(elem("p",uuid));
@@ -107,7 +96,7 @@ export function createAtlasWorkspacePortabilityPanel(scene) {
   const status=elem("p","Journal UUIDs have not yet been checked in this World.");
   status.setAttribute("aria-live","polite");
   root.appendChild(status);
-  const check=elem("button","Check Journal UUID resolution (read-only)");
+  const check=elem("button","Check linked Journals in this World");
   check.type="button";
   check.disabled=snapshot.journals.length===0;
   check.addEventListener("click",async event=>{
@@ -138,10 +127,24 @@ export function createAtlasWorkspacePortabilityPanel(scene) {
     }finally{check.disabled=false;}
   });
   root.appendChild(check);
-  root.appendChild(elem("p","Before Sunday handoff: verify the destination " +
+  root.appendChild(elem("p","After import, verify the destination " +
     "background and icons, Journal UUID and access permissions, native Region " +
     "Shapes/Behaviors, Atlas flags and player Fog. Export the destination " +
     "Scene again and compare semantic counts/IDs. Do not import over an " +
     "existing Scene or bypass pending Region recovery."));
+  const diagnostics=elem("details");
+  diagnostics.appendChild(elem("summary","Advanced GM diagnostics"));
+  const details=elem("dl");
+  for(const [label,value] of [
+    ["Atlas graph revision",String(snapshot.revision)],
+    ["Schema version",String(snapshot.schemaVersion)],
+    ["Roads / Checkpoints",snapshot.roads+" / "+snapshot.checkpoints],
+    ["Native Regions / Behaviors",snapshot.regions+" / "+snapshot.regionBehaviors]
+  ]){
+    const row=elem("div");row.className="atlas-workspace-stat";
+    row.append(elem("dt",label),elem("dd",value));details.appendChild(row);
+  }
+  diagnostics.appendChild(details);
+  root.appendChild(diagnostics);
   return root;
 }

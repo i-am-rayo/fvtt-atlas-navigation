@@ -81,6 +81,13 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.equal(first.options.position.left,24,"Atlas Workspace opens against the left edge");
     assert.match(text(first.result), /Scene Overview/);
     assert.match(text(first.result), /Roads/);
+    const tasks=walk(first.result,item=>item.className==="atlas-workspace-note")[0];
+    assert.deepEqual(buttons(tasks).map(item=>item.textContent),
+      ["Manage Roads","Manage Checkpoints","Manage Territories","Plan a route"]);
+    await buttons(tasks).find(item=>item.textContent==="Plan a route")
+      .listeners.get("click")({preventDefault(){}});
+    assert.equal(first.activeSection,"navigation");
+    assert.deepEqual(ctx.calls,[]);
     const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     assert.equal(first, again, "per-Scene instance must be reused");
     const territories = buttons(first.result).find(item => item.textContent === "Territories");
@@ -211,7 +218,15 @@ test("Workspace Import / Export reports native dependencies without starting a m
     assert.ok(panel);
     assert.match(text(panel),/native Scene/);
     assert.match(text(panel),/background.webp/);
-    assert.match(text(panel),/external assets and Journal documents are NOT included/i);
+    assert.match(text(panel),/external map assets and linked Journals separately/i);
+    const diagnostics=panel.children.find(item=>item.tag==="details" &&
+      item.children[0]?.textContent==="Advanced GM diagnostics");
+    assert.ok(diagnostics);
+    assert.ok(!diagnostics.open);
+    assert.match(text(diagnostics),/Atlas graph revision/);
+    assert.match(text(diagnostics),/Schema version/);
+    assert.ok(panel.children.indexOf(diagnostics)>panel.children.indexOf(
+      buttons(panel).find(item=>item.textContent==="Check linked Journals in this World")));
     assert.deepEqual(ctx.calls,[],"a dependency audit does not write to either World");
     ctx.scene.getFlag=(_scope,key)=>key==="territoryGridTransferIntent"
       ? {schemaVersion:999,records:[]} : null;
@@ -219,6 +234,7 @@ test("Workspace Import / Export reports native dependencies without starting a m
     const blocked=walk(ws.result,item=>
       item.attributes?.has("data-atlas-portability-blocked"))[0];
     assert.ok(blocked,"invalid native Region recovery ledger must block handoff");
+    assert.ok(ws.result && walk(ws.result,item=>item.tag==="section" && item.children.includes(blocked)).length);
     assert.match(text(blocked),/STOP: The native Region recovery state is invalid/);
     assert.deepEqual(ctx.calls,[],"invalid recovery reporting never clears the ledger");
     await ws.close();
