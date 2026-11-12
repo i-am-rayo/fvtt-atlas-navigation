@@ -687,3 +687,15 @@ test("looping Road drafts do not offer ambiguous independent Node links",()=>{
   assert.equal(candidates.length,1,
     "corner-safe nearest projection still returns one unique closest pass");
 });
+
+test("Road that doubles back over a Checkpoint is ambiguous and never offers a silent merge",()=>{
+  let n=0;
+  const atlas=addIndependentCheckpoint(createEmptyAtlas(),{
+    at:{x:50,y:0},name:"Repeated passage",idFactory:()=>"repeat"+ ++n
+  });
+  const points=[{x:0,y:0},{x:100,y:0},{x:0,y:0}];
+  const options=independentCheckpointRoadCandidates(atlas,points);
+  assert.deepEqual(options,[],"twice-crossed Node is not an eligible connection");
+  assert.throws(()=>addRoad(atlas,{points,idFactory:()=>"road"+ ++n,
+    checkpointIds:[atlas.checkpoints[0].id]}),/no longer eligible/);
+});
