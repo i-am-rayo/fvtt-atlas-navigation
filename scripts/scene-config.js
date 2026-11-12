@@ -574,8 +574,50 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
   return section;
 }
 
+/** GM-only Scene manual Exploration controls, shared verbatim with the
+ * legacy Scene Atlas tab; the handlers remain the single persistence path. */
+export function createAtlasExplorationPanel(scene,actions,refresh) {
+  if(!game.user?.isGM||!scene?.id||
+      !scene.canUserModify?.(game.user,"update"))
+    throw Error("Only a Scene-authorized GM can edit Atlas Exploration.");
+  const state=readManualFog(scene);
+  const fogPanel = node("fieldset");
+  fogPanel.setAttribute("data-atlas-exploration-panel", "");
+  fogPanel.appendChild(node("legend", "Exploration"));
+  const checkbox = node("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = state.enabled;
+  const enabledLabel = node("label", " Manual exploration");
+  enabledLabel.prepend(checkbox);
+  fogPanel.appendChild(enabledLabel);
+  const unsupported = scene.grid?.type === (globalThis.CONST?.GRID_TYPES?.GRIDLESS ?? 0);
+  if (unsupported) {
+    checkbox.disabled = !state.enabled;
+    fogPanel.appendChild(node("p","Gridless Scenes are unsupported.", "hint"));
+  }
+  checkbox.title = "Use Atlas exploration on this Scene";
+  checkbox.addEventListener("change",async()=>{
+    const desired=checkbox.checked;
+    checkbox.disabled=true;
+    try {await actions.saveManualFog(scene,desired,refresh);}
+    catch(error){
+      checkbox.checked=!desired;
+      checkbox.disabled=false;
+      ui.notifications.error(error.message??String(error));
+    }
+  });
+  const brush = button("Paint map", "Open Atlas brushes",
+    () => actions.openManualBrushPalette());
+  brush.style.marginLeft = ".6rem";
+  fogPanel.appendChild(brush);
+  const count = node("small", `${state.revealed.length} revealed · ${state.hidden.length} hidden`, "hint");
+  count.style.cssText = "display:block;margin-top:.3rem;";
+  fogPanel.appendChild(count);
+  return fogPanel;
+}
+
 function atlasPanel(scene, atlas, actions, refresh,
-  { generatorOnly = false, roadsOnly = false } = {}) {
+  { generatorOnly = false, roadsOnly = false, surfacesOnly = false } = {}) {
   const root = node("section");
   root.setAttribute("data-fvtt-atlas-setup", "");
   const travelPresets = readWorldTravelPresets().presets;
@@ -882,38 +924,8 @@ function atlasPanel(scene, atlas, actions, refresh,
   const party = readPartyExploration(scene);
   // Manual fog v0.2.26: Scene-owned state; token automation is intentionally disabled.
   const state = readManualFog(scene);
-  const fogPanel = node("fieldset");
-  fogPanel.appendChild(node("legend", "Exploration"));
-  const checkbox = node("input");
-  checkbox.type = "checkbox";
-  checkbox.checked = state.enabled;
-  const enabledLabel = node("label", " Manual exploration");
-  enabledLabel.prepend(checkbox);
-  fogPanel.appendChild(enabledLabel);
-  const unsupported = scene.grid?.type === (globalThis.CONST?.GRID_TYPES?.GRIDLESS ?? 0);
-  if (unsupported) {
-    checkbox.disabled = !state.enabled;
-    fogPanel.appendChild(node("p","Gridless Scenes are unsupported.", "hint"));
-  }
-  checkbox.title = "Use Atlas exploration on this Scene";
-  checkbox.addEventListener("change",async()=>{
-    const desired=checkbox.checked;
-    checkbox.disabled=true;
-    try {await actions.saveManualFog(scene,desired,refresh);}
-    catch(error){
-      checkbox.checked=!desired;
-      checkbox.disabled=false;
-      ui.notifications.error(error.message??String(error));
-    }
-  });
-  const brush = button("Paint map", "Open Atlas brushes",
-    () => actions.openManualBrushPalette());
-  brush.style.marginLeft = ".6rem";
-  fogPanel.appendChild(brush);
-  const count = node("small", `${state.revealed.length} revealed · ${state.hidden.length} hidden`, "hint");
-  count.style.cssText = "display:block;margin-top:.3rem;";
-  fogPanel.appendChild(count);
-  root.insertBefore(fogPanel, section);
+  const fogPanel=createAtlasExplorationPanel(scene,actions,refresh);
+  root.insertBefore(fogPanel,section);
 
   const advanced = node("details");
   advanced.style.marginTop = ".7rem";
@@ -1075,6 +1087,7 @@ function atlasPanel(scene, atlas, actions, refresh,
   // No bulk or automatic generation occurs merely by opening this sheet.
   const generated = listGeneratedRegions(scene);
   const generatedSection = node("fieldset");
+  if(surfacesOnly)generatedSection.setAttribute("data-atlas-surfaces-panel","");
   generatedSection.appendChild(node("legend", generatorOnly
     ? "Generation settings" : label("FVTTATLAS.Generated.Title") + " · Native Regions"));
   if (generatorOnly) generatedSection.appendChild(node("p",
@@ -1095,6 +1108,25 @@ function atlasPanel(scene, atlas, actions, refresh,
         presetId: available[0].travelPresetId ?? null, presetEdited: false,
         applyNativeCost: false, movementAction: "" };
       generatorState.set(scene.id, selected);
+    }
+    if(surfacesOnly){
+      // Surface generation is authored against one named Road at a time.
+      // This is transient selection, not a Scene/Region write.
+      const roadSelector=createSettingsSelect(available.map(road=>[road.id,road.name]),{
+        selectedId:selected.roadId,ariaLabel:"Road for native Surface generation"
+      });
+      roadSelector.addEventListener("change",()=>{
+        const chosen=available.find(road=>road.id===roadSelector.value);
+        if(!chosen)return;
+        selected.roadId=chosen.id;
+        selected.first=null;selected.last=null;
+        selected.presetEdited=false;
+        selected.applyNativeCost=false;
+        selected.movementAction="";
+        refresh();
+      });
+      appendSettingsField(generatedSection,"Road",roadSelector,
+        {variant:"native-div"});
     }
     // Road-default changes flow into the generator unless the GM chose an override.
     if (!selected.presetEdited) {
@@ -1351,6 +1383,7 @@ function atlasPanel(scene, atlas, actions, refresh,
   }
   if (visibleGenerated.length > 50) generatedSection.appendChild(node("p",
     label("FVTTATLAS.Generated.Limit"), "hint"));
+  if(surfacesOnly)return generatedSection;
   advanced.appendChild(generatedSection);
 
   // Phase 2d associates existing native RegionDocuments. No Atlas geometry or
@@ -1458,6 +1491,15 @@ export function createAtlasRoadsPanel(scene, actions, refresh) {
     throw Error("Only a Scene-authorized GM can use Atlas Road authoring tools.");
   }
   return atlasPanel(scene, readAtlas(scene), actions, refresh, { roadsOnly: true });
+}
+
+/** Reuses the existing native Region generator, travel preset and movement-cost
+ * controls; viewing Workspace never creates or mutates a Foundry Region. */
+export function createAtlasSurfacesPanel(scene,actions,refresh){
+  if(!game.user?.isGM||!scene?.id||
+      !scene.canUserModify?.(game.user,"update"))
+    throw Error("Only a Scene-authorized GM can manage Atlas Surfaces.");
+  return atlasPanel(scene,readAtlas(scene),actions,refresh,{surfacesOnly:true});
 }
 
 /** Native elevation setup is distinct from geographic territory hierarchy.

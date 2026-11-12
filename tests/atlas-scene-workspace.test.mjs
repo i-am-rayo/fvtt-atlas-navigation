@@ -24,6 +24,19 @@ class Element {
   appendChild(child) { this.children.push(child); child.parentNode = this; return child; }
   append(...children) { for (const child of children) this.appendChild(child); }
   prepend(...children) { this.children.unshift(...children); }
+  insertBefore(child,reference){
+    const index=this.children.indexOf(reference);
+    if(index<0)return this.appendChild(child);
+    this.children.splice(index,0,child);child.parentNode=this;return child;
+  }
+  remove(){
+    if(!this.parentNode)return;
+    this.parentNode.children=this.parentNode.children.filter(c=>c!==this);
+    this.parentNode=null;
+  }
+  querySelector(){return null;}
+  querySelectorAll(){return [];}
+  get isConnected(){return true;}
   addEventListener(name, callback) { this.listeners.set(name, callback); }
 }
 function walk(root, predicate) {
@@ -99,6 +112,47 @@ test("GM-only standalone workspace reuses territory actions without writing on r
       "closed instances must be discarded");
     await reopened.close();
   } finally { ctx.restore(); }
+});
+
+test("Workspace Exploration reuses Scene manual Fog handler without writing on render",async()=>{
+  const ctx=context();
+  try{
+    ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
+    ctx.actions.saveManualFog=(scene,enabled)=>ctx.calls.push(["manual-fog",scene.id,enabled]);
+    ctx.actions.openManualBrushPalette=()=>ctx.calls.push(["brush"]);
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await buttons(ws.result).find(item=>item.textContent==="Exploration")
+      .listeners.get("click")({preventDefault(){}});
+    assert.equal(ws.activeSection,"exploration");
+    const panel=walk(ws.result,item=>
+      item.attributes?.has("data-atlas-exploration-panel"))[0];
+    assert.ok(panel,"Exploration is a dedicated Scene panel");
+    assert.match(text(panel),/Manual exploration/);
+    assert.match(text(panel),/Paint map/);
+    assert.deepEqual(ctx.calls,[],"render is read-only");
+    const brush=buttons(panel).find(item=>item.textContent==="Paint map");
+    await brush.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,[["brush"]],"Workspace reuses existing native brush launcher");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("Workspace Surfaces exposes existing native generator without creating Regions on read",async()=>{
+  const ctx=context();
+  try{
+    ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await buttons(ws.result).find(item=>item.textContent==="Surfaces")
+      .listeners.get("click")({preventDefault(){}});
+    assert.equal(ws.activeSection,"surfaces");
+    const panel=walk(ws.result,item=>
+      item.attributes?.has("data-atlas-surfaces-panel"))[0];
+    assert.ok(panel,"Surfaces reuses legacy generator and Region-cost control family");
+    assert.match(text(panel),/Native Regions/);
+    assert.match(text(panel),/FVTTATLAS.Generated.NoCheckpoints/);
+    assert.deepEqual(ctx.calls,[],"displaying Surfaces does not authorize native Region writes");
+    await ws.close();
+  }finally{ctx.restore();}
 });
 
 test("Checkpoint authoring minimizes existing Workspace; side tool restores without recreating or writing",async()=>{
