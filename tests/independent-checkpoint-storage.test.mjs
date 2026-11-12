@@ -398,8 +398,14 @@ test("GM-approved exact merge to a saved multi-Road junction selects the Road wi
     assert.equal(merged.checkpoints[0].id,cp.id);
     assert.equal(merged.checkpoints[0].nodeId,junction);
     assert.equal(merged.checkpoints[0].roadId,second.roads[1].id);
-    assert.deepEqual(merged.segments,second.segments);
-    assert.deepEqual(merged.roads,second.roads);
+    assert.deepEqual(merged.segments,second.segments,
+      "the exact saved Road graph remains unchanged");
+    assert.deepEqual(merged.roads.map(road=>({id:road.id,name:road.name})),
+      second.roads.map(road=>({id:road.id,name:road.name})),
+      "Road identity and names stay unchanged; v10 may normalize optional metadata");
+    assert.ok(merged.roads.every(road=>
+      Object.hasOwn(road,"appearance") && Object.hasOwn(road,"playerVisible")),
+      "schema normalization retains the canonical style and visibility fields");
     assert.equal(merged.nodes.some(node=>node.id===cp.nodeId),false);
     await assert.rejects(saveRelocatedIndependentCheckpoint(scene,{
       checkpointId:cp.id,at:{x:101,y:1},expectedRevision:8,

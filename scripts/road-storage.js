@@ -183,10 +183,14 @@ export function saveRelocatedIndependentCheckpoint(scene,{
       const edge=previous.segments.filter(s=>
         s.from===roadNode.id||s.to===roadNode.id);
       const incidentRoads=new Set(edge.map(s=>s.roadId));
-      if(!incidentRoads.size||!incidentRoads.has(connection.roadId))
-        throw Error("The selected Road is no longer incident to that junction.");
+      // Keep the v8.39.2 single-Road endpoint contract readable; when
+      // multiple Roads meet, the GM MUST choose an explicit Road association.
+      const selectedRoadId=connection.roadId??
+        (incidentRoads.size===1?[...incidentRoads][0]:null);
+      if(!incidentRoads.size||!incidentRoads.has(selectedRoadId))
+        throw Error("Select a Road incident to this junction before connecting.");
       return attachIndependentCheckpointToRoadEndpoint(previous,{
-        checkpointId,roadId:connection.roadId,roadNodeId:roadNode.id
+        checkpointId,roadId:selectedRoadId,roadNodeId:roadNode.id
       });
     }
     if(connection.kind!=="edge"&&connection.kind!==undefined)
