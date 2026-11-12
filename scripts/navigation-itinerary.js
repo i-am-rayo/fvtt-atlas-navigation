@@ -14,13 +14,14 @@ const nullableText=value=>value==null?null:String(value);
 
 export function createNavigationItinerary({
   sceneId,sceneName="",sceneUnits="",atlasRevision=null,
-  route,roadName=id=>id,travel=null
+  route,roadName=id=>id,directionRoadName=roadName,preferRoadName=false,travel=null
 }={}) {
   if(typeof sceneId!=="string"||!sceneId.trim()||route?.status!=="ok"||
       !validPoint(route.start)||!validPoint(route.end)||
       !nonnegative(route.distance)||!nonnegative(route.cost)||
       !Array.isArray(route.legs)||route.legs.length>4096||
-      typeof roadName!=="function")throw Error("A valid calculated navigation route is required.");
+      typeof roadName!=="function"||typeof directionRoadName!=="function")
+    throw Error("A valid calculated navigation route is required.");
   const legs=route.legs.map((leg,index)=>{
     if(!["road","off-road"].includes(leg.kind)||
         !nonnegative(leg.distance)||!nonnegative(leg.cost)||
@@ -47,7 +48,8 @@ export function createNavigationItinerary({
       }))
     };
   });
-  const directions=buildNavigationSteps(route.legs,roadName).map((step,index)=>({
+  const directions=buildNavigationSteps(route.legs,directionRoadName,
+    {preferRoadName}).map((step,index)=>({
     order:index,kind:step.kind,roadId:nullableText(step.roadId),
     instruction:String(step.instruction),direction:String(step.direction??""),
     distance:step.distance,cost:step.cost,
