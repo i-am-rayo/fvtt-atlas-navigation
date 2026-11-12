@@ -7,7 +7,7 @@ import { listSceneRegions } from "./region-atlas.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { listPublicTerritorySettings } from "./region-narration.js";
 import { createAtlasRoadsPanel, createAtlasTerritoryPanel, createAtlasTopologyPanel,
-  createAtlasCheckpointPanel }
+  createAtlasCheckpointPanel,createAtlasExplorationPanel,createAtlasSurfacesPanel }
   from "./scene-config.js";
 import {TerritoryLocateHighlight} from "./territory-locate-highlight.js";
 
@@ -88,7 +88,8 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     sidebar.appendChild(make("h3", "Atlas"));
     for (const [id, title] of [["overview", "Overview"], ["roads", "Roads"],
       ["checkpoints", "Checkpoints"],
-      ["territories", "Territories"], ["topology", "Topology & Levels"]]) {
+      ["territories", "Territories"], ["surfaces", "Surfaces"],
+      ["exploration", "Exploration"], ["topology", "Topology & Levels"]]) {
       const tab = action(title, `Show ${title}`, () => {
         if (this.activeSection !== id) {
           this.activeSection = id;
@@ -101,8 +102,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       tab.setAttribute("data-atlas-workspace-tab", id);
       sidebar.appendChild(tab);
     }
-    sidebar.appendChild(make("p", "Coming in later phases", "hint"));
-    sidebar.appendChild(make("p", "Surfaces · Exploration · Navigation", "hint"));
+    sidebar.appendChild(make("p","Scene-owned controls stay in their dedicated panels.","hint"));
     const main = make("main", undefined, "atlas-workspace-content");
     main.setAttribute("data-atlas-workspace-scroll", "");
     const heading = make("header", undefined, "atlas-workspace-heading");
@@ -110,13 +110,26 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     title.appendChild(make("h2", this.activeSection === "territories" ? "Territories" :
       this.activeSection === "roads" ? "Roads" :
         this.activeSection === "checkpoints" ? "Checkpoints" :
+        this.activeSection === "surfaces" ? "Surfaces" :
+        this.activeSection === "exploration" ? "Exploration" :
         this.activeSection === "topology" ? "Topology & Levels" : "Scene Overview"));
     title.appendChild(make("p", `Scene: ${this.scene.name ?? this.scene.id}`, "hint"));
     heading.appendChild(title);
     heading.appendChild(action("Refresh", "Read current Scene and native Region records", () => this.render(true)));
     main.appendChild(heading);
 
-    if (this.activeSection === "topology") {
+    if(this.activeSection==="exploration"){
+      main.appendChild(make("p","Atlas manual map exploration is Scene-owned. " +
+        "Painting, revealing and hiding cells does not replace native Foundry Fog.","hint"));
+      main.appendChild(createAtlasExplorationPanel(this.scene,this.actions,
+        ()=>this.render(true)));
+    } else if(this.activeSection==="surfaces"){
+      main.appendChild(make("p","Generate or manage native Road corridor and " +
+        "Checkpoint Regions. Atlas previews and confirms every native Region " +
+        "change; existing native Shapes and Behaviors remain Foundry-owned.","hint"));
+      main.appendChild(createAtlasSurfacesPanel(this.scene,this.actions,
+        ()=>this.render(true)));
+    } else if (this.activeSection === "topology") {
       main.appendChild(make("p", "Native Foundry Levels describe elevation ranges, " +
         "not political or geographic territories. Preview and approve proposed " +
         "native changes; this view does not assign roads to Levels.", "hint"));
@@ -159,11 +172,11 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       }
       main.appendChild(summary);
       const next = make("section", undefined, "atlas-workspace-note");
-      next.appendChild(make("h3", "A gradual migration"));
-      next.appendChild(make("p", "Roads, Checkpoints, Territories and native Topology/Levels are " +
-        "available in this Workspace. Surface and " +
-        "exploration settings remain in Scene " +
-        "Configuration → Atlas until their dedicated views pass live testing."));
+      next.appendChild(make("h3","Scene Workspace consolidation"));
+      next.appendChild(make("p","Roads, Checkpoints, Territories, Surfaces, " +
+        "Exploration and Topology/Levels use the existing authorized Atlas " +
+        "handlers. Until GM and player acceptance, Scene Configuration → Atlas " +
+        "remains available as a non-destructive comparison view."));
       next.appendChild(action("Manage Territories", "Open territory management", () => {
         this.activeSection = "territories";
         this._scrollY = 0;
