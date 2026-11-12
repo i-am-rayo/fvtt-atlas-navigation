@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEmptyAtlas } from "../scripts/atlas-model.js";
+import { DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
 import { saveNewIndependentCheckpoint, saveConnectedIndependentCheckpoint,
   saveDisconnectedIndependentCheckpoint, saveRelocatedIndependentCheckpoint, saveNewRoad } from "../scripts/road-storage.js";
 
@@ -142,4 +143,26 @@ test("new Road and selected independent Checkpoint attachments save in one Scene
     }),/changed since/);
     assert.equal(scene.writes,2);
   }finally{globalThis.game=prev;}
+});
+
+test("full standalone Checkpoint settings preserve appearance and visibility in the first graph write",async()=>{
+  const previous=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    const scene=sceneFixture();
+    let seq=0;
+    const appearance={...DEFAULT_CHECKPOINT_APPEARANCE,size:34};
+    const saved=await saveNewIndependentCheckpoint(scene,{
+      at:{x:120,y:155},name:"Watchtower",elevationMeters:250,
+      appearance,playerVisible:true,expectedRevision:5,
+      idFactory:()=>"full"+ ++seq
+    });
+    assert.equal(scene.writes,1);
+    assert.equal(saved.schemaVersion,10);
+    assert.equal(saved.checkpoints[0].roadId,null);
+    assert.equal(saved.checkpoints[0].elevationMeters,250);
+    assert.equal(saved.checkpoints[0].playerVisible,true);
+    assert.deepEqual(saved.checkpoints[0].appearance,appearance);
+    assert.equal(saved.roads.length,0);
+  }finally{globalThis.game=previous;}
 });

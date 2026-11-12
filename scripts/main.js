@@ -5,9 +5,12 @@
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
   getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig,
   openAtlasRegionGenerator,closeCheckpointRegionGenerator } from "./scene-config.js";
-import { openAtlasSceneWorkspace, refreshAtlasSceneWorkspace, restoreAtlasSceneWorkspace }
+import { openAtlasSceneWorkspace, minimizeAtlasSceneWorkspace,
+  refreshAtlasSceneWorkspace, restoreAtlasSceneWorkspace }
   from "./atlas-scene-workspace.js";
 import { RoadCanvasController } from "./road-canvas.js";
+import { reviewIndependentCheckpointConnections } from "./road-checkpoint-review-dialog.js";
+import { createIndependentCheckpointFromDraft } from "./road-authoring-foundry.js";
 import {AtlasLayersController} from "./atlas-layers.js";
 import {acquireAtlasCanvasEditorFocus} from "./atlas-canvas-editor-focus.js";
 import { addAtlasExplorerToTokenConfig } from "./atlas-token-config.js";
@@ -190,56 +193,7 @@ roadCanvas.promptCheckpoint = ({ roads, defaultName }) => new Promise(resolve =>
     resolve(null);
   });
 });
-// GM review of independent Nodes near a new Road; no write during preview.
-roadCanvas.reviewIndependentCheckpointConnections=async ({roadName,candidates})=>{
-  if(!game.user?.isGM)throw Error("Only a GM can approve Checkpoint connections.");
-  if(candidates.length>100)throw Error("Too many Checkpoints for one Road review.");
-  const body=document.createElement("section");
-  const info=document.createElement("p");
-  info.textContent="The new Road "+roadName+" passes near "+candidates.length+
-    " independent Checkpoint(s). Choose real graph connections. Only the NEW " +
-    "Road is divided into sections; unselected Checkpoints stay independent.";
-  body.appendChild(info);
-  const rows=[];
-  for(const candidate of candidates){
-    const row=document.createElement("label");
-    row.style.cssText="display:flex;align-items:center;gap:.55rem;margin:.4rem 0;";
-    const check=document.createElement("input");
-    check.type="checkbox";check.checked=true;
-    check.setAttribute("aria-label","Connect "+candidate.name+" to new Road");
-    const caption=document.createElement("span");
-    caption.textContent=candidate.name+" — "+candidate.distance.toFixed(1)+
-      " image px from Road"+(candidate.endpoint?" ("+candidate.endpoint+" endpoint)":"");
-    row.append(check,caption);body.appendChild(row);rows.push({check,candidate});
-  }
-  const all=document.createElement("button");
-  all.type="button";all.textContent="Select All";
-  all.addEventListener("click",()=>rows.forEach(r=>r.check.checked=true));
-  const none=document.createElement("button");
-  none.type="button";none.textContent="Select None";
-  none.addEventListener("click",()=>rows.forEach(r=>r.check.checked=false));
-  const buttons=document.createElement("div");
-  buttons.style.cssText="display:flex;gap:.6rem;margin-top:.7rem;";
-  buttons.append(all,none);body.appendChild(buttons);
-  const warning=document.createElement("p");
-  warning.textContent="Connected Road sections may bend by up to 14 image pixels " +
-    "to use an existing Checkpoint Node. No existing Road or native Region is " +
-    "changed by this review. Confirm only intended graph links.";
-  body.appendChild(warning);
-  const choice=await foundry.applications.api.DialogV2.wait({
-    window:{title:"Atlas — Connect independent Checkpoints?"},
-    content:body,modal:true,rejectClose:false,
-    buttons:[
-      {action:"connect",label:"Create Road + Selected Connections",
-        icon:"fa-solid fa-link"},
-      {action:"none",label:"Create Road Without Connections"},
-      {action:"cancel",label:"Cancel Road Save",default:true}
-    ]
-  });
-  if(choice==="none")return [];
-  if(choice!=="connect")return null;
-  return rows.filter(row=>row.check.checked).map(row=>row.candidate.checkpointId);
-};
+roadCanvas.reviewIndependentCheckpointConnections=reviewIndependentCheckpointConnections;
 
 const navigation = new AtlasNavigationController();
 const manualFog = new AtlasManualFogController();
@@ -1403,39 +1357,27 @@ function actions() {
         roadCanvas.refresh();
         refresh();
       }, {
-        confirmIndependent: async ({ name: defaultName }) => {
-          const content = document.createElement("div");
-          const instructions = document.createElement("p");
-          instructions.textContent = "No eligible Road was selected. Create this " +
-            "Checkpoint as an independent landmark? It can be connected to a Road later.";
-          const nameLabel = document.createElement("label");
-          nameLabel.textContent = "Checkpoint name";
-          const name = document.createElement("input");
-          name.name = "checkpointName"; name.type = "text";
-          name.required = true; name.maxLength = 120; name.value = defaultName;
-          nameLabel.appendChild(name);
-          const elevationLabel = document.createElement("label");
-          elevationLabel.textContent = "Elevation in meters (optional)";
-          const height = document.createElement("input");
-          height.name = "checkpointElevation"; height.type = "number";
-          height.step = "any";
-          elevationLabel.appendChild(height);
-          content.append(instructions, nameLabel, elevationLabel);
-          const result = await DialogV2.input({
-            window: { title: "Create Independent Checkpoint" }, content,
-            ok: { label: "Create Checkpoint" }, rejectClose: false
+        confirmIndependent: ({name:defaultName})=>new Promise(resolve=>{
+          // The same GM editor and staged settings as Road-based Checkpoints.
+          const editor=new AtlasCheckpointAppearanceEditor({
+            scene,checkpointId:"__new_checkpoint__",
+            expectedRevision:readAtlas(scene).revision,
+            createDraft:{roads:[],defaultName,independent:true},
+            onCreate:resolve
           });
-          if (!result) return null;
-          const raw = String(result.checkpointElevation ?? "").trim();
-          return {
-            name: String(result.checkpointName ?? ""),
-            elevationMeters: raw === "" ? null : Number(raw)
-          };
-        },
-        saveIndependent: args => saveNewIndependentCheckpoint(scene, args)
+          Promise.resolve(editor.render(true)).catch(error=>{
+            ui.notifications.error(error.message??String(error));
+            resolve(null);
+          });
+        }),
+        saveIndependent:args=>createIndependentCheckpointFromDraft(scene,args)
       });
       ui.notifications.info("Click a Road to create a linked Checkpoint, " +
         "or click away from Roads for an independent Checkpoint. Escape cancels.");
+      // Let the GM see/click the map. The registered Workspace instance and
+      // active tab remain intact; the toolbar restores this same window.
+      void minimizeAtlasSceneWorkspace(scene).catch(error =>
+        ui.notifications.error(error.message ?? String(error)));
       refresh();
     },
     // Retained as a legacy API alias. The Workspace presents one [+] control.

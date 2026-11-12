@@ -1,5 +1,5 @@
 import { commitRoadDraft, commitCheckpointDraft } from "./road-authoring-workflow.js";
-import { saveNewRoad, saveNewCheckpoint } from "./road-storage.js";
+import { saveNewRoad, saveNewCheckpoint, saveNewIndependentCheckpoint } from "./road-storage.js";
 import { readAtlasJournalLinks, saveAtlasJournalLink } from "./atlas-journal-links.js";
 import { readPartyExploration, saveCheckpointKnowledge } from "./party-exploration-storage.js";
 import { readCheckpointDiscoveryMethods } from "./checkpoint-discovery-method.js";
@@ -20,12 +20,12 @@ export function createRoadFromDraft(scene, request) {
   });
 }
 
-export function createCheckpointFromDraft(scene, {
-  config, candidate, expectedRevision, idFactory
+function commitFoundryCheckpoint(scene, {
+  config, candidate, expectedRevision, idFactory, createCheckpoint
 }) {
   return commitCheckpointDraft({
     config, candidate, expectedRevision, idFactory,
-    createCheckpoint: options => saveNewCheckpoint(scene, options),
+    createCheckpoint,
     saveKnowledge: ({ checkpointId, knowledge, revealRadiusCells, method }) =>
       saveCheckpointKnowledge(scene, {
         checkpointId, knowledge, revealRadiusCells, method,
@@ -42,5 +42,26 @@ export function createCheckpointFromDraft(scene, {
     savePresetAssignment: ({ checkpointId, presetId }) =>
       saveCheckpointPresetAssignment(scene, checkpointId, presetId),
     saveOffers: ({ checkpointId, offers }) => saveCheckpointOffers(scene, checkpointId, offers)
+  });
+}
+
+/** Road and independent Checkpoints use the same complete metadata pipeline.
+ * The graph commit is authoritative; secondary metadata writes fail visibly
+ * and stop in order without redoing that commit. */
+export function createCheckpointFromDraft(scene, request) {
+  return commitFoundryCheckpoint(scene, {
+    ...request,
+    createCheckpoint: options => saveNewCheckpoint(scene, options)
+  });
+}
+
+export function createIndependentCheckpointFromDraft(scene, {
+  config, at, expectedRevision, idFactory
+}) {
+  return commitFoundryCheckpoint(scene, {
+    config, candidate: null, expectedRevision, idFactory,
+    createCheckpoint: options => saveNewIndependentCheckpoint(scene, {
+      ...options, at
+    })
   });
 }

@@ -136,9 +136,14 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     // template before entering or refining checkpoint-specific values.
     fields.prepend(presetControls.closest("label"),presetHint);
     let terrainSuggestion=this.createDraft?null:checkpointTerrainSuggestion(this.scene,this.checkpointId);
-    const draftRoad = this.createDraft
+    const draftRoad = this.createDraft && !this.createDraft.independent
       ? field("Named road", select(this.createDraft.roads.map(road => [road.id, road.name]),
           this.createDraft.roads[0]?.id ?? "")) : null;
+    if (this.createDraft?.independent) {
+      const hint = el("p", "Independent Checkpoint: no Road is assigned. Its existing Node can be connected later by GM-approved topology.");
+      hint.className = "hint";
+      fields.appendChild(hint);
+    }
     const imperial = resolveAtlasMeasuringUnits() === "imperial";
     const elevationFactor = imperial ? 3.280839895 : 1;
     const elevationControl=createCheckpointElevation(current.elevationMeters,{imperial});
@@ -338,9 +343,11 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         card.appendChild(commands);pageTerrain.appendChild(card);
       }
     }else if(this.createDraft){
-      pageTerrain.appendChild(el("p","A Terrain Region can be generated immediately after the new checkpoint is saved. You'll preview its geometry and choose its travel preset before confirming."));
+      pageTerrain.appendChild(el("p", this.createDraft.independent
+        ? "A standalone Checkpoint can later be linked to an existing native Territory or receive its own GM-approved generated Region. No Region is created automatically."
+        : "A Terrain Region can be generated immediately after the new checkpoint is saved. You'll preview its geometry and choose its travel preset before confirming."));
     }
-    const generateAfterCreate=this.createDraft?el("input"):null;
+    const generateAfterCreate=this.createDraft&&!this.createDraft.independent?el("input"):null;
     if(generateAfterCreate){
       generateAfterCreate.type="checkbox";
       const choice=el("label");choice.append(generateAfterCreate,
@@ -449,14 +456,14 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         const raw = elevation.value.trim();
         if (this.createDraft) {
           const roadId = draftRoad?.value ?? "";
-          if (!this.createDraft.roads.some(road => road.id === roadId))
+          if (!this.createDraft.independent && !this.createDraft.roads.some(road => road.id === roadId))
             throw Error("Choose a named road for this checkpoint.");
           if (!name.value.trim() || name.value.length > 120)
             throw Error("Enter a checkpoint name (1–120 characters).");
           if (raw !== "" && !Number.isFinite(Number(raw)))
             throw Error("Enter a valid elevation.");
           const config = {
-            roadId, name: name.value.trim(),
+            roadId: this.createDraft.independent ? null : roadId, name: name.value.trim(),
             elevationMeters: raw === "" ? null : Number(raw) / elevationFactor,
             appearance: next, playerVisible: playerVisibility.checked,
             journalUuid: nextJournal,

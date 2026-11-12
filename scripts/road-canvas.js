@@ -835,11 +835,15 @@ export class RoadCanvasController {
             throw new Error("Atlas or the active Scene changed during confirmation. Restart placement.");
           }
           this.saving = true;
-          const saved = await saveIndependent({
-            at: local, name: details.name,
+          const committed = await saveIndependent({
+            at: local, name: details.name, config: details,
             elevationMeters: details.elevationMeters,
             expectedRevision: draft.expectedRevision, idFactory: this.idFactory
           });
+          const saved = committed.atlas ?? committed;
+          if (committed.metadataError) this.notify()?.warn?.(
+            "Checkpoint created, but some discovery or Journal settings could not be saved: " +
+            (committed.metadataError.message ?? String(committed.metadataError)));
           if (this.draft !== draft) return;
           const callback = draft.onChange;
           this.#detach();

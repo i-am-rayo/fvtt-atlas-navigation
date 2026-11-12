@@ -42,7 +42,7 @@ function action(text, title, callback) {
 
 export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
-    window: { title: "Atlas — Scene Workspace", resizable: true },
+    window: { title: "Atlas — Scene Workspace", resizable: true, minimizable: true },
     position: { width: 1040, height: 720, left: 24 }
   };
 
@@ -125,7 +125,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       main.appendChild(topology);
     } else if (this.activeSection === "checkpoints") {
       main.appendChild(createAtlasCheckpointPanel(this.scene, this.actions,
-        () => this.render(true)));
+        () => this.minimized ? Promise.resolve() : this.render(true)));
     } else if (this.activeSection === "roads") {
       main.appendChild(make("p", "Manage authored roads, their graph connections, " +
         "per-road checkpoints and generated corridor Regions. Existing editors, " +
@@ -196,13 +196,23 @@ export function openAtlasSceneWorkspace(scene, actions) {
     workspace = new AtlasSceneWorkspace({ scene, actions });
     workspaces.set(scene.id, workspace);
   }
-  return Promise.resolve(workspace.minimized?workspace.maximize():undefined)
-    .then(()=>workspace.render(true)).catch(error => {
-    if (workspaces.get(scene.id) === workspace && !workspace.rendered) {
-      workspaces.delete(scene.id);
+  return (async () => {
+    try {
+      if(workspace.minimized) {
+        // Restoring a modeless ApplicationV2 is NOT a fresh render. A forced
+        // render during maximization can re-collapse the native window.
+        await workspace.maximize();
+      } else {
+        await workspace.render(true);
+      }
+      workspace.bringToFront?.();
+      return workspace;
+    } catch(error) {
+      if(workspaces.get(scene.id)===workspace && !workspace.rendered)
+        workspaces.delete(scene.id);
+      throw error;
     }
-    throw error;
-  });
+  })();
 }
 
 /** Return to the existing Workspace after a canvas editor releases focus.
@@ -218,4 +228,12 @@ export function refreshAtlasSceneWorkspace(scene) {
   const workspace = workspaces.get(scene?.id);
   if (workspace?.rendered) return workspace.render(true);
   return Promise.resolve();
+}
+
+/** Begin canvas authoring without leaving the Workspace across the map.
+ * Minimize is presentation-only: no persistence, no draft reset. */
+export async function minimizeAtlasSceneWorkspace(scene) {
+  const workspace=workspaces.get(scene?.id);
+  if(workspace?.rendered && !workspace.minimized)
+    await workspace.minimize();
 }
