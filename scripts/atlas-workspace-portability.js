@@ -24,7 +24,7 @@ export function atlasPortabilitySnapshot(scene) {
   const assets=new Set();
   for(const path of [
     scene.background?.src,scene.foreground,
-    ...atlas.checkpoints.map(cp=>cp.appearance?.type==="image"
+    ...(atlas.checkpoints??[]).map(cp=>cp.appearance?.type==="image"
       ? cp.appearance.image:null)
   ]){
     if(typeof path==="string"&&path.trim())assets.add(path.trim());
@@ -37,7 +37,7 @@ export function atlasPortabilitySnapshot(scene) {
   const regions=[...(scene.regions?.contents??scene.regions??[])];
   return {
     sceneId:scene.id,revision:atlas.revision,schemaVersion:atlas.schemaVersion,
-    roads:atlas.roads.length,checkpoints:atlas.checkpoints.length,
+    roads:atlas.roads?.length??0,checkpoints:atlas.checkpoints?.length??0,
     regions:regions.length,
     regionBehaviors:regions.reduce((sum,region)=>
       sum+(region.behaviors?.contents?.length??region.behaviors?.length??0),0),
