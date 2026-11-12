@@ -5,7 +5,8 @@
 import { addAtlasRoadsToSceneConfig, registerAtlasSceneTab,
   getAtlasSceneConfig, refreshAtlasSceneConfig, forgetAtlasSceneConfig,
   openAtlasRegionGenerator,closeCheckpointRegionGenerator } from "./scene-config.js";
-import { openAtlasSceneWorkspace, refreshAtlasSceneWorkspace, restoreAtlasSceneWorkspace }
+import { openAtlasSceneWorkspace, minimizeAtlasSceneWorkspace,
+  refreshAtlasSceneWorkspace, restoreAtlasSceneWorkspace }
   from "./atlas-scene-workspace.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import {AtlasLayersController} from "./atlas-layers.js";
@@ -1436,6 +1437,10 @@ function actions() {
       });
       ui.notifications.info("Click a Road to create a linked Checkpoint, " +
         "or click away from Roads for an independent Checkpoint. Escape cancels.");
+      // Let the GM see/click the map. The registered Workspace instance and
+      // active tab remain intact; the toolbar restores this same window.
+      void minimizeAtlasSceneWorkspace(scene).catch(error =>
+        ui.notifications.error(error.message ?? String(error)));
       refresh();
     },
     // Retained as a legacy API alias. The Workspace presents one [+] control.

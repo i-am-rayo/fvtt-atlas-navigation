@@ -129,10 +129,19 @@ export function saveNewCheckpoint(scene, {
 
 /** One GM-confirmed image-local standalone Checkpoint in a guarded Scene write. */
 export function saveNewIndependentCheckpoint(scene, {
-  at, name, elevationMeters = null, expectedRevision, idFactory
+  at, name, elevationMeters = null, expectedRevision, idFactory,
+  appearance = null, playerVisible = false
 }) {
-  return saveChange(scene, expectedRevision, previous =>
-    addIndependentCheckpoint(previous, { at, name, elevationMeters, idFactory }));
+  return saveChange(scene, expectedRevision, previous => {
+    const created = addIndependentCheckpoint(previous, { at, name, elevationMeters, idFactory });
+    const id = created.checkpoints.at(-1)?.id;
+    if (!id) throw Error("New independent Checkpoint could not be identified.");
+    const styled = appearance === null ? created
+      : editCheckpointAppearance(created, { checkpointId: id, appearance });
+    return playerVisible ? setCheckpointPlayerVisibility(styled, {
+      checkpointId: id, visible: true
+    }) : styled;
+  });
 }
 
 export function saveConnectedIndependentCheckpoint(scene, {

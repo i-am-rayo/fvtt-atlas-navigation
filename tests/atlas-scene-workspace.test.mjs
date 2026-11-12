@@ -12,7 +12,7 @@ class MockApplicationV2 {
 }
 globalThis.foundry = { applications: { api: { ApplicationV2: MockApplicationV2 } } };
 const { AtlasSceneWorkspace, openAtlasSceneWorkspace, refreshAtlasSceneWorkspace,
-  restoreAtlasSceneWorkspace } =
+  restoreAtlasSceneWorkspace, minimizeAtlasSceneWorkspace } =
   await import("../scripts/atlas-scene-workspace.js");
 
 class Element {
@@ -99,6 +99,27 @@ test("GM-only standalone workspace reuses territory actions without writing on r
       "closed instances must be discarded");
     await reopened.close();
   } finally { ctx.restore(); }
+});
+
+test("Checkpoint authoring minimizes existing Workspace; side tool restores without recreating or writing",async()=>{
+  const ctx=context();
+  try{
+    const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    workspace.activeSection="checkpoints";
+    await workspace.render(true);
+    assert.equal(workspace.minimized,false);
+    await minimizeAtlasSceneWorkspace(ctx.scene);
+    assert.equal(workspace.minimized,true);
+    assert.equal(workspace.minCalls,1);
+    const again=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    assert.equal(again,workspace);
+    assert.equal(again.minimized,false);
+    assert.equal(again.maxCalls,1);
+    assert.equal(again.activeSection,"checkpoints","native maximize retains tab and draft context");
+    await again.close();
+    await minimizeAtlasSceneWorkspace(ctx.scene);
+    assert.equal(again.minCalls,1,"closed Workspace is not revived by minimize");
+  }finally{ctx.restore();}
 });
 
 test("Checkpoint Workspace has one [+] placement action and compact searchable rows", async () => {
