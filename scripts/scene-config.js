@@ -580,6 +580,10 @@ export function createAtlasExplorationPanel(scene,actions,refresh) {
   if(!game.user?.isGM||!scene?.id||
       !scene.canUserModify?.(game.user,"update"))
     throw Error("Only a Scene-authorized GM can edit Atlas Exploration.");
+  return createManualFogControls(scene,actions,refresh);
+}
+
+function createManualFogControls(scene,actions,refresh) {
   const state=readManualFog(scene);
   const fogPanel = node("fieldset");
   fogPanel.setAttribute("data-atlas-exploration-panel", "");
@@ -924,7 +928,7 @@ function atlasPanel(scene, atlas, actions, refresh,
   const party = readPartyExploration(scene);
   // Manual fog v0.2.26: Scene-owned state; token automation is intentionally disabled.
   const state = readManualFog(scene);
-  const fogPanel=createAtlasExplorationPanel(scene,actions,refresh);
+  const fogPanel=createManualFogControls(scene,actions,refresh);
   root.insertBefore(fogPanel,section);
 
   const advanced = node("details");
