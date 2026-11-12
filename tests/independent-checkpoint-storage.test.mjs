@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createEmptyAtlas } from "../scripts/atlas-model.js";
 import { saveNewIndependentCheckpoint, saveConnectedIndependentCheckpoint,
-  saveDisconnectedIndependentCheckpoint } from "../scripts/road-storage.js";
+  saveDisconnectedIndependentCheckpoint, saveRelocatedIndependentCheckpoint } from "../scripts/road-storage.js";
 
 function sceneFixture() {
   let stored = { ...createEmptyAtlas(), revision: 5 };
@@ -83,4 +83,36 @@ test("explicit terminal Road connection and disconnection use guarded Scene revi
     assert.equal(disconnected.checkpoints[0].id, initial.checkpoints[0].id);
     assert.equal(scene.writes, 4);
   } finally { globalThis.game = previous; }
+});
+
+test("relocation uses one authorized revision-checked Scene flag write",async()=>{
+  const prev=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    const scene=sceneFixture();
+    let i=0;
+    const saved=await saveNewIndependentCheckpoint(scene,{
+      at:{x:20,y:30},name:"Free Hamlet",expectedRevision:5,
+      idFactory:()=>`move${++i}`
+    });
+    const checkpointId=saved.checkpoints[0].id;
+    const nodeId=saved.checkpoints[0].nodeId;
+    const moved=await saveRelocatedIndependentCheckpoint(scene,{
+      checkpointId,at:{x:25,y:45},expectedRevision:6
+    });
+    assert.equal(moved.revision,7);
+    assert.equal(scene.writes,2);
+    assert.equal(moved.checkpoints[0].id,checkpointId);
+    assert.equal(moved.checkpoints[0].nodeId,nodeId);
+    assert.equal(moved.nodes.find(n=>n.id===nodeId).y,45);
+    await assert.rejects(saveRelocatedIndependentCheckpoint(scene,{
+      checkpointId,at:{x:55,y:66},expectedRevision:6
+    }),/changed since/);
+    assert.equal(scene.writes,2);
+    globalThis.game.user.isGM=false;
+    await assert.rejects(saveRelocatedIndependentCheckpoint(scene,{
+      checkpointId,at:{x:55,y:66},expectedRevision:7
+    }),/Only a GM/);
+    assert.equal(scene.writes,2);
+  }finally{globalThis.game=prev;}
 });

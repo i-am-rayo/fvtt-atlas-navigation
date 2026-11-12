@@ -987,6 +987,87 @@ export class RoadCanvasController {
     this.refresh(); this.#changed();
   }
 
+  /**
+   * GM-only isolated-Node relocation. The map click is a local preview and
+   * only the explicitly confirmed revision-checked save changes Scene state.
+   */
+  startCheckpointRelocation(scene,checkpointId,{confirm,save,onChange}={}){
+    if(!globalThis.game?.user?.isGM||!scene?.canUserModify?.(game.user,"update"))
+      throw Error("Only a GM may relocate Checkpoints.");
+    if(this.saving||this.draft||this.pointEditor.session)
+      throw Error("Finish or cancel the active Road/Checkpoint edit first.");
+    if(typeof confirm!=="function"||typeof save!=="function")
+      throw Error("Checkpoint relocation requires confirmation and guarded persistence.");
+    const canvas=this.canvasProvider();
+    if(!canvas?.ready||canvas.scene?.id!==scene.id)
+      throw Error("Open this Scene on the canvas to relocate a Checkpoint.");
+    const atlas=readAtlas(scene);
+    const checkpoint=atlas.checkpoints?.find(c=>c.id===checkpointId);
+    if(!checkpoint)throw Error("Checkpoint no longer exists in this Scene.");
+    const node=atlas.nodes.find(n=>n.id===checkpoint.nodeId);
+    if(!node)throw Error("Checkpoint Node no longer exists.");
+    if(atlas.segments.some(edge=>edge.from===node.id||edge.to===node.id)||
+       atlas.checkpoints.some(c=>c.id!==checkpointId&&c.nodeId===node.id))
+      throw Error("Only an isolated, unshared Checkpoint can be moved in this mode.");
+    const element=canvas.app?.canvas??canvas.app?.view;
+    if(!element?.addEventListener||
+       typeof canvas.canvasCoordinatesFromClient!=="function")
+      throw Error("The Foundry canvas is not ready for relocation.");
+    const draft={scene,sceneId:scene.id,mode:"checkpoint-relocate",
+      points:[],element,checkpointId,expectedRevision:atlas.revision,
+      onChange,confirming:false,onPointer:null,onKeydown:null,position:null};
+    draft.onPointer=async event=>{
+      if(event.button!==0||this.saving||draft.confirming||this.draft!==draft)return;
+      if(this.canvasProvider()?.scene?.id!==draft.sceneId){
+        this.cancel();return;
+      }
+      const position=canvas.canvasCoordinatesFromClient({
+        x:event.clientX,y:event.clientY
+      });
+      if(!Number.isFinite(position?.x)||!Number.isFinite(position?.y))return;
+      const rect=canvas.dimensions?.sceneRect;
+      if(typeof rect?.contains==="function"&&!rect.contains(position.x,position.y))return;
+      const fresh=readAtlas(scene);
+      if(fresh.revision!==draft.expectedRevision){
+        this.cancel();this.notify()?.error?.("Atlas changed. Restart Checkpoint relocation.");return;
+      }
+      const at=toAtlasPoint(canvas,fresh,position);
+      event.preventDefault?.();event.stopImmediatePropagation?.();
+      draft.position=at;draft.confirming=true;this.refresh();this.#changed();
+      try{
+        const approved=await confirm({checkpointId,at,from:{x:node.x,y:node.y},
+          name:checkpoint.name});
+        if(this.draft!==draft||!approved)return;
+        if(this.canvasProvider()?.scene?.id!==draft.sceneId||
+           readAtlas(scene).revision!==draft.expectedRevision)
+          throw Error("Atlas or active Scene changed. Restart relocation.");
+        this.saving=true;
+        await save({checkpointId,at,expectedRevision:draft.expectedRevision});
+        if(this.draft!==draft)return;
+        const changed=draft.onChange;
+        this.#detach();this.draft=null;
+        this.selectedCheckpointId=checkpointId;
+        this.notify()?.info?.("Checkpoint relocated.");
+        this.refresh();changed?.();
+      }catch(error){this.notify()?.error?.(error.message??String(error));}
+      finally{
+        this.saving=false;draft.confirming=false;
+        if(this.draft===draft){
+          draft.position=null;this.refresh();this.#changed();
+        }
+      }
+    };
+    draft.onKeydown=event=>{
+      if(event.key==="Escape"&&!draft.confirming){
+        event.preventDefault?.();this.cancel();
+      }
+    };
+    this.draft=draft;this.selectedCheckpointId=checkpointId;
+    element.addEventListener("pointerdown",draft.onPointer,true);
+    this.doc()?.addEventListener?.("keydown",draft.onKeydown,true);
+    this.refresh();this.#changed();
+  }
+
   selectCheckpoint(scene, checkpointId) {
     const canvas = this.canvasProvider();
     if (!canvas?.ready || canvas.scene?.id !== scene?.id) {
@@ -2142,6 +2223,9 @@ export class RoadCanvasController {
       if (draft.mode === "new" && points.length > 1 && draft.snap.at(-1)) {
         const hit = findRoadSnap(visualAtlas, points.at(-1));
         if (hit) points = [...points.slice(0, -1), { x: hit.x, y: hit.y }];
+      }
+      if(draft.mode==="checkpoint-relocate"&&draft.position){
+        drawDot(g,toCanvasPoint(canvas,visualAtlas,draft.position),0x7bdb9c,11/zoom);
       }
       const canvasPoints = points.map(p => toCanvasPoint(canvas, visualAtlas, p));
       const previewMode = travelPresets.find(preset =>
