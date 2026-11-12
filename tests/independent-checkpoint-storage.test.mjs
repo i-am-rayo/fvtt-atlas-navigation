@@ -3,7 +3,8 @@ import test from "node:test";
 import { createEmptyAtlas } from "../scripts/atlas-model.js";
 import { DEFAULT_CHECKPOINT_APPEARANCE } from "../scripts/checkpoint-appearance.js";
 import { saveNewIndependentCheckpoint, saveConnectedIndependentCheckpoint,
-  saveDisconnectedIndependentCheckpoint, saveRelocatedIndependentCheckpoint, saveNewRoad } from "../scripts/road-storage.js";
+  saveDisconnectedIndependentCheckpoint, saveRelocatedIndependentCheckpoint, saveNewRoad,
+  savePointEdits } from "../scripts/road-storage.js";
 
 function sceneFixture() {
   let stored = { ...createEmptyAtlas(), revision: 5 };
@@ -165,4 +166,95 @@ test("full standalone Checkpoint settings preserve appearance and visibility in 
     assert.deepEqual(saved.checkpoints[0].appearance,appearance);
     assert.equal(saved.roads.length,0);
   }finally{globalThis.game=previous;}
+});
+
+test("GM-approved Move & Connect snaps existing Checkpoint Node to Road interior in one write",async()=>{
+  const prev=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    const scene=sceneFixture();
+    let count=0;const idFactory=()=>"attach"+ ++count;
+    const road=await saveNewRoad(scene,{
+      name:"Main Road",points:[{x:0,y:0},{x:100,y:0}],
+      expectedRevision:5,idFactory
+    });
+    const cpSaved=await saveNewIndependentCheckpoint(scene,{
+      at:{x:55,y:30},name:"Watchtower",
+      expectedRevision:6,idFactory
+    });
+    const cp=cpSaved.checkpoints[0];
+    const moved=await saveRelocatedIndependentCheckpoint(scene,{
+      checkpointId:cp.id,at:{x:55,y:4},
+      connection:{segmentId:road.segments[0].id,x:55,y:0},
+      expectedRevision:7,idFactory
+    });
+    assert.equal(scene.writes,3);
+    assert.equal(moved.revision,8);
+    assert.equal(moved.checkpoints[0].id,cp.id);
+    assert.equal(moved.checkpoints[0].nodeId,cp.nodeId);
+    assert.equal(moved.checkpoints[0].roadId,road.roads[0].id);
+    assert.deepEqual(moved.nodes.find(n=>n.id===cp.nodeId),{
+      id:cp.nodeId,x:55,y:0
+    });
+    assert.equal(moved.segments.length,2);
+    assert.equal(moved.segments[0].id,road.segments[0].id);
+    await assert.rejects(saveRelocatedIndependentCheckpoint(scene,{
+      checkpointId:cp.id,at:{x:70,y:0},
+      connection:{segmentId:road.segments[0].id,x:70,y:0},
+      expectedRevision:7,idFactory
+    }),/changed since/);
+    assert.equal(scene.writes,3);
+  }finally{globalThis.game=prev;}
+});
+
+test("moving near a Road without connecting leaves graph incidence unchanged",async()=>{
+  const prev=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    const scene=sceneFixture();
+    let count=0;const idFactory=()=>"alone"+ ++count;
+    const road=await saveNewRoad(scene,{
+      name:"Main Road",points:[{x:0,y:0},{x:100,y:0}],
+      expectedRevision:5,idFactory
+    });
+    const cpSaved=await saveNewIndependentCheckpoint(scene,{
+      at:{x:40,y:30},name:"Hamlet",expectedRevision:6,idFactory
+    });
+    const moved=await saveRelocatedIndependentCheckpoint(scene,{
+      checkpointId:cpSaved.checkpoints[0].id,at:{x:40,y:2},
+      connection:null,expectedRevision:7
+    });
+    assert.equal(moved.checkpoints[0].roadId,null);
+    assert.deepEqual(moved.segments,road.segments);
+    assert.equal(scene.writes,3);
+  }finally{globalThis.game=prev;}
+});
+
+test("Road point Save can review and attach an independent Checkpoint in the same revision",async()=>{
+  const prev=globalThis.game;
+  globalThis.game={user:{isGM:true}};
+  try{
+    const scene=sceneFixture();
+    let count=0;const idFactory=()=>"reshape"+ ++count;
+    const road=await saveNewRoad(scene,{
+      name:"Bent Road",points:[{x:0,y:0},{x:50,y:40},{x:100,y:0}],
+      expectedRevision:5,idFactory
+    });
+    const cpSaved=await saveNewIndependentCheckpoint(scene,{
+      at:{x:50,y:0},name:"Midpoint",expectedRevision:6,idFactory
+    });
+    const cp=cpSaved.checkpoints[0];
+    const saved=await savePointEdits(scene,{
+      roadId:road.roads[0].id,
+      operations:[{kind:"move-bend",segmentId:road.segments[0].id,
+        viaIndex:0,x:50,y:0}],
+      checkpointIds:[cp.id],idFactory,expectedRevision:7
+    });
+    assert.equal(saved.revision,8);
+    assert.equal(scene.writes,3);
+    assert.equal(saved.checkpoints[0].nodeId,cp.nodeId);
+    assert.equal(saved.checkpoints[0].roadId,road.roads[0].id);
+    assert.equal(saved.segments.length,2);
+    assert.equal(saved.segments[0].id,road.segments[0].id);
+  }finally{globalThis.game=prev;}
 });

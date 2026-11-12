@@ -1113,6 +1113,50 @@ test("isolated Checkpoint Move previews and cancels before a guarded one-write s
   }finally{m.controller.tearDown();Object.assign(globalThis,prev);}
 });
 
+test("Road point Save reviews newly intersected independent Checkpoints and keeps them if Cancel",async()=>{
+  const prev={game:globalThis.game,PIXI:globalThis.PIXI};
+  const m=setup();
+  try{
+    globalThis.game={user:{isGM:true},i18n:{localize:key=>key}};
+    globalThis.PIXI={Graphics:m.Graphics};
+    m.controller.start(m.scene,()=>{});
+    for(const [x,y] of [[20,20],[35,40],[50,20]])
+      m.listeners.get("pointerdown")(pointEvent(x,y));
+    assert.equal(await m.controller.finish(),true);
+    let n=0;
+    const orig=readAtlas(m.scene);
+    const withCp=addIndependentCheckpoint(orig,{
+      at:{x:60,y:10},name:"Bridge",idFactory:()=>"newcp"+ ++n
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",withCp);
+    const roadId=withCp.roads[0].id,cpId=withCp.checkpoints[0].id;
+    let reviews=0;
+    m.controller.reviewIndependentCheckpointConnections=async ({candidates,mode})=>{
+      reviews++;
+      assert.equal(mode,"edited");
+      assert.equal(candidates.length,1);
+      assert.equal(candidates[0].checkpointId,cpId);
+      return reviews===1?null:[cpId];
+    };
+    m.controller.startPointEdit(m.scene,roadId,()=>{});
+    m.listeners.get("pointerdown")(pointEvent(35,40));
+    m.listeners.get("pointermove")(pointEvent(35,20));
+    m.listeners.get("pointerup")(pointEvent(35,20));
+    assert.equal(await m.controller.finish(),false,"Cancel keeps draft uncommitted");
+    assert.equal(readAtlas(m.scene).checkpoints[0].roadId,null);
+    assert.equal(m.controller.getDraft(m.scene).mode,"points");
+    assert.equal(await m.controller.finish(),true);
+    const saved=readAtlas(m.scene);
+    assert.equal(reviews,2);
+    assert.equal(saved.segments.length,2);
+    assert.equal(saved.segments[0].id,withCp.segments[0].id);
+    assert.equal(saved.checkpoints[0].id,cpId);
+    assert.equal(saved.checkpoints[0].nodeId,withCp.checkpoints[0].nodeId);
+    assert.equal(saved.checkpoints[0].roadId,roadId);
+    assert.equal(m.controller.getDraft(m.scene),null);
+  }finally{m.controller.tearDown();Object.assign(globalThis,prev);}
+});
+
 test("non-GM checkpoint placement cannot begin or mutate a Scene", () => {
   const previous = { game: globalThis.game };
   const m = setup();

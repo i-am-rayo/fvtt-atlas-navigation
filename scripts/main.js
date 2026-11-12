@@ -31,7 +31,7 @@ import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveDisconnectedIndependentCheckpoint, saveRemovedCheckpoint, saveRemovedCheckpoints, saveRoadTravelPreset,
   saveRoadAppearance, saveRoadSettings, saveRoadPlayerVisibility,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
-import { getRoadMergeCandidates, suggestRoadName } from "./road-model.js";
+import { getRoadMergeCandidates, suggestRoadName, findRoadSnap } from "./road-model.js";
 import { sceneImageOrigin, toCanvasPoint } from "./road-coordinates.js";
 import { roadFocusCamera } from "./road-focus-camera.js";
 import { linkAtlasRegion, unlinkAtlasRegion, listSceneRegions } from "./region-atlas.js";
@@ -1388,22 +1388,49 @@ function actions() {
       ensureIdle(scene);
       roadCanvas.startCheckpointRelocation(scene,checkpointId,{
         confirm:async ({name,at,from})=>{
+          const atlas=readAtlas(scene);
+          const candidate=atlas.segments.length?findRoadSnap(atlas,at):null;
           const content=document.createElement("div");
-          for(const message of [
-            `Move ${name} from (${from.x.toFixed(1)}, ${from.y.toFixed(1)}) to `+
-              `(${at.x.toFixed(1)}, ${at.y.toFixed(1)})?`,
-            "Only this isolated Checkpoint's saved Node will move. Its ID, Journal, " +
-              "discovery, transportation and Territory associations remain unchanged. " +
-              "No Road or native Region will be moved."
-          ]){
-            const p=document.createElement("p");p.textContent=message;
-            content.appendChild(p);
+          const description=document.createElement("p");
+          description.textContent="Move "+name+" from ("+from.x.toFixed(1)+
+            ", "+from.y.toFixed(1)+") to ("+at.x.toFixed(1)+
+            ", "+at.y.toFixed(1)+")? The Checkpoint ID, Journal, discovery, " +
+            "transportation and Territory associations remain unchanged.";
+          content.appendChild(description);
+          if(candidate){
+            const hint=document.createElement("p");
+            hint.textContent=candidate.kind==="edge"
+              ? "This position is near a saved Road. Move & Connect snaps " +
+                "the existing Checkpoint Node onto that Road, splitting one " +
+                "Road section. Move Only retains an independent Checkpoint."
+              : "This position is near an existing Road graph endpoint. " +
+                "Coincident graph Nodes cannot be automatically merged; " +
+                "Move Only keeps the Checkpoint independent.";
+            content.appendChild(hint);
+            const answer=await DialogV2.wait({
+              window:{title:"Relocate "+name+" — Road Connection"},
+              content,modal:true,rejectClose:false,
+              buttons:[
+                ...(candidate.kind==="edge"?[{
+                  action:"connect",label:"Move & Connect to Road"
+                }]:[]),
+                {action:"move",label:"Move Only (Independent)"},
+                {action:"cancel",label:"Cancel",default:true}
+              ]
+            });
+            if(answer==="connect"&&candidate.kind==="edge")
+              return {connection:{
+                segmentId:candidate.segmentId,x:candidate.x,y:candidate.y
+              }};
+            if(answer==="move")return {connection:null};
+            return null;
           }
-          return DialogV2.confirm({
-            window:{title:`Relocate ${name}?`},content,
+          const approved=await DialogV2.confirm({
+            window:{title:"Relocate "+name+"?"},content,
             yes:{label:"Save New Position"},no:{label:"Cancel"},
             rejectClose:false,modal:false
           });
+          return approved?{connection:null}:null;
         },
         save:args=>saveRelocatedIndependentCheckpoint(scene,args),
         onChange:()=>{roadCanvas.refresh();refresh();}

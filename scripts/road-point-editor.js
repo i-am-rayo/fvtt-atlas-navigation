@@ -3,6 +3,7 @@ import { savePointEdits } from "./road-storage.js";
 import { applyRoadGeometryEdit, attachmentRoadNames, findJunctionAttachment } from "./road-model.js";
 import { nearestRoadEdge, nearestRoadHandle, roadHandles } from "./road-hit.js";
 import { toAtlasPoint } from "./road-coordinates.js";
+import {roadCheckpointEditCandidates} from "./road-checkpoint-existing-attachments.js";
 
 /**
  * Draggable, reversible GM-only Atlas vertex editor. Geometry changes stay
@@ -17,6 +18,7 @@ export class RoadPointEditor {
     this.confirmAttach = confirmAttach;
     this.confirmDetach = confirmDetach;
     this.chooseBranch = chooseBranch;
+    this.reviewIndependentCheckpointConnections = null;
     this.idFactory = idFactory;
     this.session = null;
     this.saving = false;
@@ -393,23 +395,60 @@ export class RoadPointEditor {
     const s = this.session;
     if (!s || this.saving || s.confirming) return false;
     if (!s.operations.length) { this.cancel(); return true; }
-    this.saving = true;
-    this.#notifyChange(s.onChange);
     try {
-      await savePointEdits(s.scene, {
-        roadId: s.roadId, operations: s.operations,
-        expectedRevision: s.expectedRevision
+      // Stage only NEW Road/Checkpoint encounters caused by the edited draft.
+      // A Checkpoint already near an unchanged section must not be offered
+      // repeatedly after unrelated control-point edits.
+      const prior=new Map(roadCheckpointEditCandidates(s.history[0],{
+        roadId:s.roadId
+      }).map(c=>[c.checkpointId,c]));
+      const candidates=roadCheckpointEditCandidates(s.working,{
+        roadId:s.roadId
+      }).filter(c=>{
+        const before=prior.get(c.checkpointId);
+        return !before||c.segmentId!==before.segmentId||
+          c.distance+0.5<before.distance;
+      });
+      let checkpointIds=[];
+      if(candidates.length){
+        if(typeof this.reviewIndependentCheckpointConnections!=="function")
+          throw Error("Checkpoint connection review is unavailable.");
+        s.confirming=true;
+        this.#notifyChange(s.onChange);
+        const roadName=s.working.roads.find(r=>r.id===s.roadId)?.name??"Road";
+        const selected=await this.reviewIndependentCheckpointConnections({
+          roadName,candidates,mode:"edited"
+        });
+        if(this.session!==s)return false;
+        s.confirming=false;
+        if(selected===null){
+          this.#notifyChange(s.onChange);
+          return false;
+        }
+        const ids=new Set(candidates.map(c=>c.checkpointId));
+        if(!Array.isArray(selected)||selected.length>100||
+          new Set(selected).size!==selected.length||
+          selected.some(id=>!ids.has(id)))
+          throw Error("Invalid Checkpoint connection selection.");
+        checkpointIds=selected;
+      }
+      this.saving=true;
+      this.#notifyChange(s.onChange);
+      await savePointEdits(s.scene,{
+        roadId:s.roadId,operations:s.operations,checkpointIds,
+        idFactory:this.idFactory,expectedRevision:s.expectedRevision
       });
       this.#detach();
-      this.session = null;
-      this.saving = false;
+      this.session=null;
+      this.saving=false;
       this.#notifyChange(s.onChange);
       this.notify()?.info?.("Atlas road points saved.");
       return true;
-    } catch (error) {
-      this.saving = false;
-      this.notify()?.error?.(error.message);
-      this.#notifyChange(s.onChange);
+    }catch(error){
+      s.confirming=false;
+      this.saving=false;
+      this.notify()?.error?.(error.message??String(error));
+      if(this.session===s)this.#notifyChange(s.onChange);
       return false;
     }
   }
