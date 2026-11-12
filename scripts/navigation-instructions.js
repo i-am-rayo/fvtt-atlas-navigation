@@ -13,16 +13,17 @@ export function navigationDirection(points) {
 export const NAVIGATION_ARROWS=Object.freeze({north:"↑",northeast:"↗",east:"→",
   southeast:"↘",south:"↓",southwest:"↙",west:"←",northwest:"↖"});
 
-export function navigationInstruction({kind,roadId,regionName,direction,first,nextRoadId},roadName){
+export function navigationInstruction({kind,roadId,regionName,direction,first,nextRoadId},roadName,
+  {preferRoadName=false}={}){
   const road=roadId?roadName(roadId):null;
   const namedRegion=regionName && !regionName.includes(" → ") ? regionName : null;
-  const destination=namedRegion??road;
+  const destination=preferRoadName&&road?road:namedRegion??road;
   if(kind==="road")return `${first?"Head":"Continue"}${direction?" "+direction:""} ${first?"to":"on"} ${destination}`;
   return `${first?"Head":"Continue"}${direction?" "+direction:""} to ${nextRoadId?roadName(nextRoadId):"the destination"}`;
 }
 
 /** Split meaningful turns and terrain transitions; merge only straight-enough repeats. */
-export function buildNavigationSteps(legs, roadName = id => id) {
+export function buildNavigationSteps(legs, roadName = id => id, options = {}) {
   const steps=[];
   for(const [legIndex,leg] of legs.entries()){
     if(!Number.isFinite(leg.distance)||leg.distance<0.005)continue;
@@ -45,7 +46,7 @@ export function buildNavigationSteps(legs, roadName = id => id) {
           regionName:slice.regionName??null,direction,distance:slice.distance,cost,
           instruction:navigationInstruction({kind,roadId,regionName:slice.regionName,
             direction,first:steps.length===0,
-            nextRoadId:legs.slice(legIndex+1).find(next=>next.kind==="road")?.roadId},roadName)});
+            nextRoadId:legs.slice(legIndex+1).find(next=>next.kind==="road")?.roadId},roadName,options)});
       }
     }
   }
