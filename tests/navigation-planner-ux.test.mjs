@@ -16,70 +16,75 @@ const dom=()=>{
   })};
   return ()=>{globalThis.document=original;};
 };
-const flat=(node)=>[node,...(node.children??[]).flatMap(flat)];
+const flat=node=>[node,...(node.children??[]).flatMap(flat)];
 const find=(node,predicate)=>flat(node).find(predicate);
 
-test("GM transportation controls are native single-select radio tiles",()=>{
+test("GM transport radio tiles show known quantity/seats without rendering side effects",()=>{
   const restore=dom();
   try{
     const calls=[];
     const root=renderNavigationTravelMethodButtons({
       choices:[
         {value:"owned|walking",label:"Walking",group:"Party"},
-        {value:"owned|riding-horse",label:"Riding Horse",group:"Party"},
-        {value:"hire|caravan",label:"Caravan",group:"Dirwest"}],
+        {value:"owned|riding-horse",label:"Riding Horse",group:"Party",
+          secondary:"2 available · 2 seats"},
+        {value:"hire|warship",label:"Warship",group:"Port Barthos",
+          secondary:"Offered · 60 seats/unit"}],
       selectedValue:"owned|walking",showEditor:true,
       onMethodChange:value=>calls.push(value),onEdit:()=>calls.push("edit")
     });
     assert.equal(root.tag,"fieldset");
     assert.ok(flat(root).some(n=>n.textContent==="Party Owned"));
-    assert.ok(flat(root).some(n=>n.textContent==="Available at Dirwest"));
+    assert.ok(flat(root).some(n=>n.textContent==="Available at Port Barthos"));
+    assert.ok(flat(root).some(n=>n.textContent==="2 available · 2 seats"));
+    assert.ok(flat(root).some(n=>n.textContent==="Offered · 60 seats/unit"));
     const radios=flat(root).filter(n=>n.tag==="input"&&n.type==="radio");
     assert.deepEqual(radios.map(n=>n.value),
-      ["owned|walking","owned|riding-horse","hire|caravan"]);
+      ["owned|walking","owned|riding-horse","hire|warship"]);
     assert.equal(radios.filter(n=>n.checked).length,1);
-    assert.deepEqual(calls,[],"rendering does not approve or purchase a method");
+    assert.deepEqual(calls,[],"rendering does not approve or purchase transport");
     radios[2].checked=true;radios[2].listeners.change();
-    assert.deepEqual(calls,["hire|caravan"]);
+    assert.deepEqual(calls,["hire|warship"]);
     find(root,n=>n.tag==="button").listeners.click();
-    assert.deepEqual(calls,["hire|caravan","edit"]);
+    assert.deepEqual(calls,["hire|warship","edit"]);
   }finally{restore();}
 });
 
-test("per-trip playback view contains slider and explicit target converter without mutating World settings",()=>{
+test("two sliders control seconds/hour and real-trip target with 8h Long Rests",()=>{
   const restore=dom();
   try{
     const changed=[],errors=[];
     const model={travelHours:35,dailyHours:8,overnightHours:16,longRestHours:8};
     const root=renderNavigationPlaybackControls({model,secondsPerHour:2,
       onChange:value=>changed.push(value),onError:value=>errors.push(value)});
-    const slider=find(root,n=>n.type==="range");
-    assert.equal(slider.min,"0.5");assert.equal(slider.max,"8");
-    assert.equal(slider.value,"2");
-    const target=find(root,n=>n.type==="number");
-    assert.ok(target.value);
+    const sliders=flat(root).filter(n=>n.type==="range");
+    assert.equal(sliders.length,2);
+    assert.equal(sliders[0].min,"0.5");
+    assert.equal(sliders[0].max,"30");
+    assert.equal(sliders[0].value,"2");
+    assert.equal(sliders[1].disabled,false);
     assert.ok(flat(root).some(n=>n.textContent?.startsWith?.("Moving animation:")));
-    assert.ok(flat(root).some(n=>n.textContent?.startsWith?.("If the GM chooses 8h Long Rests")));
+    assert.ok(flat(root).some(n=>n.textContent?.startsWith?.("Trip with 4 planned 8h Long Rest")));
     assert.deepEqual(changed,[]);
-    slider.value="3";slider.listeners.change();
+    sliders[0].value="3";sliders[0].listeners.change();
     assert.deepEqual(changed,[3]);
-    target.value="5";
-    find(root,n=>n.textContent==="Set duration").listeners.click();
-    assert.ok(changed[1]>.5&&changed[1]<8);
+    sliders[1].value="5";sliders[1].listeners.change();
+    assert.ok(changed[1]>.5&&changed[1]<30);
     assert.deepEqual(errors,[]);
   }finally{restore();}
 });
 
-test("impossible real-time targets report a bounded error instead of changing speed",()=>{
+test("real-duration slider handles unreachable trips without unauthorized writes",()=>{
   const restore=dom();
   try{
     const changes=[],errors=[];
     const root=renderNavigationPlaybackControls({
-      model:{travelHours:1,dailyHours:8,overnightHours:16,longRestHours:8},
+      model:{travelHours:2000,dailyHours:8,overnightHours:16,longRestHours:8},
       secondsPerHour:2,onChange:v=>changes.push(v),onError:e=>errors.push(e)});
-    const target=find(root,n=>n.type==="number");
-    target.value="5";find(root,n=>n.textContent==="Set duration").listeners.click();
-    assert.equal(changes.length,0);
-    assert.match(errors[0],/cannot match/);
+    const target=flat(root).filter(n=>n.type==="range")[1];
+    assert.equal(target.disabled,true);
+    assert.ok(flat(root).some(n=>n.textContent?.includes?.("fastest supported playback")));
+    assert.deepEqual(changes,[]);
+    assert.deepEqual(errors,[]);
   }finally{restore();}
 });
