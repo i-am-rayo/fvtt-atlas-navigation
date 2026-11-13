@@ -1,6 +1,6 @@
 /**
- * Accessible collapsible GM Navigation route explanation.
- * Display-only: no Scene mutation, movement, Journal or permission decisions.
+ * Standalone Directions tab: compact, read-only instructions with an
+ * approximate confirmed-Journey position. Never edits itinerary or Journal.
  */
 import {NAVIGATION_ARROWS} from "./navigation-instructions.js";
 import {compactNavigationDirectionRows} from "./navigation-direction-summary.js";
@@ -10,50 +10,60 @@ const el=(tag,text)=>{
   if(text!==undefined)node.textContent=text;
   return node;
 };
+const validProgress=value=>Number.isFinite(value)&&value>=0&&value<=100;
 
 export function renderNavigationDirections({
-  calculation,transfer=false,arrivalCheckpointName=null,rows=[],
-  markers=[],expanded=false,onExpandedChange=null,
-  formatDistance=null,formatHours=null
+  calculation=null,transfer=false,arrivalCheckpointName=null,rows=[],
+  markers=[],formatDistance=null,formatHours=null,progressPercent=null
 }={}){
-  const condensed=compactNavigationDirectionRows(rows,{
-    markers,formatDistance,formatHours});
+  const condensed=compactNavigationDirectionRows(rows,{markers,formatDistance,formatHours});
   const directionCount=condensed.filter(r=>r.kind==="direction").length;
   const eventCount=condensed.filter(r=>r.kind==="route-marker").length;
-  const root=el("details");
+  const root=el("section");
   root.className="atlas-navigation-directions";
-  root.open=Boolean(expanded);
-  root.style.cssText="border:1px solid var(--color-border-light-tertiary,#555);border-radius:9px;padding:.65rem .8rem;";
-  const headline=el("summary",
+  root.style.cssText="display:grid;gap:.7rem;min-width:0;";
+  const headline=el("h3",
     (transfer?"Directions to next decision":"Directions")+" · "+
     directionCount+" step(s)"+
     (eventCount?" · "+eventCount+" landmark(s)":""));
-  headline.style.cssText="cursor:pointer;font-weight:700;font-size:1.05em;";
+  headline.style.cssText="margin:0;font-size:1.05em;font-weight:700;";
   root.appendChild(headline);
-  root.addEventListener("toggle",()=>onExpandedChange?.(Boolean(root.open)));
-  const explanation=el("details");
-  explanation.style.cssText="margin:.5rem 0;font-size:.8em;opacity:.8;";
-  explanation.appendChild(el("summary","How Atlas calculated this trip"));
-  const description=el("p",calculation);
-  description.style.margin=".4rem 0";
-  explanation.appendChild(description);
-  root.appendChild(explanation);
-
+  const progress=validProgress(progressPercent)?progressPercent:null;
+  if(progress!==null){
+    const estimate=el("small",
+      "Approximate position: "+Math.floor(progress)+"% of confirmed Journey route");
+    estimate.style.cssText="opacity:.8;";
+    root.appendChild(estimate);
+  }
   const list=el("ol");
   list.className="atlas-navigation-direction-list";
-  list.style.cssText="display:grid;gap:.35rem;list-style:none;margin:.55rem 0 0;padding:0;";
-  const endpoint=(start)=>{
+  list.style.cssText="display:grid;gap:.35rem;list-style:none;position:relative;"+
+    "margin:0;padding:0 0 0 1rem;border-left:3px solid "+
+    "var(--color-border-light-tertiary,#555);";
+  if(progress!==null){
+    list.style.borderImage="linear-gradient(to bottom,#16a765 0%,#16a765 "+
+      progress+"%,var(--color-border-light-tertiary,#555) "+
+      progress+"%,var(--color-border-light-tertiary,#555) 100%) 1";
+    list.setAttribute?.("aria-label",
+      "Directions position is approximate, based on verified native movement");
+  }
+  const endpoint=start=>{
     const item=el("li");
     item.style.cssText="display:flex;gap:.65rem;padding:.4rem .35rem;align-items:center;";
     const icon=el("span",start?"●":"◆");
-    icon.style.cssText="width:1.6rem;text-align:center;color:"+(start?"#16a765":"#d83c49")+";";
+    icon.style.cssText="width:1.6rem;text-align:center;color:"+
+      (start?"#16a765":"#d83c49")+";";
     const text=el("strong",start?"Depart with the party":
       arrivalCheckpointName?"Arrive to "+arrivalCheckpointName:
-      transfer?"Arrive at the next decision point":
-        "Arrive at selected location");
-    item.append(icon,text);return item;
+      transfer?"Arrive at the next decision point":"Arrive at selected location");
+    item.append(icon,text);
+    return item;
   };
   list.appendChild(endpoint(true));
+  const total=condensed.reduce((sum,row)=>sum+(row.kind==="direction"&&
+    Number.isFinite(row.distanceValue)?Math.max(0,row.distanceValue):0),0);
+  const target=progress===null?null:total*progress/100;
+  let walked=0,marked=false;
   for(const row of condensed){
     const item=el("li");
     item.style.cssText="display:flex;gap:.65rem;align-items:flex-start;"+
@@ -62,12 +72,20 @@ export function renderNavigationDirections({
     if(row.kind==="journey-event"){
       marker=row.marker||"☕";label=row.label;info=row.detail;
     }else if(row.kind==="route-marker"){
-      marker=row.kind==="checkpoint"?"⚑":"↱";
-      marker=row.checkpointId?"⚑":"↱";
-      label=row.label;info=null;
+      marker=row.checkpointId?"⚑":"↱";label=row.label;info=null;
     }else{
       marker=NAVIGATION_ARROWS[row.direction]??"•";
       label=row.instruction;info=row.info;
+      const distance=Number.isFinite(row.distanceValue)?
+        Math.max(0,row.distanceValue):0;
+      if(!marked&&target!==null&&total>0&&
+          target>=walked-1e-6&&target<=walked+distance+1e-6){
+        item.setAttribute?.("aria-current","step");
+        item.title="Approximate current direction, based on confirmed Journey distance";
+        item.style.borderLeft="3px solid #16a765";
+        marked=true;
+      }
+      walked+=distance;
     }
     const symbol=el("span",marker);
     symbol.style.cssText="width:1.6rem;flex:0 0 1.6rem;text-align:center;font-size:1.2em;";
@@ -82,8 +100,7 @@ export function renderNavigationDirections({
     if(row.kind==="direction"&&row.segments?.length>1){
       const nested=el("details");
       nested.style.cssText="margin-top:.3rem;font-size:.78em;opacity:.8;";
-      nested.appendChild(el("summary",
-        "Show "+row.segments.length+" terrain / road segments"));
+      nested.appendChild(el("summary","Show "+row.segments.length+" terrain / road segments"));
       const breakdown=el("ul");
       breakdown.style.cssText="padding-left:1.2rem;margin:.2rem 0;";
       for(const part of row.segments)
