@@ -2492,9 +2492,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     try{
       if(typeof globalThis.ChatMessage?.create!=="function")
         throw Error("Foundry ChatMessage.create is unavailable.");
-      await globalThis.ChatMessage.create({content:"<p><strong>Atlas Journey:</strong> "+
-        "The GM-confirmed "+label+" is complete. "+
-        "Review character resources with your GM before continuing.</p>"});
+      await globalThis.ChatMessage.create({
+        content:"<p><strong>Atlas Journey:</strong> "+
+          "The GM-confirmed "+label+" is complete. "+
+          "Review character resources with your GM before continuing.</p>",
+        whisper:[],blind:false
+      });
       return true;
     }catch(error){
       atlasWarn("journey","Player rest completion notice could not post",error);
