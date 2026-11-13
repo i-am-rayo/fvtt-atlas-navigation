@@ -1,55 +1,73 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {checkpointDestinationGroups}
+import {checkpointDestinationGroups,checkpointGeographyGroups}
   from "../scripts/navigation-destination-groups.js";
 
-const atlas={
-  roads:[{id:"land",name:"Dirwest–Millstone"},{id:"water",name:"Sea Lane"},
-    {id:"air",name:"Skyway"}],
-  checkpoints:[
-    {id:"millstone",name:"Millstone",roadId:"land"},
-    {id:"dirwest-gate",name:"North Gate",roadId:"land"},
-    {id:"dirwest",name:"Dirwest",roadId:"land"},
-    {id:"port",name:"Port Barthos",roadId:"water"},
-    {id:"island",name:"Island Ruins",roadId:null},
-    {id:"duplicate1",name:"Bridge",roadId:"land"},
-    {id:"duplicate2",name:"Bridge",roadId:"land"},
-    {id:"sky",name:"Cloud Keep",roadId:"air"}
-  ]
-};
-const roadModes=new Map([["land","land"],["water","water"],["air","air"]]);
+const atlas={checkpoints:[
+  {id:"dirwest",name:"Dirwest"},
+  {id:"millstone",name:"Millstone"},
+  {id:"bridge1",name:"Bridge"},
+  {id:"bridge2",name:"Bridge"},
+  {id:"dock",name:"Hearth's Heart Dock"},
+  {id:"unknown",name:"Mysterious Ruins"}
+]};
+const geography=new Map([
+  ["dirwest",{level:0,name:"Dirwest"}],
+  ["bridge1",{level:0,name:"Dirwest"}],
+  ["millstone",{level:0,name:"Millstone"}],
+  ["bridge2",{level:1,name:"Valecor"}],
+  ["dock",{level:1,name:"Valecor"}]
+]);
 
-test("destination picker exposes terrain only, then uncategorized, never Road or territory names",()=>{
-  const original=structuredClone(atlas);
-  const groups=checkpointDestinationGroups(atlas,{roadModes});
-  assert.deepEqual(groups.map(x=>x.label),["Land","Water","Air","Uncategorized"]);
-  assert.deepEqual(groups.find(x=>x.label==="Land").entries.map(x=>x.id),
-    ["duplicate1","duplicate2","dirwest","millstone","dirwest-gate"]);
-  assert.equal(groups.find(x=>x.label==="Water").entries[0].id,"port");
-  assert.equal(groups.find(x=>x.label==="Uncategorized").entries[0].id,"island");
-  assert.ok(groups.every(g=>!g.label.includes("Dirwest")&&!g.label.includes("Road")));
+test("Checkpoint directory groups by City > Continent > Uncategorized without roads",()=>{
+  const input=structuredClone(atlas);
+  const groups=checkpointDestinationGroups(atlas,{geography});
+  assert.deepEqual(groups.map(g=>g.label),[
+    "City: Dirwest","City: Millstone","Continent: Valecor","Uncategorized"
+  ]);
+  assert.deepEqual(groups[0].entries.map(e=>e.id),["bridge1","dirwest"]);
+  assert.deepEqual(groups[2].entries.map(e=>e.id),["bridge2","dock"]);
+  assert.equal(groups.at(-1).entries[0].id,"unknown");
+  assert.deepEqual(atlas,input);
   assert.equal(groups.flatMap(g=>g.entries).length,atlas.checkpoints.length);
-  assert.deepEqual(atlas,original);
 });
 
-test("duplicate names remain individually selectable by stable ID",()=>{
-  const groups=checkpointDestinationGroups(atlas,{roadModes});
-  const duplicate=groups.flatMap(g=>g.entries).filter(x=>x.label.startsWith("Bridge"));
-  assert.deepEqual(duplicate.map(x=>x.id),["duplicate1","duplicate2"]);
-  assert.ok(duplicate.every(x=>x.label.includes(" · ")));
+test("duplicate Checkpoint display names remain distinguished by stable IDs",()=>{
+  const all=checkpointDestinationGroups(atlas,{geography}).flatMap(g=>g.entries);
+  assert.ok(all.filter(x=>x.label.startsWith("Bridge")).every(x=>x.label.includes(" · ")));
+  assert.deepEqual(all.filter(x=>x.label.startsWith("Bridge")).map(x=>x.id),
+    ["bridge1","bridge2"]);
 });
 
-test("missing Road links, malformed names and unknown travel modes fail to uncategorized",()=>{
-  const groups=checkpointDestinationGroups({
-    roads:[{id:"known"},{id:"unknown"}],
-    checkpoints:[
-      {id:"n",name:"No Road",roadId:"missing"},
-      {id:"u",name:"Unknown mode",roadId:"unknown"},
-      {id:"v",name:"Walk",roadId:"known"},
-      {id:"blank",name:"   ",roadId:"known"}
-    ]
-  },{roadModes:new Map([["known","land"],["unknown","teleport"]])});
-  assert.deepEqual(groups.map(g=>g.label),["Land","Uncategorized"]);
-  assert.deepEqual(groups[0].entries.map(e=>e.id),["v"]);
-  assert.deepEqual(groups[1].entries.map(e=>e.id),["n","u"]);
+test("native geography chooses a unique containing City before continent; falls back if City ambiguous",()=>{
+  const territories=[
+    {id:"c1",linked:true,invalid:false,name:"Dirwest",geography:{kind:"city"}},
+    {id:"c2",linked:true,invalid:false,name:"Millstone",geography:{kind:"city"}},
+    {id:"continent",linked:true,invalid:false,name:"Valecor",geography:{kind:"continent"}},
+    {id:"other",linked:false,invalid:false,name:"Unlinked",geography:{kind:"city"}}
+  ];
+  const matches=[
+    {checkpointId:"a",regionId:"c1",contains:true},
+    {checkpointId:"a",regionId:"continent",contains:true},
+    {checkpointId:"b",regionId:"c1",contains:true},
+    {checkpointId:"b",regionId:"c2",contains:true},
+    {checkpointId:"b",regionId:"continent",contains:true},
+    {checkpointId:"c",regionId:"other",contains:true},
+    {checkpointId:"d",regionId:"c1",contains:true,ambiguous:true},
+    {checkpointId:"d",regionId:"continent",contains:true}
+  ];
+  const found=checkpointGeographyGroups(territories,matches);
+  assert.deepEqual(found.get("a"),{level:0,name:"Dirwest"});
+  assert.deepEqual(found.get("b"),{level:1,name:"Valecor"});
+  assert.equal(found.has("c"),false);
+  assert.deepEqual(found.get("d"),{level:1,name:"Valecor"});
+});
+
+test("explicit native link resolves a Checkpoint without canvas matching",()=>{
+  const territories=[{id:"city",linked:true,invalid:false,
+    name:"Port Barthos",geography:{kind:"city"}}];
+  const found=checkpointGeographyGroups(territories,[],[
+    {regionId:"city",link:{checkpointId:"port"}}
+  ]);
+  assert.deepEqual(found.get("port"),{level:0,name:"Port Barthos"});
 });
