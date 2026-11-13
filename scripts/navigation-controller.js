@@ -94,6 +94,7 @@ import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote}
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
+import {renderNavigationPlannerTabs} from "./navigation-planner-tabs-view.js";
 import {navigationRouteMarkers} from "./navigation-direction-summary.js";
 import {renderNavigationPlaybackControls} from "./navigation-playback-controls-view.js";
 import {renderJourneyTargets} from "./navigation-targets-view.js";
@@ -156,6 +157,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mapPickPrevious=null;
     this.playbackSecondsPerHourOverride=null;
     this.directionsExpanded=false;
+    this.navigationTab="travel";
     this.result = null;
     this.itinerary=null;
     this.routeRevision=null;
@@ -210,6 +212,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mapPickPrevious=null;
     this.playbackSecondsPerHourOverride=null;
     this.directionsExpanded=false;
+    this.navigationTab="travel";
     this.travelMethod="walking";
     this.transportArrangement="owned";
     this.transportOperation="normal";
@@ -2457,6 +2460,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mapPickPrompt=null;this.mapPickPrevious=null;
     this.playbackSecondsPerHourOverride=null;
     this.directionsExpanded=false;
+    this.navigationTab="travel";
     void pickPrompt?.close?.();
     this.pointerTarget?.removeEventListener?.("pointerdown",this.pointerDown,true);
     this.pointerTarget = null;
@@ -3024,9 +3028,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const root=el("section");
     root.style.cssText="display:flex;flex-direction:column;height:100%;max-height:100%;min-height:0;overflow:hidden;";
     const body=el("div");
-    body.style.cssText="display:flex;flex-direction:column;gap:.85rem;padding:1rem;flex:1;min-height:0;overflow-y:auto;";
+    const playbackTab=el("div"),directionsTab=el("div");
     body.append(...renderNavigationStageIntro({title:"Choose destination",
-      description:"Choose a checkpoint or select Point B on the map, then review your route."}));
+      description:"Select a Checkpoint or pick a map point to plan your Journey."}));
     const partyMode=this.sourceMode==="party";
     const status=this.pendingTransfer?
       "Checkpoint reached at "+this.pendingTransfer.checkpoint.name+
@@ -3165,12 +3169,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
       }
     }
-    const statusLabel=el("p",status);
-    statusLabel.style.cssText="margin:0;font-weight:600;flex:1;min-width:0;";
-    const statusRow=el("div");
-    statusRow.style.cssText="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;";
-    statusRow.append(statusLabel);
-    body.appendChild(statusRow);
+    if(this.result?.status!=="ok"||this.pendingTransfer||this.notice){
+      const statusLabel=el("p",status);
+      statusLabel.style.cssText="margin:0;font-weight:600;flex:1;min-width:0;";
+      body.appendChild(statusLabel);
+    }
     if(this.travelNotice){
       const message=el("p",this.travelNotice);
       message.style.cssText="margin:0;font-size:.85em;opacity:.85;";
@@ -3366,11 +3369,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           (error.message??String(error))));
       }
     }
-    const help=el("p",partyMode?
-      "Point A is your assigned party token. Choose a Checkpoint or use Pick on map for Point B.":
-      "Assign a party token in Atlas to use party-based Navigation.");
-    help.style.cssText="margin:0;font-size:.8em;opacity:.75;line-height:1.35;";
-    body.appendChild(help);
+    // Destination controls already explain how to pick Point B. Avoid
+    // duplicating the same explanatory line below service estimates.
     if(this.pendingTransfer){
       const atDestination=isJourneyDestinationCheckpoint(this.recoveryRecord,
         this.pendingTransfer.checkpoint,this.scene.grid.size);
@@ -3516,7 +3516,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(realPlaybackModel&&!this.travelSession&&!this.pendingTransfer&&
           !this.recoveryRecord&&!this.recoverableJourney){
         try{
-          body.append(renderNavigationPlaybackControls({
+          playbackTab.append(renderNavigationPlaybackControls({
             model:realPlaybackModel,
             secondsPerHour:this.playbackSecondsPerHourOverride??
               readGuidedPlaybackSetting(game.settings),
@@ -3574,12 +3574,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Terrain-weighted distance: "+showDistance(this.result.cost)+"-equivalent":null});
       // Rules and provenance remain available to the GM, but do not crowd
       // the primary destination, method, timing and route actions.
-      const advanced=el("details");
-      advanced.style.cssText="font-size:.83em;";
-      const advancedTitle=el("summary","Travel calculation and World-time notes");
-      advancedTitle.style.cursor="pointer";
-      advanced.append(advancedTitle,...status.nodes);
-      body.append(advanced);
+      // Calculation diagnostics stay on the Directions tab, with no
+      // extra "Travel calculation and World-time notes" disclosure.
       this.worldTimeUI=status.worldTimeUI;
       const calculation=this.result.terrainWarning ||
         (approvedActiveTransport?
@@ -3642,7 +3638,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const routeLegs=this.result.legs;
       const destinationLabel=naming.preferRoadName?
         naming.directionRoadName(routeLegs.find(l=>l.kind==="road")?.roadId):null;
-      body.append(...renderNavigationDirections({calculation,
+      directionsTab.append(...renderNavigationDirections({calculation,
         transfer:Boolean(transferPlan?.hasTransitions),
         arrivalCheckpointName:transferPlan?.legs[0]?.arrivalCheckpoint?.name??null,
         markers:navigationRouteMarkers(this.result,this.atlasProvider(this.scene),
@@ -3662,7 +3658,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Choose Point B by clicking the map or selecting a checkpoint to see journey estimates.");
       hint.style.cssText="margin:0;opacity:.8;font-size:.9em;";body.appendChild(hint);
     }
-    root.append(body,renderNavigationFooter(this,{partyMode,transferPlan,
+    if(!playbackTab.children?.length)
+      playbackTab.append(el("p","Choose a destination and travel method to set trip playback."));
+    if(!directionsTab.children?.length)
+      directionsTab.append(el("p","Choose a destination to review turn-by-turn directions."));
+    const tabs=renderNavigationPlannerTabs({
+      active:this.navigationTab,travel:body,playback:playbackTab,
+      directions:directionsTab,
+      onTabChange:value=>{this.navigationTab=value;}
+    });
+    root.append(tabs,renderNavigationFooter(this,{partyMode,transferPlan,
       methodAssessment,assistedLegReady,repeatingCheckpoint}));
     return root;
   }
