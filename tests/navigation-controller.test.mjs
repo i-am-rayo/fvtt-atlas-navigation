@@ -964,10 +964,17 @@ test("party departure chooses B with one click, tracks live token center, and pr
     nav.activate();
     assert.equal(nav.sourceMode,"party","assigned Atlas explorer is the default on open");
     assert.deepEqual(nav.start,point(100,75));
+    const ordinaryClick=pointer(500,300);nav.onPointerDown(ordinaryClick);
+    assert.equal(ordinaryClick.prevented,0,
+      "party Navigation no longer captures Scene clicks until Pick on map is active");
+    assert.equal(nav.end,null);
+    nav.mapPickActive=true;
+    nav.maximize=async()=>{};
     const destination=pointer(500,300);nav.onPointerDown(destination);
     assert.deepEqual(nav.end,point(300,200));
     assert.deepEqual(origins,[point(100,75)]);
     assert.equal(destination.prevented,1);
+    assert.equal(nav.mapPickActive,false,"map selection exits after setting Point B");
     const miss=pointer(700,400,{shiftKey:true});nav.onPointerDown(miss);
     assert.equal(miss.prevented,0,"Shift must never overwrite token departure");
     token.x+=20;token.y+=10;
@@ -977,7 +984,9 @@ test("party departure chooses B with one click, tracks live token center, and pr
     const panel=await nav._renderHTML();
     const find=(node,match)=>match(node)?node:node.children.map(child=>find(child,match)).find(Boolean);
     const selector=find(panel,node=>node.tag==="select"&&node.id==="atlas-navigation-departure");
-    assert.equal(selector.value,"party");
+    assert.equal(selector,undefined,"departure and refresh controls are removed from the GM planner");
+    const mapButton=find(panel,node=>node.tag==="button"&&node.textContent==="Pick on map");
+    assert.ok(mapButton);
     const footer=panel.children.at(-1);
     assert.equal(footer.children.some(node=>node.ariaLabel==="Travel Route"),true);
     const reset=find(panel,node=>node.tag==="button"&&node.ariaLabel==="New Route");
