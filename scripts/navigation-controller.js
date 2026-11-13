@@ -3423,17 +3423,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     if (this.result?.status === "ok") {
       const metrics=[];
-      const metric=(label,value)=>metrics.push({label,value});
+      const metric=(label,value,tooltip=null,hint=null)=>metrics.push({label,value,tooltip,hint});
+      let realPlaybackModel=null;
       const activeLeg=transferPlan?.hasTransitions?transferPlan.legs[0]:null;
-      metric(activeLeg?"Current Leg Distance":"Distance",
-        showDistance(activeLeg?.distance??this.result.distance));
+      metric(activeLeg?"Current Leg Distance":
+        this.travelMethod==="walking"?"Distance @ party pace":"Distance",
+        showDistance(activeLeg?.distance??this.result.distance),
+        "Measured against the Scene Grid. The assigned party token is Point A.");
       let tripExplanation=null;
       try{
         const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
         const hours=activeLeg?activeLeg.hours:approvedActiveTransport?
           this.travelSession.schedule.travelHours:navigationHours(weighted,speed);
         metric(activeLeg?"Current Leg Time":"Travel Time",
-          hours===null?"Choose method":formatGuidedWorldTime(Math.round(hours*3600)));
+          hours===null?"Choose method":formatGuidedWorldTime(Math.round(hours*3600)),
+          "Time spent moving only. A standard day has up to 8 hours of travel; rests are separate GM decisions.");
         const rules=approvedActiveTransport?
           this.travelSession.schedule.rules:this.resolveTravelRules(travel);
         const schedule=approvedActiveTransport?this.travelSession.schedule:
@@ -3446,10 +3450,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const activeDays=hours>0?Math.ceil(Math.max(0,hours-1e-7)/8):0;
         const activeElapsed=hours===null?null:hours+
           (activeContinuous?0:Math.max(0,activeDays-1)*16);
+        const altRest=hours===null?null:estimateNavigationTotalTrip(hours,
+          {...rules,dailyHours:8,overnightHours:8});
         metric(activeLeg?"Current Leg Total":"Total Trip",
           activeLeg?(activeElapsed===null?"Choose method":
             formatNavigationDuration(activeElapsed,24)):
-            formatNavigationDuration(plan.totalHours,24));
+            formatNavigationDuration(plan.totalHours,24),
+          "Estimated elapsed time, normally including 16 hours of overnight downtime after each full 8-hour travel day. Actual GM-approved rest choices may change it.",
+          altRest?"With 8h Long Rests: "+formatNavigationDuration(
+            altRest.totalHours,24):null);
+        if(hours!==null&&Number.isFinite(hours)&&hours>0)
+          realPlaybackModel={travelHours:hours,
+            dailyHours:rules.dailyHours,overnightHours:rules.overnightHours,
+            longRestHours:rules.longRestHours??8};
         const activeMethod=methods.find(method=>method.id===this.travelMethod);
         const transportPreview=this.travelMethod!=="walking"&&
           ["mount","vehicle"].includes(activeMethod?.kind)&&rules.dailyHours!==null;
@@ -3488,6 +3501,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         progressPercent:this.travelSession||this.travelProgress>0?
           this.travelProgress:null});
       body.append(...summary.nodes);
+      if(realPlaybackModel&&!this.travelSession&&!this.pendingTransfer&&
+          !this.recoveryRecord&&!this.recoverableJourney){
+        try{
+          body.append(renderNavigationPlaybackControls({
+            model:realPlaybackModel,
+            secondsPerHour:this.playbackSecondsPerHourOverride??
+              readGuidedPlaybackSetting(game.settings),
+            disabled:Boolean(this.journalStarting),
+            onChange:value=>{
+              if(this.journalStarting||this.travelSession)return;
+              if(!Number.isFinite(value)||value<.5||value>8)return;
+              this.playbackSecondsPerHourOverride=value;
+              void this.render(true);
+            },
+            onError:message=>globalThis.ui?.notifications?.warn?.(message)
+          }));
+        }catch(error){
+          atlasWarn("navigation","Trip playback preview unavailable",error);
+        }
+      }
       this.travelProgressUI=summary.progressUI;
       if(summary.timeUI){
         // The full multi-surface route is only a preview. Its distance must not
