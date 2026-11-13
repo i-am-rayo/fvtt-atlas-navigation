@@ -2576,3 +2576,59 @@ test("confirmed checkpoint choices can be reopened from their Journal after a bl
     assert.equal(journal.getFlag(),saved,"reviewing checkpoint must not write to Journal");
   }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
 });
+
+test("GM skip-visual control does not move a Token or approve any rest",async()=>{
+  const prior={game:globalThis.game,foundry:globalThis.foundry};
+  try{
+    const answers=[true,true],modalCalls=[];
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}}};
+    globalThis.foundry={applications:{api:{DialogV2:{async confirm(options){
+      modalCalls.push(options.window.title);return answers.shift();
+    }}}}};
+    const nav=Object.create(AtlasNavigationController.prototype);
+    nav.scene={id:"scene"};nav.render=async()=>{};
+    let finished=0;
+    const session={phase:"rest-holding",nativeActive:false,
+      playbackSecondsPerHour:15,skipVisualPlayback:false,
+      visualRestHold:{finish(){finished++;}},
+      schedule:{travelHours:40,completedHours:0,
+        rules:{dailyHours:8}}};
+    nav.travelSession=session;
+    assert.equal(await nav.setSkipVisualJourney(true),true);
+    assert.equal(session.skipVisualPlayback,true);
+    assert.equal(session.consolidatePlayerRestPrompts,true);
+    assert.equal(finished,1,"only a confirmed visual hold is released");
+    assert.deepEqual(modalCalls,[
+      "Skip visual Journey playback","Consolidate player rest notices?"]);
+    assert.equal(nav.setLiveJourneyPlaybackSpeed(25),true);
+    assert.equal(session.playbackSecondsPerHour,25);
+    assert.equal(await nav.setSkipVisualJourney(false),true);
+    assert.equal(session.skipVisualPlayback,false);
+  }finally{Object.assign(globalThis,prior);}
+});
+
+test("player rest completion prompt requires a saved rest and explicit active-GM approval",async()=>{
+  const prior={game:globalThis.game,foundry:globalThis.foundry,
+    ChatMessage:globalThis.ChatMessage};
+  try{
+    const messages=[],prompts=[];
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}}};
+    globalThis.foundry={applications:{api:{DialogV2:{async confirm(o){
+      prompts.push(o.window.title);return true;
+    }}}}};
+    globalThis.ChatMessage={async create(data){messages.push(data);}};
+    const nav=Object.create(AtlasNavigationController.prototype);
+    const session={phase:"paused",journeyRecord:{legs:[{events:[]}]}};
+    nav.travelSession=session;
+    assert.equal(await nav.offerPlayerRestPrompt(session,"long"),false);
+    assert.deepEqual(messages,[],"no ChatMessage without a confirmed Journal event");
+    session.journeyRecord.legs[0].events.push({action:"long",hours:8});
+    assert.equal(await nav.offerPlayerRestPrompt(session,"long"),true);
+    assert.equal(messages.length,1);
+    assert.match(messages[0].content,/Review character resources/);
+    assert.deepEqual(prompts,["Notify players: rest complete?"]);
+    game.users.activeGM={id:"other-gm"};
+    assert.equal(await nav.offerPlayerRestPrompt(session,"long"),false);
+    assert.equal(messages.length,1,"inactive GM cannot duplicate the player notice");
+  }finally{Object.assign(globalThis,prior);}
+});
