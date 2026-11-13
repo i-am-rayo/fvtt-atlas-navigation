@@ -4,13 +4,13 @@ import { navigationHours } from "./navigation-time.js";
 export const NAVIGATION_PLAYBACK_SETTING="guidedTravelSecondsPerHour";
 export const NAVIGATION_PLAYBACK_DEFAULT=2;
 export const NAVIGATION_PLAYBACK_MIN=0.5;
-export const NAVIGATION_PLAYBACK_MAX=8;
+export const NAVIGATION_PLAYBACK_MAX=30;
 export const MAX_PLAYBACK_SECONDS=600;
 const MIN_PLAYBACK_SECONDS=2;
 
 export function validatePlaybackSetting(value){
   if(!Number.isFinite(value)||value<NAVIGATION_PLAYBACK_MIN||value>NAVIGATION_PLAYBACK_MAX)
-    throw Error("Guided travel playback must be between 0.5 and 8 real seconds per game travel hour.");
+    throw Error("Guided travel playback must be between 0.5 and 30 real seconds per game travel hour.");
   return value;
 }
 

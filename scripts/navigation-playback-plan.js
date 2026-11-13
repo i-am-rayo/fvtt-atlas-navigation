@@ -29,27 +29,27 @@ export function projectNavigationRealPlayback({
     capped:movementSeconds>=MAX_PLAYBACK_SECONDS});
 }
 
-/** Convert a requested real total (including planned 16h overnight stops)
+/** Convert a requested real total (including planned 8h Long Rest stops)
  * into seconds per in-game hour. Impossible targets fail before any state
  * change; do not silently clamp and claim the requested duration.
  */
 export function secondsPerHourForTargetMinutes(model,targetMinutes){
-  if(!Number.isFinite(targetMinutes)||targetMinutes<=0||targetMinutes>120)
-    throw Error("Choose a real-world target between 0 and 120 minutes.");
+  if(!Number.isFinite(targetMinutes)||targetMinutes<=0||targetMinutes>360)
+    throw Error("Choose a real-world target between 0 and 360 minutes.");
   const low=projectNavigationRealPlayback({...model,secondsPerHour:NAVIGATION_PLAYBACK_MIN});
   const high=projectNavigationRealPlayback({...model,secondsPerHour:NAVIGATION_PLAYBACK_MAX});
   const target=targetMinutes*60;
-  if(target<low.fullOvernightSeconds-0.05||
-      target>high.fullOvernightSeconds+0.05)
+  if(target<low.fullLongRestSeconds-0.05||
+      target>high.fullLongRestSeconds+0.05)
     throw Error("This trip cannot match that real-world duration with "+
-      "the supported 0.5–8 seconds/hour animation range. "+
-      "Try a target between "+(low.fullOvernightSeconds/60).toFixed(1)+
-      " and "+(high.fullOvernightSeconds/60).toFixed(1)+" minutes.");
+      "the supported 0.5–30 seconds/hour animation range. "+
+      "Try a target with 8h Long Rests between "+(low.fullLongRestSeconds/60).toFixed(1)+
+      " and "+(high.fullLongRestSeconds/60).toFixed(1)+" minutes.");
   let left=NAVIGATION_PLAYBACK_MIN,right=NAVIGATION_PLAYBACK_MAX;
   for(let i=0;i<48;i++){
     const mid=(left+right)/2;
     if(projectNavigationRealPlayback({...model,secondsPerHour:mid})
-      .fullOvernightSeconds<target)left=mid;
+      .fullLongRestSeconds<target)left=mid;
     else right=mid;
   }
   const result=(left+right)/2;

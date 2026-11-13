@@ -44,10 +44,11 @@ test("neutral roads use measured distance; visual compression has safe bounds",(
 test("playback settings default safely and never accept invalid or unbounded speeds",()=>{
   assert.equal(readGuidedPlaybackSetting(null),NAVIGATION_PLAYBACK_DEFAULT);
   assert.equal(readGuidedPlaybackSetting({get:()=>1.5}),1.5);
+  assert.equal(readGuidedPlaybackSetting({get:()=>30}),30);
   assert.equal(readGuidedPlaybackSetting({get:()=>100}),NAVIGATION_PLAYBACK_DEFAULT);
   assert.equal(readGuidedPlaybackSetting({get:()=>{throw Error("not registered");}}),
     NAVIGATION_PLAYBACK_DEFAULT);
-  for(const invalid of [0,-1,NaN,Infinity,8.5])
+  for(const invalid of [0,-1,NaN,Infinity,30.1])
     assert.throws(()=>validatePlaybackSetting(invalid));
   assert.throws(()=>calculateGuidedPlayback({route,travel:{speed:5},paths,
     gridSize:0,secondsPerHour:2}),/Grid/);

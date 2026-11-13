@@ -48,8 +48,9 @@ export function renderNavigationDirections({
     const icon=el("span",start?"●":"◆");
     icon.style.cssText="width:1.6rem;text-align:center;color:"+(start?"#16a765":"#d83c49")+";";
     const text=el("strong",start?"Depart with the party":
-      transfer?"Reach "+(arrivalCheckpointName??"the next decision point"):
-        "Arrive at destination");
+      arrivalCheckpointName?"Arrive to "+arrivalCheckpointName:
+      transfer?"Arrive at the next decision point":
+        "Arrive at selected location");
     item.append(icon,text);return item;
   };
   list.appendChild(endpoint(true));

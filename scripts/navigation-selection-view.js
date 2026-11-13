@@ -127,9 +127,21 @@ export function renderNavigationTravelMethodButtons({choices,selectedValue,
       /fly|air/.test(key+" "+labelText)?"fa-dove":"fa-route";
     icon.className="fa-solid "+symbol;
     icon.setAttribute?.("aria-hidden","true");
+    const content=el("span");
+    content.style.cssText="display:grid;gap:.1rem;min-width:0;overflow-wrap:anywhere;";
     const text=el("span",choice.label);
-    text.style.cssText="min-width:0;overflow-wrap:anywhere;font-size:.86em;";
-    label.append(input,icon,text);
+    text.style.cssText="font-size:.87em;";
+    content.appendChild(text);
+    if(choice.secondary){
+      const detail=el("small",choice.secondary);
+      detail.style.cssText="font-size:.75em;opacity:.8;";
+      content.appendChild(detail);
+    }
+    if(choice.insufficient){
+      label.title="Insufficient configured seats for the chosen travelers";
+      label.style.borderColor="#ad694e";
+    }
+    label.append(input,icon,content);
     input.addEventListener("change",()=>{
       if(!disabled&&input.checked)onMethodChange?.(input.value);
     });

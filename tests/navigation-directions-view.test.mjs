@@ -34,7 +34,7 @@ test("directions are collapsed by default and retain endpoint order without writ
     assert.ok(textOf([entries[1]]).includes("4.52 mi · 1h 30m"));
     assert.ok(textOf([entries[1]]).includes("Road · Rain"));
     assert.equal(entries[1].children[0].textContent,"↑");
-    assert.ok(textOf([entries[2]]).includes("Arrive at destination"));
+    assert.ok(textOf([entries[2]]).includes("Arrive at selected location"));
     assert.deepEqual(rows,[{kind:"direction",direction:"north",
       instruction:"Head north to Hearth's Heart",info:"4.52 mi · 1h 30m",
       surface:"Road · Rain"}]);
@@ -56,7 +56,7 @@ test("transfer directions do not disclose future legs and toggle preserves state
     });
     assert.equal(view.open,true);
     assert.match(view.children[0].textContent,/Directions to next decision/);
-    assert.ok(textOf([view.children[2]]).includes("Reach Port Barthos"));
+    assert.ok(textOf([view.children[2]]).includes("Arrive to Port Barthos"));
     assert.equal(textOf([view]).some(x=>x.includes("Later legs")),false);
     view.open=false;view.listeners.toggle();
     assert.deepEqual(calls,[false]);

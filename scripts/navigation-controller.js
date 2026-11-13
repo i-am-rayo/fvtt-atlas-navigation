@@ -94,7 +94,11 @@ import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote}
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
-import {navigationRouteMarkers} from "./navigation-direction-summary.js";
+import {renderNavigationPlannerTabs} from "./navigation-planner-tabs-view.js";
+import {renderNavigationPartySelection} from "./navigation-party-selection-view.js";
+import {projectPartyTravelSelection,describeTravelMethodCapacity}
+  from "./navigation-party-selection.js";
+import {navigationRouteMarkers,navigationDestinationCheckpoint} from "./navigation-direction-summary.js";
 import {renderNavigationPlaybackControls} from "./navigation-playback-controls-view.js";
 import {renderJourneyTargets} from "./navigation-targets-view.js";
 import {renderRepeatedCheckpointNotice,renderCheckpointArrivalPrompt,
@@ -156,6 +160,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mapPickPrevious=null;
     this.playbackSecondsPerHourOverride=null;
     this.directionsExpanded=false;
+    this.navigationTab="travel";
+    this.partySelectionMode="all";
+    this.partySelectedIds=[];
     this.result = null;
     this.itinerary=null;
     this.routeRevision=null;
@@ -210,6 +217,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mapPickPrevious=null;
     this.playbackSecondsPerHourOverride=null;
     this.directionsExpanded=false;
+    this.navigationTab="travel";
+    this.partySelectionMode="all";
+    this.partySelectedIds=[];
     this.travelMethod="walking";
     this.transportArrangement="owned";
     this.transportOperation="normal";
@@ -377,6 +387,22 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.draw();
       void this.render(true);
     }catch(error){ui.notifications.warn(error.message||String(error));}
+  }
+
+  /** Native Group roster read only; never change members for a preview. */
+  partyTravelSelection(methods){
+    const actor=this.getPartyToken()?.actor;
+    if(game.system?.id!=="dnd5e"||actor?.type!=="group")return null;
+    try{
+      const roster=projectGroupTransportation(actor,
+        readGroupTransportation(game.settings),methods);
+      return {roster,...projectPartyTravelSelection(roster,{
+        mode:this.partySelectionMode,ids:this.partySelectedIds
+      })};
+    }catch(error){
+      atlasWarn("navigation","Party selection preview unavailable",error);
+      return null;
+    }
   }
 
   /** Only owned Group resources or explicit offers at departure appear in Travel by. */
@@ -1660,6 +1686,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("A GM must calculate a route on the active Scene before guided travel.");
     if(!this.result.legs?.some(leg=>leg.kind==="road"))
       throw Error("Guided travel requires a route containing an Atlas road.");
+    // A preview of fewer PCs cannot move the same complete Group token.
+    // Never override recovery decisions for an already approved Journey.
+    if(!this.recoveryRecord&&!this.recoverableJourney){
+      const preview=this.partyTravelSelection(
+        availableNavigationTravelMethods(game.settings,game.system?.id));
+      if(preview?.partial||preview?.empty)
+        throw Error("A split party requires a separate assigned Group/explorer "+
+          "token before Travel can be approved. This preview cannot move the full party.");
+    }
     if(this.travelMethod!=="walking"&&this.sourceMode!=="party")
       throw Error("Guided mounted/sailing journeys require checkpoint transfers from the assigned party token.");
     const token=this.getPartyToken();
@@ -2457,6 +2492,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mapPickPrompt=null;this.mapPickPrevious=null;
     this.playbackSecondsPerHourOverride=null;
     this.directionsExpanded=false;
+    this.navigationTab="travel";
+    this.partySelectionMode="all";
+    this.partySelectedIds=[];
     void pickPrompt?.close?.();
     this.pointerTarget?.removeEventListener?.("pointerdown",this.pointerDown,true);
     this.pointerTarget = null;
@@ -3024,9 +3062,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const root=el("section");
     root.style.cssText="display:flex;flex-direction:column;height:100%;max-height:100%;min-height:0;overflow:hidden;";
     const body=el("div");
-    body.style.cssText="display:flex;flex-direction:column;gap:.85rem;padding:1rem;flex:1;min-height:0;overflow-y:auto;";
+    const playbackTab=el("div"),directionsTab=el("div");
     body.append(...renderNavigationStageIntro({title:"Choose destination",
-      description:"Choose a checkpoint or select Point B on the map, then review your route."}));
+      description:"Select a Checkpoint or pick a map point to plan your Journey."}));
     const partyMode=this.sourceMode==="party";
     const status=this.pendingTransfer?
       "Checkpoint reached at "+this.pendingTransfer.checkpoint.name+
@@ -3084,6 +3122,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       pendingReviewMethod?.name??"Previously approved travel method";
     const availability=this.transportAvailability();
     const methods=availability.methods;
+    const partySelection=this.partyTravelSelection(availability.all);
+    const partySplitBlocked=Boolean(partySelection?.partial||partySelection?.empty);
+    if(this.result?.status==="ok"&&partySelection&&!this.travelSession&&
+        !this.recoveryRecord&&!this.recoverableJourney&&!this.pendingTransfer){
+      const selector=renderNavigationPartySelection({
+        roster:partySelection.roster,
+        mode:this.partySelectionMode,ids:this.partySelectedIds,
+        disabled:Boolean(this.journalStarting),
+        onChange:next=>{
+          if(this.journalStarting||this.travelSession)return;
+          this.partySelectionMode=next.mode;
+          this.partySelectedIds=next.ids;
+          void this.render(true);
+        }
+      });
+      if(selector)body.appendChild(selector);
+    }
     const approvedActiveTransport=this.travelSession?.transportLeg?
       (this.travelSession.journeyRecord?.legs.at(-1)?.transport??
         this.travelSession.transportLeg.transport):null;
@@ -3119,6 +3174,28 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           group:offer.checkpointName||"Nearby checkpoint"}]:[];
       })
     ];
+    const annotatedChoices=choices.map(choice=>{
+      if(!choice.value?.includes("|"))return choice;
+      const [arrangement,id]=choice.value.split("|",2);
+      const method=availability.all.find(item=>item.id===id);
+      if(!method||id==="walking")return choice;
+      let capacity=null,methodCapacity=null;
+      if(arrangement==="owned"&&partySelection)
+        capacity=groupMethodCapacityStatus(partySelection.previewRoster,method);
+      if(arrangement==="hire"){
+        const offer=availability.offers.get(id);
+        try{
+          methodCapacity=offer?checkpointOfferMethod({
+            methodId:offer.methodId,mode:offer.mode,overrides:offer.overrides
+          },method).capacity:null;
+        }catch(error){
+          atlasWarn("navigation","Invalid offered transport capacity",error);
+        }
+      }
+      return {...choice,secondary:describeTravelMethodCapacity({
+        choice:{...choice,methodCapacity},capacity
+      }),insufficient:Boolean(capacity&&!capacity.sufficient)};
+    });
     if(pendingNativeReview)
       body.appendChild(renderNavigationTravelMethodSelector({
         choices:[{value:"saved",label:pendingReviewMethodName,
@@ -3134,7 +3211,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     else if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)
       body.appendChild((approvedRecoveryLand||approvedRecoveryTransport?
         renderNavigationTravelMethodSelector:renderNavigationTravelMethodButtons)({
-        choices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
+        choices:annotatedChoices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
         disabled:Boolean(this.travelSession||this.journalStarting||approvedRecoveryTransport||
           approvedRecoveryLand),
         showEditor:this.travelMethod!=="walking"&&!approvedRecoveryTransport&&
@@ -3165,12 +3242,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
       }
     }
-    const statusLabel=el("p",status);
-    statusLabel.style.cssText="margin:0;font-weight:600;flex:1;min-width:0;";
-    const statusRow=el("div");
-    statusRow.style.cssText="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;";
-    statusRow.append(statusLabel);
-    body.appendChild(statusRow);
+    if(this.result?.status!=="ok"||this.pendingTransfer||this.notice){
+      const statusLabel=el("p",status);
+      statusLabel.style.cssText="margin:0;font-weight:600;flex:1;min-width:0;";
+      body.appendChild(statusLabel);
+    }
     if(this.travelNotice){
       const message=el("p",this.travelNotice);
       message.style.cssText="margin:0;font-size:.85em;opacity:.85;";
@@ -3263,39 +3339,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       body.appendChild(renderTransportAdvisory(methodAssessment.reason??
         "Transport planning only."));
     }
-    if(!approvedActiveTransport&&!approvedRecoveryTransport&&
-        this.travelMethod!=="walking"&&!transferPlan?.hasTransitions &&
-        this.transportArrangement!=="hire" &&game.system?.id==="dnd5e" &&
-        !["coach-hire","ship-passage"].includes(this.travelMethod)){
-      // Show capacity as a read-only advisory; non-walking guided movement is
-      // still forbidden until a GM authorizes checkpoint boarding.
-      const selectedMethod=methods.find(item=>item.id===this.travelMethod);
-      try{
-        const party=readPartyExploration(this.scene);
-        const group=party.enabled?this.scene?.tokens?.get?.(party.tokenId)?.actor:null;
-        if(group?.type==="group"&&selectedMethod?.surface){
-          const roster=projectGroupTransportation(group,readGroupTransportation(game.settings),methods);
-          const capacity=groupMethodCapacityStatus(roster,selectedMethod);
-          const capacityDescription=roster.travelers+" traveler(s); "+
-            capacity.seats+" available "+selectedMethod.surface+" seat(s). "+
-            (capacity.missing?capacity.missing+" additional seat(s) needed. ":
-              capacity.sufficient?"Capacity meets party size. ":"")+
-            (capacity.unknown?"Some transport capacities are not specified. ":"")+
-            (roster.unclassified?roster.unclassified+" NPC role(s) still need GM review. ":"")+
-            (capacity.matched?"Availability does not mean the party has boarded.":
-              "No matching Group resource. Assign an owned mount or vehicle to this method.");
-          body.appendChild(renderTransportCapacity({
-            description:capacityDescription,warning:Boolean(capacity.missing),
-            needsReview:Boolean(capacity.missing||roster.unclassified),
-            onReview:()=>{
-              try{openAtlasGroupTransportation(group.id);}catch(error){
-                globalThis.ui?.notifications?.error?.(error.message??String(error));
-              }
-            },onRefresh:()=>void this.render()
-          }));
-
-        }
-      }catch(error){atlasWarn("navigation","Group capacity preview unavailable",error);}
+    // Seats and resource counts are now displayed beside each method.
+    // A selected method with insufficient seats is explicitly called out.
+    if(!approvedRecoveryTransport&&this.travelMethod!=="walking"&&
+        this.transportArrangement==="owned"&&partySelection){
+      const selected=annotatedChoices.find(choice=>choice.value===
+        "owned|"+this.travelMethod);
+      if(selected?.insufficient)
+        body.appendChild(renderTransportAdvisory(
+          "Insufficient seats for the selected travelers. "+
+          "Choose another method or adjust the Group transportation roster."));
     }
     if(!approvedActiveTransport&&!approvedRecoveryTransport&&
         this.travelMethod!=="walking"&&this.result?.status==="ok"&&
@@ -3311,11 +3364,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           const actor=assignment.enabled?this.scene?.tokens?.get?.(assignment.tokenId)?.actor:null;
           const roster=actor?.type==="group"?
             projectGroupTransportation(actor,readGroupTransportation(game.settings),methods):null;
+          const quoteRoster=partySelection?.previewRoster??roster;
           let ownedQuote=null;
-          if(this.transportArrangement==="owned"&&roster){
-            const capacity=groupMethodCapacityStatus(roster,method);
+          if(this.transportArrangement==="owned"&&quoteRoster){
+            const capacity=groupMethodCapacityStatus(quoteRoster,method);
             if(capacity.sufficient)
-              ownedQuote=groupMethodFareEstimate(roster,method,{hours:movingHours,
+              ownedQuote=groupMethodFareEstimate(quoteRoster,method,{hours:movingHours,
                 distanceMi,dayHours:this.resolveTravelRules(travel).dailyHours??8});
           }
           if(this.transportArrangement==="hire"||ownedQuote){
@@ -3324,7 +3378,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             const normalHours=method.surface==="land"?(normalRules.dailyHours??8):8;
             const quoteArgs={arrangement:this.transportArrangement,
               operation:this.transportOperation,movingHours,distanceMi,
-              travelers:roster?.travelers??1,ownedQuote,regularHours:normalHours};
+              travelers:quoteRoster?.travelers??1,ownedQuote,regularHours:normalHours};
             const quote=quoteTransportationService(method,{...quoteArgs,
               hireTerms:this.transportHireTerms});
             const original=this.transportArrangement==="hire"&&baseMethod?.hireEnabled?
@@ -3366,11 +3420,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           (error.message??String(error))));
       }
     }
-    const help=el("p",partyMode?
-      "Point A is your assigned party token. Choose a Checkpoint or use Pick on map for Point B.":
-      "Assign a party token in Atlas to use party-based Navigation.");
-    help.style.cssText="margin:0;font-size:.8em;opacity:.75;line-height:1.35;";
-    body.appendChild(help);
+    // Destination controls already explain how to pick Point B. Avoid
+    // duplicating the same explanatory line below service estimates.
     if(this.pendingTransfer){
       const atDestination=isJourneyDestinationCheckpoint(this.recoveryRecord,
         this.pendingTransfer.checkpoint,this.scene.grid.size);
@@ -3459,18 +3510,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const plan=hours===null?null:schedule?.estimate??
           estimateNavigationTotalTrip(hours,rules);
         const activeContinuous=activeLeg?.operation==="continuous";
-        const activeDays=hours>0?Math.ceil(Math.max(0,hours-1e-7)/8):0;
-        const activeElapsed=hours===null?null:hours+
-          (activeContinuous?0:Math.max(0,activeDays-1)*16);
-        const altRest=hours===null?null:estimateNavigationTotalTrip(hours,
-          {...rules,dailyHours:8,overnightHours:8});
+        const primary=hours===null?null:activeContinuous?
+          {totalHours:hours}:estimateNavigationTotalTrip(hours,
+            {...rules,overnightHours:rules.longRestHours??8});
+        const overnight=hours===null?null:activeContinuous?
+          {totalHours:hours}:plan;
         metric(activeLeg?"Current Leg Total":"Total Trip",
-          activeLeg?(activeElapsed===null?"Choose method":
-            formatNavigationDuration(activeElapsed,24)):
-            formatNavigationDuration(plan.totalHours,24),
-          "Estimated elapsed time, normally including 16 hours of overnight downtime after each full 8-hour travel day. Actual GM-approved rest choices may change it.",
-          altRest?"With 8h Long Rests: "+formatNavigationDuration(
-            altRest.totalHours,24):null);
+          primary===null?"Choose method":formatNavigationDuration(
+            primary.totalHours,24),
+          "Planning estimate: "+(rules.longRestHours??8)+"h Long Rests between travel days. "+
+            "This does not authorize or automatically apply a rest; the GM still chooses each break.",
+          overnight&&!activeContinuous?"With "+rules.overnightHours+"h overnight stops: "+
+            formatNavigationDuration(overnight.totalHours,24):null);
         if(hours!==null&&Number.isFinite(hours)&&hours>0)
           realPlaybackModel={travelHours:hours,
             dailyHours:rules.dailyHours,overnightHours:rules.overnightHours,
@@ -3516,7 +3567,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(realPlaybackModel&&!this.travelSession&&!this.pendingTransfer&&
           !this.recoveryRecord&&!this.recoverableJourney){
         try{
-          body.append(renderNavigationPlaybackControls({
+          playbackTab.append(renderNavigationPlaybackControls({
             model:realPlaybackModel,
             secondsPerHour:this.playbackSecondsPerHourOverride??
               readGuidedPlaybackSetting(game.settings),
@@ -3574,12 +3625,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Terrain-weighted distance: "+showDistance(this.result.cost)+"-equivalent":null});
       // Rules and provenance remain available to the GM, but do not crowd
       // the primary destination, method, timing and route actions.
-      const advanced=el("details");
-      advanced.style.cssText="font-size:.83em;";
-      const advancedTitle=el("summary","Travel calculation and World-time notes");
-      advancedTitle.style.cursor="pointer";
-      advanced.append(advancedTitle,...status.nodes);
-      body.append(advanced);
+      // Calculation diagnostics stay on the Directions tab, with no
+      // extra "Travel calculation and World-time notes" disclosure.
+      if(status.worldTimeUI&&(this.travelSession||
+          this.worldTimeAdvancedSeconds>0))
+        body.append(status.worldTimeUI);
       this.worldTimeUI=status.worldTimeUI;
       const calculation=this.result.terrainWarning ||
         (approvedActiveTransport?
@@ -3642,9 +3692,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const routeLegs=this.result.legs;
       const destinationLabel=naming.preferRoadName?
         naming.directionRoadName(routeLegs.find(l=>l.kind==="road")?.roadId):null;
-      body.append(...renderNavigationDirections({calculation,
+      const destinationCheckpoint=navigationDestinationCheckpoint(this.result,
+        this.atlasProvider(this.scene),this.selectedCheckpointId);
+      directionsTab.append(...renderNavigationDirections({calculation,
         transfer:Boolean(transferPlan?.hasTransitions),
-        arrivalCheckpointName:transferPlan?.legs[0]?.arrivalCheckpoint?.name??null,
+        arrivalCheckpointName:transferPlan?.legs[0]?.arrivalCheckpoint?.name??
+          destinationCheckpoint?.name??null,
         markers:navigationRouteMarkers(this.result,this.atlasProvider(this.scene),
           {destinationLabel}),
         expanded:this.directionsExpanded,
@@ -3662,8 +3715,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Choose Point B by clicking the map or selecting a checkpoint to see journey estimates.");
       hint.style.cssText="margin:0;opacity:.8;font-size:.9em;";body.appendChild(hint);
     }
-    root.append(body,renderNavigationFooter(this,{partyMode,transferPlan,
-      methodAssessment,assistedLegReady,repeatingCheckpoint}));
+    if(!playbackTab.children?.length)
+      playbackTab.append(el("p","Choose a destination and travel method to set trip playback."));
+    if(!directionsTab.children?.length)
+      directionsTab.append(el("p","Choose a destination to review turn-by-turn directions."));
+    const tabs=renderNavigationPlannerTabs({
+      active:this.navigationTab,travel:body,playback:playbackTab,
+      directions:directionsTab,
+      onTabChange:value=>{this.navigationTab=value;}
+    });
+    root.append(tabs,renderNavigationFooter(this,{partyMode,transferPlan,
+      methodAssessment,assistedLegReady,repeatingCheckpoint,
+      partySplitBlocked}));
     return root;
   }
 

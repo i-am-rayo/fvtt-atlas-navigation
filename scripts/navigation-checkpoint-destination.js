@@ -1,9 +1,10 @@
-/** Two read-only preview sources for Point B: Checkpoint (default) or map. */
-import {checkpointDestinationGroups} from "./navigation-destination-groups.js";
-import {roadAppearanceMode} from "./road-appearance.js";
-import {TRAVEL_PRESET_SETTING,validateTravelPresets,defaultTravelPresets}
-  from "./travel-preset-model.js";
-import {MODULE_ID} from "./atlas-storage.js";
+/** GM-only destination choices, read-only native territory labels. */
+import {checkpointDestinationGroups,checkpointGeographyGroups}
+  from "./navigation-destination-groups.js";
+import {listSceneGeography} from "./territory-geography-storage.js";
+import {inspectCheckpointTerritoryMembership}
+  from "./territory-checkpoint-membership.js";
+import {territoryCheckpointLinks} from "./territory-checkpoint-link.js";
 
 const el=(tag,text)=>{
   const node=document.createElement(tag);
@@ -12,16 +13,17 @@ const el=(tag,text)=>{
 };
 
 function groupsFor(scene,atlas){
-  let modes=new Map();
+  let geography=new Map();
   try{
-    const presets=validateTravelPresets(globalThis.game?.settings?.get?.(MODULE_ID,
-      TRAVEL_PRESET_SETTING)??defaultTravelPresets()).presets;
-    modes=new Map((atlas.roads??[]).map(road=>[
-      road.id,roadAppearanceMode(road,presets)]));
+    const territories=listSceneGeography(scene);
+    const inspection=inspectCheckpointTerritoryMembership(scene);
+    const matches=inspection.available?inspection.items:[];
+    geography=checkpointGeographyGroups(territories,matches,
+      territoryCheckpointLinks(scene));
   }catch(error){
-    console.warn("[fvtt-atlas-navigation] Destination terrain unavailable",error);
+    console.warn("[fvtt-atlas-navigation] Destination geography unavailable",error);
   }
-  return checkpointDestinationGroups(atlas,{roadModes:modes});
+  return checkpointDestinationGroups(atlas,{geography});
 }
 
 /** Rendering must never modify the Scene or initiate a Journey. */

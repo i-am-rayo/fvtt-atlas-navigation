@@ -45,7 +45,7 @@ test("Checkpoint default selects exact Point B; map-pick button leaves approved 
     assert.equal(label.htmlFor,"atlas-navigation-destination-checkpoint");
     assert.equal(select.value,"");
     assert.equal(select.children[1].tag,"optgroup");
-    assert.equal(select.children[1].label,"Land");
+    assert.equal(select.children[1].label,"Uncategorized");
     assert.equal(select.children[1].children[0].value,"eyrie");
     assert.equal(map.textContent,"Pick on map");
     assert.deepEqual(calls,[],"rendering cannot select or move a token");

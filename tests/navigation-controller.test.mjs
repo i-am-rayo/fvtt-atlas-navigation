@@ -841,8 +841,8 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.equal(find(content,item=>item.tag==="button"&&
       item.ariaLabel==="Exit Navigation"),undefined,
       "the redundant Exit Navigation footer button is removed");
-    assert.match(content.children[0].style.cssText,/overflow-y:auto/,
-      "the route Directions scroll without hiding travel controls");
+    assert.ok(find(content,item=>item.style?.cssText?.includes("overflow-y:auto")),
+      "tab panels scroll independently without hiding the Journey footer");
     const travelButton=find(content,item=>item.tag==="button"&&item.ariaLabel==="Travel Route");
     assert.equal(footer.children.includes(travelButton),true);
     assert.ok(find(content,item=>item.textContent==="Playback speed · this trip only"),
@@ -1977,8 +1977,9 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     const prepared=await nav._renderHTML();
     const optIn=find(prepared,node=>node.tag==="input"&&node.type==="checkbox");
     assert.equal(optIn,undefined,"Navigation has no per-journey clock checkbox");
-    assert.ok(find(prepared,node=>node.textContent?.startsWith?.(
-      "Foundry World time advances for confirmed movement")));
+    assert.equal(find(prepared,node=>node.textContent?.startsWith?.(
+      "Foundry World time advances for confirmed movement")),undefined,
+      "redundant World-time note is removed from the GM planning view; actual clock logic is unchanged");
     assert.equal(await nav.startGuidedTravel(),true);
     assert.equal(seconds.reduce((a,b)=>a+b,0),14400,
       "four real travel hours advance exactly four World hours, not displayed days");
@@ -2059,8 +2060,11 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     nav.result={...nav.result,cost:110.44,distance:93.85,terrainAware:true};
     const durationPanel=await nav._renderHTML();
     assert.ok(find(durationPanel,node=>node.tag==="strong"&&node.textContent==="17h 19m"));
-    assert.ok(find(durationPanel,node=>node.tag==="strong"&&node.textContent==="2d 1h 19m"),
-      "the third card includes two overnight downtime periods");
+    assert.ok(find(durationPanel,node=>node.tag==="strong"&&node.textContent==="1d 9h 19m"),
+      "the primary third card estimates two 8h Long Rests rather than automatically applying them");
+    assert.ok(find(durationPanel,node=>node.tag==="small"&&
+      node.textContent==="With 16h overnight stops: 2d 1h 19m"),
+      "the World-rule 16h overnight projection remains a smaller reference");
     const travelDays=find(durationPanel,node=>node.textContent?.startsWith?.("Plan:"));
     assert.match(travelDays.textContent,/8h travel\/day.*2 overnight stops/);
   }finally{nav?.stop();Object.assign(globalThis,previous);}

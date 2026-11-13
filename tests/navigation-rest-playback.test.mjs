@@ -5,7 +5,7 @@ import {visualRestDurationMs,createVisualRestHold}
 
 test("rest presentation uses the visual travel speed without changing game hours",()=>{
   assert.equal(visualRestDurationMs(8,4),32000);
-  assert.equal(visualRestDurationMs(16,8),128000);
+  assert.equal(visualRestDurationMs(16,30),480000);
   assert.equal(visualRestDurationMs(1,0.5),500);
   assert.throws(()=>visualRestDurationMs(-1,2),/valid hours/);
   assert.throws(()=>visualRestDurationMs(8,100),/valid hours/);

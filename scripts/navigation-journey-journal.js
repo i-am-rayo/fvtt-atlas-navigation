@@ -105,7 +105,7 @@ export function validateJourneyRecord(value){
       !Number.isSafeInteger(value.atlasRevision)||!validPoint(value.destination)||
       (value.playbackSecondsPerHour!==undefined&&
         (!Number.isFinite(value.playbackSecondsPerHour)||
-          value.playbackSecondsPerHour<0.5||value.playbackSecondsPerHour>8))||
+          value.playbackSecondsPerHour<0.5||value.playbackSecondsPerHour>30))||
       (value.title!==undefined&&(typeof value.title!=="string"||
         !value.title.trim()||value.title.length>240))||
       ["startedWorldTime","arrivedWorldTime"].some(key=>
