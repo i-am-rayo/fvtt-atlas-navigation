@@ -1726,6 +1726,9 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     let resolveTravel,autoResolve=false;
     const token={id:"token-guided",x:50,y:50,width:1,height:1,canUserModify:()=>true,
       move(waypoints,options){
+        assert.ok(waypoints.every(point=>
+          Number.isSafeInteger(point.x)&&Number.isSafeInteger(point.y)),
+          "v14 TokenDocument.move only accepts integer top-left pixel waypoints");
         calls.push({waypoints,options});
         const target=waypoints.at(-1);
         const complete=value=>{
