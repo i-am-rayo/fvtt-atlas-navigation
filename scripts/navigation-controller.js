@@ -3164,7 +3164,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       formatDistance:showDistance,
       formatHours:value=>formatGuidedWorldTime(Math.round(value*3600)),
       rows}));
-    const editable=canAdjustLiveJourneyVisuals(session);
+    const editable=Boolean(game.user?.isGM&&game.user?.id&&
+      game.users?.activeGM?.id===game.user.id&&
+      canAdjustLiveJourneyVisuals(session));
     const remainingHours=Math.max(0,session.schedule.travelHours-
       session.schedule.completedHours);
     speedTab.append(renderNavigationActivePlayback({
