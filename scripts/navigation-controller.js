@@ -3176,7 +3176,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         overnightHours:session.schedule.rules.overnightHours,
         longRestHours:session.schedule.rules.longRestHours
       }:null,
-      secondsPerHour:session.playbackSecondsPerHour,
+      secondsPerHour:session.playbackSecondsPerHour??
+        session.journeyRecord?.playbackSecondsPerHour??
+        readGuidedPlaybackSetting(game.settings),
       locked:!editable,skip:Boolean(session.skipVisualPlayback),
       onChange:value=>this.setLiveJourneyPlaybackSpeed(value),
       onSkip:()=>void this.setSkipVisualJourney(!session.skipVisualPlayback)
