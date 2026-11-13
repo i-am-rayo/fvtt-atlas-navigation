@@ -95,6 +95,9 @@ import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
 import {renderNavigationPlannerTabs} from "./navigation-planner-tabs-view.js";
+import {renderNavigationPartySelection} from "./navigation-party-selection-view.js";
+import {projectPartyTravelSelection,describeTravelMethodCapacity}
+  from "./navigation-party-selection.js";
 import {navigationRouteMarkers} from "./navigation-direction-summary.js";
 import {renderNavigationPlaybackControls} from "./navigation-playback-controls-view.js";
 import {renderJourneyTargets} from "./navigation-targets-view.js";
@@ -158,6 +161,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.playbackSecondsPerHourOverride=null;
     this.directionsExpanded=false;
     this.navigationTab="travel";
+    this.partySelectionMode="all";
+    this.partySelectedIds=[];
     this.result = null;
     this.itinerary=null;
     this.routeRevision=null;
@@ -213,6 +218,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.playbackSecondsPerHourOverride=null;
     this.directionsExpanded=false;
     this.navigationTab="travel";
+    this.partySelectionMode="all";
+    this.partySelectedIds=[];
     this.travelMethod="walking";
     this.transportArrangement="owned";
     this.transportOperation="normal";
@@ -380,6 +387,22 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.draw();
       void this.render(true);
     }catch(error){ui.notifications.warn(error.message||String(error));}
+  }
+
+  /** Native Group roster read only; never change members for a preview. */
+  partyTravelSelection(methods){
+    const actor=this.getPartyToken()?.actor;
+    if(game.system?.id!=="dnd5e"||actor?.type!=="group")return null;
+    try{
+      const roster=projectGroupTransportation(actor,
+        readGroupTransportation(game.settings),methods);
+      return {roster,...projectPartyTravelSelection(roster,{
+        mode:this.partySelectionMode,ids:this.partySelectedIds
+      })};
+    }catch(error){
+      atlasWarn("navigation","Party selection preview unavailable",error);
+      return null;
+    }
   }
 
   /** Only owned Group resources or explicit offers at departure appear in Travel by. */
@@ -2461,6 +2484,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.playbackSecondsPerHourOverride=null;
     this.directionsExpanded=false;
     this.navigationTab="travel";
+    this.partySelectionMode="all";
+    this.partySelectedIds=[];
     void pickPrompt?.close?.();
     this.pointerTarget?.removeEventListener?.("pointerdown",this.pointerDown,true);
     this.pointerTarget = null;
