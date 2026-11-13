@@ -3459,18 +3459,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const plan=hours===null?null:schedule?.estimate??
           estimateNavigationTotalTrip(hours,rules);
         const activeContinuous=activeLeg?.operation==="continuous";
-        const activeDays=hours>0?Math.ceil(Math.max(0,hours-1e-7)/8):0;
-        const activeElapsed=hours===null?null:hours+
-          (activeContinuous?0:Math.max(0,activeDays-1)*16);
-        const altRest=hours===null?null:estimateNavigationTotalTrip(hours,
-          {...rules,dailyHours:8,overnightHours:8});
+        const primary=hours===null?null:activeContinuous?
+          {totalHours:hours}:estimateNavigationTotalTrip(hours,
+            {...rules,overnightHours:rules.longRestHours??8});
+        const overnight=hours===null?null:activeContinuous?
+          {totalHours:hours}:plan;
         metric(activeLeg?"Current Leg Total":"Total Trip",
-          activeLeg?(activeElapsed===null?"Choose method":
-            formatNavigationDuration(activeElapsed,24)):
-            formatNavigationDuration(plan.totalHours,24),
-          "Estimated elapsed time, normally including 16 hours of overnight downtime after each full 8-hour travel day. Actual GM-approved rest choices may change it.",
-          altRest?"With 8h Long Rests: "+formatNavigationDuration(
-            altRest.totalHours,24):null);
+          primary===null?"Choose method":formatNavigationDuration(
+            primary.totalHours,24),
+          "Planning estimate: 8-hour Long Rests between travel days. "+
+            "This does not authorize or automatically apply a rest; the GM still chooses each break.",
+          overnight&&!activeContinuous?"With 16h overnight stops: "+
+            formatNavigationDuration(overnight.totalHours,24):null);
         if(hours!==null&&Number.isFinite(hours)&&hours>0)
           realPlaybackModel={travelHours:hours,
             dailyHours:rules.dailyHours,overnightHours:rules.overnightHours,
