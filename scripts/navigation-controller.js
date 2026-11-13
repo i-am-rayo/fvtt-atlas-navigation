@@ -1556,6 +1556,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         " recorded ("+formatGuidedWorldTime(Math.round(choice.hours*3600))+
         "). The journey remains paused; resume when ready.";
       if(this.active)await this.render(true);
+      if(["long","overnight"].includes(action))
+        await this.offerPlayerRestPrompt(session,action);
       return true;
     }catch(error){
       // An already approved World-clock update may not be reversible. Never
@@ -1624,8 +1626,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(choice.hours>0&&this.travelSession===session&&session.phase!=="ending"){
       // The rest is already committed to World time and the Journey Journal.
       // Hold *presentation only* before the next TokenDocument.move call.
-      const milliseconds=visualRestDurationMs(choice.hours,
-        session.playbackSecondsPerHour);
+      const milliseconds=session.skipVisualPlayback?0:
+        visualRestDurationMs(choice.hours,session.playbackSecondsPerHour);
       session.phase="rest-holding";
       this.travelNotice=`${action==="overnight"?"Overnight camp":
         action==="long"?"Long rest":"Short rest"} in progress. `+
@@ -1645,6 +1647,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(session.pendingRestEndedAnnouncement){
       this.announceCommittedJourney(session.pendingRestEndedAnnouncement);
       session.pendingRestEndedAnnouncement=null;
+    }
+    if(["long","overnight"].includes(action)&&
+        this.travelSession===session&&session.phase!=="ending"){
+      if(session.skipVisualPlayback&&session.consolidatePlayerRestPrompts)
+        session.confirmedRestNotices++;
+      else await this.offerPlayerRestPrompt(session,action);
+      if(this.travelSession!==session||session.phase==="ending")return false;
     }
     atlasDebug("journey","Rest decision and World-time checkpoint settled",{
       sceneId:session.sceneId,action,interrupted:session.phase==="ending",
@@ -1985,7 +1994,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // Render the controls before awaiting Foundry's long-running native move.
       await this.render(true);
       if(this.travelSession!==session)return false;
-      const pixelsPerSecond=playback.movementSpeed*this.scene.grid.size;
       session.timer=setInterval(()=>{
         if(this.travelSession!==session)return;
         const chunk=session.currentChunk;
@@ -2044,15 +2052,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           chunks.splice(index,1,...halves);
           chunk=halves[0];
         }
+        // Retiming is sampled once per native chunk. The in-flight
+        // TokenDocument.move is never modified and native constraints remain.
+        const visual=liveJourneyPlayback(playback,
+          session.playbackSecondsPerHour,{skip:session.skipVisualPlayback});
         session.currentChunk={distance:chunk.distance,startedAt:Date.now(),
-          durationMs:1000*chunk.distance/pixelsPerSecond};
+          durationMs:visual.animate?
+            1000*chunk.distance/(visual.movementSpeed*session.gridSize):1};
         atlasDebug("movement","Native token move requested",{
           sceneId:session.sceneId,chunk:index+1,chunkCount:chunks.length,
           plannedDurationMs:Math.round(session.currentChunk.durationMs)
         },{level:"verbose"});
         const completed=await token.move(chunk.waypoints,{
-          animate:true,autoRotate:false,showRuler:false,pan:false,
-          animation:{movementSpeed:playback.movementSpeed}
+          animate:visual.animate,autoRotate:false,showRuler:false,pan:false,
+          animation:{movementSpeed:visual.movementSpeed}
         });
         // Native document updates can finish long before the visible movement.
         // Never submit the next stretch until this Canvas animation is finished.
@@ -2135,8 +2148,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             interruptedReason="The native token did not reach its authored transfer checkpoint.";
           }
         }
-        try{await this.saveJourneyCheckpoint(session,checkpointStatus,
-          {updatePage:checkpointStatus!=="moving"});}
+        try{
+          // Persist the chosen visual speed only at a verified checkpoint
+          // alongside its native anchor/clock record, never from a slider tick.
+          session.journeyRecord.playbackSecondsPerHour=
+            validatePlaybackSetting(session.playbackSecondsPerHour);
+          await this.saveJourneyCheckpoint(session,checkpointStatus,
+            {updatePage:checkpointStatus!=="moving"});
+        }
         catch(error){
           reachedEnd=false;
           interruptedReason="The Journey recovery state could not save confirmed progress: "+
@@ -2191,6 +2210,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           interruptedReason="The Journey Journal could not finalize: "+
             (error.message||String(error));
           arrived=false;atlasWarn("journey",interruptedReason);
+        }
+        if(arrived&&session.confirmedRestNotices>0){
+          // One optional player notice after distinct GM-authorized rests.
+          // Not a merged gameplay Long Rest or an additional World-time write.
+          await this.offerPlayerRestPrompt(session,"long",{
+            count:session.confirmedRestNotices});
+          session.confirmedRestNotices=0;
         }
         if(arrived&&!guidedLeg&&session.journeyRecord?.status==="completed"){
           this.completedRoute=true;
@@ -2444,9 +2470,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(!approved||this.travelSession!==session||
         !game.user?.isGM||game.users?.activeGM?.id!==game.user.id)return false;
     try{
-      if(typeof ChatMessage?.create!=="function")
+      if(typeof globalThis.ChatMessage?.create!=="function")
         throw Error("Foundry ChatMessage.create is unavailable.");
-      await ChatMessage.create({content:"<p><strong>Atlas Journey:</strong> "+
+      await globalThis.ChatMessage.create({content:"<p><strong>Atlas Journey:</strong> "+
         "The GM-confirmed "+label+" is complete. "+
         "Review character resources with your GM before continuing.</p>"});
       return true;
