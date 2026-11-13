@@ -62,3 +62,35 @@ export function planGuidedTravelChunks(waypoints,{movementSpeed,gridSize,
     throw Error("The journey cannot be divided into safe movement stretches.");
   return chunks;
 }
+
+/**
+ * Diagnose a rejected public TokenDocument.move result without interpreting
+ * why Foundry stopped it. In particular, false is never treated as success
+ * even if an external module moved the TokenDocument to the endpoint.
+ * This is read-only: the Journal's last confirmed anchor is unchanged.
+ */
+export function describeRejectedNativeTravelMove({waypoints,position,gridSize,chunkIndex}={}){
+  const first=waypoints?.[0],last=waypoints?.at(-1);
+  const finite=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y);
+  const tolerance=Number.isFinite(gridSize)&&gridSize>0?
+    Math.max(0.5,gridSize/100):0.5;
+  const valid=finite(first)&&finite(last)&&finite(position);
+  const drift=valid?Math.hypot(position.x-first.x,position.y-first.y):null;
+  const remaining=valid?Math.hypot(last.x-position.x,last.y-position.y):null;
+  const moved=drift!==null&&drift>tolerance;
+  const label=Number.isInteger(chunkIndex)&&chunkIndex>=0?
+    `Native movement stretch ${chunkIndex+1}`:"Native movement stretch";
+  const diagnostic=moved?
+    "Foundry stopped native movement after the token position changed. " +
+    "Atlas has not confirmed this stretch, World time or the Journey anchor. " +
+    "Inspect the TokenDocument and saved Journey before resuming; do not replay automatically.":
+    "Foundry refused or stopped the native move before confirmed progress. " +
+    "Check the first stretch for walls, native Region movement constraints, " +
+    "Token movement action, and preMoveToken hooks. Atlas will not bypass native constraints.";
+  return {kind:moved?"unconfirmed-partial":"blocked-at-origin",
+    message:`${label}: ${diagnostic}`,
+    startedAt:valid?{x:first.x,y:first.y}:null,
+    target:valid?{x:last.x,y:last.y}:null,
+    position:finite(position)?{x:position.x,y:position.y}:null,
+    movedPixels:drift,remainingPixels:remaining};
+}
