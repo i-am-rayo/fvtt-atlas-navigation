@@ -90,8 +90,10 @@ test("guided travel waits at 8h and confirms 16h overnight before moving again",
     const initial=await f.nav._renderHTML();
     const find=(node,match)=>match(node)?node:node.children.map(x=>find(x,match)).find(Boolean);
     assert.ok(find(initial,node=>node.tag==="strong"&&node.textContent==="10h 0m"));
-    assert.ok(find(initial,node=>node.tag==="strong"&&node.textContent==="1d 2h"),
-      "Total Trip must include overnight downtime separately from moving time");
+    assert.ok(find(initial,node=>node.tag==="strong"&&node.textContent==="18h"),
+      "primary Total Trip now estimates 8h Long Rest between travel days");
+    assert.ok(find(initial,node=>node.tag==="small"&&node.textContent==="With 16h overnight stops: 1d 2h"),
+      "alternate 16h overnight estimate remains visible without altering approved rest rules");
     const running=f.nav.startGuidedTravel();
     await tickUntil(()=>f.nav.travelSession?.phase==="rest-choice");
     assert.ok(Math.abs(f.nav.travelProgress-80)<0.01);
