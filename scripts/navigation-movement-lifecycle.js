@@ -64,6 +64,34 @@ export function planGuidedTravelChunks(waypoints,{movementSpeed,gridSize,
 }
 
 /**
+ * TokenMovementWaypoint.x/y are INTEGER top-left pixels in Foundry v14.
+ * Atlas's road geometry uses fractional, image-relative coordinates. Preserve
+ * that authoritative geometry and its measured distance, but quantize only
+ * the transient waypoints passed to public TokenDocument.move().
+ *
+ * Never snap to the nearest grid cell, which could create a wall-crossing
+ * shortcut. Consecutive subpixel duplicates may be discarded; a path whose
+ * endpoints collapse to one pixel must fail safely, not earn travel progress.
+ */
+export function toNativeIntegerWaypoints(waypoints){
+  if(!Array.isArray(waypoints)||waypoints.length<2||waypoints.length>4096)
+    throw Error("Native movement requires at least two bounded waypoints.");
+  const result=[];
+  for(const point of waypoints){
+    if(!Number.isFinite(point?.x)||!Number.isFinite(point?.y))
+      throw Error("Native movement waypoint coordinates are invalid.");
+    const x=Math.round(point.x),y=Math.round(point.y);
+    if(!Number.isSafeInteger(x)||!Number.isSafeInteger(y))
+      throw Error("Native movement waypoint is outside integer pixel bounds.");
+    if(result.length&&result.at(-1).x===x&&result.at(-1).y===y)continue;
+    result.push({x,y});
+  }
+  if(result.length<2)
+    throw Error("Native movement stretch collapses to one pixel after rounding.");
+  return result;
+}
+
+/**
  * Diagnose a rejected public TokenDocument.move result without interpreting
  * why Foundry stopped it. In particular, false is never treated as success
  * even if an external module moved the TokenDocument to the endpoint.
