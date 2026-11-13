@@ -1,4 +1,5 @@
 import {checkpointDestinationControl} from "./navigation-checkpoint-destination.js";
+import {createNavigationMapPickPrompt} from "./navigation-map-pick-prompt.js";
 import { MODULE_ID,readAtlas } from "./atlas-storage.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 import { calculateSceneRoadRoute } from "./navigation-foundry.js";
@@ -84,7 +85,7 @@ import {renderNavigationFooter} from "./navigation-footer.js";
 import {NAVIGATION_STAGES,resolveNavigationStage} from "./navigation-stage-model.js";
 import {createNavigationStageShell,renderNavigationStageIntro,
   renderNavigationCompletedOverview} from "./navigation-stage-view.js";
-import {renderNavigationDepartureSelector,renderNavigationTravelMethodSelector}
+import {renderNavigationTravelMethodSelector}
   from "./navigation-selection-view.js";
 import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
@@ -111,7 +112,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-navigation-panel",
     window: { title: "Atlas — Navigation", resizable: true },
-    position: { width: 420, height: 320, left: 100, top: 170 }
+    position: { width: 560, height: 665, left: 70, top: 50 }
   };
 
   constructor({ canvasProvider = () => globalThis.canvas,
@@ -146,8 +147,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.pendingTransfer=null;
     this.start = null;
     this.end = null;
-    this.destinationMode="map";
+    this.destinationMode="checkpoint";
     this.selectedCheckpointId=null;
+    this.mapPickActive=false;
+    this.mapPickPrompt=null;
+    this.mapPickPrevious=null;
     this.result = null;
     this.itinerary=null;
     this.routeRevision=null;
@@ -195,8 +199,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     this.stop();
     this.scene = view.scene;
-    this.destinationMode="map";
+    this.destinationMode="checkpoint";
     this.selectedCheckpointId=null;
+    this.mapPickActive=false;
+    this.mapPickPrompt=null;
+    this.mapPickPrevious=null;
     this.travelMethod="walking";
     this.transportArrangement="owned";
     this.transportOperation="normal";
@@ -229,6 +236,61 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     this.pointerTarget = target;
     target.addEventListener("pointerdown", this.pointerDown, true);
+  }
+
+  /** Modeless preview choice; existing World/Journal state remains authoritative. */
+  beginMapDestinationPick(){
+    if(!this.scene||!this.start||this.mapPickActive||
+        this.travelSession||this.journalStarting||this.recoveryRecord||
+        this.recoverableJourney||this.pendingTransfer||this.completedRecord||
+        this.completedRoute)return false;
+    const view=this.canvasProvider();
+    if(!globalThis.game?.user?.isGM||!view?.ready||
+        view.scene?.id!==this.scene.id||
+        !this.scene.canUserModify?.(game.user,"update"))return false;
+    this.mapPickPrevious={mode:this.destinationMode,
+      checkpointId:this.selectedCheckpointId};
+    this.mapPickActive=true;
+    this.destinationMode="map";
+    try{
+      const prompt=createNavigationMapPickPrompt({
+        onCancel:()=>this.cancelMapDestinationPick()});
+      this.mapPickPrompt=prompt;
+      void this.minimize().then(()=>{
+        if(this.mapPickActive&&this.mapPickPrompt===prompt)
+          return prompt.render(true);
+      }).catch(error=>{
+        this.cancelMapDestinationPick();
+        globalThis.ui?.notifications?.warn?.(error.message??String(error));
+      });
+      return true;
+    }catch(error){
+      this.cancelMapDestinationPick();
+      globalThis.ui?.notifications?.warn?.(error.message??String(error));
+      return false;
+    }
+  }
+
+  cancelMapDestinationPick(){
+    if(!this.mapPickActive)return;
+    this.mapPickActive=false;
+    const prompt=this.mapPickPrompt;
+    this.mapPickPrompt=null;
+    if(this.mapPickPrevious)this.destinationMode=this.mapPickPrevious.mode;
+    this.mapPickPrevious=null;
+    void prompt?.close?.();
+    if(this.active)void this.maximize().catch(error=>
+      atlasWarn("navigation","Could not restore Navigation from map selection",error));
+  }
+
+  completeMapDestinationPick(){
+    if(!this.mapPickActive)return;
+    this.mapPickActive=false;this.mapPickPrevious=null;
+    const prompt=this.mapPickPrompt;
+    this.mapPickPrompt=null;
+    void prompt?.close?.();
+    if(this.active)void this.maximize().catch(error=>
+      atlasWarn("navigation","Could not restore Navigation after map selection",error));
   }
 
   /** Presentation-only names. Keep stored road names and journey targets authoritative. */
@@ -748,7 +810,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(!this.scene||this.travelSession||this.pendingTransfer||
         this.recoveryRecord||this.recoverableJourney||
         this.completedRecord||this.completedRoute)return;
-    const intent=navigationPointIntent(event,this);
+    // Party mode captures only an explicitly requested map destination.
+    if(this.sourceMode==="party"&&!this.mapPickActive)return;
+    const intent=this.mapPickActive?
+      navigationPointIntent(event,{start:this.start,end:null,sourceMode:"party"}):
+      navigationPointIntent(event,this);
     if(!intent)return;
     const view = this.canvasProvider();
     if (!game.user?.isGM || !view?.ready || view.scene?.id !== this.scene.id ||
@@ -782,12 +848,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     this.calculateRoute(view,atlas);
     this.draw();
+    this.completeMapDestinationPick();
     void this.render(true);
     if (this.result?.status === "ok") {
       const viewport = globalThis.window;
       this.setPosition?.({
         width: Math.min(640, Math.max(380, (viewport?.innerWidth ?? 1000) - 64)),
-        height: Math.min(790, Math.max(350, (viewport?.innerHeight ?? 900) - 90))
+        height: Math.min(665, Math.max(350, (viewport?.innerHeight ?? 900) - 90))
       });
     }
   }
@@ -2377,6 +2444,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.stopGuidedTravel({render:false});
     }
     this.travelSession=null;
+    this.mapPickActive=false;
+    const pickPrompt=this.mapPickPrompt;
+    this.mapPickPrompt=null;this.mapPickPrevious=null;
+    void pickPrompt?.close?.();
     this.pointerTarget?.removeEventListener?.("pointerdown",this.pointerDown,true);
     this.pointerTarget = null;
     if(this.routePulseTicker)this.routePulseOwner?.ticker?.remove?.(this.routePulseTicker);
@@ -2386,6 +2457,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.overlay = null;
     this.scene = null;
     this.sourceMode = "map";
+    this.destinationMode="checkpoint";
+    this.selectedCheckpointId=null;
     this.start = null;
     this.end = null;
     this.result = null;
@@ -2959,11 +3032,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           recoveredPlanError=error?.message??String(error);
       }
     }
-    body.appendChild(renderNavigationDepartureSelector({
-      sourceMode:this.sourceMode,partyMode,disabled:Boolean(this.travelSession),
-      onSourceChange:mode=>this.setSourceMode(mode),
-      onRefresh:()=>this.refreshPartyDeparture()
-    }));
+    // A placed Atlas party Token is the normal Point A; avoid exposing
+    // duplicate map-origin or refresh controls in the GM destination flow.
+    if(!partyMode&&!this.start){
+      const missing=el("p","Assign a party explorer Token in Atlas to start a journey.");
+      missing.style.cssText="margin:0;font-size:.85em;";
+      body.appendChild(missing);
+    }
     const destination = checkpointDestinationControl(this);
     if (destination) body.appendChild(destination);
     // An unresolved native checkpoint is still an approved Journal leg. Do
@@ -3270,8 +3345,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
     }
     const help=el("p",partyMode?
-      "Atlas reads Point A from the assigned party token's Scene location. Click the map for B; Alt/Option+click changes B. Refresh location after moving the token.":
-      "After choosing A and B, ordinary map clicks leave the route unchanged. Shift+click sets Point A; Alt/Option+click sets Point B.");
+      "Point A is your assigned party token. Choose a Checkpoint or use Pick on map for Point B.":
+      "Assign a party token in Atlas to use party-based Navigation.");
     help.style.cssText="margin:0;font-size:.8em;opacity:.75;line-height:1.35;";
     body.appendChild(help);
     if(this.pendingTransfer){
