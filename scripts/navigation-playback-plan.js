@@ -22,7 +22,7 @@ export function projectNavigationRealPlayback({
   const longRestSeconds=stops*longRestHours*secondsPerHour;
   return Object.freeze({travelHours,stops,secondsPerHour,movementSeconds,
     overnightRestSeconds,longRestSeconds,
-    fullLongRestSeconds:movementSeconds+overnightRestSeconds,
+    fullOvernightSeconds:movementSeconds+overnightRestSeconds,
     fullLongRestSeconds:movementSeconds+longRestSeconds,
     eachOvernightSeconds:overnightHours*secondsPerHour,
     eachLongRestSeconds:longRestHours*secondsPerHour,
