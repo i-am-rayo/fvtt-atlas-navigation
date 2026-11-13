@@ -26,7 +26,7 @@ import { annotateJourneyDirections,projectJourneyTiming }
 import { resolveNavigationTravelRules } from "./navigation-rules-profile.js";
 import { GuidedJourneyClock, readNavigationWorldClockSetting, formatGuidedWorldTime }
   from "./navigation-world-clock.js";
-import { calculateGuidedPlayback,formatPlaybackDuration,readGuidedPlaybackSetting }
+import { calculateGuidedPlayback,formatPlaybackDuration,readGuidedPlaybackSetting,validatePlaybackSetting }
   from "./navigation-playback.js";
 import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
   navigationHours, formatNavigationDuration }
@@ -94,7 +94,11 @@ import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote}
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
-import {renderNavigationPlannerTabs} from "./navigation-planner-tabs-view.js";
+import {renderNavigationPlannerTabs,renderNavigationJourneyTabs}
+  from "./navigation-planner-tabs-view.js";
+import {renderNavigationActivePlayback} from "./navigation-active-playback-view.js";
+import {liveJourneyPlayback,canAdjustLiveJourneyVisuals,expectedAdditionalTravelBreaks}
+  from "./navigation-live-playback.js";
 import {renderNavigationPartySelection} from "./navigation-party-selection-view.js";
 import {projectPartyTravelSelection,describeTravelMethodCapacity}
   from "./navigation-party-selection.js";
@@ -161,6 +165,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.playbackSecondsPerHourOverride=null;
     this.directionsExpanded=false;
     this.navigationTab="travel";
+    this.journeyTab="journey";
     this.partySelectionMode="all";
     this.partySelectedIds=[];
     this.result = null;
@@ -1895,6 +1900,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
       playbackSecondsPerHour:playback.secondsPerHour,visualRestHold:null,
+      skipVisualPlayback:false,consolidatePlayerRestPrompts:false,
+      confirmedRestNotices:0,
       transportLeg:guidedLeg,pendingPassengerRest:null,
       completedDistance:0,totalDistance,currentChunk:null,timer:null,clock:null,
       confirmedSegments:0,restCheckpointed:false};
@@ -3574,7 +3581,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             disabled:Boolean(this.journalStarting),
             onChange:value=>{
               if(this.journalStarting||this.travelSession)return;
-              if(!Number.isFinite(value)||value<.5||value>8)return;
+              if(!Number.isFinite(value)||value<.5||value>30)return;
               this.playbackSecondsPerHourOverride=value;
               void this.render(true);
             },
