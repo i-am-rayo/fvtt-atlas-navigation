@@ -13,7 +13,7 @@ const clean=value=>typeof value==="string"?
  * try the next less-specific tier rather than arbitrarily choosing a city. */
 export function checkpointGeographyGroups(territories,matches=[],links=[]){
   const all=new Map((territories??[]).filter(t=>t.linked&&!t.invalid&&
-    t.geography&&clean(t.name)&&!t.hidden).map(t=>[t.id,t]));
+    t.geography&&clean(t.name)).map(t=>[t.id,t]));
   const candidates=new Map();
   const add=(checkpointId,regionId)=>{
     if(typeof checkpointId!=="string"||!checkpointId||!all.has(regionId))return;
