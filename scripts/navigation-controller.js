@@ -1636,6 +1636,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(this.travelSession!==session||session.phase==="ending")return false;
       const hold=this.restHoldFactory(milliseconds);
       session.visualRestHold=hold;
+      if(session.skipVisualPlayback)hold.finish?.();
       try{
         if(!await hold.finished)return false;
       }finally{
@@ -2457,16 +2458,29 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   async offerPlayerRestPrompt(session,action,{count=1}={}){
     if(this.travelSession!==session||!game.user?.isGM||
         game.users?.activeGM?.id!==game.user.id)return false;
+    // This opt-in chat message must be grounded in durably saved rest events,
+    // not merely a transient button click or an in-flight break.
+    const events=session.journeyRecord?.legs?.at(-1)?.events??[];
+    const confirmed=events.filter(event=>
+      ["long","overnight"].includes(event.action)).length;
+    if(confirmed<count||typeof foundry?.applications?.api?.DialogV2?.confirm!=="function")
+      return false;
     const label=count>1?count+" confirmed rest periods":
       action==="long"?"Long Rest":
       action==="overnight"?"Overnight Camp":"Short Rest";
-    const approved=await foundry.applications.api.DialogV2.confirm({
-      window:{title:"Notify players: rest complete?"},
-      content:"The "+label+" is already recorded in the Journey. "+
-        "Send players a public chat notice to review their character sheets? "+
-        "Atlas will not automatically invoke any Actor rest action.",
-      rejectClose:false,modal:true
-    });
+    let approved=false;
+    try{
+      approved=await foundry.applications.api.DialogV2.confirm({
+        window:{title:"Notify players: rest complete?"},
+        content:"The "+label+" is already recorded in the Journey. "+
+          "Send players a public chat notice to review their character sheets? "+
+          "Atlas will not automatically invoke any Actor rest action.",
+        rejectClose:false,modal:true
+      });
+    }catch(error){
+      atlasWarn("journey","Rest notification dialog unavailable",error);
+      return false;
+    }
     if(!approved||this.travelSession!==session||
         !game.user?.isGM||game.users?.activeGM?.id!==game.user.id)return false;
     try{
