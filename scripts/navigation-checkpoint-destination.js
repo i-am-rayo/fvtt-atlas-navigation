@@ -104,13 +104,14 @@ export function checkpointDestinationControl(planner){
     if(!game.user?.isGM||!view?.ready||view.scene?.id!==scene.id||
         !scene.canUserModify?.(game.user,"update"))return;
     const current=planner.atlasProvider(scene);
+    const hadDestination=Boolean(planner.end);
     planner.destinationMode=next;
     planner.selectedCheckpointId=null;
     planner.notice="";
     // Replacing the *preview* Point B is deliberate; no active/approved
     // Journey is present. Preserve the party token or Map Point A.
     planner.end=null;
-    planner.calculateRoute(view,current);
+    if(hadDestination)planner.calculateRoute(view,current);
     planner.draw();
     void planner.render(true);
   });
