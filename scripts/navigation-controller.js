@@ -146,6 +146,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.pendingTransfer=null;
     this.start = null;
     this.end = null;
+    this.destinationMode="map";
+    this.selectedCheckpointId=null;
     this.result = null;
     this.itinerary=null;
     this.routeRevision=null;
@@ -193,6 +195,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     this.stop();
     this.scene = view.scene;
+    this.destinationMode="map";
+    this.selectedCheckpointId=null;
     this.travelMethod="walking";
     this.transportArrangement="owned";
     this.transportOperation="normal";
@@ -739,7 +743,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   onPointerDown(event) {
-    if(!this.scene||this.travelSession)return;
+    // Never retarget a saved Journey while its native/Journal state is pending
+    // recovery; only the preview-only map/checkpoint paths can set Point B.
+    if(!this.scene||this.travelSession||this.pendingTransfer||
+        this.recoveryRecord||this.recoverableJourney||
+        this.completedRecord||this.completedRoute)return;
     const intent=navigationPointIntent(event,this);
     if(!intent)return;
     const view = this.canvasProvider();
@@ -768,6 +776,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(intent==="start") {
       this.start = location;
     } else {
+      this.destinationMode="map";
+      this.selectedCheckpointId=null;
       this.end = location;
     }
     this.calculateRoute(view,atlas);
@@ -3515,7 +3525,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Continue from this checkpoint toward the saved journey destination.") :
         this.result?.status==="ok"?
           `Travel estimates will use ${travelSource}.`:
-          "Choose Point B to see available transportation and journey estimates.");
+          "Choose Point B by clicking the map or selecting a checkpoint to see journey estimates.");
       hint.style.cssText="margin:0;opacity:.8;font-size:.9em;";body.appendChild(hint);
     }
     root.append(body,renderNavigationFooter(this,{partyMode,transferPlan,

@@ -820,6 +820,15 @@ test("navigation locks the completed route until deliberate endpoint gestures or
       const blocked=pointer(80,80,modifiers);listeners.get("pointerdown")(blocked);
       assert.equal(blocked.prevented,0);
     }
+    const lockedPoint={...nav.end};
+    nav.recoveryRecord={status:"interrupted"};
+    const recoveredClick=pointer(555,100,{altKey:true});
+    listeners.get("pointerdown")(recoveredClick);
+    assert.equal(recoveredClick.prevented,0,
+      "saved Journey recovery must not intercept an unrelated map click");
+    assert.deepEqual(nav.end,lockedPoint,
+      "a map click cannot rewrite the approved Journey Point B");
+    nav.recoveryRecord=null;
     const copy=nav.getItinerarySnapshot();copy.legs[0].points[0].x=999;
     assert.equal(nav.getItinerarySnapshot().legs[0].points[0].x,20);
     const content=await nav._renderHTML();
