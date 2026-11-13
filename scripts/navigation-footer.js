@@ -15,7 +15,7 @@ const footerButton=(label,icon)=>createAtlasIconButton({icon,label,size:"footer"
 /** @param {object} nav Existing AtlasNavigationController instance. */
 export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
   assistedLegReady=false,repeatingCheckpoint=false,methodAssessment=null,
-  pendingNativeReview=false}={}){
+  pendingNativeReview=false,partySplitBlocked=false}={}){
   const row=document.createElement("div");
   row.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;padding:.65rem 1rem;border-top:1px solid var(--color-border-light-tertiary,#555);background:var(--color-bg,#100e18);flex:none;";
   const newRoute=footerButton("New Route","route");
@@ -93,11 +93,14 @@ export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
         phase==="ending"||phase==="rest-applying"||
         phase==="rest-holding"?"hourglass-half":"play";
       const move=footerButton(moveLabel,moveIcon);
-      move.disabled=pendingNativeReview||nav.journalStarting||(!nav.travelSession&&
+      move.disabled=pendingNativeReview||nav.journalStarting||
+        (!nav.travelSession&&partySplitBlocked)||(!nav.travelSession&&
         (!methodAssessment?.guided&&!assistedLegReady||repeatingCheckpoint))||
         phase==="ending"||phase==="pausing"||phase==="rest-applying"||
         phase==="rest-holding"||phase==="rest-error";
-      move.title=phase==="paused"?"Resume the paused journey":phase==="moving"?
+      move.title=partySplitBlocked&&!nav.travelSession?
+        "Subset planning does not authorize moving the entire assigned party token":
+        phase==="paused"?"Resume the paused journey":phase==="moving"?
         "Pause after the current short road stretch":moveLabel;
       move.addEventListener("click",()=>{
         if(nav.travelSession){
