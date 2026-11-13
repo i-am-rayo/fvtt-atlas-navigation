@@ -1721,7 +1721,8 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     ui:globalThis.ui,document:globalThis.document};
   let nav;
   try{
-    globalThis.game={user:{isGM:true},settings:{get:(_module,key)=>
+    globalThis.game={user:{isGM:true,id:"gm-1"},users:{activeGM:{id:"gm-1"}},
+      settings:{get:(_module,key)=>
       key==="guidedTransportationCatalog"?undefined:
       key==="guidedTravelSecondsPerHour"?2:5}};
     globalThis.window={innerWidth:1200,innerHeight:800};
