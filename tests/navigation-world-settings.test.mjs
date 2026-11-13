@@ -43,7 +43,7 @@ test("navigation World Settings register once in a reusable module with bounded 
     assert.match(catalog.get(key).hint,/planning only/);
   }
   const slider=catalog.get(NAVIGATION_PLAYBACK_SETTING);
-  assert.deepEqual(slider.range,{min:0.5,max:8,step:0.5});
+  assert.deepEqual(slider.range,{min:0.5,max:30,step:0.5});
   assert.equal(slider.default,2);
   assert.equal(slider.scope,"world");
   assert.equal(slider.config,false);
