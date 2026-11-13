@@ -847,6 +847,13 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.equal(footer.children.includes(travelButton),true);
     assert.ok(find(content,item=>item.textContent==="Playback speed · this trip only"),
       "Navigation exposes per-trip animation controls independently of travel time");
+    const previewSpeed=find(content,item=>item.tag==="input"&&
+      item.type==="range"&&item.max==="30");
+    assert.ok(previewSpeed,"the GM can choose 0.5–30 seconds/hour before departure");
+    previewSpeed.value="20";
+    previewSpeed.listeners.get("change")();
+    assert.equal(nav.playbackSecondsPerHourOverride,20,
+      "planning no longer silently rejects visual seconds/hour above 8");
     nav.onSceneUpdated(scene,{flags:{unrelated:true}});
     assert.equal(calculations,3);assert.deepEqual(nav.end,point(120,50));
     nav.onSceneUpdated(scene,{flags:{"fvtt-atlas-navigation":{irrelevant:true}}});
@@ -1503,14 +1510,16 @@ test("active ship Journey displays the approved method and saved sailing hours, 
     const panel=await nav._renderHTML();
     const all=node=>[node,...(node.children??[]).flatMap(all)];
     const nodes=all(panel);
-    const method=nodes.find(node=>node.id==="atlas-navigation-travel-method");
-    assert.ok(method);
-    assert.equal(method.disabled,true,"approved transportation is read-only mid-voyage");
-    assert.equal(method.value,"approved");
-    assert.ok(nodes.some(node=>node.tag==="option"&&
-      node.textContent==="Ship passage (hired)"));
-    assert.ok(nodes.some(node=>node.textContent?.includes?.(
-      "Speed: Ship passage (hired) (approved hire Journey leg)")));
+    assert.equal(nodes.find(node=>node.id==="atlas-navigation-travel-method"),undefined,
+      "approved method is no longer repeated as a disabled dropdown in the GM Journey view");
+    assert.ok(nodes.some(node=>node.textContent==="Journey Speed"),
+      "the active Journey offers a separate speed tab");
+    assert.ok(nodes.some(node=>node.textContent?.startsWith?.(
+      "Journey in progress to selected destination")),
+      "unnamed map destinations use a neutral heading");
+    assert.equal(nodes.some(node=>node.textContent?.includes?.(
+      "Speed: Ship passage (hired) (approved hire Journey leg)")),false,
+      "verbose saved speed detail was intentionally removed from the GM Journey tab");
     const card=nodes.find(node=>node.tag==="div"&&
       node.children?.[0]?.textContent==="Travel Time");
     assert.ok(card);
@@ -1524,8 +1533,10 @@ test("active ship Journey displays the approved method and saved sailing hours, 
     nav.travelSession.journeyRecord.legs[0].travelMethod={
       id:"riding-horse",name:"Riding Horse",arrangement:"owned",operation:"normal"};
     const mounted=await nav._renderHTML();
-    assert.ok(all(mounted).some(node=>node.textContent?.includes?.(
-      "Speed: Riding Horse (approved owned Journey leg)")));
+    assert.equal(all(mounted).some(node=>node.textContent?.includes?.(
+      "Speed: Riding Horse (approved owned Journey leg)")),false,
+      "mount recovery retains saved method authority without redundant GM copy");
+    assert.equal(nav.travelSession.journeyRecord.legs[0].travelMethod.id,"riding-horse");
   }finally{Object.assign(globalThis,previous);}
 });
 
@@ -1721,7 +1732,8 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     ui:globalThis.ui,document:globalThis.document};
   let nav;
   try{
-    globalThis.game={user:{isGM:true},settings:{get:(_module,key)=>
+    globalThis.game={user:{isGM:true,id:"gm-1"},users:{activeGM:{id:"gm-1"}},
+      settings:{get:(_module,key)=>
       key==="guidedTransportationCatalog"?undefined:
       key==="guidedTravelSecondsPerHour"?2:5}};
     globalThis.window={innerWidth:1200,innerHeight:800};
@@ -1776,6 +1788,12 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.equal(calls[0].options.animate,true);
     assert.equal(calls[0].options.showRuler,false);
     assert.ok(calls[0].options.animation.movementSpeed>0);
+    const firstVisualSpeed=calls[0].options.animation.movementSpeed;
+    assert.equal(nav.setLiveJourneyPlaybackSpeed(20),true,
+      "values above 8s/hour must be accepted during an active Journey");
+    assert.equal(nav.travelSession.playbackSecondsPerHour,20);
+    assert.equal(calls[0].options.animation.movementSpeed,firstVisualSpeed,
+      "the current native movement cannot be retimed mid-flight");
     assert.equal(calls[0].options.constrainOptions,undefined,
       "Foundry native movement constraints are not bypassed");
     const find=(item,match)=>match(item)?item:item.children.map(child=>find(child,match)).find(Boolean);
@@ -1818,6 +1836,10 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.equal(nav.resumeGuidedTravel(),true);
     await tickUntil(()=>calls.length===2);
     assert.equal(calls.length,2,"resume begins at the last completed stretch");
+    assert.ok(calls[1].options.animation.movementSpeed<firstVisualSpeed,
+      "the next native movement must actually honor a slower 20s/hour visual setting");
+    assert.equal(calls[1].options.constrainOptions,undefined,
+      "visual retiming never disables native movement constraints");
     assert.equal(nav.stopGuidedTravel(),true);
     assert.equal(nav.travelSession.phase,"ending");
     resolveTravel(true);
@@ -2565,4 +2587,62 @@ test("confirmed checkpoint choices can be reopened from their Journal after a bl
     assert.equal(nav.result,null,"an obsolete preview cannot trigger movement");
     assert.equal(journal.getFlag(),saved,"reviewing checkpoint must not write to Journal");
   }finally{globalThis.game=previous.game;globalThis.ui=previous.ui;}
+});
+
+test("GM skip-visual control does not move a Token or approve any rest",async()=>{
+  const prior={game:globalThis.game,foundry:globalThis.foundry};
+  try{
+    const answers=[true,true],modalCalls=[];
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}}};
+    globalThis.foundry={applications:{api:{DialogV2:{async confirm(options){
+      modalCalls.push(options.window.title);return answers.shift();
+    }}}}};
+    const nav=Object.create(AtlasNavigationController.prototype);
+    nav.scene={id:"scene"};nav.render=async()=>{};
+    let finished=0;
+    const session={phase:"rest-holding",nativeActive:false,
+      playbackSecondsPerHour:15,skipVisualPlayback:false,
+      visualRestHold:{finish(){finished++;}},
+      schedule:{travelHours:40,completedHours:0,
+        rules:{dailyHours:8}}};
+    nav.travelSession=session;
+    assert.equal(await nav.setSkipVisualJourney(true),true);
+    assert.equal(session.skipVisualPlayback,true);
+    assert.equal(session.consolidatePlayerRestPrompts,true);
+    assert.equal(finished,1,"only a confirmed visual hold is released");
+    assert.deepEqual(modalCalls,[
+      "Skip visual Journey playback","Consolidate player rest notices?"]);
+    assert.equal(nav.setLiveJourneyPlaybackSpeed(25),true);
+    assert.equal(session.playbackSecondsPerHour,25);
+    assert.equal(await nav.setSkipVisualJourney(false),true);
+    assert.equal(session.skipVisualPlayback,false);
+  }finally{Object.assign(globalThis,prior);}
+});
+
+test("player rest completion prompt requires a saved rest and explicit active-GM approval",async()=>{
+  const prior={game:globalThis.game,foundry:globalThis.foundry,
+    ChatMessage:globalThis.ChatMessage};
+  try{
+    const messages=[],prompts=[];
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}}};
+    globalThis.foundry={applications:{api:{DialogV2:{async confirm(o){
+      prompts.push(o.window.title);return true;
+    }}}}};
+    globalThis.ChatMessage={async create(data){messages.push(data);}};
+    const nav=Object.create(AtlasNavigationController.prototype);
+    const session={phase:"paused",journeyRecord:{legs:[{events:[]}]}};
+    nav.travelSession=session;
+    assert.equal(await nav.offerPlayerRestPrompt(session,"long"),false);
+    assert.deepEqual(messages,[],"no ChatMessage without a confirmed Journal event");
+    session.journeyRecord.legs[0].events.push({action:"long",hours:8});
+    assert.equal(await nav.offerPlayerRestPrompt(session,"long"),true);
+    assert.equal(messages.length,1);
+    assert.match(messages[0].content,/Review character resources/);
+    assert.deepEqual(messages[0].whisper,[]);
+    assert.equal(messages[0].blind,false);
+    assert.deepEqual(prompts,["Notify players: rest complete?"]);
+    game.users.activeGM={id:"other-gm"};
+    assert.equal(await nav.offerPlayerRestPrompt(session,"long"),false);
+    assert.equal(messages.length,1,"inactive GM cannot duplicate the player notice");
+  }finally{Object.assign(globalThis,prior);}
 });

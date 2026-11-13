@@ -12,7 +12,7 @@ export function createVisualRestHold(durationMs,{schedule=(fn,ms)=>
   globalThis.setTimeout(fn,ms),cancelTimer=id=>globalThis.clearTimeout(id)}={}){
   if(!Number.isInteger(durationMs)||durationMs<0||durationMs>720000)
     throw Error("Rest playback duration is invalid.");
-  if(durationMs===0)return {finished:Promise.resolve(true),cancel(){}};
+  if(durationMs===0)return {finished:Promise.resolve(true),cancel(){},finish(){}};
   let timer=null,settle=null;
   const finished=new Promise(resolve=>{settle=resolve;});
   const complete=success=>{
@@ -21,8 +21,16 @@ export function createVisualRestHold(durationMs,{schedule=(fn,ms)=>
     resolve(success);
   };
   timer=schedule(()=>{timer=null;complete(true);},durationMs);
-  return {finished,cancel(){
-    if(timer!==null){cancelTimer(timer);timer=null;}
-    complete(false);
-  }};
+  return {finished,
+    // Only release a visual hold after the controller has already committed
+    // the GM-approved rest to the Journey Journal and World time.
+    finish(){
+      if(timer!==null){cancelTimer(timer);timer=null;}
+      complete(true);
+    },
+    cancel(){
+      if(timer!==null){cancelTimer(timer);timer=null;}
+      complete(false);
+    }
+  };
 }

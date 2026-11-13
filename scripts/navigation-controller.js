@@ -26,7 +26,7 @@ import { annotateJourneyDirections,projectJourneyTiming }
 import { resolveNavigationTravelRules } from "./navigation-rules-profile.js";
 import { GuidedJourneyClock, readNavigationWorldClockSetting, formatGuidedWorldTime }
   from "./navigation-world-clock.js";
-import { calculateGuidedPlayback,formatPlaybackDuration,readGuidedPlaybackSetting }
+import { calculateGuidedPlayback,formatPlaybackDuration,readGuidedPlaybackSetting,validatePlaybackSetting }
   from "./navigation-playback.js";
 import { NAVIGATION_SPEED_SETTING, DEFAULT_NAVIGATION_SPEED,
   navigationHours, formatNavigationDuration }
@@ -67,7 +67,7 @@ import { offersAtOrigin,checkpointOffers,saveCheckpointOffers,
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import {publishAtlasJourneyAnnouncement} from "./atlas-announcement-runtime.js";
-import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
+import { navigationJourneyTitle,journeyWorldStamp,verifiedJourneyDestinationName } from "./navigation-journey-title.js";
 import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   validateJourneyRecord,eligibleJourneyRecord,isUnfinishedJourneyLeg,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
@@ -94,7 +94,11 @@ import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote}
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
-import {renderNavigationPlannerTabs} from "./navigation-planner-tabs-view.js";
+import {renderNavigationPlannerTabs,renderNavigationJourneyTabs}
+  from "./navigation-planner-tabs-view.js";
+import {renderNavigationActivePlayback} from "./navigation-active-playback-view.js";
+import {liveJourneyPlayback,canAdjustLiveJourneyVisuals,expectedAdditionalTravelBreaks}
+  from "./navigation-live-playback.js";
 import {renderNavigationPartySelection} from "./navigation-party-selection-view.js";
 import {projectPartyTravelSelection,describeTravelMethodCapacity}
   from "./navigation-party-selection.js";
@@ -161,6 +165,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.playbackSecondsPerHourOverride=null;
     this.directionsExpanded=false;
     this.navigationTab="travel";
+    this.journeyTab="journey";
     this.partySelectionMode="all";
     this.partySelectedIds=[];
     this.result = null;
@@ -1551,6 +1556,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         " recorded ("+formatGuidedWorldTime(Math.round(choice.hours*3600))+
         "). The journey remains paused; resume when ready.";
       if(this.active)await this.render(true);
+      if(["long","overnight"].includes(action))
+        await this.offerPlayerRestPrompt(session,action);
       return true;
     }catch(error){
       // An already approved World-clock update may not be reversible. Never
@@ -1619,8 +1626,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(choice.hours>0&&this.travelSession===session&&session.phase!=="ending"){
       // The rest is already committed to World time and the Journey Journal.
       // Hold *presentation only* before the next TokenDocument.move call.
-      const milliseconds=visualRestDurationMs(choice.hours,
-        session.playbackSecondsPerHour);
+      const milliseconds=session.skipVisualPlayback?0:
+        visualRestDurationMs(choice.hours,session.playbackSecondsPerHour);
       session.phase="rest-holding";
       this.travelNotice=`${action==="overnight"?"Overnight camp":
         action==="long"?"Long rest":"Short rest"} in progress. `+
@@ -1629,6 +1636,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(this.travelSession!==session||session.phase==="ending")return false;
       const hold=this.restHoldFactory(milliseconds);
       session.visualRestHold=hold;
+      if(session.skipVisualPlayback)hold.finish?.();
       try{
         if(!await hold.finished)return false;
       }finally{
@@ -1640,6 +1648,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(session.pendingRestEndedAnnouncement){
       this.announceCommittedJourney(session.pendingRestEndedAnnouncement);
       session.pendingRestEndedAnnouncement=null;
+    }
+    if(["long","overnight"].includes(action)&&
+        this.travelSession===session&&session.phase!=="ending"){
+      if(session.skipVisualPlayback&&session.consolidatePlayerRestPrompts)
+        session.confirmedRestNotices++;
+      else await this.offerPlayerRestPrompt(session,action);
+      if(this.travelSession!==session||session.phase==="ending")return false;
     }
     atlasDebug("journey","Rest decision and World-time checkpoint settled",{
       sceneId:session.sceneId,action,interrupted:session.phase==="ending",
@@ -1895,6 +1910,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
       playbackSecondsPerHour:playback.secondsPerHour,visualRestHold:null,
+      skipVisualPlayback:false,consolidatePlayerRestPrompts:false,
+      confirmedRestNotices:0,
       transportLeg:guidedLeg,pendingPassengerRest:null,
       completedDistance:0,totalDistance,currentChunk:null,timer:null,clock:null,
       confirmedSegments:0,restCheckpointed:false};
@@ -1978,7 +1995,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // Render the controls before awaiting Foundry's long-running native move.
       await this.render(true);
       if(this.travelSession!==session)return false;
-      const pixelsPerSecond=playback.movementSpeed*this.scene.grid.size;
       session.timer=setInterval(()=>{
         if(this.travelSession!==session)return;
         const chunk=session.currentChunk;
@@ -2037,15 +2053,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           chunks.splice(index,1,...halves);
           chunk=halves[0];
         }
+        // Retiming is sampled once per native chunk. The in-flight
+        // TokenDocument.move is never modified and native constraints remain.
+        const visual=liveJourneyPlayback(playback,
+          session.playbackSecondsPerHour,{skip:session.skipVisualPlayback});
         session.currentChunk={distance:chunk.distance,startedAt:Date.now(),
-          durationMs:1000*chunk.distance/pixelsPerSecond};
+          durationMs:visual.animate?
+            1000*chunk.distance/(visual.movementSpeed*session.gridSize):1};
         atlasDebug("movement","Native token move requested",{
           sceneId:session.sceneId,chunk:index+1,chunkCount:chunks.length,
           plannedDurationMs:Math.round(session.currentChunk.durationMs)
         },{level:"verbose"});
         const completed=await token.move(chunk.waypoints,{
-          animate:true,autoRotate:false,showRuler:false,pan:false,
-          animation:{movementSpeed:playback.movementSpeed}
+          animate:visual.animate,autoRotate:false,showRuler:false,pan:false,
+          animation:{movementSpeed:visual.movementSpeed}
         });
         // Native document updates can finish long before the visible movement.
         // Never submit the next stretch until this Canvas animation is finished.
@@ -2128,8 +2149,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             interruptedReason="The native token did not reach its authored transfer checkpoint.";
           }
         }
-        try{await this.saveJourneyCheckpoint(session,checkpointStatus,
-          {updatePage:checkpointStatus!=="moving"});}
+        try{
+          // Persist the chosen visual speed only at a verified checkpoint
+          // alongside its native anchor/clock record, never from a slider tick.
+          session.journeyRecord.playbackSecondsPerHour=
+            validatePlaybackSetting(session.playbackSecondsPerHour);
+          await this.saveJourneyCheckpoint(session,checkpointStatus,
+            {updatePage:checkpointStatus!=="moving"});
+        }
         catch(error){
           reachedEnd=false;
           interruptedReason="The Journey recovery state could not save confirmed progress: "+
@@ -2184,6 +2211,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           interruptedReason="The Journey Journal could not finalize: "+
             (error.message||String(error));
           arrived=false;atlasWarn("journey",interruptedReason);
+        }
+        if(arrived&&session.confirmedRestNotices>0){
+          // One optional player notice after distinct GM-authorized rests.
+          // Not a merged gameplay Long Rest or an additional World-time write.
+          await this.offerPlayerRestPrompt(session,"long",{
+            count:session.confirmedRestNotices});
+          session.confirmedRestNotices=0;
         }
         if(arrived&&!guidedLeg&&session.journeyRecord?.status==="completed"){
           this.completedRoute=true;
@@ -2359,6 +2393,118 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "Choose the next destination to continue this Journey without replaying past travel.";
     this.draw();await this.render(true);
     return true;
+  }
+
+  /** A live speed edit is visual only and never retimes a running v14 move.
+   * A confirmed native movement checkpoint persists the preference with the
+   * already-approved Journey; reload before then retains the previous value. */
+  setLiveJourneyPlaybackSpeed(value){
+    const session=this.travelSession;
+    if(!game.user?.isGM||!game.user?.id||
+        game.users?.activeGM?.id!==game.user.id||
+        !canAdjustLiveJourneyVisuals(session))return false;
+    validatePlaybackSetting(value);
+    session.playbackSecondsPerHour=value;
+    if(this.active)void this.render(true);
+    return true;
+  }
+
+  /** Opt-in visual fast-forward: native token.move still validates constraints,
+   * records every confirmed chunk and requires each GM rest decision. */
+  async setSkipVisualJourney(skip){
+    const session=this.travelSession;
+    if(!game.user?.isGM||!game.user?.id||
+        game.users?.activeGM?.id!==game.user.id||
+        !canAdjustLiveJourneyVisuals(session))return false;
+    if(!skip){
+      session.skipVisualPlayback=false;
+      session.consolidatePlayerRestPrompts=false;
+      if(this.active)void this.render(true);
+      return true;
+    }
+    const approved=await foundry.applications.api.DialogV2.confirm({
+      window:{title:"Skip visual Journey playback"},
+      content:"Skip future token animations and confirmed visual rest waits? "+
+        "Foundry will still validate native movement, save the Journey, "+
+        "advance World time only for confirmed actions, and require the GM "+
+        "to decide every scheduled rest. This does not teleport the party "+
+        "or consolidate in-game rest periods.",
+      rejectClose:false,modal:true
+    });
+    if(!approved||this.travelSession!==session||
+        !canAdjustLiveJourneyVisuals(session))return false;
+    session.skipVisualPlayback=true;
+    // Consolidation changes only OPTIONAL player-facing prompts, never the
+    // number or duration of approved gameplay rests.
+    if(expectedAdditionalTravelBreaks(session)>=2){
+      session.consolidatePlayerRestPrompts=Boolean(
+        await foundry.applications.api.DialogV2.confirm({
+          window:{title:"Consolidate player rest notices?"},
+          content:"Several GM rest decisions may still be required. "+
+            "Would you prefer one player-facing chat prompt at the end "+
+            "of this leg instead of one prompt after each confirmed rest? "+
+            "All distinct in-game rests and their World-time/Journal "+
+            "records remain separate.",
+          rejectClose:false,modal:true
+        }));
+    }
+    if(this.travelSession!==session)return false;
+    // This visual timer exists only after the rest was already committed.
+    if(session.phase==="rest-holding")session.visualRestHold?.finish?.();
+    this.travelNotice="Skipping visual playback at the next confirmed native "+
+      "movement boundary. Every required rest still needs GM approval.";
+    if(this.active)void this.render(true);
+    return true;
+  }
+
+  /** A player prompt is an explicit GM-approved ChatMessage, not an Actor rest.
+   * Failure to notify players can never replay or invalidate a confirmed rest. */
+  async offerPlayerRestPrompt(session,action,{count=1}={}){
+    if(this.travelSession!==session||!game.user?.isGM||!game.user?.id||
+        game.users?.activeGM?.id!==game.user.id)return false;
+    // This opt-in chat message must be grounded in durably saved rest events,
+    // not merely a transient button click or an in-flight break.
+    const events=session.journeyRecord?.legs?.at(-1)?.events??[];
+    const confirmed=events.filter(event=>
+      ["long","overnight"].includes(event.action)).length;
+    if(confirmed<count||
+        typeof globalThis.foundry?.applications?.api?.DialogV2?.confirm!=="function")
+      return false;
+    const label=count>1?count+" confirmed rest periods":
+      action==="long"?"Long Rest":
+      action==="overnight"?"Overnight Camp":"Short Rest";
+    let approved=false;
+    try{
+      approved=await foundry.applications.api.DialogV2.confirm({
+        window:{title:"Notify players: rest complete?"},
+        content:"The "+label+" is already recorded in the Journey. "+
+          "Send players a public chat notice to review their character sheets? "+
+          "Atlas will not automatically invoke any Actor rest action.",
+        rejectClose:false,modal:true
+      });
+    }catch(error){
+      atlasWarn("journey","Rest notification dialog unavailable",error);
+      return false;
+    }
+    if(!approved||this.travelSession!==session||
+        !game.user?.isGM||!game.user?.id||
+        game.users?.activeGM?.id!==game.user.id)return false;
+    try{
+      if(typeof globalThis.ChatMessage?.create!=="function")
+        throw Error("Foundry ChatMessage.create is unavailable.");
+      await globalThis.ChatMessage.create({
+        content:"<p><strong>Atlas Journey:</strong> "+
+          "The GM-confirmed "+label+" is complete. "+
+          "Review character resources with your GM before continuing.</p>",
+        whisper:[],blind:false
+      });
+      return true;
+    }catch(error){
+      atlasWarn("journey","Player rest completion notice could not post",error);
+      globalThis.ui?.notifications?.warn?.(
+        "Rest was confirmed, but the player chat notice could not post.");
+      return false;
+    }
   }
 
   /** Pause at the next short native movement boundary (nominally ~2s). */
@@ -2932,6 +3078,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(stage!==NAVIGATION_STAGES.JOURNEY||!session)
       throw Error("The Navigation stage is no longer available.");
 
+    const directionsTab=el("div"),speedTab=el("div");
     const leg=session.transportLeg??this.result;
     const approvedLeg=session.journeyRecord?.legs?.at(-1);
     const approved=approvedLeg?.transport??session.transportLeg?.transport;
@@ -2943,27 +3090,22 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const hours=session.schedule.travelHours;
     const plan=session.schedule.estimate??
       estimateNavigationTotalTrip(hours,session.schedule.rules);
-    body.append(...renderNavigationStageIntro({title:"Journey in progress",
-      description:"Follow the approved leg. Pause, resume, end, or record GM-approved rests using the controls below.",
-      notice:this.travelNotice||null}));
-    if(approved){
-      body.append(renderNavigationTravelMethodSelector({
-        choices:[{value:"approved",label:approved.methodName,
-          group:"Approved current Journey leg"}],selectedValue:"approved",
-        disabled:true,onMethodChange:()=>{}}));
-    }else{
-      const method=el("p","Travel method: "+(approvedLeg?.travelMethod?.name??
-        (this.travelMethod==="walking"?"Walking (party pace)":
-          travel.methodLabel??"Current method")));
-      method.style.cssText="margin:0;font-size:.87em;";
-      body.append(method);
-    }
+    const atlas=this.atlasProvider(this.scene);
+    const destination=verifiedJourneyDestinationName(atlas,
+      session.journeyRecord?.destination??this.end);
+    const urgent=["rest-choice","rest-holding","paused","rest-error",
+      "ending","checkpoint-arrival"].includes(session.phase)||
+      /interrupt|failed|blocked|cannot|review|required|error/i.test(
+        this.travelNotice??"");
+    body.append(...renderNavigationStageIntro({
+      title:"Journey in progress to "+(destination??"selected destination"),
+      notice:urgent?this.travelNotice:null
+    }));
     const summary=renderNavigationSummaryMetrics({metrics:[
       {label:"Current Leg Distance",value:showDistance(leg?.distance??this.result?.distance??0)},
       {label:"Travel Time",value:formatGuidedWorldTime(Math.round(hours*3600))},
       {label:"Total Trip",value:formatNavigationDuration(plan.totalHours,24)}
-    ],explanation:"The saved approved Journey leg controls movement and recovery; these values are read-only.",
-    progressPercent:this.travelProgress});
+    ],progressPercent:this.travelProgress});
     body.append(...summary.nodes);
     this.travelProgressUI=summary.progressUI;
     this.journeyTimeUI=summary.timeUI?{travelHours:hours,plan,...summary.timeUI}:null;
@@ -2980,30 +3122,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           (rules.forcedMarch!=="custom"?` DC ${10+upcomingExtra} Constitution save afterward (GM adjudicates).`:"")
       ]));
     }
-    const clockAllowed=readNavigationWorldClockSetting(game.settings);
-    const approvedMethod=approved??approvedLeg?.travelMethod;
-    const travelSource=approvedMethod?
-      `${approvedMethod.methodName??approvedMethod.name} (approved ${approvedMethod.arrangement} Journey leg) · ${showSpeed(speed)}`:
-      travel.source==="group-method"?
-        `${travel.methodLabel} (party-owned convoy; slowest matching resource) · ${showSpeed(speed)}`:
-      travel.source==="party"?
-        `${travel.actorName} · ${travel.pace} pace · ${showSpeed(speed)}`:
-      `${travel.methodLabel??"Atlas default"} · ${showSpeed(speed)}`;
-    const status=renderNavigationSummaryStatus({
-      clockHint:clockAllowed?
-        "Foundry World time advances for confirmed movement and GM-approved breaks. Actor rests and exhaustion remain manual.":
-        "Foundry World time remains unchanged; confirmed breaks still count toward Journey duration.",
-      worldTimeStatus:session.clock||this.worldTimeAdvancedSeconds>0?
-        this.worldTimeStatus():null,
-      speedSource:"Speed: "+travelSource,
-      terrainCostLabel:leg?.terrainAware?
-        "Terrain-weighted distance: "+showDistance(leg.cost)+"-equivalent":null});
-    body.append(...status.nodes);
-    this.worldTimeUI=status.worldTimeUI;
-    if(game.user?.isGM&&session.journeyRecord?.routeTargets)
-      body.append(renderJourneyTargets(session.journeyRecord.routeTargets));
+    // The World-clock number is useful. Remove generic hints, redundant
+    // method text and technical A→B target disclosures from the GM Journey tab.
+    if(session.clock||this.worldTimeAdvancedSeconds>0){
+      const clock=el("p",this.worldTimeStatus());
+      clock.style.cssText="margin:0;font-size:.84em;font-weight:600;";
+      body.append(clock);
+      this.worldTimeUI=clock;
+    }else this.worldTimeUI=null;
     const routeLegs=leg?.legs??this.result?.legs??[];
-    const atlas=this.atlasProvider(this.scene);
     const naming=this.roadNaming(atlas,leg??this.result);
     const steps=buildNavigationSteps(routeLegs,naming.directionRoadName,naming);
     const journeySpeed=hours>0?
@@ -3029,18 +3156,43 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         .filter(Boolean).join(" · ")});
     const destinationLabel=naming.preferRoadName?
       naming.directionRoadName(routeLegs.find(l=>l.kind==="road")?.roadId):null;
-    body.append(...renderNavigationDirections({
-      calculation:"Only confirmed TokenDocument movement and Journal checkpoints affect recovery. The next checkpoint requires a separate GM decision.",
+    directionsTab.append(...renderNavigationDirections({
       transfer:Boolean(session.transportLeg),
-      arrivalCheckpointName:session.transportLeg?.checkpoint?.name??null,
+      arrivalCheckpointName:session.transportLeg?.checkpoint?.name??
+        destination??null,
       markers:navigationRouteMarkers({status:"ok",legs:routeLegs},atlas,
         {destinationLabel}),
-      expanded:this.directionsExpanded,
-      onExpandedChange:value=>{this.directionsExpanded=value;},
+      progressPercent:session.totalDistance>0?
+        100*session.completedDistance/session.totalDistance:null,
       formatDistance:showDistance,
       formatHours:value=>formatGuidedWorldTime(Math.round(value*3600)),
       rows}));
-    root.append(body,renderNavigationFooter(this,{partyMode}));
+    const editable=Boolean(game.user?.isGM&&game.user?.id&&
+      game.users?.activeGM?.id===game.user.id&&
+      canAdjustLiveJourneyVisuals(session));
+    const remainingHours=Math.max(0,session.schedule.travelHours-
+      session.schedule.completedHours);
+    speedTab.append(renderNavigationActivePlayback({
+      model:remainingHours>0?{
+        travelHours:remainingHours,
+        dailyHours:session.schedule.rules.dailyHours,
+        overnightHours:session.schedule.rules.overnightHours,
+        longRestHours:session.schedule.rules.longRestHours
+      }:null,
+      secondsPerHour:session.playbackSecondsPerHour??
+        session.journeyRecord?.playbackSecondsPerHour??
+        readGuidedPlaybackSetting(game.settings),
+      locked:!editable,skip:Boolean(session.skipVisualPlayback),
+      onChange:value=>this.setLiveJourneyPlaybackSpeed(value),
+      onSkip:()=>void this.setSkipVisualJourney(!session.skipVisualPlayback)
+        .catch(error=>globalThis.ui?.notifications?.warn?.(
+          error.message??String(error))),
+      onError:message=>globalThis.ui?.notifications?.warn?.(message)
+    }));
+    root.append(renderNavigationJourneyTabs({
+      active:this.journeyTab,journey:body,directions:directionsTab,
+      speed:speedTab,onTabChange:value=>{this.journeyTab=value;}
+    }),renderNavigationFooter(this,{partyMode}));
     return root;
   }
 
@@ -3574,7 +3726,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             disabled:Boolean(this.journalStarting),
             onChange:value=>{
               if(this.journalStarting||this.travelSession)return;
-              if(!Number.isFinite(value)||value<.5||value>8)return;
+              if(!Number.isFinite(value)||value<.5||value>30)return;
               this.playbackSecondsPerHourOverride=value;
               void this.render(true);
             },

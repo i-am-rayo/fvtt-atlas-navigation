@@ -25,3 +25,16 @@ test("a rest hold resolves once on completion or cancellation",async()=>{
   assert.equal(await b.finished,false);
   assert.deepEqual(cleared,[11],"cancel is idempotent");
 });
+
+test("GM visual skip releases an already-committed rest hold exactly once",async()=>{
+  const cleared=[];
+  const hold=createVisualRestHold(16000,{
+    schedule:()=>12,
+    cancelTimer:id=>cleared.push(id)
+  });
+  hold.finish();hold.finish();hold.cancel();
+  assert.equal(await hold.finished,true,
+    "a visual skip is not a cancellation of confirmed rest");
+  assert.deepEqual(cleared,[12],
+    "a timer is removed once without changing World-time or Journey state");
+});

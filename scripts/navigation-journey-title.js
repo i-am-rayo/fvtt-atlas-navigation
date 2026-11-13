@@ -21,6 +21,18 @@ export function closestJourneyCheckpoint(atlas,point){
   return closest?{id:closest.id,name:closest.name}:null;
 }
 
+/** Exact authored saved Point B, never a guessed nearby checkpoint. */
+export function verifiedJourneyDestinationName(atlas,point){
+  if(!validPoint(point))return null;
+  const nodes=new Map((atlas?.nodes??[]).map(node=>[node.id,node]));
+  const matches=(atlas?.checkpoints??[]).filter(cp=>{
+    const node=nodes.get(cp.nodeId);
+    return Boolean(cleanLabel(cp.name)&&validPoint(node)&&
+      Math.hypot(node.x-point.x,node.y-point.y)<=0.02);
+  });
+  return matches.length===1?cleanLabel(matches[0].name):null;
+}
+
 /** Capture the trip's start date at creation, before Atlas advances World time.
  * CalendarData.format is the public v14 API and respects custom World calendars. */
 export function nativeJourneyDate(time=globalThis.game?.time,worldTime=time?.worldTime){
