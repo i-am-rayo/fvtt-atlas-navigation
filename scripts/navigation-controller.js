@@ -98,7 +98,7 @@ import {renderNavigationPlannerTabs} from "./navigation-planner-tabs-view.js";
 import {renderNavigationPartySelection} from "./navigation-party-selection-view.js";
 import {projectPartyTravelSelection,describeTravelMethodCapacity}
   from "./navigation-party-selection.js";
-import {navigationRouteMarkers} from "./navigation-direction-summary.js";
+import {navigationRouteMarkers,navigationDestinationCheckpoint} from "./navigation-direction-summary.js";
 import {renderNavigationPlaybackControls} from "./navigation-playback-controls-view.js";
 import {renderJourneyTargets} from "./navigation-targets-view.js";
 import {renderRepeatedCheckpointNotice,renderCheckpointArrivalPrompt,
@@ -3627,6 +3627,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // the primary destination, method, timing and route actions.
       // Calculation diagnostics stay on the Directions tab, with no
       // extra "Travel calculation and World-time notes" disclosure.
+      if(status.worldTimeUI&&(this.travelSession||
+          this.worldTimeAdvancedSeconds>0))
+        body.append(status.worldTimeUI);
       this.worldTimeUI=status.worldTimeUI;
       const calculation=this.result.terrainWarning ||
         (approvedActiveTransport?
@@ -3689,9 +3692,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const routeLegs=this.result.legs;
       const destinationLabel=naming.preferRoadName?
         naming.directionRoadName(routeLegs.find(l=>l.kind==="road")?.roadId):null;
+      const destinationCheckpoint=navigationDestinationCheckpoint(this.result,
+        this.atlasProvider(this.scene),this.selectedCheckpointId);
       directionsTab.append(...renderNavigationDirections({calculation,
         transfer:Boolean(transferPlan?.hasTransitions),
-        arrivalCheckpointName:transferPlan?.legs[0]?.arrivalCheckpoint?.name??null,
+        arrivalCheckpointName:transferPlan?.legs[0]?.arrivalCheckpoint?.name??
+          destinationCheckpoint?.name??null,
         markers:navigationRouteMarkers(this.result,this.atlasProvider(this.scene),
           {destinationLabel}),
         expanded:this.directionsExpanded,
