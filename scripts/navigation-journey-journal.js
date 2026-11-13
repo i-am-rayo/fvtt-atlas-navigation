@@ -1,5 +1,6 @@
 import { MODULE_ID } from "./atlas-storage.js";
 import { formatNavigationDuration } from "./navigation-time.js";
+import {validatePlaybackSetting} from "./navigation-playback.js";
 import { atlasDisplayDistance } from "./navigation-measure-units.js";
 import { confirmedJourneyDirections } from "./navigation-journey-timeline.js";
 import {isRestUnderway,validatePassengerRestMetadata,confirmedJourneyMovingHours}
@@ -75,7 +76,7 @@ export function journeyLegFromItinerary(itinerary){
 export function createJourneyRecord({sceneId,tokenId,atlasRevision,itinerary,
   journeyDestination=null,title=null,startedWorldTime=null,startedTimeLabel=null,
   routeTargets=null,initialAnchor=null,approvedPath=null,
-  now=new Date().toISOString()}={}){
+  playbackSecondsPerHour=null,now=new Date().toISOString()}={}){
   if(!sceneId||!tokenId||!Number.isSafeInteger(atlasRevision))
     throw Error("Journey recovery requires a Scene, assigned token, and Atlas revision.");
   const leg=journeyLegFromItinerary(itinerary);
@@ -87,6 +88,8 @@ export function createJourneyRecord({sceneId,tokenId,atlasRevision,itinerary,
     sceneId:String(sceneId),tokenId:String(tokenId),atlasRevision,
     destination:point(selectedDestination),createdAt:now,updatedAt:now,
     ...(routeTargets?{routeTargets:validateJourneyTargets(routeTargets)}:{}),
+    ...(playbackSecondsPerHour!==null?
+      {playbackSecondsPerHour:validatePlaybackSetting(playbackSecondsPerHour)}:{}),
     ...(initialAnchor?{lastConfirmedAnchor:validateJourneyAnchor(initialAnchor)}:{}),
     ...(title?{title:String(title).trim()}:{}),
     ...(Number.isFinite(startedWorldTime)?{startedWorldTime}:{}),
@@ -100,6 +103,9 @@ export function validateJourneyRecord(value){
   if(!value||value.schemaVersion!==JOURNEY_JOURNAL_SCHEMA||
       !STATUSES.has(value.status)||!value.sceneId||!value.tokenId||
       !Number.isSafeInteger(value.atlasRevision)||!validPoint(value.destination)||
+      (value.playbackSecondsPerHour!==undefined&&
+        (!Number.isFinite(value.playbackSecondsPerHour)||
+          value.playbackSecondsPerHour<0.5||value.playbackSecondsPerHour>8))||
       (value.title!==undefined&&(typeof value.title!=="string"||
         !value.title.trim()||value.title.length>240))||
       ["startedWorldTime","arrivedWorldTime"].some(key=>
