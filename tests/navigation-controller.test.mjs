@@ -841,8 +841,8 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.equal(find(content,item=>item.tag==="button"&&
       item.ariaLabel==="Exit Navigation"),undefined,
       "the redundant Exit Navigation footer button is removed");
-    assert.match(content.children[0].style.cssText,/overflow-y:auto/,
-      "the route Directions scroll without hiding travel controls");
+    assert.ok(find(content,item=>item.style?.cssText?.includes("overflow-y:auto")),
+      "tab panels scroll independently without hiding the Journey footer");
     const travelButton=find(content,item=>item.tag==="button"&&item.ariaLabel==="Travel Route");
     assert.equal(footer.children.includes(travelButton),true);
     assert.ok(find(content,item=>item.textContent==="Playback speed · this trip only"),
@@ -1977,8 +1977,9 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     const prepared=await nav._renderHTML();
     const optIn=find(prepared,node=>node.tag==="input"&&node.type==="checkbox");
     assert.equal(optIn,undefined,"Navigation has no per-journey clock checkbox");
-    assert.ok(find(prepared,node=>node.textContent?.startsWith?.(
-      "Foundry World time advances for confirmed movement")));
+    assert.equal(find(prepared,node=>node.textContent?.startsWith?.(
+      "Foundry World time advances for confirmed movement")),undefined,
+      "redundant World-time note is removed from the GM planning view; actual clock logic is unchanged");
     assert.equal(await nav.startGuidedTravel(),true);
     assert.equal(seconds.reduce((a,b)=>a+b,0),14400,
       "four real travel hours advance exactly four World hours, not displayed days");
