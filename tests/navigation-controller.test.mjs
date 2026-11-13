@@ -1510,14 +1510,16 @@ test("active ship Journey displays the approved method and saved sailing hours, 
     const panel=await nav._renderHTML();
     const all=node=>[node,...(node.children??[]).flatMap(all)];
     const nodes=all(panel);
-    const method=nodes.find(node=>node.id==="atlas-navigation-travel-method");
-    assert.ok(method);
-    assert.equal(method.disabled,true,"approved transportation is read-only mid-voyage");
-    assert.equal(method.value,"approved");
-    assert.ok(nodes.some(node=>node.tag==="option"&&
-      node.textContent==="Ship passage (hired)"));
-    assert.ok(nodes.some(node=>node.textContent?.includes?.(
-      "Speed: Ship passage (hired) (approved hire Journey leg)")));
+    assert.equal(nodes.find(node=>node.id==="atlas-navigation-travel-method"),undefined,
+      "approved method is no longer repeated as a disabled dropdown in the GM Journey view");
+    assert.ok(nodes.some(node=>node.textContent==="Journey Speed"),
+      "the active Journey offers a separate speed tab");
+    assert.ok(nodes.some(node=>node.textContent?.startsWith?.(
+      "Journey in progress to selected destination")),
+      "unnamed map destinations use a neutral heading");
+    assert.equal(nodes.some(node=>node.textContent?.includes?.(
+      "Speed: Ship passage (hired) (approved hire Journey leg)")),false,
+      "verbose saved speed detail was intentionally removed from the GM Journey tab");
     const card=nodes.find(node=>node.tag==="div"&&
       node.children?.[0]?.textContent==="Travel Time");
     assert.ok(card);
@@ -1531,8 +1533,10 @@ test("active ship Journey displays the approved method and saved sailing hours, 
     nav.travelSession.journeyRecord.legs[0].travelMethod={
       id:"riding-horse",name:"Riding Horse",arrangement:"owned",operation:"normal"};
     const mounted=await nav._renderHTML();
-    assert.ok(all(mounted).some(node=>node.textContent?.includes?.(
-      "Speed: Riding Horse (approved owned Journey leg)")));
+    assert.equal(all(mounted).some(node=>node.textContent?.includes?.(
+      "Speed: Riding Horse (approved owned Journey leg)")),false,
+      "mount recovery retains saved method authority without redundant GM copy");
+    assert.equal(nav.travelSession.journeyRecord.legs[0].travelMethod.id,"riding-horse");
   }finally{Object.assign(globalThis,previous);}
 });
 
