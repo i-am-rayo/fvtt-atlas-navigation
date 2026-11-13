@@ -3355,11 +3355,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           const actor=assignment.enabled?this.scene?.tokens?.get?.(assignment.tokenId)?.actor:null;
           const roster=actor?.type==="group"?
             projectGroupTransportation(actor,readGroupTransportation(game.settings),methods):null;
+          const quoteRoster=partySelection?.previewRoster??roster;
           let ownedQuote=null;
-          if(this.transportArrangement==="owned"&&roster){
-            const capacity=groupMethodCapacityStatus(roster,method);
+          if(this.transportArrangement==="owned"&&quoteRoster){
+            const capacity=groupMethodCapacityStatus(quoteRoster,method);
             if(capacity.sufficient)
-              ownedQuote=groupMethodFareEstimate(roster,method,{hours:movingHours,
+              ownedQuote=groupMethodFareEstimate(quoteRoster,method,{hours:movingHours,
                 distanceMi,dayHours:this.resolveTravelRules(travel).dailyHours??8});
           }
           if(this.transportArrangement==="hire"||ownedQuote){
@@ -3368,7 +3369,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             const normalHours=method.surface==="land"?(normalRules.dailyHours??8):8;
             const quoteArgs={arrangement:this.transportArrangement,
               operation:this.transportOperation,movingHours,distanceMi,
-              travelers:roster?.travelers??1,ownedQuote,regularHours:normalHours};
+              travelers:quoteRoster?.travelers??1,ownedQuote,regularHours:normalHours};
             const quote=quoteTransportationService(method,{...quoteArgs,
               hireTerms:this.transportHireTerms});
             const original=this.transportArrangement==="hire"&&baseMethod?.hireEnabled?
