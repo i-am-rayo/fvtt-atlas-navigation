@@ -79,7 +79,7 @@ test("real-duration slider handles unreachable trips without unauthorized writes
   try{
     const changes=[],errors=[];
     const root=renderNavigationPlaybackControls({
-      model:{travelHours:2000,dailyHours:8,overnightHours:16,longRestHours:8},
+      model:{travelHours:8000,dailyHours:1,overnightHours:16,longRestHours:24},
       secondsPerHour:2,onChange:v=>changes.push(v),onError:e=>errors.push(e)});
     const target=flat(root).filter(n=>n.type==="range")[1];
     assert.equal(target.disabled,true);
