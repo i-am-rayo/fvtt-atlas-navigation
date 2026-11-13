@@ -1776,6 +1776,12 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.equal(calls[0].options.animate,true);
     assert.equal(calls[0].options.showRuler,false);
     assert.ok(calls[0].options.animation.movementSpeed>0);
+    const firstVisualSpeed=calls[0].options.animation.movementSpeed;
+    assert.equal(nav.setLiveJourneyPlaybackSpeed(20),true,
+      "values above 8s/hour must be accepted during an active Journey");
+    assert.equal(nav.travelSession.playbackSecondsPerHour,20);
+    assert.equal(calls[0].options.animation.movementSpeed,firstVisualSpeed,
+      "the current native movement cannot be retimed mid-flight");
     assert.equal(calls[0].options.constrainOptions,undefined,
       "Foundry native movement constraints are not bypassed");
     const find=(item,match)=>match(item)?item:item.children.map(child=>find(child,match)).find(Boolean);
@@ -1818,6 +1824,10 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.equal(nav.resumeGuidedTravel(),true);
     await tickUntil(()=>calls.length===2);
     assert.equal(calls.length,2,"resume begins at the last completed stretch");
+    assert.ok(calls[1].options.animation.movementSpeed<firstVisualSpeed,
+      "the next native movement must actually honor a slower 20s/hour visual setting");
+    assert.equal(calls[1].options.constrainOptions,undefined,
+      "visual retiming never disables native movement constraints");
     assert.equal(nav.stopGuidedTravel(),true);
     assert.equal(nav.travelSession.phase,"ending");
     resolveTravel(true);
