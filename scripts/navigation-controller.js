@@ -3055,6 +3055,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(stage!==NAVIGATION_STAGES.JOURNEY||!session)
       throw Error("The Navigation stage is no longer available.");
 
+    const directionsTab=el("div"),speedTab=el("div");
     const leg=session.transportLeg??this.result;
     const approvedLeg=session.journeyRecord?.legs?.at(-1);
     const approved=approvedLeg?.transport??session.transportLeg?.transport;
@@ -3066,27 +3067,22 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const hours=session.schedule.travelHours;
     const plan=session.schedule.estimate??
       estimateNavigationTotalTrip(hours,session.schedule.rules);
-    body.append(...renderNavigationStageIntro({title:"Journey in progress",
-      description:"Follow the approved leg. Pause, resume, end, or record GM-approved rests using the controls below.",
-      notice:this.travelNotice||null}));
-    if(approved){
-      body.append(renderNavigationTravelMethodSelector({
-        choices:[{value:"approved",label:approved.methodName,
-          group:"Approved current Journey leg"}],selectedValue:"approved",
-        disabled:true,onMethodChange:()=>{}}));
-    }else{
-      const method=el("p","Travel method: "+(approvedLeg?.travelMethod?.name??
-        (this.travelMethod==="walking"?"Walking (party pace)":
-          travel.methodLabel??"Current method")));
-      method.style.cssText="margin:0;font-size:.87em;";
-      body.append(method);
-    }
+    const atlas=this.atlasProvider(this.scene);
+    const destination=verifiedJourneyDestinationName(atlas,
+      session.journeyRecord?.destination??this.end);
+    const urgent=["rest-choice","rest-holding","paused","rest-error",
+      "ending","checkpoint-arrival"].includes(session.phase)||
+      /interrupt|failed|blocked|cannot|review|required|error/i.test(
+        this.travelNotice??"");
+    body.append(...renderNavigationStageIntro({
+      title:"Journey in progress to "+(destination??"selected destination"),
+      notice:urgent?this.travelNotice:null
+    }));
     const summary=renderNavigationSummaryMetrics({metrics:[
       {label:"Current Leg Distance",value:showDistance(leg?.distance??this.result?.distance??0)},
       {label:"Travel Time",value:formatGuidedWorldTime(Math.round(hours*3600))},
       {label:"Total Trip",value:formatNavigationDuration(plan.totalHours,24)}
-    ],explanation:"The saved approved Journey leg controls movement and recovery; these values are read-only.",
-    progressPercent:this.travelProgress});
+    ],progressPercent:this.travelProgress});
     body.append(...summary.nodes);
     this.travelProgressUI=summary.progressUI;
     this.journeyTimeUI=summary.timeUI?{travelHours:hours,plan,...summary.timeUI}:null;
@@ -3103,30 +3099,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           (rules.forcedMarch!=="custom"?` DC ${10+upcomingExtra} Constitution save afterward (GM adjudicates).`:"")
       ]));
     }
-    const clockAllowed=readNavigationWorldClockSetting(game.settings);
-    const approvedMethod=approved??approvedLeg?.travelMethod;
-    const travelSource=approvedMethod?
-      `${approvedMethod.methodName??approvedMethod.name} (approved ${approvedMethod.arrangement} Journey leg) · ${showSpeed(speed)}`:
-      travel.source==="group-method"?
-        `${travel.methodLabel} (party-owned convoy; slowest matching resource) · ${showSpeed(speed)}`:
-      travel.source==="party"?
-        `${travel.actorName} · ${travel.pace} pace · ${showSpeed(speed)}`:
-      `${travel.methodLabel??"Atlas default"} · ${showSpeed(speed)}`;
-    const status=renderNavigationSummaryStatus({
-      clockHint:clockAllowed?
-        "Foundry World time advances for confirmed movement and GM-approved breaks. Actor rests and exhaustion remain manual.":
-        "Foundry World time remains unchanged; confirmed breaks still count toward Journey duration.",
-      worldTimeStatus:session.clock||this.worldTimeAdvancedSeconds>0?
-        this.worldTimeStatus():null,
-      speedSource:"Speed: "+travelSource,
-      terrainCostLabel:leg?.terrainAware?
-        "Terrain-weighted distance: "+showDistance(leg.cost)+"-equivalent":null});
-    body.append(...status.nodes);
-    this.worldTimeUI=status.worldTimeUI;
-    if(game.user?.isGM&&session.journeyRecord?.routeTargets)
-      body.append(renderJourneyTargets(session.journeyRecord.routeTargets));
+    // The World-clock number is useful. Remove generic hints, redundant
+    // method text and technical A→B target disclosures from the GM Journey tab.
+    if(session.clock||this.worldTimeAdvancedSeconds>0){
+      const clock=el("p",this.worldTimeStatus());
+      clock.style.cssText="margin:0;font-size:.84em;font-weight:600;";
+      body.append(clock);
+      this.worldTimeUI=clock;
+    }else this.worldTimeUI=null;
     const routeLegs=leg?.legs??this.result?.legs??[];
-    const atlas=this.atlasProvider(this.scene);
     const naming=this.roadNaming(atlas,leg??this.result);
     const steps=buildNavigationSteps(routeLegs,naming.directionRoadName,naming);
     const journeySpeed=hours>0?
@@ -3152,18 +3133,39 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         .filter(Boolean).join(" · ")});
     const destinationLabel=naming.preferRoadName?
       naming.directionRoadName(routeLegs.find(l=>l.kind==="road")?.roadId):null;
-    body.append(...renderNavigationDirections({
-      calculation:"Only confirmed TokenDocument movement and Journal checkpoints affect recovery. The next checkpoint requires a separate GM decision.",
+    directionsTab.append(...renderNavigationDirections({
       transfer:Boolean(session.transportLeg),
-      arrivalCheckpointName:session.transportLeg?.checkpoint?.name??null,
+      arrivalCheckpointName:session.transportLeg?.checkpoint?.name??
+        destination??null,
       markers:navigationRouteMarkers({status:"ok",legs:routeLegs},atlas,
         {destinationLabel}),
-      expanded:this.directionsExpanded,
-      onExpandedChange:value=>{this.directionsExpanded=value;},
+      progressPercent:session.totalDistance>0?
+        100*session.completedDistance/session.totalDistance:null,
       formatDistance:showDistance,
       formatHours:value=>formatGuidedWorldTime(Math.round(value*3600)),
       rows}));
-    root.append(body,renderNavigationFooter(this,{partyMode}));
+    const editable=canAdjustLiveJourneyVisuals(session);
+    const remainingHours=Math.max(0,session.schedule.travelHours-
+      session.schedule.completedHours);
+    speedTab.append(renderNavigationActivePlayback({
+      model:remainingHours>0?{
+        travelHours:remainingHours,
+        dailyHours:session.schedule.rules.dailyHours,
+        overnightHours:session.schedule.rules.overnightHours,
+        longRestHours:session.schedule.rules.longRestHours
+      }:null,
+      secondsPerHour:session.playbackSecondsPerHour,
+      locked:!editable,skip:Boolean(session.skipVisualPlayback),
+      onChange:value=>this.setLiveJourneyPlaybackSpeed(value),
+      onSkip:()=>void this.setSkipVisualJourney(!session.skipVisualPlayback)
+        .catch(error=>globalThis.ui?.notifications?.warn?.(
+          error.message??String(error))),
+      onError:message=>globalThis.ui?.notifications?.warn?.(message)
+    }));
+    root.append(renderNavigationJourneyTabs({
+      active:this.journeyTab,journey:body,directions:directionsTab,
+      speed:speedTab,onTabChange:value=>{this.journeyTab=value;}
+    }),renderNavigationFooter(this,{partyMode}));
     return root;
   }
 
