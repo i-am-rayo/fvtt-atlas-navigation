@@ -55,7 +55,7 @@ export function renderNavigationPlaybackControls({model,secondsPerHour,
   const maxMinutes=Math.min(360,slowest.fullLongRestSeconds/60);
   const targetSection=el("label");
   targetSection.style.cssText="display:grid;gap:.3rem;font-size:.86em;";
-  const targetTitle=el("strong","Target real trip duration (including 8h Long Rests)");
+  const targetTitle=el("strong","Target real trip duration (including "+(model.longRestHours??8)+"h Long Rests)");
   const targetOutput=el("output",formatPlaybackDuration(info.fullLongRestSeconds));
   const target=el("input");
   target.type="range";target.min=String(minMinutes);
@@ -89,10 +89,10 @@ export function renderNavigationPlaybackControls({model,secondsPerHour,
   summary.style.cssText="font-size:.86em;line-height:1.5;";
   summary.appendChild(el("div","Moving animation: "+
     formatPlaybackDuration(info.movementSeconds)));
-  summary.appendChild(el("div","Trip with "+info.stops+" planned 8h Long Rest(s): "+
+  summary.appendChild(el("div","Trip with "+info.stops+" planned "+(model.longRestHours??8)+"h Long Rest(s): "+
     formatPlaybackDuration(info.fullLongRestSeconds)+
     " · each: "+formatPlaybackDuration(info.eachLongRestSeconds)));
-  summary.appendChild(el("div","With 16h overnight stops instead: "+
+  summary.appendChild(el("div","With "+(model.overnightHours??16)+"h overnight stops instead: "+
     formatPlaybackDuration(info.fullOvernightSeconds)+
     " · each: "+formatPlaybackDuration(info.eachOvernightSeconds)));
   root.appendChild(summary);
