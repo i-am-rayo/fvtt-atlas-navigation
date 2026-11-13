@@ -3113,6 +3113,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       pendingReviewMethod?.name??"Previously approved travel method";
     const availability=this.transportAvailability();
     const methods=availability.methods;
+    const partySelection=this.partyTravelSelection(availability.all);
+    const partySplitBlocked=Boolean(partySelection?.partial||partySelection?.empty);
+    if(this.result?.status==="ok"&&partySelection&&!this.travelSession&&
+        !this.recoveryRecord&&!this.recoverableJourney&&!this.pendingTransfer){
+      const selector=renderNavigationPartySelection({
+        roster:partySelection.roster,
+        mode:this.partySelectionMode,ids:this.partySelectedIds,
+        disabled:Boolean(this.journalStarting),
+        onChange:next=>{
+          if(this.journalStarting||this.travelSession)return;
+          this.partySelectionMode=next.mode;
+          this.partySelectedIds=next.ids;
+          void this.render(true);
+        }
+      });
+      if(selector)body.appendChild(selector);
+    }
     const approvedActiveTransport=this.travelSession?.transportLeg?
       (this.travelSession.journeyRecord?.legs.at(-1)?.transport??
         this.travelSession.transportLeg.transport):null;
@@ -3148,6 +3165,28 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           group:offer.checkpointName||"Nearby checkpoint"}]:[];
       })
     ];
+    const annotatedChoices=choices.map(choice=>{
+      if(!choice.value?.includes("|"))return choice;
+      const [arrangement,id]=choice.value.split("|",2);
+      const method=availability.all.find(item=>item.id===id);
+      if(!method||id==="walking")return choice;
+      let capacity=null,methodCapacity=null;
+      if(arrangement==="owned"&&partySelection)
+        capacity=groupMethodCapacityStatus(partySelection.previewRoster,method);
+      if(arrangement==="hire"){
+        const offer=availability.offers.get(id);
+        try{
+          methodCapacity=offer?checkpointOfferMethod({
+            methodId:offer.methodId,mode:offer.mode,overrides:offer.overrides
+          },method).capacity:null;
+        }catch(error){
+          atlasWarn("navigation","Invalid offered transport capacity",error);
+        }
+      }
+      return {...choice,secondary:describeTravelMethodCapacity({
+        choice:{...choice,methodCapacity},capacity
+      }),insufficient:Boolean(capacity&&!capacity.sufficient)};
+    });
     if(pendingNativeReview)
       body.appendChild(renderNavigationTravelMethodSelector({
         choices:[{value:"saved",label:pendingReviewMethodName,
@@ -3163,7 +3202,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     else if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)
       body.appendChild((approvedRecoveryLand||approvedRecoveryTransport?
         renderNavigationTravelMethodSelector:renderNavigationTravelMethodButtons)({
-        choices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
+        choices:annotatedChoices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
         disabled:Boolean(this.travelSession||this.journalStarting||approvedRecoveryTransport||
           approvedRecoveryLand),
         showEditor:this.travelMethod!=="walking"&&!approvedRecoveryTransport&&
@@ -3291,39 +3330,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       body.appendChild(renderTransportAdvisory(methodAssessment.reason??
         "Transport planning only."));
     }
-    if(!approvedActiveTransport&&!approvedRecoveryTransport&&
-        this.travelMethod!=="walking"&&!transferPlan?.hasTransitions &&
-        this.transportArrangement!=="hire" &&game.system?.id==="dnd5e" &&
-        !["coach-hire","ship-passage"].includes(this.travelMethod)){
-      // Show capacity as a read-only advisory; non-walking guided movement is
-      // still forbidden until a GM authorizes checkpoint boarding.
-      const selectedMethod=methods.find(item=>item.id===this.travelMethod);
-      try{
-        const party=readPartyExploration(this.scene);
-        const group=party.enabled?this.scene?.tokens?.get?.(party.tokenId)?.actor:null;
-        if(group?.type==="group"&&selectedMethod?.surface){
-          const roster=projectGroupTransportation(group,readGroupTransportation(game.settings),methods);
-          const capacity=groupMethodCapacityStatus(roster,selectedMethod);
-          const capacityDescription=roster.travelers+" traveler(s); "+
-            capacity.seats+" available "+selectedMethod.surface+" seat(s). "+
-            (capacity.missing?capacity.missing+" additional seat(s) needed. ":
-              capacity.sufficient?"Capacity meets party size. ":"")+
-            (capacity.unknown?"Some transport capacities are not specified. ":"")+
-            (roster.unclassified?roster.unclassified+" NPC role(s) still need GM review. ":"")+
-            (capacity.matched?"Availability does not mean the party has boarded.":
-              "No matching Group resource. Assign an owned mount or vehicle to this method.");
-          body.appendChild(renderTransportCapacity({
-            description:capacityDescription,warning:Boolean(capacity.missing),
-            needsReview:Boolean(capacity.missing||roster.unclassified),
-            onReview:()=>{
-              try{openAtlasGroupTransportation(group.id);}catch(error){
-                globalThis.ui?.notifications?.error?.(error.message??String(error));
-              }
-            },onRefresh:()=>void this.render()
-          }));
-
-        }
-      }catch(error){atlasWarn("navigation","Group capacity preview unavailable",error);}
+    // Seats and resource counts are now displayed beside each method.
+    // A selected method with insufficient seats is explicitly called out.
+    if(!approvedRecoveryTransport&&this.travelMethod!=="walking"&&
+        this.transportArrangement==="owned"&&partySelection){
+      const selected=annotatedChoices.find(choice=>choice.value===
+        "owned|"+this.travelMethod);
+      if(selected?.insufficient)
+        body.appendChild(renderTransportAdvisory(
+          "Insufficient seats for the selected travelers. "+
+          "Choose another method or adjust the Group transportation roster."));
     }
     if(!approvedActiveTransport&&!approvedRecoveryTransport&&
         this.travelMethod!=="walking"&&this.result?.status==="ok"&&
@@ -3693,7 +3709,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       onTabChange:value=>{this.navigationTab=value;}
     });
     root.append(tabs,renderNavigationFooter(this,{partyMode,transferPlan,
-      methodAssessment,assistedLegReady,repeatingCheckpoint}));
+      methodAssessment,assistedLegReady,repeatingCheckpoint,
+      partySplitBlocked}));
     return root;
   }
 
