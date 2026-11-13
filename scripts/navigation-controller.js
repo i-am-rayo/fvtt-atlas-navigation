@@ -3132,7 +3132,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         selectedValue:"approved",disabled:true,onMethodChange:()=>{}
       }));
     else if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)
-      body.appendChild(renderNavigationTravelMethodButtons({
+      body.appendChild((approvedRecoveryLand||approvedRecoveryTransport?
+        renderNavigationTravelMethodSelector:renderNavigationTravelMethodButtons)({
         choices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
         disabled:Boolean(this.travelSession||this.journalStarting||approvedRecoveryTransport||
           approvedRecoveryLand),
