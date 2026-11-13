@@ -847,6 +847,13 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.equal(footer.children.includes(travelButton),true);
     assert.ok(find(content,item=>item.textContent==="Playback speed · this trip only"),
       "Navigation exposes per-trip animation controls independently of travel time");
+    const previewSpeed=find(content,item=>item.tag==="input"&&
+      item.type==="range"&&item.max==="30");
+    assert.ok(previewSpeed,"the GM can choose 0.5–30 seconds/hour before departure");
+    previewSpeed.value="20";
+    previewSpeed.listeners.get("change")();
+    assert.equal(nav.playbackSecondsPerHourOverride,20,
+      "planning no longer silently rejects visual seconds/hour above 8");
     nav.onSceneUpdated(scene,{flags:{unrelated:true}});
     assert.equal(calculations,3);assert.deepEqual(nav.end,point(120,50));
     nav.onSceneUpdated(scene,{flags:{"fvtt-atlas-navigation":{irrelevant:true}}});
