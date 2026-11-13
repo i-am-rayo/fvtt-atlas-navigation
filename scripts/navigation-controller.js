@@ -3565,27 +3565,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const clockHint=clockAllowed?
         "Foundry World time advances for confirmed movement and GM-approved breaks. Actor rests and exhaustion remain manual; change the clock setting in Module Settings.":
         "Foundry World time stays unchanged. Planned breaks are still counted in Total Trip; enable clock advancement in Atlas Module Settings.";
-      let playbackLabel=null;
-      try{
-        if(transferPlan?.hasTransitions||approvedActiveTransport)
-          throw Error("Use the active guided leg's confirmed playback state.");
-        const playback=calculateGuidedPlayback({route:this.result,travel,
-          paths:navigationCanvasLegPaths(this.canvasProvider(),this.atlasProvider(this.scene),this.result),
-          gridSize:this.scene?.grid?.size,
-          secondsPerHour:readGuidedPlaybackSetting(game.settings)});
-        playbackLabel="Token playback: about "+formatPlaybackDuration(playback.durationSeconds)+" "+
-          "("+playback.secondsPerHour+" real seconds per in-game travel hour). "+
-          "Playback speed is visual only and does not change travel hours.";
-      }catch{
-        // Invalid/missing canvas geometry must not conceal the route summary.
-      }
       const status=renderNavigationSummaryStatus({clockHint,
         worldTimeStatus:this.travelSession?.clock||this.worldTimeAdvancedSeconds>0?
           this.worldTimeStatus():null,
         speedSource:transferPlan?.hasTransitions?null:"Speed: "+travelSource,
-        playbackLabel,terrainCostLabel:this.result.terrainAware?
+        terrainCostLabel:this.result.terrainAware?
           "Terrain-weighted distance: "+showDistance(this.result.cost)+"-equivalent":null});
-      body.append(...status.nodes);
+      // Rules and provenance remain available to the GM, but do not crowd
+      // the primary destination, method, timing and route actions.
+      const advanced=el("details");
+      advanced.style.cssText="font-size:.83em;";
+      const advancedTitle=el("summary","Travel calculation and World-time notes");
+      advancedTitle.style.cursor="pointer";
+      advanced.append(advancedTitle,...status.nodes);
+      body.append(advanced);
       this.worldTimeUI=status.worldTimeUI;
       const calculation=this.result.terrainWarning ||
         (approvedActiveTransport?
