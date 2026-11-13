@@ -85,7 +85,7 @@ import {renderNavigationFooter} from "./navigation-footer.js";
 import {NAVIGATION_STAGES,resolveNavigationStage} from "./navigation-stage-model.js";
 import {createNavigationStageShell,renderNavigationStageIntro,
   renderNavigationCompletedOverview} from "./navigation-stage-view.js";
-import {renderNavigationTravelMethodSelector}
+import {renderNavigationTravelMethodSelector,renderNavigationTravelMethodButtons}
   from "./navigation-selection-view.js";
 import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
@@ -94,6 +94,8 @@ import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote}
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
+import {navigationRouteMarkers} from "./navigation-direction-summary.js";
+import {renderNavigationPlaybackControls} from "./navigation-playback-controls-view.js";
 import {renderJourneyTargets} from "./navigation-targets-view.js";
 import {renderRepeatedCheckpointNotice,renderCheckpointArrivalPrompt,
   renderDailyTravelPrompt} from "./navigation-prompts-view.js";
@@ -152,6 +154,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mapPickActive=false;
     this.mapPickPrompt=null;
     this.mapPickPrevious=null;
+    this.playbackSecondsPerHourOverride=null;
+    this.directionsExpanded=false;
     this.result = null;
     this.itinerary=null;
     this.routeRevision=null;
@@ -204,6 +208,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mapPickActive=false;
     this.mapPickPrompt=null;
     this.mapPickPrevious=null;
+    this.playbackSecondsPerHourOverride=null;
+    this.directionsExpanded=false;
     this.travelMethod="walking";
     this.transportArrangement="owned";
     this.transportOperation="normal";
@@ -1816,7 +1822,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const playback=calculateGuidedPlayback({
       route,travel,paths,
       gridSize:this.scene.grid?.size,
-      secondsPerHour:readGuidedPlaybackSetting(game.settings)
+      secondsPerHour:this.recoveryRecord?.playbackSecondsPerHour??
+        this.playbackSecondsPerHourOverride??readGuidedPlaybackSetting(game.settings)
     });
     const chunks=planGuidedTravelChunks(waypoints,{
       movementSpeed:playback.movementSpeed,gridSize:this.scene.grid.size
@@ -1882,6 +1889,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         createJourneyRecord({sceneId:this.scene.id,tokenId:token.id,
           atlasRevision:atlas.revision,itinerary,journeyDestination:this.end,
           routeTargets,initialAnchor,approvedPath,
+          playbackSecondsPerHour:playback.secondsPerHour,
           startedWorldTime:departureStamp?.seconds??null,
           startedTimeLabel:departureStamp?.label??null,
           title:navigationJourneyTitle({atlas,
@@ -2447,6 +2455,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mapPickActive=false;
     const pickPrompt=this.mapPickPrompt;
     this.mapPickPrompt=null;this.mapPickPrevious=null;
+    this.playbackSecondsPerHourOverride=null;
+    this.directionsExpanded=false;
     void pickPrompt?.close?.();
     this.pointerTarget?.removeEventListener?.("pointerdown",this.pointerDown,true);
     this.pointerTarget = null;
@@ -3111,7 +3121,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         selectedValue:"approved",disabled:true,onMethodChange:()=>{}
       }));
     else if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)
-      body.appendChild(renderNavigationTravelMethodSelector({
+      body.appendChild(renderNavigationTravelMethodButtons({
         choices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
         disabled:Boolean(this.travelSession||this.journalStarting||approvedRecoveryTransport||
           approvedRecoveryLand),
