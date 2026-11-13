@@ -80,8 +80,8 @@ test("rest events and authored checkpoint/turn markers keep chronological order"
     const [view]=renderNavigationDirections({calculation:"Region rules explained.",
       rows,markers,formatDistance:d=>d+" mi",formatHours:h=>h+"h"});
     const items=view.children[2].children;
-    assert.equal(items.length,7,
-      "start, first approach, real checkpoint, rest, continuation, arrival and detail order");
+    assert.equal(items.length,6,
+      "start, condensed approach, checkpoint, rest, continuation and arrival");
     const content=textOf([view]);
     assert.ok(content.includes("Reach Southern Bridge"));
     assert.ok(content.includes("Long Rest"));
