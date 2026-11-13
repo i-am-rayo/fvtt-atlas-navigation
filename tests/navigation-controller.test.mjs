@@ -2638,6 +2638,8 @@ test("player rest completion prompt requires a saved rest and explicit active-GM
     assert.equal(await nav.offerPlayerRestPrompt(session,"long"),true);
     assert.equal(messages.length,1);
     assert.match(messages[0].content,/Review character resources/);
+    assert.deepEqual(messages[0].whisper,[]);
+    assert.equal(messages[0].blind,false);
     assert.deepEqual(prompts,["Notify players: rest complete?"]);
     game.users.activeGM={id:"other-gm"};
     assert.equal(await nav.offerPlayerRestPrompt(session,"long"),false);
