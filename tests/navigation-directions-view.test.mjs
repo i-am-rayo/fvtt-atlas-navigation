@@ -34,7 +34,7 @@ test("directions are collapsed by default and retain endpoint order without writ
     assert.ok(textOf([entries[1]]).includes("4.52 mi · 1h 30m"));
     assert.ok(textOf([entries[1]]).includes("Road · Rain"));
     assert.equal(entries[1].children[0].textContent,"↑");
-    assert.ok(textOf([entries[2]]).includes("Arrive at destination"));
+    assert.ok(textOf([entries[2]]).includes("Arrive at selected location"));
     assert.deepEqual(rows,[{kind:"direction",direction:"north",
       instruction:"Head north to Hearth's Heart",info:"4.52 mi · 1h 30m",
       surface:"Road · Rain"}]);
