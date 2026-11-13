@@ -34,15 +34,15 @@ export function projectNavigationRealPlayback({
  * change; do not silently clamp and claim the requested duration.
  */
 export function secondsPerHourForTargetMinutes(model,targetMinutes){
-  if(!Number.isFinite(targetMinutes)||targetMinutes<=0||targetMinutes>120)
-    throw Error("Choose a real-world target between 0 and 120 minutes.");
+  if(!Number.isFinite(targetMinutes)||targetMinutes<=0||targetMinutes>360)
+    throw Error("Choose a real-world target between 0 and 360 minutes.");
   const low=projectNavigationRealPlayback({...model,secondsPerHour:NAVIGATION_PLAYBACK_MIN});
   const high=projectNavigationRealPlayback({...model,secondsPerHour:NAVIGATION_PLAYBACK_MAX});
   const target=targetMinutes*60;
   if(target<low.fullOvernightSeconds-0.05||
       target>high.fullOvernightSeconds+0.05)
     throw Error("This trip cannot match that real-world duration with "+
-      "the supported 0.5–8 seconds/hour animation range. "+
+      "the supported 0.5–30 seconds/hour animation range. "+
       "Try a target between "+(low.fullOvernightSeconds/60).toFixed(1)+
       " and "+(high.fullOvernightSeconds/60).toFixed(1)+" minutes.");
   let left=NAVIGATION_PLAYBACK_MIN,right=NAVIGATION_PLAYBACK_MAX;
