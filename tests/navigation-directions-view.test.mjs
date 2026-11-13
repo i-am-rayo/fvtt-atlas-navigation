@@ -56,7 +56,7 @@ test("transfer directions do not disclose future legs and toggle preserves state
     });
     assert.equal(view.open,true);
     assert.match(view.children[0].textContent,/Directions to next decision/);
-    assert.ok(textOf([view.children[2]]).includes("Reach Port Barthos"));
+    assert.ok(textOf([view.children[2]]).includes("Arrive to Port Barthos"));
     assert.equal(textOf([view]).some(x=>x.includes("Later legs")),false);
     view.open=false;view.listeners.toggle();
     assert.deepEqual(calls,[false]);
