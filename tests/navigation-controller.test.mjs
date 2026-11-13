@@ -845,8 +845,8 @@ test("navigation locks the completed route until deliberate endpoint gestures or
       "the route Directions scroll without hiding travel controls");
     const travelButton=find(content,item=>item.tag==="button"&&item.ariaLabel==="Travel Route");
     assert.equal(footer.children.includes(travelButton),true);
-    assert.ok(find(content,item=>item.textContent?.startsWith?.("Token playback:")),
-      "Navigation displays the estimated animation duration independently of travel time");
+    assert.ok(find(content,item=>item.textContent==="Playback speed · this trip only"),
+      "Navigation exposes per-trip animation controls independently of travel time");
     nav.onSceneUpdated(scene,{flags:{unrelated:true}});
     assert.equal(calculations,3);assert.deepEqual(nav.end,point(120,50));
     nav.onSceneUpdated(scene,{flags:{"fvtt-atlas-navigation":{irrelevant:true}}});
@@ -877,14 +877,14 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     assert.equal(nav.travelMethod,"mounted");
     assert.equal(nav.result.status,"ok");
     const transportPanel=await nav._renderHTML();
-    const methodSelect=find(transportPanel,item=>item.tag==="select"&&
-      item.id==="atlas-navigation-travel-method");
+    const methodSelect=find(transportPanel,item=>item.tag==="input"&&
+      item.name==="atlas-navigation-travel-method"&&item.checked);
     assert.equal(methodSelect.value,"hire|mounted");
-    assert.equal(find(transportPanel,item=>item.tag==="option"&&
+    assert.equal(find(transportPanel,item=>item.tag==="input"&&
       item.value==="hire|rowboat"),undefined,
       "water offers must not appear for an all-land route");
-    assert.ok(find(transportPanel,item=>item.tag==="optgroup"&&item.label==="Party"));
-    assert.ok(find(transportPanel,item=>item.tag==="optgroup"&&item.label==="Starting Town"));
+    assert.ok(find(transportPanel,item=>item.textContent==="Party Owned"));
+    assert.ok(find(transportPanel,item=>item.textContent==="Available at Starting Town"));
     const transportButton=find(transportPanel,item=>item.tag==="button"&&
       item.ariaLabel==="Travel Route");
     assert.equal(transportButton.disabled,true,
@@ -898,10 +898,10 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     const hired=await nav._renderHTML();
     assert.ok(find(hired,item=>item.textContent?.startsWith?.("World preset estimate:")));
     const pencil=find(hired,item=>item.tag==="button"&&
-      item.title?.startsWith?.("Edit this journey's travel method"));
-    assert.ok(pencil,"Journey uses the shared method editor pencil");
+      item.textContent==="Edit selected method");
+    assert.ok(pencil,"Journey retains the per-trip method editor behind a clear action");
     assert.equal(find(hired,item=>item.textContent==="Arrangement"),undefined,
-      "the method's dropdown group already selects owned versus hired");
+      "the method's radio group already selects owned versus hired");
     assert.equal(find(hired,item=>item.textContent==="Operating schedule"),undefined,
       "the operating schedule belongs in the method editor");
     assert.equal(find(hired,item=>item.textContent==="GM pricing for this journey only"),undefined,
