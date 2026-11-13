@@ -2400,7 +2400,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
    * already-approved Journey; reload before then retains the previous value. */
   setLiveJourneyPlaybackSpeed(value){
     const session=this.travelSession;
-    if(!game.user?.isGM||!canAdjustLiveJourneyVisuals(session))return false;
+    if(!game.user?.isGM||!game.user?.id||
+        game.users?.activeGM?.id!==game.user.id||
+        !canAdjustLiveJourneyVisuals(session))return false;
     validatePlaybackSetting(value);
     session.playbackSecondsPerHour=value;
     if(this.active)void this.render(true);
@@ -2411,7 +2413,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
    * records every confirmed chunk and requires each GM rest decision. */
   async setSkipVisualJourney(skip){
     const session=this.travelSession;
-    if(!game.user?.isGM||!canAdjustLiveJourneyVisuals(session))return false;
+    if(!game.user?.isGM||!game.user?.id||
+        game.users?.activeGM?.id!==game.user.id||
+        !canAdjustLiveJourneyVisuals(session))return false;
     if(!skip){
       session.skipVisualPlayback=false;
       session.consolidatePlayerRestPrompts=false;
@@ -2456,14 +2460,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** A player prompt is an explicit GM-approved ChatMessage, not an Actor rest.
    * Failure to notify players can never replay or invalidate a confirmed rest. */
   async offerPlayerRestPrompt(session,action,{count=1}={}){
-    if(this.travelSession!==session||!game.user?.isGM||
+    if(this.travelSession!==session||!game.user?.isGM||!game.user?.id||
         game.users?.activeGM?.id!==game.user.id)return false;
     // This opt-in chat message must be grounded in durably saved rest events,
     // not merely a transient button click or an in-flight break.
     const events=session.journeyRecord?.legs?.at(-1)?.events??[];
     const confirmed=events.filter(event=>
       ["long","overnight"].includes(event.action)).length;
-    if(confirmed<count||typeof foundry?.applications?.api?.DialogV2?.confirm!=="function")
+    if(confirmed<count||
+        typeof globalThis.foundry?.applications?.api?.DialogV2?.confirm!=="function")
       return false;
     const label=count>1?count+" confirmed rest periods":
       action==="long"?"Long Rest":
@@ -2482,7 +2487,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       return false;
     }
     if(!approved||this.travelSession!==session||
-        !game.user?.isGM||game.users?.activeGM?.id!==game.user.id)return false;
+        !game.user?.isGM||!game.user?.id||
+        game.users?.activeGM?.id!==game.user.id)return false;
     try{
       if(typeof globalThis.ChatMessage?.create!=="function")
         throw Error("Foundry ChatMessage.create is unavailable.");
