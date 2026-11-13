@@ -22,14 +22,14 @@ export function projectNavigationRealPlayback({
   const longRestSeconds=stops*longRestHours*secondsPerHour;
   return Object.freeze({travelHours,stops,secondsPerHour,movementSeconds,
     overnightRestSeconds,longRestSeconds,
-    fullOvernightSeconds:movementSeconds+overnightRestSeconds,
+    fullLongRestSeconds:movementSeconds+overnightRestSeconds,
     fullLongRestSeconds:movementSeconds+longRestSeconds,
     eachOvernightSeconds:overnightHours*secondsPerHour,
     eachLongRestSeconds:longRestHours*secondsPerHour,
     capped:movementSeconds>=MAX_PLAYBACK_SECONDS});
 }
 
-/** Convert a requested real total (including planned 16h overnight stops)
+/** Convert a requested real total (including planned 8h Long Rest stops)
  * into seconds per in-game hour. Impossible targets fail before any state
  * change; do not silently clamp and claim the requested duration.
  */
@@ -39,17 +39,17 @@ export function secondsPerHourForTargetMinutes(model,targetMinutes){
   const low=projectNavigationRealPlayback({...model,secondsPerHour:NAVIGATION_PLAYBACK_MIN});
   const high=projectNavigationRealPlayback({...model,secondsPerHour:NAVIGATION_PLAYBACK_MAX});
   const target=targetMinutes*60;
-  if(target<low.fullOvernightSeconds-0.05||
-      target>high.fullOvernightSeconds+0.05)
+  if(target<low.fullLongRestSeconds-0.05||
+      target>high.fullLongRestSeconds+0.05)
     throw Error("This trip cannot match that real-world duration with "+
       "the supported 0.5–30 seconds/hour animation range. "+
-      "Try a target between "+(low.fullOvernightSeconds/60).toFixed(1)+
-      " and "+(high.fullOvernightSeconds/60).toFixed(1)+" minutes.");
+      "Try a target with 8h Long Rests between "+(low.fullLongRestSeconds/60).toFixed(1)+
+      " and "+(high.fullLongRestSeconds/60).toFixed(1)+" minutes.");
   let left=NAVIGATION_PLAYBACK_MIN,right=NAVIGATION_PLAYBACK_MAX;
   for(let i=0;i<48;i++){
     const mid=(left+right)/2;
     if(projectNavigationRealPlayback({...model,secondsPerHour:mid})
-      .fullOvernightSeconds<target)left=mid;
+      .fullLongRestSeconds<target)left=mid;
     else right=mid;
   }
   const result=(left+right)/2;
