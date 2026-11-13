@@ -9,7 +9,7 @@ import {captureApprovedJourneyPath} from "./navigation-approved-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
 import { planGuidedTravelChunks, waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS,
-  describeRejectedNativeTravelMove }
+  describeRejectedNativeTravelMove,toNativeIntegerWaypoints }
   from "./navigation-movement-lifecycle.js";
 import {planNativeCheckpointPath,anchorNativeTokenWaypoints,
   describeNativeCheckpointSources,NATIVE_CONTINUOUS_CHECKPOINT_SECONDS}
@@ -1756,6 +1756,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const chunks=planGuidedTravelChunks(waypoints,{
       movementSpeed:playback.movementSpeed,gridSize:this.scene.grid.size
     });
+    // Both native movement paths must use Foundry v14's integer pixel
+    // waypoint contract. Validate before creating or modifying any Journal.
+    if(!nativeContinuous)for(const chunk of chunks)
+      toNativeIntegerWaypoints(chunk.waypoints);
     const totalDistance=chunks.reduce((sum,chunk)=>sum+chunk.distance,0);
     const schedule=new GuidedTravelDayTracker({travelHours:playback.travelHours,
       rules:this.resolveTravelRules(travel,guidedOption?.method,
@@ -1935,7 +1939,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           sceneId:session.sceneId,chunk:index+1,chunkCount:chunks.length,
           plannedDurationMs:Math.round(session.currentChunk.durationMs)
         },{level:"verbose"});
-        const completed=await token.move(chunk.waypoints,{
+        // Atlas path geometry stays fractional; only the outbound public
+        // TokenDocument.move payload uses integer top-left pixel coordinates.
+        const nativeWaypoints=toNativeIntegerWaypoints(chunk.waypoints);
+        const completed=await token.move(nativeWaypoints,{
           animate:true,autoRotate:false,showRuler:false,pan:false,
           animation:{movementSpeed:playback.movementSpeed}
         });
@@ -1946,7 +1953,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         session.currentChunk=null;
         if(!completed){
           const outcome=describeRejectedNativeTravelMove({
-            waypoints:chunk.waypoints,position:{x:token.x,y:token.y},
+            waypoints:nativeWaypoints,position:{x:token.x,y:token.y},
             gridSize:session.gridSize,chunkIndex:index
           });
           interruptedReason=outcome.message;
@@ -1959,7 +1966,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           });
           reachedEnd=false;break;
         }
-        const target=chunk.waypoints.at(-1);
+        const target=nativeWaypoints.at(-1);
         if(Math.hypot(token.x-target.x,token.y-target.y)>
             Math.max(1,session.gridSize/20)){
           interruptedReason="The token left the planned road path. Recalculate before traveling again.";
