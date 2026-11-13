@@ -3518,9 +3518,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         metric(activeLeg?"Current Leg Total":"Total Trip",
           primary===null?"Choose method":formatNavigationDuration(
             primary.totalHours,24),
-          "Planning estimate: 8-hour Long Rests between travel days. "+
+          "Planning estimate: "+(rules.longRestHours??8)+"h Long Rests between travel days. "+
             "This does not authorize or automatically apply a rest; the GM still chooses each break.",
-          overnight&&!activeContinuous?"With 16h overnight stops: "+
+          overnight&&!activeContinuous?"With "+rules.overnightHours+"h overnight stops: "+
             formatNavigationDuration(overnight.totalHours,24):null);
         if(hours!==null&&Number.isFinite(hours)&&hours>0)
           realPlaybackModel={travelHours:hours,
