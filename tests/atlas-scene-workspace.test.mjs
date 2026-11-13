@@ -559,10 +559,7 @@ test("Named destination resolves current coordinates and blocks a stale selectio
     const planner={scene:ctx.scene,start:{x:0,y:0},atlasProvider:()=>graph,canvasProvider:()=>view,
       calculateRoute:(v,a)=>calls.push(v===view && a===graph),draw:()=>{},render:()=>{}};
     const controls=checkpointDestinationControl(planner);
-    const method=controls.children[0].children.find(node=>node.tag==="select");
-    const select=controls.children.find(node=>node.htmlFor==="atlas-navigation-destination-checkpoint").children.find(node=>node.tag==="select");
-    method.value="checkpoint";
-    await method.listeners.get("change")();
+    const select=controls.children[1].children[0].children.find(node=>node.tag==="select");
     select.value="c";
     graph.nodes[0].x=99;
     await select.listeners.get("change")();
