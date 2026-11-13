@@ -3,7 +3,9 @@
 import {checkpointDestinationGroups,checkpointSettlementNames}
   from "./navigation-destination-groups.js";
 import {roadAppearanceMode} from "./road-appearance.js";
-import {readWorldTravelPresets} from "./travel-preset-settings.js";
+import {TRAVEL_PRESET_SETTING,validateTravelPresets,defaultTravelPresets}
+  from "./travel-preset-model.js";
+import {MODULE_ID} from "./atlas-storage.js";
 import {listSceneGeography} from "./territory-geography-storage.js";
 import {inspectCheckpointTerritoryMembership} from "./territory-checkpoint-membership.js";
 import {territoryCheckpointLinks} from "./territory-checkpoint-link.js";
@@ -19,7 +21,8 @@ const el=(tag,text)=>{
 function groupedOptions(scene,atlas){
   let roadModes=new Map(),settlements=new Map();
   try{
-    const presets=readWorldTravelPresets().presets;
+    const presets=validateTravelPresets(globalThis.game?.settings?.get?.(MODULE_ID,
+      TRAVEL_PRESET_SETTING)??defaultTravelPresets()).presets;
     roadModes=new Map((atlas.roads??[]).map(road=>[
       road.id,roadAppearanceMode(road,presets)]));
   }catch(error){
