@@ -744,7 +744,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   onPointerDown(event) {
-    if(!this.scene||this.travelSession)return;
+    // A named destination and a canvas-click destination obey the same
+    // read-only preview lock. A saved A/B/C Journey must be reconciled via its
+    // Journal, not silently retargeted by Alt-click while recovering.
+    if(!this.scene||this.travelSession||this.pendingTransfer||
+        this.recoveryRecord||this.recoverableJourney||
+        this.completedRecord||this.completedRoute)return;
     const intent=navigationPointIntent(event,this);
     if(!intent)return;
     const view = this.canvasProvider();
