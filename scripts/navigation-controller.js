@@ -67,7 +67,7 @@ import { offersAtOrigin,checkpointOffers,saveCheckpointOffers,
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import {publishAtlasJourneyAnnouncement} from "./atlas-announcement-runtime.js";
-import { navigationJourneyTitle,journeyWorldStamp } from "./navigation-journey-title.js";
+import { navigationJourneyTitle,journeyWorldStamp,verifiedJourneyDestinationName } from "./navigation-journey-title.js";
 import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   validateJourneyRecord,eligibleJourneyRecord,isUnfinishedJourneyLeg,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
@@ -2366,6 +2366,96 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "Choose the next destination to continue this Journey without replaying past travel.";
     this.draw();await this.render(true);
     return true;
+  }
+
+  /** A live speed edit is visual only and never retimes a running v14 move.
+   * A confirmed native movement checkpoint persists the preference with the
+   * already-approved Journey; reload before then retains the previous value. */
+  setLiveJourneyPlaybackSpeed(value){
+    const session=this.travelSession;
+    if(!game.user?.isGM||!canAdjustLiveJourneyVisuals(session))return false;
+    validatePlaybackSetting(value);
+    session.playbackSecondsPerHour=value;
+    if(this.active)void this.render(true);
+    return true;
+  }
+
+  /** Opt-in visual fast-forward: native token.move still validates constraints,
+   * records every confirmed chunk and requires each GM rest decision. */
+  async setSkipVisualJourney(skip){
+    const session=this.travelSession;
+    if(!game.user?.isGM||!canAdjustLiveJourneyVisuals(session))return false;
+    if(!skip){
+      session.skipVisualPlayback=false;
+      session.consolidatePlayerRestPrompts=false;
+      if(this.active)void this.render(true);
+      return true;
+    }
+    const approved=await foundry.applications.api.DialogV2.confirm({
+      window:{title:"Skip visual Journey playback"},
+      content:"Skip future token animations and confirmed visual rest waits? "+
+        "Foundry will still validate native movement, save the Journey, "+
+        "advance World time only for confirmed actions, and require the GM "+
+        "to decide every scheduled rest. This does not teleport the party "+
+        "or consolidate in-game rest periods.",
+      rejectClose:false,modal:true
+    });
+    if(!approved||this.travelSession!==session||
+        !canAdjustLiveJourneyVisuals(session))return false;
+    session.skipVisualPlayback=true;
+    // Consolidation changes only OPTIONAL player-facing prompts, never the
+    // number or duration of approved gameplay rests.
+    if(expectedAdditionalTravelBreaks(session)>=2){
+      session.consolidatePlayerRestPrompts=Boolean(
+        await foundry.applications.api.DialogV2.confirm({
+          window:{title:"Consolidate player rest notices?"},
+          content:"Several GM rest decisions may still be required. "+
+            "Would you prefer one player-facing chat prompt at the end "+
+            "of this leg instead of one prompt after each confirmed rest? "+
+            "All distinct in-game rests and their World-time/Journal "+
+            "records remain separate.",
+          rejectClose:false,modal:true
+        }));
+    }
+    if(this.travelSession!==session)return false;
+    // This visual timer exists only after the rest was already committed.
+    if(session.phase==="rest-holding")session.visualRestHold?.finish?.();
+    this.travelNotice="Skipping visual playback at the next confirmed native "+
+      "movement boundary. Every required rest still needs GM approval.";
+    if(this.active)void this.render(true);
+    return true;
+  }
+
+  /** A player prompt is an explicit GM-approved ChatMessage, not an Actor rest.
+   * Failure to notify players can never replay or invalidate a confirmed rest. */
+  async offerPlayerRestPrompt(session,action,{count=1}={}){
+    if(this.travelSession!==session||!game.user?.isGM||
+        game.users?.activeGM?.id!==game.user.id)return false;
+    const label=count>1?count+" confirmed rest periods":
+      action==="long"?"Long Rest":
+      action==="overnight"?"Overnight Camp":"Short Rest";
+    const approved=await foundry.applications.api.DialogV2.confirm({
+      window:{title:"Notify players: rest complete?"},
+      content:"The "+label+" is already recorded in the Journey. "+
+        "Send players a public chat notice to review their character sheets? "+
+        "Atlas will not automatically invoke any Actor rest action.",
+      rejectClose:false,modal:true
+    });
+    if(!approved||this.travelSession!==session||
+        !game.user?.isGM||game.users?.activeGM?.id!==game.user.id)return false;
+    try{
+      if(typeof ChatMessage?.create!=="function")
+        throw Error("Foundry ChatMessage.create is unavailable.");
+      await ChatMessage.create({content:"<p><strong>Atlas Journey:</strong> "+
+        "The GM-confirmed "+label+" is complete. "+
+        "Review character resources with your GM before continuing.</p>"});
+      return true;
+    }catch(error){
+      atlasWarn("journey","Player rest completion notice could not post",error);
+      globalThis.ui?.notifications?.warn?.(
+        "Rest was confirmed, but the player chat notice could not post.");
+      return false;
+    }
   }
 
   /** Pause at the next short native movement boundary (nominally ~2s). */
