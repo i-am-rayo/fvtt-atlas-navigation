@@ -2,7 +2,7 @@
  * confirmed before a hold begins; this timer never advances either. */
 export function visualRestDurationMs(hours,secondsPerHour){
   if(!Number.isFinite(hours)||hours<0||hours>24||
-      !Number.isFinite(secondsPerHour)||secondsPerHour<0.5||secondsPerHour>8)
+      !Number.isFinite(secondsPerHour)||secondsPerHour<0.5||secondsPerHour>30)
     throw Error("Rest playback requires valid hours and visual speed.");
   return Math.round(hours*secondsPerHour*1000);
 }
@@ -10,7 +10,7 @@ export function visualRestDurationMs(hours,secondsPerHour){
 /** A cancellable UI delay. Canvas teardown/end must release its waiter. */
 export function createVisualRestHold(durationMs,{schedule=(fn,ms)=>
   globalThis.setTimeout(fn,ms),cancelTimer=id=>globalThis.clearTimeout(id)}={}){
-  if(!Number.isInteger(durationMs)||durationMs<0||durationMs>192000)
+  if(!Number.isInteger(durationMs)||durationMs<0||durationMs>720000)
     throw Error("Rest playback duration is invalid.");
   if(durationMs===0)return {finished:Promise.resolve(true),cancel(){}};
   let timer=null,settle=null;
