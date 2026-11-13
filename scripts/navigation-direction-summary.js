@@ -6,6 +6,19 @@ const valid=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y);
 const near=(a,b,tolerance=.02)=>valid(a)&&valid(b)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
 
+/** A verified saved Checkpoint is the arrival; otherwise only a uniquely
+ * aligned final Route endpoint can provide an arrival name. */
+export function navigationDestinationCheckpoint(route,atlas,selectedCheckpointId=null){
+  const endpoint=route?.status==="ok"?route.legs?.at(-1)?.points?.at(-1):null;
+  if(!valid(endpoint))return null;
+  const nodes=new Map((atlas?.nodes??[]).map(n=>[n.id,n]));
+  const matches=(atlas?.checkpoints??[]).filter(cp=>
+    typeof cp?.name==="string"&&cp.name.trim()&&
+    near(nodes.get(cp.nodeId),endpoint));
+  const selected=matches.find(cp=>cp.id===selectedCheckpointId);
+  return selected??(matches.length===1?matches[0]:null);
+}
+
 /** Only a named Atlas Checkpoint at an intermediate route-leg endpoint
  * can produce a "Reach ..." instruction. No speculative discovery implied.
  */
@@ -15,6 +28,7 @@ export function navigationRouteMarkers(route,atlas,{destinationLabel=null}={}){
   const checkpoints=(atlas?.checkpoints??[]).filter(cp=>
     cp.name&&valid(nodes.get(cp.nodeId)));
   let travelled=0;
+  const finalCheckpoint=navigationDestinationCheckpoint(route,atlas);
   const seen=new Set(),markers=[];
   for(let index=0;index<route.legs.length-1;index++){
     const leg=route.legs[index],next=route.legs[index+1];
@@ -23,7 +37,7 @@ export function navigationRouteMarkers(route,atlas,{destinationLabel=null}={}){
     if(!near(end,startNext))continue;
     const at=checkpoints.filter(cp=>near(nodes.get(cp.nodeId),end));
     for(const cp of at){
-      if(seen.has(cp.id))continue;
+      if(seen.has(cp.id)||cp.id===finalCheckpoint?.id)continue;
       seen.add(cp.id);
       markers.push({kind:"checkpoint",atDistance:travelled,
         label:"Reach "+cp.name,checkpointId:cp.id});
