@@ -101,6 +101,7 @@ export function renderNavigationTravelMethodButtons({choices,selectedValue,
       group.append(heading,buttons);
       groups.set(origin,buttons);
       section.appendChild(group);
+      group=buttons;
     }
     const id="atlas-navigation-method-"+choice.value.replace(/[^a-zA-Z0-9_-]/g,"-");
     const label=el("label");
