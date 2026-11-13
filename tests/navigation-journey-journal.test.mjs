@@ -363,7 +363,7 @@ test("per-trip visual compression survives an interrupted Journey without schema
     "older records remain readable with World playback fallback");
   assert.equal(eligibleJourneyRecord(resumed,{
     sceneId:"scene",tokenId:"token",atlasRevision:12}),true);
-  for(const invalid of [-1,8.1,NaN,"4"]){
+  for(const invalid of [-1,30.1,NaN,"4"]){
     const broken=structuredClone(resumed);
     broken.playbackSecondsPerHour=invalid;
     assert.equal(eligibleJourneyRecord(broken,{
