@@ -2981,16 +2981,27 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         (step.action?.endsWith("-underway")?"rest aboard while underway":"downtime")+" · ":"")+
         "After "+formatNavigationDuration(step.atHours,24)+" on this leg"
     }:{kind:"direction",direction:step.direction,instruction:step.instruction,
+      distanceValue:step.distance,
+      hoursValue:navigationHours(leg?.terrainAware?step.cost:step.distance,speed),
       info:showDistance(step.distance)+" · "+
         formatGuidedWorldTime(Math.round(navigationHours(
           leg?.terrainAware?step.cost:step.distance,speed)*3600)),
       surface:[step.terrain==="Unspecified terrain"?null:step.terrain,
         step.regionName&&step.regionName!==step.terrain?step.regionName:null]
         .filter(Boolean).join(" · ")});
+    const destinationLabel=naming.preferRoadName?
+      naming.directionRoadName(routeLegs.find(l=>l.kind==="road")?.roadId):null;
     body.append(...renderNavigationDirections({
       calculation:"Only confirmed TokenDocument movement and Journal checkpoints affect recovery. The next checkpoint requires a separate GM decision.",
       transfer:Boolean(session.transportLeg),
-      arrivalCheckpointName:session.transportLeg?.checkpoint?.name??null,rows}));
+      arrivalCheckpointName:session.transportLeg?.checkpoint?.name??null,
+      markers:navigationRouteMarkers({status:"ok",legs:routeLegs},atlas,
+        {destinationLabel}),
+      expanded:this.directionsExpanded,
+      onExpandedChange:value=>{this.directionsExpanded=value;},
+      formatDistance:showDistance,
+      formatHours:value=>formatGuidedWorldTime(Math.round(value*3600)),
+      rows}));
     root.append(body,renderNavigationFooter(this,{partyMode}));
     return root;
   }
@@ -3624,6 +3635,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               "One extra travel hour approved · "+timeContext};
         }
         return {kind:"direction",direction:step.direction,instruction:step.instruction,
+          distanceValue:step.distance,
+          hoursValue:navigationHours(this.result.terrainAware?step.cost:step.distance,speed),
           info:showDistance(step.distance)+
             (transferPlan?.hasTransitions?" · See per-leg time above":" · "+
               formatGuidedWorldTime(Math.round(navigationHours(
@@ -3632,9 +3645,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             step.regionName&&step.regionName!==step.terrain?step.regionName:null]
             .filter(Boolean).join(" · ")};
       });
+      const routeLegs=this.result.legs;
+      const destinationLabel=naming.preferRoadName?
+        naming.directionRoadName(routeLegs.find(l=>l.kind==="road")?.roadId):null;
       body.append(...renderNavigationDirections({calculation,
         transfer:Boolean(transferPlan?.hasTransitions),
         arrivalCheckpointName:transferPlan?.legs[0]?.arrivalCheckpoint?.name??null,
+        markers:navigationRouteMarkers(this.result,this.atlasProvider(this.scene),
+          {destinationLabel}),
+        expanded:this.directionsExpanded,
+        onExpandedChange:value=>{this.directionsExpanded=value;},
+        formatDistance:showDistance,
+        formatHours:value=>formatGuidedWorldTime(Math.round(value*3600)),
         rows}));
     } else {
       const hint=el("p",this.pendingTransfer?
