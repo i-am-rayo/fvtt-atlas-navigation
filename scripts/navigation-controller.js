@@ -1686,6 +1686,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("A GM must calculate a route on the active Scene before guided travel.");
     if(!this.result.legs?.some(leg=>leg.kind==="road"))
       throw Error("Guided travel requires a route containing an Atlas road.");
+    // A preview of fewer PCs cannot move the same complete Group token.
+    // Never override recovery decisions for an already approved Journey.
+    if(!this.recoveryRecord&&!this.recoverableJourney){
+      const preview=this.partyTravelSelection(
+        availableNavigationTravelMethods(game.settings,game.system?.id));
+      if(preview?.partial||preview?.empty)
+        throw Error("A split party requires a separate assigned Group/explorer "+
+          "token before Travel can be approved. This preview cannot move the full party.");
+    }
     if(this.travelMethod!=="walking"&&this.sourceMode!=="party")
       throw Error("Guided mounted/sailing journeys require checkpoint transfers from the assigned party token.");
     const token=this.getPartyToken();
