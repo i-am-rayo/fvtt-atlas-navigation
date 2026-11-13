@@ -71,9 +71,10 @@ export function compactNavigationDirectionRows(rows,{markers=[],
       previous.direction===row.direction;
     // Only suppress repetition when no milestone lies inside or before the
     // current row. A milestone always separates route instructions.
-    const markerDue=sorted[markIndex]&&distance!==null&&
-      sorted[markIndex].atDistance<=progress+distance+0.02;
-    if(canMerge&&!markerDue){
+    const markerInside=sorted[markIndex]&&distance!==null&&
+      sorted[markIndex].atDistance>progress+0.02&&
+      sorted[markIndex].atDistance<progress+distance-0.02;
+    if(canMerge&&!markerInside){
       previous.distanceValue+=distance??0;
       previous.hoursValue+=hours??0;
       previous.segments.push({info:row.info,surface:row.surface});
