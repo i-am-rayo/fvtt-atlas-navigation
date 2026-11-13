@@ -23,14 +23,26 @@ export function renderNavigationSummaryMetrics({
 }){
   const summary=el("div");
   summary.style.cssText="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;";
-  for(const {label,value} of metrics){
+  for(const {label,value,tooltip=null,hint=null} of metrics){
     const card=el("div");
-    card.style.cssText="border:1px solid var(--color-border-light-tertiary,#666);border-radius:8px;padding:.75rem;min-width:0;";
+    card.style.cssText="border:1px solid var(--color-border-light-tertiary,#666);border-radius:8px;padding:.65rem;min-width:0;";
     const small=el("div",label);
-    small.style.cssText="font-size:.8em;opacity:.75;margin-bottom:.25rem;";
+    small.style.cssText="font-size:.8em;opacity:.8;margin-bottom:.25rem;";
+    if(tooltip){
+      const info=el("span"," ⓘ");
+      info.title=tooltip;
+      info.setAttribute?.("aria-label",tooltip);
+      info.style.cssText="cursor:help;";
+      small.appendChild(info);
+    }
     const big=el("strong",value);
-    big.style.cssText="font-size:1.15em;";
+    big.style.cssText="font-size:1.12em;overflow-wrap:anywhere;";
     card.append(small,big);
+    if(hint){
+      const alternative=el("small",hint);
+      alternative.style.cssText="display:block;opacity:.75;margin-top:.3rem;line-height:1.3;";
+      card.appendChild(alternative);
+    }
     summary.appendChild(card);
   }
   const nodes=[summary];
