@@ -1,92 +1,103 @@
 /**
- * Read-only GM Navigation directions display.
- *
- * The controller supplies permitted, formatted directions and event labels.
- * This view owns only DOM. It cannot calculate a route, approve a rest,
- * access Foundry data or write token, World-time or Journal state.
+ * Accessible collapsible GM Navigation route explanation.
+ * Display-only: no Scene mutation, movement, Journal or permission decisions.
  */
 import {NAVIGATION_ARROWS} from "./navigation-instructions.js";
+import {compactNavigationDirectionRows} from "./navigation-direction-summary.js";
 
-const el=(tag,content)=>{
+const el=(tag,text)=>{
   const node=document.createElement(tag);
-  if(content!==undefined)node.textContent=content;
+  if(text!==undefined)node.textContent=text;
   return node;
 };
 
-/**
- * @param {object} model
- * @param {string} model.calculation Already resolved explanatory text.
- * @param {boolean} model.transfer Whether this is the next transfer leg.
- * @param {string|null} model.arrivalCheckpointName
- * @param {Array<object>} model.rows Preformatted directions and Journey events.
- * @returns {HTMLElement[]} Original details, heading and list order.
- */
 export function renderNavigationDirections({
-  calculation,transfer=false,arrivalCheckpointName=null,rows=[]
-}){
-  const details=el("details");
-  const summaryText=el("summary","How Atlas calculated this journey");
-  summaryText.style.cursor="pointer";
-  details.appendChild(summaryText);
-  const note=el("p",calculation);
-  note.style.cssText="font-size:.85em;opacity:.85;line-height:1.4;margin:.4rem 0;";
-  details.appendChild(note);
+  calculation,transfer=false,arrivalCheckpointName=null,rows=[],
+  markers=[],expanded=false,onExpandedChange=null,
+  formatDistance=null,formatHours=null
+}={}){
+  const condensed=compactNavigationDirectionRows(rows,{
+    markers,formatDistance,formatHours});
+  const directionCount=condensed.filter(r=>r.kind==="direction").length;
+  const eventCount=condensed.filter(r=>r.kind==="route-marker").length;
+  const root=el("details");
+  root.className="atlas-navigation-directions";
+  root.open=Boolean(expanded);
+  root.style.cssText="border:1px solid var(--color-border-light-tertiary,#555);border-radius:9px;padding:.65rem .8rem;";
+  const headline=el("summary",
+    (transfer?"Directions to next decision":"Directions")+" · "+
+    directionCount+" step(s)"+
+    (eventCount?" · "+eventCount+" landmark(s)":""));
+  headline.style.cssText="cursor:pointer;font-weight:700;font-size:1.05em;";
+  root.appendChild(headline);
+  root.addEventListener("toggle",()=>onExpandedChange?.(Boolean(root.open)));
+  const explanation=el("details");
+  explanation.style.cssText="margin:.5rem 0;font-size:.8em;opacity:.8;";
+  explanation.appendChild(el("summary","How Atlas calculated this trip"));
+  const description=el("p",calculation);
+  description.style.margin=".4rem 0";
+  explanation.appendChild(description);
+  root.appendChild(explanation);
 
-  const heading=el("h3",transfer?"Directions to next decision point":"Directions");
-  heading.style.cssText="margin:.2rem 0 0;";
-  const list=el("div");
-  list.style.cssText="display:flex;flex-direction:column;gap:.4rem;";
-  const endpoint=atStart=>{
-    const item=el("div");
-    item.style.cssText="display:flex;align-items:center;gap:.8rem;padding:.8rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:8px;";
-    const marker=el("span",atStart?"●":"◆");
-    marker.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;font-weight:bold;color:white;background:"+
-      (atStart?"#16a765":"#d83c49")+";";
-    const content=el("div");
-    const name=el("strong",atStart?"Depart from starting point":
+  const list=el("ol");
+  list.className="atlas-navigation-direction-list";
+  list.style.cssText="display:grid;gap:.35rem;list-style:none;margin:.55rem 0 0;padding:0;";
+  const endpoint=(start)=>{
+    const item=el("li");
+    item.style.cssText="display:flex;gap:.65rem;padding:.4rem .35rem;align-items:center;";
+    const icon=el("span",start?"●":"◆");
+    icon.style.cssText="width:1.6rem;text-align:center;color:"+(start?"#16a765":"#d83c49")+";";
+    const text=el("strong",start?"Depart with the party":
       transfer?"Reach "+(arrivalCheckpointName??"the next decision point"):
         "Arrive at destination");
-    const detail=el("div",atStart?"Starting location":
-      transfer?"Decide whether to stop, replan or continue":"Final destination");
-    detail.style.cssText="opacity:.7;font-size:.8em;margin-top:.2rem;";
-    content.append(name,detail);
-    item.append(marker,content);
-    return item;
+    item.append(icon,text);return item;
   };
   list.appendChild(endpoint(true));
-  for(const row of rows){
+  for(const row of condensed){
+    const item=el("li");
+    item.style.cssText="display:flex;gap:.65rem;align-items:flex-start;"+
+      "padding:.55rem .35rem;border-top:1px solid var(--color-border-light-tertiary,#444);";
+    let marker,label,info;
     if(row.kind==="journey-event"){
-      const item=el("div");
-      item.style.cssText="display:flex;align-items:center;gap:.8rem;padding:.8rem;border:1px solid #b18b54;border-radius:8px;background:rgba(177,139,84,.08);";
-      const badge=el("span",row.marker);
-      badge.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;background:#5c482c;";
-      const content=el("div");
-      const name=el("strong",row.label);
-      const detail=el("div",row.detail);
-      detail.style.cssText="opacity:.75;font-size:.85em;margin-top:.2rem;";
-      content.append(name,detail);
-      item.append(badge,content);
-      list.appendChild(item);
-      continue;
+      marker=row.marker||"☕";label=row.label;info=row.detail;
+    }else if(row.kind==="route-marker"){
+      marker=row.kind==="checkpoint"?"⚑":"↱";
+      marker=row.checkpointId?"⚑":"↱";
+      label=row.label;info=null;
+    }else{
+      marker=NAVIGATION_ARROWS[row.direction]??"•";
+      label=row.instruction;info=row.info;
     }
-    const item=el("div");
-    item.style.cssText="display:flex;align-items:flex-start;gap:.8rem;padding:.8rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:8px;";
-    const marker=el("span",NAVIGATION_ARROWS[row.direction]??"•");
-    marker.style.cssText="display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;background:var(--color-cool-4,#333);font-weight:bold;";
-    marker.title=row.direction||"Route";
+    const symbol=el("span",marker);
+    symbol.style.cssText="width:1.6rem;flex:0 0 1.6rem;text-align:center;font-size:1.2em;";
     const content=el("div");
     content.style.minWidth="0";
-    const instruction=el("strong",row.instruction);
-    instruction.style.display="block";
-    const info=el("div",row.info);
-    info.style.cssText="opacity:.75;font-size:.85em;margin-top:.3rem;";
-    const surface=el("div",row.surface);
-    surface.style.cssText="opacity:.55;font-size:.72em;margin-top:.18rem;";
-    content.append(instruction,info);
-    if(surface.textContent)content.appendChild(surface);
-    item.append(marker,content);
+    content.appendChild(el("strong",label));
+    if(info){
+      const fine=el("div",info);
+      fine.style.cssText="font-size:.8em;opacity:.73;margin-top:.2rem;";
+      content.appendChild(fine);
+    }
+    if(row.kind==="direction"&&row.segments?.length>1){
+      const nested=el("details");
+      nested.style.cssText="margin-top:.3rem;font-size:.78em;opacity:.8;";
+      nested.appendChild(el("summary",
+        "Show "+row.segments.length+" terrain / road segments"));
+      const breakdown=el("ul");
+      breakdown.style.cssText="padding-left:1.2rem;margin:.2rem 0;";
+      for(const part of row.segments)
+        breakdown.appendChild(el("li",[part.info,part.surface].filter(Boolean).join(" · ")));
+      nested.appendChild(breakdown);
+      content.appendChild(nested);
+    }else if(row.kind==="direction"&&row.surface){
+      const surface=el("small",row.surface);
+      surface.style.cssText="display:block;opacity:.65;margin-top:.2rem;";
+      content.appendChild(surface);
+    }
+    item.append(symbol,content);
     list.appendChild(item);
   }
   list.appendChild(endpoint(false));
-  return [details,heading,list];
+  root.appendChild(list);
+  return [root];
 }

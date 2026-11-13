@@ -1,14 +1,9 @@
-/** GM-only destination picker. Map clicks and named checkpoints set the
- * same transient Point B and use the same authorized route-calculation path. */
-import {checkpointDestinationGroups,checkpointSettlementNames}
-  from "./navigation-destination-groups.js";
+/** Two read-only preview sources for Point B: Checkpoint (default) or map. */
+import {checkpointDestinationGroups} from "./navigation-destination-groups.js";
 import {roadAppearanceMode} from "./road-appearance.js";
 import {TRAVEL_PRESET_SETTING,validateTravelPresets,defaultTravelPresets}
   from "./travel-preset-model.js";
 import {MODULE_ID} from "./atlas-storage.js";
-import {listSceneGeography} from "./territory-geography-storage.js";
-import {inspectCheckpointTerritoryMembership} from "./territory-checkpoint-membership.js";
-import {territoryCheckpointLinks} from "./territory-checkpoint-link.js";
 
 const el=(tag,text)=>{
   const node=document.createElement(tag);
@@ -16,69 +11,46 @@ const el=(tag,text)=>{
   return node;
 };
 
-/** Read-only adapter: unavailable native geography never prevents a GM from
- * selecting a known Atlas Checkpoint by its stable ID. */
-function groupedOptions(scene,atlas){
-  let roadModes=new Map(),settlements=new Map();
+function groupsFor(scene,atlas){
+  let modes=new Map();
   try{
     const presets=validateTravelPresets(globalThis.game?.settings?.get?.(MODULE_ID,
       TRAVEL_PRESET_SETTING)??defaultTravelPresets()).presets;
-    roadModes=new Map((atlas.roads??[]).map(road=>[
+    modes=new Map((atlas.roads??[]).map(road=>[
       road.id,roadAppearanceMode(road,presets)]));
   }catch(error){
-    console.warn("[fvtt-atlas-navigation] Destination terrain categories unavailable",error);
+    console.warn("[fvtt-atlas-navigation] Destination terrain unavailable",error);
   }
-  try{
-    const territories=listSceneGeography(scene);
-    const matches=inspectCheckpointTerritoryMembership(scene);
-    settlements=checkpointSettlementNames(territories,
-      matches.available?matches.items:[],territoryCheckpointLinks(scene));
-  }catch(error){
-    console.warn("[fvtt-atlas-navigation] Destination territory categories unavailable",error);
-  }
-  return checkpointDestinationGroups(atlas,{roadModes,settlements});
+  return checkpointDestinationGroups(atlas,{roadModes:modes});
 }
 
-/** Map and checkpoint selection remain mutually exclusive preview methods;
- * neither creates or resumes a Journey, moves a token or commits World time. */
+/** Rendering must never modify the Scene or initiate a Journey. */
 export function checkpointDestinationControl(planner){
   const scene=planner.scene;
   const locked=()=>planner.travelSession||planner.pendingTransfer||planner.recoveryRecord||
-    planner.recoverableJourney||planner.completedRecord||planner.completedRoute;
+    planner.recoverableJourney||planner.completedRecord||planner.completedRoute||
+    planner.journalStarting;
   if(!scene||locked())return null;
   const atlas=planner.atlasProvider(scene);
   const root=el("div");
   root.className="atlas-navigation-destination-choice";
-  root.style.cssText="display:grid;gap:.4rem;min-width:0;";
-
-  const methodLabel=el("label","Choose destination by");
-  methodLabel.htmlFor="atlas-navigation-destination-method";
-  const method=el("select");
-  method.id="atlas-navigation-destination-method";
-  method.style.width="100%";
-  for(const [value,label] of [["map","Click a location on the map"],
-    ["checkpoint","Select from checkpoint list"]]){
-    const item=el("option",label);item.value=value;method.appendChild(item);
-  }
-  method.value=planner.destinationMode==="checkpoint"?"checkpoint":"map";
-  methodLabel.appendChild(method);
-  root.appendChild(methodLabel);
-
-  const help=el("small","Map: click Point B once Point A is set. Alt/Option+click "+
-    "replaces Point B. Checkpoints use their saved Atlas Node.");
-  help.style.cssText="opacity:.8;line-height:1.35;";
-  root.appendChild(help);
-
-  const checkpointLabel=el("label","Destination checkpoint");
-  checkpointLabel.htmlFor="atlas-navigation-destination-checkpoint";
+  root.style.cssText="display:grid;gap:.35rem;min-width:0;";
+  const heading=el("strong","Destination");
+  root.appendChild(heading);
+  const row=el("div");
+  row.style.cssText="display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;";
+  const label=el("label","Destination checkpoint");
+  label.htmlFor="atlas-navigation-destination-checkpoint";
+  label.style.cssText="flex:1;min-width:13rem;display:grid;gap:.25rem;font-size:.84em;";
   const select=el("select");
   select.id="atlas-navigation-destination-checkpoint";
-  select.style.cssText="width:100%;min-width:0;";
+  select.title="Choose a known Atlas Checkpoint by its saved Node";
+  select.style.cssText="width:100%;min-width:0;font-size:1rem;";
   const placeholder=el("option",(atlas.checkpoints??[]).length?
-    "Choose a checkpoint":"No checkpoints on this Scene");
+    "Choose a checkpoint…":"No checkpoints on this Scene");
   placeholder.value="";
   select.appendChild(placeholder);
-  for(const group of groupedOptions(scene,atlas)){
+  for(const group of groupsFor(scene,atlas)){
     const optgroup=el("optgroup");
     optgroup.label=group.label;
     for(const cp of group.entries){
@@ -89,44 +61,44 @@ export function checkpointDestinationControl(planner){
     select.appendChild(optgroup);
   }
   const remembered=planner.selectedCheckpointId;
-  select.value=remembered&&(atlas.checkpoints??[]).some(c=>c.id===remembered)?
+  select.value=remembered&&(atlas.checkpoints??[]).some(cp=>cp.id===remembered)?
     remembered:"";
   select.disabled=!planner.start||!(atlas.checkpoints??[]).length;
-  checkpointLabel.appendChild(select);
-  checkpointLabel.hidden=method.value!=="checkpoint";
-  root.appendChild(checkpointLabel);
-
-  method.addEventListener("change",()=>{
+  label.appendChild(select);
+  const map=el("button","Pick on map");
+  map.type="button";
+  map.title="Minimize Navigation and select a destination anywhere on the Scene";
+  map.setAttribute?.("aria-label","Pick destination location on map");
+  map.style.cssText="align-self:end;min-height:2.5rem;white-space:nowrap;";
+  map.disabled=!planner.start;
+  map.addEventListener("click",()=>{
     if(locked()||planner.scene!==scene)return;
-    const next=method.value;
-    if(!["map","checkpoint"].includes(next))return;
     const view=planner.canvasProvider();
-    if(!game.user?.isGM||!view?.ready||view.scene?.id!==scene.id||
+    if(!globalThis.game?.user?.isGM||!view?.ready||view.scene?.id!==scene.id||
         !scene.canUserModify?.(game.user,"update"))return;
-    const current=planner.atlasProvider(scene);
-    const hadDestination=Boolean(planner.end);
-    planner.destinationMode=next;
-    planner.selectedCheckpointId=null;
-    planner.notice="";
-    // Replacing the *preview* Point B is deliberate; no active/approved
-    // Journey is present. Preserve the party token or Map Point A.
-    planner.end=null;
-    if(hadDestination)planner.calculateRoute(view,current);
-    planner.draw();
-    void planner.render(true);
+    planner.beginMapDestinationPick?.();
   });
+  row.append(label,map);
+  root.appendChild(row);
+  if(planner.destinationMode==="map"&&planner.end&&!planner.selectedCheckpointId){
+    const detail=el("small","Map location selected. Pick again to change it.");
+    detail.style.opacity=".75";
+    root.appendChild(detail);
+  }
 
   select.addEventListener("change",async()=>{
     const view=planner.canvasProvider();
-    if(!select.value||method.value!=="checkpoint"||locked()||!planner.start||
-        planner.scene!==scene||!game.user?.isGM||!view?.ready||
-        view.scene?.id!==scene.id||!scene.canUserModify?.(game.user,"update"))return;
+    if(!select.value||locked()||planner.scene!==scene||
+        !globalThis.game?.user?.isGM||!view?.ready||view.scene?.id!==scene.id||
+        !scene.canUserModify?.(game.user,"update"))return;
     try{
       const current=planner.atlasProvider(scene);
       const cp=current.checkpoints.find(item=>item.id===select.value);
       const node=cp&&current.nodes.find(item=>item.id===cp.nodeId);
       if(!Number.isFinite(node?.x)||!Number.isFinite(node?.y))
         throw Error("This checkpoint is no longer available.");
+      // Only preview Point A/B change. Never write native Token position or
+      // approve time/Journal as a consequence of selecting a destination.
       if(planner.sourceMode==="party")planner.syncPartyDeparture(view,current);
       if(!planner.start)return;
       planner.notice="";

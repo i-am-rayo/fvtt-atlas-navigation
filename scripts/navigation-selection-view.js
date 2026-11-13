@@ -71,3 +71,78 @@ export function renderNavigationTravelMethodSelector({choices,selectedValue,
   }
   return row;
 }
+
+/**
+ * Only one GM-approved planning method can be selected at a time.
+ * Each choice retains its original owned/hire identifier, availability
+ * checks and editor workflow; radio controls are a presentation replacement
+ * for the previous optgroup select, not new transportation authority.
+ */
+export function renderNavigationTravelMethodButtons({choices,selectedValue,
+  disabled=false,showEditor=false,onMethodChange,onEdit}){
+  const section=el("fieldset");
+  section.className="atlas-navigation-methods";
+  section.style.cssText="display:grid;gap:.55rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:9px;padding:.7rem;margin:0;min-width:0;";
+  const title=el("legend","Travel method");
+  title.style.cssText="font-weight:700;padding:0 .35rem;";
+  section.appendChild(title);
+  const groups=new Map();
+  for(const choice of choices??[]){
+    const origin=choice.group==="Party"?"Party Owned":
+      choice.group?.startsWith("Approved")?choice.group:
+      "Available at "+(choice.group||"departure checkpoint");
+    let group=groups.get(origin);
+    if(!group){
+      group=el("div");group.style.cssText="display:grid;gap:.35rem;";
+      const heading=el("small",origin);
+      heading.style.cssText="font-weight:600;opacity:.8;";
+      const buttons=el("div");
+      buttons.style.cssText="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem;";
+      group.append(heading,buttons);
+      groups.set(origin,buttons);
+      section.appendChild(group);
+      group=buttons;
+    }
+    const id="atlas-navigation-method-"+choice.value.replace(/[^a-zA-Z0-9_-]/g,"-");
+    const label=el("label");
+    label.htmlFor=id;
+    label.style.cssText="display:flex;align-items:center;gap:.35rem;"+
+      "padding:.4rem .5rem;border-radius:7px;min-width:0;cursor:pointer;"+
+      "border:1px solid "+(choice.value===selectedValue?"#3eaf93":
+        "var(--color-border-light-tertiary,#555)")+";"+
+      (choice.value===selectedValue?"background:rgba(22,169,101,.12);":"");
+    const input=el("input");
+    input.type="radio";input.name="atlas-navigation-travel-method";
+    input.id=id;input.value=choice.value;input.checked=choice.value===selectedValue;
+    input.disabled=Boolean(disabled);
+    input.style.cssText="margin:0;accent-color:#3eaf93;flex:0 0 auto;";
+    const icon=el("i");
+    const key=choice.value.split("|").at(-1)?.toLowerCase()??"";
+    const labelText=String(choice.label??"").toLowerCase();
+    const symbol=key==="walking"?"fa-person-walking":
+      /caravan|wagon|coach|cart/.test(key+" "+labelText)?"fa-wagon-covered":
+      /horse|pony|mount/.test(key+" "+labelText)?"fa-horse":
+      /camel/.test(key+" "+labelText)?"fa-paw":
+      /ship|boat|barge|warship/.test(key+" "+labelText)?"fa-ship":
+      /fly|air/.test(key+" "+labelText)?"fa-dove":"fa-route";
+    icon.className="fa-solid "+symbol;
+    icon.setAttribute?.("aria-hidden","true");
+    const text=el("span",choice.label);
+    text.style.cssText="min-width:0;overflow-wrap:anywhere;font-size:.86em;";
+    label.append(input,icon,text);
+    input.addEventListener("change",()=>{
+      if(!disabled&&input.checked)onMethodChange?.(input.value);
+    });
+    group.appendChild(label);
+  }
+  if(showEditor){
+    const edit=el("button","Edit selected method");
+    edit.type="button";
+    edit.title="Adjust this method's World preset fields for this trip";
+    edit.disabled=Boolean(disabled);
+    edit.style.cssText="justify-self:start;";
+    edit.addEventListener("click",()=>onEdit?.());
+    section.appendChild(edit);
+  }
+  return section;
+}

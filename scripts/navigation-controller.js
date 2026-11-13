@@ -1,4 +1,5 @@
 import {checkpointDestinationControl} from "./navigation-checkpoint-destination.js";
+import {createNavigationMapPickPrompt} from "./navigation-map-pick-prompt.js";
 import { MODULE_ID,readAtlas } from "./atlas-storage.js";
 import { toAtlasPoint, toCanvasPoint } from "./road-coordinates.js";
 import { calculateSceneRoadRoute } from "./navigation-foundry.js";
@@ -84,7 +85,7 @@ import {renderNavigationFooter} from "./navigation-footer.js";
 import {NAVIGATION_STAGES,resolveNavigationStage} from "./navigation-stage-model.js";
 import {createNavigationStageShell,renderNavigationStageIntro,
   renderNavigationCompletedOverview} from "./navigation-stage-view.js";
-import {renderNavigationDepartureSelector,renderNavigationTravelMethodSelector}
+import {renderNavigationTravelMethodSelector,renderNavigationTravelMethodButtons}
   from "./navigation-selection-view.js";
 import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
@@ -93,6 +94,8 @@ import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote}
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
+import {navigationRouteMarkers} from "./navigation-direction-summary.js";
+import {renderNavigationPlaybackControls} from "./navigation-playback-controls-view.js";
 import {renderJourneyTargets} from "./navigation-targets-view.js";
 import {renderRepeatedCheckpointNotice,renderCheckpointArrivalPrompt,
   renderDailyTravelPrompt} from "./navigation-prompts-view.js";
@@ -111,7 +114,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-navigation-panel",
     window: { title: "Atlas — Navigation", resizable: true },
-    position: { width: 420, height: 320, left: 100, top: 170 }
+    position: { width: 560, height: 665, left: 70, top: 50 }
   };
 
   constructor({ canvasProvider = () => globalThis.canvas,
@@ -146,8 +149,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.pendingTransfer=null;
     this.start = null;
     this.end = null;
-    this.destinationMode="map";
+    this.destinationMode="checkpoint";
     this.selectedCheckpointId=null;
+    this.mapPickActive=false;
+    this.mapPickPrompt=null;
+    this.mapPickPrevious=null;
+    this.playbackSecondsPerHourOverride=null;
+    this.directionsExpanded=false;
     this.result = null;
     this.itinerary=null;
     this.routeRevision=null;
@@ -195,8 +203,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     this.stop();
     this.scene = view.scene;
-    this.destinationMode="map";
+    this.destinationMode="checkpoint";
     this.selectedCheckpointId=null;
+    this.mapPickActive=false;
+    this.mapPickPrompt=null;
+    this.mapPickPrevious=null;
+    this.playbackSecondsPerHourOverride=null;
+    this.directionsExpanded=false;
     this.travelMethod="walking";
     this.transportArrangement="owned";
     this.transportOperation="normal";
@@ -229,6 +242,61 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     this.pointerTarget = target;
     target.addEventListener("pointerdown", this.pointerDown, true);
+  }
+
+  /** Modeless preview choice; existing World/Journal state remains authoritative. */
+  beginMapDestinationPick(){
+    if(!this.scene||!this.start||this.mapPickActive||
+        this.travelSession||this.journalStarting||this.recoveryRecord||
+        this.recoverableJourney||this.pendingTransfer||this.completedRecord||
+        this.completedRoute)return false;
+    const view=this.canvasProvider();
+    if(!globalThis.game?.user?.isGM||!view?.ready||
+        view.scene?.id!==this.scene.id||
+        !this.scene.canUserModify?.(game.user,"update"))return false;
+    this.mapPickPrevious={mode:this.destinationMode,
+      checkpointId:this.selectedCheckpointId};
+    this.mapPickActive=true;
+    this.destinationMode="map";
+    try{
+      const prompt=createNavigationMapPickPrompt({
+        onCancel:()=>this.cancelMapDestinationPick()});
+      this.mapPickPrompt=prompt;
+      void this.minimize().then(()=>{
+        if(this.mapPickActive&&this.mapPickPrompt===prompt)
+          return prompt.render(true);
+      }).catch(error=>{
+        this.cancelMapDestinationPick();
+        globalThis.ui?.notifications?.warn?.(error.message??String(error));
+      });
+      return true;
+    }catch(error){
+      this.cancelMapDestinationPick();
+      globalThis.ui?.notifications?.warn?.(error.message??String(error));
+      return false;
+    }
+  }
+
+  cancelMapDestinationPick(){
+    if(!this.mapPickActive)return;
+    this.mapPickActive=false;
+    const prompt=this.mapPickPrompt;
+    this.mapPickPrompt=null;
+    if(this.mapPickPrevious)this.destinationMode=this.mapPickPrevious.mode;
+    this.mapPickPrevious=null;
+    void prompt?.close?.();
+    if(this.active)void this.maximize().catch(error=>
+      atlasWarn("navigation","Could not restore Navigation from map selection",error));
+  }
+
+  completeMapDestinationPick(){
+    if(!this.mapPickActive)return;
+    this.mapPickActive=false;this.mapPickPrevious=null;
+    const prompt=this.mapPickPrompt;
+    this.mapPickPrompt=null;
+    void prompt?.close?.();
+    if(this.active)void this.maximize().catch(error=>
+      atlasWarn("navigation","Could not restore Navigation after map selection",error));
   }
 
   /** Presentation-only names. Keep stored road names and journey targets authoritative. */
@@ -748,7 +816,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(!this.scene||this.travelSession||this.pendingTransfer||
         this.recoveryRecord||this.recoverableJourney||
         this.completedRecord||this.completedRoute)return;
-    const intent=navigationPointIntent(event,this);
+    // Party mode captures only an explicitly requested map destination.
+    if(this.sourceMode==="party"&&!this.mapPickActive)return;
+    const intent=this.mapPickActive?
+      navigationPointIntent(event,{start:this.start,end:null,sourceMode:"party"}):
+      navigationPointIntent(event,this);
     if(!intent)return;
     const view = this.canvasProvider();
     if (!game.user?.isGM || !view?.ready || view.scene?.id !== this.scene.id ||
@@ -782,12 +854,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     this.calculateRoute(view,atlas);
     this.draw();
+    this.completeMapDestinationPick();
     void this.render(true);
     if (this.result?.status === "ok") {
       const viewport = globalThis.window;
       this.setPosition?.({
         width: Math.min(640, Math.max(380, (viewport?.innerWidth ?? 1000) - 64)),
-        height: Math.min(790, Math.max(350, (viewport?.innerHeight ?? 900) - 90))
+        height: Math.min(665, Math.max(350, (viewport?.innerHeight ?? 900) - 90))
       });
     }
   }
@@ -1749,7 +1822,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const playback=calculateGuidedPlayback({
       route,travel,paths,
       gridSize:this.scene.grid?.size,
-      secondsPerHour:readGuidedPlaybackSetting(game.settings)
+      secondsPerHour:this.recoveryRecord?.playbackSecondsPerHour??
+        this.playbackSecondsPerHourOverride??readGuidedPlaybackSetting(game.settings)
     });
     const chunks=planGuidedTravelChunks(waypoints,{
       movementSpeed:playback.movementSpeed,gridSize:this.scene.grid.size
@@ -1815,6 +1889,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         createJourneyRecord({sceneId:this.scene.id,tokenId:token.id,
           atlasRevision:atlas.revision,itinerary,journeyDestination:this.end,
           routeTargets,initialAnchor,approvedPath,
+          playbackSecondsPerHour:playback.secondsPerHour,
           startedWorldTime:departureStamp?.seconds??null,
           startedTimeLabel:departureStamp?.label??null,
           title:navigationJourneyTitle({atlas,
@@ -2377,6 +2452,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.stopGuidedTravel({render:false});
     }
     this.travelSession=null;
+    this.mapPickActive=false;
+    const pickPrompt=this.mapPickPrompt;
+    this.mapPickPrompt=null;this.mapPickPrevious=null;
+    this.playbackSecondsPerHourOverride=null;
+    this.directionsExpanded=false;
+    void pickPrompt?.close?.();
     this.pointerTarget?.removeEventListener?.("pointerdown",this.pointerDown,true);
     this.pointerTarget = null;
     if(this.routePulseTicker)this.routePulseOwner?.ticker?.remove?.(this.routePulseTicker);
@@ -2386,6 +2467,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.overlay = null;
     this.scene = null;
     this.sourceMode = "map";
+    this.destinationMode="checkpoint";
+    this.selectedCheckpointId=null;
     this.start = null;
     this.end = null;
     this.result = null;
@@ -2898,16 +2981,27 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         (step.action?.endsWith("-underway")?"rest aboard while underway":"downtime")+" · ":"")+
         "After "+formatNavigationDuration(step.atHours,24)+" on this leg"
     }:{kind:"direction",direction:step.direction,instruction:step.instruction,
+      distanceValue:step.distance,
+      hoursValue:navigationHours(leg?.terrainAware?step.cost:step.distance,speed),
       info:showDistance(step.distance)+" · "+
         formatGuidedWorldTime(Math.round(navigationHours(
           leg?.terrainAware?step.cost:step.distance,speed)*3600)),
       surface:[step.terrain==="Unspecified terrain"?null:step.terrain,
         step.regionName&&step.regionName!==step.terrain?step.regionName:null]
         .filter(Boolean).join(" · ")});
+    const destinationLabel=naming.preferRoadName?
+      naming.directionRoadName(routeLegs.find(l=>l.kind==="road")?.roadId):null;
     body.append(...renderNavigationDirections({
       calculation:"Only confirmed TokenDocument movement and Journal checkpoints affect recovery. The next checkpoint requires a separate GM decision.",
       transfer:Boolean(session.transportLeg),
-      arrivalCheckpointName:session.transportLeg?.checkpoint?.name??null,rows}));
+      arrivalCheckpointName:session.transportLeg?.checkpoint?.name??null,
+      markers:navigationRouteMarkers({status:"ok",legs:routeLegs},atlas,
+        {destinationLabel}),
+      expanded:this.directionsExpanded,
+      onExpandedChange:value=>{this.directionsExpanded=value;},
+      formatDistance:showDistance,
+      formatHours:value=>formatGuidedWorldTime(Math.round(value*3600)),
+      rows}));
     root.append(body,renderNavigationFooter(this,{partyMode}));
     return root;
   }
@@ -2959,11 +3053,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           recoveredPlanError=error?.message??String(error);
       }
     }
-    body.appendChild(renderNavigationDepartureSelector({
-      sourceMode:this.sourceMode,partyMode,disabled:Boolean(this.travelSession),
-      onSourceChange:mode=>this.setSourceMode(mode),
-      onRefresh:()=>this.refreshPartyDeparture()
-    }));
+    // A placed Atlas party Token is the normal Point A; avoid exposing
+    // duplicate map-origin or refresh controls in the GM destination flow.
+    if(!partyMode&&!this.start){
+      const missing=el("p","Assign a party explorer Token in Atlas to start a journey.");
+      missing.style.cssText="margin:0;font-size:.85em;";
+      body.appendChild(missing);
+    }
     const destination = checkpointDestinationControl(this);
     if (destination) body.appendChild(destination);
     // An unresolved native checkpoint is still an approved Journal leg. Do
@@ -3036,7 +3132,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         selectedValue:"approved",disabled:true,onMethodChange:()=>{}
       }));
     else if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)
-      body.appendChild(renderNavigationTravelMethodSelector({
+      body.appendChild((approvedRecoveryLand||approvedRecoveryTransport?
+        renderNavigationTravelMethodSelector:renderNavigationTravelMethodButtons)({
         choices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
         disabled:Boolean(this.travelSession||this.journalStarting||approvedRecoveryTransport||
           approvedRecoveryLand),
@@ -3270,8 +3367,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
     }
     const help=el("p",partyMode?
-      "Atlas reads Point A from the assigned party token's Scene location. Click the map for B; Alt/Option+click changes B. Refresh location after moving the token.":
-      "After choosing A and B, ordinary map clicks leave the route unchanged. Shift+click sets Point A; Alt/Option+click sets Point B.");
+      "Point A is your assigned party token. Choose a Checkpoint or use Pick on map for Point B.":
+      "Assign a party token in Atlas to use party-based Navigation.");
     help.style.cssText="margin:0;font-size:.8em;opacity:.75;line-height:1.35;";
     body.appendChild(help);
     if(this.pendingTransfer){
@@ -3338,17 +3435,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     if (this.result?.status === "ok") {
       const metrics=[];
-      const metric=(label,value)=>metrics.push({label,value});
+      const metric=(label,value,tooltip=null,hint=null)=>metrics.push({label,value,tooltip,hint});
+      let realPlaybackModel=null;
       const activeLeg=transferPlan?.hasTransitions?transferPlan.legs[0]:null;
-      metric(activeLeg?"Current Leg Distance":"Distance",
-        showDistance(activeLeg?.distance??this.result.distance));
+      metric(activeLeg?"Current Leg Distance":
+        this.travelMethod==="walking"?"Distance @ party pace":"Distance",
+        showDistance(activeLeg?.distance??this.result.distance),
+        "Measured against the Scene Grid. The assigned party token is Point A.");
       let tripExplanation=null;
       try{
         const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
         const hours=activeLeg?activeLeg.hours:approvedActiveTransport?
           this.travelSession.schedule.travelHours:navigationHours(weighted,speed);
         metric(activeLeg?"Current Leg Time":"Travel Time",
-          hours===null?"Choose method":formatGuidedWorldTime(Math.round(hours*3600)));
+          hours===null?"Choose method":formatGuidedWorldTime(Math.round(hours*3600)),
+          "Time spent moving only. A standard day has up to 8 hours of travel; rests are separate GM decisions.");
         const rules=approvedActiveTransport?
           this.travelSession.schedule.rules:this.resolveTravelRules(travel);
         const schedule=approvedActiveTransport?this.travelSession.schedule:
@@ -3361,10 +3462,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const activeDays=hours>0?Math.ceil(Math.max(0,hours-1e-7)/8):0;
         const activeElapsed=hours===null?null:hours+
           (activeContinuous?0:Math.max(0,activeDays-1)*16);
+        const altRest=hours===null?null:estimateNavigationTotalTrip(hours,
+          {...rules,dailyHours:8,overnightHours:8});
         metric(activeLeg?"Current Leg Total":"Total Trip",
           activeLeg?(activeElapsed===null?"Choose method":
             formatNavigationDuration(activeElapsed,24)):
-            formatNavigationDuration(plan.totalHours,24));
+            formatNavigationDuration(plan.totalHours,24),
+          "Estimated elapsed time, normally including 16 hours of overnight downtime after each full 8-hour travel day. Actual GM-approved rest choices may change it.",
+          altRest?"With 8h Long Rests: "+formatNavigationDuration(
+            altRest.totalHours,24):null);
+        if(hours!==null&&Number.isFinite(hours)&&hours>0)
+          realPlaybackModel={travelHours:hours,
+            dailyHours:rules.dailyHours,overnightHours:rules.overnightHours,
+            longRestHours:rules.longRestHours??8};
         const activeMethod=methods.find(method=>method.id===this.travelMethod);
         const transportPreview=this.travelMethod!=="walking"&&
           ["mount","vehicle"].includes(activeMethod?.kind)&&rules.dailyHours!==null;
@@ -3403,6 +3513,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         progressPercent:this.travelSession||this.travelProgress>0?
           this.travelProgress:null});
       body.append(...summary.nodes);
+      if(realPlaybackModel&&!this.travelSession&&!this.pendingTransfer&&
+          !this.recoveryRecord&&!this.recoverableJourney){
+        try{
+          body.append(renderNavigationPlaybackControls({
+            model:realPlaybackModel,
+            secondsPerHour:this.playbackSecondsPerHourOverride??
+              readGuidedPlaybackSetting(game.settings),
+            disabled:Boolean(this.journalStarting),
+            onChange:value=>{
+              if(this.journalStarting||this.travelSession)return;
+              if(!Number.isFinite(value)||value<.5||value>8)return;
+              this.playbackSecondsPerHourOverride=value;
+              void this.render(true);
+            },
+            onError:message=>globalThis.ui?.notifications?.warn?.(message)
+          }));
+        }catch(error){
+          atlasWarn("navigation","Trip playback preview unavailable",error);
+        }
+      }
       this.travelProgressUI=summary.progressUI;
       if(summary.timeUI){
         // The full multi-surface route is only a preview. Its distance must not
@@ -3436,27 +3566,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const clockHint=clockAllowed?
         "Foundry World time advances for confirmed movement and GM-approved breaks. Actor rests and exhaustion remain manual; change the clock setting in Module Settings.":
         "Foundry World time stays unchanged. Planned breaks are still counted in Total Trip; enable clock advancement in Atlas Module Settings.";
-      let playbackLabel=null;
-      try{
-        if(transferPlan?.hasTransitions||approvedActiveTransport)
-          throw Error("Use the active guided leg's confirmed playback state.");
-        const playback=calculateGuidedPlayback({route:this.result,travel,
-          paths:navigationCanvasLegPaths(this.canvasProvider(),this.atlasProvider(this.scene),this.result),
-          gridSize:this.scene?.grid?.size,
-          secondsPerHour:readGuidedPlaybackSetting(game.settings)});
-        playbackLabel="Token playback: about "+formatPlaybackDuration(playback.durationSeconds)+" "+
-          "("+playback.secondsPerHour+" real seconds per in-game travel hour). "+
-          "Playback speed is visual only and does not change travel hours.";
-      }catch{
-        // Invalid/missing canvas geometry must not conceal the route summary.
-      }
       const status=renderNavigationSummaryStatus({clockHint,
         worldTimeStatus:this.travelSession?.clock||this.worldTimeAdvancedSeconds>0?
           this.worldTimeStatus():null,
         speedSource:transferPlan?.hasTransitions?null:"Speed: "+travelSource,
-        playbackLabel,terrainCostLabel:this.result.terrainAware?
+        terrainCostLabel:this.result.terrainAware?
           "Terrain-weighted distance: "+showDistance(this.result.cost)+"-equivalent":null});
-      body.append(...status.nodes);
+      // Rules and provenance remain available to the GM, but do not crowd
+      // the primary destination, method, timing and route actions.
+      const advanced=el("details");
+      advanced.style.cssText="font-size:.83em;";
+      const advancedTitle=el("summary","Travel calculation and World-time notes");
+      advancedTitle.style.cursor="pointer";
+      advanced.append(advancedTitle,...status.nodes);
+      body.append(advanced);
       this.worldTimeUI=status.worldTimeUI;
       const calculation=this.result.terrainWarning ||
         (approvedActiveTransport?
@@ -3506,6 +3629,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               "One extra travel hour approved · "+timeContext};
         }
         return {kind:"direction",direction:step.direction,instruction:step.instruction,
+          distanceValue:step.distance,
+          hoursValue:navigationHours(this.result.terrainAware?step.cost:step.distance,speed),
           info:showDistance(step.distance)+
             (transferPlan?.hasTransitions?" · See per-leg time above":" · "+
               formatGuidedWorldTime(Math.round(navigationHours(
@@ -3514,9 +3639,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             step.regionName&&step.regionName!==step.terrain?step.regionName:null]
             .filter(Boolean).join(" · ")};
       });
+      const routeLegs=this.result.legs;
+      const destinationLabel=naming.preferRoadName?
+        naming.directionRoadName(routeLegs.find(l=>l.kind==="road")?.roadId):null;
       body.append(...renderNavigationDirections({calculation,
         transfer:Boolean(transferPlan?.hasTransitions),
         arrivalCheckpointName:transferPlan?.legs[0]?.arrivalCheckpoint?.name??null,
+        markers:navigationRouteMarkers(this.result,this.atlasProvider(this.scene),
+          {destinationLabel}),
+        expanded:this.directionsExpanded,
+        onExpandedChange:value=>{this.directionsExpanded=value;},
+        formatDistance:showDistance,
+        formatHours:value=>formatGuidedWorldTime(Math.round(value*3600)),
         rows}));
     } else {
       const hint=el("p",this.pendingTransfer?
