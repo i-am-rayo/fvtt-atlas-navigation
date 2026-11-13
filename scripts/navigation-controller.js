@@ -8,7 +8,8 @@ import { navigationCanvasLegPaths } from "./navigation-render-path.js";
 import {captureApprovedJourneyPath} from "./navigation-approved-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
-import { planGuidedTravelChunks, waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS }
+import { planGuidedTravelChunks, waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS,
+  describeRejectedNativeTravelMove }
   from "./navigation-movement-lifecycle.js";
 import {planNativeCheckpointPath,anchorNativeTokenWaypoints,
   describeNativeCheckpointSources,NATIVE_CONTINUOUS_CHECKPOINT_SECONDS}
@@ -1933,7 +1934,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         if(this.travelSession!==session)return false;
         session.currentChunk=null;
         if(!completed){
-          interruptedReason="Foundry stopped or blocked the current travel stretch.";
+          const outcome=describeRejectedNativeTravelMove({
+            waypoints:chunk.waypoints,position:{x:token.x,y:token.y},
+            gridSize:session.gridSize,chunkIndex:index
+          });
+          interruptedReason=outcome.message;
+          atlasWarn("movement","Native TokenDocument.move rejected by Foundry",{
+            sceneId:session.sceneId,tokenId:token.id,
+            chunk:index+1,chunkCount:chunks.length,
+            movementAction:typeof token.movementAction==="string"?
+              token.movementAction:null,
+            returnValue:completed,...outcome
+          });
           reachedEnd=false;break;
         }
         const target=chunk.waypoints.at(-1);
