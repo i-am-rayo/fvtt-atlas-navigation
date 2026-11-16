@@ -329,7 +329,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         marker.style.borderRadius="50%";
         marker.style.border="2px solid "+borderColor.value;
         marker.style.background=color.value;
-      }else if(type.value==="fa"){
+      }else if(type.value==="fa"&&
+          (marker.tagName?.toLowerCase?.()??marker.tag)!=="img"){
         marker.style.textShadow=[
           "-1px 0","1px 0","0 -1px","0 1px",
           "-1px -1px","1px -1px","-1px 1px","1px 1px"
