@@ -1,5 +1,5 @@
-import { resolveAtlasMeasuringUnits } from "./navigation-measure-units.js";
-import { resolveCheckpointAppearance,
+import { resolveCheckpointElevationUnits } from "./navigation-measure-units.js";
+import { resolveCheckpointAppearance,checkpointCanvasSize,
   validateCheckpointAppearance } from "./checkpoint-appearance.js";
 import { createCheckpointIconPicker, createCheckpointIconGlyph } from "./checkpoint-icon-control.js";
 import { createCheckpointTransportationEditor } from "./checkpoint-transportation-editor.js";
@@ -128,7 +128,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const saveAsPreset=el("button","Save as preset…");
     saveAsPreset.type="button";
     const presetControls=el("div");
-    presetControls.style.cssText="display:flex;align-items:center;gap:.4rem;flex:0 1 16rem;min-width:0;";
+    presetControls.style.cssText="display:flex;align-items:center;justify-content:flex-end;gap:.4rem;width:min(100%,20rem);margin-inline-start:auto;min-width:0;";
     presetPicker.style.cssText="flex:1;min-width:0;";
     const changePreset=el("button","Change preset…");changePreset.type="button";
     const presetName=el("span");
@@ -154,7 +154,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       hint.className = "hint";
       fields.appendChild(hint);
     }
-    const imperial = resolveAtlasMeasuringUnits(undefined,undefined,this.scene.grid?.units) === "imperial";
+    const imperial=resolveCheckpointElevationUnits(this.scene.grid?.units,
+      game.settings,game.system?.id)==="imperial";
     const elevationFactor = imperial ? 3.280839895 : 1;
     const elevationControl=createCheckpointElevation(current.elevationMeters,{imperial});
     const elevation=elevationControl.number;
@@ -169,14 +170,19 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     let revealRadius = null;
     let discoveryMethod = null;
     let updateVisibility=()=>{};
+    // The very same staged visibility control is placed in the persistent
+    // footer. No duplicate state or early write to native Scene flags.
+    let visibilityAction=null;
     if (exploration.enabled) {
       const state = checkpointKnowledge(exploration, this.checkpointId);
       discovery = createCheckpointChoice(CHECKPOINT_DISCOVERY_STATES,state);
       discovery.hidden=true;
       const visibility=createSettingsIconButton({icon:state==="unknown"?"eye-slash":"eye",label:"Show checkpoint"});
       const visibilityRow=el("div");const visibilityText=el("span");
+      visibilityRow.className="atlas-checkpoint-footer-visibility";
+      visibility.className+=" atlas-checkpoint-footer-icon";
       visibilityRow.append(discovery,visibility,visibilityText);
-      field("Player visibility",visibilityRow);
+      visibilityAction=visibilityRow;
       let knownState=state==="unknown"?"visited":state;
       updateVisibility=()=>{
         const shown=discovery.value!=="unknown";
@@ -206,8 +212,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       playerVisibility.hidden=true;
       const visibility=createSettingsIconButton({icon:"eye",label:"Show checkpoint"});
       const row=el("div"),status=el("span");
+      row.className="atlas-checkpoint-footer-visibility";
+      visibility.className+=" atlas-checkpoint-footer-icon";
       row.append(playerVisibility,visibility,status);
-      field("Player visibility",row);
+      visibilityAction=row;
       updateVisibility=()=>{
         const shown=playerVisibility.checked;
         visibility.title=shown?"Hide checkpoint":"Show checkpoint";
@@ -279,24 +287,66 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const preview=el("fieldset");preview.className="atlas-checkpoint-preview";
     preview.appendChild(el("legend","Map preview"));
     const previewMarker=el("span"),previewLabel=el("span");
-    const sample=el("div");sample.style.cssText="min-height:90px;display:flex;align-items:center;justify-content:center;gap:.6rem;background:#303936;padding:.8rem;border-radius:5px;";
+    previewMarker.style.cssText="display:inline-grid;place-items:center;flex:0 0 auto;";
+    previewLabel.style.cssText="display:grid;justify-items:start;min-width:0;gap:2px;"+
+      "font-family:Arial,sans-serif;text-align:left;overflow-wrap:anywhere;"+
+      "text-shadow:1px 1px 2px #000,-1px -1px 2px #000;";
+    const sample=el("div");sample.style.cssText="min-height:90px;display:flex;align-items:center;justify-content:center;gap:12px;background:#303936;padding:.8rem;border-radius:5px;";
     sample.append(previewMarker,previewLabel);preview.appendChild(sample);
     sample.tabIndex=0;
     preview.appendChild(el("small","Hover or focus the sample to preview hover-only labels. Map zoom may change the displayed size."));
     pageMarker.appendChild(preview);
     const updatePreview=()=>{
-      const marker=type.value==="fa"?createCheckpointIconGlyph(selected):el(type.value==="image"?"img":"span");
+      const marker=type.value==="fa"?createCheckpointIconGlyph(selected):
+        el(type.value==="image"?"img":"span");
       if(type.value==="image"){
-        try{const safe=validateCheckpointAppearance({...appearance,type:"image",image:image.value.trim()});marker.src=safe.image;}catch{/* Invalid draft paths are not loaded. */}
+        try{
+          const safe=validateCheckpointAppearance({...appearance,
+            type:"image",image:image.value.trim()});
+          marker.src=safe.image;
+        }catch{/* Invalid draft paths are not loaded. */}
         marker.alt="Checkpoint marker";
       }
-      const px=Math.max(12,Math.min(64,Number(size.value)||24));
-      marker.style.width=px+"px";marker.style.height=px+"px";marker.style.fontSize=px+"px";
-      marker.style.color=color.value;marker.style.border="1px solid "+borderColor.value;
-      if(type.value==="dot"){marker.style.display="inline-block";marker.style.borderRadius="50%";marker.style.background=color.value;}
+      const appearanceSize=Math.max(12,Math.min(64,Number(size.value)||24));
+      // Scene canvas markers are zoom-clamped. Preview their actual screen
+      // dimensions, not the icon gallery's large 46px selection sample.
+      const zoom=globalThis.canvas?.stage?.scale?.x;
+      const scale=Number.isFinite(zoom)&&zoom>0?zoom:1;
+      const screenSize=checkpointCanvasSize(appearanceSize,scale)*scale;
+      marker.style.width=screenSize+"px";
+      marker.style.height=screenSize+"px";
+      marker.style.fontSize=screenSize+"px";
+      marker.style.lineHeight="1";
+      marker.style.display="inline-grid";
+      marker.style.placeItems="center";
+      marker.style.boxSizing="border-box";
+      marker.style.color=color.value;
+      marker.style.border="none";
+      marker.style.filter="";
+      marker.style.textShadow="";
+      marker.style.background="";
+      if(type.value==="dot"){
+        marker.style.borderRadius="50%";
+        marker.style.border="2px solid "+borderColor.value;
+        marker.style.background=color.value;
+      }else if(type.value==="fa"){
+        marker.style.textShadow=[
+          "-1px 0","1px 0","0 -1px","0 1px",
+          "-1px -1px","1px -1px","-1px 1px","1px 1px"
+        ].map(offset=>offset+" "+borderColor.value).join(",");
+      }else{
+        marker.style.filter="drop-shadow(1px 0 "+borderColor.value+") "+
+          "drop-shadow(-1px 0 "+borderColor.value+")";
+      }
       previewMarker.replaceChildren(marker);
-      const road=readAtlas(this.scene).roads?.find(r=>r.id===(draftRoad?.value??current.roadId));
-      previewLabel.textContent=name.value+(showRoad.checked&&road?" · "+road.name:"");
+      const road=readAtlas(this.scene).roads?.find(r=>
+        r.id===(draftRoad?.value??current.roadId));
+      const checkpointName=el("strong",name.value);
+      checkpointName.style.cssText="font-size:16px;line-height:1.25;font-weight:700;";
+      const roadName=el("span",road?.name??"");
+      roadName.style.cssText="font-size:12px;line-height:1.25;font-style:italic;";
+      roadName.hidden=!(showRoad.checked&&road?.name);
+      previewLabel.replaceChildren(checkpointName,roadName);
       previewLabel.style.color=textColor.value;
       previewLabel.hidden=mode.value==="off";
       preview.setAttribute("data-label-mode",mode.value);
@@ -624,6 +674,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     };
     if(!this.createDraft&&this.onMove){
       const move=createSettingsIconButton({icon:"up-down-left-right",label:"Move checkpoint"});
+      move.className+=" atlas-checkpoint-footer-icon";
       move.addEventListener("click",()=>void leaveForAction(this.onMove).catch(error=>ui.notifications.error(error.message)));
       controls.appendChild(move);
     }
@@ -645,7 +696,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       }
       pageTerrain.prepend(roads);
     }
-    controls.append(saveAsPreset, save);
+    if(visibilityAction)controls.appendChild(visibilityAction);
+    controls.append(saveAsPreset,save);
     root.appendChild(controls);
     this._saveDraft=()=>saveValue(undefined);
     this._isDirty=trackSettingsChanges(root,()=>({selected,terrainSuggestion,
