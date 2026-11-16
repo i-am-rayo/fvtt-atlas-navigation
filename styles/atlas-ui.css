@@ -63,3 +63,25 @@
 .atlas-checkpoint-preview[data-label-mode="hover"]:hover span + span {opacity:1;}
 
 .atlas-checkpoint-preview[data-label-mode="hover"]:focus-within span + span {opacity:1;}
+
+/* Checkpoint footer uses compact utility actions without reducing tap focus
+   visibility or affecting the destructive Delete control. */
+.atlas-checkpoint-form-actions > .atlas-checkpoint-footer-icon,
+.atlas-checkpoint-form-actions .atlas-checkpoint-footer-visibility > .atlas-checkpoint-footer-icon {
+  box-sizing: border-box;
+  flex: 0 0 2rem;
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  padding: .22rem;
+  font-size: .85rem;
+}
+.atlas-checkpoint-form-actions .atlas-checkpoint-footer-visibility {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  margin-inline-end: .2rem;
+  font-size: .84rem;
+  white-space: nowrap;
+}
