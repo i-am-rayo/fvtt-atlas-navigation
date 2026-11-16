@@ -285,7 +285,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const sample=mapPreview.children[1];
     const labelPreview=sample.children[1];
     const showRoad=all(root).find(node=>node.tag==="input"&&
-      node.type==="checkbox"&&node!==playerVisible);
+      node.type==="checkbox");
     const labelMode=all(root).find(node=>node.tag==="select"&&node.value==="off");
     assert.ok(showRoad&&labelMode);
     showRoad.checked=true;labelMode.value="always";
