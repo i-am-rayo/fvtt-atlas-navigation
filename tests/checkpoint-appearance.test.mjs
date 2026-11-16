@@ -280,6 +280,28 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     slider.value = "55";
     slider.listeners.get("input")();
     assert.equal(label.textContent, "55 px");
+    const mapPreview=all(root).find(node=>node.className==="atlas-checkpoint-preview");
+    assert.ok(mapPreview);
+    const sample=mapPreview.children[1];
+    const labelPreview=sample.children[1];
+    const showRoad=all(root).find(node=>node.tag==="input"&&
+      node.type==="checkbox"&&node!==playerVisible);
+    const labelMode=all(root).find(node=>node.tag==="select"&&node.value==="off");
+    assert.ok(showRoad&&labelMode);
+    showRoad.checked=true;labelMode.value="always";
+    root.listeners.get("change")();
+    assert.equal(labelPreview.children.length,2,
+      "Scene renders Checkpoint name and Road name on separate lines");
+    assert.equal(labelPreview.children[0].textContent,"Ridge Lookout");
+    assert.equal(labelPreview.children[1].textContent,"Hidden mountain pass");
+    assert.ok(labelPreview.children[0].style.cssText.includes("font-weight:700"));
+    assert.ok(labelPreview.children[1].style.cssText.includes("font-style:italic"));
+    slider.value="24";root.listeners.get("input")();
+    const sceneMarker=sample.children[0].children[0];
+    assert.equal(sceneMarker.style.fontSize,"24px",
+      "map preview uses the authored 24px marker, never the large icon gallery sample");
+    assert.equal(sceneMarker.style.width,"24px");
+
     const search = all(root).find(node => node.tag === "input" && node.type === "search");
     search.value = "github";
     search.listeners.get("input")();
@@ -310,10 +332,28 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const name = all(root).find(node => node.tag === "input" && node.type === "text" &&
       node.value === "Ridge Lookout");
     const elevation = all(root).find(node => node.tag === "input" && node.type === "number");
-    const playerVisible = all(root).find(node => node.tag === "input" &&
-      node.type === "checkbox"); // Visibility is the first checkbox in the inspector.
-    assert.ok(name && elevation && playerVisible,
-      "Shift-click editor combines checkpoint name, elevation and player visibility");
+    const footer = all(root).find(node=>node.className==="atlas-checkpoint-form-actions");
+    const footerVisibility=footer.children.find(node=>
+      node.className==="atlas-checkpoint-footer-visibility");
+    const playerVisible=footerVisibility?.children.find(node=>
+      node.tag==="input"&&node.type==="checkbox");
+    assert.ok(name&&elevation&&playerVisible,
+      "Checkpoint Settings retains the original hidden visibility value in the compact footer");
+    assert.ok(!all(root).some(node=>node.textContent==="Player visibility"),
+      "General no longer duplicates the footer Show/Hide control");
+    const presetRow=all(root).find(node=>node.children?.some(child=>
+      child.textContent==="Checkpoint preset"));
+    assert.ok(presetRow?.children.some(node=>
+      node.style?.cssText?.includes("margin-inline-start:auto")),
+      "World preset controls align with the right edge of the General form");
+    assert.ok(all(root).some(node=>node.textContent==="Elevation (m)"),
+      "metric unit preference yields a meter label when native Scene units are unspecified");
+    const moveFooter=footer.children.find(node=>
+      node.title==="Move checkpoint");
+    assert.equal(moveFooter,undefined,"Move action is not shown without an authorized callback");
+    const showFooter=footerVisibility.children.find(node=>node.tag==="button");
+    assert.ok(showFooter.className.includes("atlas-checkpoint-footer-icon"));
+    assert.equal(showFooter.title,"Show checkpoint");
     name.value = "Revealed Lookout";
     elevation.value = "640";
     const show=buttons.find(node=>node.title==="Show checkpoint");
@@ -327,8 +367,10 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(save);
     assert.ok(all(root).some(node=>node.tag==="button"&&node.textContent==="Save as preset…"),
       "preset saving is explicit in the footer");
-    const footer = all(root).find(node=>node.className==="atlas-checkpoint-form-actions");
-    assert.deepEqual(footer.children.slice(-2).map(node=>node.textContent),["Save as preset…","Save Checkpoint"]);
+    assert.deepEqual(footer.children.slice(-2).map(node=>node.textContent),
+      ["Save as preset…","Save Checkpoint"]);
+    assert.equal(footer.children.at(-3),footerVisibility,
+      "the visibility toggle sits beside Save actions in the footer");
     assert.equal(name.autofocus,true);
     save.listeners.get("click")();
     await new Promise(resolve => setImmediate(resolve));
