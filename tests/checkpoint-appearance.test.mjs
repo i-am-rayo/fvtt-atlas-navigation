@@ -259,7 +259,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const actions=[];
     const editor = new AtlasCheckpointAppearanceEditor({ scene,
       checkpointId: data.checkpoints[0].id, expectedRevision: data.revision,
-      onTerrainAction:async action=>{actions.push(action);} });
+      onTerrainAction:async action=>{actions.push(action);},
+      onMove:()=>{actions.push("move");} });
     assert.equal(editor.options.position.left,24,
       "checkpoint authoring opens at the left of the canvas");
     assert.equal(editor.options.window.title,"Atlas — Ridge Lookout — Checkpoint Settings",
@@ -350,7 +351,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "metric unit preference yields a meter label when native Scene units are unspecified");
     const moveFooter=footer.children.find(node=>
       node.title==="Move checkpoint");
-    assert.equal(moveFooter,undefined,"Move action is not shown without an authorized callback");
+    assert.ok(moveFooter?.className.includes("atlas-checkpoint-footer-icon"),
+      "Move checkpoint is a compact action located in the footer");
     const showFooter=footerVisibility.children.find(node=>node.tag==="button");
     assert.ok(showFooter.className.includes("atlas-checkpoint-footer-icon"));
     assert.equal(showFooter.title,"Show checkpoint");
