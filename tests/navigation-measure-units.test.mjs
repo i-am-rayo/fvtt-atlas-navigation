@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  resolveAtlasMeasuringUnits,atlasDisplayDistance,atlasDisplaySpeed,
+  resolveAtlasMeasuringUnits,resolveCheckpointElevationUnits,
+  atlasDisplayDistance,atlasDisplaySpeed,
   atlasDisplayPresetSpeed,atlasPresetSpeedFromDisplay,
   atlasSceneDistanceFromDisplay,atlasDisplayElevation,
   atlasDisplayCostPerDistance,atlasCostPerMileFromDisplay
@@ -65,4 +66,16 @@ test("per-distance fare labels and editor rates round-trip across unit systems",
   const cpPerKm=atlasDisplayCostPerDistance(3,metric,"dnd5e");
   near(atlasCostPerMileFromDisplay(cpPerKm,metric,"dnd5e"),3);
   near(atlasDisplayCostPerDistance(3,settings("imperial"),"dnd5e"),3);
+});
+
+test("checkpoint elevation follows native Foundry Scene grid unit family with system fallback",()=>{
+  const dndMetric=settings("system",true);
+  const explicitImperial=settings("imperial",false);
+  assert.equal(resolveCheckpointElevationUnits("km",explicitImperial,"dnd5e"),"metric",
+    "native kilometre Scene must display elevation in meters, not feet");
+  assert.equal(resolveCheckpointElevationUnits("ft",dndMetric,"dnd5e"),"imperial",
+    "native feet Scene remains in feet without modifying saved meters");
+  assert.equal(resolveCheckpointElevationUnits("",dndMetric,"dnd5e"),"metric",
+    "Scenes without a recognized unit use D&D5e metric setting");
+  assert.equal(resolveCheckpointElevationUnits("unknown",settings("metric"),"pf2e"),"metric");
 });
