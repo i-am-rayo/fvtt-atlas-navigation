@@ -342,10 +342,14 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       previewMarker.replaceChildren(marker);
       const road=readAtlas(this.scene).roads?.find(r=>
         r.id===(draftRoad?.value??current.roadId));
+      const nameScreenSize=Math.max(12,Math.min(22,16*Math.sqrt(scale)));
+      const roadScreenSize=Math.max(10,Math.min(18,12*Math.sqrt(scale)));
       const checkpointName=el("strong",name.value);
-      checkpointName.style.cssText="font-size:16px;line-height:1.25;font-weight:700;";
+      checkpointName.style.cssText="font-size:"+nameScreenSize+
+        "px;line-height:1.25;font-weight:700;";
       const roadName=el("span",road?.name??"");
-      roadName.style.cssText="font-size:12px;line-height:1.25;font-style:italic;";
+      roadName.style.cssText="font-size:"+roadScreenSize+
+        "px;line-height:1.25;font-style:italic;";
       roadName.hidden=!(showRoad.checked&&road?.name);
       previewLabel.replaceChildren(checkpointName,roadName);
       previewLabel.style.color=textColor.value;
