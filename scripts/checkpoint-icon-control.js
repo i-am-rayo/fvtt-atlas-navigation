@@ -28,16 +28,37 @@ export function createCheckpointIconGlyph(id){
 }
 
 /** Return a control and a stable value getter; no World/Scene writes or save listeners. */
-export function createCheckpointIconPicker({selectedId="location-dot",onChange=()=>{}}={}){
+export function createCheckpointIconPicker({selectedId="location-dot",onChange=()=>{},compact=false}={}){
   let selected=selectedId;
   const details=new Map(CHECKPOINT_FREE_ICONS.map(icon=>[icon.id,icon]));
-  const section=node("details");
+  const section=node(compact?"div":"details");
   section.style.cssText="min-width:0;padding:.6rem;border:1px solid var(--color-border-light-tertiary,#666);";
-  const legend=node("summary","Choose icon");legend.style.cursor="pointer";
+  const legend=node(compact?"button":"summary",compact?"":"Choose icon");
+  if(compact){
+    legend.type="button";legend.className="atlas-ui-icon-button atlas-ui-icon-button--compact";
+    legend.title="Choose checkpoint icon";legend.setAttribute("aria-label",legend.title);
+    legend.setAttribute("aria-expanded","false");
+    legend.appendChild(createCheckpointIconGlyph(selected));
+    section.style.cssText="display:inline-flex;";
+  }
+  legend.style.cursor="pointer";
   section.appendChild(legend);
   const browser=node("div");
   browser.style.cssText="display:grid;grid-template-columns:minmax(180px,1fr) minmax(280px,2fr);gap:.8rem;min-width:0;align-items:start;";
   section.appendChild(browser);
+  if(compact){
+    browser.popover="auto";
+    browser.className="atlas-checkpoint-icon-popover";
+    browser.style.cssText="margin:0;padding:.8rem;width:min(560px,calc(100vw - 24px));max-height:min(500px,calc(100vh - 24px));overflow:auto;background:var(--background-color,#191820);color:inherit;border:1px solid #85745d;border-radius:8px;";
+    legend.addEventListener("click",()=>{
+      if(browser.matches(":popover-open")){browser.hidePopover();return;}
+      const rect=legend.getBoundingClientRect();
+      browser.style.left=Math.max(12,Math.min(rect.left,window.innerWidth-584))+"px";
+      browser.style.top=Math.max(12,Math.min(rect.bottom+6,window.innerHeight-524))+"px";
+      browser.showPopover();search.focus();
+    });
+    browser.addEventListener("toggle",event=>legend.setAttribute("aria-expanded",String(event.newState==="open")));
+  }
   const sidebar=node("div");sidebar.style.cssText="display:grid;gap:.5rem;min-width:0;align-content:start;";
   const gallery=node("div");gallery.style.cssText="display:grid;gap:.45rem;min-width:0;";
   browser.append(sidebar,gallery);
@@ -82,6 +103,7 @@ export function createCheckpointIconPicker({selectedId="location-dot",onChange=(
     quick,result,grid,more);
   const choices=new Map();
   const refreshSelection=()=>{
+    if(compact)legend.replaceChildren(createCheckpointIconGlyph(selected));
     const info=details.get(selected);
     const glyph=createCheckpointIconGlyph(selected);
     glyph.style.fontSize="46px";
@@ -97,14 +119,14 @@ export function createCheckpointIconPicker({selectedId="location-dot",onChange=(
       button.setAttribute("aria-pressed",String(id===selected));
     }
   };
-  const buttonFor=(id,label,compact=false)=>{
+  const buttonFor=(id,label,compactButton=false)=>{
     const button=node("button");button.type="button";
     button.title=id+" — "+label;
     button.setAttribute("aria-label","Use "+label+" checkpoint icon");
-    button.style.cssText="display:grid;justify-items:center;gap:.2rem;padding:.35rem;border:2px solid transparent;min-height:"+(compact?42:69)+"px;";
+    button.style.cssText="display:grid;justify-items:center;gap:.2rem;padding:.35rem;border:2px solid transparent;min-height:"+(compactButton?42:69)+"px;";
     button.appendChild(createCheckpointIconGlyph(id));
-    if(!compact)button.appendChild(node("small",label));
-    button.addEventListener("click",()=>{selected=id;onChange(id);refreshSelection();});
+    if(!compactButton)button.appendChild(node("small",label));
+    button.addEventListener("click",()=>{selected=id;onChange(id);refreshSelection();if(compact){browser.hidePopover();legend.focus();}});
     choices.set(id,button);return button;
   };
   for(const id of CHECKPOINT_ICONS)quick.appendChild(buttonFor(id,id,true));

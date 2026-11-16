@@ -275,3 +275,7 @@ The owner approved Phase 2 after successfully testing Phase 1 on October 22, 202
 - [Indy Route](https://github.com/jwrpalmer99/indy-route) — independent reference for route drawing, storage, and presentation; not an architectural dependency
 
 This project is unaffiliated with Foundry Virtual Tabletop, LegendKeeper, and Indy Route.
+
+## Checkpoint and party explorer UX candidate
+
+Beta.8.51 adds prototype explorer defaults and the reviewed Checkpoint Settings controls. See [scope and acceptance checklist](docs/CHECKPOINT_PARTY_UX_BETA8_51.md). Draft pending live acceptance; existing Journey controls are retained.

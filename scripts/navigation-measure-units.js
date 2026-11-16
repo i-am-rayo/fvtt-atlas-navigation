@@ -21,7 +21,7 @@ const get=(settings,namespace,key)=>{
 
 /** The D&D 5e length-unit toggle is dnd5e.metricLengthUnits (not volume/weight). */
 export function resolveAtlasMeasuringUnits(settings=globalThis.game?.settings,
-  systemId=globalThis.game?.system?.id,sceneUnit=""){
+  systemId=globalThis.game?.system?.id,sceneUnit=globalThis.canvas?.scene?.grid?.units??""){
   const requested=get(settings,MODULE_ID,ATLAS_MEASURING_UNITS_SETTING);
   if(requested==="metric"||requested==="imperial")return requested;
   if(systemId==="dnd5e"){

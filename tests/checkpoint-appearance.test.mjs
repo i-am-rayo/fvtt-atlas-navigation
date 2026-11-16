@@ -204,10 +204,10 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     }
     append(...items) { for (const item of items) this.appendChild(item); }
     prepend(...items) {
-      for (const item of items) item.parentNode = this;
+      for (const item of items) {if(item.parentNode)item.parentNode.children=item.parentNode.children.filter(child=>child!==item);item.parentNode = this;}
       this.children.unshift(...items);
     }
-    appendChild(item) { item.parentNode = this; this.children.push(item); return item; }
+    appendChild(item) { if(item.parentNode) item.parentNode.children=item.parentNode.children.filter(child=>child!==item); item.parentNode = this; this.children.push(item); return item; }
     closest(tag) {
       for (let cursor = this; cursor; cursor = cursor.parentNode) {
         if (cursor.tag === tag) return cursor;
@@ -220,7 +220,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     }
     querySelector(selector) {
       const match = selector.match(/^([a-z]+)\[name="([^"]+)"\]$/);
-      if (!match) return null;
+      if (!match) return this.children.find(child=>child.tag===selector)??null;
       const search = node => {
         if (node.tag === match[1] && node.name === match[2]) return node;
         for (const child of node.children) {
@@ -233,6 +233,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     }
     addEventListener(name, listener) { this.listeners.set(name, listener); }
     setAttribute() {}
+    hidePopover(){this.popoverClosed=true;}
+    focus(){this.focused=true;}
   }
   const all = root => [root, ...root.children.flatMap(child => all(child))];
   try {
@@ -265,7 +267,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     editor.close = async () => {};
     const root = await editor._renderHTML();
     const buttons = all(root).filter(node => node.tag === "button");
-    const geographicLink=buttons.find(node=>node.textContent==="Link geographic Territory");
+    const geographicLink=buttons.find(node=>node.textContent==="Link Territory");
     assert.ok(geographicLink,"Checkpoint Settings supports reverse Territory linking");
     await geographicLink.listeners.get("click")();
     assert.deepEqual(actions,["territory"]);
@@ -314,14 +316,19 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "Shift-click editor combines checkpoint name, elevation and player visibility");
     name.value = "Revealed Lookout";
     elevation.value = "640";
-    playerVisible.checked = true;
+    const show=buttons.find(node=>node.title==="Show checkpoint");
+    assert.ok(show,"hidden checkpoint offers an accessible show icon");
+    await show.listeners.get("click")();
+    assert.equal(playerVisible.checked,true);
+    assert.equal(show.title,"Hide checkpoint");
+    assert.equal(stored.revision,data.revision,"visibility remains staged until Save Checkpoint");
     const save = all(root).find(node => node.tag === "button" &&
       node.textContent === "Save Checkpoint");
     assert.ok(save);
-    assert.ok(all(root).some(node=>node.tag==="button"&&node.title==="Save as preset"),
-      "preset saving is an icon beside the preset selector");
+    assert.ok(all(root).some(node=>node.tag==="button"&&node.textContent==="Save as preset…"),
+      "preset saving is explicit in the footer");
     const footer = all(root).find(node=>node.className==="atlas-checkpoint-form-actions");
-    assert.deepEqual(footer.children.slice(-2).map(node=>node.textContent),["Cancel","Save Checkpoint"]);
+    assert.deepEqual(footer.children.slice(-2).map(node=>node.textContent),["Save as preset…","Save Checkpoint"]);
     assert.equal(name.autofocus,true);
     save.listeners.get("click")();
     await new Promise(resolve => setImmediate(resolve));

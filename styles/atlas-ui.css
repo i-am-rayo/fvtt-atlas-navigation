@@ -56,3 +56,10 @@
   font-size: .82rem;
   vertical-align: middle;
 }
+
+/* Compact actions remain compact inside native fieldset legends. */
+.application legend .atlas-ui-icon-button--compact {width:1.75rem;min-width:1.75rem;height:1.75rem;min-height:1.75rem;flex:0 0 1.75rem;padding:.2rem;font-size:.85rem;}
+.atlas-checkpoint-preview[data-label-mode="hover"] span + span {opacity:0;}
+.atlas-checkpoint-preview[data-label-mode="hover"]:hover span + span {opacity:1;}
+
+.atlas-checkpoint-preview[data-label-mode="hover"]:focus-within span + span {opacity:1;}

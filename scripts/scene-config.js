@@ -1,5 +1,5 @@
 import { readAtlas } from "./atlas-storage.js";
-import { readPartyExploration } from "./party-exploration-storage.js";
+import { readPartyExploration, savePartyExplorationConfig } from "./party-exploration-storage.js";
 import { readManualFog } from "./atlas-manual-fog-storage.js";
 import { readAtlasJournalLinks, journalUuidFor, openAtlasJournal, canOpenAtlasJournal }
   from "./atlas-journal-links.js";
@@ -13,7 +13,7 @@ import { listRoadCheckpoints } from "./checkpoint-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { checkpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
-import { createCheckpointRegionWidth } from "./checkpoint-form-controls.js";
+import { createCheckpointRegionWidth, createCheckpointRange } from "./checkpoint-form-controls.js";
 import { appendSettingsField } from "./settings-layout.js";
 import { createSettingsActionButton } from "./settings-controls.js";
 import { createSettingsSelect } from "./settings-select.js";
@@ -549,7 +549,24 @@ export function createAtlasExplorationPanel(scene,actions,refresh) {
   if(!game.user?.isGM||!scene?.id||
       !scene.canUserModify?.(game.user,"update"))
     throw Error("Only a Scene-authorized GM can edit Atlas Exploration.");
-  return createManualFogControls(scene,actions,refresh);
+  const panel=createManualFogControls(scene,actions,refresh);
+  let expected=readPartyExploration(scene);
+  const radius=createCheckpointRange(expected.radius,{min:0.01,
+    max:Math.max(100,expected.radius),step:0.01,label:"Party discovery radius"});
+  appendSettingsField(panel,"Party discovery radius ("+(scene.grid?.units||"Scene units")+")",
+    radius.element,{variant:"split"});
+  panel.appendChild(node("p","Automatic checkpoints inside this distance become known as the party moves. Use GM-only discovery for places that must stay hidden.","hint"));
+  const save=button("Save discovery radius","Save party discovery radius",async()=>{
+    save.disabled=true;
+    try {
+      expected=await savePartyExplorationConfig(scene,{...expected,
+        radius:Number(radius.number.value),expected});
+      ui.notifications.info("Party discovery radius saved.");
+    } catch(error){ui.notifications.error(error.message??String(error));}
+    finally{save.disabled=false;}
+  });
+  panel.appendChild(save);
+  return panel;
 }
 
 function createManualFogControls(scene,actions,refresh) {

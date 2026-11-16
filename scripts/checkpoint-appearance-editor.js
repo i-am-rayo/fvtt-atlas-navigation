@@ -1,7 +1,7 @@
 import { resolveAtlasMeasuringUnits } from "./navigation-measure-units.js";
-import { CHECKPOINT_FREE_ICONS, resolveCheckpointAppearance,
+import { resolveCheckpointAppearance,
   validateCheckpointAppearance } from "./checkpoint-appearance.js";
-import { createCheckpointIconPicker } from "./checkpoint-icon-control.js";
+import { createCheckpointIconPicker, createCheckpointIconGlyph } from "./checkpoint-icon-control.js";
 import { createCheckpointTransportationEditor } from "./checkpoint-transportation-editor.js";
 import { checkpointOffers,saveCheckpointOffers } from "./checkpoint-transportation.js";
 import { createCheckpointChoice,createCheckpointRange,createCheckpointMarkerSize,
@@ -42,7 +42,6 @@ const el = (tag, label) => {
   if (label !== undefined) item.textContent = label;
   return item;
 };
-const ICON_DETAILS = new Map(CHECKPOINT_FREE_ICONS.map(icon => [icon.id, icon]));
 
 /** Explicit GM editor. Icon choice and search never modify the Scene before Save. */
 export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.ApplicationV2 {
@@ -52,7 +51,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     position: { width: 630, height: 540, left: 24 }
   };
 
-  constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null, onTerrainAction = null, onDelete = null }) {
+  constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null, onTerrainAction = null, onDelete = null, onMove = null, onRoad = null }) {
     const checkpointName=createDraft?null:
       readAtlas(scene).checkpoints?.find(checkpoint=>checkpoint.id===checkpointId)?.name;
     super({ window:{title:atlasSettingsTitle("Checkpoint",checkpointName,
@@ -69,6 +68,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     this.onCreate = onCreate;
     this.onTerrainAction = onTerrainAction;
     this.onDelete = onDelete;
+    this.onMove = onMove;
+    this.onRoad = onRoad;
     this.activePage = "General";
     this.createResolved = false;
   }
@@ -124,14 +125,22 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       {selectedId:this.createDraft?"generic":checkpointCategory(this.scene,this.checkpointId)}));
     category.title="Changing type suggests its World checkpoint preset. Changes are staged until Save.";
     const presetPicker=el("select");
-    const saveAsPreset=createSettingsIconButton({icon:"floppy-disk",label:"Save as preset"});
+    const saveAsPreset=el("button","Save as preset…");
     saveAsPreset.type="button";
     const presetControls=el("div");
     presetControls.style.cssText="display:flex;align-items:center;gap:.4rem;flex:0 1 16rem;min-width:0;";
     presetPicker.style.cssText="flex:1;min-width:0;";
-    presetControls.append(presetPicker,saveAsPreset);
+    const changePreset=el("button","Change preset…");changePreset.type="button";
+    const presetName=el("span");
+    const updatePresetControl=()=>{
+      const chosen=catalog.presets.find(p=>p.id===presetPicker.value);
+      presetName.textContent=chosen?.name??"No preset";
+      presetPicker.hidden=Boolean(chosen);changePreset.hidden=!chosen;
+    };
+    changePreset.addEventListener("click",()=>{presetPicker.hidden=false;changePreset.hidden=true;presetPicker.focus();});
+    presetControls.append(presetName,presetPicker,changePreset);
     field("Checkpoint preset",presetControls);
-    const presetHint=el("small","Choose a saved preset to fill editable marker and discovery defaults. This never changes a native Region.");
+    const presetHint=el("small","Apply saved marker and discovery defaults. Save Checkpoint applies your changes to this place.");
     fields.appendChild(presetHint);
     // The same General page is used for creation and editing: choose a reusable
     // template before entering or refining checkpoint-specific values.
@@ -145,10 +154,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       hint.className = "hint";
       fields.appendChild(hint);
     }
-    const imperial = resolveAtlasMeasuringUnits() === "imperial";
+    const imperial = resolveAtlasMeasuringUnits(undefined,undefined,this.scene.grid?.units) === "imperial";
     const elevationFactor = imperial ? 3.280839895 : 1;
     const elevationControl=createCheckpointElevation(current.elevationMeters,{imperial});
     const elevation=elevationControl.number;
+    const initialElevation=elevation.value;
+    const elevationMeters=()=>elevation.value===initialElevation ? current.elevationMeters :
+      elevation.value.trim()===""?null:Number(elevation.value)/elevationFactor;
     const elevationRange=elevationControl.slider;
     field(imperial ? "Elevation (ft)" : "Elevation (m)",elevationControl.element);
     const playerVisibility = createCheckpointCheckbox(current.playerVisible,
@@ -156,9 +168,30 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     let discovery = null;
     let revealRadius = null;
     let discoveryMethod = null;
+    let updateVisibility=()=>{};
     if (exploration.enabled) {
       const state = checkpointKnowledge(exploration, this.checkpointId);
-      discovery = field("Discovery status", createCheckpointChoice(CHECKPOINT_DISCOVERY_STATES,state));
+      discovery = createCheckpointChoice(CHECKPOINT_DISCOVERY_STATES,state);
+      discovery.hidden=true;
+      const visibility=createSettingsIconButton({icon:state==="unknown"?"eye-slash":"eye",label:"Show checkpoint"});
+      const visibilityRow=el("div");const visibilityText=el("span");
+      visibilityRow.append(discovery,visibility,visibilityText);
+      field("Player visibility",visibilityRow);
+      let knownState=state==="unknown"?"visited":state;
+      updateVisibility=()=>{
+        const shown=discovery.value!=="unknown";
+        visibility.title=shown?"Hide checkpoint":"Show checkpoint";
+        visibility.setAttribute("aria-label",visibility.title);
+        visibility.setAttribute("aria-pressed",String(shown));
+        visibility.querySelector("i").className="fa-solid fa-"+(shown?"eye":"eye-slash");
+        visibilityText.textContent=shown?" Shown":" Hidden";
+      };
+      visibility.addEventListener("click",()=>{
+        if(discovery.value!=="unknown"){knownState=discovery.value;discovery.value="unknown";}
+        else discovery.value=discoveryMethod?.value==="lore"?"lore":knownState;
+        updateVisibility();
+      });
+      updateVisibility();
       discovery.setAttribute("aria-label", "Checkpoint discovery status");
       discoveryMethod = field("Discovery method", createCheckpointChoice(CHECKPOINT_DISCOVERY_METHODS,
         checkpointDiscoveryMethod(discoveryMethods,this.checkpointId)));
@@ -167,14 +200,29 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         checkpointRevealRadiusCells(exploration,this.checkpointId),
         {min:0,max:100,step:.25,label:"Checkpoint terrain reveal radius in grid cells"});
       revealRadius=radiusControl.number;
-      field("Reveal radius (cells)",radiusControl.element);
+      field("Terrain revealed on discovery (cells)",radiusControl.element);
+      fields.appendChild(el("small","Reveals map terrain after this checkpoint becomes known. It does not discover nearby checkpoints. Set to 0 for the marker only."));
     } else {
-      field("Show to players", playerVisibility);
+      playerVisibility.hidden=true;
+      const visibility=createSettingsIconButton({icon:"eye",label:"Show checkpoint"});
+      const row=el("div"),status=el("span");
+      row.append(playerVisibility,visibility,status);
+      field("Player visibility",row);
+      updateVisibility=()=>{
+        const shown=playerVisibility.checked;
+        visibility.title=shown?"Hide checkpoint":"Show checkpoint";
+        visibility.setAttribute("aria-label",visibility.title);
+        visibility.setAttribute("aria-pressed",String(shown));
+        visibility.querySelector("i").className="fa-solid fa-"+(shown?"eye":"eye-slash");
+        status.textContent=shown?" Shown":" Hidden";
+      };
+      visibility.addEventListener("click",()=>{playerVisibility.checked=!playerVisibility.checked;updateVisibility();});
+      updateVisibility();
     }
     const type = field("Checkpoint marker", createCheckpointChoice(CHECKPOINT_MARKER_TYPES,appearance.type));
     let selected = appearance.icon;
-    const iconPicker = createCheckpointIconPicker({selectedId:selected,
-      onChange:id=>{selected=id;}});
+    const iconPicker = createCheckpointIconPicker({selectedId:selected,compact:true,
+      onChange:id=>{selected=id;updatePreview();}});
     const iconSection = iconPicker.element;
     const pageGeneral = el("section"), pageMarker = el("section"), pageTerrain = el("section");
     const pageTransport=el("section");
@@ -198,7 +246,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         ui.notifications.error("Foundry File Picker is unavailable.");
         return;
       }
-      new Picker({ type: "image", callback: path => { image.value = path; } }).render(true);
+      new Picker({ type: "image", callback: path => { image.value = path; updatePreview(); } }).render(true);
     });
     imageSection.append(image, browse);
 
@@ -207,8 +255,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const markerSize=createCheckpointMarkerSize(appearance.size);
     const size=markerSize.input;
     field("Marker size (12–64 px)", markerSize.element);
-    const color = createCheckpointColor(appearance.color,{label:"Dot / Font Awesome color"});
-    field("Dot / Font Awesome color", color);
+    const color = createCheckpointColor(appearance.color,{label:"Checkpoint color"});
+    field("Checkpoint color", color);
     const borderColor = createCheckpointColor(appearance.borderColor,{label:"Checkpoint border color"});
     field("Checkpoint border color", borderColor);
     fields = el("div"); fields.style.cssText = "display:grid;gap:.55rem;";
@@ -221,13 +269,41 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     // Choose a marker type after the label controls, then its icon last.
     pageMarker.appendChild(type.closest("label"));
     pageMarker.appendChild(imageSection);
-    pageMarker.appendChild(iconSection);
+    type.closest("label").appendChild(iconSection);
     const updateType = () => {
       iconSection.hidden = type.value !== "fa";
       imageSection.hidden = type.value !== "image";
     };
     type.addEventListener("change", updateType);
     updateType();
+    const preview=el("fieldset");preview.className="atlas-checkpoint-preview";
+    preview.appendChild(el("legend","Map preview"));
+    const previewMarker=el("span"),previewLabel=el("span");
+    const sample=el("div");sample.style.cssText="min-height:90px;display:flex;align-items:center;justify-content:center;gap:.6rem;background:#303936;padding:.8rem;border-radius:5px;";
+    sample.append(previewMarker,previewLabel);preview.appendChild(sample);
+    sample.tabIndex=0;
+    preview.appendChild(el("small","Hover or focus the sample to preview hover-only labels. Map zoom may change the displayed size."));
+    pageMarker.appendChild(preview);
+    const updatePreview=()=>{
+      const marker=type.value==="fa"?createCheckpointIconGlyph(selected):el(type.value==="image"?"img":"span");
+      if(type.value==="image"){
+        try{const safe=validateCheckpointAppearance({...appearance,type:"image",image:image.value.trim()});marker.src=safe.image;}catch{/* Invalid draft paths are not loaded. */}
+        marker.alt="Checkpoint marker";
+      }
+      const px=Math.max(12,Math.min(64,Number(size.value)||24));
+      marker.style.width=px+"px";marker.style.height=px+"px";marker.style.fontSize=px+"px";
+      marker.style.color=color.value;marker.style.border="1px solid "+borderColor.value;
+      if(type.value==="dot"){marker.style.display="inline-block";marker.style.borderRadius="50%";marker.style.background=color.value;}
+      previewMarker.replaceChildren(marker);
+      const road=readAtlas(this.scene).roads?.find(r=>r.id===(draftRoad?.value??current.roadId));
+      previewLabel.textContent=name.value+(showRoad.checked&&road?" · "+road.name:"");
+      previewLabel.style.color=textColor.value;
+      previewLabel.hidden=mode.value==="off";
+      preview.setAttribute("data-label-mode",mode.value);
+    };
+    root.addEventListener("input",updatePreview);
+    root.addEventListener("change",updatePreview);
+    updatePreview();
     const catalog=readWorldCheckpointPresets();
     const populatePresets=()=>{
       const grouped=createCheckpointPresetSelect(catalog.presets);
@@ -249,11 +325,12 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         elevationRange.value=elevation.value;
       }
       if(discovery)discovery.value=preset.discoveryStatus??"unknown";
+      updateVisibility();
       if(preset.journalUuid)journalInput.value=preset.journalUuid;
       playerVisibility.checked=preset.playerVisible===true;
       terrainSuggestion={...preset.terrain};
       transportEditor.setOffers(preset.transportation??[]);
-      iconPicker.value=selected;updateType();
+      iconPicker.value=selected;updateType();updatePresetControl();updatePreview();
       presetHint.textContent="Applied ‘"+preset.name+"’ to editable fields. Suggested Region: "+
         (preset.terrain.presetId??"None")+" · radius "+preset.terrain.radiusCells+
         " cells. Native Region geometry and Behaviors stay unchanged.";
@@ -269,14 +346,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       const assigned=checkpointAssignedPresetId(this.scene,this.checkpointId);
       if(assigned&&catalog.presets.some(p=>p.id===assigned))presetPicker.value=assigned;
     }
-    if (type.value === "fa" && (!selected || !ICON_DETAILS.has(selected))) iconSection.open=true;
-    iconSection.addEventListener("toggle",()=>{
-      if (!this.rendered || pageMarker.hidden) return;
-      this.setPosition({
-        width: iconSection.open ? Math.min(860, window.innerWidth - 50) : Math.min(630, window.innerWidth - 50),
-        height: iconSection.open ? Math.min(850, window.innerHeight - 80) : Math.min(660, window.innerHeight - 90)
-      });
-    });
+    updatePresetControl();
     const journalControls = journalLinkFields(journalLinks,"checkpoint",this.checkpointId);
     pageGeneral.appendChild(journalControls);
     pageTerrain.style.cssText="min-width:0;";
@@ -284,7 +354,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       item.metadata?.checkpointIds?.includes(this.checkpointId));
     const presetNames=new Map(checkpointRegions.length?
       readWorldTravelPresets().presets.map(p=>[p.id,p.name]):[]);
-    pageTerrain.appendChild(el("p","A checkpoint Region overrides the road's default travel preset where its geometry applies. Higher-priority overlapping Regions win. Native Behaviors are edited separately."));
+    const terrainSummary=el("fieldset");terrainSummary.appendChild(el("legend","Terrain & connections"));
+    terrainSummary.appendChild(el("p","Set local travel conditions with a Terrain Region. Overlapping Regions use their configured priority."));
+    pageTerrain.appendChild(terrainSummary);
     let updateGeographicHint=null;
     if(!this.createDraft){
       const hint=el("p");
@@ -293,12 +365,11 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           item.link?.checkpointId===this.checkpointId);
         hint.textContent=linked.length?
         `Linked geographic Territory: ${linked.map(item=>item.regionName).join(", ")}. `+
-          "Manage this identity association in Atlas Workspace → Territories; " +
-          "it does not alter the Checkpoint Journal or native Region geometry.":
+          "The linked Territory keeps its own boundary and Journal.":
         "No geographic Territory is associated with this Checkpoint. " +
-          "Link one here or from Atlas Workspace → Territories.";
+          "Choose Link Territory to associate a place.";
       };
-      updateGeographicHint();pageTerrain.appendChild(hint);
+      updateGeographicHint();terrainSummary.appendChild(hint);
     }
     const terrainButton=(title,action,regionId=null)=>{
       const button=el("button",title);button.type="button";
@@ -324,8 +395,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       return button;
     };
     if(!this.createDraft && this.onTerrainAction){
-      pageTerrain.appendChild(terrainButton("Link geographic Territory","territory"));
-      pageTerrain.appendChild(terrainButton("+ Generate checkpoint Region","create"));
+      terrainSummary.appendChild(terrainButton("Link Territory","territory"));
+      terrainSummary.appendChild(terrainButton("Create Terrain Region…","create"));
       if(!checkpointRegions.length)pageTerrain.appendChild(el("p","No generated Terrain Regions are linked to this checkpoint."));
       for(const region of checkpointRegions){
         const card=el("section");
@@ -369,12 +440,6 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       item.addEventListener("click",()=>{
         this.activePage=name;
         for (const [,p] of pages) p.hidden=p!==page;
-        if (page===pageMarker && iconSection.open) this.setPosition({
-          width:Math.min(860,window.innerWidth-50),height:Math.min(850,window.innerHeight-80)
-        });
-        else this.setPosition({
-          width:Math.min(630,window.innerWidth-50),height:Math.min(710,window.innerHeight-70)
-        });
         for (const b of editorTabs.children) {
           const active=b===item;
           b.disabled=false;b.setAttribute("aria-selected",String(active));
@@ -392,9 +457,6 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const controls = el("div");
     controls.className = "atlas-checkpoint-form-actions";
     controls.style.cssText = "position:sticky;bottom:0;z-index:2;background:#100f17;padding:.4rem 0;";
-    const cancel = el("button", "Cancel");
-    cancel.type = "button";
-    cancel.addEventListener("click", () => this.close());
     const save = el("button", this.createDraft ? "Create Checkpoint" : "Save Checkpoint");
     save.type = "button";
     const remove = !this.createDraft && this.onDelete ?
@@ -410,7 +472,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     });
     saveAsPreset.addEventListener("click",async()=>{
       try{
+        if(!game.user?.isGM)throw Error("Only a GM can save World presets.");
+        const before=readWorldCheckpointPresets();
         const wrapper=el("div"),input=el("input");
+        const target=createSettingsSelect([["","Create a new preset"],...before.presets.map(p=>[p.id,"Replace: "+p.name])],
+          {selectedId:"",name:"presetTarget"});
+        target.name="presetTarget";
+        const targetLabel=el("label","Save as");targetLabel.appendChild(target);wrapper.appendChild(targetLabel);
         input.name="presetName";input.required=true;input.maxLength=120;
         input.defaultValue=category.selectedOptions[0]?.textContent??"Checkpoint";
         const label=el("label","Preset name");label.appendChild(input);wrapper.appendChild(label);
@@ -423,11 +491,15 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           size:Number(size.value),color:color.value,borderColor:borderColor.value,
           labelMode:mode.value,showRoadName:showRoad.checked,textColor:textColor.value});
         const world=readWorldCheckpointPresets();
+        if(JSON.stringify(world)!==JSON.stringify(before))throw Error("World presets changed. Try saving again.");
+        const targetId=String(values.presetTarget??"");
+        const existing=world.presets.find(p=>p.id===targetId);
+        if(targetId&&!existing)throw Error("The selected preset no longer exists.");
         const suggested=terrainSuggestion;
-        const preset={id:"checkpoint-custom-"+foundry.utils.randomID(),
+        const preset={id:existing?.id??("checkpoint-custom-"+foundry.utils.randomID()),
           name:String(values.presetName??"").trim(),category:category.value,
           appearance:a,discoveryMethod:discoveryMethod?.value??"automatic",
-          elevationMeters:elevation.value.trim()===""?null:Number(elevation.value)/elevationFactor,
+          elevationMeters:elevationMeters(),
           discoveryStatus:discovery?.value??"unknown",
           journalUuid:journalInput.value.trim()||null,
           playerVisible:playerVisibility.checked,
@@ -436,6 +508,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           transportation:transportEditor.getOffers(),
           event:{kind:"none",enabled:false}};
         const next=upsertCheckpointPreset(world,preset);
+        if(existing&&!await foundry.applications.api.DialogV2.confirm({
+          window:{title:"Replace World preset?"},content:"<p>Replace the selected World preset with these settings? Existing checkpoints are not changed.</p>",
+          yes:{label:"Replace preset"},no:{label:"Keep existing"},rejectClose:false}))return;
+        if(JSON.stringify(readWorldCheckpointPresets())!==JSON.stringify(before))throw Error("World presets changed. Try saving again.");
         await game.settings.set(MODULE_ID,CHECKPOINT_PRESET_SETTING,next);
         ui.notifications.info("Checkpoint preset saved to World settings. This checkpoint was not changed.");
       }catch(error){ui.notifications.error(error.message??String(error));}
@@ -468,7 +544,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
             throw Error("Enter a valid elevation.");
           const config = {
             roadId: this.createDraft.independent ? null : roadId, name: name.value.trim(),
-            elevationMeters: raw === "" ? null : Number(raw) / elevationFactor,
+            elevationMeters: elevationMeters(),
             appearance: next, playerVisible: playerVisibility.checked,
             journalUuid: nextJournal,
             knowledge: discovery?.value ?? null,
@@ -492,7 +568,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         }
         await saveCheckpointPresentation(this.scene, {
           checkpointId: this.checkpointId, name: name.value,
-          elevationMeters: raw === "" ? null : Number(raw) / elevationFactor,
+          elevationMeters: elevationMeters(),
           playerVisible: playerVisibility.checked, appearance: next,
           expectedRevision: this.expectedRevision
         });
@@ -540,7 +616,36 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     };
     save.addEventListener("click", () => void saveValue(undefined));
     if(remove)controls.appendChild(remove);
-    controls.append(cancel, save);
+    const leaveForAction=async(action)=>{
+      const approved=await approveSettingsClose({isDirty:this._isDirty,save:this._saveDraft,title:"Checkpoint Settings"});
+      if(!approved)return;
+      if(!this._skipClosePrompt){this._skipClosePrompt=true;await this.close();}
+      await action();
+    };
+    if(!this.createDraft&&this.onMove){
+      const move=createSettingsIconButton({icon:"up-down-left-right",label:"Move checkpoint"});
+      move.addEventListener("click",()=>void leaveForAction(this.onMove).catch(error=>ui.notifications.error(error.message)));
+      controls.appendChild(move);
+    }
+    if(!this.createDraft){
+      const roads=el("fieldset");roads.appendChild(el("legend","Road connection"));
+      const atlas=readAtlas(this.scene);
+      const incidents=atlas.segments.filter(segment=>segment.from===current.nodeId||segment.to===current.nodeId);
+      const names=[...new Set(incidents.map(segment=>atlas.roads.find(road=>road.id===segment.roadId)?.name).filter(Boolean))];
+      roads.appendChild(el("p",names.length?names.join(", "):"Independent checkpoint — no connected Road."));
+      roads.appendChild(el("small",incidents.length>1?
+        "This checkpoint lies on connected Road sections. Use Road point editing to change its position or connections safely.":
+        "Move closer to a Road to snap and connect, or connect an endpoint with a new Road section. No connection is made automatically."));
+      if(this.onRoad){
+        const connect=el("button",incidents.length?"Disconnect Road…":"Connect to Road…");connect.type="button";
+        connect.disabled=incidents.length>1;
+        if(connect.disabled)connect.title="Edit the connected Road points to preserve shared topology.";
+        connect.addEventListener("click",()=>void leaveForAction(this.onRoad).catch(error=>ui.notifications.error(error.message)));
+        roads.appendChild(connect);
+      }
+      pageTerrain.prepend(roads);
+    }
+    controls.append(saveAsPreset, save);
     root.appendChild(controls);
     this._saveDraft=()=>saveValue(undefined);
     this._isDirty=trackSettingsChanges(root,()=>({selected,terrainSuggestion,

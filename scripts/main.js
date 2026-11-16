@@ -11,7 +11,7 @@ import { reviewIndependentCheckpointConnections } from "./road-checkpoint-review
 import { createIndependentCheckpointFromDraft } from "./road-authoring-foundry.js";
 import {AtlasLayersController} from "./atlas-layers.js";
 import {acquireAtlasCanvasEditorFocus} from "./atlas-canvas-editor-focus.js";
-import { addAtlasExplorerToTokenConfig } from "./atlas-token-config.js";
+import { addAtlasExplorerToTokenConfig, assignCreatedAtlasExplorer } from "./atlas-token-config.js";
 import { observeAtlasTokenMovement } from "./atlas-token-exploration.js";
 import { readAtlas, MODULE_ID } from "./atlas-storage.js";
 import { savePartyExplorationConfig,
@@ -1611,6 +1611,15 @@ function actions() {
         scene, checkpointId: checkpoint.id, expectedRevision: atlas.revision,
         onSaved: () => { roadCanvas.refresh(); refresh(); },
         onDelete:()=>actions().deleteCheckpointWithDependents(scene,checkpoint.id,refresh),
+        onMove:()=>{
+          const current=readAtlas(scene);
+          const cp=current.checkpoints.find(item=>item.id===checkpoint.id);
+          if(!cp)throw Error("Checkpoint no longer exists.");
+          const road=current.segments.find(segment=>segment.from===cp.nodeId||segment.to===cp.nodeId);
+          return road?actions().beginPointEdit(scene,road.roadId,refresh):
+            actions().moveCheckpoint(scene,checkpoint.id,refresh);
+        },
+        onRoad:()=>actions().manageCheckpointRoad(scene,checkpoint.id,refresh),
         onTerrainAction:async (action,regionId)=>{
           if(action==="clearPreview")return roadCanvas.clearRegionPreview();
           const api=actions();
@@ -2956,6 +2965,10 @@ Hooks.once("init", () => {
   });
   Hooks.on("preUpdateScene", atlasGridChangeNotice);
   Hooks.on("renderTokenConfig", addAtlasExplorerToTokenConfig);
+  Hooks.on("renderPrototypeTokenConfig", addAtlasExplorerToTokenConfig);
+  Hooks.on("createToken", token => {
+    void assignCreatedAtlasExplorer(token).catch(error => ui.notifications.error(error.message));
+  });
   // Foundry v14 public ApplicationV2 render hook; only GM D&D5e Group sheets match.
   Hooks.on("renderApplicationV2", addAtlasGroupTransportationControl);
   Hooks.on("canvasReady", () => {
