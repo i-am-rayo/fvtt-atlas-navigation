@@ -15,6 +15,8 @@ const metersFor={m:1,meter:1,meters:1,metre:1,metres:1,
   mi:METERS_PER_MILE,mile:METERS_PER_MILE,miles:METERS_PER_MILE,
   yd:0.9144,yard:0.9144,yards:0.9144};
 const normalize=unit=>String(unit??"").trim().toLowerCase();
+const METRIC_SCENE_UNITS=new Set(["m","meter","meters","metre","metres","km",
+  "kilometer","kilometers","kilometre","kilometres"]);
 const get=(settings,namespace,key)=>{
   try{return settings?.get?.(namespace,key);}catch{return undefined;}
 };
@@ -29,10 +31,18 @@ export function resolveAtlasMeasuringUnits(settings=globalThis.game?.settings,
     if(typeof systemMetric==="boolean")return systemMetric?"metric":"imperial";
   }
   const factor=metersFor[normalize(sceneUnit)];
-  if(factor!==undefined)return ["m","meter","meters","metre","metres","km",
-    "kilometer","kilometers","kilometre","kilometres"].includes(normalize(sceneUnit))?
+  if(factor!==undefined)return METRIC_SCENE_UNITS.has(normalize(sceneUnit))?
     "metric":"imperial";
   return "imperial";
+}
+/** Elevation uses recognized native Scene grid units; unknown units fall
+ * back to the Atlas/system preference. Stored heights remain canonical meters. */
+export function resolveCheckpointElevationUnits(sceneUnit,
+  settings=globalThis.game?.settings,systemId=globalThis.game?.system?.id){
+  const unit=normalize(sceneUnit);
+  if(metersFor[unit]!==undefined)
+    return METRIC_SCENE_UNITS.has(unit)?"metric":"imperial";
+  return resolveAtlasMeasuringUnits(settings,systemId,sceneUnit);
 }
 const convertDistance=(amount,sourceUnit,targetUnit)=>{
   const source=metersFor[normalize(sourceUnit)],target=metersFor[normalize(targetUnit)];
