@@ -560,7 +560,7 @@ export function createAtlasExplorationPanel(scene,actions,refresh) {
     save.disabled=true;
     try {
       expected=await savePartyExplorationConfig(scene,{...expected,
-        radius:Number(radius.number.value),expected});
+        radius:radius.getValue(),expected});
       ui.notifications.info("Party discovery radius saved.");
     } catch(error){ui.notifications.error(error.message??String(error));}
     finally{save.disabled=false;}
@@ -1233,7 +1233,8 @@ function atlasPanel(scene, atlas, actions, refresh,
       label:selected.kind==="corridor"
         ? "Distance on either side of the road in grid cells"
         : "Radius around checkpoint in grid cells",
-      onChange:value=>{selected.widthCells=value;}
+      onChange:value=>{selected.widthCells=value;},
+      onInvalid:()=>{selected.widthCells=NaN;}
     });
     addField(selected.kind === "corridor"
       ? "Distance on either side of road (cells)" : "Radius around checkpoint (cells)", widthControl.element);
