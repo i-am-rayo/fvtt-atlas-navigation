@@ -103,6 +103,11 @@ export function validateCheckpointPresets(value){
         Object.keys(event).some(k=>!["kind","enabled"].includes(k))||
         !["none","hazard","encounter"].includes(event.kind)||event.enabled!==false)
       throw Error("Checkpoint events are configuration-only in this release.");
+    // A portable World preset may copy banner field switches but MUST NOT
+    // retain a Scene-local native Region ID: IDs from another Scene/World
+    // could accidentally disclose an unrelated Territory.
+    if(p.appearance?.banner?.territoryRegionId!=null)
+      throw Error("World Checkpoint presets cannot store Scene Territory IDs.");
     return {id:p.id,name:p.name.trim(),category:p.category,
       appearance:p.id==="checkpoint-"+p.category
         ?checkpointPresetAppearance(p.category,p.appearance)
