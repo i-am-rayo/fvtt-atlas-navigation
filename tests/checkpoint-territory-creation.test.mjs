@@ -210,9 +210,14 @@ test("one-cell GM highlight is disposable and uses native square/hex vertices",(
   }finally{f.restore();}
 });
 
-test("Road Settings is a minimizable native v14 dialog and retains guarded close",()=>{
+test("Road Settings uses a minimizable ApplicationV2 window and retains guarded close",()=>{
   const source=readFileSync(new URL("../scripts/main.js",import.meta.url),"utf8");
-  assert.match(source,/window:\s*\{\s*title:\s*atlasSettingsTitle\("Road",actual\.name\),\s*resizable:\s*true,\s*minimizable:\s*true\s*\}/);
+  const windowSource=readFileSync(new URL("../scripts/road-settings-window.js",import.meta.url),"utf8");
+  assert.match(source,/openRoadSettingsWindow\(\{/);
+  assert.match(source,/id:roadDialogToken,title:atlasSettingsTitle\("Road",actual\.name\)/);
+  assert.match(windowSource,/const Base=foundry\.applications\.api\.ApplicationV2/);
+  assert.match(windowSource,/window:\{title,resizable:true,minimizable:true\}/);
+  assert.match(source,/dialog\.setCloseGuard\(/);
   assert.match(source,/approveSettingsClose\(/);
   assert.match(source,/trackSettingsChanges\(/);
 });
