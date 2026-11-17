@@ -667,7 +667,7 @@ test("Region generator submits the displayed corridor half-width without a stale
     areaShape.listeners.get("change")();
     body=await generator._renderHTML();
     const radius=visit(body,e=>e.tag==="input"&&e.type==="range"&&
-      e.attributes?.get("aria-label")?.includes("Radius around checkpoint"));
+      e.attributes?.get("aria-label")?.includes("Radius around Map Marker"));
     assert.ok(radius);
     radius.value="0.5";
     radius.listeners.get("input")();
@@ -1037,7 +1037,7 @@ test("Territory rows show stable Checkpoint association with a GM link editor",a
       configureTerritoryCheckpoint:(_scene,id)=>{opened=id;}},()=>{},
     {generated:[],nativeRegions:[{id:native.id,name:native.name,linked:true,
       invalidLink:false,hidden:false}],publicById:new Map()});
-    assert.match(textContents(panel),/Linked Checkpoint missing — choose another/);
+    assert.match(textContents(panel),/Linked Map Marker missing — choose another/);
     const action=buttons(panel).find(b=>b.title==="Open Dirwest City Territory Settings");
     assert.ok(action&&!action.disabled);
     assert.equal(opened,null,"the link picker waits until opened from Territory Settings");
@@ -1082,7 +1082,7 @@ test("Territory directory shows an accessible, permission-checked Checkpoint Jou
     assert.ok(badge,"a resolved Page association gets a direct Journal action");
     assert.equal(badge.textContent,"📖 ◐");
     assert.match(badge.title,/1 of 2 players have Observer access/);
-    assert.match(badge.attributes.get("aria-label"),/Open Genasi Village linked Checkpoint Journal/);
+    assert.match(badge.attributes.get("aria-label"),/Open Genasi Village linked Map Marker Journal/);
     await badge.listeners.get("click")({preventDefault(){}});
     assert.equal(opened,1,"the native Journal Page opens without creating a new link");
     assert.equal(scene.getFlag(null,"atlasJournalLinks").checkpoints.cp,journal);
