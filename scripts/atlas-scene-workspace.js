@@ -179,6 +179,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
           if(key===id&&!panel.children.length)renderForm(panel);
         }
       };
+      main.appendChild(tabs);
       for(const [id,label,renderForm] of [
         ["rules","Travel rules",renderTravelRules],
         ["playback","Journey & playback",renderJourneyPlayback]]) {
@@ -201,7 +202,6 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
         activate(entries[next][0]);
         entries[next][1].focus();
       });
-      main.appendChild(tabs);
       activate(this.travelSettingsTab);
       main.appendChild(action("Transportation presets","Transportation presets",()=>this.actions.openWorldTravelSettings()));
     } else if(this.activeSection==="portability"){
