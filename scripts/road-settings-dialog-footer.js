@@ -1,12 +1,13 @@
-/** Keep Foundry DialogV2's native Save button in its own form footer.
- * DialogV2 owns that button's submit lifecycle; moving it into the dialog
- * content can turn a Save click into a close with no serialized form result.
+/** Keep the existing form's submit button in its footer.
+ * DialogV2 and the ApplicationV2 Road window both preserve form submission;
+ * never move Save outside the form or replace its action handler.
  */
 export function arrangeRoadDialogFooter(dialog) {
   const bar=dialog?.element?.querySelector?.("[data-atlas-road-actions]");
   const footer=dialog?.form?.querySelector?.(".form-footer") ??
     dialog?.element?.querySelector?.(".form-footer");
-  const save=footer?.querySelector?.('button[data-action="ok"]') ??
+  const save=footer?.querySelector?.("button[data-atlas-road-submit]") ??
+    footer?.querySelector?.('button[data-action="ok"]') ??
     footer?.querySelector?.("button");
   const edit=bar?.querySelector?.('[data-atlas-road-tool="edit"]');
   const connection=bar?.querySelector?.('[data-atlas-road-tool="connection"]');
@@ -21,7 +22,7 @@ export function arrangeRoadDialogFooter(dialog) {
   footer.insertBefore(cancel,save);
   // Destructive action comes last in both visual and keyboard DOM order.
   footer.appendChild(remove);
-  // Keep Foundry's original data-action="ok" submit control authoritative.
+  // Keep the original submit button and its form ownership authoritative.
   save.title="Save Road";
   save.setAttribute("aria-label","Save Road");
   save.replaceChildren();
