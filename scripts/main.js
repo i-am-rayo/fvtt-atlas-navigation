@@ -905,10 +905,9 @@ function actions() {
         if(dialog._atlasCloseGuard)return;
         liveRoadForm?.querySelector('input[name="atlasRoadName"]')?.focus();
         dialog._atlasCloseGuard=true;
-        const baseClose=dialog.close.bind(dialog);
-        dialog.close=async options=>{
-          if(roadMayClose)return baseClose(options);
-          if(roadClosePending)return dialog;
+        dialog.setCloseGuard(async()=>{
+          if(roadMayClose)return true;
+          if(roadClosePending)return false;
           roadClosePending=true;
           try{
             const approved=await approveSettingsClose({isDirty:roadDirty,title:"Road Settings",
@@ -921,11 +920,11 @@ function actions() {
                 roadSaveButton.click();
                 return true;
               }});
-            if(!approved||roadMayClose)return dialog;
+            if(!approved||roadMayClose)return false;
             roadMayClose=true;
-            return baseClose(options);
+            return true;
           }finally{roadClosePending=false;}
-        };
+        });
         // Catch the header X before Foundry handles its window action. This
         // also covers v14 dialog paths which bypass a patched close method.
         interceptDialogHeaderClose(dialog,()=>!roadMayClose&&roadDirty());
