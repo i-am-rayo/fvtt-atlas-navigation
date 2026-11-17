@@ -178,10 +178,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       discovery = createCheckpointChoice(CHECKPOINT_DISCOVERY_STATES,state);
       discovery.hidden=true;
       const visibility=createSettingsIconButton({icon:state==="unknown"?"eye-slash":"eye",label:"Show checkpoint"});
-      const visibilityRow=el("div");const visibilityText=el("span");
+      const visibilityRow=el("div");
       visibilityRow.className="atlas-checkpoint-footer-visibility";
       visibility.className+=" atlas-checkpoint-footer-icon";
-      visibilityRow.append(discovery,visibility,visibilityText);
+      visibilityRow.append(discovery,visibility);
       visibilityAction=visibilityRow;
       let knownState=state==="unknown"?"visited":state;
       updateVisibility=()=>{
@@ -190,7 +190,6 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         visibility.setAttribute("aria-label",visibility.title);
         visibility.setAttribute("aria-pressed",String(shown));
         visibility.querySelector("i").className="fa-solid fa-"+(shown?"eye":"eye-slash");
-        visibilityText.textContent=shown?" Shown":" Hidden";
       };
       visibility.addEventListener("click",()=>{
         if(discovery.value!=="unknown"){knownState=discovery.value;discovery.value="unknown";}
@@ -211,10 +210,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     } else {
       playerVisibility.hidden=true;
       const visibility=createSettingsIconButton({icon:"eye",label:"Show checkpoint"});
-      const row=el("div"),status=el("span");
+      const row=el("div");
       row.className="atlas-checkpoint-footer-visibility";
       visibility.className+=" atlas-checkpoint-footer-icon";
-      row.append(playerVisibility,visibility,status);
+      row.append(playerVisibility,visibility);
       visibilityAction=row;
       updateVisibility=()=>{
         const shown=playerVisibility.checked;
@@ -222,12 +221,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         visibility.setAttribute("aria-label",visibility.title);
         visibility.setAttribute("aria-pressed",String(shown));
         visibility.querySelector("i").className="fa-solid fa-"+(shown?"eye":"eye-slash");
-        status.textContent=shown?" Shown":" Hidden";
       };
       visibility.addEventListener("click",()=>{playerVisibility.checked=!playerVisibility.checked;updateVisibility();});
       updateVisibility();
     }
-    const type = field("Checkpoint marker", createCheckpointChoice(CHECKPOINT_MARKER_TYPES,appearance.type));
+    const type=createCheckpointChoice(CHECKPOINT_MARKER_TYPES,appearance.type);
+    type.id="atlas-checkpoint-marker-type";
+    type.setAttribute("aria-label","Checkpoint marker type");
     let selected = appearance.icon;
     const iconPicker = createCheckpointIconPicker({selectedId:selected,compact:true,
       onChange:id=>{selected=id;updatePreview();}});
@@ -274,10 +274,19 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     field("Include road name with label", showRoad);
     const textColor = createCheckpointColor(appearance.textColor,{label:"Checkpoint label text color"});
     field("Checkpoint / road label text color", textColor);
-    // Choose a marker type after the label controls, then its icon last.
-    pageMarker.appendChild(type.closest("label"));
+    // The icon picker is a separate action BEFORE the marker-type selector.
+    // Avoid nesting a button inside an HTML label; keep native keyboard order.
+    const markerRow=el("div");
+    markerRow.className="atlas-checkpoint-marker-row";
+    const markerCaption=el("label","Checkpoint marker");
+    markerCaption.htmlFor=type.id;
+    const markerControls=el("div");
+    markerControls.className="atlas-checkpoint-marker-controls";
+    iconSection.className+=" atlas-checkpoint-icon-selector";
+    markerControls.append(iconSection,type);
+    markerRow.append(markerCaption,markerControls);
+    pageMarker.appendChild(markerRow);
     pageMarker.appendChild(imageSection);
-    type.closest("label").appendChild(iconSection);
     const updateType = () => {
       iconSection.hidden = type.value !== "fa";
       imageSection.hidden = type.value !== "image";
@@ -450,8 +459,11 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       return button;
     };
     if(!this.createDraft && this.onTerrainAction){
-      terrainSummary.appendChild(terrainButton("Link Territory","territory"));
-      terrainSummary.appendChild(terrainButton("Create Terrain Region…","create"));
+      const terrainActions=el("div");
+      terrainActions.className="atlas-checkpoint-terrain-actions";
+      terrainActions.append(terrainButton("Link Territory","territory"),
+        terrainButton("Create Terrain Region…","create"));
+      terrainSummary.appendChild(terrainActions);
       if(!checkpointRegions.length)pageTerrain.appendChild(el("p","No generated Terrain Regions are linked to this checkpoint."));
       for(const region of checkpointRegions){
         const card=el("section");
@@ -670,7 +682,6 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       }
     };
     save.addEventListener("click", () => void saveValue(undefined));
-    if(remove)controls.appendChild(remove);
     const leaveForAction=async(action)=>{
       const approved=await approveSettingsClose({isDirty:this._isDirty,save:this._saveDraft,title:"Checkpoint Settings"});
       if(!approved)return;
@@ -688,7 +699,18 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       const atlas=readAtlas(this.scene);
       const incidents=atlas.segments.filter(segment=>segment.from===current.nodeId||segment.to===current.nodeId);
       const names=[...new Set(incidents.map(segment=>atlas.roads.find(road=>road.id===segment.roadId)?.name).filter(Boolean))];
-      roads.appendChild(el("p",names.length?names.join(", "):"Independent checkpoint — no connected Road."));
+      const roadIdentity=el("div");
+      roadIdentity.className="atlas-checkpoint-connected-roads";
+      roadIdentity.appendChild(el("strong",names.length?
+        (names.length===1?"Connected road":"Connected roads"):
+        "No connected road"));
+      if(names.length){
+        const list=el("ul");
+        for(const label of names)list.appendChild(el("li",label));
+        roadIdentity.appendChild(list);
+      }else roadIdentity.appendChild(el("small",
+        "This checkpoint is currently independent of the Road network."));
+      roads.appendChild(roadIdentity);
       roads.appendChild(el("small",incidents.length>1?
         "This checkpoint lies on connected Road sections. Use Road point editing to change its position or connections safely.":
         "Move closer to a Road to snap and connect, or connect an endpoint with a new Road section. No connection is made automatically."));
@@ -703,6 +725,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     }
     if(visibilityAction)controls.appendChild(visibilityAction);
     controls.append(saveAsPreset,save);
+    if(remove){
+      remove.className+=" atlas-checkpoint-footer-delete";
+      controls.appendChild(remove);
+    }
     root.appendChild(controls);
     this._saveDraft=()=>saveValue(undefined);
     this._isDirty=trackSettingsChanges(root,()=>({selected,terrainSuggestion,
