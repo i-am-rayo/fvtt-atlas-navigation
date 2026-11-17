@@ -92,7 +92,7 @@ export function roadAppearanceForm(appearance) {
   const label=typeof document.createElementNS==="function"?
     document.createElementNS("http://www.w3.org/2000/svg","text"):element("text");
   label.textContent="Road name";
-  label.className="atlas-road-preview-name";
+  label.setAttribute?.("class","atlas-road-preview-name");
   label.setAttribute?.("x","150");
   label.setAttribute?.("y","37");
   label.setAttribute?.("text-anchor","middle");
