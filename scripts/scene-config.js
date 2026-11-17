@@ -404,14 +404,14 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
   const draft = actions.draft?.(scene);
   const section = node("fieldset", undefined, "atlas-workspace-checkpoints");
   section.setAttribute("data-atlas-checkpoint-manager", "");
-  const heading = node("legend", "Checkpoints ");
-  const create = button("+", "Create a Checkpoint on a Road or independently on the Scene",
+  const heading = node("legend",  "Map Markers ");
+  const create = button("+", "Create a Map Marker on a Road or independently on the Scene",
     () => actions.beginCheckpoint(scene, refresh));
   create.className = "atlas-checkpoint-add";
   create.disabled = !!draft;
   heading.appendChild(create);
   section.appendChild(heading);
-  section.appendChild(node("p", "Click a Road to create a connected Checkpoint. " +
+  section.appendChild(node("p", ""Click a Road to create a connected Map Marker. " +
     "Click anywhere else on the map to create an independent landmark; " +
     "Atlas asks for confirmation before saving.", "hint"));
 
@@ -419,7 +419,7 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
     const placement = node("div", undefined, "atlas-checkpoint-placement");
     placement.appendChild(node("span",
       "Placement active — click a map location, or press Escape to cancel."));
-    placement.appendChild(button("Cancel placement", "Cancel Checkpoint placement", () => {
+    placement.appendChild(button("Cancel placement", "Cancel Map Marker placement", () => {
       actions.cancel(); refresh();
     }));
     section.appendChild(placement);
@@ -434,8 +434,8 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
   searchLabel.appendChild(node("span", "Search", "atlas-visually-hidden"));
   const search = node("input");
   search.type = "search";
-  search.placeholder = "Find a Checkpoint…";
-  search.setAttribute("aria-label", "Filter Checkpoints by name or Road");
+  search.placeholder = "Find a Map Marker…";
+  search.setAttribute("aria-label", "Filter Map Markers by name or Road");
   searchLabel.appendChild(search);
   toolbar.appendChild(searchLabel);
   section.appendChild(toolbar);
@@ -474,13 +474,13 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
     if (incident.length <= 1) controls.appendChild(iconAction(
       incident.length ? "unlink" : "link",
       incident.length ? "Review and disconnect this terminal Road section" :
-        "Connect this isolated Checkpoint to a Road endpoint",
+        "Connect this isolated Map Marker to a Road endpoint",
       () => actions.manageCheckpointRoad(scene, cp.id, refresh)));
     if (journal) controls.appendChild(iconAction("book-open", "Open linked Journal",
       () => openAtlasJournal(journal)));
     if (!party.enabled) controls.appendChild(iconAction(
       cp.playerVisible ? "eye-slash" : "eye",
-      cp.playerVisible ? "Hide Checkpoint from players" : "Show Checkpoint to players",
+      cp.playerVisible ? "Hide Map Marker from players" : "Show Map Marker to players",
       () => actions.toggleCheckpointPlayerVisibility(scene, cp, refresh)));
     row.append(description, controls);
 
@@ -518,7 +518,7 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
       radiusField.appendChild(radius);
       detailBody.appendChild(radiusField);
     }
-    detailBody.appendChild(button("Delete Checkpoint", `Delete ${cp.name}`,
+    detailBody.appendChild(button("Delete Map Marker", `Delete ${cp.name}`,
       () => actions.removeCheckpoint(scene, cp, refresh)));
     details.appendChild(detailBody);
     row.appendChild(details);
@@ -536,10 +536,10 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
       : `${entries.length} Checkpoints`;
   });
   if (!entries.length) list.appendChild(node("p",
-    "No Checkpoints yet. Choose [+] and click a map location.", "hint"));
+    "No Map Markers yet. Choose [+] and click a map location.", "hint"));
   section.appendChild(list);
   if (entries.length > 150) section.appendChild(node("p",
-    "Showing the first 150 Checkpoints; filter this list or use the legacy editor for the remainder.", "hint"));
+    "Showing the first 150 Map Markers; filter this list or use the legacy editor for the remainder.", "hint"));
   return section;
 }
 
@@ -845,7 +845,7 @@ function atlasPanel(scene, atlas, actions, refresh,
       ["Find on map", "Locate road", () => actions.select(scene,road.id),"location-dot"],
       ["Edit path", "Edit road", () => actions.beginPointEdit(scene,road.id,refresh),"pen-to-square"],
       ["Add connection", "Add connection", () => actions.beginJunction(scene,refresh),"link"],
-      ["Add checkpoint", "Add checkpoint", () => actions.beginCheckpoint(scene,refresh),"map-pin"]
+      ["Add Map Marker", "Add Map Marker", () => actions.beginCheckpoint(scene,refresh),"map-pin"]
     ];
     if (getRoadMergeCandidates(atlas,road.id).length)
       roadActions.push(["Merge", "Merge connected roads", () => actions.merge(scene,road,refresh),"code-merge"]);
@@ -890,15 +890,15 @@ function atlasPanel(scene, atlas, actions, refresh,
     };
     const checkpoints = (atlas.checkpoints ?? []).filter(item => item.roadId === road.id);
     const checkpointFolder = folder("Checkpoints (" + checkpoints.length + ")",
-      ()=>actions.beginCheckpoint(scene,refresh),"Add checkpoint");
+      ()=>actions.beginCheckpoint(scene,refresh),"Add Map Marker");
     for (const checkpoint of checkpoints) {
       const child=node("details");
       child.style.cssText="margin:.2rem .4rem;padding:.2rem .4rem;";
       child.appendChild(node("summary",checkpoint.name || "Checkpoint"));
       miniActions(child,[
-        ["Settings","Checkpoint settings",()=>actions.editCheckpointAppearance(scene,checkpoint,refresh),"gear"],
-        ["Find on map","Locate checkpoint",()=>actions.selectCheckpoint(scene,checkpoint.id),"location-dot"],
-        ["Delete","Delete checkpoint",()=>actions.removeCheckpoint(scene,checkpoint,refresh),"trash",true]
+        ["Settings","Map Marker settings",()=>actions.editCheckpointAppearance(scene,checkpoint,refresh),"gear"],
+        ["Find on map","Locate Map Marker",()=>actions.selectCheckpoint(scene,checkpoint.id),"location-dot"],
+        ["Delete","Delete Map Marker",()=>actions.removeCheckpoint(scene,checkpoint,refresh),"trash",true]
       ]);
       checkpointFolder.appendChild(child);
     }
@@ -1056,13 +1056,13 @@ function atlasPanel(scene, atlas, actions, refresh,
           visited: "Seen / Visited", unknown: "Undiscovered" }[
           checkpointKnowledge(party, checkpoint.id)] ?? "Undiscovered")
         : checkpoint.playerVisible === true
-          ? "Checkpoint visible to players" : "Checkpoint hidden from players", "hint");
+          ? "Map Marker visible to players" : "Map Marker hidden from players", "hint");
       visibility.style.fontSize = "0.8em";
       description.appendChild(visibility);
       if (checkpoint.appearance) {
         const a = checkpoint.appearance;
         const detail = node("div",
-          "Checkpoint overlay: " + (a.type === "fa" ? "FA " + a.icon :
+          ""Map Marker overlay: " + (a.type === "fa" ? "FA " + a.icon :
             a.type === "image" ? "custom image" : "dot") +
           " · label " + a.labelMode + (a.showRoadName ? " + road name" : ""), "hint");
         detail.style.fontSize = "0.8em";
@@ -1082,7 +1082,7 @@ function atlasPanel(scene, atlas, actions, refresh,
       const checkpointJournal = journalUuidFor(journalLinks,"checkpoint",checkpoint.id);
       if(checkpointJournal) {
          description.insertBefore(linkedJournalIndicator(checkpointJournal),description.firstChild);
-         controls.appendChild(button("📖", "Open linked Checkpoint Journal",
+         controls.appendChild(button("📖", "Open linked Map Marker Journal",
         () => void openAtlasJournal(checkpointJournal).catch(error =>
           ui.notifications.error(error.message||String(error)))));
       }
@@ -1098,7 +1098,7 @@ function atlasPanel(scene, atlas, actions, refresh,
           ["lore","Known through Lore"]
         ],{selectedId:knowledge==="legacy"?"unknown":knowledge,
           ariaLabel:"Knowledge of "+checkpoint.name});
-        knowledgeSelect.title = "GM checkpoint discovery / lore knowledge";
+        knowledgeSelect.title = "GM Map Marker discovery / lore knowledge";
         knowledgeSelect.addEventListener("change", async () => {
           try {
             await actions.setCheckpointKnowledge(scene, {
@@ -1113,12 +1113,12 @@ function atlasPanel(scene, atlas, actions, refresh,
         controls.appendChild(knowledgeSelect);
         if (state.enabled) {
           const radiusLabel = node("label", "Terrain radius (cells)");
-          radiusLabel.title = "Checkpoint reveal radius, 0 = show marker without revealing terrain.";
+          radiusLabel.title = "Map Marker reveal radius, 0 = show marker without revealing terrain.";
           const radiusInput = createSettingsInput("number",
             Object.hasOwn(party.checkpointRevealRadiusCells,checkpoint.id)
               ? party.checkpointRevealRadiusCells[checkpoint.id]
               : party.defaultRevealRadiusCells,
-            {min:0,max:100,step:1,ariaLabel:"Checkpoint terrain reveal radius"});
+            {min:0,max:100,step:1,ariaLabel:"Map Marker terrain reveal radius"});
           radiusInput.style.width = "5em";
           radiusInput.addEventListener("change", async () => {
             try {
