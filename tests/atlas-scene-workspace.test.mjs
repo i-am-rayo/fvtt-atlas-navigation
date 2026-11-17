@@ -91,7 +91,7 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.match(text(first.result), /Roads/);
     const tasks=walk(first.result,item=>item.className==="atlas-workspace-note")[0];
     assert.deepEqual(buttons(tasks).map(item=>item.textContent),
-      ["Browse map","Plan a route","Add territory","Add road","Add checkpoint"]);
+      ["Browse map","Plan a route","Add territory","Add road","Add Map Marker"]);
     assert.ok(buttons(first.result).find(item=>item.textContent==="Plan a route").disabled);
     assert.deepEqual(ctx.calls,[]);
     const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
@@ -291,7 +291,7 @@ test("Checkpoint Workspace has one [+] placement action and compact searchable r
     ctx.actions.removeCheckpoint = () => ctx.calls.push(["remove"]);
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     await enter(workspace,"Map directory");
-    const tab = buttons(workspace.result).find(item => item.textContent === "Checkpoints");
+    const tab = buttons(workspace.result).find(item => item.textContent === "Map Markers");
     assert.ok(tab);
     await tab.listeners.get("click")({ preventDefault() {} });
     const panel = walk(workspace.result, item =>
@@ -337,7 +337,7 @@ test("isolated Checkpoint in Workspace offers explicit Road connection action", 
     ctx.actions.manageCheckpointRoad = (_scene, id) => ctx.calls.push(["connect", id]);
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     await enter(workspace,"Map directory");
-    const tab = buttons(workspace.result).find(item => item.textContent === "Checkpoints");
+    const tab = buttons(workspace.result).find(item => item.textContent === "Map Markers");
     await tab.listeners.get("click")({ preventDefault() {} });
     assert.match(text(workspace.result), /Free Village/);
     const connect = buttons(workspace.result).find(item =>
@@ -542,7 +542,7 @@ test("Directory filters keep independent choices and row expansion across refres
     type.listeners.get("change")();
     assert.doesNotMatch(text(ws.result),/Coast Road/);
     assert.match(text(ws.result),/No matching entries/);
-    await enter(ws,"All checkpoints");
+    await enter(ws,"All Map Markers");
     await enter(ws,"All roads");
     assert.equal(walk(ws.result,e=>e.tag==="select")[0].value,"air");
     assert.deepEqual(ctx.calls,[]);
