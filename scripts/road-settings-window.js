@@ -83,6 +83,9 @@ export function openRoadSettingsWindow({id,title,position,content,onRender,onSub
 
   return new Promise((resolve,reject)=>{
     const app=new RoadSettingsWindow(resolve);
-    Promise.resolve(app.render(true)).catch(reject);
+    Promise.resolve(app.render(true)).catch(error=>{
+      console.error("[fvtt-atlas-navigation] Road Settings render failed",error);
+      reject(error);
+    });
   });
 }
