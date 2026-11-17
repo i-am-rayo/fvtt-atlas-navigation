@@ -406,22 +406,22 @@
 }
 
 /* Compact, modeless Atlas Layers palette; all choices are client-local. */
-.atlas-layers-palette { display: grid; gap: .55rem; padding: .6rem .8rem .9rem; overflow-y:auto; min-height:0; max-height:100%; }
+.atlas-layers-palette { display: grid; gap: .35rem; padding: .4rem .55rem .55rem; overflow-y:auto; min-height:0; max-height:100%; }
 .atlas-layers-palette .atlas-layers-note,
 .atlas-layers-palette .atlas-layers-help {
   margin: 0; line-height: 1.35; font-size: .85em;
   color: var(--color-text-light-5, #aeb9c5);
 }
 .atlas-layers-palette fieldset {
-  min-width: 0; margin: 0; padding: .45rem .65rem .65rem;
+  min-width: 0; margin: 0; padding: .35rem .5rem .45rem;
   border: 1px solid var(--color-border-light-tertiary, #6666);
   border-radius: .5rem;
 }
 .atlas-layers-palette legend { padding: 0 .45rem; font-size: 1.05em; font-weight: 700; }
 .atlas-layers-palette .atlas-layers-help { margin: 0 0 .35rem; }
 .atlas-layers-palette .atlas-layers-choice {
-  display: flex; align-items: center; gap: .65rem; min-height: 1.85rem;
-  margin: .1rem 0; padding: .25rem .4rem; border-radius: .35rem;
+  display: flex; align-items: center; gap: .4rem; min-height: 1.85rem;
+  margin: 0; padding: .18rem .3rem; border-radius: .3rem;
   cursor: pointer; width: 100%;
 }
 .atlas-layers-palette .atlas-layers-choice:has(input:checked) {
@@ -571,4 +571,21 @@
 .atlas-scene-workspace .atlas-checkpoint-search input {width:100%;padding-inline-end:2rem;}
 .atlas-scene-workspace .atlas-checkpoint-search > i {
   position:absolute;right:.6rem;pointer-events:none;font-size:.8rem;opacity:.8;
+}
+
+.atlas-layers-palette .atlas-layers-choice-copy {display:grid;gap:.12rem;flex:1 1 auto;min-width:0;}
+.atlas-layers-palette .atlas-layers-choice-copy small {font-size:.79em;line-height:1.25;opacity:.8;}
+.atlas-layers-palette .atlas-layers-sample {
+  display:block;flex:0 0 3.1rem;height:1.25rem;
+  border:1px solid var(--color-border-light-tertiary,#777);
+  border-radius:.25rem;background:linear-gradient(to bottom,transparent 43%,#d49b69 43%,#d49b69 58%,transparent 58%);
+}
+.atlas-layers-palette .atlas-layers-sample[data-mode="terrain"] {
+  background:linear-gradient(to right,#82a579 0 33%,#a79669 33% 66%,#9ab4c8 66%);
+}
+.atlas-layers-palette .atlas-layers-sample[data-mode="corridors"] {
+  background:repeating-linear-gradient(90deg,transparent 0 .25rem,#bf9b69 .25rem .36rem,transparent .36rem .65rem);
+}
+@media(max-width:400px){
+  .atlas-layers-palette .atlas-layers-sample {display:none;}
 }
