@@ -1877,6 +1877,7 @@ function actions() {
       ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.EditNotice"));
     },
     undo: () => roadCanvas.undo(),
+    redo: () => roadCanvas.redo(),
     async anchor(scene, refresh) {
       const atlas = readAtlas(scene);
       if (atlas.schemaVersion !== 1) return;
