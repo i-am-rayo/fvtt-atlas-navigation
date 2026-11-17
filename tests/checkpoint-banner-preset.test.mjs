@@ -15,7 +15,7 @@ test("World presets keep portable type/elevation controls but reject local Regio
   assert.equal(saved.appearance.banner.showType,true);
   assert.equal(saved.appearance.banner.territoryRegionId,null);
   const leaked=withCheckpointBanner(city.appearance,{
-    showType:true,showElevation:true,territoryRegionId:"city-other-scene"});
+    showType:true,showElevation:true,territoryRegionId:"city-other-scene",territorySceneId:"scene-1"});
   assert.throws(()=>validateCheckpointPresets({
     ...catalog,presets:catalog.presets.map(p=>
       p.id===city.id?{...p,appearance:leaked}:p)
