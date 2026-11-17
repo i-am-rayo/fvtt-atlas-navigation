@@ -1,6 +1,7 @@
 import { CHECKPOINT_REGION_RADIUS } from "./checkpoint-field-definitions.js";
 import { createSettingsSelect } from "./settings-select.js";
 import { createSettingsInput } from "./settings-input.js";
+import { createSettingsNumberRange } from "./settings-number-range.js";
 
 /** Presentation-only checkpoint controls. Persistence belongs to the editor. */
 export function createCheckpointChoice(choices, selected, {label}={}) {
@@ -12,40 +13,31 @@ export function createCheckpointNumber(value,{min,max,step="any",label,empty=fal
     {min,max,step,ariaLabel:label});
 }
 
-/** Linked range/number fields are kept in sync without touching persisted data. */
-export function createCheckpointRange(value,{min,max,step=1,label,numberWidth="5rem"}) {
-  const container=document.createElement("div");
-  container.style.cssText="display:flex;align-items:center;gap:.35rem;";
-  const slider=createSettingsInput("range",value,{min,max,step,
-    ariaLabel:label?label+" slider":null});
-  const number=createCheckpointNumber(value,{min,max,step,label});
-  number.style.width=numberWidth;
-  slider.addEventListener("input",()=>{number.value=slider.value;});
-  number.addEventListener("input",()=>{if(number.value!=="")slider.value=number.value;});
-  container.append(slider,number);
-  return {element:container,slider,number};
+/** Shared range/number pairing; invalid drafts cannot fall back to an old
+ * slider value when the form is explicitly saved. */
+export function createCheckpointRange(value,{min,max,step=1,label,
+  numberWidth="5rem",numberStep=step,onInput=null,onInvalid=null}={}){
+  const pair=createSettingsNumberRange(value,{min,max,step,numberStep,
+    label:label??"Checkpoint setting",width:numberWidth,onInput,onInvalid});
+  return pair;
 }
 
 export function createCheckpointRegionRadius(value,{label="Checkpoint Region radius in grid cells"}={}) {
   return createCheckpointNumber(value,{...CHECKPOINT_REGION_RADIUS,label});
 }
 
-/** Same geometry slider in both the generator and preset template editor. */
-export function createCheckpointRegionWidth(value,{label="Region radius or width in grid cells",onChange}={}){
-  const element=document.createElement("div");
-  element.style.cssText="display:flex;align-items:center;gap:.75rem;width:100%;";
-  const slider=createSettingsInput("range",value,{...CHECKPOINT_REGION_RADIUS,
-    ariaLabel:label});
-  slider.style.cssText="flex:1;min-width:8rem;";
+/** Same geometry slider in generator and World preset editor. */
+export function createCheckpointRegionWidth(value,{
+  label="Region radius or width in grid cells",onChange,onInvalid}={}){
+  const pair=createSettingsNumberRange(value,{...CHECKPOINT_REGION_RADIUS,
+    label,width:"4.5rem",unit:"cells",onInput:onChange,onInvalid});
   const output=document.createElement("output");
-  output.textContent=slider.value+" cells";
-  output.style.cssText="min-width:4.3rem;text-align:right;";
-  slider.addEventListener("input",()=>{
-    output.textContent=slider.value+" cells";
-    onChange?.(Number(slider.value));
-  });
-  element.append(slider,output);
-  return {element,input:slider,output};
+  output.hidden=true;output.textContent=pair.slider.value+" cells";
+  const sync=()=>{output.textContent=pair.slider.value+" cells";};
+  pair.slider.addEventListener("input",sync);
+  pair.number.addEventListener("input",sync);
+  pair.element.appendChild(output);
+  return {...pair,input:pair.slider,output};
 }
 
 /** Optional elevation: an empty numeric input remains an unspecified elevation. */
@@ -53,7 +45,7 @@ export function createCheckpointElevation(value,{imperial=false}={}){
   const factor=imperial?3.280839895:1;
   const display=value==null?"":String(Math.round(value*factor*100)/100);
   const control=createCheckpointRange(display===""?0:display,{
-    min:-1000,max:10000,step:10,
+    min:-1000,max:10000,step:10,numberStep:"any",
     label:imperial?"Checkpoint elevation in feet":"Checkpoint elevation in meters",
     numberWidth:"5.5rem"});
   control.number.step="any";
@@ -62,18 +54,18 @@ export function createCheckpointElevation(value,{imperial=false}={}){
     Number(control.number.value)/factor};
 }
 
-/** Marker size is always a slider with a live pixel readout in every editor. */
+/** Marker size combines the authored integer slider with direct entry.
+ * getValue() is required at Save; a stale valid slider cannot mask bad text. */
 export function createCheckpointMarkerSize(value){
-  const element=document.createElement("div");
-  element.style.cssText="display:flex;align-items:center;gap:.6rem;flex:1;";
-  const slider=createSettingsInput("range",value,{min:12,max:64,step:1,
-    ariaLabel:"Checkpoint marker size in pixels"});
-  slider.style.width="11rem";
+  const pair=createSettingsNumberRange(value,{min:12,max:64,step:1,
+    label:"Checkpoint marker size in pixels",width:"4.5rem",unit:"px"});
   const output=document.createElement("output");
-  output.textContent=slider.value+" px";
-  slider.addEventListener("input",()=>{output.textContent=slider.value+" px";});
-  element.append(slider,output);
-  return {element,input:slider,output};
+  output.hidden=true;output.textContent=pair.slider.value+" px";
+  const sync=()=>{output.textContent=pair.slider.value+" px";};
+  pair.slider.addEventListener("input",sync);
+  pair.number.addEventListener("input",sync);
+  pair.element.appendChild(output);
+  return {...pair,input:pair.slider,output};
 }
 
 export function createCheckpointColor(value,{label}={}){
