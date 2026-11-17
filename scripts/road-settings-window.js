@@ -3,7 +3,8 @@
  * This owns presentation and form collection only; the existing Road workflow
  * in main.js retains authorization, stale-write validation and persistence.
  */
-export function openRoadSettingsWindow({title,position,content,onRender}){
+export function openRoadSettingsWindow({id,title,position,content,onRender}){
+  if(typeof id!=="string"||!id)throw Error("Road Settings requires an editor identity.");
   const Base=foundry.applications.api.ApplicationV2;
   class RoadSettingsWindow extends Base {
     static DEFAULT_OPTIONS={
@@ -12,7 +13,8 @@ export function openRoadSettingsWindow({title,position,content,onRender}){
     };
 
     constructor(resolve){
-      super({window:{title,resizable:true,minimizable:true},position});
+      super({id:"fvtt-atlas-road-settings-"+id,
+        window:{title,resizable:true,minimizable:true},position});
       this.resolveResult=resolve;
     }
 
