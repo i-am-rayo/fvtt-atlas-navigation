@@ -18,7 +18,7 @@ class Element {
 
 const descendants = root => [root, ...root.children.flatMap(descendants)];
 const button = (root, title) => descendants(root).find(node =>
-  node.tag === "button" && (node.textContent === title || node.title === title));
+  node.tag === "button" && (node.textContent === title || node.ariaLabel === title || node.title === title));
 
 test("floating new-road dock summarizes settings and does not edit the configured draft", async () => {
   const previous = {
