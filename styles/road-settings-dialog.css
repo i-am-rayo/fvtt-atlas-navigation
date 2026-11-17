@@ -54,3 +54,14 @@
 .atlas-road-map-preview .atlas-road-preview-name[hidden] {display:none;}
 .atlas-road-customization[data-atlas-road-preview-mode="hover"] .atlas-road-preview-name {opacity:0;}
 .atlas-road-customization[data-atlas-road-preview-mode="hover"]:hover .atlas-road-preview-name {opacity:1;}
+
+.application:has([data-atlas-road-live]) .atlas-road-preset-controls {
+  display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;min-width:0;
+}
+.application:has([data-atlas-road-live]) .atlas-road-preset-controls > span {
+  flex:1 1 8rem;min-width:0;overflow-wrap:anywhere;
+}
+.application:has([data-atlas-road-live]) .atlas-road-preset-controls select {
+  flex:1 1 9rem;min-width:0;
+}
+.application:has([data-atlas-road-live]) .atlas-road-preset-controls [hidden] {display:none;}
