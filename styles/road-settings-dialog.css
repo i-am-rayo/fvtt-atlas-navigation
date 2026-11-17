@@ -17,9 +17,16 @@
   width: auto;
 }
 
-.application:has([data-atlas-road-live]) .form-footer [data-atlas-road-tool="delete"],
-.atlas-checkpoint-form-actions .atlas-ui-icon-button--danger {
+.application:has([data-atlas-road-live]) .form-footer > button[data-action="ok"],
+.atlas-checkpoint-form-actions .atlas-checkpoint-footer-save {
   margin-inline-start: auto;
+}
+
+.application:has([data-atlas-road-live]) .form-footer > button[data-action="ok"].atlas-ui-icon-button {
+  flex:0 0 2rem;
+  width:2rem;min-width:2rem;max-width:2rem;
+  height:2rem;min-height:2rem;max-height:2rem;
+  padding:.2rem;
 }
 
 .application:has([data-atlas-road-live]) [data-atlas-road-actions] {
