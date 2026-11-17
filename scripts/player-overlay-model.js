@@ -1,12 +1,13 @@
 import { checkpointKnowledge } from "./party-exploration-model.js";
 import { PLAYER_VISIBILITY_ATLAS_SCHEMA_VERSION } from "./atlas-model.js";
+import {resolveCheckpointBanner} from "./checkpoint-appearance.js";
 
 /** A canvas-specific visual projection, not a confidentiality boundary for
  * Foundry's client-readable Scene flags. No persistence or GM-only metadata. */
 const ROAD_STYLE_FIELDS=["color","width","opacity","pattern","labelVisibility",
   "textColor","borderColor","borderEnabled"];
 const CHECKPOINT_STYLE_FIELDS=["type","icon","image","size","color",
-  "borderColor","labelMode","showRoadName","textColor"];
+  "borderColor","labelMode","showRoadName","textColor","banner"];
 
 const projectAppearance=(value,fields)=>value==null?value:
   Object.fromEntries(fields.filter(field=>Object.hasOwn(value,field))
@@ -35,7 +36,12 @@ export function playerAtlasOverlay(atlas,exploration=null){
       ? checkpointKnowledge(exploration,checkpoint.id)!=="unknown"
       : checkpoint.playerVisible===true))
     .map(checkpoint=>({id:checkpoint.id,nodeId:checkpoint.nodeId,
-      name:checkpoint.name,elevationMeters:null,
+      name:checkpoint.name,
+      // Never transfer elevation to a player projection unless the Checkpoint
+      // is already revealed AND the GM enabled its specific banner field.
+      elevationMeters:resolveCheckpointBanner(checkpoint.appearance).showElevation&&
+        Number.isFinite(checkpoint.elevationMeters)?
+        checkpoint.elevationMeters:null,
       appearance:projectAppearance(checkpoint.appearance,CHECKPOINT_STYLE_FIELDS),
       discoveryMode:checkpointKnowledge(exploration,checkpoint.id),
       roadId:allowed.has(checkpoint.roadId)?checkpoint.roadId:null}));
