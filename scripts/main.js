@@ -480,10 +480,6 @@ async function promptNewRoadSettings(scene) {
   const onNumberRange=event=>{
     const creation=event.target?.closest?.("[data-atlas-new-road-dialog]");
     if(!creation)return;
-    if(event.target.name==="atlasRoadBorderEnabled"){
-      const row=creation.querySelector("[data-atlas-road-border-color]");
-      if(row)row.style.display=event.target.checked?"flex":"none";
-    }
     const pair=event.target.closest(".atlas-number-range");
     if(!pair)return;
     const slider=pair.querySelector('input[type="range"]');
