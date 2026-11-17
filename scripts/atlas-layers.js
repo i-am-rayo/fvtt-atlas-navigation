@@ -8,6 +8,7 @@ import {playerAtlasOverlay} from "./player-overlay-model.js";
 import {readPartyExploration} from "./party-exploration-storage.js";
 import {listGeneratedRegions} from "./region-native-read.js";
 import {TerritoryViewOverlay} from "./territory-view-overlay.js";
+import {createSettingsNumberRange} from "./settings-number-range.js";
 import {ATLAS_LAYERS_SETTING,DEFAULT_ATLAS_LAYERS,ROAD_LAYER_MODES,
   REGION_LAYER_MODES,validateAtlasLayers,updateAtlasLayers}
   from "./atlas-layer-preferences.js";
@@ -119,13 +120,15 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
     for(const [key,title] of [["continentFillOpacity","Continent fill"],
       ["settlementFillOpacity","Settlement fill"]]){
       const label=element("label",undefined,"atlas-layers-opacity");
-      const value=element("output",`${Math.round(current[key]*100)}%`);
-      const slider=element("input");slider.type="range";slider.min="0";
-      slider.max="50";slider.step="1";slider.value=String(Math.round(current[key]*100));
-      slider.setAttribute("aria-label",title+" opacity");
-      slider.addEventListener("input",()=>{value.textContent=`${slider.value}%`;});
-      slider.addEventListener("change",()=>void change({[key]:Number(slider.value)/100}));
-      label.append(element("span",title),slider,value);regions.appendChild(label);
+      const control=createSettingsNumberRange(Math.round(current[key]*100),
+        {min:0,max:50,step:1,label:title+" opacity",width:"4rem",unit:"%"});
+      const commit=()=>{
+        try{void change({[key]:control.getValue()/100});}
+        catch(error){globalThis.ui?.notifications?.warn?.(error.message);}
+      };
+      control.slider.addEventListener("change",commit);
+      control.number.addEventListener("change",commit);
+      label.append(element("span",title),control.element);regions.appendChild(label);
     }
     return root;
   }
