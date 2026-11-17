@@ -619,8 +619,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const controls = el("div");
     controls.className = "atlas-checkpoint-form-actions";
     controls.style.cssText = "position:sticky;bottom:0;z-index:2;background:#100f17;padding:.4rem 0;";
-    const save = el("button", this.createDraft ? "Create Checkpoint" : "Save Checkpoint");
-    save.type = "button";
+    const save = createSettingsIconButton({icon:"floppy-disk",
+      label:this.createDraft ? "Create Checkpoint" : "Save Checkpoint"});
+    save.className+=" atlas-checkpoint-footer-save";
     const remove = !this.createDraft && this.onDelete ?
       createSettingsIconButton({icon:"trash",label:"Delete checkpoint",danger:true}):null;
     remove?.addEventListener("click",async()=>{
