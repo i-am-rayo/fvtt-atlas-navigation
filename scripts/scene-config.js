@@ -460,15 +460,19 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
     const sharedNode=atlas.checkpoints.some(other=>
       other.id!==cp.id&&other.nodeId===cp.nodeId);
     const controls = node("div", undefined, "atlas-checkpoint-actions");
-    controls.appendChild(iconAction("crosshairs", `Locate ${cp.name}`,
+    controls.appendChild(iconAction("location-dot", `Locate ${cp.name}`,
       () => actions.selectCheckpoint(scene, cp.id)));
-    if(incidentCount===0&&!sharedNode)controls.appendChild(iconAction(
-      "arrows-up-down-left-right",`Move ${cp.name} to another map location`,
-      ()=>actions.moveCheckpoint(scene,cp.id,refresh)));
-    controls.appendChild(iconAction("pen", `Edit ${cp.name} name and elevation`,
-      () => actions.editCheckpoint(scene, cp, refresh)));
-    controls.appendChild(iconAction("gear", `Open ${cp.name} Checkpoint Settings`,
+    if(!party.enabled)controls.appendChild(iconAction(
+      cp.playerVisible ? "eye-slash" : "eye",
+      cp.playerVisible ? "Hide Map Marker from players" : "Show Map Marker to players",
+      () => actions.toggleCheckpointPlayerVisibility(scene, cp, refresh)));
+    controls.appendChild(iconAction("gear", `Open ${cp.name} Map Marker Settings`,
       () => actions.editCheckpointAppearance(scene, cp, refresh)));
+    const move=iconAction("pen", `Move ${cp.name} on map`,
+      ()=>actions.moveMapMarker(scene,cp.id,refresh));
+    // Linked Map Markers use the existing Road-point editor; standalone ones use
+    // the confirmed independent movement flow. Neither action writes on entry.
+    controls.appendChild(move);
     const incident = atlas.segments.filter(s =>
       s.from === cp.nodeId || s.to === cp.nodeId);
     if (incident.length <= 1) controls.appendChild(iconAction(
@@ -478,10 +482,6 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
       () => actions.manageCheckpointRoad(scene, cp.id, refresh)));
     if (journal) controls.appendChild(iconAction("book-open", "Open linked Journal",
       () => openAtlasJournal(journal)));
-    if (!party.enabled) controls.appendChild(iconAction(
-      cp.playerVisible ? "eye-slash" : "eye",
-      cp.playerVisible ? "Hide Map Marker from players" : "Show Map Marker to players",
-      () => actions.toggleCheckpointPlayerVisibility(scene, cp, refresh)));
     row.append(description, controls);
 
     const details = node("details", undefined, "atlas-checkpoint-details");
