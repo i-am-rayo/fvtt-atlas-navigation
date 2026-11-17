@@ -80,7 +80,7 @@ export function createCheckpointTransportationEditor({offers=[],
       const candidates=methods.filter(method=>method.surface===surface&&
         !draft.some(offer=>offer.methodId===method.id));
       const add=createSettingsIconButton({icon:"plus",label:"Add "+title+" method"});
-      add.style.cssText="min-width:2.3rem;min-height:2.3rem;padding:.35rem;";
+      // Shared Atlas icon primitive owns the target and glyph size.
       add.disabled=!candidates.length;
       add.addEventListener("click",()=>{
         if(adding.has(mode))adding.delete(mode);else adding.add(mode);
