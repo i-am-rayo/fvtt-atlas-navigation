@@ -18,8 +18,9 @@
 .atlas-scene-workspace .atlas-workspace-nav p { margin: .95rem .5rem; }
 .atlas-scene-workspace .atlas-workspace-tab {
   width: 100%;
-  display: block;
-  text-align: left;
+  display: grid;
+  place-items: center;
+  text-align: center;
   margin: .3rem 0;
   padding: .65rem .8rem;
 }
