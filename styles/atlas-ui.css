@@ -116,3 +116,31 @@
   border-color:var(--color-level-error,#d56859);
 }
 .atlas-number-range-unit {white-space:nowrap;font-size:.85em;opacity:.75;}
+
+/* The Checkpoint banner editor uses the same display model as canvas labels.
+ * Details are subordinate, individually optional and keyboard accessible. */
+.atlas-checkpoint-banner-settings {
+  display:grid;gap:.4rem;min-width:0;
+  margin:.4rem 0;padding:.6rem .7rem;
+  border:1px solid var(--color-border-light-tertiary,#666);
+  border-radius:.45rem;
+}
+.atlas-checkpoint-banner-settings > label {
+  display:flex;align-items:center;gap:.6rem;min-width:0;
+}
+.atlas-checkpoint-banner-settings input[type="checkbox"] {
+  flex:0 0 auto;
+}
+.atlas-checkpoint-banner-territory {
+  flex-wrap:wrap;
+}
+.atlas-checkpoint-banner-territory select {
+  flex:1 1 12rem;max-width:100%;min-width:0;
+}
+.atlas-checkpoint-preview[data-label-mode="hover"] .atlas-checkpoint-banner-detail {
+  opacity:0;
+}
+.atlas-checkpoint-preview[data-label-mode="hover"]:hover .atlas-checkpoint-banner-detail,
+.atlas-checkpoint-preview[data-label-mode="hover"]:focus-within .atlas-checkpoint-banner-detail {
+  opacity:1;
+}
