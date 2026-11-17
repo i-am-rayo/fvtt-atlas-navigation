@@ -826,20 +826,33 @@ function actions() {
       panels.style.appendChild(roadAppearanceForm(baseline));
       const addCheckpoint=createSettingsIconButton({icon:"plus",label:"Add Map Marker"});
       addCheckpoint.dataset.atlasRoadTool="newCheckpoint";
+      const checkpointSection=document.createElement("fieldset");
+      checkpointSection.className="atlas-road-linked-section";
+      const checkpointLegend=document.createElement("legend");
+      checkpointLegend.className="atlas-road-linked-heading";
+      const checkpointTitle=document.createElement("strong");
+      checkpointLegend.append(checkpointTitle,addCheckpoint);
       const checkpointList=document.createElement("div");
       checkpointList.dataset.atlasRoadCheckpointList="";
       checkpointList.setAttribute("aria-live","polite");
-      panels.checkpoints.appendChild(checkpointList);
+      checkpointSection.append(checkpointLegend,checkpointList);
+      panels.checkpoints.appendChild(checkpointSection);
       const addRegion=createSettingsIconButton({icon:"plus",label:"Generate Region"});
       addRegion.dataset.atlasRoadTool="generateRegion";
       const priorityHelp=document.createElement("p");
       priorityHelp.textContent="Drag Regions to set Atlas route priority: top wins where Regions overlap. This controls Atlas estimates and the Corridor View color, not Foundry's native Region Behaviors. The settings icon edits a Region; regenerate previews new geometry but preserves its Behaviors.";
       priorityHelp.style.cssText="font-size:.82em;opacity:.75;line-height:1.4;margin:.5rem 0;";
-      panels.regions.appendChild(priorityHelp);
+      const regionSection=document.createElement("fieldset");
+      regionSection.className="atlas-road-linked-section";
+      const regionLegend=document.createElement("legend");
+      regionLegend.className="atlas-road-linked-heading";
+      const regionTitle=document.createElement("strong");
+      regionLegend.append(regionTitle,addRegion);
       const regionList=document.createElement("div");
       regionList.dataset.atlasRoadRegionList="";
       regionList.setAttribute("aria-live","polite");
-      panels.regions.appendChild(regionList);
+      regionSection.append(regionLegend,priorityHelp,regionList);
+      panels.regions.appendChild(regionSection);
       const roadDialogToken=foundry.utils.randomID();
       const regionLocator=new TerritoryLocateHighlight();
       // Track the user's actual dropdown change before DialogV2 serializes or
@@ -850,12 +863,13 @@ function actions() {
       const populateRelatedLists = (checkpointTarget, regionTarget) => {
         const currentAtlas=readAtlas(scene);
         const checkpoints=roadCheckpointsAlphabetical(currentAtlas.checkpoints,road.id);
-        const checkpointHeader=document.createElement("div");
-        checkpointHeader.className="atlas-road-linked-heading";
-        const checkpointTitle=document.createElement("strong");
         checkpointTitle.textContent="Map Markers ("+checkpoints.length+")";
-        checkpointHeader.append(checkpointTitle,addCheckpoint);
-        checkpointTarget.replaceChildren(checkpointHeader);
+        checkpointTarget.replaceChildren();
+        if(!checkpoints.length){
+          const empty=document.createElement("p");
+          empty.textContent="No Map Markers connected to this Road.";
+          checkpointTarget.appendChild(empty);
+        }
         for (const checkpoint of checkpoints) {
           const row=document.createElement("div");
           row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;";
@@ -881,12 +895,13 @@ function actions() {
               entry.name?.startsWith?.(road.name+" —"))
             if (!regions.has(entry.id)) regions.set(entry.id,entry.name);
         }
-        const regionHeader=document.createElement("div");
-        regionHeader.className="atlas-road-linked-heading";
-        const regionTitle=document.createElement("strong");
         regionTitle.textContent="Regions ("+regions.size+")";
-        regionHeader.append(regionTitle,addRegion);
-        regionTarget.replaceChildren(regionHeader);
+        regionTarget.replaceChildren();
+        if(!regions.size){
+          const empty=document.createElement("p");
+          empty.textContent="No Regions associated with this Road.";
+          regionTarget.appendChild(empty);
+        }
         for (const [id,regionName] of regions) {
           const row=document.createElement("div");
           row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;min-width:0;";
