@@ -1,39 +1,34 @@
-/* Shared Atlas action controls. Foundry v14 remains the window/focus authority. */
-.atlas-ui-icon-button {
+/* Shared action sizing for Atlas application controls (Foundry v14).
+ * 2rem = 32 CSS px at the normal 16px root size, preserving a usable hit
+ * target. Authored canvas markers and icon picker gallery previews are NOT
+ * action buttons. Always pair icon-only actions with a label and tooltip.
+ */
+.atlas-ui-icon-button,
+.application button.atlas-ui-icon-button {
   box-sizing: border-box;
   display: inline-grid;
   place-items: center;
+  flex: 0 0 2rem;
+  width: 2rem;
+  min-width: 2rem;
+  max-width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  max-height: 2rem;
   margin: 0;
-  padding: .4rem;
+  padding: .2rem;
   line-height: 1;
+  font-size: .8rem;
   cursor: pointer;
 }
-
-.atlas-ui-icon-button--compact {
-  flex: 0 0 2.5rem;
-  width: 2.5rem;
-  min-width: 2.5rem;
-  height: 2.5rem;
-  min-height: 2.5rem;
-}
-
-.atlas-ui-icon-button--footer {
-  flex: 0 0 auto;
-  min-width: 2.75rem;
-  min-height: 2.75rem;
-  height: 2.75rem;
-  font-size: 1.1rem;
-}
-
+.atlas-ui-icon-button > i { font-size: .8rem; line-height:1; }
+.atlas-ui-icon-button--compact,
+.atlas-ui-icon-button--footer { font-size:.8rem; }
 .atlas-ui-icon-button:focus-visible {
-  outline: 2px solid var(--color-border-highlight, #dcb476);
+  outline: 2px solid var(--color-border-highlight,#dcb476);
   outline-offset: 2px;
 }
-
-.atlas-ui-icon-button:disabled {
-  opacity: .55;
-  cursor: not-allowed;
-}
+.atlas-ui-icon-button:disabled { opacity:.55; cursor:not-allowed; }
 [data-atlas-territory-manager] legend .atlas-territory-add {
   display: inline-flex;
   align-items: center;
@@ -57,31 +52,50 @@
   vertical-align: middle;
 }
 
-/* Compact actions remain compact inside native fieldset legends. */
-.application legend .atlas-ui-icon-button--compact {width:1.75rem;min-width:1.75rem;height:1.75rem;min-height:1.75rem;flex:0 0 1.75rem;padding:.2rem;font-size:.85rem;}
+/* Native legend buttons must not grow beyond the shared action target. */
+.application legend .atlas-ui-icon-button--compact {
+  width:2rem;min-width:2rem;max-width:2rem;
+  height:2rem;min-height:2rem;max-height:2rem;
+  flex:0 0 2rem;padding:.2rem;font-size:.8rem;
+}
 .atlas-checkpoint-preview[data-label-mode="hover"] span + span {opacity:0;}
 .atlas-checkpoint-preview[data-label-mode="hover"]:hover span + span {opacity:1;}
 
 .atlas-checkpoint-preview[data-label-mode="hover"]:focus-within span + span {opacity:1;}
 
-/* Checkpoint footer uses compact utility actions without reducing tap focus
-   visibility or affecting the destructive Delete control. */
-.atlas-checkpoint-form-actions > .atlas-checkpoint-footer-icon,
-.atlas-checkpoint-form-actions .atlas-checkpoint-footer-visibility > .atlas-checkpoint-footer-icon {
-  box-sizing: border-box;
-  flex: 0 0 2rem;
-  width: 2rem;
-  min-width: 2rem;
-  height: 2rem;
-  min-height: 2rem;
-  padding: .22rem;
-  font-size: .85rem;
-}
+
+/* Checkpoint controls preserve the existing staged form and native popover. */
 .atlas-checkpoint-form-actions .atlas-checkpoint-footer-visibility {
-  display: inline-flex;
-  align-items: center;
-  gap: .35rem;
-  margin-inline-end: .2rem;
-  font-size: .84rem;
-  white-space: nowrap;
+  display:inline-flex;align-items:center;gap:.35rem;
 }
+.atlas-checkpoint-form-actions .atlas-checkpoint-footer-delete {
+  margin-inline-start:auto;
+}
+.atlas-checkpoint-marker-row {
+  display:flex;gap:1rem;align-items:center;justify-content:space-between;
+  min-width:0;flex-wrap:wrap;
+}
+.atlas-checkpoint-marker-controls {
+  display:flex;gap:.45rem;align-items:center;
+  min-width:0;flex:0 1 18rem;
+}
+.atlas-checkpoint-marker-controls select {
+  flex:1 1 10rem;min-width:0;
+}
+.atlas-checkpoint-icon-selector { flex:0 0 auto; }
+.atlas-checkpoint-terrain-actions {
+  display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;
+  margin:.55rem 0;
+}
+.atlas-checkpoint-terrain-actions > button {
+  width:auto;min-width:0;flex:1 1 11rem;
+}
+.atlas-checkpoint-connected-roads {
+  display:grid;gap:.3rem;padding:.5rem .65rem;
+  border:1px solid var(--color-border-light-tertiary,#666);
+  border-radius:.35rem;overflow-wrap:anywhere;min-width:0;
+}
+.atlas-checkpoint-connected-roads ul {
+  margin:0;padding-inline-start:1.4rem;
+}
+.atlas-checkpoint-connected-roads li { overflow-wrap:anywhere; }
