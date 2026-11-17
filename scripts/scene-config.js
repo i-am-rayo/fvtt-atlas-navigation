@@ -455,10 +455,6 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
       : cp.playerVisible ? "Player-visible" : "GM-only", "hint"));
     description.appendChild(status);
     const journal = journalUuidFor(journals, "checkpoint", cp.id);
-    const incidentCount=atlas.segments.filter(segment=>
-      segment.from===cp.nodeId||segment.to===cp.nodeId).length;
-    const sharedNode=atlas.checkpoints.some(other=>
-      other.id!==cp.id&&other.nodeId===cp.nodeId);
     const controls = node("div", undefined, "atlas-checkpoint-actions");
     controls.appendChild(iconAction("location-dot", `Locate ${cp.name}`,
       () => actions.selectCheckpoint(scene, cp.id)));
