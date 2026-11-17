@@ -34,7 +34,7 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     const labels=all(root).map(item=>item.textContent);
     for(const label of ["General","Marker & labels","Terrain Region",
       "Default elevation (m)","Default discovery status","Default linked Journal / Page UUID",
-      "Checkpoint marker","Marker size (12–64 px)","Checkpoint border color",
+      "Map Marker icon","Marker size (12–64 px)","Map Marker border color",
       "Checkpoint label","Suggested travel preset","Air Travel"])
       assert.ok(labels.includes(label),label);
     assert.ok(all(root).some(item=>item.title==="Save preset"),"shared save icon");
