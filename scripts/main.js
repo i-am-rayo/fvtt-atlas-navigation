@@ -92,6 +92,7 @@ import { createRoadPresetStage } from "./road-settings-preset.js";
 import { arrangeRoadDialogFooter } from "./road-settings-dialog-footer.js";
 import { openRoadSettingsWindow } from "./road-settings-window.js";
 import { TerritoryLocateHighlight } from "./territory-locate-highlight.js";
+import { roadCheckpointsAlphabetical } from "./road-settings-linked-items.js";
 import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges,
   interceptDialogHeaderClose } from "./settings-close-guard.js";
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
@@ -783,9 +784,7 @@ function actions() {
       // positions remain untouched during live Scene/Region updates.
       const populateRelatedLists = (checkpointTarget, regionTarget) => {
         const currentAtlas=readAtlas(scene);
-        const checkpoints=(currentAtlas.checkpoints?.filter(item=>item.roadId===road.id)??[])
-          .slice().sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:"base"})||
-            a.id.localeCompare(b.id));
+        const checkpoints=roadCheckpointsAlphabetical(currentAtlas.checkpoints,road.id);
         const checkpointHeader=document.createElement("div");
         checkpointHeader.className="atlas-road-linked-heading";
         const checkpointTitle=document.createElement("strong");
