@@ -60,6 +60,43 @@ export const DEFAULT_CHECKPOINT_APPEARANCE = Object.freeze({
   showRoadName: false, textColor: "#ffffff"
 });
 
+/**
+ * Optional additive banner fields. Legacy v8/v9/v10 appearance flags remain
+ * valid and their road-label checkbox stays the one canonical Road toggle.
+ * Territory is selected by stable native Region ID, never by cached name.
+ */
+export const DEFAULT_CHECKPOINT_BANNER=Object.freeze({
+  showType:false,showElevation:false,territoryRegionId:null
+});
+const BANNER_KEYS=Object.keys(DEFAULT_CHECKPOINT_BANNER);
+const BANNER_ID=/^[A-Za-z0-9_-]{1,128}$/;
+export function validateCheckpointBanner(value){
+  if(!value||typeof value!=="object"||Array.isArray(value)||
+      Object.keys(value).length!==BANNER_KEYS.length||
+      BANNER_KEYS.some(key=>!Object.hasOwn(value,key))||
+      Object.keys(value).some(key=>!BANNER_KEYS.includes(key))||
+      typeof value.showType!=="boolean"||
+      typeof value.showElevation!=="boolean"||
+      (value.territoryRegionId!==null&&
+        (typeof value.territoryRegionId!=="string"||
+         !BANNER_ID.test(value.territoryRegionId))))
+    throw Error("Invalid Checkpoint banner display options.");
+  return {...value};
+}
+export function resolveCheckpointBanner(appearance){
+  return appearance?.banner===undefined?{...DEFAULT_CHECKPOINT_BANNER}:
+    validateCheckpointBanner(appearance.banner);
+}
+export function withCheckpointBanner(appearance,{showType,showElevation,
+  territoryRegionId}={}){
+  const base=validateCheckpointAppearance(appearance);
+  const banner=validateCheckpointBanner({showType,showElevation,territoryRegionId});
+  const {banner:existing,...plain}=base;
+  return validateCheckpointAppearance(
+    !banner.showType&&!banner.showElevation&&!banner.territoryRegionId?
+      plain:{...plain,banner});
+}
+
 const KEYS = Object.keys(DEFAULT_CHECKPOINT_APPEARANCE);
 const TYPES = ["dot", "fa", "image"];
 const LABEL_MODES = ["off", "hover", "always"];
@@ -71,10 +108,12 @@ export function validateCheckpointAppearance(value) {
   // Existing v0.2.21–v0.2.28 checkpoint styles have no borderColor. Read
   // them unchanged; add the black default only when a GM explicitly saves.
   const normalized = { borderColor: "#000000", ...value };
-  if (Object.keys(normalized).length !== KEYS.length ||
-      Object.keys(normalized).some(key => !KEYS.includes(key))) {
+  if (KEYS.some(key=>!Object.hasOwn(normalized,key))||
+      Object.keys(normalized).some(key=>!KEYS.includes(key)&&key!=="banner")) {
     throw new Error("Checkpoint appearance has missing or unsupported fields.");
   }
+  if(Object.hasOwn(normalized,"banner"))
+    normalized.banner=validateCheckpointBanner(normalized.banner);
   if (!TYPES.includes(value.type)) throw new Error("Unknown checkpoint icon type.");
   if (!CHECKPOINT_ICONS.includes(value.icon) && !FREE_ICON_MAP.has(value.icon)) {
     throw new Error("Unknown Font Awesome Free icon.");
