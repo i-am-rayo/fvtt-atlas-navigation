@@ -11,6 +11,7 @@ import {GRID_CONVERSION_BACKUP_FLAG} from "./territory-authoring-model.js";
 import {readPendingTerritoryCellTransfer} from "./territory-grid-transfer.js";
 import {atlasSettingsTitle} from "./atlas-settings-title.js";
 import {inspectCheckpointTerritoryMembership} from "./territory-checkpoint-membership.js";
+import {createAtlasIconButton} from "./ui-action-button.js";
 
 const pages=["General","Map Marker & Journal","Map & Visibility","Boundary & Native"];
 const el=(tag,text,className)=>{
@@ -214,8 +215,8 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
           const row=el("div",undefined,"atlas-territory-settings-action");
           row.appendChild(el("p",`${item.checkpointName} — ${flags.join(" · ")}`,"hint"));
           if(typeof this.actions.selectCheckpoint==="function"){
-            const locate=el("button","Locate");locate.type="button";
-            locate.setAttribute("aria-label",`Locate Map Marker ${item.checkpointName}`);
+            const locate=createAtlasIconButton({icon:"location-dot",
+              label:`Locate Map Marker ${item.checkpointName}`});
             locate.addEventListener("click",async()=>{
               try{await this.minimize?.();await this.actions.selectCheckpoint(this.scene,item.checkpointId);}
               catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
