@@ -16,13 +16,12 @@
 
 .atlas-scene-workspace .atlas-workspace-nav h3 { margin: 0 .5rem .85rem; }
 .atlas-scene-workspace .atlas-workspace-nav p { margin: .95rem .5rem; }
-.atlas-scene-workspace .atlas-workspace-tab {
-  width: 100%;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  margin: .3rem 0;
-  padding: .65rem .8rem;
+.application .atlas-scene-workspace .atlas-workspace-nav > button.atlas-workspace-tab {
+  box-sizing:border-box;
+  display:flex;align-items:center;justify-content:center;
+  width:100%;min-height:2.5rem;height:auto;
+  margin:.3rem 0;padding:.6rem .8rem;
+  line-height:1.3;text-align:center;white-space:normal;
 }
 .atlas-scene-workspace .atlas-workspace-tab[aria-current="page"] {
   border-color: var(--color-border-highlight, #a38744);
