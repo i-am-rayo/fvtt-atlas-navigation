@@ -272,6 +272,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     field("Checkpoint color", color);
     const borderColor = createCheckpointColor(appearance.borderColor,{label:"Checkpoint border color"});
     field("Checkpoint border color", borderColor);
+    const markerFields=fields;
     fields = el("div"); fields.style.cssText = "display:grid;gap:.55rem;";
     pageMarker.appendChild(fields);
     const mode = field("Banner display", createCheckpointChoice(CHECKPOINT_LABEL_MODES,appearance.labelMode));
@@ -325,6 +326,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     fields.appendChild(bannerGroup);
     const textColor = createCheckpointColor(appearance.textColor,{label:"Checkpoint label text color"});
     field("Checkpoint / road label text color", textColor);
+    const bannerFields=fields;
     // The icon picker is a separate action BEFORE the marker-type selector.
     // Avoid nesting a button inside an HTML label; keep native keyboard order.
     const markerRow=el("div");
@@ -355,7 +357,14 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     sample.append(previewMarker,previewLabel);preview.appendChild(sample);
     sample.tabIndex=0;
     preview.appendChild(el("small","Hover or focus the sample to preview hover-only labels. Map zoom may change the displayed size."));
-    pageMarker.appendChild(preview);
+    const settingsSection=el("fieldset");
+    settingsSection.className="atlas-checkpoint-customization-section";
+    settingsSection.append(el("legend","Checkpoint settings"),
+      markerFields.children[0],markerRow,imageSection,markerFields);
+    const bannerSection=el("fieldset");
+    bannerSection.className="atlas-checkpoint-customization-section";
+    bannerSection.append(el("legend","Banner information"),bannerFields);
+    pageMarker.replaceChildren(settingsSection,bannerSection,preview);
     const updatePreview=()=>{
       const bannerOff=mode.value==="off";
       for(const control of [showRoad,showType,showElevation,textColor])
@@ -574,7 +583,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     }
     const editorTabs = el("nav");
     editorTabs.style.cssText = "display:flex;gap:.4rem;flex-wrap:wrap;padding-bottom:.65rem;border-bottom:1px solid var(--color-border-light-tertiary,#655);";
-    const pages = [["General",pageGeneral],["Marker & labels",pageMarker],["Terrain Region",pageTerrain],
+    const pages = [["General",pageGeneral],["Customization",pageMarker],["Terrain Region",pageTerrain],
       ["Transportation",pageTransport]];
     for (const [name,page] of pages) {
       const item=el("button",name);
