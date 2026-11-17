@@ -1193,13 +1193,14 @@ export class RoadCanvasController {
           !["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(event.target?.tagName)) {
         event.preventDefault?.();
         void this.finish();
-      } else if (((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="z") ||
+      } else if (((event.ctrlKey||event.metaKey)&&["z","y"].includes(event.key.toLowerCase())) ||
           (event.key === "Backspace" && !event.target?.isContentEditable &&
           !["INPUT", "TEXTAREA"].includes(event.target?.tagName))) {
         if(event.target?.isContentEditable || ["INPUT","TEXTAREA","SELECT"].includes(event.target?.tagName))return;
         event.preventDefault?.();
         event.stopImmediatePropagation?.();
-        if((event.ctrlKey||event.metaKey)&&event.shiftKey)this.redo();
+        if((event.ctrlKey||event.metaKey)&&
+            (event.shiftKey||event.key.toLowerCase()==="y"))this.redo();
         else this.undo();
       }
     };
