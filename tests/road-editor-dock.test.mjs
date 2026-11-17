@@ -75,7 +75,7 @@ test("compact checkpoint and junction docks keep persistent map instructions", a
     const { AtlasRoadEditorDock } = await import("../scripts/road-editor-dock.js");
     const scene = { id: "dock-scene", canUserModify: () => true };
     for (const [mode, expected] of [
-      ["checkpoint", "Click the road where you want the checkpoint."],
+      ["checkpoint", "Click the road where you want the Map Marker."],
       ["junction", "Click the first road, then click a second road"]
     ]) {
       const controller = { getDraft: () => ({ mode, points: 0 }) };
