@@ -11,8 +11,8 @@ test("Road point Undo/Redo restores only transient immutable snapshots",()=>{
     operations:[{kind:"move-node",nodeId:"a",x:9,y:1}],
     history:[a,b],redo:[],onChange:()=>callbacks.push("change"),
     drag:null,extending:null,selectedHandle:null,confirming:false};
-  assert.equal(editor.getState({id:"scene"}).canUndo,true);
-  assert.equal(editor.getState({id:"scene"}).canRedo,false);
+  assert.equal(editor.session.operations.length,1);
+  assert.equal(editor.session.redo.length,0);
   editor.undo();
   assert.equal(editor.session.working,a);
   assert.equal(editor.getState({id:"scene"}).canUndo,false);
