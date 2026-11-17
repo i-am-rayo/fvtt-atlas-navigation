@@ -123,7 +123,7 @@
   "FVTTATLAS.Regions.Invalid": "Unsupported Atlas link metadata (not edited).",
   "FVTTATLAS.Regions.InvalidHint": "One or more Regions have unsupported Atlas link flags. Atlas will not overwrite or unlink them. Inspect the Region flag or update the module before making changes.",
   "FVTTATLAS.Checkpoints.Title": "Map Markers",
-  "FVTTATLAS.Checkpoints.Add": "Add road map marker",
+  "FVTTATLAS.Checkpoints.Add": "Add Map Marker",
   "FVTTATLAS.Checkpoints.Hint": "Named map markers mark meaningful positions on a road: elevation, tolls, watchposts or future encounters. They are separate from white shaping bends and gold routing junctions. Native Regions can be generated separately and explicitly below.",
   "FVTTATLAS.Checkpoints.Picking": "Click a saved road endpoint, junction or interior section. Choose the named road if multiple roads meet there, then enter a map marker name and optional elevation. Esc cancels.",
   "FVTTATLAS.Checkpoints.ClickRoad": "Click a saved Atlas road to place a map marker.",
