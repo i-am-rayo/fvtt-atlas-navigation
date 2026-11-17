@@ -742,6 +742,7 @@ function actions() {
       const actual = atlas.roads?.find(item => item.id === road.id);
       if (!actual) throw new Error("The named road no longer exists.");
       const content = document.createElement("div");
+      content.className="atlas-road-settings-content";
       // Foundry v14 DialogV2.input requires the content element itself
       // to have NO attributes. Style a child wrapper only.
       const mode = roadAppearanceMode(actual, readWorldTravelPresets().presets);
@@ -938,8 +939,15 @@ function actions() {
       };
       populateRelatedLists(checkpointList,regionList);
       const scrollBody=document.createElement("div");
-      scrollBody.style.cssText="max-height:"+Math.max(220,Math.min(610,window.innerHeight-235))+"px;overflow-y:auto;min-width:0;min-height:0;padding-right:.5rem;overscroll-behavior:contain;";
-      scrollBody.append(tabs,panels.general,panels.style,panels.checkpoints,panels.regions);
+      scrollBody.className="atlas-road-settings-scroll";
+      const heading=document.createElement("header");
+      heading.className="atlas-road-settings-heading";
+      const headingTitle=document.createElement("h3");
+      headingTitle.textContent="Road Settings";
+      const explanation=document.createElement("p");
+      explanation.textContent="Edit the Road, review its Map Markers and native Regions, then Save to apply changes. Cancel keeps the Scene unchanged.";
+      heading.append(headingTitle,explanation);
+      scrollBody.append(heading,tabs,panels.general,panels.style,panels.checkpoints,panels.regions);
       scrollBody.dataset.atlasRoadLive=roadDialogToken;
       content.append(scrollBody,roadTools);
       // DialogV2.input may clone its HTMLElement content when rendered. Its
