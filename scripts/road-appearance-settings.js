@@ -6,6 +6,7 @@ import { DEFAULT_WORLD_ROAD_APPEARANCE, ROAD_APPEARANCE_SETTING, readWorldRoadAp
   from "./road-appearance.js";
 import { createSettingsSelect } from "./settings-select.js";
 import { createSettingsInput, settingsFormValues } from "./settings-input.js";
+import { createSettingsNumberRange,parseBoundedRangeDraft } from "./settings-number-range.js";
 
 const element = (tag, value = "") => {
   const result = document.createElement(tag);
@@ -15,59 +16,104 @@ const element = (tag, value = "") => {
 
 /** Reused by the world editor and one-road override; plain DOM for DialogV2. */
 export function roadAppearanceForm(appearance) {
-  const current = validateRoadAppearance(appearance);
-  const root = element("div");
-  root.style.cssText = "display:grid;gap:0.65rem;min-width:0;";
-  const input = (label, name, type, value, options = {}) => {
-    const row = element("label");
-    row.className = "form-group";
-    row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:1rem;";
-    row.appendChild(element("span", label));
-    let field;
-    if (type === "select") {
-      field = createSettingsSelect(options.choices.map(optionName =>
-        [optionName,optionName.charAt(0).toUpperCase()+optionName.slice(1)]),
-        {selectedId:value,name});
-    } else {
-      field = createSettingsInput(name === "atlasRoadWidth" || name === "atlasRoadOpacity"
-        ? "range":type,value,{name,min:options.min,max:options.max,step:options.step});
-    }
-    field.style.maxWidth = "13rem";
-    if (type === "color") field.style.cssText = "width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
-    if (name === "atlasRoadWidth" || name === "atlasRoadOpacity") {
-      field.style.width = "10rem";
-      const wrap = element("div");
-      wrap.style.cssText = "display:flex;align-items:center;gap:.35rem;";
-      const output = element("output", name === "atlasRoadWidth" ? value + " px" : Math.round(value * 100) + "%");
-      output.style.minWidth = "3rem";
-      output.dataset.atlasRangeValue = name;
-      wrap.append(field,output);
-      row.appendChild(wrap);
-    } else row.appendChild(field);
-    root.appendChild(row);
+  const current=validateRoadAppearance(appearance);
+  const root=element("div");
+  root.style.cssText="display:grid;gap:.7rem;min-width:0;";
+  const controls=new Map();
+  const group=title=>{
+    const section=element("fieldset");
+    section.className="atlas-road-customization-section";
+    section.appendChild(element("legend",title));
+    root.appendChild(section);
+    return section;
   };
-  input("Road color", "atlasRoadColor", "color", current.color);
-  const borderToggle=element("label");
-  borderToggle.className="form-group";
-  borderToggle.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:1rem;";
-  borderToggle.appendChild(element("span","Road border"));
-  const borderOn=createSettingsInput("checkbox",current.borderEnabled,
-    {name:"atlasRoadBorderEnabled"});
-  borderToggle.appendChild(borderOn);
-  root.appendChild(borderToggle);
-  input("Road border color", "atlasRoadBorderColor", "color", current.borderColor);
-  const borderColorRow=root.lastElementChild;
-  borderColorRow.dataset.atlasRoadBorderColor="";borderColorRow.style.display=current.borderEnabled?"flex":"none";
-  borderOn.addEventListener("change",()=>{borderColorRow.style.display=borderOn.checked?"flex":"none";});
-  input("Road name text color", "atlasRoadTextColor", "color", current.textColor);
-  input("Line width (px)", "atlasRoadWidth", "number", current.width,
-    { min: 1, max: 16, step: 0.5 });
-  input("Opacity", "atlasRoadOpacity", "number", current.opacity,
-    { min: 0.1, max: 1, step: 0.05 });
-  input("Line pattern", "atlasRoadPattern", "select", current.pattern,
-    { choices: ROAD_LINE_PATTERNS });
-  input("Road name labels", "atlasRoadLabels", "select", current.labelVisibility,
-    { choices: ROAD_LABEL_VISIBILITY });
+  let section=group("Road settings");
+  const input=(label,name,type,value,options={})=>{
+    const row=element("label");row.className="form-group";
+    row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:1rem;";
+    row.appendChild(element("span",label));
+    let field;
+    if(type==="select"){
+      field=createSettingsSelect(options.choices.map(choice=>
+        [choice,choice.charAt(0).toUpperCase()+choice.slice(1)]),{selectedId:value,name});
+    }else if(name==="atlasRoadWidth"||name==="atlasRoadOpacity"){
+      const percent=name==="atlasRoadOpacity";
+      const range=createSettingsNumberRange(percent?value*100:value,{
+        min:percent?10:1,max:percent?100:16,step:percent?5:.5,
+        numberStep:"any",label,unit:percent?"%":"px"
+      });
+      range.number.name=percent?"atlasRoadOpacityPercent":name;
+      range.number.defaultValue=range.number.value;
+      range.slider.dataset.atlasRoadRange=name;
+      field=range.element;
+      controls.set(name,range.number);
+    }else field=createSettingsInput(type,value,{
+      name,min:options.min,max:options.max,step:options.step});
+    field.style.maxWidth="13rem";
+    if(type==="color")field.style.cssText="width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
+    if(!controls.has(name))controls.set(name,field);
+    row.appendChild(field);section.appendChild(row);
+    return row;
+  };
+  input("Road color","atlasRoadColor","color",current.color);
+  const borderToggle=input("Road border","atlasRoadBorderEnabled","checkbox",current.borderEnabled);
+  const borderOn=controls.get("atlasRoadBorderEnabled");
+  const borderRow=input("Road border color","atlasRoadBorderColor","color",current.borderColor);
+  borderRow.dataset.atlasRoadBorderColor="";
+  borderRow.style.display=current.borderEnabled?"flex":"none";
+  borderOn.addEventListener("change",()=>{
+    borderRow.style.display=borderOn.checked?"flex":"none";
+  });
+  input("Line width","atlasRoadWidth","number",current.width);
+  input("Opacity","atlasRoadOpacity","number",current.opacity);
+  input("Line pattern","atlasRoadPattern","select",current.pattern,
+    {choices:ROAD_LINE_PATTERNS});
+  section=group("Road name styling");
+  input("Road name labels","atlasRoadLabels","select",current.labelVisibility,
+    {choices:ROAD_LABEL_VISIBILITY});
+  input("Road name text color","atlasRoadTextColor","color",current.textColor);
+
+  section=group("Map preview");
+  const svg=typeof document.createElementNS==="function"?
+    document.createElementNS("http://www.w3.org/2000/svg","svg"):element("svg");
+  svg.setAttribute?.("viewBox","0 0 300 100");
+  svg.setAttribute?.("aria-label","Preview of the Road line appearance");
+  svg.style.cssText="display:block;width:100%;height:100px;";
+  const path=()=>typeof document.createElementNS==="function"?
+    document.createElementNS("http://www.w3.org/2000/svg","path"):element("path");
+  const outline=path(),line=path();
+  for(const item of [outline,line]){
+    item.setAttribute?.("d","M 12 76 Q 85 5 150 55 T 288 30");
+    item.setAttribute?.("fill","none");
+    item.setAttribute?.("stroke-linecap","round");
+  }
+  svg.append(outline,line);
+  const label=element("span","Road name");
+  label.className="atlas-road-preview-name";
+  section.append(svg,label);
+  section.className+=" atlas-road-map-preview";
+  const update=()=>{
+    const value=name=>controls.get(name)?.value;
+    const width=Number(value("atlasRoadWidth"));
+    const opacity=Number(value("atlasRoadOpacity"))/100;
+    if(!Number.isFinite(width)||width<=0||!Number.isFinite(opacity))return;
+    const pattern=value("atlasRoadPattern");
+    const dash=pattern==="dashed"?`${width*3} ${width*2}`:
+      pattern==="dotted"?`${Math.max(1,width*.3)} ${Math.max(4,width*2)}`:"none";
+    line.style.stroke=value("atlasRoadColor");
+    line.style.strokeWidth=String(width);
+    line.style.strokeDasharray=dash;
+    line.style.opacity=String(opacity);
+    outline.style.stroke=value("atlasRoadBorderColor");
+    outline.style.strokeWidth=String(width+3);
+    outline.style.opacity=controls.get("atlasRoadBorderEnabled").checked?String(opacity):"0";
+    label.style.color=value("atlasRoadTextColor");
+    root.dataset.atlasRoadPreviewMode=value("atlasRoadLabels");
+    label.hidden=value("atlasRoadLabels")==="off";
+  };
+  root.addEventListener("input",update);
+  root.addEventListener("change",update);
+  update();
   return root;
 }
 
@@ -77,8 +123,10 @@ export function roadAppearanceFromForm(values) {
     borderColor: String(values.atlasRoadBorderColor ?? ""),
     borderEnabled: values.atlasRoadBorderEnabled === true || values.atlasRoadBorderEnabled === "true",
     textColor: String(values.atlasRoadTextColor ?? ""),
-    width: Number(values.atlasRoadWidth),
-    opacity: Number(values.atlasRoadOpacity),
+    width: parseBoundedRangeDraft(values.atlasRoadWidth,{min:1,max:16,step:"any"}),
+    opacity:values.atlasRoadOpacityPercent===undefined?
+      Number(values.atlasRoadOpacity):
+      parseBoundedRangeDraft(values.atlasRoadOpacityPercent,{min:10,max:100,step:"any"})/100,
     pattern: String(values.atlasRoadPattern ?? ""),
     labelVisibility: String(values.atlasRoadLabels ?? "")
   });
