@@ -94,7 +94,7 @@ test("GM and player map preferences remain client-local; players cannot select G
 
 class Element {
   constructor(tag){this.tagName=tag;this.children=[];this.listeners=new Map();
-    this.textContent="";this.attributes={};this.style={};}
+    this.textContent="";this.attributes={};this.style={};this.dataset={};}
   append(...children){this.children.push(...children);}
   appendChild(child){this.children.push(child);return child;}
   replaceChildren(...children){this.children=[...children];}
