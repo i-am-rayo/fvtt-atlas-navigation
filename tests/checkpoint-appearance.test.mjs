@@ -296,6 +296,15 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(roadIdentity);
     assert.equal(roadIdentity.children[0].textContent,"Connected road");
     assert.ok(all(roadIdentity).some(node=>node.textContent==="Hidden mountain pass"));
+    const customizationTab=all(root).find(node=>node.tag==="button"&&
+      node.textContent==="Customization");
+    assert.ok(customizationTab,"Checkpoint appearance tab uses shared terminology");
+    const sections=all(root).filter(node=>
+      node.className==="atlas-checkpoint-customization-section");
+    assert.equal(sections.length,2);
+    assert.deepEqual(sections.map(node=>node.children[0].textContent),
+      ["Checkpoint settings","Banner information"]);
+    assert.equal(sections[0].children[1].children[0].textContent,"Marker size (12–64 px)");
     const mapPreview=all(root).find(node=>node.className==="atlas-checkpoint-preview");
     assert.ok(mapPreview);
     const sample=mapPreview.children[1];
