@@ -531,11 +531,11 @@ test("Directory filters keep independent choices and row expansion across refres
     await enter(ws,"Map directory");
     assert.match(text(ws.result),/Outside classified territories/);
     await enter(ws,"All roads");
-    let row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road · land"))[0];
+    let row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road")&&text(e.children[0]).includes("land"))[0];
     row.open=true;
     row.listeners.get("toggle")();
     await ws.render(true);
-    row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road · land"))[0];
+    row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road")&&text(e.children[0]).includes("land"))[0];
     assert.equal(row.open,true);
     const type=walk(ws.result,e=>e.tag==="select")[0];
     type.value="air";
@@ -600,7 +600,7 @@ test("Workspace travel tabs switch without saving or clearing unsaved World draf
   }finally{ctx.restore();}
 });
 
-test("Directory shows grouped Create/Manage/View controls and inline item actions",async()=>{
+test("Directory keeps Create/View commands and moves unique management into Settings",async()=>{
   const ctx=context();
   try{
     ctx.scene.getFlag=(_scope,key)=>key==="atlas"?{
@@ -612,7 +612,7 @@ test("Directory shows grouped Create/Manage/View controls and inline item action
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     await enter(ws,"Map directory");
     for(const className of ["atlas-directory-toolbar","atlas-directory-creation",
-      "atlas-directory-managers","atlas-directory-views"])
+      "atlas-directory-views"])
       assert.ok(walk(ws.result,item=>item.className===className)[0],className+" is present");
     assert.ok(!walk(ws.result,item=>item.tag==="summary"&&
       item.textContent==="Manage map records").length,
@@ -621,7 +621,7 @@ test("Directory shows grouped Create/Manage/View controls and inline item action
     const directory=walk(ws.result,item=>item.className==="atlas-map-directory")[0];
     assert.ok(directory);
     const roadRow=walk(directory,item=>item.tag==="details"&&
-      text(item.children[0]).includes("Coast Road · land"))[0];
+      text(item.children[0]).includes("Coast Road")&&text(item.children[0]).includes("land"))[0];
     assert.ok(roadRow);
     assert.doesNotMatch(text(roadRow.children[0]),/\bHidden\b/,
       "visibility is conveyed by the existing accessible eye action");
@@ -629,6 +629,9 @@ test("Directory shows grouped Create/Manage/View controls and inline item action
     assert.equal(summary.tag,"summary");
     assert.ok(summary.children.some(child=>child.className==="atlas-directory-actions"),
       "actions remain beside the item label even when its details are collapsed");
+    await enter(ws,"Settings");
+    assert.ok(walk(ws.result,item=>item.className==="atlas-workspace-advanced-management")[0],
+      "unique Road topology and Territory recovery operations remain discoverable");
     assert.deepEqual(ctx.calls,[],"opening the Map Directory does not write Scene data");
     await ws.close();
   }finally{ctx.restore();}
