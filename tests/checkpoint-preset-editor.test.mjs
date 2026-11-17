@@ -47,7 +47,7 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     assert.equal(titleField.value,"Unsaved map marker preset",
       "switching tab never discards an unsaved World preset draft");
     const labels=all(root).map(item=>item.textContent);
-    for(const label of ["General","Marker & labels","Terrain Region",
+    for(const label of ["General","Customization","Terrain Region",
       "Default elevation (m)","Default discovery status","Default linked Journal / Page UUID",
       "Map Marker icon","Marker size (12–64 px)","Map Marker border color",
       "Map Marker banner","Suggested travel preset","Air Travel"])
@@ -58,6 +58,12 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     assert.equal(all(root).some(item=>item.textContent==="+ Add Land Travel"),false);
     assert.ok(all(root).some(item=>item.tag==="input"&&item.type==="color"));
     assert.ok(all(root).some(item=>item.tag==="input"&&item.placeholder?.includes("fantasy icons")));
+    const bannerPair=all(root).find(item=>item.className==="atlas-marker-preset-banner-colors");
+    assert.ok(bannerPair,"banner mode and its text color remain adjacent");
+    assert.equal(bannerPair.children.length,2,
+      "mode and color retain separate accessible form labels");
+    assert.equal(bannerPair.children[0].children[0].textContent,"Map Marker banner");
+    assert.equal(bannerPair.children[1].children[0].textContent,"Banner text color");
     assert.ok(labels.includes("RPG picks"));
     assert.ok(labels.includes("All / Advanced"));
     assert.ok(all(root).some(item=>item.tag==="optgroup"&&item.label==="Land"));
