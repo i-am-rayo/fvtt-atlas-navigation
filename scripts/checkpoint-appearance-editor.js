@@ -274,7 +274,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     field("Checkpoint border color", borderColor);
     fields = el("div"); fields.style.cssText = "display:grid;gap:.55rem;";
     pageMarker.appendChild(fields);
-    const mode = field("Checkpoint label", createCheckpointChoice(CHECKPOINT_LABEL_MODES,appearance.labelMode));
+    const mode = field("Banner display", createCheckpointChoice(CHECKPOINT_LABEL_MODES,appearance.labelMode));
     const showRoad=createCheckpointCheckbox(appearance.showRoadName,
       {label:"Include Road name in checkpoint banner"});
     const showType=createCheckpointCheckbox(existingBanner.showType,
@@ -357,6 +357,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     preview.appendChild(el("small","Hover or focus the sample to preview hover-only labels. Map zoom may change the displayed size."));
     pageMarker.appendChild(preview);
     const updatePreview=()=>{
+      const bannerOff=mode.value==="off";
+      for(const control of [showRoad,showType,showElevation,textColor])
+        control.disabled=bannerOff;
+      bannerTerritory.disabled=bannerOff||Boolean(this.createDraft);
       const marker=type.value==="fa"?createCheckpointIconGlyph(selected):
         el(type.value==="image"?"img":"span");
       if(type.value==="image"){
