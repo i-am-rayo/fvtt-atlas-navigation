@@ -66,7 +66,8 @@ export const DEFAULT_CHECKPOINT_APPEARANCE = Object.freeze({
  * Territory is selected by stable native Region ID, never by cached name.
  */
 export const DEFAULT_CHECKPOINT_BANNER=Object.freeze({
-  showType:false,showElevation:false,territoryRegionId:null
+  showType:false,showElevation:false,territoryRegionId:null,
+  territorySceneId:null
 });
 const BANNER_KEYS=Object.keys(DEFAULT_CHECKPOINT_BANNER);
 const BANNER_ID=/^[A-Za-z0-9_-]{1,128}$/;
@@ -79,7 +80,11 @@ export function validateCheckpointBanner(value){
       typeof value.showElevation!=="boolean"||
       (value.territoryRegionId!==null&&
         (typeof value.territoryRegionId!=="string"||
-         !BANNER_ID.test(value.territoryRegionId))))
+         !BANNER_ID.test(value.territoryRegionId)))||
+      (value.territorySceneId!==null&&
+        (typeof value.territorySceneId!=="string"||
+         !BANNER_ID.test(value.territorySceneId)))||
+      ((value.territoryRegionId===null)!==(value.territorySceneId===null)))
     throw Error("Invalid Checkpoint banner display options.");
   return {...value};
 }
@@ -88,9 +93,10 @@ export function resolveCheckpointBanner(appearance){
     validateCheckpointBanner(appearance.banner);
 }
 export function withCheckpointBanner(appearance,{showType,showElevation,
-  territoryRegionId}={}){
+  territoryRegionId=null,territorySceneId=null}={}){
   const base=validateCheckpointAppearance(appearance);
-  const banner=validateCheckpointBanner({showType,showElevation,territoryRegionId});
+  const banner=validateCheckpointBanner({
+    showType,showElevation,territoryRegionId,territorySceneId});
   const {banner:existing,...plain}=base;
   return validateCheckpointAppearance(
     !banner.showType&&!banner.showElevation&&!banner.territoryRegionId?
