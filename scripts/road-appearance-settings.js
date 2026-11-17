@@ -20,7 +20,6 @@ export function roadAppearanceForm(appearance) {
   const root=element("div");
   root.className="atlas-road-customization";
   root.style.cssText="display:grid;gap:.7rem;min-width:0;";
-  const controls=new Map();
   const group=title=>{
     const section=element("fieldset");
     section.className="atlas-road-customization-section";
@@ -47,12 +46,10 @@ export function roadAppearanceForm(appearance) {
       range.number.defaultValue=range.number.value;
       range.slider.dataset.atlasRoadRange=name;
       field=range.element;
-      controls.set(name,range.number);
     }else field=createSettingsInput(type,value,{
       name,min:options.min,max:options.max,step:options.step});
     field.style.maxWidth=(name==="atlasRoadWidth"||name==="atlasRoadOpacity")?"20rem":"13rem";
     if(type==="color")field.style.cssText="width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
-    if(!controls.has(name))controls.set(name,field);
     row.appendChild(field);(options.container??section).appendChild(row);
     return row;
   };
@@ -105,29 +102,36 @@ export function roadAppearanceForm(appearance) {
   svg.append(outline,line,label);
   section.appendChild(svg);
   section.className+=" atlas-road-map-preview";
-  const update=()=>{
-    const value=name=>controls.get(name)?.value;
-    const width=Number(value("atlasRoadWidth"));
-    const opacity=Number(value("atlasRoadOpacity"))/100;
-    if(!Number.isFinite(width)||width<=0||!Number.isFinite(opacity))return;
-    const pattern=value("atlasRoadPattern");
-    const dash=pattern==="dashed"?`${width*3} ${width*2}`:
-      pattern==="dotted"?`${Math.max(1,width*.3)} ${Math.max(4,width*2)}`:"none";
-    line.style.stroke=value("atlasRoadColor");
-    line.style.strokeWidth=width+"px";
-    line.style.strokeDasharray=dash;
-    line.style.opacity=String(opacity);
-    outline.style.stroke=value("atlasRoadBorderColor");
-    outline.style.strokeWidth=(width+3)+"px";
-    outline.style.opacity=controls.get("atlasRoadBorderEnabled").checked?String(opacity):"0";
-    label.style.fill=value("atlasRoadTextColor");
-    root.dataset.atlasRoadPreviewMode=value("atlasRoadLabels");
-    label.hidden=value("atlasRoadLabels")==="off";
-  };
-  root.addEventListener("input",update);
-  root.addEventListener("change",update);
-  update();
+  root.addEventListener("input",()=>refreshRoadAppearancePreview(root));
+  root.addEventListener("change",()=>refreshRoadAppearancePreview(root));
+  refreshRoadAppearancePreview(root);
   return root;
+}
+
+
+/** Works with live DOM and DialogV2-cloned Road forms; never writes settings. */
+export function refreshRoadAppearancePreview(root){
+  const fields=new Map([...root.querySelectorAll("[name]")].map(field=>[field.name,field]));
+  const value=name=>fields.get(name)?.value;
+  const svg=root.querySelector("svg");
+  if(!svg)return;
+  const [outline,line,label]=svg.children;
+  const width=Number(value("atlasRoadWidth"));
+  const opacity=Number(value("atlasRoadOpacityPercent"))/100;
+  if(!Number.isFinite(width)||width<=0||!Number.isFinite(opacity))return;
+  const pattern=value("atlasRoadPattern");
+  const dash=pattern==="dashed"?`${width*3} ${width*2}`:
+    pattern==="dotted"?`${Math.max(1,width*.3)} ${Math.max(4,width*2)}`:"none";
+  line.style.stroke=value("atlasRoadColor");
+  line.style.strokeWidth=width+"px";
+  line.style.strokeDasharray=dash;
+  line.style.opacity=String(opacity);
+  outline.style.stroke=value("atlasRoadBorderColor");
+  outline.style.strokeWidth=(width+3)+"px";
+  outline.style.opacity=fields.get("atlasRoadBorderEnabled")?.checked?String(opacity):"0";
+  label.style.fill=value("atlasRoadTextColor");
+  root.dataset.atlasRoadPreviewMode=value("atlasRoadLabels");
+  label.hidden=value("atlasRoadLabels")==="off";
 }
 
 export function roadAppearanceFromForm(values) {
