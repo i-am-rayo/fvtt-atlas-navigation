@@ -537,7 +537,7 @@ export function createAtlasCheckpointPanel(scene, actions, refresh, listState={}
     list.appendChild(row);
     rows.push({ row, filter: (cp.name + " " + (cp.roadName || "independent")).toLowerCase() });
   }
-  search.addEventListener("input", () => {
+  const updateSearch=()=>{
     listState.query=search.value;
     const filter = search.value.trim().toLowerCase();
     let shown = 0;
@@ -547,8 +547,9 @@ export function createAtlasCheckpointPanel(scene, actions, refresh, listState={}
     }
     total.textContent = filter ? `${shown} of ${entries.length} Map Markers`
       : `${entries.length} Map Markers`;
-  });
-  if(listState.query)search.listeners?.get?.("input")?.();
+  };
+  search.addEventListener("input",updateSearch);
+  if(listState.query)updateSearch();
   if (!entries.length) list.appendChild(node("p",
     "No Map Markers yet. Choose [+] and click a map location.", "hint"));
   section.appendChild(list);
