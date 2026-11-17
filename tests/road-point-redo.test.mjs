@@ -20,7 +20,7 @@ test("Road point Undo/Redo restores only transient immutable snapshots",()=>{
   editor.redo();
   assert.equal(editor.session.working,b);
   assert.equal(editor.session.operations.length,1);
-  assert.equal(editor.getState({id:"scene"}).canRedo,false);
+  assert.equal(editor.session.redo.length,0);
   assert.deepEqual(callbacks,["refresh","change","refresh","change"]);
   assert.equal(a.nodes[0].x,1,"original Scene snapshot is unchanged");
 });
