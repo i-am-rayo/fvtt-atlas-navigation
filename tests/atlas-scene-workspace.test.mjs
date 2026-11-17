@@ -290,8 +290,9 @@ test("Checkpoint Workspace has one [+] placement action and compact searchable r
     ctx.actions.manageCheckpointRoad = () => ctx.calls.push(["link"]);
     ctx.actions.removeCheckpoint = () => ctx.calls.push(["remove"]);
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
-    await enter(workspace,"Map directory");
-    const tab = buttons(workspace.result).find(item => item.textContent === "Map Markers");
+    await enter(workspace,"Settings");
+    const tab = buttons(workspace.result).find(item =>
+      item.textContent === "Map Marker discovery & connections");
     assert.ok(tab);
     await tab.listeners.get("click")({ preventDefault() {} });
     const panel = walk(workspace.result, item =>
@@ -336,8 +337,9 @@ test("isolated Checkpoint in Workspace offers explicit Road connection action", 
     } : null;
     ctx.actions.manageCheckpointRoad = (_scene, id) => ctx.calls.push(["connect", id]);
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
-    await enter(workspace,"Map directory");
-    const tab = buttons(workspace.result).find(item => item.textContent === "Map Markers");
+    await enter(workspace,"Settings");
+    const tab = buttons(workspace.result).find(item =>
+      item.textContent === "Map Marker discovery & connections");
     await tab.listeners.get("click")({ preventDefault() {} });
     assert.match(text(workspace.result), /Free Village/);
     const connect = buttons(workspace.result).find(item =>
