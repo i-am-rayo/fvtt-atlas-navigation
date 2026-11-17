@@ -289,7 +289,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       const row=el("label");
       row.append(input,el("span",title));bannerGroup.appendChild(row);
     };
-    bannerChoice("Road name",showRoad);
+    const showRoadRow=bannerChoice("Road name",showRoad);
     bannerChoice("Checkpoint type",showType);
     bannerChoice("Elevation",showElevation);
     const availableTerritories=this.createDraft?[]:
@@ -413,8 +413,14 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           "drop-shadow(-1px 0 "+borderColor.value+")";
       }
       previewMarker.replaceChildren(marker);
-      const road=readAtlas(this.scene).roads?.find(r=>
-        r.id===(draftRoad?.value??current.roadId));
+      const atlas=readAtlas(this.scene);
+      const connectedRoadIds=this.createDraft?[]:
+        atlas.segments.filter(segment=>segment.from===current.nodeId||
+          segment.to===current.nodeId).map(segment=>segment.roadId);
+      const preferredRoadId=draftRoad?.value??
+        (connectedRoadIds.includes(current.roadId)?current.roadId:connectedRoadIds[0]);
+      const road=atlas.roads?.find(r=>r.id===preferredRoadId);
+      showRoadRow.hidden=!road;
       const nameScreenSize=Math.max(12,Math.min(22,16*Math.sqrt(scale)));
       const roadScreenSize=Math.max(10,Math.min(18,12*Math.sqrt(scale)));
       const checkpointName=el("strong",name.value);
