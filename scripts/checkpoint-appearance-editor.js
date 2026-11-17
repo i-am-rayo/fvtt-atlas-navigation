@@ -100,13 +100,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
 
   async _renderHTML() {
     if (!game.user?.isGM || !this.scene?.canUserModify?.(game.user, "update")) {
-      throw new Error("Only a GM with Scene update permission may style checkpoints.");
+      throw new Error("Only a GM with Scene update permission may edit Map Markers.");
     }
     const current = this.createDraft ? {
       name: this.createDraft.defaultName, elevationMeters: null,
       appearance: null, playerVisible: false
     } : readAtlas(this.scene).checkpoints?.find(c => c.id === this.checkpointId);
-    if (!current) throw new Error("Checkpoint no longer exists.");
+    if (!current) throw new Error("Map Marker no longer exists.");
     const appearance = resolveCheckpointAppearance(current.appearance);
     const existingBanner=resolveCheckpointBanner(appearance);
     const exploration = readPartyExploration(this.scene);
@@ -128,7 +128,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const category=field("Map Marker type",createSettingsGroupedSelect(
       CHECKPOINT_TYPE_GROUPS.map(([heading,types])=>({label:heading,options:types})),
       {selectedId:this.createDraft?"generic":checkpointCategory(this.scene,this.checkpointId)}));
-    category.title="Changing type suggests its World checkpoint preset. Changes are staged until Save.";
+    category.title="Changing type suggests a World Map Marker preset. Changes are staged until Save.";
     const presetPicker=el("select");
     const saveAsPreset=el("button","Save as preset…");
     saveAsPreset.type="button";
@@ -145,7 +145,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     changePreset.addEventListener("click",()=>{presetPicker.hidden=false;changePreset.hidden=true;presetPicker.focus();});
     presetControls.append(presetName,presetPicker,changePreset);
     field("Map Marker preset",presetControls);
-    const presetHint=el("small","Apply saved marker and discovery defaults. Save Checkpoint applies your changes to this place.");
+    const presetHint=el("small","Apply saved Map Marker and discovery defaults. Save Map Marker applies your changes to this place.");
     fields.appendChild(presetHint);
     // The same General page is used for creation and editing: choose a reusable
     // template before entering or refining checkpoint-specific values.
@@ -155,7 +155,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       ? field("Named road", select(this.createDraft.roads.map(road => [road.id, road.name]),
           this.createDraft.roads[0]?.id ?? "")) : null;
     if (this.createDraft?.independent) {
-      const hint = el("p", "Independent Checkpoint: no Road is assigned. Its existing Node can be connected later by GM-approved topology.");
+      const hint = el("p", "Independent Map Marker: no Road is assigned. Its existing Node can be connected later by GM-approved topology.");
       hint.className = "hint";
       fields.appendChild(hint);
     }
@@ -212,7 +212,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         {min:0,max:100,step:.25,label:"Map Marker terrain reveal radius in grid cells"});
       revealRadius=revealControl.number;
       field("Terrain revealed on discovery (cells)",revealControl.element);
-      fields.appendChild(el("small","Reveals map terrain after this checkpoint becomes known. It does not discover nearby checkpoints. Set to 0 for the marker only."));
+      fields.appendChild(el("small","Reveals map terrain after this Map Marker becomes known. It does not discover nearby Map Markers. Set to 0 for the marker only."));
     } else {
       playerVisibility.hidden=true;
       const visibility=createSettingsIconButton({icon:"eye",label:"Show Map Marker"});
@@ -278,7 +278,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     pageMarker.appendChild(fields);
     const mode = field("Banner display", createCheckpointChoice(CHECKPOINT_LABEL_MODES,appearance.labelMode));
     const showRoad=createCheckpointCheckbox(appearance.showRoadName,
-      {label:"Include Road name in checkpoint banner"});
+      {label:"Include Road name in Map Marker banner"});
     const showType=createCheckpointCheckbox(existingBanner.showType,
       {label:"Include Map Marker type in banner"});
     const showElevation=createCheckpointCheckbox(existingBanner.showElevation,
@@ -321,9 +321,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     territoryRow.append(el("span","Territory (optional)"),bannerTerritory);
     bannerGroup.appendChild(territoryRow);
     bannerGroup.appendChild(el("small",this.createDraft?
-      "Place and save the Checkpoint before selecting a containing Territory.":
+      "Place and save the Map Marker before selecting a containing Territory.":
       "Choose one native geographic Territory, including a containing Continent. "+
-      "The selected name may appear to players when this Checkpoint is shown. "+
+      "The selected name may appear to players when this Map Marker is shown. "+
       "Atlas does not publish native Region boundaries or Journal access."));
     fields.appendChild(bannerGroup);
     const textColor = createCheckpointColor(appearance.textColor,{label:"Map Marker banner text color"});
@@ -361,7 +361,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     preview.appendChild(el("small","Hover or focus the sample to preview hover-only labels. Map zoom may change the displayed size."));
     const settingsSection=el("fieldset");
     settingsSection.className="atlas-checkpoint-customization-section";
-    settingsSection.append(el("legend","Checkpoint settings"),
+    settingsSection.append(el("legend","Map Marker settings"),
       markerFields.children[0],markerRow,imageSection,markerFields);
     const bannerSection=el("fieldset");
     bannerSection.className="atlas-checkpoint-customization-section";
@@ -566,7 +566,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         card.style.cssText="border:1px solid var(--color-border-light-tertiary,#666);padding:.7rem;display:grid;gap:.45rem;";
         card.appendChild(el("strong",region.name));
         card.appendChild(el("small","Travel preset: "+(presetNames.get(region.presetId)??"None")+
-          " · "+(region.metadata.kind==="checkpoint"?"Checkpoint area":"Road corridor")));
+          " · "+(region.metadata.kind==="checkpoint"?"Map Marker area":"Road corridor")));
         if(region.modified)card.appendChild(el("small","Geometry was manually modified; regeneration is protected."));
         const commands=el("div");commands.style.cssText="display:flex;gap:.35rem;flex-wrap:wrap;";
         commands.append(terrainButton("Travel preset","preset",region.id),
@@ -579,14 +579,14 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       }
     }else if(this.createDraft){
       pageTerrain.appendChild(el("p", this.createDraft.independent
-        ? "A standalone Checkpoint can later be linked to an existing native Territory or receive its own GM-approved generated Region. No Region is created automatically."
-        : "A Terrain Region can be generated immediately after the new checkpoint is saved. You'll preview its geometry and choose its travel preset before confirming."));
+        ? "A standalone Map Marker can later be linked to an existing native Territory or receive its own GM-approved generated Region. No Region is created automatically."
+        : "A Terrain Region can be generated immediately after the new Map Marker is saved. You'll preview its geometry and choose its travel preset before confirming."));
     }
     const generateAfterCreate=this.createDraft&&!this.createDraft.independent?el("input"):null;
     if(generateAfterCreate){
       generateAfterCreate.type="checkbox";
       const choice=el("label");choice.append(generateAfterCreate,
-        document.createTextNode(" Open Terrain Region generator after creating checkpoint"));
+        document.createTextNode(" Open Terrain Region generator after creating Map Marker"));
       pageTerrain.appendChild(choice);
     }
     const editorTabs = el("nav");
@@ -650,10 +650,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         target.name="presetTarget";
         const targetLabel=el("label","Save as");targetLabel.appendChild(target);wrapper.appendChild(targetLabel);
         input.name="presetName";input.required=true;input.maxLength=120;
-        input.defaultValue=category.selectedOptions[0]?.textContent??"Checkpoint";
+        input.defaultValue=category.selectedOptions[0]?.textContent??"Map Marker";
         const label=el("label","Preset name");label.appendChild(input);wrapper.appendChild(label);
         const values=await foundry.applications.api.DialogV2.input({
-          window:{title:"Save Checkpoint as World Preset"},content:wrapper,
+          window:{title:"Save Map Marker as World Preset"},content:wrapper,
           ok:{label:"Save Preset"},rejectClose:false,modal:true
         });
         if(!values)return;
@@ -684,11 +684,11 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           event:{kind:"none",enabled:false}};
         const next=upsertCheckpointPreset(world,preset);
         if(existing&&!await foundry.applications.api.DialogV2.confirm({
-          window:{title:"Replace World preset?"},content:"<p>Replace the selected World preset with these settings? Existing checkpoints are not changed.</p>",
+          window:{title:"Replace World preset?"},content:"<p>Replace the selected World preset with these settings? Existing Map Markers are not changed.</p>",
           yes:{label:"Replace preset"},no:{label:"Keep existing"},rejectClose:false}))return;
         if(JSON.stringify(readWorldCheckpointPresets())!==JSON.stringify(before))throw Error("World presets changed. Try saving again.");
         await game.settings.set(MODULE_ID,CHECKPOINT_PRESET_SETTING,next);
-        ui.notifications.info("Checkpoint preset saved to World settings. This checkpoint was not changed.");
+        ui.notifications.info("Map Marker preset saved to World settings. This Map Marker was not changed.");
       }catch(error){ui.notifications.error(error.message??String(error));}
     });
     const saveValue = async value => {
@@ -698,7 +698,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         // Validate all staged numeric values BEFORE the first Scene write.
         const revealValue=revealControl?.getValue()??null;
         if (readAtlas(this.scene).revision !== this.expectedRevision) {
-          throw new Error("Scene Atlas changed. Close and reopen this checkpoint editor.");
+          throw new Error("Scene Atlas changed. Close and reopen this Map Marker editor.");
         }
         const selectedBannerValue=bannerTerritory.value??"";
         const retainImported=selectedBannerValue.startsWith("imported:");
@@ -727,9 +727,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         if (this.createDraft) {
           const roadId = draftRoad?.value ?? "";
           if (!this.createDraft.independent && !this.createDraft.roads.some(road => road.id === roadId))
-            throw Error("Choose a named road for this checkpoint.");
+            throw Error("Choose a named Road for this Map Marker.");
           if (!name.value.trim() || name.value.length > 120)
-            throw Error("Enter a checkpoint name (1–120 characters).");
+            throw Error("Enter a Map Marker name (1–120 characters).");
           if (raw !== "" && !Number.isFinite(Number(raw)))
             throw Error("Enter a valid elevation.");
           const config = {
@@ -754,7 +754,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         }
         if (discovery && JSON.stringify(readPartyExploration(this.scene)) !==
             JSON.stringify(exploration)) {
-          throw new Error("Party discovery changed. Reopen checkpoint settings.");
+          throw new Error("Party discovery changed. Reopen Map Marker settings.");
         }
         await saveCheckpointPresentation(this.scene, {
           checkpointId: this.checkpointId, name: name.value,
@@ -832,10 +832,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         for(const label of names)list.appendChild(el("li",label));
         roadIdentity.appendChild(list);
       }else roadIdentity.appendChild(el("small",
-        "This checkpoint is currently independent of the Road network."));
+        "This Map Marker is currently independent of the Road network."));
       roads.appendChild(roadIdentity);
       roads.appendChild(el("small",incidents.length>1?
-        "This checkpoint lies on connected Road sections. Use Road point editing to change its position or connections safely.":
+        "This Map Marker lies on connected Road sections. Use Road point editing to change its position or connections safely.":
         "Move closer to a Road to snap and connect, or connect an endpoint with a new Road section. No connection is made automatically."));
       if(this.onRoad){
         const connect=el("button",incidents.length?"Disconnect Road…":"Connect to Road…");connect.type="button";
