@@ -154,7 +154,7 @@ test("checkpoint pencil opens the same World preset dialog and keeps drafts isol
     edits.find(el=>el.title.includes("Sailing Ship")).listeners.get("click")();
     await new Promise(resolve=>setImmediate(resolve));
     assert.ok(modal?.content,"checkpoint pencil opens a separate shared preset dialog");
-    assert.equal(modal.ok.label,"Apply checkpoint overrides");
+    assert.equal(modal.ok.label,"Apply Map Marker overrides");
     const fields=flatten(modal.content);
     const names=fields.map(el=>el.name);
     for(const field of ["name","kind","speedDisplay","capacity","crewCount",
