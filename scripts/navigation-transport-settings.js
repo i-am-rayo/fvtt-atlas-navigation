@@ -23,6 +23,7 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
   from "./navigation-travel-method.js";
 import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsIconButton } from "./settings-controls.js";
 import {createTransportNumberSlider,createTransportCurrencyPool,transportCurrencyAmount}
  from "./navigation-transport-form-controls.js";
 import { atlasCurrencyChoices,coinFromCopper,dndCurrencyBreakdown } from "./navigation-currency.js";
@@ -50,12 +51,15 @@ const button=(label,action)=>{
   return control;
 };
 const iconButton=(icon,label,action)=>{
-  const control=button("",action);
-  const glyph=element("i");glyph.className="fa-solid fa-"+icon;
-  glyph.setAttribute("aria-hidden","true");control.appendChild(glyph);
-  control.setAttribute("aria-label",label);control.title=label;
-  control.style.cssText="min-width:2.3rem;min-height:2.3rem;display:inline-grid;"+
-    "place-items:center;padding:.4rem;flex-shrink:0;";
+  const control=createSettingsIconButton({icon,label});
+  control.addEventListener("click",async()=>{
+    control.disabled=true;
+    try{await action();}
+    catch(error){
+      console.error("["+MODULE_ID+"] Transportation Presets",error);
+      globalThis.ui?.notifications?.error?.(error.message||String(error));
+    }finally{control.disabled=false;}
+  });
   return control;
 };
 const current=(key,fallback)=>{
@@ -274,7 +278,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       const legend=element("legend");legend.style.cssText="display:flex;align-items:center;gap:.5rem;font-weight:700;";
       legend.appendChild(element("span",names[surface]+" travel"));
       const add=iconButton("plus","Add "+names[surface].toLowerCase()+" transport",()=>this._edit(null,surface));
-      add.style.cssText="min-width:2.3rem;min-height:2.3rem;padding:.35rem;";
+
       legend.appendChild(add);section.appendChild(legend);
       if(!group.length)section.appendChild(element("p","No presets yet for this route surface."));
       for(const preset of group){
