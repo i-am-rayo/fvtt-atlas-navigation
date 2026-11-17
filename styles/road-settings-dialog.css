@@ -1,12 +1,13 @@
-/* Keep the native submit in Foundry’s footer. The two editors share the
- * same action order: destructive action at the start, Cancel and Save at the end.
+/* Native Foundry DialogV2 continues to own Road Save submission.
+ * Shared Atlas order: edit actions then Cancel/Save, Delete last on the right.
+ * DOM focus order matches visual order; CSS only handles available spacing.
  */
 .application:has([data-atlas-road-live]) .form-footer,
 .atlas-checkpoint-form-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: .5rem;
 }
 
@@ -18,7 +19,7 @@
 
 .application:has([data-atlas-road-live]) .form-footer [data-atlas-road-tool="delete"],
 .atlas-checkpoint-form-actions .atlas-ui-icon-button--danger {
-  margin-inline-end: auto;
+  margin-inline-start: auto;
 }
 
 .application:has([data-atlas-road-live]) [data-atlas-road-actions] {
