@@ -29,13 +29,12 @@ export function createCheckpointRegionRadius(value,{label="Checkpoint Region rad
 /** Same geometry slider in generator and World preset editor. */
 export function createCheckpointRegionWidth(value,{
   label="Region radius or width in grid cells",onChange,onInvalid}={}){
-  const pair=createSettingsNumberRange(value,{...CHECKPOINT_REGION_RADIUS,
-    label,width:"4.5rem",unit:"cells",onInput:onChange,onInvalid});
   const output=document.createElement("output");
-  output.hidden=true;output.textContent=pair.slider.value+" cells";
-  const sync=()=>{output.textContent=pair.slider.value+" cells";};
-  pair.slider.addEventListener("input",sync);
-  pair.number.addEventListener("input",sync);
+  output.hidden=true;output.textContent=String(value)+" cells";
+  const pair=createSettingsNumberRange(value,{...CHECKPOINT_REGION_RADIUS,
+    label,width:"4.5rem",unit:"cells",
+    onInput:amount=>{output.textContent=amount+" cells";onChange?.(amount);},
+    onInvalid});
   pair.element.appendChild(output);
   return {...pair,input:pair.slider,output};
 }
@@ -57,13 +56,11 @@ export function createCheckpointElevation(value,{imperial=false}={}){
 /** Marker size combines the authored integer slider with direct entry.
  * getValue() is required at Save; a stale valid slider cannot mask bad text. */
 export function createCheckpointMarkerSize(value){
-  const pair=createSettingsNumberRange(value,{min:12,max:64,step:1,
-    label:"Checkpoint marker size in pixels",width:"4.5rem",unit:"px"});
   const output=document.createElement("output");
-  output.hidden=true;output.textContent=pair.slider.value+" px";
-  const sync=()=>{output.textContent=pair.slider.value+" px";};
-  pair.slider.addEventListener("input",sync);
-  pair.number.addEventListener("input",sync);
+  output.hidden=true;output.textContent=String(value)+" px";
+  const pair=createSettingsNumberRange(value,{min:12,max:64,step:1,
+    label:"Checkpoint marker size in pixels",width:"4.5rem",unit:"px",
+    onInput:amount=>{output.textContent=amount+" px";}});
   pair.element.appendChild(output);
   return {...pair,input:pair.slider,output};
 }
