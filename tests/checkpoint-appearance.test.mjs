@@ -264,13 +264,13 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       onDelete:async()=>false });
     assert.equal(editor.options.position.left,24,
       "checkpoint authoring opens at the left of the canvas");
-    assert.equal(editor.options.window.title,"Atlas — Ridge Lookout — Checkpoint Settings",
+    assert.equal(editor.options.window.title,"Atlas — Ridge Lookout — Map Marker Settings",
       "existing Checkpoint settings identify the edited Checkpoint regardless of tab");
     editor.close = async () => {};
     const root = await editor._renderHTML();
     const buttons = all(root).filter(node => node.tag === "button");
     const geographicLink=buttons.find(node=>node.textContent==="Link Territory");
-    assert.ok(geographicLink,"Checkpoint Settings supports reverse Territory linking");
+    assert.ok(geographicLink,"Map Marker Settings supports reverse Territory linking");
     await geographicLink.listeners.get("click")();
     assert.deepEqual(actions,["territory"]);
     assert.ok(buttons.length < 85,
@@ -288,7 +288,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(markerControls.children[0].className.includes("atlas-checkpoint-icon-selector"),true,
       "icon chooser precedes the marker dropdown");
     assert.equal(markerControls.children[1].tag,"select");
-    assert.equal(markerRow.children[0].textContent,"Checkpoint marker");
+    assert.equal(markerRow.children[0].textContent,"Map Marker icon");
     const regionPanel=all(root).find(node=>node.className==="atlas-checkpoint-terrain-actions");
     assert.deepEqual(regionPanel?.children.map(node=>node.textContent),
       ["Link Territory","Create Terrain Region…"]);
@@ -427,7 +427,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(show.title,"Hide checkpoint");
     assert.equal(stored.revision,data.revision,"visibility remains staged until Save Checkpoint");
     const save = all(root).find(node => node.tag === "button" &&
-      node.title === "Save Checkpoint");
+      node.title === "Save Map Marker");
     assert.ok(save?.className.includes("atlas-ui-icon-button"),
       "Save uses the shared icon action without changing its handler");
     assert.equal(save.type,"button","Save cannot accidentally submit the form");
