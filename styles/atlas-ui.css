@@ -143,6 +143,7 @@
 .atlas-checkpoint-banner-settings > label {
   display:flex;align-items:center;gap:.6rem;min-width:0;
 }
+.atlas-checkpoint-banner-settings > label[hidden] { display:none; }
 .atlas-checkpoint-banner-settings input[type="checkbox"] {
   flex:0 0 auto;
 }
