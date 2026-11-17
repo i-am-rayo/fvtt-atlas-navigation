@@ -129,9 +129,11 @@ test("Atlas Layers modeless palette exposes Road/Region modes, names and fill co
     numbers[0].value="37";numbers[0].listeners.get("input")();
     assert.equal(sliders[0].value,"37");
     numbers[0].listeners.get("change")();
+    await window.updates;
     assert.deepEqual(updates.at(-1),{continentFillOpacity:.37});
     numbers[0].value="51";numbers[0].listeners.get("input")();
     numbers[0].listeners.get("change")();
+    await window.updates;
     assert.deepEqual(updates.at(-1),{continentFillOpacity:.37},
       "out-of-range percentages cannot change the client setting");
     const names=all(root).find(e=>e.attributes?.["aria-label"]==="Show Region names");
