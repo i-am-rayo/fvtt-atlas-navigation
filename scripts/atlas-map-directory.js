@@ -73,7 +73,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   if (view === "directory") select("Territory type", "type", Object.entries(GEOGRAPHY_KINDS));
   if (view === "allRoads") select("Travel type", "type", [["land","Land"],["air","Air"],["water","Water"]]);
   if (view === "allCheckpoints") {
-    select("Checkpoint type", "type", CHECKPOINT_TYPES);
+    select("Map Marker type", "type", CHECKPOINT_TYPES);
     select("Territory", "place", places);
   }
   function group(key, label, expanded) {
@@ -127,7 +127,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
           {checkpointId:item.id,knowledge:shown?"unknown":"lore",expected:party},refresh));
       } else add(item.playerVisible?"eye-slash":"eye",item.playerVisible?"Hide":"Show",()=>actions.toggleCheckpointPlayerVisibility(scene,item,refresh));
       add("gear","Settings for",()=>actions.editCheckpointAppearance(scene,item,refresh));
-      add("pen","Edit",()=>actions.editCheckpoint(scene,item,refresh));
+      add("pen","Move on map",()=>actions.editCheckpoint(scene,item,refresh));
       add("trash","Delete",()=>actions.removeCheckpoint(scene,item,refresh),true);
     }
     (parent.children[0]??parent).appendChild(bar);
@@ -153,7 +153,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
         ["checkpoint",checkpoints.filter(c=>territoryIds.get(c.id)?.has(place.id))]]) {
         const found = entries.filter(item=>own || (!saved.type && matches(item)));
         if (!found.length) continue;
-        const section = group(key+"/"+type,(type==="road"?"Roads":"Checkpoints")+" ("+found.length+")",Boolean(query));
+        const section = group(key+"/"+type,(type==="road"?"Roads":"Map Markers")+" ("+found.length+")",Boolean(query));
         for (const item of found) section.appendChild(itemRow(item,type,key));
         children.push(section);
       }
