@@ -45,30 +45,34 @@ test("nested City and Continent remain distinct explicit banner options",()=>{
   assert.deepEqual(options.map(o=>[o.name,o.label]),[
     ["Dirwest","City"],["Valecor","Continent"]]);
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,
-    "region-continent",{atlas:f.atlas,view:f.view,forPlayer:true}),
+    "region-continent",{sourceSceneId:f.scene.id,atlas:f.atlas,view:f.view,forPlayer:true}),
     "Northern Valecor","published native Territory alias overrides internal GM name");
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,
-    "region-city",{atlas:f.atlas,view:f.view,forPlayer:true}),"Dirwest");
+    "region-city",{sourceSceneId:f.scene.id,atlas:f.atlas,view:f.view,forPlayer:true}),"Dirwest");
+  assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,
+    "region-continent",{sourceSceneId:"different-scene",atlas:f.atlas,
+      view:f.view,forPlayer:true}),null,
+    "a Region ID collision in another Scene never publishes a name");
   assert.equal(f.writeCount(),0);
 });
 test("renamed, deleted, moved or hidden native Regions never produce stale player banner names",()=>{
   const f=fixture();
   f.city.name="New Dirwest";
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,"region-city",
-    {atlas:f.atlas,view:f.view,forPlayer:true}),"New Dirwest");
+    {sourceSceneId:f.scene.id,atlas:f.atlas,view:f.view,forPlayer:true}),"New Dirwest");
   f.city.hidden=true;
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,"region-city",
-    {atlas:f.atlas,view:f.view,forPlayer:true}),null);
+    {sourceSceneId:f.scene.id,atlas:f.atlas,view:f.view,forPlayer:true}),null);
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,"region-city",
-    {atlas:f.atlas,view:f.view,forPlayer:false}),"New Dirwest");
+    {sourceSceneId:f.scene.id,atlas:f.atlas,view:f.view,forPlayer:false}),"New Dirwest");
   f.city.hidden=false;
   f.setOffset({i:90,j:90});
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,
-    "region-city",{atlas:f.atlas,view:f.view,forPlayer:true}),null);
+    "region-city",{sourceSceneId:f.scene.id,atlas:f.atlas,view:f.view,forPlayer:true}),null);
   f.setOffset({i:12,j:22});
   f.entries.delete("region-city");
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,
-    "region-city",{atlas:f.atlas,view:f.view,forPlayer:false}),null);
+    "region-city",{sourceSceneId:f.scene.id,atlas:f.atlas,view:f.view,forPlayer:false}),null);
   assert.equal(f.writeCount(),0);
 });
 test("unsupported, unlinked, missing Scene-grid or invalid geographic association fails closed",()=>{
@@ -77,9 +81,9 @@ test("unsupported, unlinked, missing Scene-grid or invalid geographic associatio
   assert.equal(checkpointBannerTerritoryCandidates(f.scene,f.checkpoint,{
     atlas:f.atlas,view:{ready:false,scene:f.scene}}).length,0);
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,"invalid",
-    {atlas:f.atlas,view:f.view,forPlayer:true}),null);
+    {sourceSceneId:f.scene.id,atlas:f.atlas,view:f.view,forPlayer:true}),null);
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,"missing",
-    {atlas:f.atlas,view:f.view,forPlayer:true}),null);
+    {sourceSceneId:f.scene.id,atlas:f.atlas,view:f.view,forPlayer:true}),null);
   assert.equal(f.writeCount(),0);
 });
 test("explicit native Checkpoint association remains a candidate on unsupported grid geometry",()=>{
@@ -88,11 +92,11 @@ test("explicit native Checkpoint association remains a candidate on unsupported 
   port.shapes=[{type:"polygon",points:[1,2,3]}];
   f.entries.set("port",port);
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,"port",
-    {atlas:f.atlas,view:f.view,forPlayer:true}),"Port Barthos");
+    {sourceSceneId:f.scene.id,atlas:f.atlas,view:f.view,forPlayer:true}),"Port Barthos");
   port.getFlag=(_m,key)=>key==="territoryCheckpoint"?
     {schemaVersion:999,checkpointId:f.checkpoint.id}:
     flags("city")[key]??null;
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,"port",
-    {atlas:f.atlas,view:f.view,forPlayer:true}),null,
+    {sourceSceneId:f.scene.id,atlas:f.atlas,view:f.view,forPlayer:true}),null,
     "invalid native association never leaks the Region name");
 });
