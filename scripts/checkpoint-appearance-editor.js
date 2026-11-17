@@ -288,6 +288,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const bannerChoice=(title,input)=>{
       const row=el("label");
       row.append(input,el("span",title));bannerGroup.appendChild(row);
+      return row;
     };
     const showRoadRow=bannerChoice("Road name",showRoad);
     bannerChoice("Checkpoint type",showType);
