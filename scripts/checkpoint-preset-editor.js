@@ -26,7 +26,7 @@ const el=(tag,label)=>{const n=document.createElement(tag);if(label!==undefined)
 /** Full World template form. No Scene/Region/Journal write occurs here. */
 export class AtlasCheckpointPresetEditor extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS={id:"fvtt-atlas-checkpoint-preset-editor",
-    window:{title:"Atlas — Edit Checkpoint Preset",resizable:true},
+    window:{title:"Atlas — Edit Map Marker Preset",resizable:true},
     position:{width:720,height:740,left:24}};
 
   constructor({preset=null,onSaved}){
@@ -49,7 +49,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
   }
 
   async _renderHTML(){
-    if(!game.user?.isGM)throw Error("Only a GM can edit World checkpoint presets.");
+    if(!game.user?.isGM)throw Error("Only a GM can edit World Map Marker presets.");
     const preset=this.preset;
     const appearance=resolveCheckpointAppearance(preset?.appearance);
     const root=el("div");
@@ -77,7 +77,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     };
     const choose=(choices,value)=>createSettingsSelect(choices,{selectedId:value});
     const general=sections.get("General");
-    general.appendChild(el("p","Reusable defaults for checkpoints. Names, map coordinates and discovery history remain independent until the GM explicitly applies this preset."));
+    general.appendChild(el("p","Reusable defaults for Map Markers. Names, map coordinates and discovery history remain independent until the GM explicitly applies this preset."));
     const name=field(general,"Preset name",input(preset?.name??""));name.maxLength=120;name.required=true;
     const category=createSettingsGroupedSelect(CHECKPOINT_TYPE_GROUPS.map(
       ([heading,types])=>({label:heading,options:types})),
@@ -98,10 +98,10 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     const reveal=revealControl.number;
     const journal=field(general,"Default linked Journal / Page UUID",input(preset?.journalUuid??""));
     journal.placeholder="Optional; copied only when this preset is applied";
-    general.appendChild(el("small","Journal links follow Foundry's native permissions. Leave empty if each checkpoint should link to a different entry."));
+    general.appendChild(el("small","Journal links follow Foundry's native permissions. Leave empty if each Map Marker should link to a different entry."));
     const playerVisible=field(general,"Show to players by default",
       createCheckpointCheckbox(preset?.playerVisible===true));
-    general.appendChild(el("small","Visibility is still controlled by Atlas discovery and native Foundry permissions. A preset never reveals existing checkpoints retroactively."));
+    general.appendChild(el("small","Visibility is still controlled by Atlas discovery and native Foundry permissions. A preset never reveals existing Map Markers retroactively."));
 
     const marker=sections.get("Marker & labels");
     const markerType=field(marker,"Map Marker icon",createCheckpointChoice(CHECKPOINT_MARKER_TYPES,
@@ -121,7 +121,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     const bannerElevation=field(marker,"Include elevation in banner",
       createCheckpointCheckbox(banner.showElevation));
     marker.appendChild(el("small",
-      "Scene-specific Territory selection is configured on each placed Checkpoint. "+
+      "Scene-specific Territory selection is configured on each placed Map Marker. "+
       "A reusable World preset never stores native Region IDs."));
     const textColor=field(marker,"Label text color",createCheckpointColor(appearance.textColor));
     const imagePath=input(appearance.image);
@@ -150,22 +150,22 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     };
     markerType.addEventListener("change",updateMarker);updateMarker();
     const restore=el("button","Use recommended type icon & color");restore.type="button";
-    restore.title="Replace only the marker icon and its color with the default for this checkpoint type.";
+    restore.title="Replace only the marker icon and its color with the default for this Map Marker type.";
     restore.addEventListener("click",()=>{
       const recommended=checkpointPresetAppearance(category.value);
-      if(!recommended){ui.notifications.warn("No built-in icon for this custom checkpoint type.");return;}
+      if(!recommended){ui.notifications.warn("No built-in icon for this custom Map Marker type.");return;}
       markerType.value="fa";iconId=recommended.icon;iconPicker.value=iconId;
       color.value=recommended.color;updateMarker();
     });
     marker.appendChild(restore);
 
     const terrain=sections.get("Terrain Region");
-    terrain.appendChild(el("p","These are suggestions for the native checkpoint Region generator; creating or editing actual Region geometry and Behaviors still requires GM confirmation."));
+    terrain.appendChild(el("p","These are suggestions for the native Map Marker Region generator; creating or editing actual Region geometry and Behaviors still requires GM confirmation."));
     const terrainId=createTravelPresetSelect({selectedId:preset?.terrain?.presetId,
       noneLabel:"None — no terrain suggestion"});
     field(terrain,"Suggested travel preset",terrainId);
     const regionRadius=createCheckpointRegionWidth(preset?.terrain?.radiusCells??.25,
-      {label:"Suggested checkpoint Region radius in grid cells"});
+      {label:"Suggested Map Marker Region radius in grid cells"});
     field(terrain,"Suggested radius (cells)",regionRadius.element);
     const radius=regionRadius.input;
     const eventKind=field(terrain,"Event classification (future)",choose([
@@ -204,7 +204,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
           upsertCheckpointPreset(readWorldCheckpointPresets(),next));
         this._skipClosePrompt=true;
         await this.close();await this.onSaved?.();
-        ui.notifications.info("Checkpoint preset saved. Existing checkpoints remain unchanged.");
+        ui.notifications.info("Map Marker preset saved. Existing Map Markers remain unchanged.");
         return true;
       }catch(error){ui.notifications.error(error.message??String(error));return false;}
       finally{save.disabled=false;}
