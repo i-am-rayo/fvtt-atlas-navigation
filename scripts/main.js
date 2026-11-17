@@ -241,8 +241,11 @@ function openRoadDock(scene, refresh) {
     onFinish: () => roadCanvas.finish(),
     onCancel: () => roadCanvas.cancel(),
     onFocus: async () => {
+      const draft=roadCanvas.getDraft(scene);
+      if(draft?.mode==="checkpoint-relocate"&&draft.checkpointId)
+        return centerAtlasOn(scene,null,draft.checkpointId);
       const subject=roadCanvas.getEditingRoadFocus(scene);
-      if(!subject)throw Error("There is no road being edited to locate.");
+      if(!subject)throw Error("There is no Road being edited to locate.");
       if(subject.points && !subject.points.length)
         throw Error("Draw at least one road point before locating it.");
       await centerAtlasOn(scene,subject.roadId,null,{
