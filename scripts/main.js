@@ -1616,6 +1616,16 @@ function actions() {
     selectCheckpoint: async (scene, checkpointId) => {
       await centerAtlasOn(scene,null,checkpointId);
     },
+    moveMapMarker(scene,checkpointId,refresh) {
+      ensureIdle(scene);
+      const atlas=readAtlas(scene);
+      const marker=atlas.checkpoints?.find(item=>item.id===checkpointId);
+      if(!marker)throw Error("Map Marker no longer exists.");
+      const edge=atlas.segments.find(segment=>
+        segment.from===marker.nodeId||segment.to===marker.nodeId);
+      return edge?actions().beginPointEdit(scene,edge.roadId,refresh):
+        actions().moveCheckpoint(scene,checkpointId,refresh);
+    },
     async savePartyExploration(scene, settings, refresh) {
       ensureIdle(scene);
       await savePartyExplorationConfig(scene, settings);
@@ -1680,14 +1690,7 @@ function actions() {
         scene, checkpointId: checkpoint.id, expectedRevision: atlas.revision,
         onSaved: () => { roadCanvas.refresh(); refresh(); },
         onDelete:()=>actions().deleteCheckpointWithDependents(scene,checkpoint.id,refresh),
-        onMove:()=>{
-          const current=readAtlas(scene);
-          const cp=current.checkpoints.find(item=>item.id===checkpoint.id);
-          if(!cp)throw Error("Map Marker no longer exists.");
-          const road=current.segments.find(segment=>segment.from===cp.nodeId||segment.to===cp.nodeId);
-          return road?actions().beginPointEdit(scene,road.roadId,refresh):
-            actions().moveCheckpoint(scene,checkpoint.id,refresh);
-        },
+        onMove:()=>actions().moveMapMarker(scene,checkpoint.id,refresh),
         onRoad:()=>actions().manageCheckpointRoad(scene,checkpoint.id,refresh),
         onTerrainAction:async (action,regionId)=>{
           if(action==="clearPreview")return roadCanvas.clearRegionPreview();
