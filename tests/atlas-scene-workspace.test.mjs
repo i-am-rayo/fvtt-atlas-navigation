@@ -599,3 +599,28 @@ test("Workspace travel tabs switch without saving or clearing unsaved World draf
     await ws.close();
   }finally{ctx.restore();}
 });
+
+test("Directory shows grouped Create/Manage/View controls and inline item actions",async()=>{
+  const ctx=context();
+  try{
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    for(const className of ["atlas-directory-toolbar","atlas-directory-creation",
+      "atlas-directory-managers","atlas-directory-views"])
+      assert.ok(walk(ws.result,item=>item.className===className)[0],className+" is present");
+    assert.ok(!walk(ws.result,item=>item.tag==="summary"&&
+      item.textContent==="Manage map records").length,
+      "redundant management disclosure is removed");
+    const directory=walk(ws.result,item=>item.className==="atlas-map-directory")[0];
+    assert.ok(directory);
+    const regionRow=walk(directory,item=>item.tag==="details"&&
+      item.children[0]?.children?.some(child=>child.textContent?.includes?.("Millstone")))[0];
+    assert.ok(regionRow);
+    const summary=regionRow.children[0];
+    assert.equal(summary.tag,"summary");
+    assert.ok(summary.children.some(child=>child.className==="atlas-directory-actions"),
+      "actions remain beside the item label even when its details are collapsed");
+    assert.deepEqual(ctx.calls,[],"opening the Map Directory does not write Scene data");
+    await ws.close();
+  }finally{ctx.restore();}
+});
