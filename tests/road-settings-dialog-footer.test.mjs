@@ -24,7 +24,8 @@ test("Road Settings keeps Foundry's Save button in its native DialogV2 footer",(
   const dialog={element:{ownerDocument:{createElement:()=>cancel},querySelector:()=>bar},
     form:{querySelector:()=>footer}, close:()=>closed++};
   assert.equal(arrangeRoadDialogFooter(dialog),save);
-  assert.deepEqual(footer.nodes,[remove,edit,connection,cancel,save]);
+  assert.deepEqual(footer.nodes,[edit,connection,cancel,save,remove],
+    "Road utility actions lead, native Save stays in the form, Delete is last");
   assert.equal(bar.style.display,"none");
   assert.equal(cancel.type,"button");
   assert.equal(cancel.textContent,"Cancel");
@@ -43,7 +44,7 @@ test("Road Settings footer permits visible labels and separates Delete",()=>{
   assert.ok(manifest.styles.includes("styles/road-settings-dialog.css"));
   const css=readFileSync(new URL("../styles/road-settings-dialog.css",import.meta.url),"utf8");
   assert.match(css,/\.application:has\(\[data-atlas-road-live\]\) \.form-footer/);
-  assert.match(css,/margin-inline-end: auto/);
+  assert.match(css,/margin-inline-start: auto/);
   assert.match(css,/width: auto/);
   assert.match(css,/\[data-atlas-road-actions\]/);
   assert.doesNotMatch(css,/\.application \.form-footer\s*\{/,
