@@ -106,7 +106,7 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
         label.append(input,copy,sample);roads.appendChild(label);
       }
     }else{
-      group("Roads","The GM controls which Roads and Checkpoints are revealed. " +
+      group("Roads","The GM controls which Roads and Map Markers are revealed. " +
         "Their display remains unchanged by Territory settings.");
     }
     const regions=group("Regions",gm?
