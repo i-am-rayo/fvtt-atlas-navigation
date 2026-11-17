@@ -103,6 +103,7 @@
 /* Paired numeric entry: one authoritative numeric draft per bounded slider.
  * The number input is editable, not an output masquerading as a number. */
 .atlas-number-range {
+  --atlas-number-input-width: 5rem;
   display:flex;align-items:center;gap:.4rem;min-width:0;
   width:100%;flex-wrap:wrap;
 }
@@ -110,7 +111,8 @@
   flex:1 1 8rem;min-width:4rem;
 }
 .atlas-number-range > input[type="number"] {
-  box-sizing:border-box;flex:0 1 auto;min-width:3.4rem;
+  box-sizing:border-box;flex:0 0 var(--atlas-number-input-width);
+  width:var(--atlas-number-input-width);min-width:var(--atlas-number-input-width);
 }
 .atlas-number-range > input[aria-invalid="true"] {
   border-color:var(--color-level-error,#d56859);
