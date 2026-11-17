@@ -59,7 +59,7 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       (draft.mode==="new"?"auto":"visible")+";";
     const status = draft.mode === "points" ? "Edit points" :
       draft.mode === "new" ? "Draw road" :
-      draft.mode === "checkpoint" ? "Place checkpoint" : "Add connection";
+      draft.mode === "checkpoint" ? "Place Map Marker" : "Add connection";
     root.appendChild(element("strong", status));
     root.appendChild(element("small", draft.mode === "points"
       ? `${draft.points} points · ${draft.dirty ? "Unsaved" : "No changes"}`
@@ -72,7 +72,7 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     guidance.textContent = draft.mode === "junction"
       ? "Click the first road, then click a second road to connect them. Follow the highlighted points on the map. Cancel closes without saving."
       : draft.mode === "checkpoint"
-      ? "Click the road where you want the checkpoint. Then give it a name and set its appearance."
+      ? "Click the road where you want the Map Marker. Then name and customize it."
       : draft.mode === "points"
       ? "Drag points; double-click a road section to add a bend. Shift-click a free endpoint, then click the map to continue the same road. Esc stops continuing. Alt-click a bend to remove it. Ctrl/Cmd+Z undoes; Save Points commits."
       : "Click to draw each road point. Ctrl/Cmd+Z or Backspace undoes the last point; Ctrl/Cmd+Shift+Z redoes it. Finish saves; Cancel discards.";
