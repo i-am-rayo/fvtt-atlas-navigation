@@ -104,3 +104,14 @@ test("Road linked Map Markers/Regions keep count legends inside bordered section
   assert.match(css,/\[data-atlas-road-live\]\s*\{[^}]*overflow-y:auto/s);
   assert.match(css,/\.form-footer\s*\{[^}]*flex:0 0 auto/s);
 });
+
+test("Road Settings presentation uses one native form and a scroll-contained editor layout",()=>{
+  const source=readFileSync(new URL("../scripts/main.js",import.meta.url),"utf8");
+  const css=readFileSync(new URL("../styles/road-settings-dialog.css",import.meta.url),"utf8");
+  assert.match(source,/content\.className="atlas-road-settings-content"/);
+  assert.match(source,/scrollBody\.className="atlas-road-settings-scroll"/);
+  assert.match(source,/heading\.append\(headingTitle,explanation\)/);
+  assert.match(css,/\.atlas-road-settings-content\s*\{[^}]*flex-direction:column/s);
+  assert.match(css,/\.atlas-road-settings-scroll\s*\{[^}]*overflow-y:auto/s);
+  assert.match(css,/\.form-footer\s*\{[^}]*flex:0 0 auto/s);
+});
