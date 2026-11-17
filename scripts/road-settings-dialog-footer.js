@@ -21,6 +21,15 @@ export function arrangeRoadDialogFooter(dialog) {
   footer.insertBefore(cancel,save);
   // Destructive action comes last in both visual and keyboard DOM order.
   footer.appendChild(remove);
+  // Keep Foundry's original data-action="ok" submit control authoritative.
+  save.title="Save Road";
+  save.setAttribute("aria-label","Save Road");
+  save.replaceChildren();
+  const icon=dialog.element.ownerDocument.createElement("i");
+  icon.className="fa-solid fa-floppy-disk";
+  icon.setAttribute("aria-hidden","true");
+  save.appendChild(icon);
+  save.classList.add("atlas-ui-icon-button","atlas-ui-icon-button--footer");
   bar.style.display="none";
   return save;
 }
