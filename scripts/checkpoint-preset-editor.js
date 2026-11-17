@@ -175,16 +175,16 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
       save.disabled=true;
       try{
         const style=validateCheckpointAppearance({type:markerType.value,icon:iconId,
-          image:imagePath.value.trim(),size:Number(size.value),color:color.value,
+          image:imagePath.value.trim(),size:markerSize.getValue(),color:color.value,
           borderColor:border.value,labelMode:labelMode.value,
           showRoadName:roadName.checked,textColor:textColor.value});
         const next={id:preset?.id??("checkpoint-custom-"+foundry.utils.randomID()),
           name:name.value.trim(),category:category.value,appearance:style,
           elevationMeters:elevationControl.getMeters(),
           discoveryStatus:discovery.value,discoveryMethod:discoveryMethod.value,
-          revealRadiusCells:Number(reveal.value),journalUuid:journal.value.trim()||null,
+          revealRadiusCells:revealControl.getValue(),journalUuid:journal.value.trim()||null,
           playerVisible:playerVisible.checked,
-          terrain:{presetId:terrainId.value||null,radiusCells:Number(radius.value)},
+          terrain:{presetId:terrainId.value||null,radiusCells:regionRadius.getValue()},
           transportation:transportEditor.getOffers(),
           event:{kind:eventKind.value,enabled:false}};
         await game.settings.set(MODULE_ID,CHECKPOINT_PRESET_SETTING,
