@@ -138,7 +138,7 @@ export function createAtlasWorkspacePortabilityPanel(scene) {
   for(const [label,value] of [
     ["Atlas graph revision",String(snapshot.revision)],
     ["Schema version",String(snapshot.schemaVersion)],
-    ["Roads / Checkpoints",snapshot.roads+" / "+snapshot.checkpoints],
+    ["Roads / Map Markers",snapshot.roads+" / "+snapshot.checkpoints],
     ["Native Regions / Behaviors",snapshot.regions+" / "+snapshot.regionBehaviors]
   ]){
     const row=elem("div");row.className="atlas-workspace-stat";
