@@ -1816,6 +1816,26 @@ test("v0.2.24.2 player checkpoint hover reveals its name but never a hidden road
     const title = m.controller.labels.find(item => item.text === "Public Dock");
     assert.ok(title.resolution >= 2, "checkpoint name uses sharp text");
 
+    // An authorized GM's per-Checkpoint opt-in now projects only the two
+    // selected fields; the owning Road remains undisclosed until separately
+    // made visible, and player labels remain ordinary PIXI Text strings.
+    atlas = editCheckpointAppearance(atlas, {
+      checkpointId,appearance: {
+        ...atlas.checkpoints[0].appearance,
+        banner:{showType:true,showElevation:true,territoryRegionId:null}
+      }
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",atlas);
+    await m.scene.setFlag("fvtt-atlas-navigation","checkpointCategories",
+      {[checkpointId]:"port"});
+    m.controller.refresh();
+    assert.ok(m.controller.labels.some(item => item.text === "Type: Port"),
+      "shown Checkpoint may explicitly publish its selected category");
+    assert.ok(m.controller.labels.some(item => item.text.startsWith("Elevation: ")),
+      "shown Checkpoint may explicitly publish its elevation");
+    assert.ok(!m.controller.labels.some(item=>item.text==="Undiscovered Passage"),
+      "banner opt-in cannot independently publish a hidden Road");
+
     atlas = setRoadPlayerVisibility(atlas, { roadId, visible: true });
     await m.scene.setFlag("fvtt-atlas-navigation", "atlas", atlas);
     m.controller.refresh();
