@@ -341,7 +341,7 @@ test("isolated Checkpoint in Workspace offers explicit Road connection action", 
     await tab.listeners.get("click")({ preventDefault() {} });
     assert.match(text(workspace.result), /Free Village/);
     const connect = buttons(workspace.result).find(item =>
-      item.title === "Connect this isolated Checkpoint to a Road endpoint");
+      item.title === "Connect this isolated Map Marker to a Road endpoint");
     assert.ok(connect);
     await connect.listeners.get("click")({ preventDefault() {} });
     assert.deepEqual(ctx.calls, [["connect", "cp"]]);
