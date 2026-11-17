@@ -316,7 +316,7 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
             await openAtlasJournal(linkedJournal.uuid);
           });
         open.className="atlas-territory-journal-action";
-        open.setAttribute("aria-label",`Open ${linkedJournal.checkpointName} linked Checkpoint Journal`);
+        open.setAttribute("aria-label",`Open ${linkedJournal.checkpointName} linked Map Marker Journal`);
         journalSlot.appendChild(open);
       }).catch(()=>{/* Never display an unverified Journal link. */});
     }
@@ -334,11 +334,11 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
     const parent=geographyById.get(region.id)?.geography?.parentRegionId;
     const entry=geographyById.get(region.id);
     const boundaryStale=!!nativeRegion&&territoryBoundaryNeedsAdoption(nativeRegion);
-    if(invalidCheckpointLink)status.push("Unsupported Checkpoint association");
+    if(invalidCheckpointLink)status.push("Unsupported Map Marker association");
     else if(checkpointLink){
       const checkpoint=checkpointById.get(checkpointLink.checkpointId);
       status.push(checkpoint?`Checkpoint: ${checkpoint.name}`:
-        "Linked Checkpoint missing — choose another");
+        "Linked Map Marker missing — choose another");
     }
     if(boundaryStale)status.push("Native boundary changed — adopt before Atlas editing");
     if(parent&&geographyById.has(parent))status.push("Parent: "+
@@ -570,7 +570,7 @@ export function createAtlasExplorationPanel(scene,actions,refresh) {
     max:Math.max(100,expected.radius),step:0.01,label:"Party discovery radius"});
   appendSettingsField(panel,"Party discovery radius ("+(scene.grid?.units||"Scene units")+")",
     radius.element,{variant:"split"});
-  panel.appendChild(node("p","Automatic checkpoints inside this distance become known as the party moves. Use GM-only discovery for places that must stay hidden.","hint"));
+  panel.appendChild(node("p","Automatic Map Markers inside this distance become known as the party moves. Use GM-only discovery for places that must stay hidden.","hint"));
   const save=button("Save discovery radius","Save party discovery radius",async()=>{
     save.disabled=true;
     try {
@@ -905,7 +905,7 @@ function atlasPanel(scene, atlas, actions, refresh,
       parent.appendChild(row);
     };
     const checkpoints = (atlas.checkpoints ?? []).filter(item => item.roadId === road.id);
-    const checkpointFolder = folder("Checkpoints (" + checkpoints.length + ")",
+    const checkpointFolder = folder("Map Markers (" + checkpoints.length + ")",
       ()=>actions.beginCheckpoint(scene,refresh),"Add Map Marker");
     for (const checkpoint of checkpoints) {
       const child=node("details");
@@ -1011,7 +1011,7 @@ function atlasPanel(scene, atlas, actions, refresh,
 
   const advanced = node("details");
   advanced.style.marginTop = ".7rem";
-  const advancedSummary = node("summary", "More tools · Checkpoints & Terrain");
+  const advancedSummary = node("summary", "More tools · Map Markers & Terrain");
   advancedSummary.style.cssText = "cursor:pointer;font-weight:600;padding:.6rem;";
   advanced.appendChild(advancedSummary);
 
@@ -1092,8 +1092,8 @@ function atlasPanel(scene, atlas, actions, refresh,
         () => actions.editCheckpoint(scene, checkpoint, refresh)));
       if (!party.enabled) controls.appendChild(button(
         checkpoint.playerVisible === true ? "👁" : "◌",
-        checkpoint.playerVisible === true ? "Hide checkpoint from players" :
-          "Show checkpoint to players (visual only)",
+        checkpoint.playerVisible === true ? "Hide Map Marker from players" :
+          "Show Map Marker to players (visual only)",
         () => actions.toggleCheckpointPlayerVisibility(scene, checkpoint, refresh)));
       const checkpointJournal = journalUuidFor(journalLinks,"checkpoint",checkpoint.id);
       if(checkpointJournal) {
@@ -1173,8 +1173,8 @@ function atlasPanel(scene, atlas, actions, refresh,
   generatedSection.appendChild(node("legend", generatorOnly
     ? "Generation settings" : surfacesOnly ? "Create a native Region" : label("FVTTATLAS.Generated.Title") + " · Native Regions"));
   if (generatorOnly) generatedSection.appendChild(node("p",
-    "Create one native Foundry Region centered on a checkpoint or following the path between two checkpoints.", "hint"));
-  else if (surfacesOnly) generatedSection.appendChild(node("p","Choose a road and checkpoints to preview a Region.","hint"));
+    "Create one native Foundry Region centered on a Map Marker or following the path between two Map Markers.", "hint"));
+  else if (surfacesOnly) generatedSection.appendChild(node("p","Choose a Road and Map Markers to preview a Region.","hint"));
   else generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.Hint"), "hint"));
   if (!generatorOnly && !surfacesOnly) generatedSection.appendChild(node("p",
     "REGION SETTINGS — Preset colors and movement costs affect native Foundry Regions only " +
@@ -1225,8 +1225,8 @@ function atlasPanel(scene, atlas, actions, refresh,
       generatedSection,label(title),control,{variant:"native-div"});
     const checkpoints = atlas.checkpoints.filter(c => c.roadId === selected.roadId);
     addField("Region shape", makeSelect([
-      ["checkpoint", "Area around one checkpoint"],
-      ["corridor", "Path between two checkpoints"]
+      ["checkpoint", "Area around one Map Marker"],
+      ["corridor", "Path between two Map Markers"]
     ], selected.kind, value => {
       selected.kind = value;
       selected.applyNativeCost = false;
@@ -1235,25 +1235,25 @@ function atlasPanel(scene, atlas, actions, refresh,
     const first = checkpoints.some(c => c.id === selected.first)
       ? selected.first : checkpoints[0].id;
     selected.first = first;
-    addField(selected.kind === "corridor" ? "From checkpoint" : "Center checkpoint", makeSelect(
+    addField(selected.kind === "corridor" ? "From Map Marker" : "Center Map Marker", makeSelect(
       checkpoints.map(c => [c.id, c.name]), first,
       value => { selected.first = value; }));
     if (selected.kind === "corridor") {
       const other = checkpoints.filter(c => c.id !== first);
       if (!other.some(c => c.id === selected.last)) selected.last = other[0]?.id ?? null;
-      if (other.length) addField("To checkpoint", makeSelect(
+      if (other.length) addField("To Map Marker", makeSelect(
         other.map(c => [c.id, c.name]), selected.last,
         value => { selected.last = value; }));
     }
     const widthControl=createCheckpointRegionWidth(selected.widthCells??.5,{
       label:selected.kind==="corridor"
         ? "Distance on either side of the road in grid cells"
-        : "Radius around checkpoint in grid cells",
+        : "Radius around Map Marker in grid cells",
       onChange:value=>{selected.widthCells=value;},
       onInvalid:()=>{selected.widthCells=NaN;}
     });
     addField(selected.kind === "corridor"
-      ? "Distance on either side of road (cells)" : "Radius around checkpoint (cells)", widthControl.element);
+      ? "Distance on either side of road (cells)" : "Radius around Map Marker (cells)", widthControl.element);
     // Shared with the Preview button state below; keep it outside the
     // corridor-only block so opting in cannot crash the Atlas render.
     const presetForCost = presetById.get(selected.presetId);
