@@ -519,3 +519,37 @@
 .atlas-map-directory details > summary .atlas-ui-icon-button {
   width:2rem;min-width:2rem;height:2rem;min-height:2rem;flex:0 0 2rem;
 }
+
+/* Native summary remains the disclosure authority. Chevron is decoration only. */
+.atlas-map-directory details > summary {
+  display:flex;align-items:center;gap:.45rem;min-width:0;flex-wrap:wrap;
+}
+.atlas-map-directory .atlas-directory-chevron {
+  flex:0 0 auto;font-size:.72rem;transition:transform .12s ease;
+}
+.atlas-map-directory details[open] > summary > .atlas-directory-chevron {transform:rotate(90deg);}
+.atlas-map-directory details > summary > span:not(.atlas-directory-actions) {
+  flex:1 1 10rem;min-width:0;font-weight:600;overflow-wrap:anywhere;
+}
+.atlas-map-directory .atlas-directory-secondary,
+.atlas-map-directory .atlas-directory-counts {
+  flex:0 1 auto;font-weight:400;font-size:.8rem;
+  opacity:.8;white-space:normal;
+}
+.atlas-map-directory .atlas-directory-actions {margin-inline-start:auto;align-self:center;}
+.atlas-map-directory summary:focus-visible {outline:2px solid var(--color-border-highlight,#dcb476);}
+.atlas-directory-filters {display:flex;align-items:end;gap:.5rem;flex-wrap:wrap;}
+.atlas-directory-filters > label:not(.atlas-directory-search) {flex:0 1 12rem;min-width:9rem;}
+.atlas-directory-filters .atlas-directory-search {
+  display:flex;align-items:center;flex:1 1 14rem;min-width:10rem;
+  max-width:22rem;margin-inline-start:auto;position:relative;
+}
+.atlas-directory-filters .atlas-directory-search > input {
+  width:100%;min-width:0;padding-inline-end:2rem;
+}
+.atlas-directory-filters .atlas-directory-search > i {
+  position:absolute;right:.55rem;pointer-events:none;font-size:.8rem;opacity:.8;
+}
+@media(max-width:650px){
+  .atlas-directory-filters .atlas-directory-search {flex-basis:100%;max-width:none;}
+}
