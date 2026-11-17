@@ -14,7 +14,8 @@ import { createCheckpointChoice,createCheckpointNumber,createCheckpointRange,
   createCheckpointCheckbox,createCheckpointElevation }
   from "./checkpoint-form-controls.js";
 import { appendSettingsField } from "./settings-layout.js";
-import { resolveCheckpointAppearance,validateCheckpointAppearance }
+import { resolveCheckpointAppearance,validateCheckpointAppearance,
+  withCheckpointBanner,resolveCheckpointBanner }
   from "./checkpoint-appearance.js";
 import { CHECKPOINT_MARKER_TYPES,CHECKPOINT_LABEL_MODES,
   CHECKPOINT_DISCOVERY_STATES,CHECKPOINT_DISCOVERY_METHODS }
@@ -112,7 +113,16 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     const border=field(marker,"Checkpoint border color",createCheckpointColor(appearance.borderColor));
     const labelMode=field(marker,"Checkpoint label",createCheckpointChoice(CHECKPOINT_LABEL_MODES,
       appearance.labelMode));
-    const roadName=field(marker,"Include road name",createCheckpointCheckbox(appearance.showRoadName));
+    const roadName=field(marker,"Include Road name in banner",
+      createCheckpointCheckbox(appearance.showRoadName));
+    const banner=resolveCheckpointBanner(appearance);
+    const bannerType=field(marker,"Include type in banner",
+      createCheckpointCheckbox(banner.showType));
+    const bannerElevation=field(marker,"Include elevation in banner",
+      createCheckpointCheckbox(banner.showElevation));
+    marker.appendChild(el("small",
+      "Scene-specific Territory selection is configured on each placed Checkpoint. "+
+      "A reusable World preset never stores native Region IDs."));
     const textColor=field(marker,"Label text color",createCheckpointColor(appearance.textColor));
     const imagePath=input(appearance.image);
     imagePath.placeholder="worlds/…/checkpoint.webp";
@@ -174,10 +184,13 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
       if(save.disabled)return false;
       save.disabled=true;
       try{
-        const style=validateCheckpointAppearance({type:markerType.value,icon:iconId,
+        const style=withCheckpointBanner({
+          type:markerType.value,icon:iconId,
           image:imagePath.value.trim(),size:markerSize.getValue(),color:color.value,
           borderColor:border.value,labelMode:labelMode.value,
-          showRoadName:roadName.checked,textColor:textColor.value});
+          showRoadName:roadName.checked,textColor:textColor.value},{
+          showType:bannerType.checked,showElevation:bannerElevation.checked,
+          territoryRegionId:null});
         const next={id:preset?.id??("checkpoint-custom-"+foundry.utils.randomID()),
           name:name.value.trim(),category:category.value,appearance:style,
           elevationMeters:elevationControl.getMeters(),
