@@ -145,7 +145,7 @@ test("Road Customization pairs numeric width/percent and previews without persis
     width.value="8";
     opacity.value="35";
     form.listeners.get("input")();
-    assert.equal(stroke.style.strokeWidth,"8");
+    assert.equal(stroke.style.strokeWidth,"8px");
     assert.equal(stroke.style.opacity,"0.35");
     const values=Object.fromEntries(fields.map(item=>[item.name,
       item.type==="checkbox"?item.checked:item.value]));
