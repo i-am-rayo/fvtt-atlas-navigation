@@ -18,6 +18,12 @@ class Element {
   append(...children) { this.children.push(...children); }
   get lastElementChild() { return this.children.at(-1); }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
+  querySelector(selector) {
+    if(selector!=="svg")return null;
+    const search=node=>node.tag==="svg"?node:
+      node.children.map(search).find(Boolean)??null;
+    return search(this);
+  }
   querySelectorAll(selector) {
     if (selector !== "[name]") return [];
     const found = [];
@@ -142,6 +148,19 @@ test("Road Customization pairs numeric width/percent and previews without persis
     assert.equal(opacity.value,"90");
     const preview=groups[2];
     const stroke=preview.children[1].children[1];
+    const name=preview.children[1].children[2];
+    assert.equal(name.tag,"text","preview Road name is on the Road SVG, not below it");
+    assert.equal(name.textContent,"Road name");
+    const borderPair=groups[0].children.find(child=>child.className==="atlas-road-inline-colors");
+    assert.equal(borderPair.children.length,2);
+    const border=fields.find(field=>field.name==="atlasRoadBorderEnabled");
+    const swatch=fields.find(field=>field.name==="atlasRoadBorderColor");
+    border.checked=false;swatch.value="#aaccff";form.listeners.get("change")();
+    assert.equal(swatch.value,"#aaccff","Off does not clear the chosen border color");
+    assert.equal(preview.children[1].children[0].style.opacity,"0");
+    border.checked=true;form.listeners.get("change")();
+    assert.equal(preview.children[1].children[0].style.stroke,"#aaccff",
+      "On reuses the stored border swatch without changing it");
     width.value="8";
     opacity.value="35";
     form.listeners.get("input")();
