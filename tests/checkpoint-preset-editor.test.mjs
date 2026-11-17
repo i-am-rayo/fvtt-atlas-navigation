@@ -31,6 +31,21 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     const editor=new AtlasCheckpointPresetEditor({preset:defaultCheckpointPresets().presets[0]});
     assert.equal(editor.options.position.left,24,"preset editor opens from the left edge");
     const root=await editor._renderHTML();
+    assert.equal(root.className,"atlas-marker-preset-editor");
+    assert.equal(root.children.length,2,"body and footer share one stable parent");
+    const [body,footer]=root.children;
+    assert.equal(body.className,"atlas-marker-preset-body");
+    assert.equal(footer.className,"atlas-marker-preset-footer");
+    assert.ok(footer.children.some(item=>item.title==="Save preset"),
+      "Save stays outside the scrolling tab content");
+    const tabs=body.children[0];
+    const titleField=all(body).find(item=>item.tag==="input"&&item.maxLength===120);
+    assert.ok(titleField);
+    titleField.value="Unsaved map marker preset";
+    tabs.children[1].listeners.get("click")();
+    tabs.children[0].listeners.get("click")();
+    assert.equal(titleField.value,"Unsaved map marker preset",
+      "switching tab never discards an unsaved World preset draft");
     const labels=all(root).map(item=>item.textContent);
     for(const label of ["General","Marker & labels","Terrain Region",
       "Default elevation (m)","Default discovery status","Default linked Journal / Page UUID",
