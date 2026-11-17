@@ -41,7 +41,7 @@ test("Road ApplicationV2 keeps a named native form and returns staged values onl
           assert.equal(form.tag,"form");
           this.object={atlasRoadName:"Edited Road",atlasRoadVisible:"on"};
         }
-      }}};
+      }}}};
     const content=new Element("div");
     const resultPromise=openRoadSettingsWindow({
       id:"road-a",title:"Atlas — Old Road — Road Settings",position:{width:560,height:700},content,
