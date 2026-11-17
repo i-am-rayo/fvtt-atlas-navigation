@@ -408,10 +408,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       checkpointName.style.cssText="font-size:"+nameScreenSize+
         "px;line-height:1.25;font-weight:700;";
       const categoryLabel=CHECKPOINT_TYPES.find(([id])=>id===category.value)?.[1]??null;
-      const selected=bannerTerritory.value??"";
-      const fromOtherScene=selected.startsWith("imported:");
+      const selectedTerritory=bannerTerritory.value??"";
+      const fromOtherScene=selectedTerritory.startsWith("imported:");
       const selectedRegionId=fromOtherScene?existingBanner.territoryRegionId:
-        selected||null;
+        selectedTerritory||null;
       const selectionSceneId=fromOtherScene?existingBanner.territorySceneId:
         selectedRegionId?this.scene.id:null;
       const previewStyle=withCheckpointBanner({...appearance,showRoadName:showRoad.checked},
