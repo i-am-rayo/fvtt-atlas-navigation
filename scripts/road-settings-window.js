@@ -22,6 +22,20 @@ export function openRoadSettingsWindow({id,title,position,content,onRender}){
       return this.element?.querySelector?.("form[data-atlas-road-form]")??null;
     }
 
+    setCloseGuard(guard){
+      if(typeof guard!=="function")throw Error("Invalid Road Settings close guard.");
+      this.closeGuard=guard;
+    }
+
+    async close(options){
+      if(this.closePending)return this;
+      this.closePending=true;
+      try{
+        if(this.closeGuard&&!await this.closeGuard())return this;
+        return await super.close(options);
+      }finally{this.closePending=false;}
+    }
+
     async _renderHTML(){
       const form=document.createElement("form");
       form.dataset.atlasRoadForm="";
