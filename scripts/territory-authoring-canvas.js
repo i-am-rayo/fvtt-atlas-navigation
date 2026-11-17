@@ -4,6 +4,7 @@ import {paintGridCells,MAX_TERRITORY_NODES} from "./territory-authoring-model.js
 import {smoothClosedBoundary} from "./region-boundary-model.js";
 import {acquireAtlasCanvasEditorFocus} from "./atlas-canvas-editor-focus.js";
 import {acquireAtlasTerritoryEditorFog} from "./atlas-territory-editor-fog.js";
+import {createSettingsNumberRange} from "./settings-number-range.js";
 
 const el=(tag,label)=>{const result=document.createElement(tag);
   if(label!==undefined)result.textContent=label;return result;};
@@ -248,12 +249,11 @@ export class TerritoryAuthoringCanvas{
     if(draft.kind==="grid"){
       const radiusLabel=el("label"," Brush radius ");
       const radiusValue=el("output","1 cell");
-      const slider=el("input");slider.type="range";
-      slider.min="0";slider.max="4";slider.step="1";slider.value="0";
-      slider.setAttribute("aria-label","Territory paint brush radius in grid rings");
+      let radiusPair;
       const setRadius=value=>{
+        // Wheel/keyboard brush shortcuts retain bounded legacy behavior.
         session.radius=Math.max(0,Math.min(4,Math.round(Number(value)||0)));
-        slider.value=String(session.radius);
+        radiusPair?.setValue(session.radius);
         radiusValue.textContent=session.radius===0?"1 cell":
           `${session.radius} ring${session.radius===1?"":"s"}`;
         if(session.hoverAnchor)session.hoverOffsets=brushOffsets(session.hoverAnchor)
@@ -261,9 +261,12 @@ export class TerritoryAuthoringCanvas{
             (!session.seamCellKeys||session.seamCellKeys.has(`${o.i},${o.j}`)));
         this.#scheduleDraw(session);
       };
+      radiusPair=createSettingsNumberRange(0,{min:0,max:4,step:1,
+        label:"Territory paint brush radius in grid rings",width:"3.5rem",
+        onInput:setRadius});
       session.setRadius=setRadius;
-      slider.addEventListener("input",()=>setRadius(slider.value));
-      radiusLabel.appendChild(slider);radiusLabel.appendChild(radiusValue);
+      radiusLabel.appendChild(radiusPair.element);
+      radiusLabel.appendChild(radiusValue);
       panel.appendChild(radiusLabel);
       if(!batchContext&&seamGuide?.available&&seamGuide.peers?.length){
         const picker=el("label"," Shared boundary ");
