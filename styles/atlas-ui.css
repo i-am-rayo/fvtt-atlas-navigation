@@ -64,6 +64,19 @@
 .atlas-checkpoint-preview[data-label-mode="hover"]:focus-within span + span {opacity:1;}
 
 
+/* Checkpoint Customization groups existing draft controls without replacing them. */
+.atlas-checkpoint-customization-section {
+  display:grid;
+  gap:.55rem;
+  min-width:0;
+  margin:0 0 .7rem;
+  padding:.6rem .75rem;
+  border:1px solid var(--color-border-light-tertiary,#666);
+  border-radius:.4rem;
+}
+.atlas-checkpoint-customization-section > legend { font-weight:700; padding:0 .3rem; }
+.atlas-checkpoint-customization-section > div { min-width:0; }
+
 /* Checkpoint controls preserve the existing staged form and native popover. */
 .atlas-checkpoint-form-actions .atlas-checkpoint-footer-visibility {
   display:inline-flex;align-items:center;gap:.35rem;
