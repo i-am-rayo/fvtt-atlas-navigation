@@ -35,7 +35,7 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     for(const label of ["General","Marker & labels","Terrain Region",
       "Default elevation (m)","Default discovery status","Default linked Journal / Page UUID",
       "Map Marker icon","Marker size (12–64 px)","Map Marker border color",
-      "Checkpoint label","Suggested travel preset","Air Travel"])
+      "Map Marker banner","Suggested travel preset","Air Travel"])
       assert.ok(labels.includes(label),label);
     assert.ok(all(root).some(item=>item.title==="Save preset"),"shared save icon");
     assert.ok(all(root).some(item=>item.title==="Add Air Travel method"),
