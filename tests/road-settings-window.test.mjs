@@ -44,7 +44,7 @@ test("Road ApplicationV2 keeps a named native form and returns staged values onl
       }}};
     const content=new Element("div");
     const resultPromise=openRoadSettingsWindow({
-      title:"Atlas — Old Road — Road Settings",position:{width:560,height:700},content,
+      id:"road-a",title:"Atlas — Old Road — Road Settings",position:{width:560,height:700},content,
       onRender:(_event,window)=>{app=window;}
     });
     await new Promise(resolve=>setImmediate(resolve));
