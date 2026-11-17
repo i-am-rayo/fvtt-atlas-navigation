@@ -18,7 +18,7 @@ export class AtlasAnnouncementPreviewSettings extends foundry.applications.api.A
     const heading=document.createElement("h2");
     heading.textContent="Preview Atlas announcements";
     const note=document.createElement("p");
-    note.textContent="Preview-only: these buttons do not discover roads or checkpoints, " +
+    note.textContent="Preview-only: these buttons do not discover Roads or Map Markers, " +
       "start or change a Journey, advance World time, or notify other clients.";
     root.append(heading,note);
     if(!globalThis.game?.user?.isGM){
@@ -57,7 +57,7 @@ export function registerAtlasAnnouncementPreviewMenu(){
   game.settings.registerMenu(MODULE_ID,"atlasAnnouncementPreviewMenu",{
     name:"Atlas — Announcement Banner Samples",
     label:"Preview Journey & Discovery Banners",
-    hint:"Preview the future Journey, rest, checkpoint and road announcements on this GM client only. No gameplay or player effects.",
+    hint:"Preview the future Journey, rest, Map Marker and Road announcements on this GM client only. No gameplay or player effects.",
     icon:"fa-solid fa-scroll",type:AtlasAnnouncementPreviewSettings,restricted:true
   });
 }
