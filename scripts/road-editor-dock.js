@@ -1,4 +1,5 @@
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
+import { createSettingsIconButton } from "./settings-controls.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
   ROAD_APPEARANCE_MODES } from "./road-appearance.js";
 
@@ -55,8 +56,7 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     const draft = this.controller.getDraft(this.scene);
     if (!draft) throw new Error("The road-editing session ended.");
     const root = element("div");
-    root.style.cssText = "padding:0.6rem;display:flex;flex-direction:column;gap:0.35rem;overflow-y:"+
-      (draft.mode==="new"?"auto":"visible")+";";
+    root.className="atlas-road-editor-dock";
     const status = draft.mode === "points" ? "Edit points" :
       draft.mode === "new" ? "Draw road" :
       draft.mode === "checkpoint" ? "Place Map Marker" : "Add connection";
@@ -69,14 +69,35 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
 
     const guidance = element("p");
     guidance.style.cssText="font-size:.9em;line-height:1.35;opacity:.8;margin:.1rem 0 .5rem;";
-    guidance.textContent = draft.mode === "junction"
-      ? "Click the first road, then click a second road to connect them. Follow the highlighted points on the map. Cancel closes without saving."
-      : draft.mode === "checkpoint"
-      ? "Click the road where you want the Map Marker. Then name and customize it."
-      : draft.mode === "points"
-      ? "Drag points; double-click a road section to add a bend. Shift-click a free endpoint, then click the map to continue the same road. Esc stops continuing. Alt-click a bend to remove it. Ctrl/Cmd+Z undoes; Save Points commits."
-      : "Click to draw each road point. Ctrl/Cmd+Z or Backspace undoes the last point; Ctrl/Cmd+Shift+Z redoes it. Finish saves; Cancel discards.";
+    guidance.textContent = draft.mode==="junction"
+      ? "Choose two roads to connect. Review the proposed junction before saving."
+      : draft.mode==="checkpoint"
+      ? "Choose a map location for a Map Marker. Road attachment requires confirmation."
+      : draft.mode==="points"
+      ? "Drag Road points to change their shape. Changes stay in this draft until Save Points."
+      : "Click the map to draw the Road. Finish Road saves; Cancel discards.";
     root.appendChild(guidance);
+    const gestures=draft.mode==="points"?
+      ["Drag — move a bend or junction",
+        "Double-click a road — add a bend",
+        "Shift-click a free Road end — continue from that end",
+        "Alt-click a bend — remove that bend",
+        "Ctrl/Cmd+Z — Undo; Ctrl/Cmd+Shift+Z — Redo",
+        "Escape — stop continuation or cancel editing"]:
+      draft.mode==="new"?
+        ["Click map — add a Road point","Enter — finish Road",
+          "Ctrl/Cmd+Z / Backspace — Undo","Ctrl/Cmd+Shift+Z — Redo",
+          "Escape — cancel without saving"]:
+        draft.mode==="checkpoint"?
+          ["Click a Road — request a linked Map Marker",
+           "Click elsewhere — request an independent Map Marker",
+           "Escape — cancel placement"]:
+        ["Click the first Road, then a second Road to connect",
+         "Review the connection before approving", "Escape — cancel"];
+    const gestureList=element("ul");
+    gestureList.className="atlas-road-editor-gestures";
+    for(const label of gestures)gestureList.appendChild(element("li",label));
+    root.appendChild(gestureList);
     const row = (title, input) => {
       const wrapper = element("label");
       wrapper.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:0.5rem;";
@@ -96,8 +117,8 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
 
     const buttons = element("div");
     buttons.style.cssText = "display:flex;gap:0.35rem;justify-content:flex-end;flex-wrap:wrap;";
-    const makeButton = (title, callback) => {
-      const button = element("button", title);
+    const makeButton = (title, callback, icon=null) => {
+      const button=icon?createSettingsIconButton({icon,label:title}):element("button",title);
       button.type = "button";
       button.addEventListener("click", () => void callback());
       buttons.appendChild(button);
@@ -111,8 +132,8 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       const locate=makeButton("Locate Road",async()=>{
         try { await this.onFocus(); }
         catch(error){ui.notifications.error(error.message||String(error));}
-      });
-      locate.title="Zoom to and highlight the road currently being edited.";
+      },"location-dot");
+      locate.title="Zoom to and highlight the Road currently being edited.";
       if(draft.mode==="new"&&!draft.points){
         locate.disabled=true;
         locate.title="Draw the first road point before locating it.";
@@ -130,18 +151,22 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
         }
       } catch (error) { ui.notifications.error(error.message || String(error)); }
       finally { this.busy = false; save.disabled = false; }
-    }) : null;
-    if ((draft.mode === "points" && draft.canUndo) ||
-        (draft.mode === "new" && draft.points > 0)) {
-      makeButton("Undo", () => { this.controller.undo(); void this.render(true); });
-    }
+    },"floppy-disk") : null;
+    if(draft.canUndo || (draft.mode==="new"&&draft.points>0))
+      makeButton("Undo",()=>{this.controller.undo();void this.render(true);},"rotate-left");
+    if(draft.canRedo)
+      makeButton("Redo",()=>{this.controller.redo();void this.render(true);},"rotate-right");
     makeButton("Cancel", async () => {
       if (this.busy) return;
       this.onCancel();
       this.finished = true;
       await this.close();
     });
-    root.appendChild(buttons);
+    const body=element("div");
+    body.className="atlas-road-editor-body";
+    body.append(...root.children);
+    buttons.className="atlas-road-editor-footer";
+    root.replaceChildren(body,buttons);
     return root;
   }
 
