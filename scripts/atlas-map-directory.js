@@ -50,6 +50,29 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     place.children.forEach(indexPlace);
   }
   directory.tree.forEach(indexPlace);
+  if(saved.place&&!places.has(saved.place))saved.place="";
+  function territoryChoices(){
+    const roots=new Map();
+    const walk=(place,ancestors=[],continent=null)=>{
+      const top=place.kind==="continent"?place:continent;
+      const heading=top?.name??"Other / unclassified";
+      const options=roots.get(heading)??[];
+      options.push([place.id,[...ancestors,place.name].join(" › ")]);
+      roots.set(heading,options);
+      for(const child of place.children)walk(child,[...ancestors,place.name],top);
+    };
+    directory.tree.forEach(place=>walk(place));
+    const groups=[{label:null,options:[["","All"]]}];
+    for(const [label,options] of roots){
+      const counts=new Map();
+      for(const [,name] of options)counts.set(name,(counts.get(name)??0)+1);
+      groups.push({label,options:options.map(([id,name])=>
+        [id,counts.get(name)>1?name+" · "+id.slice(0,8):name])
+        .sort((a,b)=>a[1].localeCompare(b[1],undefined,{sensitivity:"base"})||
+          a[0].localeCompare(b[0]))});
+    }
+    return groups;
+  }
   function input(label, control, key, event) {
     const field = element("label");
     field.appendChild(element("span",label));
@@ -79,7 +102,9 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       ...CHECKPOINT_TYPE_GROUPS.map(([label,options])=>({label,options}))
     ],{selectedId:saved.type,ariaLabel:"Map Marker type"});
     input("Map Marker type",type,"type","change");
-    select("Territory","place",places);
+    const territory=createSettingsGroupedSelect(territoryChoices(),{
+      selectedId:saved.place,ariaLabel:"Territory"});
+    input("Territory",territory,"place","change");
   }
   select("Sort by name","sort",[["az","A–Z"],["za","Z–A"]]);
   const search=element("input");
