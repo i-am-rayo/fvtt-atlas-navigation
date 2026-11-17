@@ -40,3 +40,17 @@
 .application:has([data-atlas-road-live]) .atlas-road-linked-heading .atlas-ui-icon-button {
   flex:0 0 2rem;width:2rem;min-width:2rem;height:2rem;min-height:2rem;
 }
+
+.atlas-road-customization-section {
+  display:grid;gap:.55rem;min-width:0;
+  padding:.6rem .75rem;border:1px solid var(--color-border-light-tertiary,#666);
+  border-radius:.45rem;
+}
+.atlas-road-customization-section > legend {padding:0 .3rem;font-weight:700;}
+.atlas-road-customization-section .atlas-number-range {max-width:20rem;}
+.atlas-road-map-preview {min-height:8rem;}
+.atlas-road-map-preview > svg {background:var(--color-cool-5-90,#20242b88);border-radius:.35rem;}
+.atlas-road-map-preview .atlas-road-preview-name {display:block;font-weight:600;text-align:center;}
+.atlas-road-map-preview .atlas-road-preview-name[hidden] {display:none;}
+.atlas-road-customization-section[data-atlas-road-preview-mode="hover"] .atlas-road-preview-name {opacity:0;}
+.atlas-road-customization-section[data-atlas-road-preview-mode="hover"]:hover .atlas-road-preview-name {opacity:1;}
