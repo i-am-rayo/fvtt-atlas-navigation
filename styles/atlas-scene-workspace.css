@@ -492,3 +492,31 @@
   box-shadow:inset 0 -3px var(--color-border-highlight,#a38744);
 }
 .atlas-travel-settings-panel[hidden] {display:none;}
+
+/* Directory creation and management are distinct from the active view filter. */
+.atlas-directory-toolbar {display:flex;gap:.75rem;flex-wrap:wrap;align-items:stretch;margin:.55rem 0;}
+.atlas-directory-creation,.atlas-directory-managers,.atlas-directory-views {
+  display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;min-width:0;
+  border:1px solid var(--color-border-light-tertiary,#6666);border-radius:.4rem;
+  padding:.4rem .6rem;
+}
+.atlas-directory-toolbar > * {flex:1 1 16rem;}
+.atlas-directory-views {margin:.4rem 0 .8rem;}
+.atlas-directory-views > button[aria-pressed="true"] {
+  font-weight:700;
+  border-color:var(--color-border-highlight,#a38744);
+  box-shadow:inset 0 -3px var(--color-border-highlight,#a38744);
+}
+.atlas-map-directory details > summary {
+  display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;min-width:0;
+}
+.atlas-map-directory details > summary > span:first-child {
+  flex:1 1 9rem;min-width:0;overflow-wrap:anywhere;
+}
+.atlas-map-directory details > summary > .atlas-directory-actions {
+  display:inline-flex;flex:0 0 auto;align-items:center;justify-content:flex-end;
+  gap:.25rem;margin:0 0 0 auto;
+}
+.atlas-map-directory details > summary .atlas-ui-icon-button {
+  width:2rem;min-width:2rem;height:2rem;min-height:2rem;flex:0 0 2rem;
+}
