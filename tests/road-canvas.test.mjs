@@ -1826,8 +1826,11 @@ test("v0.2.24.2 player checkpoint hover reveals its name but never a hidden road
       }
     });
     await m.scene.setFlag("fvtt-atlas-navigation","atlas",atlas);
-    await m.scene.setFlag("fvtt-atlas-navigation","checkpointCategories",
-      {[checkpointId]:"port"});
+    // The generic mock Scene stores only its Atlas flag; provide a separate
+    // native category getter without overwriting the saved Atlas graph.
+    const priorGetFlag=m.scene.getFlag.bind(m.scene);
+    m.scene.getFlag=(scope,key)=>key==="checkpointCategories"?
+      {[checkpointId]:"port"}:priorGetFlag(scope,key);
     m.controller.refresh();
     assert.ok(m.controller.labels.some(item => item.text === "Type: Port"),
       "shown Checkpoint may explicitly publish its selected category");
