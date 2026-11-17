@@ -12,7 +12,7 @@ import {readPendingTerritoryCellTransfer} from "./territory-grid-transfer.js";
 import {atlasSettingsTitle} from "./atlas-settings-title.js";
 import {inspectCheckpointTerritoryMembership} from "./territory-checkpoint-membership.js";
 
-const pages=["General","Checkpoint & Journal","Map & Visibility","Boundary & Native"];
+const pages=["General","Map Marker & Journal","Map & Visibility","Boundary & Native"];
 const el=(tag,text,className)=>{
   const item=document.createElement(tag);
   if(text!==undefined)item.textContent=text;
@@ -50,13 +50,13 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
   _watchMembership(){
     if(this._membershipHooks.length||!globalThis.Hooks?.on)return;
     const changed=doc=>{
-      if(this.activePage!=="Checkpoint & Journal"||!this.rendered||
+      if(this.activePage!=="Map Marker & Journal"||!this.rendered||
           (doc?.id!==this.scene.id&&doc?.parent?.id!==this.scene.id)||
           this._membershipQueued)return;
       this._membershipQueued=true;
       queueMicrotask(()=>{
         this._membershipQueued=false;
-        if(this.rendered&&this.activePage==="Checkpoint & Journal"&&
+        if(this.rendered&&this.activePage==="Map Marker & Journal"&&
             globalThis.canvas?.scene?.id===this.scene.id)
           void Promise.resolve(this.render(true)).catch(error=>
             console.warn("Atlas membership refresh failed",error));
@@ -180,7 +180,7 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
         ()=>this.actions.configureGeography(this.scene,this.externalRefresh,this.regionId),
         {disabled:!!draft||!canEdit||!!geo?.invalid});
       action(general,summary?.linked?"Remove Atlas link":"Link to Atlas",
-        "Keep the native Region and its Shapes. Existing Checkpoint associations are protected.",
+        "Keep the native Region and its Shapes. Existing Map Marker associations are protected.",
         ()=>this.actions.setNativeRegionLink(this.scene,this.regionId,!summary?.linked,this.externalRefresh),
         {disabled:!!draft||!!summary?.invalidLink,danger:!!summary?.linked});
       if(this.onLocate)action(general,"Locate on map",
@@ -191,11 +191,11 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
           await this.onLocate(this.regionId);
         },{refresh:false});
     }
-    if(this.activePage==="Checkpoint & Journal"){
+    if(this.activePage==="Map Marker & Journal"){
       const membership=inspectCheckpointTerritoryMembership(this.scene);
-      const spatial=group("Checkpoint geographic membership — read-only",
-        "Derived from each saved Checkpoint node's native Scene grid cell, not from names. " +
-        "A semantic Checkpoint link remains separate and takes no automatic action.");
+      const spatial=group("Map Marker geographic membership — read-only",
+        "Derived from each saved Map Marker node's native Scene grid cell, not from names. " +
+        "A semantic Map Marker link remains separate and takes no automatic action.");
       if(!membership.available)spatial.appendChild(el("p",membership.reason,"hint"));
       else{
         const rows=membership.items.filter(item=>item.regionId===this.regionId);
@@ -203,7 +203,7 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
           spatial.appendChild(el("p",`Review: ${issue.description}`,"hint"));
         if(membership.unsupported)spatial.appendChild(el("p",
           `${membership.unsupported} linked Territories use unsupported/mixed native Shapes; no membership is inferred for those.`,"hint"));
-        if(!rows.length)spatial.appendChild(el("p","No Checkpoint occupies these native grid cells.","hint"));
+        if(!rows.length)spatial.appendChild(el("p","No Map Marker occupies these native grid cells.","hint"));
         for(const item of rows.slice(0,100)){
           const flags=[item.contains?"Inside native cells":"Outside native cells",
             item.explicit?"Explicitly linked":"Spatial only",
@@ -215,7 +215,7 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
           row.appendChild(el("p",`${item.checkpointName} — ${flags.join(" · ")}`,"hint"));
           if(typeof this.actions.selectCheckpoint==="function"){
             const locate=el("button","Locate");locate.type="button";
-            locate.setAttribute("aria-label",`Locate Checkpoint ${item.checkpointName}`);
+            locate.setAttribute("aria-label",`Locate Map Marker ${item.checkpointName}`);
             locate.addEventListener("click",async()=>{
               try{await this.minimize?.();await this.actions.selectCheckpoint(this.scene,item.checkpointId);}
               catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
@@ -231,23 +231,23 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
             ()=>this.actions.configureTerritoryCheckpoint(this.scene,this.regionId,this.externalRefresh),
             {disabled:!!draft||!!pending||!canEdit||checkpointInvalid});
       }
-      const linked=group("Linked Checkpoint",
-        checkpointInvalid?"Unsupported Checkpoint association — resolve the existing flag before editing.":
+      const linked=group("Linked Map Marker",
+        checkpointInvalid?"Unsupported Map Marker association — resolve the existing flag before editing.":
           checkpoint?`Linked to ${checkpoint.name}.`:
-            "No Atlas Checkpoint linked. The picker displays compatible kinds and their availability.");
-      action(linked,"Link or unlink Checkpoint",
-        "Review a compatible Checkpoint and confirm changes to the Territory association.",
+            "No Atlas Map Marker linked. The picker displays compatible kinds and their availability.");
+      action(linked,"Link or unlink Map Marker",
+        "Review a compatible Map Marker and confirm changes to the Territory association.",
         ()=>this.actions.configureTerritoryCheckpoint(this.scene,this.regionId,this.externalRefresh),
         {disabled:!!draft||!!pending||!canEdit||checkpointInvalid});
-      const journals=group("Checkpoint Journal",
+      const journals=group("Map Marker Journal",
         checkpoint?journal?`Journal attached to ${checkpoint.name}.`:
           `${checkpoint.name} has no linked Journal.`:
-          "Link an Atlas Checkpoint above to use its Journal here. No second Journal copy is created.");
+          "Link an Atlas Map Marker above to use its Journal here. No second Journal copy is created.");
       if(journal)action(journals,"Open linked Journal",
-        "Open the existing Checkpoint Journal or Journal page with Foundry permissions.",
+        "Open the existing Map Marker Journal or Journal page with Foundry permissions.",
         ()=>openAtlasJournal(journal));
-      action(journals,"Edit Checkpoint & Journal",
-        "Open Checkpoint Settings to change its Journal connection and appearance.",
+      action(journals,"Edit Map Marker & Journal",
+        "Open Map Marker Settings to change its Journal connection and appearance.",
         ()=>this.actions.editCheckpointAppearance(this.scene,checkpoint,this.externalRefresh),
         {disabled:!checkpoint||typeof this.actions.editCheckpointAppearance!=="function"});
     }
