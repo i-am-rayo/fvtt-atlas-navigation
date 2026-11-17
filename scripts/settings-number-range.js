@@ -24,7 +24,7 @@ export function parseBoundedRangeDraft(raw,{min,max,step="any"}={}){
 /** Both directions update in memory. Host actions choose whether change is
  * committed immediately, on Apply, or at a GM-confirmed Save boundary. */
 export function createSettingsNumberRange(initial,{min,max,step=1,
-  numberStep=step,label="Numeric setting",width="5rem",
+  numberStep=step,label="Numeric setting",
   onInput=null,onInvalid=null,unit=null}={}){
   const wrap=document.createElement("div");
   wrap.className="atlas-number-range";
@@ -36,7 +36,6 @@ export function createSettingsNumberRange(initial,{min,max,step=1,
   number.type="number";number.min=String(min);number.max=String(max);
   number.step=String(numberStep);number.value=String(initial);
   number.defaultValue=number.value;
-  number.style.width=width;
   number.setAttribute?.("aria-label",label+" number");
   const getValue=()=>parseBoundedRangeDraft(number.value,{
     min,max,step:numberStep});
