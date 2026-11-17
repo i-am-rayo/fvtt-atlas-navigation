@@ -384,7 +384,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       color.value=a.color;borderColor.value=a.borderColor;
       mode.value=a.labelMode;showRoad.checked=a.showRoadName;textColor.value=a.textColor;
       discoveryMethod&&(discoveryMethod.value=preset.discoveryMethod);
-      if(revealRadius)revealRadius.value=String(preset.revealRadiusCells);
+      revealControl?.setValue(preset.revealRadiusCells);
       if(preset.elevationMeters!==null){
         elevation.value=String(Math.round(preset.elevationMeters*elevationFactor*100)/100);
         elevationRange.value=elevation.value;
