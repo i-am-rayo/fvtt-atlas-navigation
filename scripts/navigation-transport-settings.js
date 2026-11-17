@@ -332,8 +332,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const travelers=currentTravelers();
     body.setAttribute("data-atlas-travelers",String(travelers.count));
     body.appendChild(heading(existing?"Edit "+value.name:"New "+names[surface]+" transportation",
-      scope==="checkpoint"?"Change local checkpoint settings; unchanged values continue to inherit World presets. Nothing is charged.":
-      scope==="journey"?(onSaveCheckpoint?"Save explicitly for this trip or to this checkpoint. World and Actor data will not change.":"Save this journey estimate only. World, checkpoint and Actor data will not change."):
+      scope==="checkpoint"?"Change local Map Marker settings; unchanged values continue to inherit World presets. Nothing is charged.":
+      scope==="journey"?(onSaveCheckpoint?"Save explicitly for this trip or to this Map Marker. World and Actor data will not change.":"Save this journey estimate only. World, Map Marker and Actor data will not change."):
       "Edit reference values for your World. Nothing is charged automatically."));
     const nav=element("nav");nav.setAttribute("role","tablist");
     nav.setAttribute("aria-label","Transportation preset editor sections");
@@ -551,7 +551,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
     panels.cost.append(error);
     if(scope!=="world"&&onReset){
       const reset=element("button",scope==="checkpoint"?
-        "Clear checkpoint overrides (inherit World)":"Reset journey overrides");
+        "Clear Map Marker overrides (inherit World)":"Reset journey overrides");
       reset.type="button";reset.setAttribute("data-atlas-scope-reset","");
       reset.style.cssText="justify-self:start;";
       body.append(reset);
@@ -562,10 +562,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
       window:{title:existing?"Edit "+preset.name:"Add "+names[surface]+" transportation"},
       position:{width:Math.max(360,Math.min(860,(globalThis.window?.innerWidth??980)-60)),
         height:Math.max(400,Math.min(680,(globalThis.window?.innerHeight??850)-110))},
-      content:shell,ok:{label:scope==="checkpoint"?"Apply checkpoint overrides":
+      content:shell,ok:{label:scope==="checkpoint"?"Apply Map Marker overrides":
         scope==="journey"?"Save for this trip":"Save preset"},
       buttons:scope==="journey"&&onSaveCheckpoint?[{
-        action:"checkpoint",label:"Save to "+(checkpointName??"checkpoint"),
+        action:"checkpoint",label:"Save to "+(checkpointName??"Map Marker"),
         callback:(_event,button)=>({
           ...new foundry.applications.ux.FormDataExtended(button.form).object,
           __atlasSaveScope:"checkpoint"
