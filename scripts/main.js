@@ -767,10 +767,43 @@ function actions() {
       }
       const presetSelect=createTravelPresetSelect({selectedId:actual.travelPresetId,
         name:"atlasRoadPresetId",noneLabel:"None (Land fallback)"});
-      const presetRow=createSettingsFieldRow("Travel preset",presetSelect);
+      const presetControls=document.createElement("div");
+      presetControls.className="atlas-road-preset-controls";
+      const presetName=document.createElement("span");
+      const changePreset=createSettingsIconButton({icon:"pen",label:"Change travel preset"});
+      const updatePresetName=()=>{
+        presetName.textContent=readWorldTravelPresets().presets.find(
+          p=>p.id===presetSelect.value)?.name??"None (Land fallback)";
+      };
+      updatePresetName();
+      presetSelect.hidden=true;
+      changePreset.addEventListener("click",()=>{
+        presetSelect.hidden=false;changePreset.hidden=true;presetSelect.focus();
+      });
+      presetSelect.addEventListener("change",updatePresetName);
+      presetControls.append(presetName,presetSelect,changePreset);
+      const presetRow=createSettingsFieldRow("Travel preset",presetControls);
       const roadTools=document.createElement("div");
       roadTools.dataset.atlasRoadActions="";
       roadTools.style.cssText="position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:.4rem;align-items:center;padding:.5rem 0;background:#100f17;z-index:2;";
+      const locateRoad=createSettingsIconButton({icon:"location-dot",label:"Locate "+actual.name});
+      locateRoad.dataset.atlasRoadTool="locate";
+      const visibleIcon=createSettingsIconButton({icon:visibility.checked?"eye":"eye-slash",
+        label:(visibility.checked?"Hide ":"Show ")+actual.name+" from players"});
+      visibleIcon.dataset.atlasRoadVisibility="";
+      const syncVisible=()=>{
+        const shown=visibility.checked;
+        visibleIcon.title=(shown?"Hide ":"Show ")+actual.name+" from players";
+        visibleIcon.setAttribute("aria-label",visibleIcon.title);
+        visibleIcon.querySelector("i").className="fa-solid fa-"+(shown?"eye":"eye-slash");
+      };
+      visibleIcon.addEventListener("click",()=>{
+        visibility.checked=!visibility.checked;
+        visibility.defaultChecked=visibility.checked;
+        syncVisible();
+      });
+      visibilityRow.hidden=true;
+      roadTools.append(locateRoad,visibleIcon);
       for (const [title,kind,icon] of [["Edit road","edit","pen-to-square"],
         ["Add connection","connection","link"],
         ["Delete road","delete","trash"]]) {
@@ -961,7 +994,8 @@ function actions() {
           event.preventDefault();event.stopImmediatePropagation();
           const tool=action.dataset.atlasRoadTool;
           const api=actions();
-          const call=tool==="edit" ? ()=>api.beginPointEdit(scene,road.id,refresh)
+          const call=tool==="locate" ? ()=>api.select(scene,road.id)
+            :tool==="edit" ? ()=>api.beginPointEdit(scene,road.id,refresh)
             :tool==="connection" ? ()=>api.beginJunction(scene,refresh)
             :tool==="newCheckpoint" ? ()=>api.beginCheckpoint(scene,refresh)
             :tool==="delete" ? ()=>api.remove(scene,road,refresh)
