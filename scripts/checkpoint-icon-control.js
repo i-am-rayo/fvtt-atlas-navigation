@@ -27,6 +27,13 @@ export function createCheckpointIconGlyph(id){
   return CHECKPOINT_ICONS.includes(id)?iconImage(id):fontGlyph(id);
 }
 
+const triggerGlyph=id=>{
+  const glyph=createCheckpointIconGlyph(id);
+  glyph.style.width=".95rem";glyph.style.height=".95rem";
+  glyph.style.fontSize=".85rem";
+  return glyph;
+};
+
 /** Return a control and a stable value getter; no World/Scene writes or save listeners. */
 export function createCheckpointIconPicker({selectedId="location-dot",onChange=()=>{},compact=false}={}){
   let selected=selectedId;
@@ -38,8 +45,9 @@ export function createCheckpointIconPicker({selectedId="location-dot",onChange=(
     legend.type="button";legend.className="atlas-ui-icon-button atlas-ui-icon-button--compact";
     legend.title="Choose checkpoint icon";legend.setAttribute("aria-label",legend.title);
     legend.setAttribute("aria-expanded","false");
-    legend.appendChild(createCheckpointIconGlyph(selected));
-    section.style.cssText="display:inline-flex;";
+    legend.className+=" atlas-checkpoint-icon-trigger";
+    legend.appendChild(triggerGlyph(selected));
+    section.style.cssText="display:inline-flex;align-items:center;min-width:0;padding:0;border:0;";
   }
   legend.style.cursor="pointer";
   section.appendChild(legend);
@@ -103,7 +111,7 @@ export function createCheckpointIconPicker({selectedId="location-dot",onChange=(
     quick,result,grid,more);
   const choices=new Map();
   const refreshSelection=()=>{
-    if(compact)legend.replaceChildren(createCheckpointIconGlyph(selected));
+    if(compact)legend.replaceChildren(triggerGlyph(selected));
     const info=details.get(selected);
     const glyph=createCheckpointIconGlyph(selected);
     glyph.style.fontSize="46px";
