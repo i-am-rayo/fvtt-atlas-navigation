@@ -12,7 +12,7 @@ test("legacy checkpoint appearance remains readable, no implicit banner or migra
   assert.deepEqual(validateCheckpointAppearance(original),original);
   assert.equal(Object.hasOwn(original,"banner"),false);
   assert.deepEqual(resolveCheckpointBanner(original),{
-    showType:false,showElevation:false,territoryRegionId:null});
+    showType:false,showElevation:false,territoryRegionId:null,territorySceneId:null});
   assert.deepEqual(withCheckpointBanner(original,{
     showType:false,showElevation:false,territoryRegionId:null}),original,
     "default Checkpoint banner leaves legacy schema exact");
@@ -24,17 +24,26 @@ test("legacy checkpoint appearance remains readable, no implicit banner or migra
 test("explicit banner options validate booleans, Region IDs and reject unsafe metadata",()=>{
   const base=DEFAULT_CHECKPOINT_APPEARANCE;
   const appearance=withCheckpointBanner(base,{
-    showType:true,showElevation:true,territoryRegionId:"continent-123"});
+    showType:true,showElevation:true,territoryRegionId:"continent-123",territorySceneId:"scene-1"});
   assert.deepEqual(appearance.banner,{
-    showType:true,showElevation:true,territoryRegionId:"continent-123"});
+    showType:true,showElevation:true,territoryRegionId:"continent-123",territorySceneId:"scene-1"});
   assert.deepEqual(validateCheckpointAppearance(appearance),appearance);
   for(const bad of [
-    {showType:"yes",showElevation:false,territoryRegionId:null},
-    {showType:true,showElevation:0,territoryRegionId:null},
-    {showType:false,showElevation:false,territoryRegionId:"../../../secret"},
-    {showType:false,showElevation:false,territoryRegionId:"a".repeat(130)},
-    {showType:false,showElevation:false,territoryRegionId:null,secret:"name"},
-    {showType:true,showElevation:true}
+    {showType:"yes",showElevation:false,territoryRegionId:null,territorySceneId:null},
+    {showType:true,showElevation:0,territoryRegionId:null,territorySceneId:null},
+    {showType:false,showElevation:false,territoryRegionId:"../../../secret",
+      territorySceneId:"scene-1"},
+    {showType:false,showElevation:false,territoryRegionId:"a".repeat(130),
+      territorySceneId:"scene-1"},
+    {showType:false,showElevation:false,territoryRegionId:null,
+      territorySceneId:null,secret:"name"},
+    {showType:true,showElevation:true},
+    {showType:true,showElevation:true,territoryRegionId:"valecor",
+      territorySceneId:null},
+    {showType:true,showElevation:true,territoryRegionId:null,
+      territorySceneId:"scene-1"},
+    {showType:true,showElevation:true,territoryRegionId:"valecor",
+      territorySceneId:"invalid/scene"}
   ])assert.throws(()=>validateCheckpointBanner(bad),/Invalid/);
   assert.throws(()=>validateCheckpointAppearance({...base,
     banner:{...appearance.banner,regionName:"GM secret"}}),/Invalid/);
@@ -42,7 +51,7 @@ test("explicit banner options validate booleans, Region IDs and reject unsafe me
 test("shared banner composition retains name hierarchy and only provided filtered details",()=>{
   const appearance=withCheckpointBanner({...DEFAULT_CHECKPOINT_APPEARANCE,
     showRoadName:true},{showType:true,showElevation:true,
-      territoryRegionId:"valecor"});
+      territoryRegionId:"valecor",territorySceneId:"scene-1"});
   assert.deepEqual(checkpointBannerLines({appearance,
     checkpointType:"City",elevationMeters:100,
     elevationUnits:"metric",roadName:"Road to Dirwest",
@@ -62,7 +71,7 @@ test("shared banner composition retains name hierarchy and only provided filtere
 test("player overlay projects opt-in elevation only for shown or discovered checkpoint",()=>{
   const banner=withCheckpointBanner({...DEFAULT_CHECKPOINT_APPEARANCE,
     showRoadName:true},{showType:true,showElevation:true,
-      territoryRegionId:"valecor"});
+      territoryRegionId:"valecor",territorySceneId:"scene-1"});
   const bare={...DEFAULT_CHECKPOINT_APPEARANCE};
   const atlas={schemaVersion:10,roads:[{id:"hiddenRoad",name:"Secret Pass",playerVisible:false}],
     segments:[{id:"segment",roadId:"hiddenRoad",from:"a",to:"b",via:[],
