@@ -808,7 +808,8 @@ function atlasPanel(scene, atlas, actions, refresh,
       "Choose a connection on the map." : "Editing connection points.", "hint"));
     if (draft.mode === "points") {
       editing.appendChild(button("Save", "Save connection points", () => actions.finish()));
-      if (draft.canUndo) editing.appendChild(button("Undo", "Undo last change", () => actions.undo()));
+      if(draft.canUndo)editing.appendChild(button("Undo","Undo last change",()=>actions.undo()));
+      if(draft.canRedo)editing.appendChild(button("Redo","Redo last undone change",()=>actions.redo()));
     }
     editing.appendChild(button("Cancel", "Stop editing connection", () => actions.cancel()));
     section.appendChild(editing);
