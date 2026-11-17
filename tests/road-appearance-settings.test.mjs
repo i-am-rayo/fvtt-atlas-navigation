@@ -176,3 +176,29 @@ test("Road Customization pairs numeric width/percent and previews without persis
     assert.throws(()=>roadAppearanceFromForm(values),/between/);
   }finally{globalThis.document=previous;}
 });
+
+test("Road Settings preview opens with native read-only SVG className",()=>{
+  const previous=globalThis.document;
+  try{
+    globalThis.document={
+      createElement:tag=>new Element(tag),
+      createElementNS:(namespace,tag)=>{
+        assert.equal(namespace,"http://www.w3.org/2000/svg");
+        const node=new Element(tag);
+        // In browsers SVGElement.className is a read-only SVGAnimatedString,
+        // unlike HTMLElement.className. Assigning to it throws in modules.
+        Object.defineProperty(node,"className",{get:()=>({baseVal:node.svgClass??""})});
+        node.setAttribute=(key,value)=>{if(key==="class")node.svgClass=value;};
+        return node;
+      }
+    };
+    const form=roadAppearanceForm(DEFAULT_ROAD_APPEARANCE);
+    const svg=form.querySelector("svg");
+    const text=svg.children[2];
+    assert.equal(text.tag,"text");
+    assert.equal(text.className.baseVal,"atlas-road-preview-name");
+    assert.equal(text.style.fill,DEFAULT_ROAD_APPEARANCE.textColor);
+    assert.throws(()=>{text.className="incorrect";},TypeError,
+      "regression mock must reject the formerly crashing assignment");
+  }finally{globalThis.document=previous;}
+});
