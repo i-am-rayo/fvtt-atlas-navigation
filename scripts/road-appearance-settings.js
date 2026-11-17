@@ -53,26 +53,30 @@ export function roadAppearanceForm(appearance) {
     field.style.maxWidth=(name==="atlasRoadWidth"||name==="atlasRoadOpacity")?"20rem":"13rem";
     if(type==="color")field.style.cssText="width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
     if(!controls.has(name))controls.set(name,field);
-    row.appendChild(field);section.appendChild(row);
+    row.appendChild(field);(options.container??section).appendChild(row);
     return row;
   };
   input("Road color","atlasRoadColor","color",current.color);
-  const borderToggle=input("Road border","atlasRoadBorderEnabled","checkbox",current.borderEnabled);
-  const borderOn=controls.get("atlasRoadBorderEnabled");
-  const borderRow=input("Road border color","atlasRoadBorderColor","color",current.borderColor);
+  const borderPair=element("div");
+  borderPair.className="atlas-road-inline-colors";
+  section.appendChild(borderPair);
+  input("Road border","atlasRoadBorderEnabled","checkbox",current.borderEnabled,
+    {container:borderPair});
+  const borderRow=input("Border color","atlasRoadBorderColor","color",current.borderColor,
+    {container:borderPair});
   borderRow.dataset.atlasRoadBorderColor="";
-  borderRow.style.display=current.borderEnabled?"flex":"none";
-  borderOn.addEventListener("change",()=>{
-    borderRow.style.display=borderOn.checked?"flex":"none";
-  });
   input("Line width","atlasRoadWidth","number",current.width);
   input("Opacity","atlasRoadOpacity","number",current.opacity);
   input("Line pattern","atlasRoadPattern","select",current.pattern,
     {choices:ROAD_LINE_PATTERNS});
   section=group("Road name styling");
+  const namePair=element("div");
+  namePair.className="atlas-road-inline-colors";
+  section.appendChild(namePair);
   input("Road name labels","atlasRoadLabels","select",current.labelVisibility,
-    {choices:ROAD_LABEL_VISIBILITY});
-  input("Road name text color","atlasRoadTextColor","color",current.textColor);
+    {choices:ROAD_LABEL_VISIBILITY,container:namePair});
+  input("Text color","atlasRoadTextColor","color",current.textColor,
+    {container:namePair});
 
   section=group("Map preview");
   const svg=typeof document.createElementNS==="function"?
@@ -88,10 +92,18 @@ export function roadAppearanceForm(appearance) {
     item.setAttribute?.("fill","none");
     item.setAttribute?.("stroke-linecap","round");
   }
-  svg.append(outline,line);
-  const label=element("span","Road name");
+  const label=typeof document.createElementNS==="function"?
+    document.createElementNS("http://www.w3.org/2000/svg","text"):element("text");
+  label.textContent="Road name";
   label.className="atlas-road-preview-name";
-  section.append(svg,label);
+  label.setAttribute?.("x","150");
+  label.setAttribute?.("y","37");
+  label.setAttribute?.("text-anchor","middle");
+  label.setAttribute?.("dominant-baseline","middle");
+  label.setAttribute?.("aria-hidden","true");
+  // Canvas places the label 18 screen pixels above the Road path at zoom 1.
+  svg.append(outline,line,label);
+  section.appendChild(svg);
   section.className+=" atlas-road-map-preview";
   const update=()=>{
     const value=name=>controls.get(name)?.value;
@@ -108,7 +120,7 @@ export function roadAppearanceForm(appearance) {
     outline.style.stroke=value("atlasRoadBorderColor");
     outline.style.strokeWidth=(width+3)+"px";
     outline.style.opacity=controls.get("atlasRoadBorderEnabled").checked?String(opacity):"0";
-    label.style.color=value("atlasRoadTextColor");
+    label.style.fill=value("atlasRoadTextColor");
     root.dataset.atlasRoadPreviewMode=value("atlasRoadLabels");
     label.hidden=value("atlasRoadLabels")==="off";
   };
