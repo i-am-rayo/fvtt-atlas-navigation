@@ -390,6 +390,14 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       node.value === "Ridge Lookout");
     const elevation = all(root).find(node => node.tag === "input" && node.type === "number");
     const footer = all(root).find(node=>node.className==="atlas-checkpoint-form-actions");
+    assert.equal(root.className,"atlas-checkpoint-settings-root");
+    assert.equal(root.children.at(-1),footer,
+      "footer remains a direct sibling outside every scrollable tab body");
+    assert.ok(root.style.cssText.includes("overflow:hidden"));
+    assert.equal(all(root).filter(node=>node.className?.includes?.(
+      "atlas-checkpoint-settings-page")).length,4);
+    assert.ok(all(root).filter(node=>node.className?.includes?.(
+      "atlas-checkpoint-settings-page")).every(node=>node.style.overflowY==="auto"));
     const footerVisibility=footer.children.find(node=>
       node.className==="atlas-checkpoint-footer-visibility");
     const playerVisible=footerVisibility?.children.find(node=>
