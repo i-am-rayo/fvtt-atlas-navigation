@@ -788,10 +788,10 @@ function atlasPanel(scene, atlas, actions, refresh,
     controls.appendChild(button(label(draft.mode === "points" ?
       "FVTTATLAS.Roads.SavePoints" : "FVTTATLAS.Roads.Finish"),
       label("FVTTATLAS.Roads.Finish"), () => actions.finish()));
-    if (draft.mode === "points" && draft.canUndo) {
-      controls.appendChild(button(label("FVTTATLAS.Roads.Undo"),
-        label("FVTTATLAS.Roads.Undo"), () => actions.undo()));
-    }
+    if (draft.canUndo)controls.appendChild(button("Undo",
+      "Undo last Road edit",()=>actions.undo()));
+    if(draft.canRedo)controls.appendChild(button("Redo",
+      "Redo last undone Road edit",()=>actions.redo()));
     const cancelKey = draft.mode === "points"
       ? "FVTTATLAS.Roads.CancelEdits" : "FVTTATLAS.Roads.Cancel";
     controls.appendChild(button(label(cancelKey), label(cancelKey), () => actions.cancel()));
