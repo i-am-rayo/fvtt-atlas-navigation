@@ -3000,9 +3000,20 @@ Hooks.once("init", () => {
             catch(error) { ui.notifications.error(error.message); }
           }
         },
+        atlasAddMapMarker:{
+          name:"atlasAddMapMarker",title:"Add Atlas Map Marker",
+          icon:"fa-solid fa-location-dot",order:1,button:true,visible:true,
+          onChange:()=>{
+            const scene=canvas?.scene;
+            if(!scene)return ui.notifications.warn("Open a Scene first.");
+            try{
+              roadActions.beginCheckpoint(scene,()=>refreshAtlasWorkspaceFromAuthoring(scene));
+            }catch(error){ui.notifications.error(error.message??String(error));}
+          }
+        },
         atlasSceneWorkspace: {
           name: "atlasSceneWorkspace", title: "Atlas Scene Workspace (GM)",
-          icon: "fa-solid fa-gear", order: 5, button: true, visible: true,
+          icon: "fa-solid fa-gear", order: 6, button: true, visible: true,
           onChange: () => {
             const scene = canvas?.scene;
             if (!scene) return ui.notifications.warn("Open a Scene first.");
@@ -3012,18 +3023,18 @@ Hooks.once("init", () => {
         },
         atlasBrushPalette:{
           name:"atlasBrushPalette",title:"Open Atlas Exploration Brushes",
-          icon:"fa-solid fa-paintbrush",order:1,button:true,visible:true,
+          icon:"fa-solid fa-paintbrush",order:2,button:true,visible:true,
           onChange:()=>fogPalette.toggle()
         },
         atlasLayers:{
           name:"atlasLayers",title:"Atlas Layers",
-          icon:"fa-solid fa-layer-group",order:4,button:true,visible:true,
+          icon:"fa-solid fa-layer-group",order:5,button:true,visible:true,
           onChange:()=>void atlasLayers.open().catch(error=>
             ui.notifications.error(error.message??String(error)))
         },
         atlasNavigation:{
           name:"atlasNavigation",title:"Atlas Navigation — choose Point A and Point B",
-          icon:"fa-solid fa-compass",order:3,button:true,visible:true,
+          icon:"fa-solid fa-compass",order:4,button:true,visible:true,
           onChange:()=>{
             try {
               if(navigation.active) navigation.tearDown();
@@ -3040,7 +3051,7 @@ Hooks.once("init", () => {
         },
         atlasGMFogPreview:{
           name:"atlasGMFogPreview",title:"Toggle GM Fog Preview",
-          icon:"fa-solid fa-eye",order:2,button:true,visible:true,
+          icon:"fa-solid fa-eye",order:3,button:true,visible:true,
           onChange:()=>{
             manualFog.setPreview(!manualFog.preview);
             if(fogPalette.open)fogPalette.draw();
