@@ -43,7 +43,7 @@ test("nested City and Continent remain distinct explicit banner options",()=>{
   const options=checkpointBannerTerritoryCandidates(f.scene,f.checkpoint,{
     atlas:f.atlas,view:f.view});
   assert.deepEqual(options.map(o=>[o.name,o.label]),[
-    ["Valecor","Continent"],["Dirwest","City"]]);
+    ["Dirwest","City"],["Valecor","Continent"]]);
   assert.equal(checkpointSelectedTerritoryName(f.scene,f.checkpoint,
     "region-continent",{atlas:f.atlas,view:f.view,forPlayer:true}),
     "Northern Valecor","published native Territory alias overrides internal GM name");
