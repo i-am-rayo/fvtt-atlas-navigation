@@ -141,18 +141,23 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       }
     };
     if (directoryActive) {
-      const toolbar = make("div",undefined,"atlas-directory-filters");
-      addControls(toolbar);
+      const toolbar = make("div",undefined,"atlas-directory-toolbar");
+      const create = make("div",undefined,"atlas-directory-creation");
+      create.appendChild(make("strong","Create"));
+      addControls(create);
+      const manage = make("nav",undefined,"atlas-directory-managers");
+      manage.setAttribute("aria-label","Manage map records");
+      manage.appendChild(make("strong","Manage"));
+      links(manage,managers);
+      toolbar.append(create,manage);
       main.appendChild(toolbar);
-      const views = make("nav",undefined,"atlas-directory-filters");
+      const views = make("nav",undefined,"atlas-directory-views");
       views.setAttribute("aria-label","Directory views");
+      views.appendChild(make("strong","View"));
       links(views,directoryViews);
+      for(const item of views.querySelectorAll?.("button")??[])
+        item.setAttribute("aria-pressed",String(item.getAttribute("aria-current")==="page"));
       main.appendChild(views);
-      const advanced = make("details");
-      advanced.open = managers.some(([id])=>id===this.activeSection);
-      advanced.appendChild(make("summary","Manage map records"));
-      links(advanced,managers);
-      main.appendChild(advanced);
     } else if (section==="settings") {
       const views = make("nav",undefined,"atlas-directory-filters");
       views.setAttribute("aria-label","Atlas settings");
