@@ -427,13 +427,16 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(show.title,"Hide checkpoint");
     assert.equal(stored.revision,data.revision,"visibility remains staged until Save Checkpoint");
     const save = all(root).find(node => node.tag === "button" &&
-      node.textContent === "Save Checkpoint");
-    assert.ok(save);
+      node.title === "Save Checkpoint");
+    assert.ok(save?.className.includes("atlas-ui-icon-button"),
+      "Save uses the shared icon action without changing its handler");
+    assert.equal(save.type,"button","Save cannot accidentally submit the form");
     assert.ok(all(root).some(node=>node.tag==="button"&&node.textContent==="Save as preset…"),
       "preset saving is explicit in the footer");
-    assert.deepEqual(footer.children.slice(-3,-1).map(node=>node.textContent),
-      ["Save as preset…","Save Checkpoint"],
-      "explicit Save actions precede rightmost Delete");
+    assert.equal(footer.children.at(-3).textContent,"Save as preset…",
+      "saving a World preset remains distinct from saving the Checkpoint");
+    assert.equal(footer.children.at(-2),save,
+      "Save is immediately before the destructive Delete action");
     assert.equal(footer.children.at(-1).title,"Delete checkpoint",
       "Delete is the last element in DOM and keyboard order");
     assert.equal(footer.children.at(-1).className.includes("atlas-checkpoint-footer-delete"),true);
