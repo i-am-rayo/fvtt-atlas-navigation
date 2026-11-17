@@ -411,7 +411,7 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
   create.disabled = !!draft;
   heading.appendChild(create);
   section.appendChild(heading);
-  section.appendChild(node("p", ""Click a Road to create a connected Map Marker. " +
+  section.appendChild(node("p", "Click a Road to create a connected Map Marker. " +
     "Click anywhere else on the map to create an independent landmark; " +
     "Atlas asks for confirmation before saving.", "hint"));
 
@@ -1062,7 +1062,7 @@ function atlasPanel(scene, atlas, actions, refresh,
       if (checkpoint.appearance) {
         const a = checkpoint.appearance;
         const detail = node("div",
-          ""Map Marker overlay: " + (a.type === "fa" ? "FA " + a.icon :
+          "Map Marker overlay: " + (a.type === "fa" ? "FA " + a.icon :
             a.type === "image" ? "custom image" : "dot") +
           " · label " + a.labelMode + (a.showRoadName ? " + road name" : ""), "hint");
         detail.style.fontSize = "0.8em";
