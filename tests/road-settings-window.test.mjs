@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import {openRoadSettingsWindow} from "../scripts/road-settings-window.js";
 
 class Element {
@@ -90,4 +91,16 @@ test("invalid Road form cannot submit, and closing returns a null cancellation",
     await app.close();
     assert.equal(await resultPromise,null);
   }finally{Object.assign(globalThis,old);}
+});
+
+test("Road linked Map Markers/Regions keep count legends inside bordered sections",()=>{
+  const main=readFileSync(new URL("../scripts/main.js",import.meta.url),"utf8");
+  const css=readFileSync(new URL("../styles/road-settings-dialog.css",import.meta.url),"utf8");
+  assert.match(main,/checkpointSection\.append\(checkpointLegend,checkpointList\)/);
+  assert.match(main,/regionSection\.append\(regionLegend,priorityHelp,regionList\)/);
+  assert.match(main,/checkpointTarget\.replaceChildren\(\)/);
+  assert.match(main,/regionTarget\.replaceChildren\(\)/);
+  assert.match(css,/\.atlas-road-settings-form\s*\{[^}]*flex-direction:column/s);
+  assert.match(css,/\[data-atlas-road-live\]\s*\{[^}]*overflow-y:auto/s);
+  assert.match(css,/\.form-footer\s*\{[^}]*flex:0 0 auto/s);
 });
