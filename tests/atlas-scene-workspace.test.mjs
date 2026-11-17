@@ -38,6 +38,7 @@ class Element {
   querySelector(){return null;}
   querySelectorAll(){return [];}
   get isConnected(){return true;}
+  focus(){this.focused=true;}
   addEventListener(name, callback) { this.listeners.set(name, callback); }
 }
 function walk(root, predicate) {
@@ -569,4 +570,32 @@ test("Named destination resolves current coordinates and blocks a stale selectio
     assert.deepEqual(calls,[true]);
     assert.equal(checkpointDestinationControl(planner),null);
   } finally {ctx.restore();}
+});
+
+test("Workspace travel tabs switch without saving or clearing unsaved World drafts",async()=>{
+  const ctx=context();
+  try{
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Settings");
+    const tabs=walk(ws.result,node=>node.attributes?.get("role")==="tab");
+    const panels=walk(ws.result,node=>node.className==="atlas-travel-settings-panel");
+    assert.equal(tabs.length,2);
+    assert.equal(panels.length,2);
+    assert.equal(tabs[0].attributes.get("aria-selected"),"true");
+    assert.equal(panels[0].hidden,false);
+    assert.equal(panels[1].hidden,true);
+    const firstDraft=walk(panels[0],node=>node.tag==="input")[0];
+    assert.ok(firstDraft);
+    firstDraft.value="13";
+    await tabs[1].listeners.get("click")({preventDefault(){}});
+    assert.equal(tabs[1].attributes.get("aria-selected"),"true");
+    assert.equal(panels[1].hidden,false);
+    assert.equal(panels[0].hidden,true);
+    await tabs[0].listeners.get("click")({preventDefault(){}});
+    assert.equal(panels[0].hidden,false);
+    assert.equal(walk(panels[0],node=>node.tag==="input")[0],firstDraft);
+    assert.equal(firstDraft.value,"13","switching tabs retains staged values");
+    assert.deepEqual(ctx.calls,[],"tab changes do not authorize World writes");
+    await ws.close();
+  }finally{ctx.restore();}
 });
