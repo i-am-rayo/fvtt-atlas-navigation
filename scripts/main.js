@@ -893,11 +893,6 @@ function actions() {
         if(nativeSave){
           roadSaveButton=nativeSave;
           nativeSave.removeAttribute("autofocus");
-          nativeSave.addEventListener("click",()=>{
-            if(dialog.form?.checkValidity?.()===false)return;
-            roadSaveRequested=true;
-            roadMayClose=true;
-          });
         }
         // DialogV2's form getter can be incomplete during its render callback.
         // Track the actual live inputs inside Atlas's own content wrapper.
@@ -916,11 +911,11 @@ function actions() {
                 if(dialog.form?.checkValidity?.()===false){
                   dialog.form.reportValidity?.();return false;
                 }
-                roadMayClose=true;
                 roadSaveButton.click();
-                return true;
+                return roadSaveRequested;
               }});
-            if(!approved||roadMayClose)return false;
+            if(!approved)return false;
+            if(roadMayClose)return true;
             roadMayClose=true;
             return true;
           }finally{roadClosePending=false;}
@@ -1058,7 +1053,8 @@ function actions() {
           id:roadDialogToken,title:atlasSettingsTitle("Road",actual.name),
           position:{left:24,width:Math.min(560,Math.max(360,window.innerWidth-60)),
             height:Math.min(740,Math.max(440,window.innerHeight-70))},
-          content,onRender:renderRoadDialog
+          content,onRender:renderRoadDialog,
+          onSubmitted:()=>{roadSaveRequested=true;roadMayClose=true;}
         });
       } finally {
         Hooks.off("updateScene",updateHook);
