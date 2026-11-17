@@ -1075,11 +1075,6 @@ function actions() {
       document.addEventListener("change",stagedRoadPreset.handle,true);
       document.addEventListener("input",stagedRoadPreset.handle,true);
       const onRangeInput = event => {
-        if (event.target?.name === "atlasRoadBorderEnabled") {
-          const form=event.target.closest?.(".application");
-          const row=form?.querySelector?.("[data-atlas-road-border-color]");
-          if (row) row.style.display=event.target.checked?"flex":"none";
-        }
         const name=event.target?.name;
         if (!["atlasRoadWidth","atlasRoadOpacity"].includes(name)) return;
         const form=event.target.closest?.(".application");
