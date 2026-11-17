@@ -23,7 +23,7 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
   from "./navigation-travel-method.js";
 import { createSettingsSelect } from "./settings-select.js";
-import { createSettingsIconButton } from "./settings-controls.js";
+import { createAtlasIconButton } from "./ui-action-button.js";
 import {createTransportNumberSlider,createTransportCurrencyPool,transportCurrencyAmount}
  from "./navigation-transport-form-controls.js";
 import { atlasCurrencyChoices,coinFromCopper,dndCurrencyBreakdown } from "./navigation-currency.js";
@@ -51,7 +51,7 @@ const button=(label,action)=>{
   return control;
 };
 const iconButton=(icon,label,action)=>{
-  const control=createSettingsIconButton({icon,label});
+  const control=createAtlasIconButton({icon,label});
   control.addEventListener("click",async()=>{
     control.disabled=true;
     try{await action();}
