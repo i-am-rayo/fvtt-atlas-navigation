@@ -473,6 +473,26 @@ async function promptNewRoadSettings(scene) {
       tab.style.background=tab===button?"rgba(156,123,240,.22)":"transparent";
   };
   document.addEventListener("click",onTab,true);
+  // DialogV2 clones creation form nodes; delegate paired numeric input events.
+  const onNumberRange=event=>{
+    if(!event.target?.closest?.("[data-atlas-new-road-dialog]"))return;
+    const pair=event.target.closest(".atlas-number-range");
+    if(!pair)return;
+    const slider=pair.querySelector('input[type="range"]');
+    const number=pair.querySelector('input[type="number"]');
+    if(!slider||!number)return;
+    if(event.target===slider){
+      number.value=slider.value;number.defaultValue=number.value;
+    }else if(event.target===number){
+      const n=Number(number.value);
+      if(number.value!==""&&Number.isFinite(n)&&
+          n>=Number(slider.min)&&n<=Number(slider.max)){
+        slider.value=String(n);
+        number.defaultValue=number.value;
+      }
+    }
+  };
+  document.addEventListener("input",onNumberRange,true);
   let result;
   try {
     result=await foundry.applications.api.DialogV2.input({
@@ -483,6 +503,7 @@ async function promptNewRoadSettings(scene) {
     });
   } finally {
     document.removeEventListener("click",onTab,true);
+    document.removeEventListener("input",onNumberRange,true);
   }
   if (!result) return null;
   const roadName=String(result.draftRoadName??"").trim();
