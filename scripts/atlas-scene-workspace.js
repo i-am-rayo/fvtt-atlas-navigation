@@ -69,6 +69,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     this.surfaceExpansion = new Set();
     this.travelSettingsTab = "rules";
     this.directoryState = {open:new Set(), filters:{}};
+    this.mapMarkerListState={query:"",sort:"az"};
     this.territoryLocator=new TerritoryLocateHighlight();
   }
 
@@ -230,7 +231,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       main.appendChild(topology);
     } else if (this.activeSection === "checkpoints") {
       main.appendChild(createAtlasCheckpointPanel(this.scene, this.actions,
-        () => this.minimized ? Promise.resolve() : this.render(true)));
+        () => this.minimized ? Promise.resolve() : this.render(true),this.mapMarkerListState));
     } else if (this.activeSection === "roads") {
       main.appendChild(make("p", "Manage authored roads, their graph connections, " +
          "per-road Map Markers and generated corridor Regions. Existing editors, " +
