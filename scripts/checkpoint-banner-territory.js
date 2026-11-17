@@ -89,9 +89,9 @@ export function checkpointBannerTerritoryCandidates(scene,checkpoint,{
 /** Identity is checked each draw: deleted, moved, unlinked, invalid and hidden
  * Regions do not produce a cached or invented label. */
 export function checkpointSelectedTerritoryName(scene,checkpoint,regionId,{
-  atlas=null,view=globalThis.canvas,forPlayer=false
+  sourceSceneId=null,atlas=null,view=globalThis.canvas,forPlayer=false
 }={}){
-  if(!regionId)return null;
+  if(!regionId||!scene?.id||sourceSceneId!==scene.id)return null;
   return checkpointBannerTerritoryCandidates(scene,checkpoint,
     {atlas,view,forPlayer}).find(item=>item.id===regionId)?.name??null;
 }
