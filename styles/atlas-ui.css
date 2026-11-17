@@ -99,3 +99,20 @@
   margin:0;padding-inline-start:1.4rem;
 }
 .atlas-checkpoint-connected-roads li { overflow-wrap:anywhere; }
+
+/* Paired numeric entry: one authoritative numeric draft per bounded slider.
+ * The number input is editable, not an output masquerading as a number. */
+.atlas-number-range {
+  display:flex;align-items:center;gap:.4rem;min-width:0;
+  width:100%;flex-wrap:wrap;
+}
+.atlas-number-range > input[type="range"] {
+  flex:1 1 8rem;min-width:4rem;
+}
+.atlas-number-range > input[type="number"] {
+  box-sizing:border-box;flex:0 1 auto;min-width:3.4rem;
+}
+.atlas-number-range > input[aria-invalid="true"] {
+  border-color:var(--color-level-error,#d56859);
+}
+.atlas-number-range-unit {white-space:nowrap;font-size:.85em;opacity:.75;}
