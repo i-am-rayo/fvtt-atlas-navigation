@@ -390,8 +390,9 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(save);
     assert.ok(all(root).some(node=>node.tag==="button"&&node.textContent==="Save as preset…"),
       "preset saving is explicit in the footer");
-    assert.deepEqual(footer.children.slice(-2).map(node=>node.textContent),
-      ["Save as preset…","Save Checkpoint"]);
+    assert.deepEqual(footer.children.slice(-3,-1).map(node=>node.textContent),
+      ["Save as preset…","Save Checkpoint"],
+      "explicit Save actions precede rightmost Delete");
     assert.equal(footer.children.at(-1).title,"Delete checkpoint",
       "Delete is the last element in DOM and keyboard order");
     assert.equal(footer.children.at(-1).className.includes("atlas-checkpoint-footer-delete"),true);
