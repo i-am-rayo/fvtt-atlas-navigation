@@ -59,7 +59,7 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
     hint:`GM-configured ${name.toLowerCase()} speed in miles per hour, converted to the active Scene's `+
       "mile/km Grid units for estimates. Defaults reference D&D 2024: a mount's Normal pace " +
       "(3 mph sustained; one-hour double-speed burst needs rest) or a Sailing Ship (2 mph). " +
-      "Used for transport planning only until checkpoint transfers are implemented. " +
+      "Used for transport planning only until Map Marker transfers are implemented. " +
       "Does not change Group Actor speeds, native Token movement or Region Behaviors.",
     scope:"world",config:false,type:Number,default:initial,
     range:{min:0.1,max:1000,step:0.1}
