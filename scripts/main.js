@@ -97,7 +97,8 @@ import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges,
   interceptDialogHeaderClose } from "./settings-close-guard.js";
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
 import { registerWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
-import { roadAppearanceForm, roadAppearanceFromForm, registerWorldRoadAppearance }
+import { roadAppearanceForm, roadAppearanceFromForm, refreshRoadAppearancePreview,
+  registerWorldRoadAppearance }
   from "./road-appearance-settings.js";
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
@@ -481,22 +482,27 @@ async function promptNewRoadSettings(scene) {
     const creation=event.target?.closest?.("[data-atlas-new-road-dialog]");
     if(!creation)return;
     const pair=event.target.closest(".atlas-number-range");
-    if(!pair)return;
-    const slider=pair.querySelector('input[type="range"]');
-    const number=pair.querySelector('input[type="number"]');
-    if(!slider||!number)return;
-    if(event.target===slider){
-      number.value=slider.value;number.defaultValue=number.value;
-    }else if(event.target===number){
-      const n=Number(number.value);
-      if(number.value!==""&&Number.isFinite(n)&&
-          n>=Number(slider.min)&&n<=Number(slider.max)){
-        slider.value=String(n);
-        number.defaultValue=number.value;
+    if(pair){
+      const slider=pair.querySelector('input[type="range"]');
+      const number=pair.querySelector('input[type="number"]');
+      if(slider&&number){
+        if(event.target===slider){
+          number.value=slider.value;number.defaultValue=number.value;
+        }else if(event.target===number){
+          const n=Number(number.value);
+          if(number.value!==""&&Number.isFinite(n)&&
+              n>=Number(slider.min)&&n<=Number(slider.max)){
+            slider.value=String(n);
+            number.defaultValue=number.value;
+          }
+        }
       }
     }
+    const appearance=creation.querySelector(".atlas-road-customization");
+    if(appearance)refreshRoadAppearancePreview(appearance);
   };
   document.addEventListener("input",onNumberRange,true);
+  document.addEventListener("change",onNumberRange,true);
   let result;
   try {
     result=await foundry.applications.api.DialogV2.input({
@@ -508,6 +514,7 @@ async function promptNewRoadSettings(scene) {
   } finally {
     document.removeEventListener("click",onTab,true);
     document.removeEventListener("input",onNumberRange,true);
+    document.removeEventListener("change",onNumberRange,true);
   }
   if (!result) return null;
   const roadName=String(result.draftRoadName??"").trim();
