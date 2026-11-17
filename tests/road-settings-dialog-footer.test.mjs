@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {arrangeRoadDialogFooter} from "../scripts/road-settings-dialog-footer.js";
 
-test("Road Settings keeps Foundry's Save button in its native DialogV2 footer",()=>{
+test("Road Settings keeps the original ApplicationV2 form submit in the footer",()=>{
+  const locate={id:"locate"},visible={id:"visible"};
   const edit={id:"edit"},connection={id:"connection"},remove={id:"delete"};
   const classes=new Set();
   const save={id:"save",dataset:{action:"ok"},attrs:{},
@@ -12,6 +13,8 @@ test("Road Settings keeps Foundry's Save button in its native DialogV2 footer",(
     appendChild(child){this.children.push(child);},
     classList:{add(...names){for(const name of names)classes.add(name);}}};
   const bar={style:{},querySelector:selector=>({
+    '[data-atlas-road-tool="locate"]':locate,
+    "[data-atlas-road-visibility]":visible,
     '[data-atlas-road-tool="edit"]':edit,
     '[data-atlas-road-tool="connection"]':connection,
     '[data-atlas-road-tool="delete"]':remove
@@ -31,7 +34,7 @@ test("Road Settings keeps Foundry's Save button in its native DialogV2 footer",(
     {tag,className:"",attrs:{},setAttribute(k,v){this.attrs[k]=v;}}:cancel},querySelector:()=>bar},
     form:{querySelector:()=>footer}, close:()=>closed++};
   assert.equal(arrangeRoadDialogFooter(dialog),save);
-  assert.deepEqual(footer.nodes,[edit,connection,cancel,save,remove],
+  assert.deepEqual(footer.nodes,[locate,visible,edit,connection,cancel,save,remove],
     "Road utility actions lead, native Save stays in the form, Delete is last");
   assert.equal(bar.style.display,"none");
   assert.equal(cancel.type,"button");
