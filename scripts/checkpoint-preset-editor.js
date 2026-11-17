@@ -41,7 +41,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
       this._checkingClose=true;
       try{
         const approved=await approveSettingsClose({isDirty:this._isDirty,
-          save:this._saveDraft,title:"Checkpoint Preset"});
+          save:this._saveDraft,title:"Map Marker Preset"});
         if(!approved||this._skipClosePrompt)return this;
       }finally{this._checkingClose=false;}
     }
@@ -82,7 +82,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     const category=createSettingsGroupedSelect(CHECKPOINT_TYPE_GROUPS.map(
       ([heading,types])=>({label:heading,options:types})),
       {selectedId:preset?.category??"custom"});
-    field(general,"Checkpoint type",category);
+    field(general,"Map Marker type",category);
     const imperial=resolveAtlasMeasuringUnits()==="imperial";
     const elevationControl=createCheckpointElevation(preset?.elevationMeters??null,{imperial});
     field(general,imperial?"Default elevation (ft)":"Default elevation (m)",elevationControl.element);
@@ -93,7 +93,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     const discoveryMethod=field(general,"Discovery method",createCheckpointChoice(
       CHECKPOINT_DISCOVERY_METHODS,preset?.discoveryMethod??"automatic"));
     const revealControl=createCheckpointRange(preset?.revealRadiusCells??3,
-      {min:0,max:100,step:.25,label:"Checkpoint terrain reveal radius in grid cells"});
+      {min:0,max:100,step:.25,label:"Map Marker terrain reveal radius in grid cells"});
     field(general,"Reveal radius (cells)",revealControl.element);
     const reveal=revealControl.number;
     const journal=field(general,"Default linked Journal / Page UUID",input(preset?.journalUuid??""));
@@ -104,14 +104,14 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     general.appendChild(el("small","Visibility is still controlled by Atlas discovery and native Foundry permissions. A preset never reveals existing checkpoints retroactively."));
 
     const marker=sections.get("Marker & labels");
-    const markerType=field(marker,"Checkpoint marker",createCheckpointChoice(CHECKPOINT_MARKER_TYPES,
+    const markerType=field(marker,"Map Marker icon",createCheckpointChoice(CHECKPOINT_MARKER_TYPES,
       appearance.type));
     const markerSize=createCheckpointMarkerSize(appearance.size);
     field(marker,"Marker size (12–64 px)",markerSize.element);
     const size=markerSize.input;
     const color=field(marker,"Dot / icon color",createCheckpointColor(appearance.color));
-    const border=field(marker,"Checkpoint border color",createCheckpointColor(appearance.borderColor));
-    const labelMode=field(marker,"Checkpoint label",createCheckpointChoice(CHECKPOINT_LABEL_MODES,
+    const border=field(marker,"Map Marker border color",createCheckpointColor(appearance.borderColor));
+    const labelMode=field(marker,"Map Marker banner",createCheckpointChoice(CHECKPOINT_LABEL_MODES,
       appearance.labelMode));
     const roadName=field(marker,"Include Road name in banner",
       createCheckpointCheckbox(appearance.showRoadName));
