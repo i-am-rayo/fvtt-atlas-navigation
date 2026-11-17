@@ -437,7 +437,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "saving a World preset remains distinct from saving the Checkpoint");
     assert.equal(footer.children.at(-2),save,
       "Save is immediately before the destructive Delete action");
-    assert.equal(footer.children.at(-1).title,"Delete checkpoint",
+    assert.equal(footer.children.at(-1).title,"Delete Map Marker",
       "Delete is the last element in DOM and keyboard order");
     assert.equal(footer.children.at(-1).className.includes("atlas-checkpoint-footer-delete"),true);
     assert.ok(footer.children.indexOf(footerVisibility)<footer.children.indexOf(save),
