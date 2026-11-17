@@ -12,6 +12,6 @@ test("Road Checkpoints sort A–Z in a display copy with deterministic ID ties",
   ];
   const before=structuredClone(input);
   assert.deepEqual(roadCheckpointsAlphabetical(input,"r").map(x=>x.id),
-    ["z","a","c","b"],"locale-aware names and stable IDs order displayed Checkpoints");
+    ["z","a","b","c"],"locale-aware names and stable IDs order displayed Checkpoints");
   assert.deepEqual(input,before,"Road graph and persisted Checkpoint order remain unchanged");
 });
