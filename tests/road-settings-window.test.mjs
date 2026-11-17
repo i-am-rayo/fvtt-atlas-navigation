@@ -32,7 +32,7 @@ class MockApplicationV2 {
 
 test("Road ApplicationV2 keeps a named native form and returns staged values only on submit",async()=>{
   const old={foundry:globalThis.foundry,document:globalThis.document};
-  let app;
+  let app,submissions=0;
   try{
     globalThis.document={createElement:tag=>new Element(tag)};
     globalThis.foundry={applications:{api:{ApplicationV2:MockApplicationV2},
@@ -45,7 +45,7 @@ test("Road ApplicationV2 keeps a named native form and returns staged values onl
     const content=new Element("div");
     const resultPromise=openRoadSettingsWindow({
       id:"road-a",title:"Atlas — Old Road — Road Settings",position:{width:560,height:700},content,
-      onRender:(_event,window)=>{app=window;}
+      onRender:(_event,window)=>{app=window;},onSubmitted:()=>submissions++
     });
     await new Promise(resolve=>setImmediate(resolve));
     assert.ok(app);
@@ -62,6 +62,7 @@ test("Road ApplicationV2 keeps a named native form and returns staged values onl
     app.form.listeners.get("submit")({preventDefault(){prevented=true;}});
     const result=await resultPromise;
     assert.equal(prevented,true);
+    assert.equal(submissions,1,"valid submission authorizes closing");
     assert.deepEqual(result,{atlasRoadName:"Edited Road",atlasRoadVisible:"on"});
     assert.equal(app.closed,true);
   }finally{Object.assign(globalThis,old);}
