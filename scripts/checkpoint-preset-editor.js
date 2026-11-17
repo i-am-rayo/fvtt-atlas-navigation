@@ -53,7 +53,10 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     const preset=this.preset;
     const appearance=resolveCheckpointAppearance(preset?.appearance);
     const root=el("div");
-    root.style.cssText="padding:.8rem 1rem;display:flex;flex-direction:column;gap:.75rem;height:100%;overflow:auto;box-sizing:border-box;";
+    root.className="atlas-marker-preset-editor";
+    root.style.cssText="display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;box-sizing:border-box;";
+    const body=el("div");
+    body.className="atlas-marker-preset-body";
     const tabs=el("div");tabs.style.cssText="display:flex;gap:.35rem;flex-wrap:wrap;";
     const sections=new Map(),buttons=new Map();
     for(const name of ["General","Marker & labels","Terrain Region","Transportation"]){
@@ -70,7 +73,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
         buttons.get(name).style.background=name===this.activeTab?"var(--color-bg-option,#2c2540)":"";
       }
     };
-    root.appendChild(tabs);
+    body.appendChild(tabs);
     const field=(panel,label,control)=>appendSettingsField(panel,label,control,{variant:"grid"});
     const input=(value,type="text")=>{
       const n=el("input");n.type=type;n.value=String(value??"");return n;
@@ -175,9 +178,9 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
 
     const transportEditor=createCheckpointTransportationEditor({offers:preset?.transportation??[]});
     sections.get("Transportation").append(transportEditor.element);
-    for(const panel of sections.values())root.appendChild(panel);
+    for(const panel of sections.values())body.appendChild(panel);
     const footer=el("div");
-    footer.style.cssText="display:flex;justify-content:flex-end;gap:.5rem;position:sticky;bottom:0;background:#100f17;padding:.5rem 0;";
+    footer.className="atlas-marker-preset-footer";
     const save=createSettingsIconButton({icon:"floppy-disk",label:"Save preset"});
     save.type="button";
     const saveValue=async()=>{
@@ -210,7 +213,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
       finally{save.disabled=false;}
     };
     save.addEventListener("click",()=>void saveValue());
-    footer.append(save);root.appendChild(footer);showTab();
+    footer.append(save);root.append(body,footer);showTab();
     this._saveDraft=saveValue;
     this._isDirty=trackSettingsChanges(root,()=>({iconId}));
     return root;
