@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import { createAtlasIconButton } from "../scripts/ui-action-button.js";
 
 class FakeElement {
@@ -57,3 +58,12 @@ test("rejects unsafe icons, missing labels, and invalid action contracts",()=>wi
     {icon:"route",label:"Route",danger:"yes"}
   ])assert.throws(()=>createAtlasIconButton(options),/Invalid Atlas icon action/);
 }));
+
+test("shared icon target CSS has 2rem target and smaller independent glyph",()=>{
+  const fs=readFileSync(new URL("../styles/atlas-ui.css",import.meta.url),"utf8");
+  assert.match(fs,/width: 2rem/);
+  assert.match(fs,/min-width: 2rem/);
+  assert.match(fs,/height: 2rem/);
+  assert.match(fs,/font-size: \.8rem/);
+  assert.match(fs,/focus-visible/);
+});
