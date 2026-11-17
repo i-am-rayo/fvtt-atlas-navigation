@@ -33,6 +33,7 @@ export class RoadPointEditor {
       points: roadHandles(s.working, s.roadId).length,
       dirty: s.operations.length > 0,
       canUndo: s.operations.length > 0,
+      canRedo: s.redo.length > 0,
       saving: this.saving
     };
   }
@@ -77,6 +78,7 @@ export class RoadPointEditor {
     const s = this.session;
     const working = applyRoadGeometryEdit(s.working, { roadId: s.roadId, operation });
     s.operations.push(operation);
+    s.redo.length=0;
     s.history.push(working);
     s.working = working;
     this.#notifyChange(s.onChange);
@@ -121,7 +123,7 @@ export class RoadPointEditor {
     }
     const s = {
       scene, sceneId: scene.id, roadId, expectedRevision: atlas.revision,
-      working: atlas, history: [atlas], operations: [], element, onChange, source,
+      working: atlas, history: [atlas], operations: [], redo: [], element, onChange, source,
       drag: null, confirming: false, selectedHandle: null, extending: null, onDown: null, onMove: null,
       onUp: null, onDoubleClick: null, onKeydown: null
     };
@@ -333,10 +335,13 @@ export class RoadPointEditor {
         event.preventDefault?.();
         if(s.extending){s.extending=null;s.selectedHandle=null;this.refresh();}
         else this.cancel();
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
-        if(event.target?.isContentEditable || ["INPUT","TEXTAREA"].includes(event.target?.tagName))return;
+      } else if ((event.ctrlKey||event.metaKey) &&
+          ((event.key.toLowerCase()==="z")||event.key.toLowerCase()==="y")) {
+        if(event.target?.isContentEditable ||
+            ["INPUT","TEXTAREA","SELECT"].includes(event.target?.tagName))return;
         event.preventDefault?.();
-        this.undo();
+        if(event.shiftKey||event.key.toLowerCase()==="y")this.redo();
+        else this.undo();
       } else if ((event.key === "Delete" || event.key === "Backspace") &&
           !event.target?.isContentEditable &&
           !["INPUT", "TEXTAREA"].includes(event.target?.tagName) &&
@@ -374,12 +379,24 @@ export class RoadPointEditor {
   undo() {
     const s = this.session;
     if (!s || this.saving || s.confirming || !s.operations.length) return;
-    s.operations.pop();
-    s.history.pop();
+    const operation=s.operations.pop();
+    const working=s.history.pop();
+    s.redo.push({operation,working});
     s.working = s.history.at(-1);
     s.drag = null;
     s.extending = null;
     s.selectedHandle = null;
+    this.#notifyChange(s.onChange);
+  }
+
+  redo() {
+    const s=this.session;
+    if(!s||this.saving||s.confirming||!s.redo.length)return;
+    const next=s.redo.pop();
+    s.operations.push(next.operation);
+    s.history.push(next.working);
+    s.working=next.working;
+    s.drag=null;s.extending=null;s.selectedHandle=null;
     this.#notifyChange(s.onChange);
   }
 
