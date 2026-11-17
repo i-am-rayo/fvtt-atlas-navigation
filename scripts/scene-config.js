@@ -397,7 +397,9 @@ export function createAtlasTerritoryPanel(scene, actions, refresh, {
 }
 
 /** Scene-wide Checkpoint controls for Atlas Workspace; no second persistence path. */
-export function createAtlasCheckpointPanel(scene, actions, refresh) {
+export function createAtlasCheckpointPanel(scene, actions, refresh, listState={}) {
+  listState.sort??="az";
+  listState.query??="";
   const atlas = readAtlas(scene);
   const party = readPartyExploration(scene);
   const journals = readAtlasJournalLinks(scene);
@@ -425,18 +427,32 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
     section.appendChild(placement);
   }
 
-  const entries = listRoadCheckpoints(atlas).sort((a, b) =>
-    a.name.localeCompare(b.name));
+  const entries=[...listRoadCheckpoints(atlas)].sort((a,b)=>
+    (listState.sort==="za"?-1:1)*(a.name.localeCompare(b.name,undefined,{
+      sensitivity:"base"})||a.id.localeCompare(b.id)));
   const toolbar = node("div", undefined, "atlas-checkpoint-toolbar");
-  const total = node("strong", `${entries.length} Checkpoints`, "atlas-checkpoint-count");
+  const total = node("strong", `${entries.length} Map Markers`, "atlas-checkpoint-count");
   toolbar.appendChild(total);
+  const sortLabel=node("label",undefined,"atlas-checkpoint-sort");
+  sortLabel.appendChild(node("span","Sort by name"));
+  const sort=createSettingsSelect([["az","A–Z"],["za","Z–A"]],{
+    selectedId:listState.sort,ariaLabel:"Sort Map Markers by name"});
+  sort.addEventListener("change",()=>{
+    listState.sort=sort.value;refresh();
+  });
+  sortLabel.appendChild(sort);toolbar.appendChild(sortLabel);
   const searchLabel = node("label", undefined, "atlas-checkpoint-search");
   searchLabel.appendChild(node("span", "Search", "atlas-visually-hidden"));
   const search = node("input");
   search.type = "search";
   search.placeholder = "Find a Map Marker…";
   search.setAttribute("aria-label", "Filter Map Markers by name or Road");
+  search.value=listState.query;
   searchLabel.appendChild(search);
+  const icon=node("i");
+  icon.className="fa-solid fa-magnifying-glass";
+  icon.setAttribute("aria-hidden","true");
+  searchLabel.appendChild(icon);
   toolbar.appendChild(searchLabel);
   section.appendChild(toolbar);
   const list = node("div", undefined, "atlas-checkpoint-list");
@@ -522,15 +538,17 @@ export function createAtlasCheckpointPanel(scene, actions, refresh) {
     rows.push({ row, filter: (cp.name + " " + (cp.roadName || "independent")).toLowerCase() });
   }
   search.addEventListener("input", () => {
+    listState.query=search.value;
     const filter = search.value.trim().toLowerCase();
     let shown = 0;
     for (const entry of rows) {
       entry.row.hidden = !entry.filter.includes(filter);
       if (!entry.row.hidden) shown++;
     }
-    total.textContent = filter ? `${shown} of ${entries.length} Checkpoints`
-      : `${entries.length} Checkpoints`;
+    total.textContent = filter ? `${shown} of ${entries.length} Map Markers`
+      : `${entries.length} Map Markers`;
   });
+  if(listState.query)search.listeners?.get?.("input")?.();
   if (!entries.length) list.appendChild(node("p",
     "No Map Markers yet. Choose [+] and click a map location.", "hint"));
   section.appendChild(list);
