@@ -65,3 +65,20 @@
   flex:1 1 9rem;min-width:0;
 }
 .application:has([data-atlas-road-live]) .atlas-road-preset-controls [hidden] {display:none;}
+
+/* Road Editor body scrolls independently; actions remain inside the app viewport. */
+.atlas-road-editor-dock {
+  display:flex;flex-direction:column;min-height:0;height:100%;
+  padding:.5rem .65rem;gap:.45rem;box-sizing:border-box;
+}
+.atlas-road-editor-body {flex:1 1 auto;min-height:0;overflow-y:auto;min-width:0;}
+.atlas-road-editor-gestures {padding-inline-start:1.2rem;margin:.3rem 0 .6rem;}
+.atlas-road-editor-gestures li {margin:.3rem 0;line-height:1.4;}
+.atlas-road-editor-footer {
+  display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;
+  border-top:1px solid var(--color-border-light-tertiary,#666);padding:.45rem 0;
+  flex:0 0 auto;
+}
+.atlas-road-editor-footer > button:last-child:not(.atlas-ui-icon-button) {
+  margin-inline-start:auto;min-width:max-content;
+}
