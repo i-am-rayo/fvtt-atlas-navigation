@@ -126,3 +126,34 @@ test("v0.2.25 global curvature offers restricted World presets and live refresh"
     assert.equal(repaints, 1, "changing only curvature repaints existing roads");
   } finally { globalThis.game = previous; }
 });
+
+test("Road Customization pairs numeric width/percent and previews without persistence",()=>{
+  const previous=globalThis.document;
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    const form=roadAppearanceForm(DEFAULT_ROAD_APPEARANCE);
+    const groups=form.children.filter(item=>item.tag==="fieldset");
+    assert.deepEqual(groups.map(item=>item.children[0].textContent),
+      ["Road settings","Road name styling","Map preview"]);
+    const fields=form.querySelectorAll("[name]");
+    const width=fields.find(item=>item.name==="atlasRoadWidth");
+    const opacity=fields.find(item=>item.name==="atlasRoadOpacityPercent");
+    assert.equal(width.value,"4");
+    assert.equal(opacity.value,"90");
+    const preview=groups[2];
+    const stroke=preview.children[1].children[1];
+    width.value="8";
+    opacity.value="35";
+    form.listeners.get("input")();
+    assert.equal(stroke.style.strokeWidth,"8");
+    assert.equal(stroke.style.opacity,"0.35");
+    const values=Object.fromEntries(fields.map(item=>[item.name,
+      item.type==="checkbox"?item.checked:item.value]));
+    assert.equal(roadAppearanceFromForm(values).width,8);
+    assert.equal(roadAppearanceFromForm(values).opacity,.35);
+    values.atlasRoadOpacityPercent="";
+    assert.throws(()=>roadAppearanceFromForm(values),/Enter a valid number/);
+    values.atlasRoadOpacityPercent="105";
+    assert.throws(()=>roadAppearanceFromForm(values),/between/);
+  }finally{globalThis.document=previous;}
+});
