@@ -102,11 +102,11 @@ export function roadAppearanceForm(appearance) {
     const dash=pattern==="dashed"?`${width*3} ${width*2}`:
       pattern==="dotted"?`${Math.max(1,width*.3)} ${Math.max(4,width*2)}`:"none";
     line.style.stroke=value("atlasRoadColor");
-    line.style.strokeWidth=String(width);
+    line.style.strokeWidth=width+"px";
     line.style.strokeDasharray=dash;
     line.style.opacity=String(opacity);
     outline.style.stroke=value("atlasRoadBorderColor");
-    outline.style.strokeWidth=String(width+3);
+    outline.style.strokeWidth=(width+3)+"px";
     outline.style.opacity=controls.get("atlasRoadBorderEnabled").checked?String(opacity):"0";
     label.style.color=value("atlasRoadTextColor");
     root.dataset.atlasRoadPreviewMode=value("atlasRoadLabels");
