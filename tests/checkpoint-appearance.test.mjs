@@ -316,6 +316,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const bannerSettings=all(root).find(node=>
       node.className==="atlas-checkpoint-banner-settings");
     assert.ok(bannerSettings);
+    assert.equal(bannerSettings.children[1].hidden,false,
+      "Road-connected checkpoint offers Road name in the banner");
     const bannerType=bannerSettings.children[2].children[0];
     const bannerElevation=bannerSettings.children[3].children[0];
     const bannerTerritory=bannerSettings.children[4].children[1];
@@ -347,6 +349,15 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(sceneMarker.style.fontSize,"24px",
       "map preview uses the authored 24px marker, never the large icon gallery sample");
     assert.equal(sceneMarker.style.width,"24px");
+    const independentEditor=new AtlasCheckpointAppearanceEditor({scene,
+      expectedRevision:data.revision,
+      createDraft:{independent:true,defaultName:"Standalone"},
+      onCreate:()=>{}});
+    const independentRoot=await independentEditor._renderHTML();
+    const independentBanner=all(independentRoot).find(node=>
+      node.className==="atlas-checkpoint-banner-settings");
+    assert.equal(independentBanner.children[1].hidden,true,
+      "Standalone Checkpoints hide Road name without erasing its preference");
 
     const search = all(root).find(node => node.tag === "input" && node.type === "search");
     search.value = "github";
