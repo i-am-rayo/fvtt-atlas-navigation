@@ -294,13 +294,19 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const availableTerritories=this.createDraft?[]:
       checkpointBannerTerritoryCandidates(this.scene,current,
         {atlas:readAtlas(this.scene)});
-    const selectedTerritoryId=existingBanner.territoryRegionId??"";
+    const importedTerritory=Boolean(existingBanner.territoryRegionId&&
+      existingBanner.territorySceneId!==this.scene.id);
+    const selectedTerritoryId=importedTerritory?
+      "imported:"+existingBanner.territoryRegionId:
+      existingBanner.territoryRegionId??"";
     const territoryOptions=[["","None / No Territory"],
       ...availableTerritories.map(t=>[t.id,t.name+" — "+t.label+
         (t.hidden?" (GM-only native Region)":"")])];
     if(selectedTerritoryId&&
-      !availableTerritories.some(t=>t.id===selectedTerritoryId))
-      territoryOptions.push([selectedTerritoryId,
+      (importedTerritory||
+       !availableTerritories.some(t=>t.id===selectedTerritoryId)))
+      territoryOptions.push([selectedTerritoryId,importedTerritory?
+        "Imported from another Scene — reselect this Territory or clear it":
         "Unavailable selected Territory ("+selectedTerritoryId+"); clear to remove"]);
     const bannerTerritory=createSettingsSelect(territoryOptions,
       {selectedId:selectedTerritoryId});
@@ -402,11 +408,17 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       checkpointName.style.cssText="font-size:"+nameScreenSize+
         "px;line-height:1.25;font-weight:700;";
       const categoryLabel=CHECKPOINT_TYPES.find(([id])=>id===category.value)?.[1]??null;
+      const selected=bannerTerritory.value??"";
+      const fromOtherScene=selected.startsWith("imported:");
+      const selectedRegionId=fromOtherScene?existingBanner.territoryRegionId:
+        selected||null;
+      const selectionSceneId=fromOtherScene?existingBanner.territorySceneId:
+        selectedRegionId?this.scene.id:null;
       const previewStyle=withCheckpointBanner({...appearance,showRoadName:showRoad.checked},
         {showType:showType.checked,showElevation:showElevation.checked,
-          territoryRegionId:bannerTerritory.value||null});
-      const territoryName=availableTerritories.find(t=>
-        t.id===bannerTerritory.value)?.name??null;
+          territoryRegionId:selectedRegionId,territorySceneId:selectionSceneId});
+      const territoryName=selectionSceneId===this.scene.id?
+        availableTerritories.find(t=>t.id===selectedRegionId)?.name??null:null;
       const rows=checkpointBannerLines({appearance:previewStyle,
         checkpointType:categoryLabel,elevationMeters:elevationMeters(),
         elevationUnits:imperial?"imperial":"metric",
@@ -624,7 +636,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           textColor:textColor.value},{
           showType:showType.checked,showElevation:showElevation.checked,
           // Portable World template: never capture Scene-specific Region ID.
-          territoryRegionId:null});
+          territoryRegionId:null,territorySceneId:null});
         const world=readWorldCheckpointPresets();
         if(JSON.stringify(world)!==JSON.stringify(before))throw Error("World presets changed. Try saving again.");
         const targetId=String(values.presetTarget??"");
@@ -660,9 +672,15 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         if (readAtlas(this.scene).revision !== this.expectedRevision) {
           throw new Error("Scene Atlas changed. Close and reopen this checkpoint editor.");
         }
-        const chosenTerritory=bannerTerritory.value||null;
-        if(chosenTerritory&&
-            chosenTerritory!==existingBanner.territoryRegionId&&
+        const selectedBannerValue=bannerTerritory.value??"";
+        const retainImported=selectedBannerValue.startsWith("imported:");
+        const chosenTerritory=retainImported?
+          existingBanner.territoryRegionId:selectedBannerValue||null;
+        const chosenScene=retainImported?existingBanner.territorySceneId:
+          chosenTerritory?this.scene.id:null;
+        const changedTerritory=chosenTerritory!==existingBanner.territoryRegionId||
+          chosenScene!==existingBanner.territorySceneId;
+        if(chosenTerritory&&changedTerritory&&
             !checkpointBannerTerritoryCandidates(this.scene,current,
               {atlas:readAtlas(this.scene)}).some(item=>item.id===chosenTerritory))
           throw Error("Selected native Territory is no longer available. "+
@@ -673,7 +691,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           borderColor:borderColor.value,labelMode:mode.value,
           showRoadName:showRoad.checked,textColor:textColor.value},{
           showType:showType.checked,showElevation:showElevation.checked,
-          territoryRegionId:chosenTerritory});
+          territoryRegionId:chosenTerritory,territorySceneId:chosenScene});
         const nextJournal=journalUuidFromForm(journalInput.value);
         if(nextJournal&&!validJournalUuid(nextJournal))
           throw Error("Select a Journal Entry or Journal Page UUID.");
