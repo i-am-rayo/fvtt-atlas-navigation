@@ -18,6 +18,7 @@ const element = (tag, value = "") => {
 export function roadAppearanceForm(appearance) {
   const current=validateRoadAppearance(appearance);
   const root=element("div");
+  root.className="atlas-road-customization";
   root.style.cssText="display:grid;gap:.7rem;min-width:0;";
   const controls=new Map();
   const group=title=>{
