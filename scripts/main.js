@@ -1056,7 +1056,7 @@ function actions() {
       let result;
       try {
         result = await openRoadSettingsWindow({
-          title:atlasSettingsTitle("Road",actual.name),
+          id:roadDialogToken,title:atlasSettingsTitle("Road",actual.name),
           position:{left:24,width:Math.min(560,Math.max(360,window.innerWidth-60)),
             height:Math.min(740,Math.max(440,window.innerHeight-70))},
           content,onRender:renderRoadDialog
