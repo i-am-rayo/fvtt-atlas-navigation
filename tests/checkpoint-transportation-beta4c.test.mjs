@@ -169,7 +169,7 @@ test("checkpoint pencil opens the same World preset dialog and keeps drafts isol
       }
     assert.ok(!fields.some(el=>el.tag==="details"),"upkeep is not collapsed");
     assert.ok(fields.some(el=>el.className==="atlas-transport-upkeep-section"));
-    assert.ok(fields.some(el=>el.textContent==="Clear checkpoint overrides (inherit World)"),
+    assert.ok(fields.some(el=>el.textContent==="Clear Map Marker overrides (inherit World)"),
       "local overrides can be explicitly restored to World defaults");
     assert.deepEqual(editor.getOffers(),beforeOffers,"cancel does not change checkpoint draft");
   }finally{Object.assign(globalThis,before);}
