@@ -174,3 +174,14 @@
   .atlas-marker-preset-editor .atlas-marker-preset-body {padding:.55rem;}
   .atlas-marker-preset-editor .atlas-marker-preset-footer {padding:.4rem .55rem;}
 }
+
+/* Related banner mode and its text color, with separate keyboard stops. */
+.atlas-marker-preset-editor .atlas-marker-preset-banner-colors {
+  display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;min-width:0;
+}
+.atlas-marker-preset-editor .atlas-marker-preset-banner-colors > label {
+  flex:1 1 12rem;min-width:0;
+}
+.atlas-marker-preset-editor .atlas-marker-preset-banner-colors input[type="color"] {
+  width:3.75rem;min-width:3.75rem;height:2.25rem;
+}
