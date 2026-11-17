@@ -50,7 +50,7 @@ export function roadAppearanceForm(appearance) {
       controls.set(name,range.number);
     }else field=createSettingsInput(type,value,{
       name,min:options.min,max:options.max,step:options.step});
-    field.style.maxWidth="13rem";
+    field.style.maxWidth=(name==="atlasRoadWidth"||name==="atlasRoadOpacity")?"20rem":"13rem";
     if(type==="color")field.style.cssText="width:3.75rem;height:2.25rem;padding:2px;flex:0 0 auto;";
     if(!controls.has(name))controls.set(name,field);
     row.appendChild(field);section.appendChild(row);
