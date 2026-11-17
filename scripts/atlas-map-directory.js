@@ -96,18 +96,36 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   filters.appendChild(searchGroup);
   search.addEventListener("input",()=>{saved.query=search.value;draw();});
 
-  function group(key, label, expanded) {
-    const details = element("details");
-    details.open = expanded || state.open.has(key);
+  function group(key,label,expanded,subtitle="") {
+    const details=element("details");
+    details.open=expanded||state.open.has(key);
+    details.dataset.atlasDirectoryKey=key;
+    details._atlasRoadIds=new Set();
+    details._atlasMarkerIds=new Set();
     const summary=element("summary");
+    const chevron=element("i");
+    chevron.className="fa-solid fa-chevron-right atlas-directory-chevron";
+    chevron.setAttribute("aria-hidden","true");
+    summary.appendChild(chevron);
     summary.appendChild(element("span",label));
+    if(subtitle) {
+      const secondary=element("small",subtitle);
+      secondary.className="atlas-directory-secondary";
+      summary.appendChild(secondary);
+    }
     details.appendChild(summary);
-    details.addEventListener("toggle", () => {
-      if (!details.isConnected || expanded) return;
-      if (details.open) state.open.add(key);
+    details.addEventListener("toggle",()=>{
+      if(!details.isConnected||expanded)return;
+      if(details.open)state.open.add(key);
       else state.open.delete(key);
     });
     return details;
+  }
+  function collectCounts(parent,children){
+    for(const child of children){
+      for(const id of child._atlasRoadIds??[])parent._atlasRoadIds.add(id);
+      for(const id of child._atlasMarkerIds??[])parent._atlasMarkerIds.add(id);
+    }
   }
   function tools(parent, item, type) {
     const bar = element("span");
@@ -147,7 +165,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
           {checkpointId:item.id,knowledge:shown?"unknown":"lore",expected:party},refresh));
       } else add(item.playerVisible?"eye-slash":"eye",item.playerVisible?"Hide":"Show",()=>actions.toggleCheckpointPlayerVisibility(scene,item,refresh));
       add("gear","Settings for",()=>actions.editCheckpointAppearance(scene,item,refresh));
-      add("pen","Move on map",()=>actions.editCheckpoint(scene,item,refresh));
+      add("pen","Move on map",()=>actions.moveMapMarker(scene,item.id,refresh));
       add("trash","Delete",()=>actions.removeCheckpoint(scene,item,refresh),true);
     }
     (parent.children[0]??parent).appendChild(bar);
