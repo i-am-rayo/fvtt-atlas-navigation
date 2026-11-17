@@ -1,4 +1,4 @@
-/* Native Foundry DialogV2 continues to own Road Save submission.
+/* The Road ApplicationV2 form owns submission; no native document is written on render.
  * Shared Atlas order: edit actions then Cancel/Save, Delete last on the right.
  * DOM focus order matches visual order; CSS only handles available spacing.
  */
@@ -17,12 +17,12 @@
   width: auto;
 }
 
-.application:has([data-atlas-road-live]) .form-footer > button[data-action="ok"],
+.application:has([data-atlas-road-live]) .form-footer > button[data-atlas-road-submit],
 .atlas-checkpoint-form-actions .atlas-checkpoint-footer-save {
   margin-inline-start: auto;
 }
 
-.application:has([data-atlas-road-live]) .form-footer > button[data-action="ok"].atlas-ui-icon-button {
+.application:has([data-atlas-road-live]) .form-footer > button[data-atlas-road-submit].atlas-ui-icon-button {
   flex:0 0 2rem;
   width:2rem;min-width:2rem;max-width:2rem;
   height:2rem;min-height:2rem;max-height:2rem;
