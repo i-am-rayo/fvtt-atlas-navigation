@@ -1,6 +1,6 @@
 import { resolveCheckpointElevationUnits } from "./navigation-measure-units.js";
 import { resolveCheckpointAppearance,checkpointCanvasSize,
-  validateCheckpointAppearance } from "./checkpoint-appearance.js";
+  validateCheckpointAppearance,resolveCheckpointBanner,withCheckpointBanner } from "./checkpoint-appearance.js";
 import { createCheckpointIconPicker, createCheckpointIconGlyph } from "./checkpoint-icon-control.js";
 import { createCheckpointTransportationEditor } from "./checkpoint-transportation-editor.js";
 import { checkpointOffers,saveCheckpointOffers } from "./checkpoint-transportation.js";
@@ -23,9 +23,12 @@ import { readPartyExploration, saveCheckpointKnowledge }
 import { checkpointKnowledge, checkpointRevealRadiusCells }
   from "./party-exploration-model.js";
 import { listGeneratedRegions } from "./generated-region.js";
+import {checkpointBannerTerritoryCandidates}
+  from "./checkpoint-banner-territory.js";
+import {checkpointBannerLines} from "./checkpoint-banner.js";
 import { territoryCheckpointLinks } from "./territory-checkpoint-link.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
-import { CHECKPOINT_TYPE_GROUPS, checkpointCategory, saveCheckpointCategory } from "./checkpoint-types.js";
+import { CHECKPOINT_TYPE_GROUPS,CHECKPOINT_TYPES,checkpointCategory, saveCheckpointCategory } from "./checkpoint-types.js";
 import { CHECKPOINT_PRESET_SETTING, upsertCheckpointPreset } from "./checkpoint-preset-model.js";
 import { readWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
 import { MODULE_ID } from "./atlas-storage.js";
@@ -105,6 +108,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     } : readAtlas(this.scene).checkpoints?.find(c => c.id === this.checkpointId);
     if (!current) throw new Error("Checkpoint no longer exists.");
     const appearance = resolveCheckpointAppearance(current.appearance);
+    const existingBanner=resolveCheckpointBanner(appearance);
     const exploration = readPartyExploration(this.scene);
     const journalLinks = readAtlasJournalLinks(this.scene);
     const discoveryMethods = readCheckpointDiscoveryMethods(this.scene);
@@ -271,8 +275,48 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     fields = el("div"); fields.style.cssText = "display:grid;gap:.55rem;";
     pageMarker.appendChild(fields);
     const mode = field("Checkpoint label", createCheckpointChoice(CHECKPOINT_LABEL_MODES,appearance.labelMode));
-    const showRoad = createCheckpointCheckbox(appearance.showRoadName);
-    field("Include road name with label", showRoad);
+    const showRoad=createCheckpointCheckbox(appearance.showRoadName,
+      {label:"Include Road name in checkpoint banner"});
+    const showType=createCheckpointCheckbox(existingBanner.showType,
+      {label:"Include checkpoint type in banner"});
+    const showElevation=createCheckpointCheckbox(existingBanner.showElevation,
+      {label:"Include checkpoint elevation in banner"});
+    const bannerGroup=el("fieldset");
+    bannerGroup.className="atlas-checkpoint-banner-settings";
+    bannerGroup.appendChild(el("legend","Include in checkpoint banner"));
+    const bannerChoice=(title,input)=>{
+      const row=el("label");
+      row.append(input,el("span",title));bannerGroup.appendChild(row);
+    };
+    bannerChoice("Road name",showRoad);
+    bannerChoice("Checkpoint type",showType);
+    bannerChoice("Elevation",showElevation);
+    const availableTerritories=this.createDraft?[]:
+      checkpointBannerTerritoryCandidates(this.scene,current,
+        {atlas:readAtlas(this.scene)});
+    const selectedTerritoryId=existingBanner.territoryRegionId??"";
+    const territoryOptions=[["","None / No Territory"],
+      ...availableTerritories.map(t=>[t.id,t.name+" — "+t.label+
+        (t.hidden?" (GM-only native Region)":"")])];
+    if(selectedTerritoryId&&
+      !availableTerritories.some(t=>t.id===selectedTerritoryId))
+      territoryOptions.push([selectedTerritoryId,
+        "Unavailable selected Territory ("+selectedTerritoryId+"); clear to remove"]);
+    const bannerTerritory=createSettingsSelect(territoryOptions,
+      {selectedId:selectedTerritoryId});
+    bannerTerritory.setAttribute("aria-label",
+      "Select one geographic Territory for the Checkpoint banner");
+    bannerTerritory.disabled=Boolean(this.createDraft);
+    const territoryRow=el("label");
+    territoryRow.className="atlas-checkpoint-banner-territory";
+    territoryRow.append(el("span","Territory (optional)"),bannerTerritory);
+    bannerGroup.appendChild(territoryRow);
+    bannerGroup.appendChild(el("small",this.createDraft?
+      "Place and save the Checkpoint before selecting a containing Territory.":
+      "Choose one native geographic Territory, including a containing Continent. "+
+      "The selected name may appear to players when this Checkpoint is shown. "+
+      "Atlas does not publish native Region boundaries or Journal access."));
+    fields.appendChild(bannerGroup);
     const textColor = createCheckpointColor(appearance.textColor,{label:"Checkpoint label text color"});
     field("Checkpoint / road label text color", textColor);
     // The icon picker is a separate action BEFORE the marker-type selector.
@@ -357,11 +401,24 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       const checkpointName=el("strong",name.value);
       checkpointName.style.cssText="font-size:"+nameScreenSize+
         "px;line-height:1.25;font-weight:700;";
-      const roadName=el("span",road?.name??"");
-      roadName.style.cssText="font-size:"+roadScreenSize+
-        "px;line-height:1.25;font-style:italic;";
-      roadName.hidden=!(showRoad.checked&&road?.name);
-      previewLabel.replaceChildren(checkpointName,roadName);
+      const categoryLabel=CHECKPOINT_TYPES.find(([id])=>id===category.value)?.[1]??null;
+      const previewStyle=withCheckpointBanner({...appearance,showRoadName:showRoad.checked},
+        {showType:showType.checked,showElevation:showElevation.checked,
+          territoryRegionId:bannerTerritory.value||null});
+      const territoryName=availableTerritories.find(t=>
+        t.id===bannerTerritory.value)?.name??null;
+      const rows=checkpointBannerLines({appearance:previewStyle,
+        checkpointType:categoryLabel,elevationMeters:elevationMeters(),
+        elevationUnits:imperial?"imperial":"metric",
+        roadName:road?.name??null,territoryName});
+      const children=rows.map(row=>{
+        const detail=el("span",row.text);
+        detail.className="atlas-checkpoint-banner-detail";
+        detail.style.cssText="font-size:"+roadScreenSize+
+          "px;line-height:1.25;font-style:"+(row.kind==="road"?"italic":"normal")+";";
+        return detail;
+      });
+      previewLabel.replaceChildren(checkpointName,...children);
       previewLabel.style.color=textColor.value;
       previewLabel.hidden=mode.value==="off";
       preview.setAttribute("data-label-mode",mode.value);
@@ -383,6 +440,11 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       markerSize.setValue(a.size);markerSize.output.textContent=a.size+" px";
       color.value=a.color;borderColor.value=a.borderColor;
       mode.value=a.labelMode;showRoad.checked=a.showRoadName;textColor.value=a.textColor;
+      const portable=resolveCheckpointBanner(a);
+      showType.checked=portable.showType;
+      showElevation.checked=portable.showElevation;
+      // World presets do not own native Region IDs. Leave the current Scene
+      // selection alone; a GM can explicitly clear or change it.
       discoveryMethod&&(discoveryMethod.value=preset.discoveryMethod);
       revealControl?.setValue(preset.revealRadiusCells);
       if(preset.elevationMeters!==null){
@@ -555,9 +617,14 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           ok:{label:"Save Preset"},rejectClose:false,modal:true
         });
         if(!values)return;
-        const a=validateCheckpointAppearance({type:type.value,icon:selected,image:image.value.trim(),
+        const a=withCheckpointBanner({
+          type:type.value,icon:selected,image:image.value.trim(),
           size:markerSize.getValue(),color:color.value,borderColor:borderColor.value,
-          labelMode:mode.value,showRoadName:showRoad.checked,textColor:textColor.value});
+          labelMode:mode.value,showRoadName:showRoad.checked,
+          textColor:textColor.value},{
+          showType:showType.checked,showElevation:showElevation.checked,
+          // Portable World template: never capture Scene-specific Region ID.
+          territoryRegionId:null});
         const world=readWorldCheckpointPresets();
         if(JSON.stringify(world)!==JSON.stringify(before))throw Error("World presets changed. Try saving again.");
         const targetId=String(values.presetTarget??"");
@@ -593,13 +660,20 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         if (readAtlas(this.scene).revision !== this.expectedRevision) {
           throw new Error("Scene Atlas changed. Close and reopen this checkpoint editor.");
         }
-        const next = value === null ? null : validateCheckpointAppearance({
-          type: type.value, icon: selected, image: image.value.trim(),
-          size: markerSize.getValue(), color: color.value,
-          borderColor: borderColor.value,
-          labelMode: mode.value, showRoadName: showRoad.checked,
-          textColor: textColor.value
-        });
+        const chosenTerritory=bannerTerritory.value||null;
+        if(chosenTerritory&&
+            chosenTerritory!==existingBanner.territoryRegionId&&
+            !checkpointBannerTerritoryCandidates(this.scene,current,
+              {atlas:readAtlas(this.scene)}).some(item=>item.id===chosenTerritory))
+          throw Error("Selected native Territory is no longer available. "+
+            "Refresh the Scene or choose None.");
+        const next=value===null?null:withCheckpointBanner({
+          type:type.value,icon:selected,image:image.value.trim(),
+          size:markerSize.getValue(),color:color.value,
+          borderColor:borderColor.value,labelMode:mode.value,
+          showRoadName:showRoad.checked,textColor:textColor.value},{
+          showType:showType.checked,showElevation:showElevation.checked,
+          territoryRegionId:chosenTerritory});
         const nextJournal=journalUuidFromForm(journalInput.value);
         if(nextJournal&&!validJournalUuid(nextJournal))
           throw Error("Select a Journal Entry or Journal Page UUID.");
