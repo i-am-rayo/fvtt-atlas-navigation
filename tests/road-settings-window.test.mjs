@@ -74,7 +74,7 @@ test("invalid Road form cannot submit, and closing returns a null cancellation",
     globalThis.foundry={applications:{api:{ApplicationV2:MockApplicationV2},
       ux:{FormDataExtended:class {constructor(){serializations++;this.object={};}}}}};
     const resultPromise=openRoadSettingsWindow({
-      title:"Road",position:{width:560},content:new Element("div"),
+      id:"road-b",title:"Road",position:{width:560},content:new Element("div"),
       onRender:(_event,window)=>{app=window;}
     });
     await new Promise(resolve=>setImmediate(resolve));
