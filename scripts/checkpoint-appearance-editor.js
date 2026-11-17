@@ -113,7 +113,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const journalLinks = readAtlasJournalLinks(this.scene);
     const discoveryMethods = readCheckpointDiscoveryMethods(this.scene);
     const root = el("div");
-    root.style.cssText = "padding:0.85rem;display:flex;flex-direction:column;gap:0.6rem;overflow-y:auto;overflow-x:hidden;min-height:0;height:100%;box-sizing:border-box;";
+    root.className="atlas-checkpoint-settings-root";
+    root.style.cssText="padding:.85rem;display:flex;flex-direction:column;gap:.6rem;overflow:hidden;min-height:0;height:100%;box-sizing:border-box;";
 
     let fields = el("div");
     fields.style.cssText = "display:grid;gap:0.55rem;";
@@ -611,14 +612,20 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       });
       editorTabs.appendChild(item);
     }
-    pages.forEach(([name,page])=>{page.hidden=name!==this.activePage;});
+    pages.forEach(([name,page])=>{
+      page.hidden=name!==this.activePage;
+      page.className+=" atlas-checkpoint-settings-page";
+      page.style.flex="1 1 auto";
+      page.style.minHeight="0";
+      page.style.overflowY="auto";
+    });
 
     root.prepend(editorTabs);
     root.append(pageGeneral,pageMarker,pageTerrain,pageTransport);
     const journalInput = journalControls.querySelector('input[name="atlasJournalUuid"]');
     const controls = el("div");
     controls.className = "atlas-checkpoint-form-actions";
-    controls.style.cssText = "position:sticky;bottom:0;z-index:2;background:#100f17;padding:.4rem 0;";
+    controls.style.cssText="flex:0 0 auto;margin-top:auto;padding:.4rem 0;border-top:1px solid var(--color-border-light-tertiary,#666);";
     const save = createSettingsIconButton({icon:"floppy-disk",
       label:this.createDraft ? "Create Map Marker" : "Save Map Marker"});
     save.className+=" atlas-checkpoint-footer-save";
