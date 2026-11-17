@@ -4,7 +4,8 @@ import { territoryCheckpointLinks } from "./territory-checkpoint-link.js";
 import { readPlayerTerritorySharing } from "./player-territory-sharing.js";
 import { readPendingTerritoryCellTransfer } from "./territory-grid-transfer.js";
 import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
-import { CHECKPOINT_TYPES, CHECKPOINT_TYPE_FLAG, validateCheckpointCategories } from "./checkpoint-types.js";
+import { CHECKPOINT_TYPE_GROUPS, CHECKPOINT_TYPES, CHECKPOINT_TYPE_FLAG, validateCheckpointCategories } from "./checkpoint-types.js";
+import { createSettingsGroupedSelect } from "./settings-select.js";
 import { MODULE_ID } from "./atlas-storage.js";
 import { roadAppearanceMode } from "./road-appearance.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
@@ -41,7 +42,8 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   const filters = element("div");
   filters.className = "atlas-directory-filters";
   const list = element("div");
-  const saved = state.filters[view] ??= {query:"", type:"", place:""};
+  const saved = state.filters[view] ??= {query:"", type:"", place:"", sort:"az"};
+  saved.sort ??= "az";
   const places = new Map();
   function indexPlace(place) {
     places.set(place.id, place.name);
@@ -49,7 +51,9 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   }
   directory.tree.forEach(indexPlace);
   function input(label, control, key, event) {
-    const field = element("label", label);
+    const field = element("label");
+    field.appendChild(element("span",label));
+    control.setAttribute("aria-label",label);
     field.appendChild(control);
     filters.appendChild(field);
     control.value = saved[key];
@@ -67,15 +71,31 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     }
     input(label, control, key, "change");
   }
-  const search = element("input");
-  search.type = "search";
-  input("Search map", search, "query", "input");
   if (view === "directory") select("Territory type", "type", Object.entries(GEOGRAPHY_KINDS));
   if (view === "allRoads") select("Travel type", "type", [["land","Land"],["air","Air"],["water","Water"]]);
   if (view === "allCheckpoints") {
-    select("Map Marker type", "type", CHECKPOINT_TYPES);
-    select("Territory", "place", places);
+    const type=createSettingsGroupedSelect([
+      {label:null,options:[["","All"]]},
+      ...CHECKPOINT_TYPE_GROUPS.map(([label,options])=>({label,options}))
+    ],{selectedId:saved.type,ariaLabel:"Map Marker type"});
+    input("Map Marker type",type,"type","change");
+    select("Territory","place",places);
   }
+  select("Sort by name","sort",[["az","A–Z"],["za","Z–A"]]);
+  const search=element("input");
+  search.type="search";
+  const searchGroup=element("label");
+  searchGroup.className="atlas-directory-search";
+  search.setAttribute("aria-label","Search map records");
+  search.value=saved.query;
+  searchGroup.appendChild(search);
+  const icon=element("i");
+  icon.className="fa-solid fa-magnifying-glass";
+  icon.setAttribute("aria-hidden","true");
+  searchGroup.appendChild(icon);
+  filters.appendChild(searchGroup);
+  search.addEventListener("input",()=>{saved.query=search.value;draw();});
+
   function group(key, label, expanded) {
     const details = element("details");
     details.open = expanded || state.open.has(key);
@@ -135,6 +155,9 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   const roads = atlas.roads ?? [];
   const checkpoints = atlas.checkpoints ?? [];
   function draw() {
+    const compare=(a,b)=>(saved.sort==="za"?-1:1)*(
+      a.name.localeCompare(b.name,undefined,{sensitivity:"base"})||a.id.localeCompare(b.id));
+    const sorted=items=>[...items].sort(compare);
     const query = saved.query.trim().toLocaleLowerCase();
     const matches = item => !query || item.name.toLocaleLowerCase().includes(query);
     const filtered = Boolean(query || saved.type || saved.place);
@@ -147,11 +170,11 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     function placeRow(place, path) {
       const key = path+"/"+place.id;
       const own = matches(place) && (!saved.type || place.kind === saved.type);
-      const descendants = place.children.map(child=>placeRow(child,key)).filter(Boolean);
+      const descendants = sorted(place.children).map(child=>placeRow(child,key)).filter(Boolean);
       const children = [];
       for (const [type, entries] of [["road",roads.filter(r=>directory.direct.get(place.id)?.has(r.id))],
         ["checkpoint",checkpoints.filter(c=>territoryIds.get(c.id)?.has(place.id))]]) {
-        const found = entries.filter(item=>own || (!saved.type && matches(item)));
+        const found = sorted(entries.filter(item=>own || (!saved.type && matches(item))));
         if (!found.length) continue;
         const section = group(key+"/"+type,(type==="road"?"Roads":"Map Markers")+" ("+found.length+")",Boolean(query));
         for (const item of found) section.appendChild(itemRow(item,type,key));
@@ -165,19 +188,19 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     }
     let rows;
     if (view === "directory") {
-      rows = directory.tree.map(place=>placeRow(place,"territory")).filter(Boolean);
+      rows = sorted(directory.tree).map(place=>placeRow(place,"territory")).filter(Boolean);
       const outside = group("unclassified","Outside classified territories",filtered);
       const looseRoads = new Set(directory.unclassifiedRoadIds);
       for (const [type,entries] of [["road",roads.filter(r=>looseRoads.has(r.id))],
         ["checkpoint",checkpoints.filter(c=>![...(territoryIds.get(c.id)??[])].some(id=>places.has(id)))]]) {
-        for (const item of entries.filter(matches)) outside.appendChild(itemRow(item,type,"outside"));
+        for (const item of sorted(entries.filter(matches))) outside.appendChild(itemRow(item,type,"outside"));
       }
       if (!saved.type && outside.children.length>1) rows.push(outside);
     } else if (view === "allRoads") {
-      rows = roads.filter(item=>matches(item) && (!saved.type || roadAppearanceMode(item,presets)===saved.type))
+      rows = sorted(roads.filter(item=>matches(item) && (!saved.type || roadAppearanceMode(item,presets)===saved.type)))
         .map(item=>itemRow(item,"road","all"));
     } else {
-      rows = checkpoints.filter(item=>matches(item) && (!saved.type || (categories[item.id]??"generic")===saved.type)
+      rows = sorted(checkpoints.filter(item=>matches(item) && (!saved.type || (categories[item.id]??"generic")===saved.type)
         && (!saved.place || territoryIds.get(item.id)?.has(saved.place))).map(item=>itemRow(item,"checkpoint","all"));
     }
     if (!rows.length) rows.push(element("p","No matching entries."));
