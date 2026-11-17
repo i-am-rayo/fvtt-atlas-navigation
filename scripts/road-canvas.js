@@ -510,6 +510,8 @@ export class RoadCanvasController {
       points: this.draft.points?.length ?? 0,
       canUndo:this.draft.mode==="new"&&this.draft.points.length>0,
       canRedo:this.draft.mode==="new"&&this.draft.redoPoints.length>0,
+      checkpointId:this.draft.mode==="checkpoint-relocate"?
+        this.draft.checkpointId:null,
       saving: this.saving,
       mode: this.draft.mode
     };
