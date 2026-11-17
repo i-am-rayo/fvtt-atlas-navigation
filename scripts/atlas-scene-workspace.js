@@ -67,6 +67,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     this.activeSection = "overview";
     this._scrollY = 0;
     this.surfaceExpansion = new Set();
+    this.travelSettingsTab = "rules";
     this.directoryState = {open:new Set(), filters:{}};
     this.territoryLocator=new TerritoryLocateHighlight();
   }
@@ -165,16 +166,43 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     } else if (this.activeSection==="settings") {
       main.appendChild(createAtlasExplorationPanel(this.scene,this.actions,refresh));
       main.appendChild(make("h3","World travel settings"));
-      for (const [title,renderForm] of [["Travel rules",renderTravelRules],["Journey & playback",renderJourneyPlayback]]) {
-        const group = make("details",undefined,"atlas-workspace-settings-group");
-        group.appendChild(make("summary",title));
-        const fields = make("div");
-        group.appendChild(fields);
-        group.addEventListener("toggle",()=>{
-          if (group.open && !fields.children.length) renderForm(fields);
-        });
-        main.appendChild(group);
+      const tabs = make("nav",undefined,"atlas-travel-settings-tabs");
+      tabs.setAttribute("role","tablist");
+      tabs.setAttribute("aria-label","World travel settings");
+      const entries = [];
+      const activate = id => {
+        this.travelSettingsTab = id;
+        for (const [key,button,panel,renderForm] of entries) {
+          button.setAttribute("aria-selected",String(key===id));
+          button.tabIndex=key===id?0:-1;
+          panel.hidden=key!==id;
+          if(key===id&&!panel.children.length)renderForm(panel);
+        }
+      };
+      for(const [id,label,renderForm] of [
+        ["rules","Travel rules",renderTravelRules],
+        ["playback","Journey & playback",renderJourneyPlayback]]) {
+        const tab=action(label,"Show "+label,()=>activate(id));
+        tab.setAttribute("role","tab");
+        const panel=make("section",undefined,"atlas-travel-settings-panel");
+        panel.setAttribute("role","tabpanel");
+        tabs.appendChild(tab);
+        entries.push([id,tab,panel,renderForm]);
+        main.appendChild(panel);
       }
+      tabs.addEventListener("keydown",event=>{
+        const index=entries.findIndex(([,tab])=>tab===event.target);
+        if(index<0)return;
+        const next=event.key==="ArrowRight"?(index+1)%entries.length:
+          event.key==="ArrowLeft"?(index+entries.length-1)%entries.length:
+          event.key==="Home"?0:event.key==="End"?entries.length-1:-1;
+        if(next<0)return;
+        event.preventDefault();
+        activate(entries[next][0]);
+        entries[next][1].focus();
+      });
+      main.appendChild(tabs);
+      activate(this.travelSettingsTab);
       main.appendChild(action("Transportation presets","Transportation presets",()=>this.actions.openWorldTravelSettings()));
     } else if(this.activeSection==="portability"){
       main.appendChild(createAtlasWorkspacePortabilityPanel(this.scene));
