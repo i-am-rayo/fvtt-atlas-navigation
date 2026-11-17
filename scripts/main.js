@@ -936,7 +936,7 @@ function actions() {
         interceptDialogHeaderClose(dialog,()=>!roadMayClose&&roadDirty());
       };
       const onTabClick = event => {
-        const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-edit],[data-atlas-checkpoint-delete],[data-atlas-region-edit],[data-atlas-region-regenerate],[data-atlas-region-delete]");
+        const action=event.target?.closest?.("[data-atlas-road-tool],[data-atlas-checkpoint-locate],[data-atlas-checkpoint-edit],[data-atlas-checkpoint-delete],[data-atlas-region-locate],[data-atlas-region-edit],[data-atlas-region-regenerate],[data-atlas-region-delete]");
         if (action?.closest?.(".application")?.querySelector?.('input[name="atlasRoadName"]')) {
           event.preventDefault();event.stopImmediatePropagation();
           const tool=action.dataset.atlasRoadTool;
@@ -955,6 +955,10 @@ function actions() {
               if(!entry)throw Error("This Atlas Region is no longer available.");
               return api.regenerateRegion(scene,entry,refresh);
             }
+            :action.dataset.atlasCheckpointLocate ? ()=>api.selectCheckpoint(
+              scene,action.dataset.atlasCheckpointLocate)
+            :action.dataset.atlasRegionLocate ? ()=>regionLocator.focus(scene,
+              scene.regions?.get?.(action.dataset.atlasRegionLocate),{view:globalThis.canvas})
             :action.dataset.atlasCheckpointEdit ? ()=>api.editCheckpointAppearance(
               scene,readAtlas(scene).checkpoints.find(c=>c.id===action.dataset.atlasCheckpointEdit),refresh)
             :()=>api.configureRegion(scene,action.dataset.atlasRegionEdit);
@@ -1068,6 +1072,7 @@ function actions() {
           onSubmitted:()=>{roadSaveRequested=true;roadMayClose=true;}
         });
       } finally {
+        regionLocator.clear();
         Hooks.off("updateScene",updateHook);
         Hooks.off("createRegion",createHook);
         Hooks.off("updateRegion",regionUpdateHook);
