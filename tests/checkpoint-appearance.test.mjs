@@ -304,8 +304,29 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       node.type==="checkbox");
     const labelMode=all(root).find(node=>node.tag==="select"&&node.value==="off");
     assert.ok(showRoad&&labelMode);
+    const bannerSettings=all(root).find(node=>
+      node.className==="atlas-checkpoint-banner-settings");
+    assert.ok(bannerSettings);
+    const bannerType=bannerSettings.children[2].children[0];
+    const bannerElevation=bannerSettings.children[3].children[0];
+    const bannerTerritory=bannerSettings.children[4].children[1];
+    assert.equal(showRoad.disabled,true,"Banner Off disables subordinate Road option");
+    assert.equal(bannerType.disabled,true);
+    assert.equal(bannerElevation.disabled,true);
+    assert.equal(bannerTerritory.disabled,true);
     showRoad.checked=true;labelMode.value="always";
     root.listeners.get("change")();
+    assert.equal(showRoad.disabled,false,"re-enabling Banner restores controls");
+    assert.equal(bannerType.disabled,false);
+    assert.equal(bannerElevation.disabled,false);
+    assert.equal(bannerTerritory.disabled,false);
+    labelMode.value="off";root.listeners.get("change")();
+    assert.equal(showRoad.checked,true,"Banner Off preserves draft choices");
+    assert.equal(showRoad.disabled,true);
+    assert.equal(labelPreview.hidden,true,"Banner Off hides text only");
+    labelMode.value="always";root.listeners.get("change")();
+    assert.equal(showRoad.checked,true);
+    assert.equal(labelPreview.hidden,false);
     assert.equal(labelPreview.children.length,2,
       "Scene renders Checkpoint name and Road name on separate lines");
     assert.equal(labelPreview.children[0].textContent,"Ridge Lookout");
