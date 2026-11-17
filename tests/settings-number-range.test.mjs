@@ -36,6 +36,7 @@ test("slider and number stay synchronized, invalid draft cannot save stale slide
   const pair=createSettingsNumberRange(24,{min:12,max:64,step:1,
     label:"Marker pixels",onInput:n=>changes.push(n)});
   pair.slider.value="55";pair.slider.listeners.get("input")();
+  assert.equal(pair.number.style.width,undefined,"shared CSS owns numeric width");
   assert.equal(pair.number.value,"55");
   assert.equal(pair.getValue(),55);
   pair.number.value="32";pair.number.listeners.get("input")();
