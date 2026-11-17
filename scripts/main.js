@@ -90,6 +90,7 @@ import { createSettingsInput } from "./settings-input.js";
 import { promptNativeMovementAction } from "./native-movement-action-picker.js";
 import { createRoadPresetStage } from "./road-settings-preset.js";
 import { arrangeRoadDialogFooter } from "./road-settings-dialog-footer.js";
+import { openRoadSettingsWindow } from "./road-settings-window.js";
 import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges,
   interceptDialogHeaderClose } from "./settings-close-guard.js";
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
@@ -1054,13 +1055,11 @@ function actions() {
       document.addEventListener("drop",onRegionDrop,true);
       let result;
       try {
-        result = await DialogV2.input({
-          window: { title: atlasSettingsTitle("Road",actual.name), resizable: true,
-            minimizable: true },
-          position: { left: 24, width: Math.min(560, Math.max(360, window.innerWidth - 60)), height: Math.min(740, Math.max(440, window.innerHeight - 70)) },
-          content, ok: {label:"Save Road",icon:"fa-solid fa-floppy-disk"},
-          render:renderRoadDialog,
-          rejectClose: false, modal: false
+        result = await openRoadSettingsWindow({
+          title:atlasSettingsTitle("Road",actual.name),
+          position:{left:24,width:Math.min(560,Math.max(360,window.innerWidth-60)),
+            height:Math.min(740,Math.max(440,window.innerHeight-70))},
+          content,onRender:renderRoadDialog
         });
       } finally {
         Hooks.off("updateScene",updateHook);
