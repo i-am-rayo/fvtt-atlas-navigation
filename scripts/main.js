@@ -423,7 +423,7 @@ async function promptNewRoadSettings(scene) {
   const tabs = document.createElement("nav");
   tabs.style.cssText = "display:flex;gap:.4rem;border-bottom:1px solid #655;padding-bottom:.65rem;margin-bottom:.7rem;";
   const pages = {};
-  for (const [key, label] of [["general","General"],["style","Style"],
+  for (const [key, label] of [["general","General"],["style","Customization"],
       ["checkpoints","Checkpoints"],["regions","Terrain Regions"]]) {
     const button = document.createElement("button");
     button.type = "button"; button.textContent = label;
@@ -732,7 +732,7 @@ function actions() {
       const panels={general:document.createElement("div"),
         style:document.createElement("div"),
         checkpoints:document.createElement("div"),regions:document.createElement("div")};
-      for (const [key,text] of [["general","General"],["style","Style"],["checkpoints","Checkpoints"],["regions","Terrain Regions"]]) {
+      for (const [key,text] of [["general","General"],["style","Customization"],["checkpoints","Checkpoints"],["regions","Terrain Regions"]]) {
         const tab=document.createElement("button");
         tab.type="button";tab.textContent=text;tab.dataset.atlasRoadTab=key;
         tab.style.flex="1";
