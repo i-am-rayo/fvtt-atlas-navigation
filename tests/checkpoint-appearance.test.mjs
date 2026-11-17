@@ -265,7 +265,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(editor.options.position.left,24,
       "checkpoint authoring opens at the left of the canvas");
     assert.equal(editor.options.window.title,"Atlas — Ridge Lookout — Map Marker Settings",
-      "existing Checkpoint settings identify the edited Checkpoint regardless of tab");
+      "existing Map Marker settings identify the edited Checkpoint regardless of tab");
     editor.close = async () => {};
     const root = await editor._renderHTML();
     const buttons = all(root).filter(node => node.tag === "button");
@@ -303,7 +303,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       node.className==="atlas-checkpoint-customization-section");
     assert.equal(sections.length,2);
     assert.deepEqual(sections.map(node=>node.children[0].textContent),
-      ["Checkpoint settings","Banner information"]);
+      ["Map Marker settings","Banner information"]);
     assert.equal(sections[0].children[1].children[0].textContent,"Marker size (12–64 px)");
     const mapPreview=all(root).find(node=>node.className==="atlas-checkpoint-preview");
     assert.ok(mapPreview);
