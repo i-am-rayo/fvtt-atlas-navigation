@@ -96,7 +96,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       return bar.appendChild(createSettingsActionButton({icon, label:title + " " + item.name, danger,
         onClick:async event => {
           event.preventDefault();
-          event.stopPropagation();
+          event.stopPropagation?.();
           try { await callback(); } catch (error) { ui.notifications.error(error.message); }
         }}));
     }
