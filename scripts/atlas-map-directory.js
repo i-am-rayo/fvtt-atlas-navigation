@@ -223,10 +223,10 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       return node;
     }
     const settlementKinds=new Set(["city","town","village","settlement"]);
-    function placeRow(place,path){
+    function placeRow(place,path,parentMatched=false){
       const key=path+"/"+place.id;
-      const own=matches(place)&&(!saved.type||place.kind===saved.type);
-      const descendants=sorted(place.children).map(child=>placeRow(child,key)).filter(Boolean);
+      const own=parentMatched||(matches(place)&&(!saved.type||place.kind===saved.type));
+      const descendants=sorted(place.children).map(child=>placeRow(child,key,own)).filter(Boolean);
       const children=[];
       const settlements=descendants.filter(row=>settlementKinds.has(row._atlasKind));
       const other=descendants.filter(row=>!settlementKinds.has(row._atlasKind));
