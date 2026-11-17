@@ -168,6 +168,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       {label:"Checkpoint visible to players"});
     let discovery = null;
     let revealRadius = null;
+    let revealControl = null;
     let discoveryMethod = null;
     let updateVisibility=()=>{};
     // The very same staged visibility control is placed in the persistent
@@ -201,11 +202,11 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       discoveryMethod = field("Discovery method", createCheckpointChoice(CHECKPOINT_DISCOVERY_METHODS,
         checkpointDiscoveryMethod(discoveryMethods,this.checkpointId)));
 
-      const radiusControl=createCheckpointRange(
+      revealControl=createCheckpointRange(
         checkpointRevealRadiusCells(exploration,this.checkpointId),
         {min:0,max:100,step:.25,label:"Checkpoint terrain reveal radius in grid cells"});
-      revealRadius=radiusControl.number;
-      field("Terrain revealed on discovery (cells)",radiusControl.element);
+      revealRadius=revealControl.number;
+      field("Terrain revealed on discovery (cells)",revealControl.element);
       fields.appendChild(el("small","Reveals map terrain after this checkpoint becomes known. It does not discover nearby checkpoints. Set to 0 for the marker only."));
     } else {
       playerVisibility.hidden=true;
@@ -379,7 +380,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       category.value=preset.category;
       const a=resolveCheckpointAppearance(preset.appearance);
       type.value=a.type;selected=a.icon;image.value=a.image;
-      size.value=String(a.size);markerSize.output.textContent=a.size+" px";
+      markerSize.setValue(a.size);markerSize.output.textContent=a.size+" px";
       color.value=a.color;borderColor.value=a.borderColor;
       mode.value=a.labelMode;showRoad.checked=a.showRoadName;textColor.value=a.textColor;
       discoveryMethod&&(discoveryMethod.value=preset.discoveryMethod);
@@ -555,7 +556,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         });
         if(!values)return;
         const a=validateCheckpointAppearance({type:type.value,icon:selected,image:image.value.trim(),
-          size:Number(size.value),color:color.value,borderColor:borderColor.value,
+          size:markerSize.getValue(),color:color.value,borderColor:borderColor.value,
           labelMode:mode.value,showRoadName:showRoad.checked,textColor:textColor.value});
         const world=readWorldCheckpointPresets();
         if(JSON.stringify(world)!==JSON.stringify(before))throw Error("World presets changed. Try saving again.");
@@ -570,7 +571,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           discoveryStatus:discovery?.value??"unknown",
           journalUuid:journalInput.value.trim()||null,
           playerVisible:playerVisibility.checked,
-          revealRadiusCells:Number(revealRadius?.value??3),
+          revealRadiusCells:revealControl?.getValue()??3,
           terrain:suggested?{...suggested}:{presetId:null,radiusCells:.25},
           transportation:transportEditor.getOffers(),
           event:{kind:"none",enabled:false}};
@@ -587,12 +588,14 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       if (save.disabled) return;
       save.disabled = true;
       try {
+        // Validate all staged numeric values BEFORE the first Scene write.
+        const revealValue=revealControl?.getValue()??null;
         if (readAtlas(this.scene).revision !== this.expectedRevision) {
           throw new Error("Scene Atlas changed. Close and reopen this checkpoint editor.");
         }
         const next = value === null ? null : validateCheckpointAppearance({
           type: type.value, icon: selected, image: image.value.trim(),
-          size: Number(size.value), color: color.value,
+          size: markerSize.getValue(), color: color.value,
           borderColor: borderColor.value,
           labelMode: mode.value, showRoadName: showRoad.checked,
           textColor: textColor.value
@@ -616,7 +619,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
             journalUuid: nextJournal,
             knowledge: discovery?.value ?? null,
             discoveryMethod: discoveryMethod?.value ?? null,
-            revealRadiusCells: revealRadius ? Number(revealRadius.value) : null,
+            revealRadiusCells: revealValue,
             generateTerrainRegion:generateAfterCreate?.checked??false
             ,checkpointType:category.value
             ,checkpointPresetId:presetPicker.value||null
@@ -651,13 +654,13 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           await saveCheckpointTerrainSuggestion(this.scene,this.checkpointId,terrainSuggestion);
         if (discovery && (discovery.value !==
             checkpointKnowledge(exploration, this.checkpointId) ||
-            Number(revealRadius.value) !==
+            revealValue !==
               checkpointRevealRadiusCells(exploration, this.checkpointId) ||
             discoveryMethod.value !==
               checkpointDiscoveryMethod(discoveryMethods,this.checkpointId))) {
           await saveCheckpointKnowledge(this.scene, {
             checkpointId: this.checkpointId, knowledge: discovery.value,
-            revealRadiusCells: Number(revealRadius.value),
+            revealRadiusCells: revealValue,
             expected: exploration,
             method: discoveryMethod.value, expectedMethods: discoveryMethods
           });
