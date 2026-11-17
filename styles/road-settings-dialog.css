@@ -52,5 +52,5 @@
 .atlas-road-map-preview > svg {background:var(--color-cool-5-90,#20242b88);border-radius:.35rem;}
 .atlas-road-map-preview .atlas-road-preview-name {display:block;font-weight:600;text-align:center;}
 .atlas-road-map-preview .atlas-road-preview-name[hidden] {display:none;}
-.atlas-road-customization-section[data-atlas-road-preview-mode="hover"] .atlas-road-preview-name {opacity:0;}
-.atlas-road-customization-section[data-atlas-road-preview-mode="hover"]:hover .atlas-road-preview-name {opacity:1;}
+.atlas-road-customization[data-atlas-road-preview-mode="hover"] .atlas-road-preview-name {opacity:0;}
+.atlas-road-customization[data-atlas-road-preview-mode="hover"]:hover .atlas-road-preview-name {opacity:1;}
