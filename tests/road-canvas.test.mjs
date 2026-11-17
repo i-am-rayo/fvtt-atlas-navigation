@@ -935,7 +935,7 @@ test("click-to-draw uses canvas coordinates and saves with visible feedback", as
     m.listeners.get("pointerdown")(first);
     assert.equal(first.prevented, true);
     m.listeners.get("pointerdown")(pointEvent(30, 40));
-    assert.deepEqual(m.controller.getDraft(m.scene), { points: 2, saving: false, mode: "new" });
+    assert.deepEqual(m.controller.getDraft(m.scene), { points: 2, canUndo:true, canRedo:false, checkpointId:null, saving: false, mode: "new" });
     assert.equal(await m.controller.finish(), true);
     assert.equal(m.controller.getDraft(m.scene), null);
     assert.ok(!m.listeners.has("pointerdown"), "pointer capture removed after finish");
