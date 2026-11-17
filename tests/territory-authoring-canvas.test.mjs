@@ -15,6 +15,7 @@ class Element{
   remove(){if(!this.parent)return;this.parent.children=this.parent.children.filter(c=>c!==this);
     this.parent=null;}
 }
+const descendants=node=>[node,...(node.children??[]).flatMap(descendants)];
 class Graphics{
   constructor(){this.strokes=[];this.disks=[];this.fills=[];}
   clear(){this.strokes=[];this.disks=[];this.fills=[];return this;}
@@ -335,7 +336,9 @@ test("hex/square brush rings show a live add/erase footprint before any write",a
     assert.match(gridShortcuts.children.at(-1).children[1].textContent,/return to Atlas Workspace/);
     const label=editor.session.panel.children.find(child=>child.tagName==="label"&&
       child.textContent.includes("Brush radius"));
-    const slider=label.children.find(child=>child.tagName==="input");
+    const slider=descendants(label).find(child=>child.tagName==="input"&&child.type==="range");
+    const number=descendants(label).find(child=>child.tagName==="input"&&child.type==="number");
+    assert.ok(slider&&number,"Territory brush exposes a slider and keyboard numeric entry");
     slider.value="2";slider.listeners.get("input")();
     const move=doc.listeners.get("pointermove");
     move({clientX:110,clientY:110,target:surface});
@@ -583,7 +586,9 @@ test("Foundry legacy Graphics renders edited nodes, new outlines and native grid
       "legacy drawPolygon renders a native grid cell without graphics.poly");
     const radiusControl=editor.session.panel.children.find(child=>child.tagName==="label"&&
       child.textContent.includes("Brush radius"));
-    const slider=radiusControl.children.find(child=>child.tagName==="input");
+    const slider=descendants(radiusControl).find(child=>child.tagName==="input"&&child.type==="range");
+    assert.ok(descendants(radiusControl).find(child=>child.tagName==="input"&&child.type==="number"),
+      "native grid brush numeric input complements the slider");
     const value=radiusControl.children.find(child=>child.tagName==="output");
     assert.equal(slider.type,"range");
     assert.equal(slider.max,"4","max ring count stays below the stroke safety budget");
