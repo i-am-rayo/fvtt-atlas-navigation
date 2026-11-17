@@ -116,6 +116,15 @@ test("Atlas Layers modeless palette exposes Road/Region modes, names and fill co
     const radios=all(root).filter(e=>e.type==="radio");
     assert.deepEqual(radios.map(e=>e.value),
       ["roads","terrain","corridors","off","continents","settlements","combined"]);
+    assert.deepEqual(all(root).filter(e=>e.className==="atlas-layers-choice-copy")
+      .map(e=>e.children[1].textContent),[
+      "Authored Road appearance and name labels.",
+      "Road lines colored by sampled terrain surfaces.",
+      "Existing native generated corridor Region boundaries."
+    ]);
+    assert.deepEqual(all(root).filter(e=>e.className==="atlas-layers-sample")
+      .map(e=>e.attributes["aria-hidden"]),["true","true","true"],
+      "miniature examples are decorative and never reveal hidden Region data");
     assert.equal(radios.filter(e=>e.checked).length,2);
     const terrain=radios.find(e=>e.value==="terrain");
     terrain.checked=true;terrain.listeners.get("change")();
