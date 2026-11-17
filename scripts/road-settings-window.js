@@ -3,7 +3,7 @@
  * This owns presentation and form collection only; the existing Road workflow
  * in main.js retains authorization, stale-write validation and persistence.
  */
-export function openRoadSettingsWindow({id,title,position,content,onRender}){
+export function openRoadSettingsWindow({id,title,position,content,onRender,onSubmitted}){
   if(typeof id!=="string"||!id)throw Error("Road Settings requires an editor identity.");
   const Base=foundry.applications.api.ApplicationV2;
   class RoadSettingsWindow extends Base {
@@ -63,6 +63,7 @@ export function openRoadSettingsWindow({id,title,position,content,onRender}){
         if(!form.reportValidity())return;
         try{
           const result=new foundry.applications.ux.FormDataExtended(form).object;
+          onSubmitted?.();
           this.resolveResult?.(result);
           this.resolveResult=null;
           void this.close();
