@@ -759,7 +759,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           await saveCheckpointCategory(this.scene,this.checkpointId,category.value);
         const selectedPresetId=value===null?null:presetPicker.value||null;
         if(selectedPresetId&&!readWorldCheckpointPresets().presets.some(p=>p.id===selectedPresetId))
-          throw Error("This checkpoint preset no longer exists. Reopen the settings.");
+          throw Error("This Map Marker preset no longer exists. Reopen the settings.");
         if(selectedPresetId!==checkpointAssignedPresetId(this.scene,this.checkpointId))
           await saveCheckpointPresetAssignment(this.scene,this.checkpointId,selectedPresetId);
         if(JSON.stringify(terrainSuggestion)!==JSON.stringify(
@@ -789,7 +789,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         this.onSaved?.();
         this._skipClosePrompt=true;
         await this.close();
-        ui.notifications.info("Atlas checkpoint settings saved.");
+        ui.notifications.info("Atlas Map Marker settings saved.");
         return true;
       } catch (error) {
         ui.notifications.error(error.message || String(error));
@@ -805,7 +805,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       await action();
     };
     if(!this.createDraft&&this.onMove){
-      const move=createSettingsIconButton({icon:"up-down-left-right",label:"Move checkpoint"});
+      const move=createSettingsIconButton({icon:"up-down-left-right",label:"Move Map Marker"});
       move.className+=" atlas-checkpoint-footer-icon";
       move.addEventListener("click",()=>void leaveForAction(this.onMove).catch(error=>ui.notifications.error(error.message)));
       controls.appendChild(move);
