@@ -49,6 +49,7 @@ test("Road ApplicationV2 keeps a named native form and returns staged values onl
     });
     await new Promise(resolve=>setImmediate(resolve));
     assert.ok(app);
+    assert.equal(app.options.id,"fvtt-atlas-road-settings-road-a");
     assert.equal(app.options.window.resizable,true);
     assert.equal(app.options.window.minimizable,true);
     assert.equal(app.form.children[0],content,"original form controls are reused");
@@ -81,6 +82,10 @@ test("invalid Road form cannot submit, and closing returns a null cancellation",
     app.form.valid=false;
     app.form.listeners.get("submit")({preventDefault(){}});
     assert.equal(serializations,0,"invalid drafts never reach the save workflow");
+    app.setCloseGuard(()=>false);
+    await app.close();
+    assert.equal(app.closed,undefined,"dirty-close refusal keeps editor open");
+    app.setCloseGuard(()=>true);
     await app.close();
     assert.equal(await resultPromise,null);
   }finally{Object.assign(globalThis,old);}
