@@ -58,19 +58,23 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     const root = element("div");
     root.className="atlas-road-editor-dock";
     const status = draft.mode === "points" ? "Edit points" :
-      draft.mode === "new" ? "Draw road" :
-      draft.mode === "checkpoint" ? "Place Map Marker" : "Add connection";
+      draft.mode === "new" ? "Draw Road" :
+      draft.mode === "checkpoint" ? "Place Map Marker" :
+      draft.mode === "checkpoint-relocate" ? "Move Map Marker" : "Add connection";
     root.appendChild(element("strong", status));
     root.appendChild(element("small", draft.mode === "points"
       ? `${draft.points} points · ${draft.dirty ? "Unsaved" : "No changes"}`
-      : draft.mode === "checkpoint" ? "Click a road on the map."
-      : draft.mode === "junction" ? "Click a road to connect."
+      : draft.mode === "checkpoint" ? "Click the map to place a Map Marker."
+      : draft.mode === "checkpoint-relocate" ? "Choose a new location and confirm."
+      : draft.mode === "junction" ? "Click a Road to connect."
       : `${draft.points} points · Click the map to draw.`));
 
     const guidance = element("p");
     guidance.style.cssText="font-size:.9em;line-height:1.35;opacity:.8;margin:.1rem 0 .5rem;";
     guidance.textContent = draft.mode==="junction"
-      ? "Choose two roads to connect. Review the proposed junction before saving."
+      ? "Choose two Roads to connect. Review the proposed junction before saving."
+      : draft.mode==="checkpoint-relocate"
+      ? "Click the new map location, then confirm Save New Position. Cancel leaves the Map Marker unchanged."
       : draft.mode==="checkpoint"
       ? "Choose a map location for a Map Marker. Road attachment requires confirmation."
       : draft.mode==="points"
@@ -92,6 +96,10 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
           ["Click a Road — request a linked Map Marker",
            "Click elsewhere — request an independent Map Marker",
            "Escape — cancel placement"]:
+        draft.mode==="checkpoint-relocate"?
+          ["Click the map — preview the new position",
+           "Review and confirm Save New Position before any Scene write",
+           "Escape or Cancel — discard the movement draft"]:
         ["Click the first Road, then a second Road to connect",
          "Review the connection before approving", "Escape — cancel"];
     const gestureList=element("ul");
@@ -125,15 +133,19 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       return button;
     };
     const needsSave = draft.mode === "new" || draft.mode === "points";
-    if(needsSave && typeof this.onFocus==="function"){
+    if((needsSave||draft.mode==="checkpoint-relocate")&&
+        typeof this.onFocus==="function"){
       // The same pan/highlight action as Scene Atlas > Locate road, but applied
       // to the current unsaved geometry. Native title-bar minimization remains
       // available separately for GMs who want more canvas space.
-      const locate=makeButton("Locate Road",async()=>{
+      const locate=makeButton(draft.mode==="checkpoint-relocate"?
+        "Locate Map Marker":"Locate Road",async()=>{
         try { await this.onFocus(); }
         catch(error){ui.notifications.error(error.message||String(error));}
       },"location-dot");
-      locate.title="Zoom to and highlight the Road currently being edited.";
+      locate.title=draft.mode==="checkpoint-relocate"?
+        "Pan to the original Map Marker position.":
+        "Zoom to and highlight the Road currently being edited.";
       if(draft.mode==="new"&&!draft.points){
         locate.disabled=true;
         locate.title="Draw the first road point before locating it.";
