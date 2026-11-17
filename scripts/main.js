@@ -138,7 +138,7 @@ roadCanvas.onCheckpointSaved=async (scene,checkpointId)=>{
   content.appendChild(intro);
   const details=document.createElement("p");
   details.textContent="Create is optional and GM-only. Its name, geographic kind, " +
-    "native grid Shape and Checkpoint association are saved together. " +
+    "native grid Shape and Map Marker association are saved together. " +
     "No native Region Behaviors, movement costs or player visibility will be changed.";
   content.appendChild(details);
   const matching=plan.compatible.filter(item=>item.onCell||item.nameMatch);
@@ -172,7 +172,7 @@ roadCanvas.onCheckpointSaved=async (scene,checkpointId)=>{
       const saved=await createCheckpointTerritory(scene,plan,{view});
       await closeCheckpointRegionGenerator(scene,checkpointId);
       roadCanvas.refresh();atlasLayers.refresh();refreshAtlasWorkspaceFromAuthoring(scene);
-      ui.notifications.info(`Native Territory ${saved.name} created and linked to Checkpoint ${plan.name}.`);
+      ui.notifications.info(`Native Territory ${saved.name} created and linked to Map Marker ${plan.name}.`);
     }else if(choice==="link"){
       await actions().configureCheckpointTerritory(scene,checkpointId,()=>{
         roadCanvas.refresh();atlasLayers.refresh();refreshAtlasWorkspaceFromAuthoring(scene);
@@ -336,10 +336,10 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
   for (const message of [
     plan.name,
     plan.kind === "checkpoint"
-      ? "A native Region around this one checkpoint."
+      ? "A native Region around this Map Marker."
       : "A native corridor following the connected road geometry.",
     ...(plan.routeSelection?.alternatives ? [
-      "This named road has multiple paths between these checkpoints. Atlas selected the shortest stored road path (" +
+      "This named road has multiple paths between these Map Markers. Atlas selected the shortest stored road path (" +
       plan.routeSelection.segmentIds.length + " section(s)). Review the highlighted preview. Cancel if this is not the path you intended."
     ] : []),
     "Half-width: " + plan.generatedRegion.widthCells + " grid cells (" +
@@ -755,7 +755,7 @@ function actions() {
       visibility.value = "true"; visibility.checked = actual.playerVisible === true;
       visibility.defaultChecked = visibility.checked;
       const visibilityRow=createSettingsFieldRow("Show to players",visibility);
-      visibilityRow.firstElementChild.title="Only this road. Checkpoint discovery is separate.";
+      visibilityRow.firstElementChild.title="Only this road. Map Marker discovery is separate.";
       const baseline = resolveRoadAppearance(actual, readWorldRoadAppearance(), mode);
       const journalLinks = readAtlasJournalLinks(scene);
       const journalControls = journalLinkFields(journalLinks,"road",road.id);
@@ -1476,7 +1476,7 @@ function actions() {
           const description=document.createElement("p");
           description.textContent="Move "+name+" from ("+from.x.toFixed(1)+
             ", "+from.y.toFixed(1)+") to ("+at.x.toFixed(1)+
-            ", "+at.y.toFixed(1)+")? The Checkpoint ID, Journal, discovery, " +
+            ", "+at.y.toFixed(1)+")? The Map Marker ID, Journal, discovery, " +
             "transportation and Territory associations remain unchanged.";
           content.appendChild(description);
           if(candidate){
@@ -1503,18 +1503,18 @@ function actions() {
             const hint=document.createElement("p");
             hint.textContent=candidate.kind==="edge"
               ? "The destination is near a saved Road interior. Connect " +
-                "snaps the Checkpoint Node to its exact centerline and " +
+                "snaps the Map Marker Node to its exact centerline and " +
                 "splits the Road section. Move Only remains independent."
               : eligible
                 ? roadOptions.length>1
                   ? "This is a multi-Road junction. Choose the Road that " +
-                    "will own the Checkpoint's Road association. The graph " +
+                    "will own the Map Marker's Road association. The graph " +
                     "Node is shared by all incident Roads; no Road is moved."
                   : "This saved Road Node is eligible for exact connection. " +
-                    "The Checkpoint ID and existing junction Node ID stay; " +
+                    "The Map Marker ID and existing junction Node ID stay; " +
                     "its former isolated Node is retired."
                 : "Road junction connection is unsafe here: "+blockedReason+
-                  ". Move Only retains an independent Checkpoint.";
+                  ". Move Only retains an independent Map Marker.";
             content.appendChild(hint);
             const choices=candidate.kind==="node"
               ? roadOptions.map((option,index)=>({
@@ -1572,8 +1572,8 @@ function actions() {
         const incident = incidents[0];
         const approved = await DialogV2.confirm({
           window: { title: `Disconnect ${checkpoint.name}?` },
-          content: `<p>Remove Road section ${incident.id} from this terminal Checkpoint? ` +
-            "The Checkpoint, its stable Node, Journal and metadata remain. " +
+          content: `<p>Remove Road section ${incident.id} from this terminal Map Marker? ` +
+            "The Map Marker, its stable Node, Journal and metadata remain. " +
             "This may affect route availability.</p>",
           yes: { label: "Disconnect Road section" }, no: { label: "Cancel" }
         });
@@ -1604,7 +1604,7 @@ function actions() {
         const content = document.createElement("div");
         const description = document.createElement("p");
         description.textContent = "Choose a saved Road endpoint. Atlas will add one straight, " +
-          "explicit Road section to this Checkpoint without moving either Node.";
+          "explicit Road section to this Map Marker without moving either Node.";
         const select = document.createElement("select");
         select.name = "roadEndpoint";
         for (const choice of choices) {
@@ -1628,7 +1628,7 @@ function actions() {
         await saveConnectedIndependentCheckpoint(scene, { checkpointId, roadId, roadNodeId,
           expectedRevision: atlas.revision, idFactory: () => foundry.utils.randomID() });
       } else {
-        throw new Error("This Checkpoint has multiple Road links. Use reviewed Road editing to change its topology.");
+        throw new Error("This Map Marker has multiple Road links. Use reviewed Road editing to change its topology.");
       }
       roadCanvas.refresh(); refresh();
       ui.notifications.info("Checkpoint Road connection updated.");
@@ -1795,7 +1795,7 @@ function actions() {
         throw new Error("No permission to delete this Region.");
       const approved=await DialogV2.confirm({
         window:{title:"Delete Terrain Region?"},
-        content:"Delete native Region “"+entry.name+"”? Its shapes and Behaviors will be deleted. Checkpoints and roads will remain.",
+        content:"Delete native Region “"+entry.name+"”? Its shapes and Behaviors will be deleted. Map Markers and Roads will remain.",
         yes:{label:"Delete Region"},rejectClose:false,modal:true
       });
       if(!approved)return false;
@@ -1817,7 +1817,7 @@ function actions() {
         item.metadata?.checkpointIds?.includes(checkpointId));
       const protectedRegions=related.filter(item=>item.modified||item.invalid);
       if(protectedRegions.length)
-        throw new Error("A native Region attached to this checkpoint has modified geometry. Review it before deleting the checkpoint: "+
+        throw new Error("A native Region attached to this Map Marker has modified geometry. Review it before deleting the Map Marker: "+
           protectedRegions.map(item=>item.name).join(", "));
       const partners=[...new Set(related.flatMap(item=>item.metadata.checkpointIds)
         .filter(id=>id!==checkpointId))].map(id=>atlas.checkpoints?.find(item=>item.id===id))
@@ -1831,7 +1831,7 @@ function actions() {
       const confirm=document.createElement("label");
       const check=document.createElement("input");
       check.type="checkbox";check.name="confirmCheckpoint";
-      confirm.append(check,document.createTextNode(" Confirm deletion of this checkpoint"));
+      confirm.append(check,document.createTextNode(" Confirm deletion of this Map Marker"));
       section.appendChild(confirm);
       if(related.length){
         const text=document.createElement("p");
@@ -1846,7 +1846,7 @@ function actions() {
       }
       if(partners.length){
         const note=document.createElement("p");
-        note.textContent="The corridor also references the following checkpoint(s). They will stay unless individually selected:";
+        note.textContent="The corridor also references the following Map Marker(s). They will stay unless individually selected:";
         section.appendChild(note);
         for(const partner of partners){
           const label=document.createElement("label");
@@ -1864,7 +1864,7 @@ function actions() {
       });
       if(!result)return false;
       const checked=name=>result[name]===true||result[name]==="on";
-      if(!checked("confirmCheckpoint"))throw new Error("Confirm the checkpoint deletion.");
+      if(!checked("confirmCheckpoint"))throw new Error("Confirm the Map Marker deletion.");
       if(related.length&&!checked("confirmRegions"))
         throw new Error("Confirm removal of dependent Regions first.");
       const chosen=[checkpointId,...partners.filter(item=>checked("partner_"+item.id)).map(item=>item.id)];
@@ -1872,7 +1872,7 @@ function actions() {
       const extra=listGeneratedRegions(scene).filter(item=>
         item.metadata?.checkpointIds?.some(id=>chosen.includes(id)) &&
         !related.some(old=>old.id===item.id));
-      if(extra.length)throw new Error("A paired checkpoint has other Regions. Delete those separately first: "+
+      if(extra.length)throw new Error("A paired Map Marker has other Regions. Delete those separately first: "+
         extra.map(item=>item.name).join(", "));
       if(readAtlas(scene).revision!==atlas.revision ||
           related.some(item=>!listGeneratedRegions(scene).some(fresh=>
@@ -1889,7 +1889,7 @@ function actions() {
       }
       roadCanvas.refresh();
       refresh();
-      ui.notifications.info(chosen.length+" checkpoint(s) deleted; "+related.length+" generated Region(s) removed.");
+      ui.notifications.info(chosen.length+" Map Marker(s) deleted; "+related.length+" generated Region(s) removed.");
       return true;
     },
     beginPointEdit(scene, roadId, refresh) {
@@ -2370,60 +2370,60 @@ function actions() {
       const territories=listSceneGeography(scene);
       const territory=territories.find(entry=>entry.id===regionId);
       if(!territory?.linked||territory.invalid)
-        throw Error("Classify and link this native Territory to Atlas before associating a Checkpoint.");
+        throw Error("Classify and link this native Territory to Atlas before associating a Map Marker.");
       const selection=territoryCheckpointChoices({territory,checkpoints:atlas.checkpoints??[],
         categoryFor:id=>checkpointCategory(scene,id),links});
-      const choices=territoryLinkOptionGroups(selection.candidates,{noneLabel:"No linked Checkpoint",
+      const choices=territoryLinkOptionGroups(selection.candidates,{noneLabel:"No linked Map Marker",
         ownerNameFor:id=>territories.find(entry=>entry.id===id)?.name??id});
       const content=document.createElement("div");
       const intro=document.createElement("p");
-      intro.textContent=`Associate ${region.name} with one Atlas Checkpoint in this Scene. `+
-        "Only Checkpoints of the same geographic type are eligible. Exact and " +
+      intro.textContent=`Associate ${region.name} with one Atlas Map Marker in this Scene. `+
+        "Only Map Markers of the same geographic type are eligible. Exact and " +
         "leading-name matches are suggestions for review, never automatic links. " +
         "Existing links must be removed before reassignment. No native Shapes, " +
         "Journals, discovery or Behaviors will change.";
       content.appendChild(intro);
       const picker=createSettingsGroupedSelect(choices,{name:"checkpointId",
         selectedId:existing?.checkpointId??selection.suggestedId??"",
-        ariaLabel:"Atlas Checkpoint for native Territory"});
+        ariaLabel:"Atlas Map Marker for native Territory"});
       content.appendChild(picker);
-      const answer=await DialogV2.input({window:{title:"Link Territory to Checkpoint"},
+      const answer=await DialogV2.input({window:{title:"Link Territory to Map Marker"},
         content,ok:{label:"Review Association"},rejectClose:false,modal:true});
       if(!answer)return;
       const targetId=String(answer.checkpointId??"")||null;
       if(targetId!==null&&!selection.candidates.some(candidate=>
           candidate.id===targetId&&!candidate.disabled))
-        throw Error("Choose a compatible, available Atlas Checkpoint.");
+        throw Error("Choose a compatible, available Atlas Map Marker.");
       if(targetId===(existing?.checkpointId??null))return;
-      if(existing&&targetId)throw Error("Remove the existing association before selecting another Checkpoint.");
+      if(existing&&targetId)throw Error("Remove the existing association before selecting another Map Marker.");
       const chosen=atlas.checkpoints?.find(cp=>cp.id===targetId);
       const confirmation=document.createElement("div");
       const message=document.createElement("p");
       message.textContent=chosen?
-        `Link native Territory ${region.name} to Checkpoint ${chosen.name}?`:
-        `Remove the Checkpoint association from native Territory ${region.name}?`;
+        `Link native Territory ${region.name} to Map Marker ${chosen.name}?`:
+        `Remove the Map Marker association from native Territory ${region.name}?`;
       confirmation.appendChild(message);
       const note=document.createElement("p");
       note.textContent="Only this Region's versioned Atlas association flag changes. " +
-        "Native Region geometry, Behaviors, Levels, visibility, Atlas Checkpoint " +
+        "Native Region geometry, Behaviors, Levels, visibility, Atlas Map Marker " +
         "location, linked Journals and player discovery stay unchanged.";
       confirmation.appendChild(note);
       const approved=await DialogV2.confirm({window:{title:"Confirm Territory Association"},
-        content:confirmation,yes:{label:chosen?"Link Checkpoint":"Remove Association"},
+        content:confirmation,yes:{label:chosen?"Link Map Marker":"Remove Association"},
         rejectClose:false,modal:true});
       if(!approved)return;
       await saveTerritoryCheckpointLink(scene,regionId,{checkpointId:targetId,
         expected:existing,expectedName:region.name,expectedAtlasRevision:atlas.revision});
       if(targetId)await closeCheckpointRegionGenerator(scene,targetId);
       refresh();ui.notifications.info(chosen?`Territory linked to ${chosen.name}.`:
-        "Territory Checkpoint association removed; native Region unchanged.");
+        "Territory Map Marker association removed; native Region unchanged.");
     },
     async configureCheckpointTerritory(scene,checkpointId,refresh){
       ensureIdle(scene);
       if(navigation.travelSession||territoryCanvas.session||manualFog.paletteOpen||manualFog.brush)
-        throw Error("Close the active Journey and canvas editors before linking a Checkpoint.");
+        throw Error("Close the active Journey and canvas editors before linking a Map Marker.");
       const atlas=readAtlas(scene),checkpoint=atlas.checkpoints?.find(cp=>cp.id===checkpointId);
-      if(!checkpoint)throw Error("This Checkpoint is no longer available.");
+      if(!checkpoint)throw Error("This Map Marker is no longer available.");
       const links=territoryCheckpointLinks(scene);
       if(links.some(link=>link.invalid))
         throw Error("Resolve unsupported native Territory checkpoint flags before linking.");
@@ -2437,7 +2437,7 @@ function actions() {
         ownerNameFor:id=>atlas.checkpoints?.find(cp=>cp.id===id)?.name??id});
       const content=document.createElement("div");
       const note=document.createElement("p");
-      note.textContent=`Link Checkpoint ${checkpoint.name} to a manually authored geographic `+
+      note.textContent=`Link Map Marker ${checkpoint.name} to a manually authored geographic `+
         `Territory of type ${checkpointKind}. `+
         "All same-type Territories are listed, including unavailable ones. " +
         "Exact and leading-name matches are suggestions only; nothing is linked " +
@@ -2446,7 +2446,7 @@ function actions() {
       content.appendChild(createSettingsGroupedSelect(choices,{name:"regionId",
         selectedId:current?.regionId??selection.suggestedId??"",
         ariaLabel:"Geographic Territory for Atlas Checkpoint"}));
-      const answer=await DialogV2.input({window:{title:"Link Checkpoint to Territory"},
+      const answer=await DialogV2.input({window:{title:"Link Map Marker to Territory"},
         content,ok:{label:"Review Association"},rejectClose:false,modal:true});
       if(!answer)return;
       const regionId=String(answer.regionId??"")||null;
@@ -2462,7 +2462,7 @@ function actions() {
       const question=document.createElement("p");
       question.textContent=regionId?
         `Associate Checkpoint ${checkpoint.name} with Territory ${region.name}?`:
-        `Remove the link between Checkpoint ${checkpoint.name} and Territory ${region.name}?`;
+        `Remove the link between Map Marker ${checkpoint.name} and Territory ${region.name}?`;
       confirmation.appendChild(question);
       const warning=document.createElement("p");
       warning.textContent="Only the native Territory's Atlas identity flag changes. " +
@@ -2820,7 +2820,7 @@ function actions() {
         label.append(input,document.createTextNode(" I confirm deleting these "+title.toLowerCase()+"."));
         section.appendChild(label);shell.appendChild(section);
       };
-      checkbox("deleteCheckpoints","Linked checkpoints",checkpoints.map(item=>item.name));
+      checkbox("deleteCheckpoints","Linked Map Markers",checkpoints.map(item=>item.name));
       checkbox("deleteRegions","Unmodified Atlas-generated Regions",deletable.map(item=>item.name));
       if(protectedRegions.length){
         const note=document.createElement("p");
@@ -2837,7 +2837,7 @@ function actions() {
       if(!result)return;
       const checked=key=>result[key]===true || result[key]==="on";
       if(checkpoints.length && !checked("deleteCheckpoints"))
-        throw new Error("Check the linked checkpoint confirmation to delete this road.");
+        throw new Error("Check the linked Map Marker confirmation to delete this road.");
       if(deletable.length && !checked("deleteRegions"))
         throw new Error("Check the generated Region confirmation to delete this road.");
       // Refuse stale decisions, even if another GM changed a Region while the
@@ -2854,13 +2854,13 @@ function actions() {
           await scene.deleteEmbeddedDocuments("Region",deletable.map(item=>item.id));
         } catch(error) {
           roadCanvas.refresh();refresh();
-          throw new Error("Road and checkpoints were deleted, but some generated Regions may remain. Review native Scene Regions. "+(error.message||String(error)));
+          throw new Error("Road and Map Markers were deleted, but some generated Regions may remain. Review native Scene Regions. "+(error.message||String(error)));
         }
       }
       roadCanvas.refresh();
       refresh();
       ui.notifications.info("Road deleted with "+checkpoints.length+
-        " checkpoint(s) and "+deletable.length+" generated Region(s).");
+        " Map Marker(s) and "+deletable.length+" generated Region(s).");
       return true;
     }
   };
@@ -2912,7 +2912,7 @@ Hooks.once("init", () => {
   }});
   game.settings.register(MODULE_ID, "hiddenOverlayHatching", {
     name: "GM Hidden-Item Hatching",
-    hint: "Draw subtle burgundy diagonal hatching over GM-visible roads and checkpoints that players have not discovered. Never shown to players.",
+    hint: "Draw subtle burgundy diagonal hatching over GM-visible Roads and Map Markers that players have not discovered. Never shown to players.",
     scope: "world", config: true, type: Boolean, default: true,
     onChange: () => roadCanvas.refresh()
   });
