@@ -145,11 +145,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       const create = make("div",undefined,"atlas-directory-creation");
       create.appendChild(make("strong","Create"));
       addControls(create);
-      const manage = make("nav",undefined,"atlas-directory-managers");
-      manage.setAttribute("aria-label","Manage map records");
-      manage.appendChild(make("strong","Manage"));
-      links(manage,managers);
-      toolbar.append(create,manage);
+      toolbar.appendChild(create);
       main.appendChild(toolbar);
       const views = make("nav",undefined,"atlas-directory-views");
       views.setAttribute("aria-label","Directory views");
@@ -163,6 +159,14 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       views.setAttribute("aria-label","Atlas settings");
       links(views,settingsViews);
       main.appendChild(views);
+      const advanced=make("details",undefined,"atlas-workspace-advanced-management");
+      advanced.appendChild(make("summary","Advanced map operations"));
+      advanced.appendChild(make("p","Road graph and legacy tools, native Territory batch "+
+        "operations, and Map Marker discovery controls remain available here.", "hint"));
+      links(advanced,[["territories","Territory batch & native Region tools"],
+        ["roads","Road topology & legacy tools"],
+        ["checkpoints","Map Marker discovery & connections"]]);
+      main.appendChild(advanced);
     }
 
     if (directoryViews.some(([id])=>id===this.activeSection)) {
