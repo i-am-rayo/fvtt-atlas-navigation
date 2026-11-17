@@ -31,6 +31,7 @@ test("active Journey Speed offers per-trip 30s slider and safe skip toggle",()=>
     assert.equal(sliders.length,2);
     assert.equal(sliders[0].max,"30");
     sliders[0].value="20";
+    sliders[0].listeners.input();
     sliders[0].listeners.change();
     assert.deepEqual(changed,[20]);
     const button=flat(view).find(n=>n.tag==="button"&&
