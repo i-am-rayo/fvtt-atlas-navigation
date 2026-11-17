@@ -67,6 +67,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     this.activeSection = "overview";
     this._scrollY = 0;
     this.surfaceExpansion = new Set();
+    this.travelSettingsTab = "rules";
     this.directoryState = {open:new Set(), filters:{}};
     this.territoryLocator=new TerritoryLocateHighlight();
   }
@@ -165,16 +166,32 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     } else if (this.activeSection==="settings") {
       main.appendChild(createAtlasExplorationPanel(this.scene,this.actions,refresh));
       main.appendChild(make("h3","World travel settings"));
-      for (const [title,renderForm] of [["Travel rules",renderTravelRules],["Journey & playback",renderJourneyPlayback]]) {
-        const group = make("details",undefined,"atlas-workspace-settings-group");
-        group.appendChild(make("summary",title));
-        const fields = make("div");
-        group.appendChild(fields);
-        group.addEventListener("toggle",()=>{
-          if (group.open && !fields.children.length) renderForm(fields);
+      const travelTabs=make("nav",undefined,"atlas-travel-settings-tabs");
+      travelTabs.setAttribute("role","tablist");
+      travelTabs.setAttribute("aria-label","World travel settings");
+      const travelPanels=[];
+      const travelButtons=[];
+      for (const [id,title,renderForm] of [
+        ["rules","Travel rules",renderTravelRules],
+        ["playback","Journey & playback",renderJourneyPlayback]]) {
+        const tab=action(title,"Show "+title,()=>{
+          this.travelSettingsTab=id;
+          for(const [key,panel] of travelPanels)panel.hidden=key!==id;
+          for(const [key,button] of travelButtons)
+            button.setAttribute("aria-selected",String(key===id));
         });
-        main.appendChild(group);
+        tab.setAttribute("role","tab");
+        tab.setAttribute("aria-selected",String(this.travelSettingsTab===id));
+        const panel=make("section",undefined,"atlas-travel-settings-panel");
+        panel.setAttribute("role","tabpanel");
+        panel.hidden=this.travelSettingsTab!==id;
+        renderForm(panel);
+        travelTabs.appendChild(tab);
+        travelButtons.push([id,tab]);
+        travelPanels.push([id,panel]);
       }
+      main.appendChild(travelTabs);
+      for(const [,panel] of travelPanels)main.appendChild(panel);
       main.appendChild(action("Transportation presets","Transportation presets",()=>this.actions.openWorldTravelSettings()));
     } else if(this.activeSection==="portability"){
       main.appendChild(createAtlasWorkspacePortabilityPanel(this.scene));
