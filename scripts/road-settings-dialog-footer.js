@@ -9,6 +9,8 @@ export function arrangeRoadDialogFooter(dialog) {
   const save=footer?.querySelector?.("button[data-atlas-road-submit]") ??
     footer?.querySelector?.('button[data-action="ok"]') ??
     footer?.querySelector?.("button");
+  const locate=bar?.querySelector?.('[data-atlas-road-tool="locate"]');
+  const visible=bar?.querySelector?.("[data-atlas-road-visibility]");
   const edit=bar?.querySelector?.('[data-atlas-road-tool="edit"]');
   const connection=bar?.querySelector?.('[data-atlas-road-tool="connection"]');
   const remove=bar?.querySelector?.('[data-atlas-road-tool="delete"]');
@@ -17,6 +19,8 @@ export function arrangeRoadDialogFooter(dialog) {
   cancel.type = "button";
   cancel.textContent = "Cancel";
   cancel.addEventListener("click", () => dialog.close());
+  if(locate)footer.insertBefore(locate,save);
+  if(visible)footer.insertBefore(visible,save);
   footer.insertBefore(edit,save);
   footer.insertBefore(connection,save);
   footer.insertBefore(cancel,save);
