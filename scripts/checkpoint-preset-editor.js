@@ -59,7 +59,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     body.className="atlas-marker-preset-body";
     const tabs=el("div");tabs.style.cssText="display:flex;gap:.35rem;flex-wrap:wrap;";
     const sections=new Map(),buttons=new Map();
-    for(const name of ["General","Marker & labels","Terrain Region","Transportation"]){
+    for(const name of ["General","Customization","Terrain Region","Transportation"]){
       const button=el("button",name);button.type="button";
       button.style.cssText="flex:1 1 9rem;min-height:2.25rem;";
       const panel=el("section");panel.style.cssText="display:grid;gap:.6rem;align-content:start;";
@@ -106,7 +106,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
       createCheckpointCheckbox(preset?.playerVisible===true));
     general.appendChild(el("small","Visibility is still controlled by Atlas discovery and native Foundry permissions. A preset never reveals existing Map Markers retroactively."));
 
-    const marker=sections.get("Marker & labels");
+    const marker=sections.get("Customization");
     const markerType=field(marker,"Map Marker icon",createCheckpointChoice(CHECKPOINT_MARKER_TYPES,
       appearance.type));
     const markerSize=createCheckpointMarkerSize(appearance.size);
@@ -114,8 +114,13 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     const size=markerSize.input;
     const color=field(marker,"Dot / icon color",createCheckpointColor(appearance.color));
     const border=field(marker,"Map Marker border color",createCheckpointColor(appearance.borderColor));
-    const labelMode=field(marker,"Map Marker banner",createCheckpointChoice(CHECKPOINT_LABEL_MODES,
-      appearance.labelMode));
+    const bannerColors=el("div");
+    bannerColors.className="atlas-marker-preset-banner-colors";
+    marker.appendChild(bannerColors);
+    const labelMode=field(bannerColors,"Map Marker banner",
+      createCheckpointChoice(CHECKPOINT_LABEL_MODES,appearance.labelMode));
+    const textColor=field(bannerColors,"Banner text color",
+      createCheckpointColor(appearance.textColor));
     const roadName=field(marker,"Include Road name in banner",
       createCheckpointCheckbox(appearance.showRoadName));
     const banner=resolveCheckpointBanner(appearance);
@@ -126,7 +131,6 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     marker.appendChild(el("small",
       "Scene-specific Territory selection is configured on each placed Map Marker. "+
       "A reusable World preset never stores native Region IDs."));
-    const textColor=field(marker,"Label text color",createCheckpointColor(appearance.textColor));
     const imagePath=input(appearance.image);
     imagePath.placeholder="worlds/…/checkpoint.webp";
     const imageRow=el("div");imageRow.style.cssText="display:flex;gap:.3rem;";
