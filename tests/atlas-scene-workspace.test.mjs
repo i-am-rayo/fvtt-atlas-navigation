@@ -96,8 +96,8 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.deepEqual(ctx.calls,[]);
     const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     assert.equal(first, again, "per-Scene instance must be reused");
-    await enter(first,"Map directory");
-    const territories = buttons(first.result).find(item => item.textContent === "Territories");
+    await enter(first,"Settings");
+    const territories = buttons(first.result).find(item => item.textContent === "Territory batch & native Region tools");
     await territories.listeners.get("click")({ preventDefault() {} });
     assert.match(text(first.result), /Millstone/);
     const add=buttons(first.result).find(item=>
@@ -392,8 +392,8 @@ test("Roads tab is a working Workspace view with legacy Scene settings unaffecte
   const ctx = context();
   try {
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
-    await enter(workspace,"Map directory");
-    const roads = buttons(workspace.result).find(item => item.textContent === "Roads");
+    await enter(workspace,"Settings");
+    const roads = buttons(workspace.result).find(item => item.textContent === "Road topology & legacy tools");
     assert.ok(roads, "Roads has its own Workspace navigation entry");
     await roads.listeners.get("click")({ preventDefault() {} });
     assert.equal(workspace.activeSection, "roads");
@@ -418,8 +418,8 @@ test("native Levels are isolated in Topology and never constructed inside Roads"
     assert.equal(workspace.activeSection, "topology");
     assert.match(text(workspace.result), /Native Scene Levels/);
     assert.doesNotMatch(text(workspace.result), /Territories & custom native Regions/);
-    await enter(workspace,"Map directory");
-    const roads = buttons(workspace.result).find(item => item.textContent === "Roads");
+    await enter(workspace,"Settings");
+    const roads = buttons(workspace.result).find(item => item.textContent === "Road topology & legacy tools");
     await roads.listeners.get("click")({ preventDefault() {} });
     assert.doesNotMatch(text(workspace.result), /Native Scene Levels/);
     await workspace.close();
@@ -456,7 +456,8 @@ test("GM Territory directory remains accessible; Atlas Layers owns persistent ma
     assert.equal(allowed.disabled,false);
     await allowed.listeners.get("click")({preventDefault(){}});
     assert.equal(sharedId,"settlement-1");
-    const territories = buttons(workspace.result).find(item=>item.textContent==="Territories");
+    await enter(workspace,"Settings");
+    const territories = buttons(workspace.result).find(item=>item.textContent==="Territory batch & native Region tools");
     await territories.listeners.get("click")({preventDefault(){}});
     const rows = () => walk(workspace.result,item=>item.attributes?.has("data-atlas-native-region-id"));
     assert.deepEqual(rows().map(item=>item.attributes.get("data-atlas-native-region-id")),
@@ -502,8 +503,8 @@ test("Locate uses public canvas bounds and workspace does not own canvas preview
       animatePan:async options=>{moves.push(options);}};
     const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     assert.equal(subscriptions.size,0,"persistent Atlas Layers controller owns canvas hooks");
-    await enter(workspace,"Map directory");
-    await buttons(workspace.result).find(item=>item.textContent==="Territories")
+    await enter(workspace,"Settings");
+    await buttons(workspace.result).find(item=>item.textContent==="Territory batch & native Region tools")
       .listeners.get("click")({preventDefault(){}});
     const locate=buttons(workspace.result).find(item=>
       item.title==="Locate this native Region on the map");
