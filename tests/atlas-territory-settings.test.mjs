@@ -89,12 +89,12 @@ test("single modeless Territory Settings window retains tabs, permissions and al
     assert.equal(reopened,app,"Scene + Region editor is reused");
     await app.minimize();assert.equal(app.minimized,true);
     await app.maximize();assert.equal(app.minimized,false);
-    await page(app,"Checkpoint & Journal");
-    assert.match(text(app.result),/No Atlas Checkpoint linked/);
-    assert.ok(action(app,"Link or unlink Checkpoint")?.disabled===false);
-    await click(action(app,"Link or unlink Checkpoint"));
+    await page(app,"Map Marker & Journal");
+    assert.match(text(app.result),/No Atlas Map Marker linked/);
+    assert.ok(action(app,"Link or unlink Map Marker")?.disabled===false);
+    await click(action(app,"Link or unlink Map Marker"));
     assert.deepEqual(f.calls.at(-1),["checkpoint-link","r1"]);
-    assert.equal(action(app,"Link or unlink Checkpoint").disabled,false,
+    assert.equal(action(app,"Link or unlink Map Marker").disabled,false,
       "a successful action must not leave newly rendered buttons greyed out");
     await page(app,"Map & Visibility");
     await click(action(app,"Public Journey name"));
@@ -160,7 +160,7 @@ test("open Checkpoint membership report refreshes after saved Region/Scene chang
   globalThis.canvas={ready:true,scene:f.scene};
   try{
     const app=openAtlasTerritorySettings(f.scene,"r1",f.actions,()=>{});
-    await app.render();await page(app,"Checkpoint & Journal");
+    await app.render();await page(app,"Map Marker & Journal");
     assert.equal(added,4,"one set of membership lifecycle hooks");
     let refreshes=0;
     const original=app.render.bind(app);
