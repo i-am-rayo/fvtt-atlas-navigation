@@ -743,8 +743,7 @@ function actions() {
       if (!actual) throw new Error("The named road no longer exists.");
       const content = document.createElement("div");
       content.className="atlas-road-settings-content";
-      // Foundry v14 DialogV2.input requires the content element itself
-      // to have NO attributes. Style a child wrapper only.
+      // Keep Road Settings inside the native ApplicationV2 form.
       const mode = roadAppearanceMode(actual, readWorldTravelPresets().presets);
       const name = document.createElement("input");
       name.type = "text"; name.name = "atlasRoadName"; name.maxLength = 120;
@@ -945,7 +944,7 @@ function actions() {
       const headingTitle=document.createElement("h3");
       headingTitle.textContent="Road Settings";
       const explanation=document.createElement("p");
-      explanation.textContent="Edit the Road, review its Map Markers and native Regions, then Save to apply changes. Cancel keeps the Scene unchanged.";
+      explanation.textContent="Road fields stay staged until Save. Linked Map Marker and Region actions use their own confirmation workflows.";
       heading.append(headingTitle,explanation);
       scrollBody.append(heading,tabs,panels.general,panels.style,panels.checkpoints,panels.regions);
       scrollBody.dataset.atlasRoadLive=roadDialogToken;
