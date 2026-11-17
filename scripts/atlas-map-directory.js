@@ -170,8 +170,21 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     }
     (parent.children[0]??parent).appendChild(bar);
   }
-  const roads = atlas.roads ?? [];
-  const checkpoints = atlas.checkpoints ?? [];
+  const roads=atlas.roads??[];
+  const checkpoints=atlas.checkpoints??[];
+  // Explicit authored roadId and actual incident graph segments only. No spatial guesses.
+  const markerRoads=new Map(checkpoints.map(marker=>[
+    marker.id,new Set(marker.roadId?[marker.roadId]:[])
+  ]));
+  const byNode=new Map();
+  for(const marker of checkpoints){
+    const ids=byNode.get(marker.nodeId)??[];
+    ids.push(marker.id);byNode.set(marker.nodeId,ids);
+  }
+  for(const edge of atlas.segments??[])
+    for(const nodeId of [edge.from,edge.to])
+      for(const markerId of byNode.get(nodeId)??[])
+        markerRoads.get(markerId)?.add(edge.roadId);
   function draw() {
     const compare=(a,b)=>(saved.sort==="za"?-1:1)*(
       a.name.localeCompare(b.name,undefined,{sensitivity:"base"})||a.id.localeCompare(b.id));
@@ -179,47 +192,111 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     const query = saved.query.trim().toLocaleLowerCase();
     const matches = item => !query || item.name.toLocaleLowerCase().includes(query);
     const filtered = Boolean(query || saved.type || saved.place);
-    function itemRow(item, type, path) {
-      const subtitle = type === "road" ? roadAppearanceMode(item,presets) : categoryNames.get(categories[item.id] ?? "generic");
-      const row = group(path+"/"+type+"/"+item.id,item.name+" · "+subtitle,false);
+    function itemRow(item,type,path){
+      const subtitle=type==="road"?
+        roadAppearanceMode(item,presets):categoryNames.get(categories[item.id]??"generic");
+      const row=group(path+"/"+type+"/"+item.id,item.name,false,subtitle);
+      if(type==="road")row._atlasRoadIds.add(item.id);
+      else row._atlasMarkerIds.add(item.id);
       tools(row,item,type);
+      if(type==="road"){
+        const attached=sorted(checkpoints.filter(marker=>
+          markerRoads.get(marker.id)?.has(item.id)&&
+          (!query||matches(item)||matches(marker))));
+        const children=group(path+"/road/"+item.id+"/markers",
+          "Map Markers ("+attached.length+")",Boolean(query));
+        for(const marker of attached)
+          children.appendChild(itemRow(marker,"checkpoint",path+"/road/"+item.id));
+        if(!attached.length)children.appendChild(element("p","No associated Map Markers."));
+        collectCounts(children,children.children.slice(1));
+        row.appendChild(children);
+        collectCounts(row,[children]);
+      }
       return row;
     }
-    function placeRow(place, path) {
-      const key = path+"/"+place.id;
-      const own = matches(place) && (!saved.type || place.kind === saved.type);
-      const descendants = sorted(place.children).map(child=>placeRow(child,key)).filter(Boolean);
-      const children = [];
-      for (const [type, entries] of [["road",roads.filter(r=>directory.direct.get(place.id)?.has(r.id))],
-        ["checkpoint",checkpoints.filter(c=>territoryIds.get(c.id)?.has(place.id))]]) {
-        const found = sorted(entries.filter(item=>own || (!saved.type && matches(item))));
-        if (!found.length) continue;
-        const section = group(key+"/"+type,(type==="road"?"Roads":"Map Markers")+" ("+found.length+")",Boolean(query));
-        for (const item of found) section.appendChild(itemRow(item,type,key));
-        children.push(section);
+    function section(key,label,entries,type,path){
+      if(!entries.length)return null;
+      const node=group(key,label+" ("+entries.length+")",Boolean(query));
+      const rows=entries.map(item=>type==="territory"?item:itemRow(item,type,path));
+      node.append(...rows);
+      collectCounts(node,rows);
+      return node;
+    }
+    const settlementKinds=new Set(["city","town","village","settlement"]);
+    function placeRow(place,path){
+      const key=path+"/"+place.id;
+      const own=matches(place)&&(!saved.type||place.kind===saved.type);
+      const descendants=sorted(place.children).map(child=>placeRow(child,key)).filter(Boolean);
+      const children=[];
+      const settlements=descendants.filter(row=>settlementKinds.has(row._atlasKind));
+      const other=descendants.filter(row=>!settlementKinds.has(row._atlasKind));
+      for(const [name,entries] of [["Settlements",settlements],["Other territories",other]]){
+        const node=section(key+"/"+name,name,entries,"territory",key);
+        if(node)children.push(node);
       }
-      if (!own && !descendants.length && !children.length) return null;
-      const row = group(key,place.name+" · "+GEOGRAPHY_KINDS[place.kind],filtered);
+      for(const [type,entries] of [
+        ["road",roads.filter(road=>directory.direct.get(place.id)?.has(road.id))],
+        ["checkpoint",checkpoints.filter(marker=>territoryIds.get(marker.id)?.has(place.id))]
+      ]){
+        const found=sorted(entries.filter(item=>own||(!saved.type&&matches(item))));
+        const name=type==="road"?"Roads":"Map Markers";
+        const node=section(key+"/"+type,name,found,type,key);
+        if(node)children.push(node);
+      }
+      if(!own&&!children.length)return null;
+      const row=group(key,place.name,filtered,GEOGRAPHY_KINDS[place.kind]??"Territory");
+      row._atlasKind=place.kind;
       tools(row,place,"territory");
-      row.append(...descendants,...children);
+      row.append(...children);
+      collectCounts(row,children);
+      const counts=element("small","Map Markers ("+row._atlasMarkerIds.size+
+        ") | Roads ("+row._atlasRoadIds.size+")");
+      counts.className="atlas-directory-counts";
+      row.children[0].appendChild(counts);
+      if(!children.length)row.appendChild(element("p","No matching map records."));
       return row;
     }
     let rows;
-    if (view === "directory") {
-      rows = sorted(directory.tree).map(place=>placeRow(place,"territory")).filter(Boolean);
-      const outside = group("unclassified","Outside classified territories",filtered);
-      const looseRoads = new Set(directory.unclassifiedRoadIds);
-      for (const [type,entries] of [["road",roads.filter(r=>looseRoads.has(r.id))],
-        ["checkpoint",checkpoints.filter(c=>![...(territoryIds.get(c.id)??[])].some(id=>places.has(id)))]]) {
-        for (const item of sorted(entries.filter(matches))) outside.appendChild(itemRow(item,type,"outside"));
+    if(view==="directory"){
+      const rootPlaces=sorted(directory.tree).map(place=>placeRow(place,"territory")).filter(Boolean);
+      const continents=rootPlaces.filter(item=>item._atlasKind==="continent");
+      const other=rootPlaces.filter(item=>item._atlasKind!=="continent");
+      rows=[];
+      const continentGroup=section("continents","Continents",continents,"territory","root");
+      if(continentGroup){
+        const summary=element("small","Map Markers ("+continentGroup._atlasMarkerIds.size+
+          ") | Roads ("+continentGroup._atlasRoadIds.size+")");
+        summary.className="atlas-directory-counts";
+        continentGroup.children[0].appendChild(summary);
+        rows.push(continentGroup);
       }
-      if (!saved.type && outside.children.length>1) rows.push(outside);
-    } else if (view === "allRoads") {
-      rows = sorted(roads.filter(item=>matches(item) && (!saved.type || roadAppearanceMode(item,presets)===saved.type)))
+      const otherGroup=section("other-territories","Other / unclassified territories",
+        other,"territory","root");
+      if(otherGroup)rows.push(otherGroup);
+      const outside=group("unclassified","Outside classified territories",filtered);
+      const looseRoads=new Set(directory.unclassifiedRoadIds);
+      const outsideRows=[];
+      for(const [type,entries] of [
+        ["road",roads.filter(road=>looseRoads.has(road.id))],
+        ["checkpoint",checkpoints.filter(marker=>
+          ![...(territoryIds.get(marker.id)??[])].some(id=>places.has(id)))]
+      ]){
+        const found=sorted(entries.filter(matches));
+        const name=type==="road"?"Roads":"Map Markers";
+        const groupRow=section("unclassified/"+type,name,found,type,"outside");
+        if(groupRow)outsideRows.push(groupRow);
+      }
+      outside.append(...outsideRows);collectCounts(outside,outsideRows);
+      if(!saved.type&&outsideRows.length)rows.push(outside);
+    }else if(view==="allRoads"){
+      rows=sorted(roads.filter(item=>matches(item)&&
+        (!saved.type||roadAppearanceMode(item,presets)===saved.type)))
         .map(item=>itemRow(item,"road","all"));
-    } else {
-      rows = sorted(checkpoints.filter(item=>matches(item) && (!saved.type || (categories[item.id]??"generic")===saved.type)
-        && (!saved.place || territoryIds.get(item.id)?.has(saved.place))).map(item=>itemRow(item,"checkpoint","all"));
+    }else{
+      rows=sorted(checkpoints.filter(item=>matches(item)&&
+        (!saved.type||(categories[item.id]??"generic")===saved.type)&&
+        (!saved.place||territoryIds.get(item.id)?.has(saved.place))))
+        .map(item=>itemRow(item,"checkpoint","all"));
     }
     if (!rows.length) rows.push(element("p","No matching entries."));
     list.replaceChildren(...rows);
