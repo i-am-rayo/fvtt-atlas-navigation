@@ -18,7 +18,7 @@ class Element {
 
 const descendants = root => [root, ...root.children.flatMap(descendants)];
 const button = (root, title) => descendants(root).find(node =>
-  node.tag === "button" && node.textContent === title);
+  node.tag === "button" && (node.textContent === title || node.title === title));
 
 test("floating new-road dock summarizes settings and does not edit the configured draft", async () => {
   const previous = {
@@ -186,4 +186,33 @@ test("Locate Road requests map focus without minimizing or writing an unsaved ro
       else globalThis[key]=value;
     }
   }
+});
+
+test("Road Editor exposes only available reversible draft actions with accessible icons",async()=>{
+  const previous={foundry:globalThis.foundry,document:globalThis.document,
+    game:globalThis.game,window:globalThis.window};
+  try{
+    globalThis.foundry={applications:{api:{ApplicationV2:class {}}}};
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.window={innerWidth:1200,innerHeight:850};
+    globalThis.game={user:{isGM:true}};
+    const {AtlasRoadEditorDock}=await import("../scripts/road-editor-dock.js");
+    const scene={id:"reversible",canUserModify:()=>true};
+    const calls=[];
+    const controller={getDraft:()=>({mode:"points",points:4,dirty:true,
+      canUndo:true,canRedo:true}),undo:()=>calls.push("undo"),redo:()=>calls.push("redo")};
+    const dock=new AtlasRoadEditorDock({scene,controller,onFinish:async()=>false,
+      onCancel(){},onClosed(){},onFocus(){}});
+    dock.render=async()=>{};
+    const root=await dock._renderHTML();
+    assert.equal(root.children[0].className,"atlas-road-editor-body");
+    assert.equal(root.children[1].className,"atlas-road-editor-footer");
+    assert.ok(button(root,"Locate Road").className.includes("atlas-ui-icon-button"));
+    assert.ok(button(root,"Save Points").className.includes("atlas-ui-icon-button"));
+    assert.ok(button(root,"Undo").title==="Undo");
+    assert.ok(button(root,"Redo").title==="Redo");
+    await button(root,"Undo").listeners.get("click")();
+    await button(root,"Redo").listeners.get("click")();
+    assert.deepEqual(calls,["undo","redo"]);
+  }finally{Object.assign(globalThis,previous);}
 });
