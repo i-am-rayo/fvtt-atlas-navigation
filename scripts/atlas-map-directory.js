@@ -233,7 +233,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
         for(const marker of attached)
           children.appendChild(itemRow(marker,"checkpoint",path+"/road/"+item.id));
         if(!attached.length)children.appendChild(element("p","No associated Map Markers."));
-        collectCounts(children,children.children.slice(1));
+        collectCounts(children,[...children.children].slice(1));
         row.appendChild(children);
         collectCounts(row,[children]);
       }
