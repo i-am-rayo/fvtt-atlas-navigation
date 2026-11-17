@@ -16,10 +16,11 @@ export function arrangeRoadDialogFooter(dialog) {
   cancel.type = "button";
   cancel.textContent = "Cancel";
   cancel.addEventListener("click", () => dialog.close());
-  footer.insertBefore(remove,save);
   footer.insertBefore(edit,save);
   footer.insertBefore(connection,save);
   footer.insertBefore(cancel,save);
+  // Destructive action comes last in both visual and keyboard DOM order.
+  footer.appendChild(remove);
   bar.style.display="none";
   return save;
 }
