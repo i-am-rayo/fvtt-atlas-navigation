@@ -636,3 +636,47 @@ test("Directory keeps Create/View commands and moves unique management into Sett
     await ws.close();
   }finally{ctx.restore();}
 });
+
+test("Map Marker directory shares category taxonomy and sorts display copies only",async()=>{
+  const ctx=context();
+  try{
+    const graph={schemaVersion:10,coordinateSpace:"image",revision:3,enabled:true,calibration:null,
+      roads:[{id:"r",name:"Coast Road",travelPresetId:null,appearance:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:10,y:10},{id:"c",x:20,y:20}],
+      segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[],bidirectional:true}],
+      checkpoints:[
+        {id:"z",name:"Zeta",roadId:"r",nodeId:"a",elevationMeters:null,
+          appearance:null,playerVisible:false},
+        {id:"a",name:"Álpha",roadId:null,nodeId:"c",elevationMeters:null,
+          appearance:null,playerVisible:false}
+      ]};
+    const original=structuredClone(graph.checkpoints);
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:
+      key==="checkpointCategories"?{z:"security"}:null;
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    await enter(ws,"All Map Markers");
+    const findDirectory=()=>walk(ws.result,item=>item.className==="atlas-map-directory")[0];
+    const rows=()=>findDirectory().children[1].children.filter(item=>item.tag==="details");
+    assert.deepEqual(rows().map(item=>text(item.children[0]).includes("Álpha")?"a":"z"),["a","z"]);
+    const category=walk(findDirectory(),node=>node.tag==="optgroup"&&
+      node.label==="Infrastructure")[0];
+    assert.ok(category,"type filters share the marker Settings domain taxonomy");
+    assert.ok(category.children.some(item=>item.value==="security"&&
+      item.textContent==="Security Checkpoint"));
+    const sort=walk(findDirectory(),node=>node.tag==="select"&&
+      node.attributes?.get("aria-label")==="Sort by name")[0];
+    assert.ok(sort);
+    sort.value="za";sort.listeners.get("change")();
+    assert.deepEqual(rows().map(item=>text(item.children[0]).includes("Álpha")?"a":"z"),["z","a"]);
+    assert.deepEqual(graph.checkpoints,original,"sorting never changes the stored graph");
+    await enter(ws,"All roads");
+    const roadRow=walk(findDirectory(),node=>node.tag==="details"&&
+      text(node.children[0]).includes("Coast Road"))[0];
+    assert.ok(roadRow);
+    assert.ok(text(roadRow).includes("Map Markers (1)"),
+      "Road displays only its explicitly associated Map Markers");
+    assert.deepEqual(ctx.calls,[],"directory filtering, sorting and child previews are read-only");
+    await ws.close();
+  }finally{ctx.restore();}
+});
