@@ -1535,7 +1535,8 @@ export class RoadCanvasController {
       game.settings,game.system?.id);
     const territory=banner.territoryRegionId?
       checkpointSelectedTerritoryName(canvas.scene,checkpoint,
-        banner.territoryRegionId,{atlas,view:canvas,forPlayer}):null;
+        banner.territoryRegionId,{sourceSceneId:banner.territorySceneId,
+          atlas,view:canvas,forPlayer}):null;
     return checkpointBannerLines({appearance,checkpointType:category,
       elevationMeters:checkpoint.elevationMeters,elevationUnits:family,
       roadName,territoryName:territory});
