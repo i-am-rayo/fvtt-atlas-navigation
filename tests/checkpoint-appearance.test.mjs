@@ -260,7 +260,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const editor = new AtlasCheckpointAppearanceEditor({ scene,
       checkpointId: data.checkpoints[0].id, expectedRevision: data.revision,
       onTerrainAction:async action=>{actions.push(action);},
-      onMove:()=>{actions.push("move");} });
+      onMove:()=>{actions.push("move");},
+      onDelete:async()=>false });
     assert.equal(editor.options.position.left,24,
       "checkpoint authoring opens at the left of the canvas");
     assert.equal(editor.options.window.title,"Atlas — Ridge Lookout — Checkpoint Settings",
@@ -281,6 +282,20 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     slider.value = "55";
     slider.listeners.get("input")();
     assert.equal(label.textContent, "55 px");
+    const markerRow=all(root).find(node=>node.className==="atlas-checkpoint-marker-row");
+    const markerControls=markerRow?.children?.[1];
+    assert.equal(markerControls?.className,"atlas-checkpoint-marker-controls");
+    assert.equal(markerControls.children[0].className.includes("atlas-checkpoint-icon-selector"),true,
+      "icon chooser precedes the marker dropdown");
+    assert.equal(markerControls.children[1].tag,"select");
+    assert.equal(markerRow.children[0].textContent,"Checkpoint marker");
+    const regionPanel=all(root).find(node=>node.className==="atlas-checkpoint-terrain-actions");
+    assert.deepEqual(regionPanel?.children.map(node=>node.textContent),
+      ["Link Territory","Create Terrain Region…"]);
+    const roadIdentity=all(root).find(node=>node.className==="atlas-checkpoint-connected-roads");
+    assert.ok(roadIdentity);
+    assert.equal(roadIdentity.children[0].textContent,"Connected road");
+    assert.ok(all(roadIdentity).some(node=>node.textContent==="Hidden mountain pass"));
     const mapPreview=all(root).find(node=>node.className==="atlas-checkpoint-preview");
     assert.ok(mapPreview);
     const sample=mapPreview.children[1];
@@ -356,6 +371,12 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const showFooter=footerVisibility.children.find(node=>node.tag==="button");
     assert.ok(showFooter.className.includes("atlas-checkpoint-footer-icon"));
     assert.equal(showFooter.title,"Show checkpoint");
+    assert.equal(showFooter.className.includes("atlas-checkpoint-footer-icon"),true);
+    assert.equal(footerVisibility.children.length,2,
+      "eye and hidden discovery value are the only footer visibility elements");
+    assert.equal(all(footerVisibility).some(node=>/^(Shown|Hidden)$/.test(node.textContent)),false,
+      "no visible Shown / Hidden text accompanies the accessible eye icon");
+    assert.equal(showFooter.title,showFooter.attributes?.get?.("aria-label")??showFooter.title);
     name.value = "Revealed Lookout";
     elevation.value = "640";
     const show=buttons.find(node=>node.title==="Show checkpoint");
@@ -371,8 +392,12 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "preset saving is explicit in the footer");
     assert.deepEqual(footer.children.slice(-2).map(node=>node.textContent),
       ["Save as preset…","Save Checkpoint"]);
-    assert.equal(footer.children.at(-3),footerVisibility,
-      "the visibility toggle sits beside Save actions in the footer");
+    assert.equal(footer.children.at(-1).title,"Delete checkpoint",
+      "Delete is the last element in DOM and keyboard order");
+    assert.equal(footer.children.at(-1).className.includes("atlas-checkpoint-footer-delete"),true);
+    assert.ok(footer.children.indexOf(footerVisibility)<footer.children.indexOf(save),
+      "editing controls appear before Save and Delete");
+    assert.equal(footer.children.at(-2),save);
     assert.equal(name.autofocus,true);
     save.listeners.get("click")();
     await new Promise(resolve => setImmediate(resolve));
