@@ -32,3 +32,11 @@
 .application:has([data-atlas-road-live]) [data-atlas-road-actions] {
   display: none;
 }
+
+.application:has([data-atlas-road-live]) .atlas-road-linked-heading {
+  display:flex;align-items:center;justify-content:space-between;
+  gap:.6rem;margin:.55rem 0;
+}
+.application:has([data-atlas-road-live]) .atlas-road-linked-heading .atlas-ui-icon-button {
+  flex:0 0 2rem;width:2rem;min-width:2rem;height:2rem;min-height:2rem;
+}
