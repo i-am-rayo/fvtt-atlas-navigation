@@ -216,3 +216,31 @@ test("Road Editor exposes only available reversible draft actions with accessibl
     assert.deepEqual(calls,["undo","redo"]);
   }finally{Object.assign(globalThis,previous);}
 });
+
+test("Map Marker relocation dock offers explicit Locate/Cancel, never an unconfirmed Save",async()=>{
+  const prev={foundry:globalThis.foundry,document:globalThis.document,
+    game:globalThis.game,window:globalThis.window};
+  try{
+    globalThis.foundry={applications:{api:{ApplicationV2:class {}}}};
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.window={innerWidth:900,innerHeight:600};
+    globalThis.game={user:{isGM:true}};
+    const {AtlasRoadEditorDock}=await import("../scripts/road-editor-dock.js");
+    const scene={id:"relocation",canUserModify:()=>true};
+    let locates=0,cancels=0;
+    const controller={getDraft:()=>({mode:"checkpoint-relocate",
+      checkpointId:"marker-1",points:0})};
+    const dock=new AtlasRoadEditorDock({scene,controller,onFinish:()=>{throw Error("unsafe");},
+      onCancel:()=>cancels++,onClosed(){},onFocus:()=>locates++});
+    dock.close=async()=>{dock.finished=true;};
+    const root=await dock._renderHTML();
+    assert.ok(descendants(root).some(item=>item.textContent==="Move Map Marker"));
+    assert.ok(button(root,"Locate Map Marker"));
+    assert.equal(button(root,"Save Points"),undefined);
+    assert.equal(button(root,"Finish Road"),undefined);
+    await button(root,"Locate Map Marker").listeners.get("click")();
+    assert.equal(locates,1);
+    await button(root,"Cancel").listeners.get("click")();
+    assert.equal(cancels,1);
+  }finally{Object.assign(globalThis,prev);}
+});
