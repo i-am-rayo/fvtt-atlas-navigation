@@ -91,6 +91,7 @@ import { promptNativeMovementAction } from "./native-movement-action-picker.js";
 import { createRoadPresetStage } from "./road-settings-preset.js";
 import { arrangeRoadDialogFooter } from "./road-settings-dialog-footer.js";
 import { openRoadSettingsWindow } from "./road-settings-window.js";
+import { TerritoryLocateHighlight } from "./territory-locate-highlight.js";
 import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges,
   interceptDialogHeaderClose } from "./settings-close-guard.js";
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
@@ -757,16 +758,14 @@ function actions() {
       }
       panels.general.append(nameRow,visibilityRow,presetRow,journalControls);
       panels.style.appendChild(roadAppearanceForm(baseline));
-      const addCheckpoint=document.createElement("button");addCheckpoint.type="button";
-      addCheckpoint.textContent="+ Add checkpoint";addCheckpoint.dataset.atlasRoadTool="newCheckpoint";
-      panels.checkpoints.appendChild(addCheckpoint);
+      const addCheckpoint=createSettingsIconButton({icon:"plus",label:"Add checkpoint"});
+      addCheckpoint.dataset.atlasRoadTool="newCheckpoint";
       const checkpointList=document.createElement("div");
       checkpointList.dataset.atlasRoadCheckpointList="";
       checkpointList.setAttribute("aria-live","polite");
       panels.checkpoints.appendChild(checkpointList);
-      const addRegion=document.createElement("button");addRegion.type="button";
-      addRegion.textContent="+ Generate Region";addRegion.dataset.atlasRoadTool="generateRegion";
-      panels.regions.appendChild(addRegion);
+      const addRegion=createSettingsIconButton({icon:"plus",label:"Generate Region"});
+      addRegion.dataset.atlasRoadTool="generateRegion";
       const priorityHelp=document.createElement("p");
       priorityHelp.textContent="Drag Regions to set Atlas route priority: top wins where Regions overlap. This controls Atlas estimates and the Corridor View color, not Foundry's native Region Behaviors. The settings icon edits a Region; regenerate previews new geometry but preserves its Behaviors.";
       priorityHelp.style.cssText="font-size:.82em;opacity:.75;line-height:1.4;margin:.5rem 0;";
@@ -776,6 +775,7 @@ function actions() {
       regionList.setAttribute("aria-live","polite");
       panels.regions.appendChild(regionList);
       const roadDialogToken=foundry.utils.randomID();
+      const regionLocator=new TerritoryLocateHighlight();
       // Track the user's actual dropdown change before DialogV2 serializes or
       // removes its content. FormData alone has proven unreliable for this field.
       const stagedRoadPreset=createRoadPresetStage(actual.travelPresetId,roadDialogToken);
@@ -783,10 +783,14 @@ function actions() {
       // positions remain untouched during live Scene/Region updates.
       const populateRelatedLists = (checkpointTarget, regionTarget) => {
         const currentAtlas=readAtlas(scene);
-        const checkpoints=currentAtlas.checkpoints?.filter(item=>item.roadId===road.id)??[];
-        const checkpointHeader=document.createElement("p");
-        checkpointHeader.textContent="Checkpoints ("+checkpoints.length+")";
-        checkpointHeader.style.cssText="opacity:.8;margin:.6rem 0;";
+        const checkpoints=(currentAtlas.checkpoints?.filter(item=>item.roadId===road.id)??[])
+          .slice().sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:"base"})||
+            a.id.localeCompare(b.id));
+        const checkpointHeader=document.createElement("div");
+        checkpointHeader.className="atlas-road-linked-heading";
+        const checkpointTitle=document.createElement("strong");
+        checkpointTitle.textContent="Checkpoints ("+checkpoints.length+")";
+        checkpointHeader.append(checkpointTitle,addCheckpoint);
         checkpointTarget.replaceChildren(checkpointHeader);
         for (const checkpoint of checkpoints) {
           const row=document.createElement("div");
@@ -795,11 +799,14 @@ function actions() {
           name.style.cssText="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;";
           const controls=document.createElement("div");
           controls.style.cssText="display:flex;gap:.3rem;flex:0 0 auto;";
+          const locate=createSettingsIconButton({icon:"location-dot",
+            label:"Locate "+checkpoint.name});
+          locate.dataset.atlasCheckpointLocate=checkpoint.id;
           const btn=createSettingsIconButton({icon:"gear",label:"Checkpoint settings"});
           btn.dataset.atlasCheckpointEdit=checkpoint.id;
           const remove=createSettingsIconButton({icon:"trash",label:"Delete checkpoint",danger:true});
           remove.dataset.atlasCheckpointDelete=checkpoint.id;
-          controls.append(btn,remove);row.append(name,controls);checkpointTarget.appendChild(row);
+          controls.append(locate,btn,remove);row.append(name,controls);checkpointTarget.appendChild(row);
         }
         const regions=new Map();
         for (const entry of listSceneOrderedGeneratedRegions(scene)) {
@@ -810,21 +817,25 @@ function actions() {
               entry.name?.startsWith?.(road.name+" —"))
             if (!regions.has(entry.id)) regions.set(entry.id,entry.name);
         }
-        const regionHeader=document.createElement("p");
-        regionHeader.textContent="Terrain Regions ("+regions.size+")";
-        regionHeader.style.cssText="opacity:.8;margin:.6rem 0;";
+        const regionHeader=document.createElement("div");
+        regionHeader.className="atlas-road-linked-heading";
+        const regionTitle=document.createElement("strong");
+        regionTitle.textContent="Regions ("+regions.size+")";
+        regionHeader.append(regionTitle,addRegion);
         regionTarget.replaceChildren(regionHeader);
         for (const [id,regionName] of regions) {
           const row=document.createElement("div");
           row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.3rem 0;min-width:0;";
           const label=document.createElement("span");label.textContent=regionName;
           label.style.cssText="flex:1 1 0;min-width:0;overflow-wrap:anywhere;";
+          const locate=createSettingsIconButton({icon:"location-dot",label:"Locate "+regionName});
+          locate.dataset.atlasRegionLocate=id;
           const btn=createSettingsIconButton({icon:"gear",label:"Region settings"});
           btn.dataset.atlasRegionEdit=id;
           const managed=listGeneratedRegions(scene).find(entry=>entry.id===id);
           const buttons=document.createElement("div");
           buttons.style.cssText="display:flex;flex:0 0 auto;flex-wrap:nowrap;gap:.3rem;align-items:center;";
-          buttons.appendChild(btn);
+          buttons.append(locate,btn);
           if(managed?.metadata){
             const regenerate=createSettingsIconButton({icon:"rotate",label:"Regenerate Region"});
             regenerate.dataset.atlasRegionRegenerate=id;
