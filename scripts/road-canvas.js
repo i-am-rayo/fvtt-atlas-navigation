@@ -1,4 +1,8 @@
 import { readAtlas } from "./atlas-storage.js";
+import {checkpointBannerLines} from "./checkpoint-banner.js";
+import {checkpointSelectedTerritoryName} from "./checkpoint-banner-territory.js";
+import {checkpointCategory,CHECKPOINT_TYPES} from "./checkpoint-types.js";
+import {resolveCheckpointElevationUnits} from "./navigation-measure-units.js";
 import { readAtlasJournalLinks, journalUuidFor, canOpenAtlasJournal, openAtlasJournal } from "./atlas-journal-links.js";
 import { createRoadFromDraft, createCheckpointFromDraft } from "./road-authoring-foundry.js";
 import { checkpointCandidateRoads } from "./checkpoint-model.js";
@@ -34,7 +38,7 @@ import {OverlayJournalStatusCache,attachOverlayJournalSuffix}
   from "./overlay-journal-label.js";
 import { checkpointIconPath, checkpointFontIcon, checkpointMarkerPosition,
   checkpointCanvasSize,
-  resolveCheckpointAppearance }
+  resolveCheckpointAppearance,resolveCheckpointBanner }
   from "./checkpoint-appearance.js";
 
 /** Pixi canvas-backed text needs more texels than its on-screen font size at zoom. */
@@ -1520,8 +1524,25 @@ export class RoadCanvasController {
     }
   }
 
+  /** GM and player share one presentation model, but only projected names
+   * enter it. A selected native Territory is rechecked by stable ID on every
+   * render; no new metadata is persisted by canvas label drawing. */
+  #checkpointBannerRows(canvas,atlas,checkpoint,appearance,roadName,forPlayer=false){
+    const banner=resolveCheckpointBanner(appearance);
+    const code=banner.showType?checkpointCategory(canvas.scene,checkpoint.id):null;
+    const category=code?CHECKPOINT_TYPES.find(([id])=>id===code)?.[1]??null:null;
+    const family=resolveCheckpointElevationUnits(canvas.scene?.grid?.units,
+      game.settings,game.system?.id);
+    const territory=banner.territoryRegionId?
+      checkpointSelectedTerritoryName(canvas.scene,checkpoint,
+        banner.territoryRegionId,{atlas,view:canvas,forPlayer}):null;
+    return checkpointBannerLines({appearance,checkpointType:category,
+      elevationMeters:checkpoint.elevationMeters,elevationUnits:family,
+      roadName,territoryName:territory});
+  }
+
   #addCheckpointLabels(graphics, checkpointName, roadName, appearance, point, zoom,
-    {journalUuid=null,checkpointId=null}={}) {
+    {journalUuid=null,checkpointId=null,bannerRows=null}={}) {
     if (!globalThis.PIXI?.Text || !graphics.addChild) return;
     const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
     const fill = Number.parseInt(appearance.textColor.slice(1), 16);
@@ -1544,11 +1565,15 @@ export class RoadCanvasController {
       this.labels.push(label);
       return label;
     };
-    const secondLine = Boolean(appearance.showRoadName && roadName);
-    const nameLabel=add(checkpointName, point.y - (secondLine ? 9 * textScale : 0),
-      nameScreenSize * textScale, "bold", "normal");
-    if (secondLine) add(roadName, point.y + 10 * textScale,
-      roadScreenSize * textScale, "normal", "italic");
+    const details=bannerRows??checkpointBannerLines({appearance,roadName});
+    const nameLabel=add(checkpointName,
+      point.y-(details.length?details.length*10*textScale:0),
+      nameScreenSize*textScale,"bold","normal");
+    for(const [index,item] of details.entries()){
+      add(item.text,point.y+(2*index-details.length+2)*10*textScale,
+        roadScreenSize*textScale,"normal",
+        item.kind==="road"?"italic":"normal");
+    }
     if(journalUuid&&nameLabel){
       const viewerId=game.user?.id;
       const view=this.canvasProvider();
@@ -1811,9 +1836,11 @@ export class RoadCanvasController {
         if (labelMode === "always" ||
             this.playerHoveredCheckpointId === checkpoint.id) {
           const roadName = roads.get(checkpoint.roadId)?.name;
+          const bannerRows=this.#checkpointBannerRows(canvas,atlas,
+            checkpoint,appearance,roadName,true);
           this.#addCheckpointLabels(graphics,checkpoint.name,roadName,
             appearance,group,zoom,{checkpointId:checkpoint.id,
-              journalUuid:journalUuidFor(journals,"checkpoint",checkpoint.id)});
+              bannerRows,journalUuid:journalUuidFor(journals,"checkpoint",checkpoint.id)});
         }
       }
     }
@@ -2229,8 +2256,10 @@ export class RoadCanvasController {
       const labelMode=effectiveCheckpointLabelMode(appearance.labelMode,
         this.territoryLabelCheckpointIds.has(checkpoint.id));
       if (labelMode === "always" || (labelMode === "hover" && hovered)) {
+        const bannerRows=this.#checkpointBannerRows(canvas,atlas,checkpoint,
+          appearance,roadName,false);
         this.#addCheckpointLabels(labelParent,checkpoint.name,roadName,appearance,group,zoom,
-          {checkpointId:checkpoint.id,
+          {checkpointId:checkpoint.id,bannerRows,
             journalUuid:journalUuidFor(gmJournals,"checkpoint",checkpoint.id)});
       }
       if (hovered) {
