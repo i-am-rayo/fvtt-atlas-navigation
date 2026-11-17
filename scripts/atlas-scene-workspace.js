@@ -17,8 +17,8 @@ import {renderTravelRules,renderJourneyPlayback} from "./navigation-transport-se
 import {createMapDirectory} from "./atlas-map-directory.js";
 import {readPartyExploration} from "./party-exploration-storage.js";
 
-const directoryViews = [["directory","By territory"],["allRoads","All roads"],["allCheckpoints","All checkpoints"]];
-const managers = [["territories","Territories"],["roads","Roads"],["checkpoints","Checkpoints"]];
+const directoryViews = [["directory","By territory"],["allRoads","All roads"],["allCheckpoints","All Map Markers"]];
+const managers = [["territories","Territories"],["roads","Roads"],["checkpoints","Map Markers"]];
 const settingsViews = [["settings","Exploration & travel"],["surfaces","Surfaces"],["topology","Topology & Levels"],["portability","Import / Export"]];
 const workspaces = new Map();
 
@@ -127,7 +127,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
 
     const refresh = () => this.minimized ? Promise.resolve() : this.render(true);
     const addControls = container => {
-      for (const [label,handler] of [["Add territory","createNativeTerritory"],["Add road","begin"],["Add checkpoint","beginCheckpoint"]]) {
+      for (const [label,handler] of [["Add territory","createNativeTerritory"],["Add road","begin"],["Add Map Marker","beginCheckpoint"]]) {
         const button = action(label,label,()=>this.actions[handler](this.scene,refresh));
         button.disabled = Boolean(this.actions.draft(this.scene)) || (handler==="begin" && atlas.schemaVersion<=2 && Boolean(atlas.segments.length || atlas.nodes.length));
         container.appendChild(button);
@@ -213,7 +213,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       main.appendChild(createAtlasWorkspacePortabilityPanel(this.scene));
     } else if(this.activeSection==="surfaces"){
       main.appendChild(make("p","Generate or manage native Road corridor and " +
-        "Checkpoint Regions. Atlas previews and confirms every native Region " +
+        "Map Marker Regions. Atlas previews and confirms every native Region " +
         "change; existing native Shapes and Behaviors remain Foundry-owned.","hint"));
       main.appendChild(createAtlasSurfacesPanel(this.scene,this.actions,
         ()=>this.render(true),this.surfaceExpansion));
@@ -229,7 +229,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
         () => this.minimized ? Promise.resolve() : this.render(true)));
     } else if (this.activeSection === "roads") {
       main.appendChild(make("p", "Manage authored roads, their graph connections, " +
-        "per-road checkpoints and generated corridor Regions. Existing editors, " +
+         "per-road Map Markers and generated corridor Regions. Existing editors, " +
         "revision guards and map tools remain authoritative.", "hint"));
       const roadContent = make("section", undefined, "atlas-workspace-roads");
       roadContent.appendChild(createAtlasRoadsPanel(this.scene, this.actions,
@@ -273,7 +273,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
         known = String((atlas.checkpoints??[]).filter(cp=>ids.has(cp.id)).length);
       } catch (error) { main.appendChild(make("p",error.message,"hint")); }
       for (const [label,value] of [
-        ["Checkpoints known to the party",known+" / "+checkpointCount],
+        ["Map Markers known to the party",known+" / "+checkpointCount],
         ["Roads on this map",atlas.roads?.length??0],
         ["Territories / custom Regions",nativeRegions.filter(region=>!generatedIds.has(region.id)).length]
       ]) {
