@@ -66,9 +66,9 @@ test("two sliders control seconds/hour and real-trip target with 8h Long Rests",
     assert.ok(flat(root).some(n=>n.textContent?.startsWith?.("Moving animation:")));
     assert.ok(flat(root).some(n=>n.textContent?.startsWith?.("Trip with 4 planned 8h Long Rest")));
     assert.deepEqual(changed,[]);
-    sliders[0].value="3";sliders[0].listeners.change();
+    sliders[0].value="3";sliders[0].listeners.input();sliders[0].listeners.change();
     assert.deepEqual(changed,[3]);
-    sliders[1].value="5";sliders[1].listeners.change();
+    sliders[1].value="5";sliders[1].listeners.input();sliders[1].listeners.change();
     assert.ok(changed[1]>.5&&changed[1]<30);
     assert.deepEqual(errors,[]);
   }finally{restore();}
