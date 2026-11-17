@@ -508,6 +508,8 @@ export class RoadCanvasController {
     if (!scene || this.draft?.sceneId !== scene.id) return null;
     return {
       points: this.draft.points?.length ?? 0,
+      canUndo:this.draft.mode==="new"&&this.draft.points.length>0,
+      canRedo:this.draft.mode==="new"&&this.draft.redoPoints.length>0,
       saving: this.saving,
       mode: this.draft.mode
     };
@@ -682,6 +684,19 @@ export class RoadCanvasController {
       return;
     }
     this.pointEditor.undo();
+  }
+
+  redo() {
+    if(this.draft?.mode==="new"&&!this.saving&&!this.draft.confirming){
+      const next=this.draft.redoPoints.pop();
+      if(next){
+        this.draft.points.push(next.point);
+        this.draft.snap.push(next.snap);
+        this.refresh();this.#changed();
+      }
+      return;
+    }
+    this.pointEditor.redo();
   }
 
   /**
@@ -1184,14 +1199,8 @@ export class RoadCanvasController {
         if(event.target?.isContentEditable || ["INPUT","TEXTAREA","SELECT"].includes(event.target?.tagName))return;
         event.preventDefault?.();
         event.stopImmediatePropagation?.();
-        if((event.ctrlKey||event.metaKey)&&event.shiftKey){
-          const redo=draft.redoPoints.pop();
-          if(redo){draft.points.push(redo.point);draft.snap.push(redo.snap);}
-        }else if(draft.points.length){
-          draft.redoPoints.push({point:draft.points.pop(),snap:draft.snap.pop()});
-        }
-        this.refresh();
-        this.#changed();
+        if((event.ctrlKey||event.metaKey)&&event.shiftKey)this.redo();
+        else this.undo();
       }
     };
     this.draft = draft;
