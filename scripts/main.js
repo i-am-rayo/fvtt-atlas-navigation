@@ -3,7 +3,7 @@
  * v0.2.22 adds GM-only authoring shortcuts and a floating road editor.
  */
 import { openAtlasRegionGenerator,closeCheckpointRegionGenerator } from "./scene-config.js";
-import { openAtlasSceneWorkspace, minimizeAtlasSceneWorkspace,
+import { openAtlasSceneWorkspace,
   refreshAtlasSceneWorkspace, restoreAtlasSceneWorkspace }
   from "./atlas-scene-workspace.js";
 import { RoadCanvasController } from "./road-canvas.js";
@@ -1416,10 +1416,7 @@ function actions() {
       // One authoring entrypoint: a hit inside the bounded Road snap radius
       // uses the existing Road-linked confirmation; every other Scene click
       // creates a standalone Node-anchored Checkpoint after GM approval.
-      roadCanvas.startCheckpoint(scene, () => {
-        roadCanvas.refresh();
-        refresh();
-      }, {
+      roadCanvas.startCheckpoint(scene,()=>syncRoadDock(scene,refresh),{
         confirmIndependent: ({name:defaultName})=>new Promise(resolve=>{
           // The same GM editor and staged settings as Road-based Checkpoints.
           const editor=new AtlasCheckpointAppearanceEditor({
@@ -1437,10 +1434,9 @@ function actions() {
       });
       ui.notifications.info("Click a Road to create a linked Map Marker, " +
         "or click away from Roads for an independent Map Marker. Escape cancels.");
-      // Let the GM see/click the map. The registered Workspace instance and
-      // active tab remain intact; the toolbar restores this same window.
-      void minimizeAtlasSceneWorkspace(scene).catch(error =>
-        ui.notifications.error(error.message ?? String(error)));
+      // Reuse the same canvas editor focus lease and dock as Road placement:
+      // only windows this operation minimized are restored on its close.
+      openRoadDock(scene,refresh);
       refresh();
     },
     // Retained as a legacy API alias. The Workspace presents one [+] control.
@@ -1536,9 +1532,10 @@ function actions() {
           return approved?{connection:null}:null;
         },
         save:args=>saveRelocatedIndependentCheckpoint(scene,args),
-        onChange:()=>{roadCanvas.refresh();refresh();}
+        onChange:()=>syncRoadDock(scene,refresh)
       });
-      ui.notifications.info("Click the new map location for this independent Map Marker. Escape cancels.");
+      openRoadDock(scene,refresh);
+      ui.notifications.info("Click a new map location, review the change, and confirm Save New Position. Escape cancels.");
       refresh();
     },
     async manageCheckpointRoad(scene, checkpointId, refresh) {
