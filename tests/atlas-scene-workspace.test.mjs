@@ -531,11 +531,11 @@ test("Directory filters keep independent choices and row expansion across refres
     await enter(ws,"Map directory");
     assert.match(text(ws.result),/Outside classified territories/);
     await enter(ws,"All roads");
-    let row=walk(ws.result,e=>e.tag==="details" && e.children[0]?.textContent==="Coast Road · land · Hidden")[0];
+    let row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road · land"))[0];
     row.open=true;
     row.listeners.get("toggle")();
     await ws.render(true);
-    row=walk(ws.result,e=>e.tag==="details" && e.children[0]?.textContent==="Coast Road · land · Hidden")[0];
+    row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road · land"))[0];
     assert.equal(row.open,true);
     const type=walk(ws.result,e=>e.tag==="select")[0];
     type.value="air";
@@ -603,6 +603,12 @@ test("Workspace travel tabs switch without saving or clearing unsaved World draf
 test("Directory shows grouped Create/Manage/View controls and inline item actions",async()=>{
   const ctx=context();
   try{
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?{
+      schemaVersion:10,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
+      roads:[{id:"road",name:"Coast Road",travelPresetId:null,appearance:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:10,y:10}],
+      segments:[{id:"s",roadId:"road",from:"a",to:"b",via:[],bidirectional:true}],
+      checkpoints:[]}:null;
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     await enter(ws,"Map directory");
     for(const className of ["atlas-directory-toolbar","atlas-directory-creation",
@@ -611,12 +617,15 @@ test("Directory shows grouped Create/Manage/View controls and inline item action
     assert.ok(!walk(ws.result,item=>item.tag==="summary"&&
       item.textContent==="Manage map records").length,
       "redundant management disclosure is removed");
+    await enter(ws,"All roads");
     const directory=walk(ws.result,item=>item.className==="atlas-map-directory")[0];
     assert.ok(directory);
-    const regionRow=walk(directory,item=>item.tag==="details"&&
-      item.children[0]?.children?.some(child=>child.textContent?.includes?.("Millstone")))[0];
-    assert.ok(regionRow);
-    const summary=regionRow.children[0];
+    const roadRow=walk(directory,item=>item.tag==="details"&&
+      text(item.children[0]).includes("Coast Road · land"))[0];
+    assert.ok(roadRow);
+    assert.doesNotMatch(text(roadRow.children[0]),/\bHidden\b/,
+      "visibility is conveyed by the existing accessible eye action");
+    const summary=roadRow.children[0];
     assert.equal(summary.tag,"summary");
     assert.ok(summary.children.some(child=>child.className==="atlas-directory-actions"),
       "actions remain beside the item label even when its details are collapsed");
