@@ -81,7 +81,7 @@
 .atlas-checkpoint-form-actions .atlas-checkpoint-footer-visibility {
   display:inline-flex;align-items:center;gap:.35rem;
 }
-.atlas-checkpoint-form-actions .atlas-checkpoint-footer-delete {
+.atlas-checkpoint-form-actions .atlas-checkpoint-footer-save {
   margin-inline-start:auto;
 }
 .atlas-checkpoint-marker-row {
