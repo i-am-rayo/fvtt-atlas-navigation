@@ -1822,7 +1822,7 @@ test("v0.2.24.2 player checkpoint hover reveals its name but never a hidden road
     atlas = editCheckpointAppearance(atlas, {
       checkpointId,appearance: {
         ...atlas.checkpoints[0].appearance,
-        banner:{showType:true,showElevation:true,territoryRegionId:null}
+        banner:{showType:true,showElevation:true,territoryRegionId:null,territorySceneId:null}
       }
     });
     await m.scene.setFlag("fvtt-atlas-navigation","atlas",atlas);
