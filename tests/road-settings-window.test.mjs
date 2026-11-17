@@ -101,7 +101,7 @@ test("Road linked Map Markers/Regions keep count legends inside bordered section
   assert.match(main,/checkpointTarget\.replaceChildren\(\)/);
   assert.match(main,/regionTarget\.replaceChildren\(\)/);
   assert.match(css,/\.atlas-road-settings-form\s*\{[^}]*flex-direction:column/s);
-  assert.match(css,/\[data-atlas-road-live\]\s*\{[^}]*overflow-y:auto/s);
+  assert.match(css,/\.atlas-road-settings-scroll\s*\{[^}]*overflow-y:auto/s);
   assert.match(css,/\.form-footer\s*\{[^}]*flex:0 0 auto/s);
 });
 
