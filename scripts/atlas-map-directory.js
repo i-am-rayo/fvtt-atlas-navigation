@@ -79,7 +79,9 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   function group(key, label, expanded) {
     const details = element("details");
     details.open = expanded || state.open.has(key);
-    details.appendChild(element("summary", label));
+    const summary=element("summary");
+    summary.appendChild(element("span",label));
+    details.appendChild(summary);
     details.addEventListener("toggle", () => {
       if (!details.isConnected || expanded) return;
       if (details.open) state.open.add(key);
@@ -88,12 +90,13 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     return details;
   }
   function tools(parent, item, type) {
-    const bar = element("div");
+    const bar = element("span");
     bar.className = "atlas-directory-actions";
     function add(icon, title, callback, danger = false) {
       return bar.appendChild(createSettingsActionButton({icon, label:title + " " + item.name, danger,
         onClick:async event => {
           event.preventDefault();
+          event.stopPropagation();
           try { await callback(); } catch (error) { ui.notifications.error(error.message); }
         }}));
     }
@@ -127,7 +130,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       add("pen","Edit",()=>actions.editCheckpoint(scene,item,refresh));
       add("trash","Delete",()=>actions.removeCheckpoint(scene,item,refresh),true);
     }
-    parent.appendChild(bar);
+    (parent.children[0]??parent).appendChild(bar);
   }
   const roads = atlas.roads ?? [];
   const checkpoints = atlas.checkpoints ?? [];
@@ -137,7 +140,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     const filtered = Boolean(query || saved.type || saved.place);
     function itemRow(item, type, path) {
       const subtitle = type === "road" ? roadAppearanceMode(item,presets) : categoryNames.get(categories[item.id] ?? "generic");
-      const row = group(path+"/"+type+"/"+item.id,item.name+" · "+subtitle+" · "+((type==="checkpoint" && party.enabled ? known.has(item.id) : item.playerVisible)?"Shown":"Hidden"),false);
+      const row = group(path+"/"+type+"/"+item.id,item.name+" · "+subtitle,false);
       tools(row,item,type);
       return row;
     }
