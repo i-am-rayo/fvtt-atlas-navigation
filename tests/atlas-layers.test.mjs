@@ -94,7 +94,7 @@ test("GM and player map preferences remain client-local; players cannot select G
 
 class Element {
   constructor(tag){this.tagName=tag;this.children=[];this.listeners=new Map();
-    this.textContent="";this.attributes={};}
+    this.textContent="";this.attributes={};this.style={};}
   append(...children){this.children.push(...children);}
   appendChild(child){this.children.push(child);return child;}
   replaceChildren(...children){this.children=[...children];}
@@ -124,6 +124,16 @@ test("Atlas Layers modeless palette exposes Road/Region modes, names and fill co
     const sliders=all(root).filter(e=>e.type==="range");
     assert.equal(sliders.length,2);
     assert.equal(sliders[0].max,"50");
+    const numbers=all(root).filter(e=>e.type==="number"&&e.max==="50");
+    assert.equal(numbers.length,2,"GM fill opacity controls allow direct percentage entry");
+    numbers[0].value="37";numbers[0].listeners.get("input")();
+    assert.equal(sliders[0].value,"37");
+    numbers[0].listeners.get("change")();
+    assert.deepEqual(updates.at(-1),{continentFillOpacity:.37});
+    numbers[0].value="51";numbers[0].listeners.get("input")();
+    numbers[0].listeners.get("change")();
+    assert.deepEqual(updates.at(-1),{continentFillOpacity:.37},
+      "out-of-range percentages cannot change the client setting");
     const names=all(root).find(e=>e.attributes?.["aria-label"]==="Show Region names");
     assert.ok(names);
     assert.match(root.children[0].textContent,/saved for this client/);
