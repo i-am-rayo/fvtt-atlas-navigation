@@ -85,15 +85,25 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
         "Territory preview is active.","atlas-layers-help"));
     }
     if(gm){
-      const roads=group("Roads","Choose authored Road colors, the terrain sampled " +
-        "under Roads, or native generated corridor boundaries.");
+      const roads=group("Roads","Choose how Atlas displays the Road network.");
+      const descriptions={
+        roads:"Authored Road appearance and name labels.",
+        terrain:"Road lines colored by sampled terrain surfaces.",
+        corridors:"Existing native generated corridor Region boundaries."
+      };
       for(const [mode,title] of Object.entries(ROAD_LAYER_MODES)){
         const label=element("label",undefined,"atlas-layers-choice");
         const input=element("input");
         input.type="radio";input.name="atlas-road-layer-mode";input.value=mode;
         input.checked=current.roadMode===mode;
         input.addEventListener("change",()=>{if(input.checked)void change({roadMode:mode});});
-        label.append(input,element("span",title));roads.appendChild(label);
+        const copy=element("span",undefined,"atlas-layers-choice-copy");
+        copy.append(element("strong",title),
+          element("small",descriptions[mode]));
+        const sample=element("span",undefined,"atlas-layers-sample");
+        sample.dataset.mode=mode;
+        sample.setAttribute("aria-hidden","true");
+        label.append(input,copy,sample);roads.appendChild(label);
       }
     }else{
       group("Roads","The GM controls which Roads and Checkpoints are revealed. " +
