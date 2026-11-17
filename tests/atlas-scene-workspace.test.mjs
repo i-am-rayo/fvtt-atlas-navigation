@@ -683,3 +683,41 @@ test("Map Marker directory shares category taxonomy and sorts display copies onl
     await ws.close();
   }finally{ctx.restore();}
 });
+
+test("Map Directory renders Road marker counts with browser-like HTMLCollection children",async()=>{
+  const ctx=context();
+  try{
+    // HTMLElement.children is an HTMLCollection: iterable and indexed, but has no slice().
+    const originalCreate=document.createElement;
+    document.createElement=tag=>{
+      const node=originalCreate(tag);
+      if(tag==="details")node.children=new Proxy(node.children,{
+        get(items,key,receiver){
+          return key==="slice"?undefined:Reflect.get(items,key,receiver);
+        }
+      });
+      return node;
+    };
+    const graph={schemaVersion:10,coordinateSpace:"image",revision:2,
+      enabled:true,calibration:null,
+      roads:[{id:"road",name:"Coast Road",travelPresetId:null,
+        appearance:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:20,y:20}],
+      segments:[{id:"segment",roadId:"road",from:"a",to:"b",
+        via:[],bidirectional:true}],
+      checkpoints:[{id:"cp",name:"Bridge",roadId:"road",nodeId:"a",
+        elevationMeters:null,appearance:null,playerVisible:false}]};
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    assert.match(text(ws.result),/Map Markers \(1\)/);
+    await enter(ws,"All roads");
+    const road=walk(ws.result,item=>item.tag==="details"&&
+      text(item.children[0]).includes("Coast Road"))[0];
+    assert.ok(road,"linked Road remains available");
+    assert.match(text(road),/Map Markers \(1\)/);
+    assert.match(text(road),/Bridge/);
+    assert.deepEqual(ctx.calls,[],"directory render must not write graph or Region data");
+    await ws.close();
+  }finally{ctx.restore();}
+});
