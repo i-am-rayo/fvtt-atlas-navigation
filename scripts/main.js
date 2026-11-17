@@ -424,7 +424,7 @@ async function promptNewRoadSettings(scene) {
   tabs.style.cssText = "display:flex;gap:.4rem;border-bottom:1px solid #655;padding-bottom:.65rem;margin-bottom:.7rem;";
   const pages = {};
   for (const [key, label] of [["general","General"],["style","Customization"],
-      ["checkpoints","Checkpoints"],["regions","Terrain Regions"]]) {
+      ["checkpoints","Map Markers"],["regions","Terrain Regions"]]) {
     const button = document.createElement("button");
     button.type = "button"; button.textContent = label;
     button.dataset.atlasNewRoadTab = key;
@@ -456,7 +456,7 @@ async function promptNewRoadSettings(scene) {
   const note = key => {
     const p=document.createElement("p");
     p.textContent = key === "checkpoints"
-      ? "After drawing the road, add checkpoints using the Checkpoints tab in Road Settings."
+      ? "After drawing the road, add Map Markers using the Map Markers tab in Road Settings."
       : "After drawing the road, generate terrain regions using the Terrain Regions tab.";
     pages[key].appendChild(p);
   };
@@ -758,7 +758,7 @@ function actions() {
       const panels={general:document.createElement("div"),
         style:document.createElement("div"),
         checkpoints:document.createElement("div"),regions:document.createElement("div")};
-      for (const [key,text] of [["general","General"],["style","Customization"],["checkpoints","Checkpoints"],["regions","Terrain Regions"]]) {
+      for (const [key,text] of [["general","General"],["style","Customization"],["checkpoints","Map Markers"],["regions","Terrain Regions"]]) {
         const tab=document.createElement("button");
         tab.type="button";tab.textContent=text;tab.dataset.atlasRoadTab=key;
         tab.style.flex="1";
@@ -818,7 +818,7 @@ function actions() {
       }
       panels.general.append(nameRow,visibilityRow,presetRow,journalControls);
       panels.style.appendChild(roadAppearanceForm(baseline));
-      const addCheckpoint=createSettingsIconButton({icon:"plus",label:"Add checkpoint"});
+      const addCheckpoint=createSettingsIconButton({icon:"plus",label:"Add Map Marker"});
       addCheckpoint.dataset.atlasRoadTool="newCheckpoint";
       const checkpointList=document.createElement("div");
       checkpointList.dataset.atlasRoadCheckpointList="";
@@ -847,7 +847,7 @@ function actions() {
         const checkpointHeader=document.createElement("div");
         checkpointHeader.className="atlas-road-linked-heading";
         const checkpointTitle=document.createElement("strong");
-        checkpointTitle.textContent="Checkpoints ("+checkpoints.length+")";
+        checkpointTitle.textContent="Map Markers ("+checkpoints.length+")";
         checkpointHeader.append(checkpointTitle,addCheckpoint);
         checkpointTarget.replaceChildren(checkpointHeader);
         for (const checkpoint of checkpoints) {
@@ -860,9 +860,9 @@ function actions() {
           const locate=createSettingsIconButton({icon:"location-dot",
             label:"Locate "+checkpoint.name});
           locate.dataset.atlasCheckpointLocate=checkpoint.id;
-          const btn=createSettingsIconButton({icon:"gear",label:"Checkpoint settings"});
+          const btn=createSettingsIconButton({icon:"gear",label:"Map Marker settings"});
           btn.dataset.atlasCheckpointEdit=checkpoint.id;
-          const remove=createSettingsIconButton({icon:"trash",label:"Delete checkpoint",danger:true});
+          const remove=createSettingsIconButton({icon:"trash",label:"Delete Map Marker",danger:true});
           remove.dataset.atlasCheckpointDelete=checkpoint.id;
           controls.append(locate,btn,remove);row.append(name,controls);checkpointTarget.appendChild(row);
         }
@@ -1435,8 +1435,8 @@ function actions() {
         }),
         saveIndependent:args=>createIndependentCheckpointFromDraft(scene,args)
       });
-      ui.notifications.info("Click a Road to create a linked Checkpoint, " +
-        "or click away from Roads for an independent Checkpoint. Escape cancels.");
+      ui.notifications.info("Click a Road to create a linked Map Marker, " +
+        "or click away from Roads for an independent Map Marker. Escape cancels.");
       // Let the GM see/click the map. The registered Workspace instance and
       // active tab remain intact; the toolbar restores this same window.
       void minimizeAtlasSceneWorkspace(scene).catch(error =>
@@ -1538,14 +1538,14 @@ function actions() {
         save:args=>saveRelocatedIndependentCheckpoint(scene,args),
         onChange:()=>{roadCanvas.refresh();refresh();}
       });
-      ui.notifications.info("Click the new map location for this independent Checkpoint. Escape cancels.");
+      ui.notifications.info("Click the new map location for this independent Map Marker. Escape cancels.");
       refresh();
     },
     async manageCheckpointRoad(scene, checkpointId, refresh) {
       ensureIdle(scene);
       const atlas = readAtlas(scene);
       const checkpoint = atlas.checkpoints?.find(cp => cp.id === checkpointId);
-      if (!checkpoint) throw new Error("Checkpoint no longer exists in this Scene.");
+      if (!checkpoint) throw new Error("Map Marker no longer exists in this Scene.");
       const incidents = atlas.segments.filter(segment =>
         segment.from === checkpoint.nodeId || segment.to === checkpoint.nodeId);
       if (incidents.length === 1 && atlas.schemaVersion >= 10) {
@@ -1637,22 +1637,22 @@ function actions() {
       roadCanvas.refresh();
       refresh();
       ui.notifications.info(settings.knowledge === "lore"
-        ? "Checkpoint marked known through lore." :
-        settings.knowledge === "visited" ? "Checkpoint marked visited." :
-          "Checkpoint knowledge revoked.");
+        ? "Map Marker marked known through lore." :
+        settings.knowledge === "visited" ? "Map Marker marked visited." :
+          "Map Marker knowledge revoked.");
     },
     async toggleCheckpointPlayerVisibility(scene, checkpoint, refresh) {
       ensureIdle(scene);
       const atlas = readAtlas(scene);
       const actual = atlas.checkpoints?.find(c => c.id === checkpoint.id);
-      if (!actual) throw new Error("Checkpoint no longer exists.");
+      if (!actual) throw new Error("Map Marker no longer exists.");
       await saveCheckpointPlayerVisibility(scene, {
         checkpointId: checkpoint.id, visible: actual.playerVisible !== true,
         expectedRevision: atlas.revision
       });
       roadCanvas.refresh(); refresh();
       ui.notifications.info(actual.playerVisible === true
-        ? "Checkpoint hidden from players." : "Checkpoint now visible to players.");
+        ? "Map Marker hidden from players." : "Map Marker now visible to players.");
     },
     async toggleRoadPlayerVisibility(scene, road, refresh) {
       ensureIdle(scene);
@@ -1674,7 +1674,7 @@ function actions() {
       ensureIdle(scene);
       const atlas = readAtlas(scene);
       if (!atlas.checkpoints?.some(c => c.id === checkpoint.id)) {
-        throw new Error("Checkpoint no longer exists.");
+        throw new Error("Map Marker no longer exists.");
       }
       new AtlasCheckpointAppearanceEditor({
         scene, checkpointId: checkpoint.id, expectedRevision: atlas.revision,
@@ -1683,7 +1683,7 @@ function actions() {
         onMove:()=>{
           const current=readAtlas(scene);
           const cp=current.checkpoints.find(item=>item.id===checkpoint.id);
-          if(!cp)throw Error("Checkpoint no longer exists.");
+          if(!cp)throw Error("Map Marker no longer exists.");
           const road=current.segments.find(segment=>segment.from===cp.nodeId||segment.to===cp.nodeId);
           return road?actions().beginPointEdit(scene,road.roadId,refresh):
             actions().moveCheckpoint(scene,checkpoint.id,refresh);
@@ -1718,7 +1718,7 @@ function actions() {
       ensureIdle(scene);
       const atlas = readAtlas(scene);
       const current = atlas.checkpoints?.find(c => c.id === checkpoint.id);
-      if (!current) throw new Error("Checkpoint no longer exists.");
+      if (!current) throw new Error("Map Marker no longer exists.");
       const content = document.createElement("div");
       const nameLabel = document.createElement("label");
       nameLabel.textContent = game.i18n.localize("FVTTATLAS.Checkpoints.Name");
@@ -1789,7 +1789,7 @@ function actions() {
       ensureIdle(scene);
       const atlas=readAtlas(scene);
       const checkpoint=atlas.checkpoints?.find(item=>item.id===checkpointId);
-      if(!checkpoint)throw new Error("Checkpoint no longer exists.");
+      if(!checkpoint)throw new Error("Map Marker no longer exists.");
       const related=listGeneratedRegions(scene).filter(item=>
         item.metadata?.checkpointIds?.includes(checkpointId));
       const protectedRegions=related.filter(item=>item.modified||item.invalid);
@@ -1803,7 +1803,7 @@ function actions() {
       const section=document.createElement("div");
       section.style.cssText="display:grid;gap:.5rem;";
       const intro=document.createElement("p");
-      intro.textContent="Delete checkpoint “"+checkpoint.name+"”? This does not remove its shared graph node or the road.";
+      intro.textContent="Delete Map Marker “"+checkpoint.name+"”? This does not remove its shared graph node or the road.";
       section.appendChild(intro);
       const confirm=document.createElement("label");
       const check=document.createElement("input");
@@ -1835,7 +1835,7 @@ function actions() {
       }
       content.appendChild(section);
       const result=await DialogV2.input({
-        window:{title:"Delete Checkpoint — "+checkpoint.name},
+        window:{title: "Delete Map Marker — "+checkpoint.name},
         content,ok:{label:"Delete Confirmed Items"},
         rejectClose:false,modal:true
       });
