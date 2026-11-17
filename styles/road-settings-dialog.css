@@ -101,3 +101,33 @@
 .atlas-road-inline-colors input[type="color"] {
   width:3.75rem;min-width:3.75rem;height:2.25rem;
 }
+
+/* The native ApplicationV2 window owns vertical bounds. Only its body scrolls. */
+.application:has([data-atlas-road-live]) .atlas-road-settings-form {
+  display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;
+}
+.application:has([data-atlas-road-live]) .atlas-road-settings-form > div {
+  display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;
+}
+.application:has([data-atlas-road-live]) [data-atlas-road-live] {
+  flex:1 1 auto;min-height:0;max-height:none!important;overflow-y:auto;
+}
+.application:has([data-atlas-road-live]) .form-footer {
+  flex:0 0 auto;margin-top:auto;padding:.45rem .4rem;
+  border-top:1px solid var(--color-border-light-tertiary,#666);
+}
+.application:has([data-atlas-road-live]) .atlas-road-linked-section {
+  display:block;min-width:0;margin:.4rem 0;padding:.5rem .65rem;
+  border:1px solid var(--color-border-light-tertiary,#666);
+  border-radius:.45rem;
+}
+.application:has([data-atlas-road-live]) .atlas-road-linked-section legend.atlas-road-linked-heading {
+  display:flex;align-items:center;justify-content:space-between;
+  gap:.55rem;width:auto;max-width:100%;padding:0 .35rem;
+}
+.application:has([data-atlas-road-live]) .atlas-road-linked-section legend .atlas-ui-icon-button {
+  width:2rem;min-width:2rem;height:2rem;min-height:2rem;
+}
+.application:has([data-atlas-road-live]) .atlas-road-linked-section [aria-live="polite"] {
+  min-width:0;overflow-wrap:anywhere;
+}
