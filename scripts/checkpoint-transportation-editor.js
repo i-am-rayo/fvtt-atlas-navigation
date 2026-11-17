@@ -46,7 +46,7 @@ export function createCheckpointTransportationEditor({offers=[],
   const editOffer=async methodId=>{
     const offer=draft.find(item=>item.methodId===methodId);
     const world=currentCatalog().find(method=>method.id===methodId);
-    if(!offer||!world)throw Error("The checkpoint method is no longer available.");
+    if(!offer||!world)throw Error("The Map Marker method is no longer available.");
     await openTransportationMethodEditor({
       method:checkpointOfferMethod(offer,world),scope:"checkpoint",
       onReset:async()=>{
@@ -119,10 +119,10 @@ export function createCheckpointTransportationEditor({offers=[],
         const subtitle=node("small",fareSummary(method));subtitle.style.opacity=".8";
         info.append(subtitle);
         const edit=createSettingsIconButton({icon:"pen-to-square",
-          label:"Edit "+(world?.name??offer.methodId)+" at this checkpoint",
+          label:"Edit "+(world?.name??offer.methodId)+" at this Map Marker",
           onClick:()=>safeEdit(offer.methodId)});
         const remove=createSettingsIconButton({icon:"trash",danger:true,
-          label:"Remove "+(world?.name??offer.methodId)+" from checkpoint",
+          label:"Remove "+(world?.name??offer.methodId)+" from Map Marker",
           onClick:()=>{draft=draft.filter(item=>item!==offer);render();}});
         row.append(info,edit,remove);card.append(row);section.append(card);
       }
