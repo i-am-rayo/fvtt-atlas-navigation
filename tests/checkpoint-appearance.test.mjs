@@ -399,19 +399,19 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(!all(root).some(node=>node.textContent==="Player visibility"),
       "General no longer duplicates the footer Show/Hide control");
     const presetRow=all(root).find(node=>node.children?.some(child=>
-      child.textContent==="Checkpoint preset"));
+      child.textContent==="Map Marker preset"));
     assert.ok(presetRow?.children.some(node=>
       node.style?.cssText?.includes("margin-inline-start:auto")),
       "World preset controls align with the right edge of the General form");
     assert.ok(all(root).some(node=>node.textContent==="Elevation (m)"),
       "metric unit preference yields a meter label when native Scene units are unspecified");
     const moveFooter=footer.children.find(node=>
-      node.title==="Move checkpoint");
+      node.title==="Move Map Marker");
     assert.ok(moveFooter?.className.includes("atlas-checkpoint-footer-icon"),
-      "Move checkpoint is a compact action located in the footer");
+      "Move Map Marker is a compact action located in the footer");
     const showFooter=footerVisibility.children.find(node=>node.tag==="button");
     assert.ok(showFooter.className.includes("atlas-checkpoint-footer-icon"));
-    assert.equal(showFooter.title,"Show checkpoint");
+    assert.equal(showFooter.title,"Show Map Marker");
     assert.equal(showFooter.className.includes("atlas-checkpoint-footer-icon"),true);
     assert.equal(footerVisibility.children.length,2,
       "eye and hidden discovery value are the only footer visibility elements");
@@ -420,11 +420,11 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(showFooter.title,showFooter.attributes?.get?.("aria-label")??showFooter.title);
     name.value = "Revealed Lookout";
     elevation.value = "640";
-    const show=buttons.find(node=>node.title==="Show checkpoint");
+    const show=buttons.find(node=>node.title==="Show Map Marker");
     assert.ok(show,"hidden checkpoint offers an accessible show icon");
     await show.listeners.get("click")();
     assert.equal(playerVisible.checked,true);
-    assert.equal(show.title,"Hide checkpoint");
+    assert.equal(show.title,"Hide Map Marker");
     assert.equal(stored.revision,data.revision,"visibility remains staged until Save Checkpoint");
     const save = all(root).find(node => node.tag === "button" &&
       node.title === "Save Map Marker");
