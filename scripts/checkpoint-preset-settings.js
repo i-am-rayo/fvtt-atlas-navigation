@@ -121,12 +121,14 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
     if(!fields.length)throw Error("Choose at least one field to apply.");
     const options={scope:values.scope,fields,expectedRevision:readAtlas(scene).revision};
     const plan=buildCheckpointBulkUpdate(scene,preset,options);
+    const confirmContent=node("div");
+    confirmContent.appendChild(node("p","Update "+plan.targets.length+
+      " Map Marker(s) in ‘"+scene.name+"’ using ‘"+preset.name+
+      "’? Fields: "+fields.join(", ")+
+      ". Selected values will be overwritten. There is no automatic rollback."));
     const confirmed=await foundry.applications.api.DialogV2.confirm({
       window:{title:"Confirm Map Marker bulk update"},
-      content:"Update "+plan.targets.length+" Map Marker(s) in ‘"+scene.name+
-        "’ using ‘"+preset.name+"’? Fields: "+fields.join(", ")+
-        ". Existing values for selected fields will be overwritten. There is no automatic rollback.",
-      modal:true,rejectClose:false});
+      content:confirmContent,modal:true,rejectClose:false});
     if(!confirmed)return;
     const count=await applyCheckpointPresetBulk(scene,preset,options);
     ui.notifications.info("Updated "+count+" Map Marker(s). Roads and exploration were preserved.");
@@ -134,8 +136,11 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
   }
   async _delete(preset){
     if(!game.user?.isGM)throw Error("GM permission required.");
+    const content=node("div");
+    content.appendChild(node("p","Delete preset ‘"+preset.name+
+      "’? Existing Map Markers are independent and remain unchanged."));
     const confirmed=await foundry.applications.api.DialogV2.confirm({
-      window:{title:"Delete Map Marker Preset"},content:"Delete preset ‘"+preset.name+"’? Existing Map Markers are independent and remain unchanged.",
+      window:{title:"Delete Map Marker Preset"},content,
       rejectClose:false,modal:true});
     if(!confirmed)return;
     await game.settings.set(MODULE_ID,CHECKPOINT_PRESET_SETTING,
