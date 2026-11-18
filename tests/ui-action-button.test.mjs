@@ -67,3 +67,22 @@ test("shared icon target CSS has 2rem target and smaller independent glyph",()=>
   assert.match(fs,/font-size: \.8rem/);
   assert.match(fs,/focus-visible/);
 });
+
+test("Road, Map Marker and transportation legend Add glyphs stay within shared action sizing",()=>withDocument(()=>{
+  const names=["Add Land Travel Method","Add Map Marker","Generate Region"];
+  const buttons=names.map(label=>createAtlasIconButton({icon:"plus",label}));
+  for(const [i,button] of buttons.entries()){
+    assert.equal(button.type,"button");
+    assert.equal(button.title,names[i]);
+    assert.equal(button.attributes.get("aria-label"),names[i]);
+    assert.match(button.className,/atlas-ui-icon-button--compact/);
+    assert.equal(button.children[0].className,"fa-solid fa-plus");
+    assert.equal(button.children[0].attributes.get("aria-hidden"),"true");
+  }
+  const css=readFileSync(new URL("../styles/atlas-ui.css",import.meta.url),"utf8");
+  assert.match(css,/\.application fieldset > legend button\.atlas-ui-icon-button > i,/);
+  assert.match(css,/\.application fieldset > legend button\.atlas-ui-icon-button > i::before\s*\{\s*font-size:\s*\.8rem;/s,
+    "legend-specific native rules must not enlarge the glyph or its FA pseudo-element");
+  assert.match(css,/width:\s*2rem;/,
+    "the existing 2rem interaction target remains unchanged");
+}));
