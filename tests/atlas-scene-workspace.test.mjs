@@ -898,3 +898,39 @@ test("Workspace Presets opens four existing GM-only World editors without Scene 
   }finally{ctx.restore();}
 });
 
+
+test("Map Directory tools retain batch, recovery entry and contextual native management without Advanced disclosure",async()=>{
+  const ctx=context();
+  try{
+    ctx.actions.startTerritoryBatch=()=>ctx.calls.push(["batch"]);
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Settings");
+    assert.equal(walk(ws.result,node=>node.className==="atlas-workspace-advanced-management").length,0);
+    assert.doesNotMatch(text(ws.result),/Advanced map operations/);
+    await enter(ws,"Map directory");
+    const tools=buttons(ws.result).filter(item=>["Territory tools","Road tools",
+      "Map Marker tools"].includes(item.textContent));
+    assert.deepEqual(tools.map(item=>item.textContent),
+      ["Territory tools","Road tools","Map Marker tools"]);
+    assert.equal(ctx.calls.length,0,"opening Map Directory tools is read-only");
+    await enter(ws,"Territory tools");
+    assert.equal(ws.activeSection,"territories");
+    const batch=buttons(ws.result).find(item=>item.textContent==="Start Batch Edit");
+    assert.ok(batch,"unique native batch and recovery tools remain in Territory management");
+    await batch.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,[["batch"]],"batch invokes existing guarded action");
+    await enter(ws,"Map directory");
+    await enter(ws,"Road tools");
+    assert.equal(ws.activeSection,"roads");
+    assert.match(text(ws.result),/Add a road to begin/);
+    await enter(ws,"Map directory");
+    await enter(ws,"Map Marker tools");
+    assert.equal(ws.activeSection,"checkpoints");
+    assert.ok(buttons(ws.result).some(item=>item.title===
+      "Create a Map Marker on a Road or independently on the Scene"));
+    assert.deepEqual(ctx.calls,[["batch"]],
+      "navigation never writes, starts drawing or advances Journeys");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
