@@ -612,13 +612,13 @@ test("Directory keeps Create/View commands and moves unique management into Sett
     await enter(ws,"All Roads");
     const directory=walk(ws.result,item=>item.className==="atlas-map-directory")[0];
     assert.ok(directory);
-    const roadRow=walk(directory,item=>item.tag==="details"&&
-      text(item.children[0]).includes("Coast Road")&&text(item.children[0]).includes("Land"))[0];
+    const roadRow=walk(directory,item=>item.dataset?.atlasDirectoryKey==="all/road/road")[0];
     assert.ok(roadRow);
+    assert.equal(roadRow.tag,"div","Road without Map Markers is not expandable");
     assert.doesNotMatch(text(roadRow.children[0]),/\bHidden\b/,
       "visibility is conveyed by the existing accessible eye action");
     const summary=roadRow.children[0];
-    assert.equal(summary.tag,"summary");
+    assert.equal(summary.tag,"div");
     assert.ok(summary.children.some(child=>child.className==="atlas-directory-actions"),
       "actions remain beside the item label even when its details are collapsed");
     const display=walk(directory,item=>item.title?.includes?.("Show Road to players; currently hidden: Coast Road"))[0];
@@ -666,7 +666,8 @@ test("Map Marker directory shares category taxonomy and sorts display copies onl
     await enter(ws,"Map directory");
     await enter(ws,"All Map Markers");
     const findDirectory=()=>walk(ws.result,item=>item.className==="atlas-map-directory")[0];
-    const rows=()=>findDirectory().children[1].children.filter(item=>item.tag==="details");
+    const rows=()=>findDirectory().children[1].children.filter(item=>
+      Boolean(item.dataset?.atlasDirectoryKey?.startsWith("all/checkpoint/")));
     assert.deepEqual(rows().map(item=>text(item.children[0]).includes("Álpha")?"a":"z"),["a","z"]);
     const category=walk(findDirectory(),node=>node.tag==="optgroup"&&
       node.label==="Infrastructure")[0];
@@ -809,7 +810,8 @@ test("Map Directory keeps derived counts next to names, before actions, without 
       assert.equal(summary.children[0].className,"fa-solid fa-chevron-right atlas-directory-chevron");
       const identity=summary.children[1];
       assert.equal(identity.className,"atlas-directory-identity");
-      assert.equal(identity.children[0].textContent,label);
+      assert.ok(identity.children.some(item=>item.textContent===label),
+        "name stays with icon and derived counts before actions");
       const count=identity.children.find(item=>item.className==="atlas-directory-counts");
       assert.ok(count,"counts sit inside the title/metadata group");
       assert.match(count.textContent,/^Map Markers \(\d+\) \| Roads \(\d+\)$/);
@@ -829,6 +831,8 @@ test("Map Directory keeps derived counts next to names, before actions, without 
       "Map Markers (0) | Roads (0)");
     assert.ok(continentRow.children[0].children[1].children.some(item=>
       item.textContent==="Continent"),"Territory type remains beside its label");
+    assert.equal(continentRow.children[0].children[1].children[0].className,
+      "atlas-directory-symbol","native territory color precedes its name");
     assert.deepEqual(ctx.calls,[],"displaying labels and derived counts never writes");
     continents.open=true;
     continents.listeners.get("toggle")();
