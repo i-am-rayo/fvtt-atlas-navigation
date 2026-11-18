@@ -67,15 +67,27 @@
 .atlas-road-customization[data-atlas-road-preview-mode="hover"] .atlas-road-preview-name {opacity:0;}
 .atlas-road-customization[data-atlas-road-preview-mode="hover"]:hover .atlas-road-preview-name {opacity:1;}
 
+/* Match Map Marker Settings: one horizontal preset label + current value /
+   named Change button; the native Road form-group otherwise stacks them. */
+.application:has([data-atlas-road-live]) .atlas-road-preset-row {
+  display:flex;flex-direction:row;align-items:center;
+  justify-content:space-between;flex-wrap:wrap;gap:.4rem 1rem;min-width:0;
+}
+.application:has([data-atlas-road-live]) .atlas-road-preset-row > label {
+  flex:0 1 auto;min-width:0;
+}
 .application:has([data-atlas-road-live]) .atlas-road-preset-controls {
-  display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;
-  width:min(100%,20rem);margin-inline-start:auto;min-width:0;
+  display:flex;align-items:center;justify-content:flex-end;gap:.4rem;
+  flex:0 1 20rem;max-width:100%;margin-inline-start:auto;min-width:0;
 }
 .application:has([data-atlas-road-live]) .atlas-road-preset-hint {
   display:block;margin:0 0 .55rem;opacity:.75;line-height:1.35;
 }
 .application:has([data-atlas-road-live]) .atlas-road-preset-controls > span {
-  flex:1 1 8rem;min-width:0;overflow-wrap:anywhere;
+  flex:0 1 auto;min-width:0;overflow-wrap:anywhere;
+}
+.application:has([data-atlas-road-live]) .atlas-road-preset-controls > button {
+  flex:0 0 auto;width:auto;white-space:nowrap;
 }
 .application:has([data-atlas-road-live]) .atlas-road-preset-controls select {
   flex:1 1 9rem;min-width:0;
