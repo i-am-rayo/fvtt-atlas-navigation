@@ -68,6 +68,8 @@ Center labels horizontally and vertically inside navigation buttons. Directory v
 
 Place row actions inline at the far right without losing nesting indentation or the disclosure hit area. Action clicks must not toggle the row disclosure. Preserve open groups, search/filter values, scroll, focus and window position through ordinary actions/rerenders. Locate must not strand the Workspace minimized or change Scene. On narrow screens wrap actions within the same item rather than overlap names.
 
+Placed Map Marker Settings uses one persistent bottom footer outside the scrolling tab body: [Locate] [staged visibility] [Move] on the left, and [Save as preset…] [Save Map Marker] [Delete Map Marker] on the right, Delete last in DOM order. Locate only invokes the existing transient Atlas camera/focus callback and does not leave the editor or change its draft; new unsaved markers must disable Locate with an explanatory accessible label. The preset Save remains an independent World confirmation. [#415 live checklist](TEST_0_3_11_DEV_4_ISSUE_415.md).
+
 Sort checkpoint display lists A–Z with locale-aware comparison and deterministic ties; never reorder the graph or stored checkpoint sequence for a visual sort. Native Region priority lists remain in priority order and retain drag/keyboard semantics.
 
 ### Explicit manual Show/Hide approval
