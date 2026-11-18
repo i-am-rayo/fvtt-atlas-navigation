@@ -237,9 +237,14 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     focus(){this.focused=true;}
   }
   const all = root => [root, ...root.children.flatMap(child => all(child))];
+  const confirmations=[];
+  let approveVisibility=false;
   try {
     globalThis.foundry = { applications: { api: {
-      ApplicationV2: class { constructor(options) { this.options=options; } }
+      ApplicationV2: class { constructor(options) { this.options=options; } },
+      DialogV2: {confirm:async config=>{
+        confirmations.push(config);return approveVisibility;
+      }}
     } } };
     globalThis.document = { createElement: tag => new Element(tag) };
     globalThis.game = { user: { isGM: true }, settings: {
@@ -430,6 +435,14 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     elevation.value = "640";
     const show=buttons.find(node=>node.title==="Show Map Marker");
     assert.ok(show,"hidden checkpoint offers an accessible show icon");
+    await show.listeners.get("click")();
+    assert.equal(playerVisible.checked,false,
+      "Cancel or X must keep the original staged player visibility");
+    assert.equal(confirmations.length,1);
+    assert.equal(confirmations[0].content.tag,"div");
+    assert.match(confirmations[0].content.children[0].textContent,/Ridge Lookout/);
+    assert.equal(stored.revision,data.revision,"cancel cannot write to Scene");
+    approveVisibility=true;
     await show.listeners.get("click")();
     assert.equal(playerVisible.checked,true);
     assert.equal(show.title,"Hide Map Marker");
