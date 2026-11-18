@@ -22,6 +22,7 @@ test("manual Atlas publication confirmation is cancel-safe and uses plain text",
       "Foundry v14 requires a div root for DialogV2 content");
     assert.equal(dialog.content.children.length,3);
     assert.equal(dialog.content.children[0].textContent.includes(hostile),true);
+    assert.match(dialog.content.children[0].textContent,/to players\?$/);
     assert.equal(dialog.content.children.some(child=>child.tag!=="p"),false,
       "authored names must never become markup");
     assert.equal(dialog.rejectClose,false);
