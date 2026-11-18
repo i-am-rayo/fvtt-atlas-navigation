@@ -7,7 +7,7 @@ import {resolveCheckpointBanner} from "./checkpoint-appearance.js";
 const ROAD_STYLE_FIELDS=["color","width","opacity","pattern","labelVisibility",
   "textColor","borderColor","borderEnabled"];
 const CHECKPOINT_STYLE_FIELDS=["type","icon","image","size","color",
-  "borderColor","labelMode","showRoadName","textColor","banner"];
+  "borderColor","borderEnabled","labelMode","showRoadName","textColor","banner"];
 
 const projectAppearance=(value,fields)=>value==null?value:
   Object.fromEntries(fields.filter(field=>Object.hasOwn(value,field))
