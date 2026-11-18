@@ -17,6 +17,13 @@ test("Atlas Layers preferences have versioned, validated client-local defaults",
   const chosen=updateAtlasLayers(null,{roadMode:"terrain",regionMode:"combined",
     showRegionNames:true,continentFillOpacity:.4,settlementFillOpacity:0});
   assert.deepEqual(validateAtlasLayers(chosen),chosen);
+  const legacy={schemaVersion:1,roadMode:"terrain",regionMode:"off",
+    showRegionNames:false,continentFillOpacity:.2,settlementFillOpacity:.1};
+  assert.deepEqual(validateAtlasLayers(legacy),
+    {...legacy,schemaVersion:2,roadTerritoryHover:false},
+    "legacy client preferences upgrade in memory, never write on read");
+  assert.equal(legacy.schemaVersion,1);
+  assert.equal(updateAtlasLayers(legacy,{roadTerritoryHover:true}).roadTerritoryHover,true);
   for(const change of [{roadMode:"unknown"},{regionMode:"everyone"},
     {showRegionNames:"true"},{continentFillOpacity:-1},{settlementFillOpacity:.9},
     {schemaVersion:2},{nativeRegions:true}])
@@ -73,6 +80,8 @@ test("GM and player map preferences remain client-local; players cannot select G
     globalThis.game.user.isGM=false;
     await controller.open();
     const playerUI=controller.window.result;
+    assert.equal(all(playerUI).some(element=>element.attributes?.["aria-label"]===
+      "Show Territory under hovered Road name (GM only)"),false);
     assert.equal(all(playerUI).filter(element=>element.type==="radio").length,4,
       "only Region filter radio buttons are shown to players");
     assert.match(playerUI.children[0].textContent,/explicitly shared by the GM/);
@@ -126,10 +135,17 @@ test("Atlas Layers modeless palette exposes Road/Region modes, names and fill co
       .map(e=>e.attributes["aria-hidden"]),["true","true","true"],
       "miniature examples are decorative and never reveal hidden Region data");
     assert.equal(radios.filter(e=>e.checked).length,2);
+    const hovered=all(root).find(node=>node.attributes?.["aria-label"]===
+      "Show Territory under hovered Road name (GM only)");
+    assert.ok(hovered);
+    assert.equal(hovered.checked,false,"GM Road Territory hover is opt-in");
+    hovered.checked=true;hovered.listeners.get("change")();
+    await window.updates;
+    assert.deepEqual(updates[0],{roadTerritoryHover:true});
     const terrain=radios.find(e=>e.value==="terrain");
     terrain.checked=true;terrain.listeners.get("change")();
     await window.updates;
-    assert.deepEqual(updates[0],{roadMode:"terrain"});
+    assert.deepEqual(updates[1],{roadMode:"terrain"});
     const sliders=all(root).filter(e=>e.type==="range");
     assert.equal(sliders.length,2);
     assert.equal(sliders[0].max,"50");
