@@ -373,6 +373,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
           row.appendChild(list);
         }
       }
+      if(type==="road")addShortcut(row,"checkpoint");
       tools(row,item,type);
       if(type==="road"){
         const children=attached.map(marker=>itemRow(marker,"checkpoint",path+"/road/"+item.id));
