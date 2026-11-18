@@ -18,6 +18,7 @@ import { readCheckpointTransportStore,validateCheckpointTransportStore,
 export const CHECKPOINT_BULK_FIELDS=Object.freeze([
   ["icon","Marker icon or image"],["size","Marker size"],
   ["color","Icon / dot color"],["borderColor","Border color"],
+  ["borderEnabled","Border enabled"],
   ["labelMode","Checkpoint label display"],["showRoadName","Include road name"],
   ["textColor","Label text color"],["discoveryMethod","Discovery method"],
   ["transportation","Transportation offers"]
@@ -39,7 +40,7 @@ export function buildCheckpointBulkUpdate(scene,preset,{scope="category",fields=
   const chosen=new Set(fields);
   const appearance=validateCheckpointAppearance(resolveCheckpointAppearance(preset.appearance));
   const appearanceKeys=["type","icon","image","size","color","borderColor",
-    "labelMode","showRoadName","textColor"];
+    "borderEnabled","labelMode","showRoadName","textColor"];
   const modifiesAppearance=chosen.has("icon")||appearanceKeys.some(k=>chosen.has(k));
   const styledAtlas=modifiesAppearance?upgradeAtlasCheckpointAppearance(atlas):atlas;
   const nextCheckpoints=styledAtlas.checkpoints.map(checkpoint=>{
