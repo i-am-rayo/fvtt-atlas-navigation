@@ -54,6 +54,7 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     const titleField=all(body).find(item=>item.tag==="input"&&item.maxLength===120);
     assert.ok(titleField);
     titleField.value="Unsaved map marker preset";
+    body.children[1].listeners.get("input")();
     tabs.children[1].listeners.get("click")();
     tabs.children[0].listeners.get("click")();
     assert.equal(titleField.value,"Unsaved map marker preset",
