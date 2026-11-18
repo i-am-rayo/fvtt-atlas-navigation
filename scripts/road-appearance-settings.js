@@ -211,8 +211,8 @@ export class AtlasRoadAppearanceSettings extends foundry.applications.api.Applic
         ui.notifications.info("Atlas world road appearance defaults saved.");
         this.close();
       } catch (error) {
-        ui.notifications.error(error.message);
         save.disabled = false;
+        ui.notifications.error(error.message);
       }
     });
     const footer=element("div");
