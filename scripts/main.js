@@ -807,6 +807,7 @@ function actions() {
         const shown=visibility.checked;
         visibleIcon.title=(shown?"Hide ":"Show ")+actual.name+" from players";
         visibleIcon.setAttribute("aria-label",visibleIcon.title);
+        visibleIcon.setAttribute("aria-pressed",String(shown));
         visibleIcon.querySelector("i").className="fa-solid fa-"+(shown?"eye":"eye-slash");
       };
       visibleIcon.addEventListener("click",async()=>{
