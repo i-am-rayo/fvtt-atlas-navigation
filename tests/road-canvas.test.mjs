@@ -854,8 +854,8 @@ test("v0.2.21 checkpoint icons load locally and labels include owning road on ho
     const borderlessSprites=m.controller.labels.filter(item=>item instanceof Sprite);
     assert.ok(borderlessSprites.length>=1&&borderlessSprites.length<=2,
       "border Off must retain the icon while omitting its eight silhouette shadows");
-    assert.ok(borderlessSprites.every(sprite=>sprite.tint===0xffaa11),
-      "every active marker sprite must keep the authored tint, not borderColor black");
+    assert.deepEqual(borderlessSprites.map(sprite=>sprite.tint),[0xffaa11],
+      "diagnose active sprite tint after border Off");
     assert.ok(borderlessSprites.every(sprite=>sprites.slice(countWithBorder).includes(sprite)),
       "active render must not retain historical outlined sprites");
     assert.equal(m.controller.labels.filter(x => x instanceof Text).length, 0);
