@@ -614,3 +614,55 @@
 .atlas-workspace-preset-shortcut > small {
   line-height:1.35;overflow-wrap:anywhere;
 }
+
+/* Static directory records have no disclosure arrow or fake expandable region. */
+.atlas-map-directory .atlas-directory-leaf {
+  padding:.4rem .55rem;
+  border-inline-start:2px solid var(--color-border-light-2,#777);
+}
+.atlas-map-directory .atlas-directory-row-heading {
+  display:flex;align-items:center;flex-wrap:wrap;gap:.45rem;padding:.25rem;min-width:0;
+}
+.atlas-map-directory .atlas-directory-row-heading > .atlas-directory-identity {
+  flex:1 1 10rem;font-weight:600;min-width:0;overflow-wrap:anywhere;
+}
+.atlas-map-directory .atlas-directory-row-heading > .atlas-directory-actions {
+  display:inline-flex;align-items:center;gap:.25rem;margin:0 0 0 auto;
+}
+.atlas-map-directory .atlas-directory-row-heading .atlas-ui-icon-button {
+  width:2rem;min-width:2rem;height:2rem;min-height:2rem;flex:0 0 2rem;
+}
+.atlas-map-directory .atlas-directory-identity {align-items:center;}
+.atlas-map-directory .atlas-directory-symbol {
+  width:1rem;height:1rem;display:inline-grid;place-items:center;
+  flex:0 0 1rem;line-height:1;overflow:hidden;
+}
+.atlas-map-directory .atlas-directory-symbol > img,
+.atlas-map-directory .atlas-directory-masked-icon {
+  width:1rem;height:1rem;object-fit:contain;display:block;
+}
+.atlas-map-directory .atlas-directory-masked-icon {
+  -webkit-mask-position:center;mask-position:center;
+  -webkit-mask-size:contain;mask-size:contain;
+  -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
+}
+.atlas-map-directory .atlas-directory-color-dot {
+  display:block;width:.8rem;height:.8rem;border-radius:50%;
+  border:1px solid var(--color-border-light-2,#777);
+}
+.atlas-map-directory .atlas-directory-color-unavailable {background:transparent;}
+.atlas-map-directory .atlas-directory-transport-offers {
+  margin:.4rem 0 .45rem 1.5rem;padding-left:1rem;
+  display:grid;gap:.2rem;overflow-wrap:anywhere;
+}
+.atlas-map-directory .atlas-directory-contextual-actions {
+  display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;
+  margin:0 0 .6rem;padding:.35rem .5rem;
+  border:1px solid var(--color-border-light-tertiary,#6666);border-radius:.35rem;
+}
+.atlas-map-directory .atlas-directory-contextual-actions > strong {
+  color:var(--color-level-error,#e8a099);
+}
+.atlas-map-directory .atlas-directory-contextual-actions > button {
+  width:auto;min-height:2rem;
+}
