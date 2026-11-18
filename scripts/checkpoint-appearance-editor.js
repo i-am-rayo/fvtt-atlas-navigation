@@ -55,7 +55,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     position: { width: 630, height: 540, left: 24 }
   };
 
-  constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null, onTerrainAction = null, onDelete = null, onMove = null, onRoad = null }) {
+  constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null, onTerrainAction = null, onDelete = null, onMove = null, onRoad = null, onLocate = null }) {
     const checkpointName=createDraft?null:
       readAtlas(scene).checkpoints?.find(checkpoint=>checkpoint.id===checkpointId)?.name;
     super({ window:{title:atlasSettingsTitle("Map Marker",checkpointName,
@@ -74,6 +74,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     this.onDelete = onDelete;
     this.onMove = onMove;
     this.onRoad = onRoad;
+    this.onLocate = onLocate;
     this.activePage = "General";
     this.createResolved = false;
   }
@@ -641,6 +642,20 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const controls = el("div");
     controls.className = "atlas-checkpoint-form-actions";
     controls.style.cssText="flex:0 0 auto;margin-top:auto;padding:.4rem 0;border-top:1px solid var(--color-border-light-tertiary,#666);";
+    const leftActions=el("div"),rightActions=el("div");
+    leftActions.className="atlas-checkpoint-footer-left";
+    rightActions.className="atlas-checkpoint-footer-right";
+    const locate=createSettingsIconButton({icon:"location-dot",label:this.createDraft?
+      "Locate unavailable until Map Marker is saved":"Locate Map Marker"});
+    locate.disabled=Boolean(this.createDraft||!this.onLocate);
+    locate.addEventListener("click",async()=>{
+      if(locate.disabled)return;
+      locate.disabled=true;
+      try{await this.onLocate();}
+      catch(error){ui.notifications.error(error.message??String(error));}
+      finally{locate.disabled=false;}
+    });
+    leftActions.appendChild(locate);
     const save = createSettingsIconButton({icon:"floppy-disk",
       label:this.createDraft ? "Create Map Marker" : "Save Map Marker"});
     save.className+=" atlas-checkpoint-footer-save";
@@ -830,7 +845,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       const move=createSettingsIconButton({icon:"up-down-left-right",label:"Move Map Marker"});
       move.className+=" atlas-checkpoint-footer-icon";
       move.addEventListener("click",()=>void leaveForAction(this.onMove).catch(error=>ui.notifications.error(error.message)));
-      controls.appendChild(move);
+      leftActions.appendChild(move);
     }
     if(!this.createDraft){
       const roads=el("fieldset");roads.appendChild(el("legend","Road connection"));
@@ -861,12 +876,14 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       }
       pageTerrain.prepend(roads);
     }
-    if(visibilityAction)controls.appendChild(visibilityAction);
-    controls.append(saveAsPreset,save);
+    if(visibilityAction)leftActions.insertBefore(visibilityAction,
+      leftActions.children[1]??null);
+    rightActions.append(saveAsPreset,save);
     if(remove){
       remove.className+=" atlas-checkpoint-footer-delete";
-      controls.appendChild(remove);
+      rightActions.appendChild(remove);
     }
+    controls.append(leftActions,rightActions);
     root.appendChild(controls);
     this._saveDraft=()=>saveValue(undefined);
     this._isDirty=trackSettingsChanges(root,()=>({selected,terrainSuggestion,
