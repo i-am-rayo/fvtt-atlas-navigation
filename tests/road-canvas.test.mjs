@@ -2049,7 +2049,7 @@ test("GM opt-in Road hover adds native Territory below Road name, never on playe
   m.Graphics.prototype.addChild=function(label){label.parent=this;};
   class Text{
     constructor(value,style){this.text=String(value);this.style=style;
-      this.anchor={set(){}};this.position={set(x,y){this.x=x;this.y=y;}};}
+      this.anchor={set(){}};this.position={set:(x,y)=>{this.x=x;this.y=y;}};}
     destroy(){}
   }
   try{
