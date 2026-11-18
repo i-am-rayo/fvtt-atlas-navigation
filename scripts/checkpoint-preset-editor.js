@@ -185,7 +185,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     iconControls.className="atlas-checkpoint-marker-controls";
     iconControls.append(iconSection,markerType);
     iconRow.append(caption,iconControls);
-    markerSettings.prepend(iconRow);
+    markerSettings.insertBefore(iconRow,markerSettings.children[1]??null);
     const updateMarker=()=>{
       iconSection.hidden=markerType.value!=="fa";
       imageRow.closest("label").hidden=markerType.value!=="image";
