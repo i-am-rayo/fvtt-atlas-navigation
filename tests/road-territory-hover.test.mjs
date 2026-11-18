@@ -47,6 +47,10 @@ test("unrelated overlaps, sibling names and invalid geographic ancestry fail clo
     world=scene(a,twin);
     assert.equal(gmRoadTerritoryAtPoint(world,view(world),{x:30,y:30}),"Valecor, Valecor",
       "one local Area and one continent may both be named without explicit parentage");
+    const twin2=region("sibling2","Valecor","area",[0,0,150,150]);
+    world=scene(a,twin,twin2);
+    assert.equal(gmRoadTerritoryAtPoint(world,view(world),{x:30,y:30}),null,
+      "two co-containing sibling Areas must remain ambiguous, even with identical names");
     const invalid=region("invalid","Orphan","city",[0,0,10,10],{parent:"missing"});
     world=scene(a,invalid);
     assert.equal(gmRoadTerritoryAtPoint(world,view(world),{x:5,y:5}),null);
