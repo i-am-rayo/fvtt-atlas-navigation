@@ -6,11 +6,13 @@ class FakeElement {
   constructor(tag){
     this.tagName=tag.toUpperCase();this.children=[];this.attributes=new Map();
     this.style={cssText:""};this.value="";this.defaultValue="";this.checked=false;
+    this.listeners=new Map();
   }
   appendChild(child){this.children.push(child);return child;}
   append(...children){for(const child of children)this.appendChild(child);}
   setAttribute(name,value){this.attributes.set(name,String(value));}
-  addEventListener(){}
+  addEventListener(name,fn){this.listeners.set(name,fn);}
+  focus(){this.focused=true;}
   replaceChildren(...children){this.children=[...children];}
 }
 const flatten=(root)=>[root,...root.children.flatMap(flatten)];
@@ -40,6 +42,21 @@ test("Transport catalog and Workspace travel forms render without writing settin
     assert.match(text,/Water travel/);
     assert.match(text,/Air travel/);
     assert.match(text,/Import optional workbook examples/);
+    const tabs=flatten(defaults).find(node=>node.className==="atlas-world-category-tabs");
+    const scroll=flatten(defaults).find(node=>node.className==="atlas-world-category-scroll");
+    assert.deepEqual(tabs.children.map(node=>node.textContent),["Land","Water","Air"]);
+    assert.deepEqual(scroll.children.filter(node=>node.tagName==="FIELDSET")
+      .map(node=>node.hidden),[false,true,true]);
+    tabs.children[1].listeners.get("click")();
+    assert.equal(app.activeCategory,"water");
+    assert.deepEqual(scroll.children.filter(node=>node.tagName==="FIELDSET")
+      .map(node=>node.hidden),[true,false,true],
+      "Water shows its original independent services, no storage changes");
+    const revisited=await app._renderHTML();
+    const active=flatten(revisited).find(node=>node.className==="atlas-world-category-tabs");
+    assert.equal(active.children[1].attributes.get("aria-selected"),"true",
+      "add/edit/reset rerenders return to the chosen World category");
+    assert.deepEqual(ctx.changes,[],"category navigation does not save");
     assert.equal(flatten(defaults).some(e=>e.textContent==="Travel rules"),false);
     const rulePanel=new FakeElement("section");renderTravelRules(rulePanel);
     const rules=flatten(rulePanel).map(e=>e.textContent??"").join(" ");
