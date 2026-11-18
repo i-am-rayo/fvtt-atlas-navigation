@@ -95,7 +95,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     input(label, control, key, "change");
   }
   if (view === "directory") select("Territory type", "type", Object.entries(GEOGRAPHY_KINDS));
-  if (view === "allRoads") select("Travel type", "type", [["land","Land"],["air","Air"],["water","Water"]]);
+  if (view === "allRoads") select("Travel type", "type", [["land","Land"],["water","Water"],["air","Air"]]);
   if (view === "allCheckpoints") {
     const type=createSettingsGroupedSelect([
       {label:null,options:[["","All"]]},
