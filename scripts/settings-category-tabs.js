@@ -41,6 +41,8 @@ export function createSettingsCategoryTabs({id, modes, active="land", onChange=(
     activate(keys[next]);
     tabs.get(keys[next]).focus?.();
   });
+  // New renders must announce the selected category before any interaction.
+  activate(selected);
   return {nav,activate,
     addPanel(key,panel){
       panel.id=id+"-"+key+"-panel";
