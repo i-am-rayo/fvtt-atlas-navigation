@@ -851,9 +851,11 @@ test("v0.2.21 checkpoint icons load locally and labels include owning road on ho
     });
     await m.scene.setFlag("fvtt-atlas-navigation","atlas",withoutBorder);
     m.controller.refresh();
-    const borderlessSprites=sprites.slice(countWithBorder);
+    const borderlessSprites=m.controller.labels.filter(item=>item instanceof Sprite);
     assert.equal(borderlessSprites.length,1,
-      "border Off removes all eight silhouette shadow sprites but keeps the actual icon");
+      "active canvas keeps only the original icon, not eight outline sprites");
+    assert.ok(sprites.slice(countWithBorder).includes(borderlessSprites[0]),
+      "current render owns the retained icon instead of an old asynchronous sprite");
     assert.equal(borderlessSprites[0].tint,0xffaa11,
       "border Off does not change authored marker fill");
     assert.equal(m.controller.labels.filter(x => x instanceof Text).length, 0);
