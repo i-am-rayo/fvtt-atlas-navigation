@@ -313,6 +313,27 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.deepEqual(sections.map(node=>node.children[0].textContent),
       ["Map Marker settings","Banner information"]);
     assert.equal(sections[0].children[1].children[0].textContent,"Marker size (12–64 px)");
+    const borderRow=all(root).find(node=>node.className==="atlas-checkpoint-border-inline");
+    assert.ok(borderRow,"Border Enabled and retained Border Color share one row");
+    assert.equal(borderRow.children.length,2);
+    const borderEnabled=borderRow.children[0].children[1];
+    const borderColor=borderRow.children[1].children[1];
+    assert.equal(borderEnabled.type,"checkbox");
+    assert.equal(borderEnabled.checked,true,"legacy marker border stays enabled");
+    assert.equal(borderColor.type,"color");
+    assert.equal(borderColor.disabled,false);
+    const originalBorderColor=borderColor.value;
+    borderColor.value="#aabbcc";
+    borderEnabled.checked=false;
+    root.listeners.get("change")();
+    assert.equal(borderColor.disabled,true,"Off disables the swatch, not its draft");
+    assert.equal(borderColor.value,"#aabbcc");
+    borderEnabled.checked=true;
+    root.listeners.get("change")();
+    assert.equal(borderColor.disabled,false);
+    assert.equal(borderColor.value,"#aabbcc","On restores the retained border swatch");
+    borderColor.value=originalBorderColor;
+    root.listeners.get("input")();
     const mapPreview=all(root).find(node=>node.className==="atlas-checkpoint-preview");
     assert.ok(mapPreview);
     const sample=mapPreview.children[1];
@@ -581,6 +602,16 @@ test("v0.2.29 border colors default black, legacy styles remain readable", () =>
   assert.equal(legacy.borderColor, undefined, "read-only compatibility must not rewrite old flags");
   assert.equal(validateCheckpointAppearance({ ...fancy, borderColor: "#d34e55" }).borderColor, "#d34e55");
   assert.throws(() => validateCheckpointAppearance({ ...fancy, borderColor: "maroon" }));
+  assert.equal(DEFAULT_CHECKPOINT_APPEARANCE.borderEnabled,true,
+    "previously saved Map Markers rendered with a border");
+  const legacyStyle={...fancy};delete legacyStyle.borderEnabled;
+  assert.equal(validateCheckpointAppearance(legacyStyle).borderEnabled,true);
+  assert.equal(Object.hasOwn(legacyStyle,"borderEnabled"),false,
+    "reading a legacy Scene flag must not migrate or change it");
+  assert.equal(validateCheckpointAppearance({...fancy,borderEnabled:false}).borderEnabled,false);
+  for(const invalid of [null,0,"false",{},undefined])
+    assert.throws(()=>validateCheckpointAppearance({...fancy,borderEnabled:invalid}),
+      /border enabled/,"border enable is an explicit strict boolean, not a color sentinel");
 });
 
 
