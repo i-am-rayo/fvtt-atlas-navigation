@@ -8,7 +8,7 @@ import {registerAtlasAnnouncementDelivery,atlasAnnouncementRuntime}
 export class AtlasAnnouncementPreviewSettings extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS={
     id:"fvtt-atlas-announcement-preview",
-    window:{title:"Atlas — Announcement Banner Samples",resizable:true},
+    window:{title:"Atlas — Announcement Previews",resizable:true},
     position:{width:540,height:610}
   };
 
