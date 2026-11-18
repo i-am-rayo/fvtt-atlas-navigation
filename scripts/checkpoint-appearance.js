@@ -56,7 +56,8 @@ export function findCheckpointIcons(query = "", style = "all", category = "all")
 }
 export const DEFAULT_CHECKPOINT_APPEARANCE = Object.freeze({
   type: "dot", icon: "location-dot", image: "",
-  size: 24, color: "#9c7bf0", borderColor: "#000000", labelMode: "off",
+  size: 24, color: "#9c7bf0", borderColor: "#000000", borderEnabled: true,
+  labelMode: "off",
   showRoadName: false, textColor: "#ffffff"
 });
 
@@ -111,9 +112,9 @@ export function validateCheckpointAppearance(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Checkpoint appearance must be an object.");
   }
-  // Existing v0.2.21–v0.2.28 checkpoint styles have no borderColor. Read
-  // them unchanged; add the black default only when a GM explicitly saves.
-  const normalized = { borderColor: "#000000", ...value };
+  // Backward-compatible read normalization, not a write-on-read migration.
+  // Previously saved dot/FA/image marker borders always rendered enabled.
+  const normalized = { borderColor: "#000000", borderEnabled: true, ...value };
   if (KEYS.some(key=>!Object.hasOwn(normalized,key))||
       Object.keys(normalized).some(key=>!KEYS.includes(key)&&key!=="banner")) {
     throw new Error("Checkpoint appearance has missing or unsupported fields.");
@@ -140,6 +141,8 @@ export function validateCheckpointAppearance(value) {
       throw new Error("Invalid checkpoint " + text + " color.");
     }
   }
+  if(typeof normalized.borderEnabled!=="boolean")
+    throw new Error("Map Marker border enabled must be true or false.");
   if (!LABEL_MODES.includes(value.labelMode)) {
     throw new Error("Checkpoint label mode must be Off, Hover or Always.");
   }
