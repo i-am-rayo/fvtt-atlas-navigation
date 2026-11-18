@@ -7,7 +7,7 @@ export function createSettingsCategoryTabs({id, modes, active="land", onChange=(
   nav.setAttribute?.("aria-label","World preset category");
   const tabs=new Map(),panels=new Map();
   let selected=modes.some(([key])=>key===active)?active:modes[0][0];
-  const activate=key=>{
+  const activate=(key,notify=true)=>{
     if(!tabs.has(key))return;
     selected=key;
     for(const [mode,tab] of tabs){
@@ -17,7 +17,7 @@ export function createSettingsCategoryTabs({id, modes, active="land", onChange=(
       const panel=panels.get(mode);
       if(panel){panel.hidden=!chosen;panel.style.display=chosen?"grid":"none";}
     }
-    onChange(key);
+    if(notify)onChange(key);
   };
   for(const [key,label] of modes){
     const tab=document.createElement("button");
@@ -42,7 +42,7 @@ export function createSettingsCategoryTabs({id, modes, active="land", onChange=(
     tabs.get(keys[next]).focus?.();
   });
   // New renders must announce the selected category before any interaction.
-  activate(selected);
+  activate(selected,false);
   return {nav,activate,
     addPanel(key,panel){
       panel.id=id+"-"+key+"-panel";
