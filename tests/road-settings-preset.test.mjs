@@ -77,6 +77,9 @@ test("Road travel preset controls match Map Marker stage/select workflow with no
     const current=presets.find(item=>item.id==="land-stone");
     assert.ok(current);
     const {row,hint,select}=createRoadTravelPresetRow(current.id);
+    assert.equal(row.tag,"div","button never nests inside a label");
+    assert.equal(row.className,"form-group atlas-road-preset-row",
+      "Road preset has an explicit horizontal row regardless of native form-group defaults");
     assert.equal(row.children[0].textContent,"Travel preset");
     const controls=row.children[1];
     assert.equal(controls.className,"atlas-road-preset-controls");
@@ -86,6 +89,10 @@ test("Road travel preset controls match Map Marker stage/select workflow with no
     assert.equal(name.attrs.get("aria-live"),"polite");
     assert.equal(select.hidden,true,"a saved preset displays Change rather than a duplicate dropdown");
     assert.equal(change.hidden,false);
+    assert.equal(change.tag,"button");
+    assert.equal(change.type,"button","Change cannot submit Road Settings");
+    assert.equal(change.textContent,"Change preset…",
+      "Road uses the same visible action label as Map Marker Settings");
     assert.equal(change.title,"Change travel preset");
     assert.match(hint.textContent,/World presets and native Region Behaviors are unchanged/);
     change.fire("click");
@@ -125,6 +132,10 @@ test("Road Settings places the World preset control above Road name in General",
   assert.ok(main.includes("panels.general.append(presetRow,presetHint,nameRow,visibilityRow,journalControls);"),
     "the existing native form appends Travel preset and its hint before Road name");
   const css=readFileSync(new URL("../styles/road-settings-dialog.css",import.meta.url),"utf8");
-  assert.ok(css.includes("width:min(100%,20rem);margin-inline-start:auto;"),
-    "Road picker remains right-aligned, like the Map Marker preset control");
+  assert.match(css,/\\.atlas-road-preset-row\\s*\\{[^}]*display:flex;flex-direction:row;align-items:center;[^}]*justify-content:space-between/s,
+    "preset label and control must share a horizontal row, not stack as a native form-group");
+  assert.match(css,/\\.atlas-road-preset-controls\\s*\\{[^}]*justify-content:flex-end/s,
+    "the name and Change preset control form one right-aligned group");
+  assert.match(css,/\\.atlas-road-preset-controls > span\\s*\\{[^}]*flex:0 1 auto/s,
+    "preset name may not reserve an entire line before the Change button");
 });
