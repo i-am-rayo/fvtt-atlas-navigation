@@ -237,9 +237,14 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     focus(){this.focused=true;}
   }
   const all = root => [root, ...root.children.flatMap(child => all(child))];
+  const confirmations=[];
+  let approveVisibility=false;
   try {
     globalThis.foundry = { applications: { api: {
-      ApplicationV2: class { constructor(options) { this.options=options; } }
+      ApplicationV2: class { constructor(options) { this.options=options; } },
+      DialogV2: {confirm:async config=>{
+        confirmations.push(config);return approveVisibility;
+      }}
     } } };
     globalThis.document = { createElement: tag => new Element(tag) };
     globalThis.game = { user: { isGM: true }, settings: {
@@ -431,6 +436,15 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const show=buttons.find(node=>node.title==="Show Map Marker");
     assert.ok(show,"hidden checkpoint offers an accessible show icon");
     await show.listeners.get("click")();
+    assert.equal(playerVisible.checked,false,
+      "Cancel or X must keep the original staged player visibility");
+    assert.equal(confirmations.length,1);
+    assert.equal(confirmations[0].content.tag,"div");
+    assert.match(confirmations[0].content.children[0].textContent,/Revealed Lookout/,
+      "visibility confirmation identifies the current unsaved Map Marker draft");
+    assert.equal(stored.revision,data.revision,"cancel cannot write to Scene");
+    approveVisibility=true;
+    await show.listeners.get("click")();
     assert.equal(playerVisible.checked,true);
     assert.equal(show.title,"Hide Map Marker");
     assert.equal(stored.revision,data.revision,"visibility remains staged until Save Checkpoint");
@@ -459,7 +473,6 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(stored.checkpoints[0].name, "Revealed Lookout");
     assert.equal(stored.checkpoints[0].elevationMeters, 640);
     assert.equal(stored.checkpoints[0].playerVisible, true);
-
     // #412: A deliberate preset change applies its defaults, but changing the
     // marker category afterwards must not silently select another preset or
     // wipe the GM's unrelated edits.

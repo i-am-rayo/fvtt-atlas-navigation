@@ -64,6 +64,10 @@ Place row actions inline at the far right without losing nesting indentation or 
 
 Sort checkpoint display lists A–Z with locale-aware comparison and deterministic ties; never reorder the graph or stored checkpoint sequence for a visual sort. Native Region priority lists remain in priority order and retain drag/keyboard semantics.
 
+### Explicit manual Show/Hide approval
+
+Manual Road, Map Marker, party knowledge and Territory boundary Show/Hide actions must identify the exact item, the affected player-facing channel, and the independent permissions they **do not** change. Use native v14 `DialogV2.confirm` with a `div` content root and safe text nodes for user-authored names. **Direct** directory changes confirm before existing GM/revision-checked persistence; **staged** editor eye controls confirm a draft-only change and must never commit until Save. Cancel, Escape or X is a no-op, and repeated clicks must not duplicate writes. Automatic discovery and rendering are not manual approval flows. Display icons depict the current shown/hidden state with matching accessible state. [#409 live checklist](TEST_0_3_10_DEV_2_ISSUE_409.md).
+
 ## Ownership and player safeguards
 
 UI reorganizations must retain the beta.8.55 banner contract: existing showRoadName remains canonical; additive banner fields use existing owners, one explicitly selected eligible native Region, no cached names or automatic nearest-territory choice. Selected details are visible to GM and players for shown checkpoints, subject to existing hidden Road/Region filtering. Do not grant Journal access, publish Region geometry, infer confidentiality from UI filtering, or introduce write-on-read. World presets never blindly copy Scene Region IDs.
