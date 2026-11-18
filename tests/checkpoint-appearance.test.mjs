@@ -338,8 +338,9 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(mapPreview);
     const sample=mapPreview.children[1];
     const labelPreview=sample.children[1];
-    const showRoad=all(root).find(node=>node.tag==="input"&&
-      node.type==="checkbox");
+    const bannerSettings=all(root).find(node=>
+      node.className==="atlas-checkpoint-banner-settings");
+    const showRoad=bannerSettings.children[1].children[0];
     const labelMode=all(root).find(node=>node.tag==="select"&&node.value==="off");
     assert.ok(showRoad&&labelMode);
     const inlineBanner=all(root).find(node=>
@@ -361,8 +362,6 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(css.includes(".atlas-checkpoint-banner-inline {")&&
       css.includes("display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;"),
       "the two labeled controls share a responsive horizontal row");
-    const bannerSettings=all(root).find(node=>
-      node.className==="atlas-checkpoint-banner-settings");
     assert.ok(bannerSettings);
     assert.equal(bannerSettings.children[1].hidden,false,
       "Road-connected checkpoint offers Road name in the banner");
