@@ -88,7 +88,7 @@ function worldPresetUses(presetId) {
 export class AtlasTravelPresetSettings extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-travel-presets",
-    window: { title: "Atlas Presets — Corridor Travel", resizable: true },
+    window: { title: "Atlas — Surface Presets", resizable: true },
     position: { width: 690, height: 630 }
   };
 
