@@ -589,3 +589,8 @@
 @media(max-width:400px){
   .atlas-layers-palette .atlas-layers-sample {display:none;}
 }
+
+/* Contextual creation is a shortcut to the existing GM flow, not an auto-link. */
+.atlas-map-directory summary > .atlas-directory-shortcut {
+  margin-inline-start:auto;flex:0 0 2rem;
+}
