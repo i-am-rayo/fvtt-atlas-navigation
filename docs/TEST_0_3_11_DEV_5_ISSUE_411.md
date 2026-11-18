@@ -1,4 +1,4 @@
-# Atlas 0.3.11-dev.5 — Road travel preset field presentation (#411)
+# Atlas 0.3.11-dev.5.1 — Road travel preset field presentation (#411)
 
 **Milestone:** 01 — Atlas Workspace & UI/UX Stabilization · **Issue:** [#411](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/411) · **Target:** Foundry VTT v14.
 
@@ -6,18 +6,18 @@
 
 **Archive:** https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/fix/0.3.11-m01-411-road-travel-preset-order.zip
 
-**Stack:** based on owner-accepted 0.3.11-dev.4 (#415 / draft PR #431), which includes accepted dev.1–dev.3. No parent PR is merged into `main`; this build is cumulative and not a production release.
+**Owner Foundry v14 correction:** The original dev.5 visual test was rejected: Road Settings stacked the selected preset below the label and showed a pencil-only button. This revised build **0.3.11-dev.5.1** corrects the actual form row layout and action label; it is not yet owner-accepted. Regression covers row structure, visible button text and CSS row alignment.\n\n**Stack:** based on owner-accepted 0.3.11-dev.4 (#415 / draft PR #431), which includes accepted dev.1–dev.3. No parent PR is merged into `main`; this build is cumulative and not a production release.
 
 ## Implementation boundary
 
-Road Settings → General now places its existing **Travel preset** field immediately above **Road name**, mirroring Map Marker Settings. The same World travel-preset select and the same `createRoadPresetStage` continue to drive the existing guarded `saveRoadSettings` transaction; the display wrapper alone now shows the selected preset name and a Change pencil, or an open selector when None is chosen. A missing/removed World preset is explicitly marked unavailable and cannot be silently interpreted as the Land fallback. An explanatory hint distinguishes a per-Road assignment from modifying World preset definitions or native Region Behaviors.
+Road Settings → General now places its existing **Travel preset** field immediately above **Road name**, mirroring Map Marker Settings. The same World travel-preset select and the same `createRoadPresetStage` continue to drive the existing guarded `saveRoadSettings` transaction; the display wrapper alone now shows the selected preset name and a visibly labeled **Change preset…** button on the same horizontal row as **Travel preset** (matching placed Map Marker Settings), or an open selector when None is chosen. A missing/removed World preset is explicitly marked unavailable and cannot be silently interpreted as the Land fallback. An explanatory hint distinguishes a per-Road assignment from modifying World preset definitions or native Region Behaviors.
 
 No change to Road identity, stable IDs, names, topology, Scene flags/schema, native Region geometry/Behaviors, the World catalog, Journey authority, or save/cancel/dirty-close permission checks. The new `road-settings-preset-view.js` owns only a small DOM representation; the existing `road-settings-preset.js` remains a pure draft-state model.
 
 ## GM live test in backed-up Foundry v14 World
 
-1. Open a saved Road → Settings → General. **Travel preset is above Road name**. Confirm the selected name appears as a clear read-only label and the pencil Change button is keyboard-accessible and has an accessible name.
-2. Click **Change travel preset**. Focus moves to the actual selector. Choose an eligible Land, Water or Air World preset. Verify the selected label updates, the picker returns to read-only display, and focus returns to Change. No World preset, native Region cost, Scene or Journey writes occur until Road Settings Save.
+1. Open a saved Road → Settings → General. **Travel preset is above Road name**. Confirm **Travel preset** is at left, with the current preset name and full **Change preset…** text button adjacent on the right **on the same line**, exactly like the Map Marker preset row; the action must remain keyboard-accessible.
+2. Click **Change preset…**. Focus moves to the actual selector. Choose an eligible Land, Water or Air World preset. Verify the selected label updates, the picker returns to read-only display, and focus returns to Change. No World preset, native Region cost, Scene or Journey writes occur until Road Settings Save.
 3. Enter a draft name change, switch to Customization, Map Markers and Terrain Regions and return. Name, preset choice, visibility and journal fields must survive tabs/scroll changes. Close/Cancel with unsaved edits; reopen and confirm original Road assignment is unchanged.
 4. Repeat with **None (Land fallback)**. The picker remains available; Save writes a nullable Road preset assignment, and the existing display mode remains Land fallback.
 5. Save a new valid choice. It must commit in the **single existing revision-checked Road Settings Scene write**, preserve graph IDs, Road appearance, visibility, linked Map Markers and native Regions. Try a second stale editor and verify expected revision protections still reject outdated saves.
