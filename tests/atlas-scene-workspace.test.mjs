@@ -517,7 +517,9 @@ test("Directory filters keep independent choices and row expansion across refres
     const graph={schemaVersion:10,coordinateSpace:"image",revision:2,enabled:true,calibration:null,
       roads:[{id:"road",name:"Coast Road",travelPresetId:null,appearance:null,playerVisible:false}],
       nodes:[{id:"a",x:0,y:0},{id:"b",x:10,y:10}],
-      segments:[{id:"s",roadId:"road",from:"a",to:"b",via:[],bidirectional:true}],checkpoints:[]};
+      segments:[{id:"s",roadId:"road",from:"a",to:"b",via:[],bidirectional:true}],
+      checkpoints:[{id:"cp",name:"Bridge",roadId:"road",nodeId:"a",
+        elevationMeters:null,appearance:null,playerVisible:false}]};
     ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     await enter(ws,"Map directory");
