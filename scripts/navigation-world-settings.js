@@ -41,8 +41,8 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
   });
   settings.registerMenu?.(MODULE_ID,"atlasTransportationPresetsMenu",{
     name:"Atlas — Transportation Presets",
-    label:"Configure Transportation and Travel Rules",
-    hint:"Walking, mounts, vehicles, speeds, costs, rest rules and journey options in one GM-only window.",
+    label:"Configure Transportation Presets",
+    hint:"Manage World walking, mounts and vehicles, including travel rules and services. Editing presets does not initiate travel or change Actors.",
     icon:"fa-solid fa-horse",type:AtlasTransportationSettings,restricted:true
   });
   settings.register(MODULE_ID,NAVIGATION_SPEED_SETTING,{
