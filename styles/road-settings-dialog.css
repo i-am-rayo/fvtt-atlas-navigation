@@ -27,8 +27,8 @@
 .atlas-checkpoint-form-actions .atlas-checkpoint-footer-right {
   margin-inline-start:auto;justify-content:flex-end;
 }
-.atlas-checkpoint-form-actions .atlas-checkpoint-footer-right > button {
-  flex:0 0 auto;width:auto;
+.atlas-checkpoint-form-actions .atlas-checkpoint-footer-right > button:not(.atlas-ui-icon-button) {
+  flex:0 1 auto;min-width:0;max-width:100%;width:auto;white-space:normal;
 }
 
 .application:has([data-atlas-road-live]) .form-footer > button[data-atlas-road-submit].atlas-ui-icon-button {
