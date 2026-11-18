@@ -133,12 +133,16 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     chevron.className="fa-solid fa-chevron-right atlas-directory-chevron";
     chevron.setAttribute("aria-hidden","true");
     summary.appendChild(chevron);
-    summary.appendChild(element("span",label));
+    const identity=element("span");
+    identity.className="atlas-directory-identity";
+    identity.appendChild(element("span",label));
     if(subtitle) {
       const secondary=element("small",subtitle);
       secondary.className="atlas-directory-secondary";
-      summary.appendChild(secondary);
+      identity.appendChild(secondary);
     }
+    summary.appendChild(identity);
+    details._atlasSummaryIdentity=identity;
     details.appendChild(summary);
     details.addEventListener("toggle",()=>{
       if(!details.isConnected||expanded)return;
@@ -152,6 +156,13 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       for(const id of child._atlasRoadIds??[])parent._atlasRoadIds.add(id);
       for(const id of child._atlasMarkerIds??[])parent._atlasMarkerIds.add(id);
     }
+  }
+  function appendCounts(details){
+    const counts=element("small","Map Markers ("+details._atlasMarkerIds.size+
+      ") | Roads ("+details._atlasRoadIds.size+")");
+    counts.className="atlas-directory-counts";
+    // Keep the read-only metadata with the title, ahead of every action.
+    details._atlasSummaryIdentity.appendChild(counts);
   }
   // These launch the original creation tools; no Road/Territory association
   // is inferred from the directory group where the GM clicked Plus.
@@ -323,10 +334,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       tools(row,place,"territory");
       row.append(...children);
       collectCounts(row,children);
-      const counts=element("small","Map Markers ("+row._atlasMarkerIds.size+
-        ") | Roads ("+row._atlasRoadIds.size+")");
-      counts.className="atlas-directory-counts";
-      row.children[0].appendChild(counts);
+      appendCounts(row);
       if(!children.length)row.appendChild(element("p","No matching map records."));
       return row;
     }
@@ -338,10 +346,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       rows=[];
       const continentGroup=section("continents","Continents",continents,"territory","root");
       if(continentGroup){
-        const summary=element("small","Map Markers ("+continentGroup._atlasMarkerIds.size+
-          ") | Roads ("+continentGroup._atlasRoadIds.size+")");
-        summary.className="atlas-directory-counts";
-        continentGroup.children[0].appendChild(summary);
+        appendCounts(continentGroup);
         rows.push(continentGroup);
       }
       const otherGroup=section("other-territories","Other / unclassified territories",
