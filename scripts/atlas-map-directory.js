@@ -359,7 +359,8 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
         row._atlasMarkerIds.add(item.id);
         const names=offers.map(offer=>transportNames.get(offer.methodId)??offer.methodId);
         const summary=element("small",names.length?
-          "Transportation ("+names.length+"): "+names.join(", "):"No transportation");
+          "Transportation ("+names.length+"): "+names.slice(0,3).join(", ")+
+          (names.length>3?" +"+(names.length-3)+" more":""):"No transportation");
         summary.className="atlas-directory-counts";
         row._atlasSummaryIdentity.appendChild(summary);
         if(offers.length){
