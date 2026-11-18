@@ -141,7 +141,13 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     field(markerSettings,"Marker size (12–64 px)",markerSize.element);
     const size=markerSize.input;
     const color=field(markerSettings,"Map Marker color",createCheckpointColor(appearance.color));
+    const borderEnabled=field(markerSettings,"Map Marker border",
+      createCheckpointCheckbox(appearance.borderEnabled!==false));
     const border=field(markerSettings,"Map Marker border color",createCheckpointColor(appearance.borderColor));
+    const borderRow=el("div");
+    borderRow.className="atlas-checkpoint-border-inline";
+    borderRow.append(borderEnabled.closest("label"),border.closest("label"));
+    markerSettings.appendChild(borderRow);
     const bannerColors=el("div");
     bannerColors.className="atlas-marker-preset-banner-colors";
     bannerSettings.appendChild(bannerColors);
@@ -213,6 +219,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     preview.append(sample,el("small",
       "Preview uses sample Map Marker text only; World presets have no Scene position, Road or Territory."));
     const updatePreview=()=>{
+      border.disabled=!borderEnabled.checked;
       const isOff=labelMode.value==="off";
       for(const control of [roadName,bannerType,bannerElevation,textColor])control.disabled=isOff;
       const glyph=markerType.value==="fa"?createCheckpointIconGlyph(iconId):
@@ -222,20 +229,22 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
       glyph.style.fontSize=width+"px";glyph.style.color=color.value;
       glyph.style.display="inline-grid";glyph.style.placeItems="center";
       glyph.style.boxSizing="border-box";
+      glyph.style.filter="";glyph.style.textShadow="";glyph.style.border="none";
       if(markerType.value==="image"){
         try{glyph.src=validateCheckpointAppearance({...appearance,
           type:"image",image:imagePath.value.trim()}).image;}
         catch{/* Invalid draft paths are not loaded into the preview. */}
         glyph.alt="Sample Map Marker";
-        glyph.style.filter="drop-shadow(1px 0 "+border.value+")";
+        if(borderEnabled.checked)glyph.style.filter="drop-shadow(1px 0 "+border.value+")";
       }else if(markerType.value==="dot"){
         glyph.style.borderRadius="50%";
         glyph.style.background=color.value;
-        glyph.style.border="2px solid "+border.value;
+        if(borderEnabled.checked)glyph.style.border="2px solid "+border.value;
       }else if(markerType.value==="fa"&&glyph.tagName?.toLowerCase?.()==="img"){
-        glyph.style.filter="drop-shadow(1px 0 "+border.value+") "+
+        if(borderEnabled.checked)glyph.style.filter="drop-shadow(1px 0 "+border.value+") "+
           "drop-shadow(-1px 0 "+border.value+")";
-      }else glyph.style.textShadow="1px 1px "+border.value+",-1px -1px "+border.value;
+      }else if(borderEnabled.checked)
+        glyph.style.textShadow="1px 1px "+border.value+",-1px -1px "+border.value;
       previewMarker.replaceChildren(glyph);
       const description=[];
       if(bannerType.checked)description.push(
@@ -285,7 +294,8 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
         const style=withCheckpointBanner({
           type:markerType.value,icon:iconId,
           image:imagePath.value.trim(),size:markerSize.getValue(),color:color.value,
-          borderColor:border.value,labelMode:labelMode.value,
+          borderColor:border.value,borderEnabled:borderEnabled.checked,
+          labelMode:labelMode.value,
           showRoadName:roadName.checked,textColor:textColor.value},{
           showType:bannerType.checked,showElevation:bannerElevation.checked,
           territoryRegionId:null});
