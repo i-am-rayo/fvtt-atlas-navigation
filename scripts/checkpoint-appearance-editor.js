@@ -39,6 +39,7 @@ import { CHECKPOINT_MARKER_TYPES,CHECKPOINT_LABEL_MODES,
   CHECKPOINT_DISCOVERY_STATES,CHECKPOINT_DISCOVERY_METHODS }
   from "./checkpoint-field-definitions.js";
 import {atlasSettingsTitle} from "./atlas-settings-title.js";
+import {confirmAtlasVisibilityChange} from "./atlas-visibility-confirmation.js";
 
 const el = (tag, label) => {
   const item = document.createElement(tag);
@@ -128,7 +129,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const category=field("Map Marker type",createSettingsGroupedSelect(
       CHECKPOINT_TYPE_GROUPS.map(([heading,types])=>({label:heading,options:types})),
       {selectedId:this.createDraft?"generic":checkpointCategory(this.scene,this.checkpointId)}));
-    category.title="Changing type suggests a World Map Marker preset. Changes are staged until Save.";
+    category.title="Map Marker type is independent of its assigned preset. Use Change preset to apply different defaults.";
     const presetPicker=el("select");
     const saveAsPreset=el("button","Save as preset…");
     saveAsPreset.type="button";
@@ -197,10 +198,18 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         visibility.setAttribute("aria-pressed",String(shown));
         visibility.querySelector("i").className="fa-solid fa-"+(shown?"eye":"eye-slash");
       };
-      visibility.addEventListener("click",()=>{
-        if(discovery.value!=="unknown"){knownState=discovery.value;discovery.value="unknown";}
-        else discovery.value=discoveryMethod?.value==="lore"?"lore":knownState;
-        updateVisibility();
+      visibility.addEventListener("click",async()=>{
+        if(visibility.disabled)return;
+        visibility.disabled=true;
+        try{
+          const show=discovery.value==="unknown";
+          if(!await confirmAtlasVisibilityChange({kind:"discovery",name:name.value,
+            show,staged:true}))return;
+          if(!show){knownState=discovery.value;discovery.value="unknown";}
+          else discovery.value=discoveryMethod?.value==="lore"?"lore":knownState;
+          updateVisibility();
+        }catch(error){ui.notifications.error(error.message??String(error));}
+        finally{visibility.disabled=false;}
       });
       updateVisibility();
       discovery.setAttribute("aria-label", "Map Marker discovery status");
@@ -228,7 +237,18 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         visibility.setAttribute("aria-pressed",String(shown));
         visibility.querySelector("i").className="fa-solid fa-"+(shown?"eye":"eye-slash");
       };
-      visibility.addEventListener("click",()=>{playerVisibility.checked=!playerVisibility.checked;updateVisibility();});
+      visibility.addEventListener("click",async()=>{
+        if(visibility.disabled)return;
+        visibility.disabled=true;
+        try{
+          const show=!playerVisibility.checked;
+          if(!await confirmAtlasVisibilityChange({kind:"marker",name:name.value,
+            show,staged:true}))return;
+          playerVisibility.checked=show;
+          updateVisibility();
+        }catch(error){ui.notifications.error(error.message??String(error));}
+        finally{visibility.disabled=false;}
+      });
       updateVisibility();
     }
     const type=createCheckpointChoice(CHECKPOINT_MARKER_TYPES,appearance.type);
@@ -495,11 +515,6 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         (preset.terrain.presetId??"None")+" · radius "+preset.terrain.radiusCells+
         " cells. Native Region geometry and Behaviors stay unchanged.";
     };
-    category.addEventListener("change",()=>{
-      const suggested=catalog.presets.find(p=>p.category===category.value);
-      presetPicker.value=suggested?.id??"";
-      if(suggested)applyPreset();
-    });
     presetPicker.addEventListener("change",applyPreset);
     populatePresets();
     if(!this.createDraft){

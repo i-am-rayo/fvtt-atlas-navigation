@@ -447,14 +447,14 @@ test("GM Territory directory remains accessible; Atlas Layers owns persistent ma
       hidden:false,shapes:[],behaviors:[],getFlag:flag("city","continent-1")});
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     await enter(workspace,"Map directory");
-    const boundary=buttons(workspace.result).find(item=>item.title==="Show boundary to players: Dirwest");
+    const boundary=buttons(workspace.result).find(item=>item.title==="Share boundary with players; currently hidden: Dirwest");
     assert.ok(boundary);
     assert.equal(boundary.disabled,true,"Region permission is required to offer sharing");
     ctx.scene.regions.get("settlement-1").canUserModify=()=>true;
     await workspace.render(true);
     let sharedId;
     ctx.actions.configureTerritorySharing=(_scene,id)=>{sharedId=id;};
-    const allowed=buttons(workspace.result).find(item=>item.title==="Show boundary to players: Dirwest");
+    const allowed=buttons(workspace.result).find(item=>item.title==="Share boundary with players; currently hidden: Dirwest");
     assert.equal(allowed.disabled,false);
     await allowed.listeners.get("click")({preventDefault(){}});
     assert.equal(sharedId,"settlement-1");
@@ -632,6 +632,20 @@ test("Directory keeps Create/View commands and moves unique management into Sett
     assert.equal(summary.tag,"summary");
     assert.ok(summary.children.some(child=>child.className==="atlas-directory-actions"),
       "actions remain beside the item label even when its details are collapsed");
+    const display=walk(directory,item=>item.title?.includes?.("Show Road to players; currently hidden: Coast Road"))[0];
+    assert.ok(display,"directory action explains both operation and current Road visibility");
+    assert.equal(display.attributes.get("aria-pressed"),"false");
+    let toggles=0,finish;
+    const blocked=new Promise(resolve=>{finish=resolve;});
+    ctx.actions.toggleRoadPlayerVisibility=async()=>{toggles++;await blocked;};
+    const event={preventDefault(){},stopPropagation(){}};
+    const first=display.listeners.get("click")(event);
+    const duplicate=display.listeners.get("click")(event);
+    await Promise.resolve();
+    assert.equal(toggles,1,"double-click cannot dispatch two visibility writes");
+    finish();
+    await Promise.all([first,duplicate]);
+    assert.equal(display.disabled,false,"visibility action re-enables after completion");
     await enter(ws,"Settings");
     assert.ok(walk(ws.result,item=>item.className==="atlas-workspace-advanced-management")[0],
       "unique Road topology and Territory recovery operations remain discoverable");

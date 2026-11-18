@@ -12,6 +12,7 @@ import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { createSettingsActionButton } from "./settings-controls.js";
 import { openAtlasTerritorySettings } from "./atlas-territory-settings.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
+import {confirmAtlasVisibilityChange} from "./atlas-visibility-confirmation.js";
 
 function element(tag, text) {
   const el = document.createElement(tag);
@@ -176,12 +177,17 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     const bar = element("span");
     bar.className = "atlas-directory-actions";
     function add(icon, title, callback, danger = false) {
-      return bar.appendChild(createSettingsActionButton({icon, label:title + " " + item.name, danger,
+      const control=createSettingsActionButton({icon, label:title + " " + item.name, danger,
         onClick:async event => {
           event.preventDefault();
           event.stopPropagation?.();
-          try { await callback(); } catch (error) { ui.notifications.error(error.message); }
-        }}));
+          if(control.disabled)return;
+          control.disabled=true;
+          try { await callback(); }
+          catch (error) { ui.notifications.error(error.message??String(error)); }
+          finally {control.disabled=false;}
+        }});
+      return bar.appendChild(control);
     }
     if (type === "territory") {
       add("location-dot","Locate",()=>locate(item.id));
@@ -189,8 +195,10 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       let shared = false, valid = true;
       try { shared = Boolean(readPlayerTerritorySharing(region)); }
       catch { valid = false; }
-      const visibility = add(shared?"eye-slash":"eye",shared?"Hide boundary from players:":"Show boundary to players:",
+      const visibility = add(shared?"eye":"eye-slash",
+        shared?"Hide boundary from players; currently shared:":"Share boundary with players; currently hidden:",
         ()=>actions.configureTerritorySharing(scene,item.id,refresh));
+      visibility.setAttribute("aria-pressed",String(shared));
       visibility.disabled = !valid || !region?.canUserModify?.(game.user,"update") ||
         Boolean(actions.draft(scene) || pending || (!shared && region.hidden));
       add("gear","Settings for",()=>openAtlasTerritorySettings(scene,item.id,actions,refresh,locate));
@@ -198,17 +206,34 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       edit.disabled = Boolean(actions.draft(scene) || pending || (batch?.total && !batch.targets.some(t=>t.id===item.id)));
     } else if (type === "road") {
       add("location-dot","Locate",()=>actions.select(scene,item.id));
-      add(item.playerVisible?"eye-slash":"eye",item.playerVisible?"Hide":"Show",()=>actions.toggleRoadPlayerVisibility(scene,item,refresh));
+      const shown=item.playerVisible===true;
+      const visibility=add(shown?"eye":"eye-slash",
+        shown?"Hide Road from players; currently shown:":"Show Road to players; currently hidden:",
+        ()=>actions.toggleRoadPlayerVisibility(scene,item,refresh));
+      visibility.setAttribute("aria-pressed",String(shown));
       add("gear","Settings for",()=>actions.editRoadAppearance(scene,item,refresh));
       add("pen","Edit path of",()=>actions.beginPointEdit(scene,item.id,refresh));
       add("trash","Delete",()=>actions.remove(scene,item,refresh),true);
     } else {
       add("location-dot","Locate",()=>actions.selectCheckpoint(scene,item.id));
       if (party.enabled) {
-        const shown = known.has(item.id);
-        add(shown?"eye-slash":"eye",shown?"Hide from party":"Reveal through lore:",()=>actions.setCheckpointKnowledge(scene,
-          {checkpointId:item.id,knowledge:shown?"unknown":"lore",expected:party},refresh));
-      } else add(item.playerVisible?"eye-slash":"eye",item.playerVisible?"Hide":"Show",()=>actions.toggleCheckpointPlayerVisibility(scene,item,refresh));
+        const shown=known.has(item.id);
+        const visibility=add(shown?"eye":"eye-slash",
+          shown?"Hide from party; currently known:":"Reveal through lore; currently unknown:",
+          async()=>{
+            if(!await confirmAtlasVisibilityChange({kind:"discovery",name:item.name,
+              show:!shown}))return;
+            await actions.setCheckpointKnowledge(scene,
+              {checkpointId:item.id,knowledge:shown?"unknown":"lore",expected:party},refresh);
+          });
+        visibility.setAttribute("aria-pressed",String(shown));
+      } else {
+        const shown=item.playerVisible===true;
+        const visibility=add(shown?"eye":"eye-slash",
+          shown?"Hide Map Marker from players; currently shown:":"Show Map Marker to players; currently hidden:",
+          ()=>actions.toggleCheckpointPlayerVisibility(scene,item,refresh));
+        visibility.setAttribute("aria-pressed",String(shown));
+      }
       add("gear","Settings for",()=>actions.editCheckpointAppearance(scene,item,refresh));
       add("pen","Move on map",()=>actions.moveMapMarker(scene,item.id,refresh));
       add("trash","Delete",()=>actions.removeCheckpoint(scene,item,refresh),true);

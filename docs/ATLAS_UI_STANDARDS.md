@@ -53,6 +53,9 @@ After creation, preset editing displays the current preset identity and a Change
 
 Use consistent label/control alignment, row spacing, section headings and color-picker dimensions. Settings-only previews are draft-driven and do not mutate live documents. Window initial dimensions should expose ordinary controls and preview on supported desktop sizes, bounded by the viewport. Keep tabs and footer accessible, avoid horizontal scrolling, and allow a single predictable content scroll region on smaller screens. Do not promise no scrolling at every zoom/viewport, continually resize on every input, or overwrite user-resized dimensions.
 
+
+**Map Marker type is not a preset-selection command.** Changing a placed marker's Type must not automatically apply any World preset, reassign the current preset ID, or reset appearance, discovery, Journal, transportation or visibility drafts. Only an explicit **Change preset** selection can apply another preset's defaults; Save/Cancel remain the commit boundary. See [issue #412 test checklist](TEST_0_3_10_DEV_1_ISSUE_412.md).
+
 ### GM language and menu scope
 
 Use **Add Territory**, **Add Road**, **Add Map Marker** and **By Territory / All Roads / All Map Markers** in Atlas Workspace. Show display categories as **Land / Water / Air**, while preserving stored lowercase surface IDs. Use **Map Marker Presets** for World marker defaults and short, distinct menu tasks for **Transportation Presets**, **Surface Presets**, **Road Appearance**, and **Announcement Previews**. The menu copy must identify explicit GM save/application boundaries and must not imply that World presets retroactively rewrite placed markers or native Region Behaviors. Genuine in-world categories such as Security Checkpoint and all internal `checkpoint*` keys remain unchanged. [#410 live checklist](TEST_0_3_10_DEV_3_ISSUE_410.md).
@@ -64,6 +67,10 @@ Center labels horizontally and vertically inside navigation buttons. Directory v
 Place row actions inline at the far right without losing nesting indentation or the disclosure hit area. Action clicks must not toggle the row disclosure. Preserve open groups, search/filter values, scroll, focus and window position through ordinary actions/rerenders. Locate must not strand the Workspace minimized or change Scene. On narrow screens wrap actions within the same item rather than overlap names.
 
 Sort checkpoint display lists A–Z with locale-aware comparison and deterministic ties; never reorder the graph or stored checkpoint sequence for a visual sort. Native Region priority lists remain in priority order and retain drag/keyboard semantics.
+
+### Explicit manual Show/Hide approval
+
+Manual Road, Map Marker, party knowledge and Territory boundary Show/Hide actions must identify the exact item, the affected player-facing channel, and the independent permissions they **do not** change. Use native v14 `DialogV2.confirm` with a `div` content root and safe text nodes for user-authored names. **Direct** directory changes confirm before existing GM/revision-checked persistence; **staged** editor eye controls confirm a draft-only change and must never commit until Save. Cancel, Escape or X is a no-op, and repeated clicks must not duplicate writes. Automatic discovery and rendering are not manual approval flows. Display icons depict the current shown/hidden state with matching accessible state. [#409 live checklist](TEST_0_3_10_DEV_2_ISSUE_409.md).
 
 ## Ownership and player safeguards
 
