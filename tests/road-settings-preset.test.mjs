@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createRoadPresetStage} from "../scripts/road-settings-preset.js";
-import {createRoadTravelPresetRow} from "../scripts/road-settings-preset-view.js";
 import {readFileSync} from "node:fs";
 import {saveRoadSettings} from "../scripts/road-storage.js";
 import {readAtlas} from "../scripts/atlas-storage.js";
@@ -52,8 +51,9 @@ test("Road Settings saves presentation and travel preset in one Scene revision",
   }finally{globalThis.game=oldGame;}
 });
 
-test("Road travel preset controls match Map Marker stage/select workflow with no early writes",()=>{
-  const before={game:globalThis.game,document:globalThis.document};
+test("Road travel preset controls match Map Marker stage/select workflow with no early writes",async()=>{
+  const before={foundry:globalThis.foundry,game:globalThis.game,
+    document:globalThis.document};
   class Element{
     constructor(tag){this.tag=tag;this.children=[];this.listeners=new Map();
       this.style={};this.className="";this.value="";this.textContent="";
@@ -72,6 +72,8 @@ test("Road travel preset controls match Map Marker stage/select workflow with no
     globalThis.document={createElement:tag=>new Element(tag)};
     globalThis.game={settings:{get:()=>defaultTravelPresets(),
       set:()=>{writes++;}}};
+    globalThis.foundry={applications:{api:{ApplicationV2:class{}}}};
+    const {createRoadTravelPresetRow}=await import("../scripts/road-settings-preset-view.js");
     const current=presets.find(item=>item.id==="land-stone");
     assert.ok(current);
     const {row,hint,select}=createRoadTravelPresetRow(current.id);
