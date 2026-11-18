@@ -26,8 +26,8 @@
 - Full repository gates: `npm run check`, `npm run architecture:check` and `git diff --check`.
 - GitHub Actions must pass on the draft PR; automated tests are not Foundry v14 owner acceptance.
 
-**Manifest:** https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/test/v0.3.9-beta.8.62.1-road-territory-label/module.json
+**Manifest:** https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/test/v0.3.9-beta.8.62-road-territory-hover/module.json
 
-**Archive:** https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/test/v0.3.9-beta.8.62.1-road-territory-label.zip
+**Archive:** https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/test/v0.3.9-beta.8.62-road-territory-hover.zip
 
 **Rollback (beta.8.62):** https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/test/v0.3.9-beta.8.62-road-territory-hover/module.json
