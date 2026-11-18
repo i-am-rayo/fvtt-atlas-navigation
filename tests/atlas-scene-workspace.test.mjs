@@ -924,10 +924,11 @@ test("Map Directory shows authored colors/icons, transportation methods and only
   try{
     globalThis.game.system={id:"dnd5e"};
     const {DEFAULT_CHECKPOINT_APPEARANCE}=await import("../scripts/checkpoint-appearance.js");
+    const {DEFAULT_ROAD_APPEARANCE}=await import("../scripts/road-appearance.js");
     const graph={schemaVersion:10,coordinateSpace:"image",revision:1,
       enabled:true,calibration:null,
       roads:[{id:"road-1",name:"Coastal Road",travelPresetId:null,
-        appearance:null,playerVisible:false},
+        appearance:{...DEFAULT_ROAD_APPEARANCE,color:"#278ace"},playerVisible:false},
         {id:"road-2",name:"Unconnected Road",travelPresetId:null,
         appearance:null,playerVisible:false}],
       nodes:[{id:"n1",x:0,y:0},{id:"n2",x:10,y:0},{id:"n3",x:40,y:0}],
@@ -937,7 +938,15 @@ test("Map Directory shows authored colors/icons, transportation methods and only
         appearance:{...DEFAULT_CHECKPOINT_APPEARANCE,type:"fa",icon:"solid:ship",
           color:"#ab12cd"}},
         {id:"lookout",name:"Lookout",roadId:null,nodeId:"n3",
-          elevationMeters:null,playerVisible:false,appearance:null}]};
+          elevationMeters:null,playerVisible:false,appearance:null},
+        {id:"image",name:"Image Site",roadId:null,nodeId:"n3",
+          elevationMeters:null,playerVisible:false,
+          appearance:{...DEFAULT_CHECKPOINT_APPEARANCE,type:"image",
+            image:"worlds/paedor/img/castle.webp"}},
+        {id:"classic",name:"Classic Site",roadId:null,nodeId:"n3",
+          elevationMeters:null,playerVisible:false,
+          appearance:{...DEFAULT_CHECKPOINT_APPEARANCE,type:"fa",
+            icon:"house",color:"#1a9e44"}}]};
     const offers={schemaVersion:1,entries:{harbor:[
       {methodId:"carriage",mode:"land",overrides:{}},
       {methodId:"coach-hire",mode:"land",overrides:{}}]}};
@@ -955,8 +964,11 @@ test("Map Directory shows authored colors/icons, transportation methods and only
     assert.match(text(road.children[0]),/Map Markers \(1\)/);
     assert.match(text(empty.children[0]),/Map Markers \(0\)/);
     const roadSymbol=walk(road.children[0],item=>item.className==="atlas-directory-color-dot")[0];
-    assert.equal(roadSymbol.style.backgroundColor,"#35c9ef",
-      "World Road color is resolved instead of an unrelated fixed dot");
+    assert.equal(roadSymbol.style.backgroundColor,"#278ace",
+      "Road swatch uses the authored appearance override");
+    const inherited=walk(empty.children[0],item=>item.className==="atlas-directory-color-dot")[0];
+    assert.equal(inherited.style.backgroundColor,"#35c9ef",
+      "Road without an override inherits its configured World color");
     await enter(ws,"All Map Markers");
     const marker=walk(directory(),item=>item.dataset?.atlasDirectoryKey==="all/checkpoint/harbor")[0];
     const plain=walk(directory(),item=>item.dataset?.atlasDirectoryKey==="all/checkpoint/lookout")[0];
@@ -971,6 +983,18 @@ test("Map Directory shows authored colors/icons, transportation methods and only
     assert.equal(glyph.children[0].style.color,"#ab12cd",
       "selected Font Awesome marker glyph uses authored color");
     assert.ok(!walk(plain,item=>item.className==="atlas-directory-chevron").length);
+    const imageRow=walk(directory(),item=>item.dataset?.atlasDirectoryKey==="all/checkpoint/image")[0];
+    assert.equal(imageRow.tag,"div");
+    const image=walk(imageRow,item=>item.tag==="img")[0];
+    assert.equal(image.src,"worlds/paedor/img/castle.webp",
+      "validated local Map Marker artwork is shown rather than a generic icon");
+    const classic=walk(directory(),item=>item.dataset?.atlasDirectoryKey==="all/checkpoint/classic")[0];
+    const mask=walk(classic,item=>item.className==="atlas-directory-masked-icon")[0];
+    assert.ok(mask,"classic Atlas SVG uses the selected icon silhouette");
+    assert.equal(mask.style.backgroundColor,"#1a9e44");
+    assert.ok(mask.style.maskImage.includes("house.svg"));
+    const dot=walk(plain,item=>item.className==="atlas-directory-color-dot")[0];
+    assert.equal(dot.style.backgroundColor,DEFAULT_CHECKPOINT_APPEARANCE.color);
     assert.deepEqual(ctx.calls,[],"all indicators and transport summaries are read-only");
     await ws.close();
   }finally{ctx.restore();}
