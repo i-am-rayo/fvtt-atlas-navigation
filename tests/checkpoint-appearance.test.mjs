@@ -324,8 +324,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const inlineBanner=all(root).find(node=>
       node.className==="atlas-checkpoint-banner-inline");
     assert.ok(inlineBanner,"display and color share one banner row");
-    assert.equal(sections[1].children[1],inlineBanner,
-      "banner row appears first in the existing Banner information section");
+    assert.equal(sections[1].children[1].children[0],inlineBanner,
+      "banner row is the first field inside the existing Banner information section");
     assert.equal(inlineBanner.children.length,2,
       "display and text color retain separate native labels and tab stops");
     assert.equal(inlineBanner.children[0].children[0].textContent,"Banner display");
