@@ -4,7 +4,7 @@
 
 Turn a Scene map into a network of named roads, recognizable locations, geographic territories, and planned journeys. **Atlas helps the Game Master (GM) organize a world map, describe routes, and guide party travel**, while Foundry remains responsible for its native Scenes, Regions, Tokens, Journals, and permissions.
 
-**Current version:** 0.3.9 · **Foundry compatibility:** v14
+**Current version:** 0.3.10 · **Foundry compatibility:** v14
 
 ## What can Atlas do?
 
@@ -92,7 +92,7 @@ A native Scene export includes the Scene's Atlas data and native Regions, but **
 
 ## Important limitations
 
-Atlas v0.3.9 is a maintained mainline version, but some advanced workflows still require caution:
+Atlas v0.3.10 is a maintained mainline version, but some advanced workflows still require caution:
 
 - **Journey recovery:** A canvas reload, weather-related Scene rebuild, or interrupted transfer can leave a Journey needing GM review. If Atlas reports an inconsistency between a Token and the saved Journey, preserve the Journal and investigate rather than restarting movement to force progress.
 - **Territory transfers:** Complex multi-Region grid edits and interrupted writes may require the built-in recovery review. Back up the World and do not override a pending recovery warning.
