@@ -534,11 +534,11 @@ test("Directory filters keep independent choices and row expansion across refres
     await enter(ws,"Map directory");
     assert.match(text(ws.result),/Outside classified territories/);
     await enter(ws,"All Roads");
-    let row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road")&&text(e.children[0]).includes("land"))[0];
+    let row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road")&&text(e.children[0]).includes("Land"))[0];
     row.open=true;
     row.listeners.get("toggle")();
     await ws.render(true);
-    row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road")&&text(e.children[0]).includes("land"))[0];
+    row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road")&&text(e.children[0]).includes("Land"))[0];
     assert.equal(row.open,true);
     const type=walk(ws.result,e=>e.tag==="select")[0];
     type.value="air";
