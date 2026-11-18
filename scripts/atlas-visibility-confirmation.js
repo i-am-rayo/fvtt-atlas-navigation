@@ -29,7 +29,7 @@ export async function confirmAtlasVisibilityChange({kind,name,show,staged=false}
       title+" “"+name+"” "+(show?"to":"from")+
       (kind==="discovery"?" the party?":" players?"),
     messages[kind][show?"show":"hide"],
-    staged?"This changes only the current draft. Save to apply it, or Cancel to discard.": 
+    staged?"This changes only the current draft. Save to apply it, or Cancel to discard.":
       "This takes effect only after the existing save checks succeed. Hiding graphics is not data confidentiality."
   ]){
     const paragraph=document.createElement("p");
