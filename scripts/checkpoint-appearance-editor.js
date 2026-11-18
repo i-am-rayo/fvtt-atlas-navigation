@@ -348,7 +348,12 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       "Atlas does not publish native Region boundaries or Journal access."));
     fields.appendChild(bannerGroup);
     const textColor = createCheckpointColor(appearance.textColor,{label:"Map Marker banner text color"});
-    field("Map Marker / road banner text color", textColor);
+    field("Banner text color",textColor);
+    // One visual row, two independent labeled controls and unchanged draft state.
+    const bannerInline=el("div");
+    bannerInline.className="atlas-checkpoint-banner-inline";
+    bannerInline.append(mode.closest("label"),textColor.closest("label"));
+    fields.prepend(bannerInline);
     const bannerFields=fields;
     // The icon picker is a separate action BEFORE the marker-type selector.
     // Avoid nesting a button inside an HTML label; keep native keyboard order.
