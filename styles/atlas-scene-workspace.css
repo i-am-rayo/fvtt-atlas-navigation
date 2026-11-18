@@ -531,6 +531,15 @@
 .atlas-map-directory details > summary > span:not(.atlas-directory-actions) {
   flex:1 1 10rem;min-width:0;font-weight:600;overflow-wrap:anywhere;
 }
+/* Keep the title, type and distinct Road/Marker counts together as a single
+   wrapping metadata group; action controls remain to the far right. */
+.atlas-map-directory .atlas-directory-identity {
+  display:inline-flex;align-items:baseline;flex-wrap:wrap;
+  gap:.2rem .55rem;min-width:0;
+}
+.atlas-map-directory .atlas-directory-identity > span {
+  min-width:0;overflow-wrap:anywhere;
+}
 .atlas-map-directory .atlas-directory-secondary,
 .atlas-map-directory .atlas-directory-counts {
   flex:0 1 auto;font-weight:400;font-size:.8rem;
