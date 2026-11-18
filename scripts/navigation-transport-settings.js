@@ -23,6 +23,7 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
   from "./navigation-travel-method.js";
 import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
 import { createAtlasIconButton } from "./ui-action-button.js";
 import {createTransportNumberSlider,createTransportCurrencyPool,transportCurrencyAmount}
  from "./navigation-transport-form-controls.js";
@@ -249,8 +250,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
   };
   async _renderHTML(){
     const root=element("section");
-    root.style.cssText="padding:1rem;display:flex;flex-direction:column;gap:1rem;"+
-      "height:100%;overflow:auto;box-sizing:border-box;";
+    root.style.cssText="padding:1rem;display:flex;flex-direction:column;gap:.75rem;"+
+      "height:100%;overflow:hidden;box-sizing:border-box;";
     const top=heading("Transportation Presets",
       "Manage travel speeds and transport costs for this Foundry World. "+
       "Changes affect future estimates; no Actor resources or currency are changed.");
@@ -271,6 +272,14 @@ export class AtlasTransportationSettings extends ApplicationBase {
     toolbar.append(button("＋ Import optional workbook examples",()=>this._importExamples()));
     root.appendChild(toolbar);
     const methods=listTransportationPresets(game.settings,game.system?.id);
+    const tabs=createSettingsCategoryTabs({id:"atlas-transport-catalog",
+      modes:[["land","Land"],["water","Water"],["air","Air"]],
+      active:this.activeCategory??"land",onChange:id=>{this.activeCategory=id;}});
+    root.appendChild(tabs.nav);
+    const scroll=element("div");
+    scroll.className="atlas-world-category-scroll";
+    scroll.style.cssText="flex:1 1 auto;min-height:0;overflow:auto;";
+    root.appendChild(scroll);
     for(const surface of TRANSPORT_SURFACES){
       const group=methods.filter(p=>p.surface===surface);
       const section=element("fieldset");
@@ -308,9 +317,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
         if(!preset.builtIn)row.appendChild(iconButton("trash","Delete "+preset.name,()=>this._delete(preset)));
         section.appendChild(row);
       }
-      root.appendChild(section);
+      scroll.appendChild(tabs.addPanel(surface,section));
     }
-    root.appendChild(element("p",
+    scroll.appendChild(element("p",
       "All non-walking methods are distance/time previews until checkpoint embark/disembark "+
       "transfers and method-specific travel-day rules are implemented. A compatible road does "+
       "not yet authorize guided movement. Costs are reference estimates only."));
