@@ -2042,3 +2042,54 @@ test("v14 manual exploration fails closed on unsupported or malformed grid geome
   assert.throws(() => nativeFogCells(view, 3), /cell limit/,
     "oversized fog grids are rejected before traversal");
 });
+
+test("GM opt-in Road hover adds native Territory below Road name, never on player overlay",async()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+  const m=setup();
+  m.Graphics.prototype.addChild=function(label){label.parent=this;};
+  class Text{
+    constructor(value,style){this.text=String(value);this.style=style;
+      this.anchor={set(){}};this.position={set(x,y){this.x=x;this.y=y;}};}
+    destroy(){}
+  }
+  try{
+    globalThis.game={user:{isGM:true}};
+    globalThis.PIXI={Graphics:m.Graphics,Text};
+    let index=0;
+    const atlas=upgradeAtlasRoadAppearance(addRoad(createEmptyAtlas(),{
+      points:[{x:0,y:0},{x:100,y:0}],name:"Northern Road",
+      idFactory:()=>"road"+ ++index}));
+    atlas.roads[0].appearance={color:"#c28436",width:4,opacity:1,
+      pattern:"solid",labelVisibility:"hover"};
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",atlas);
+    const regions=[
+      {id:"continent",name:"Valecor",kind:"continent",parent:null,
+        inside:point=>point.x>=0&&point.x<=200&&point.y<100},
+      {id:"village",name:"Dirwest",kind:"village",parent:"continent",
+        inside:point=>point.x>=40&&point.x<=80&&point.y<100}
+    ].map(item=>({
+      id:item.id,name:item.name,parent:{id:m.scene.id},shapes:[],behaviors:[],
+      polygonTree:{testPoint:item.inside},
+      getFlag(_scope,key){return key==="atlas"?{schemaVersion:1,linked:true}:
+        key==="territoryGeography"?{schemaVersion:1,kind:item.kind,
+          parentRegionId:item.parent,roadOverrides:{}}:null;}
+    }));
+    m.scene.regions=new Map(regions.map(region=>[region.id,region]));
+    assert.equal(m.controller.roadTerritoryHoverEnabled,false);
+    assert.equal(m.controller.setRoadTerritoryHoverEnabled(true),true);
+    m.listeners.get("pointermove")(pointEvent(25,15));
+    assert.equal(m.controller.labels.find(item=>item.text==="Northern Road")?.style.fill,
+      0xffffff);
+    const subtitle=m.controller.labels.find(item=>item.text==="Dirwest");
+    assert.ok(subtitle,"Territory at the actual Road anchor appears below title");
+    assert.ok(subtitle.y>m.controller.labels.find(item=>item.text==="Northern Road").y);
+    assert.equal(m.controller.setRoadTerritoryHoverEnabled(false),true);
+    assert.equal(m.controller.labels.some(item=>item.text==="Dirwest"),false);
+    globalThis.game.user.isGM=false;
+    assert.equal(m.controller.setRoadTerritoryHoverEnabled(true),false,
+      "a player cannot enable GM Territory display");
+    assert.equal(m.controller.roadTerritoryHoverEnabled,false);
+    m.controller.refresh();
+    assert.equal(m.controller.labels.some(item=>item.text==="Dirwest"),false);
+  }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
+});
