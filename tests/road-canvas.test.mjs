@@ -2080,16 +2080,16 @@ test("GM opt-in Road hover adds native Territory below Road name, never on playe
     m.listeners.get("pointermove")(pointEvent(25,15));
     assert.equal(m.controller.labels.find(item=>item.text==="Northern Road")?.style.fill,
       0xffffff);
-    const subtitle=m.controller.labels.find(item=>item.text==="Dirwest");
+    const subtitle=m.controller.labels.find(item=>item.text==="Dirwest, Valecor");
     assert.ok(subtitle,"Territory at the actual Road anchor appears below title");
     assert.ok(subtitle.y>m.controller.labels.find(item=>item.text==="Northern Road").y);
     assert.equal(m.controller.setRoadTerritoryHoverEnabled(false),true);
-    assert.equal(m.controller.labels.some(item=>item.text==="Dirwest"),false);
+    assert.equal(m.controller.labels.some(item=>item.text==="Dirwest, Valecor"),false);
     globalThis.game.user.isGM=false;
     assert.equal(m.controller.setRoadTerritoryHoverEnabled(true),false,
       "a player cannot enable GM Territory display");
     assert.equal(m.controller.roadTerritoryHoverEnabled,false);
     m.controller.refresh();
-    assert.equal(m.controller.labels.some(item=>item.text==="Dirwest"),false);
+    assert.equal(m.controller.labels.some(item=>item.text==="Dirwest, Valecor"),false);
   }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
 });
