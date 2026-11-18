@@ -8,7 +8,7 @@
 - **One primary milestone per issue.** A dependency across goals should link issues rather than duplicating them. Keep unfinished, unsafe or deferred issues open; owner-approved scoped work does not automatically complete a broad contract.
 - **Each milestone gets its own acceptance gates:** targeted regressions, `npm run check`, `npm run architecture:check`, syntax checks, `git diff --check`, and actual Foundry v14 GM/non-GM testing for affected behavior. No merge/release without explicit owner authorization.
 - **Safety over chronology:** 02 and 03 can advance in parallel, but no unsafe downstream feature should bypass unresolved native Region recovery or Journey authority. Optional P3 refinements must not hold up unrelated private-beta acceptance.
-- **Baseline:** [draft integration PR #405](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/405) compares the large unmerged beta history with `main`. PR cleanup did not merge the code. Its current manifest remains `0.3.9-beta.8.62.1` pending owner-authorized integration/release decisions.
+- **Baseline:** The owner authorized promoting the large beta history in [integration PR #405](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/405) into `main` as **v0.3.9**. Verify GitHub live merge/manifest status before treating the promotion as complete; new feature branches start from the resulting mainline commit. Release checklist and known risks: [docs/RELEASE_0_3_9.md](RELEASE_0_3_9.md).
 
 ## Native milestones and issue assignments
 
