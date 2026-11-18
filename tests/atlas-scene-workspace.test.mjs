@@ -731,7 +731,7 @@ test("Directory section Plus uses existing authoring and never implies a Road at
       nodes:[{id:"a",x:0,y:0},{id:"b",x:20,y:20}],
       segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[],bidirectional:true}],
       checkpoints:[{id:"m",name:"Bridge",roadId:"r",nodeId:"a",
-        appearance:null,playerVisible:false}]};
+        appearance:null,playerVisible:false,elevationMeters:null}]};
     ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
     ctx.actions.beginCheckpoint=(_scene,refresh)=>{ctx.calls.push("marker");};
     ctx.actions.begin=(_scene,refresh)=>{ctx.calls.push("road");};
