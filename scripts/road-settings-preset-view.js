@@ -8,6 +8,8 @@ export function createRoadTravelPresetRow(initialId){
   const presets=readWorldTravelPresets().presets;
   const select=createTravelPresetSelect({selectedId:initialId,
     name:"atlasRoadPresetId",noneLabel:"None (Land fallback)"});
+  // A native form-group div avoids nesting an icon button inside a label.
+  select.setAttribute("aria-label","Select Road travel preset");
   const controls=document.createElement("div");
   controls.className="atlas-road-preset-controls";
   const current=document.createElement("span");
@@ -38,7 +40,7 @@ export function createRoadTravelPresetRow(initialId){
     if(select.hidden)change.focus();
   });
   controls.append(current,select,change);
-  const row=createSettingsFieldRow("Travel preset",controls);
+  const row=createSettingsFieldRow("Travel preset",controls,{variant:"native-div"});
   const hint=document.createElement("small");
   hint.className="atlas-road-preset-hint";
   hint.textContent="Applies to this Road when saved. World presets and native Region Behaviors are unchanged.";
