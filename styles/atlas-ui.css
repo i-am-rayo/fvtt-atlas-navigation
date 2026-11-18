@@ -24,6 +24,15 @@
 .atlas-ui-icon-button > i { font-size: .8rem; line-height:1; }
 .atlas-ui-icon-button--compact,
 .atlas-ui-icon-button--footer { font-size:.8rem; }
+/* Foundry's native legend typography must not enlarge Atlas's nested + glyphs.
+ * This covers Transportation, Road Map Marker, and Region Add legends alike.
+ * Keep the shared 2rem button target and relative .8rem glyph at text zoom.
+ */
+.application fieldset > legend button.atlas-ui-icon-button > i,
+.application fieldset > legend button.atlas-ui-icon-button > i::before {
+  font-size: .8rem;
+  line-height: 1;
+}
 .atlas-ui-icon-button:focus-visible {
   outline: 2px solid var(--color-border-highlight,#dcb476);
   outline-offset: 2px;
