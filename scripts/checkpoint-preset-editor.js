@@ -1,6 +1,6 @@
 import { MODULE_ID } from "./atlas-storage.js";
 import { resolveAtlasMeasuringUnits } from "./navigation-measure-units.js";
-import { CHECKPOINT_TYPE_GROUPS } from "./checkpoint-types.js";
+import { CHECKPOINT_TYPE_GROUPS,CHECKPOINT_TYPES } from "./checkpoint-types.js";
 import { CHECKPOINT_PRESET_SETTING,upsertCheckpointPreset,
   checkpointPresetAppearance } from "./checkpoint-preset-model.js";
 import { readWorldCheckpointPresets } from "./checkpoint-preset-store.js";
@@ -134,8 +134,9 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     const bannerSettings=el("fieldset");
     bannerSettings.className="atlas-checkpoint-customization-section";
     bannerSettings.appendChild(el("legend","Banner information"));
-    const markerType=field(markerSettings,"Map Marker icon",createCheckpointChoice(CHECKPOINT_MARKER_TYPES,
-      appearance.type));
+    const markerType=createCheckpointChoice(CHECKPOINT_MARKER_TYPES,appearance.type);
+    markerType.id="atlas-marker-preset-icon-type";
+    markerType.setAttribute("aria-label","Map Marker icon type");
     const markerSize=createCheckpointMarkerSize(appearance.size);
     field(markerSettings,"Marker size (12–64 px)",markerSize.element);
     const size=markerSize.input;
@@ -166,7 +167,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     browse.addEventListener("click",()=>{
       const Picker=foundry.applications.apps?.FilePicker;
       if(!Picker){ui.notifications.error("Foundry File Picker is unavailable.");return;}
-      new Picker({type:"image",callback:path=>{imagePath.value=path;}}).render(true);
+      new Picker({type:"image",callback:path=>{imagePath.value=path;refreshPreview();}}).render(true);
     });
     imageRow.append(imagePath,browse);field(markerSettings,"Custom image path",imageRow);
 
@@ -179,6 +180,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     const iconRow=el("div");
     iconRow.className="atlas-checkpoint-marker-row";
     const caption=el("label","Map Marker icon");
+    caption.htmlFor=markerType.id;
     const iconControls=el("div");
     iconControls.className="atlas-checkpoint-marker-controls";
     iconControls.append(iconSection,markerType);
@@ -233,14 +235,15 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
       }else glyph.style.textShadow="1px 1px "+border.value+",-1px -1px "+border.value;
       previewMarker.replaceChildren(glyph);
       const description=[];
-      if(bannerType.checked)description.push(category.value);
+      if(bannerType.checked)description.push(
+        CHECKPOINT_TYPES.find(([id])=>id===category.value)?.[1]??category.value);
       if(bannerElevation.checked&&elevation.value!=="")
         description.push("Elevation "+elevation.value+" "+(imperial?"ft":"m"));
       previewBanner.replaceChildren(el("strong",name.value.trim()||"Sample Map Marker"),
         ...(description.length?[el("small",description.join(" · "))]:[]));
       previewBanner.style.color=textColor.value;
       previewBanner.hidden=isOff;
-      sample.dataset.labelMode=labelMode.value;
+      preview.setAttribute("data-label-mode",labelMode.value);
     };
     refreshPreview=updatePreview;
     marker.addEventListener("input",updatePreview);
