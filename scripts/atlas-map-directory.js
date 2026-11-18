@@ -336,23 +336,41 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       const subtitle=type==="road"?
         ({land:"Land",water:"Water",air:"Air"}[mode]??mode):
         categoryNames.get(categories[item.id]??"generic");
-      const row=group(path+"/"+type+"/"+item.id,item.name,false,subtitle);
-      if(type==="road")row._atlasRoadIds.add(item.id);
-      else row._atlasMarkerIds.add(item.id);
+      const attached=type==="road"?sorted(checkpoints.filter(marker=>
+        markerRoads.get(marker.id)?.has(item.id)&&
+        (!query||matches(item)||matches(marker)))):[];
+      const offers=type==="checkpoint"?transportByMarker[item.id]??[]:[];
+      const row=group(path+"/"+type+"/"+item.id,item.name,false,subtitle,
+        type==="road"?attached.length>0:offers.length>0);
+      annotate(row,type,item);
+      if(type==="road"){
+        row._atlasRoadIds.add(item.id);
+        const count=element("small","Map Markers ("+attached.length+")");
+        count.className="atlas-directory-counts";
+        row._atlasSummaryIdentity.appendChild(count);
+      }else{
+        row._atlasMarkerIds.add(item.id);
+        const names=offers.map(offer=>transportNames.get(offer.methodId)??offer.methodId);
+        const summary=element("small",names.length?
+          "Transportation ("+names.length+"): "+names.join(", "):"No transportation");
+        summary.className="atlas-directory-counts";
+        row._atlasSummaryIdentity.appendChild(summary);
+        if(offers.length){
+          const list=element("ul");
+          list.className="atlas-directory-transport-offers";
+          for(const [index,offer] of offers.entries()){
+            const entry=element("li",names[index]+" · "+
+              ({land:"Land",water:"Water",sea:"Sea",air:"Air"}[offer.mode]??offer.mode));
+            list.appendChild(entry);
+          }
+          row.appendChild(list);
+        }
+      }
       tools(row,item,type);
       if(type==="road"){
-        const attached=sorted(checkpoints.filter(marker=>
-          markerRoads.get(marker.id)?.has(item.id)&&
-          (!query||matches(item)||matches(marker))));
-        const children=group(path+"/road/"+item.id+"/markers",
-          "Map Markers ("+attached.length+")",Boolean(query));
-        addShortcut(children,"checkpoint");
-        for(const marker of attached)
-          children.appendChild(itemRow(marker,"checkpoint",path+"/road/"+item.id));
-        if(!attached.length)children.appendChild(element("p","No associated Map Markers."));
-        collectCounts(children,[...children.children].slice(1));
-        row.appendChild(children);
-        collectCounts(row,[children]);
+        const children=attached.map(marker=>itemRow(marker,"checkpoint",path+"/road/"+item.id));
+        row.append(...children);
+        collectCounts(row,children);
       }
       return row;
     }
@@ -387,13 +405,14 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
         if(node)children.push(node);
       }
       if(!own&&!children.length)return null;
-      const row=group(key,place.name,filtered,GEOGRAPHY_KINDS[place.kind]??"Territory");
+      const row=group(key,place.name,filtered,
+        GEOGRAPHY_KINDS[place.kind]??"Territory",children.length>0);
       row._atlasKind=place.kind;
+      annotate(row,"territory",place);
       tools(row,place,"territory");
       row.append(...children);
       collectCounts(row,children);
       appendCounts(row);
-      if(!children.length)row.appendChild(element("p","No matching map records."));
       return row;
     }
     let rows;
