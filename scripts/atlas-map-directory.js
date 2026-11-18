@@ -7,7 +7,12 @@ import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
 import { CHECKPOINT_TYPE_GROUPS, CHECKPOINT_TYPES, CHECKPOINT_TYPE_FLAG, validateCheckpointCategories } from "./checkpoint-types.js";
 import { createSettingsGroupedSelect } from "./settings-select.js";
 import { MODULE_ID } from "./atlas-storage.js";
-import { roadAppearanceMode } from "./road-appearance.js";
+import {roadAppearanceMode,readWorldRoadAppearance,resolveRoadAppearance} from "./road-appearance.js";
+import {nativeRegionColorHex} from "./native-region-color.js";
+import {resolveCheckpointAppearance,CHECKPOINT_ICONS,checkpointIconPath} from "./checkpoint-appearance.js";
+import {createCheckpointIconGlyph} from "./checkpoint-icon-control.js";
+import {readCheckpointTransportStore} from "./checkpoint-transportation.js";
+import {listTransportationPresets} from "./navigation-transport-catalog.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { createSettingsActionButton } from "./settings-controls.js";
 import { openAtlasTerritorySettings } from "./atlas-territory-settings.js";
@@ -33,6 +38,10 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     if (link) associate(link.checkpointId, regionId);
   }
   const presets = readWorldTravelPresets().presets;
+  const roadStyles=readWorldRoadAppearance();
+  const transportByMarker=readCheckpointTransportStore(scene).entries;
+  const transportNames=new Map(listTransportationPresets(
+    globalThis.game?.settings,globalThis.game?.system?.id).map(method=>[method.id,method.name]));
   const categories = validateCheckpointCategories(scene.getFlag(MODULE_ID, CHECKPOINT_TYPE_FLAG));
   const categoryNames = new Map(CHECKPOINT_TYPES);
   const party = readPartyExploration(scene);
@@ -122,17 +131,21 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   filters.appendChild(searchGroup);
   search.addEventListener("input",()=>{saved.query=search.value;draw();});
 
-  function group(key,label,expanded,subtitle="") {
-    const details=element("details");
-    details.open=expanded||state.open.has(key);
+  function group(key,label,expanded,subtitle="",expandable=true) {
+    const details=element(expandable?"details":"div");
+    if(expandable)details.open=expanded||state.open.has(key);
+    else details.className="atlas-directory-leaf";
     details.dataset.atlasDirectoryKey=key;
     details._atlasRoadIds=new Set();
     details._atlasMarkerIds=new Set();
-    const summary=element("summary");
-    const chevron=element("i");
-    chevron.className="fa-solid fa-chevron-right atlas-directory-chevron";
-    chevron.setAttribute("aria-hidden","true");
-    summary.appendChild(chevron);
+    const summary=element(expandable?"summary":"div");
+    if(!expandable)summary.className="atlas-directory-row-heading";
+    if(expandable){
+      const chevron=element("i");
+      chevron.className="fa-solid fa-chevron-right atlas-directory-chevron";
+      chevron.setAttribute("aria-hidden","true");
+      summary.appendChild(chevron);
+    }
     const identity=element("span");
     identity.className="atlas-directory-identity";
     identity.appendChild(element("span",label));
@@ -144,7 +157,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     summary.appendChild(identity);
     details._atlasSummaryIdentity=identity;
     details.appendChild(summary);
-    details.addEventListener("toggle",()=>{
+    if(expandable)details.addEventListener("toggle",()=>{
       if(!details.isConnected||expanded)return;
       if(details.open)state.open.add(key);
       else state.open.delete(key);
@@ -163,6 +176,51 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     counts.className="atlas-directory-counts";
     // Keep the read-only metadata with the title, ahead of every action.
     details._atlasSummaryIdentity.appendChild(counts);
+  }
+  function symbol(type,item){
+    const wrap=element("span");
+    wrap.className="atlas-directory-symbol";
+    wrap.setAttribute("aria-hidden","true");
+    if(type==="checkpoint"){
+      const style=resolveCheckpointAppearance(item.appearance);
+      if(style.type==="dot"){
+        const dot=element("span");
+        dot.className="atlas-directory-color-dot";
+        dot.style.backgroundColor=style.color;
+        wrap.appendChild(dot);
+      }else if(style.type==="image"){
+        const image=element("img");
+        image.src=checkpointIconPath(style);
+        image.alt="";
+        wrap.appendChild(image);
+      }else if(CHECKPOINT_ICONS.includes(style.icon)){
+        const glyph=element("span");
+        glyph.className="atlas-directory-masked-icon";
+        glyph.style.backgroundColor=style.color;
+        glyph.style.maskImage="url('"+checkpointIconPath(style)+"')";
+        glyph.style.webkitMaskImage=glyph.style.maskImage;
+        wrap.appendChild(glyph);
+      }else{
+        const glyph=createCheckpointIconGlyph(style.icon);
+        glyph.style.color=style.color;
+        glyph.style.fontSize="1rem";
+        wrap.appendChild(glyph);
+      }
+    }else{
+      const color=type==="road"
+        ?resolveRoadAppearance(item,roadStyles,roadAppearanceMode(item,presets)).color
+        :nativeRegionColorHex(scene.regions?.get?.(item.id)?.color);
+      const dot=element("span");
+      dot.className="atlas-directory-color-dot";
+      if(color)dot.style.backgroundColor=color;
+      else dot.classList?.add?.("atlas-directory-color-unavailable");
+      wrap.appendChild(dot);
+    }
+    return wrap;
+  }
+  function annotate(row,type,item){
+    row._atlasSummaryIdentity.insertBefore(symbol(type,item),
+      row._atlasSummaryIdentity.children[0]??null);
   }
   // These launch the original creation tools; no Road/Territory association
   // is inferred from the directory group where the GM clicked Plus.
