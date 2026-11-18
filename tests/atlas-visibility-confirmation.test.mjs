@@ -39,7 +39,7 @@ test("manual Atlas publication confirmation is cancel-safe and uses plain text",
     assert.equal(await confirmAtlasVisibilityChange({
       kind:"discovery",name:"Bridge",show:true,staged:true
     }),true);
-    assert.match(dialog.content.children[1].textContent,/through lore/);
+    assert.match(dialog.content.children[1].textContent,/known to the party/);
     assert.equal(await confirmAtlasVisibilityChange({
       kind:"territory",name:"Valecor",show:true
     }),true);
