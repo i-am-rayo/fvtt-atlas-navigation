@@ -28,15 +28,15 @@ export function readWorldTravelPresets() {
 
 export function registerWorldTravelPresets() {
   game.settings.register(MODULE_ID, TRAVEL_PRESET_SETTING, {
-    name: "Atlas Corridor Travel Presets",
-    hint: "World-wide movement-cost suggestions for Atlas roads and corridors.",
+    name: "Atlas Surface Presets",
+    hint: "World-wide surface appearance and movement-cost suggestions; no native Behavior updates on edit.",
     scope: "world",
     config: false,
     type: Object,
     default: defaultTravelPresets()
   });
   game.settings.registerMenu(MODULE_ID, "atlasTravelPresetsMenu", {
-    name: "Atlas — Region Surfaces & Costs",
+    name: "Atlas — Surface Presets",
     label: "Configure Surface Presets",
     hint: "World Land, Water and Air surface appearance and suggested movement costs. Existing native Region Behaviors change only after explicit GM approval.",
     icon: "fa-solid fa-route",
