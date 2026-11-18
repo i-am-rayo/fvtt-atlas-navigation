@@ -30,6 +30,7 @@ import { defaultTravelPresets, validateTravelPresets,
   TRAVEL_PRESET_SETTING } from "./travel-preset-model.js";
 import { validateRoadAppearance } from "./road-appearance.js";
 import { sceneRoadSurfaces, roadSurfaceSpans, roadSurfaceAtPoint } from "./road-surface-overlay.js";
+import {gmRoadTerritoryAtPoint} from "./road-territory-hover.js";
 import { RoadOverlayObservability } from "./road-overlay-observability.js";
 import {getGmAtlasCanvasLayers,clearUnusedGmAtlasCanvasLayers}
   from "./atlas-gm-canvas-stack.js";
@@ -492,6 +493,7 @@ export class RoadCanvasController {
     this.overlayObservability = new RoadOverlayObservability();
     // GM display preference only; never changes authored road/Region colors.
     this.viewMode = "roads";
+    this.roadTerritoryHoverEnabled=false;
     this.territoryLabelCheckpointIds=new Set();
     this.pointEditor = new RoadPointEditor({ canvasProvider, doc, notify,
       confirmAttach, confirmDetach, chooseBranch, idFactory, refresh: () => this.refresh() });
@@ -544,6 +546,15 @@ export class RoadCanvasController {
       throw Error("Unsupported Atlas Road layer view.");
     if (this.viewMode === mode) return false;
     this.viewMode = mode;
+    this.refresh();
+    return true;
+  }
+
+  /** Local GM-only visual option, never a World/Scene Road appearance flag. */
+  setRoadTerritoryHoverEnabled(enabled){
+    const next=enabled===true&&globalThis.game?.user?.isGM===true;
+    if(this.roadTerritoryHoverEnabled===next)return false;
+    this.roadTerritoryHoverEnabled=next;
     this.refresh();
     return true;
   }
@@ -1501,7 +1512,8 @@ export class RoadCanvasController {
     if (this.shortcutHandler) element.addEventListener("pointerdown", this.shortcutPointerHandler, true);
   }
 
-  #addLabel(graphics, name, point, textColor, anchorX = 0.5, zoom = 1, opacity = 1, subtitle = null) {
+  #addLabel(graphics, name, point, textColor, anchorX = 0.5, zoom = 1,
+    opacity = 1, subtitle = null, territorySubtitle = null) {
     if (!globalThis.PIXI?.Text || !graphics.addChild) return;
     const major = Number.parseInt(PIXI.VERSION ?? "7", 10);
     const color = Number.parseInt(textColor.slice(1), 16);
@@ -1518,7 +1530,8 @@ export class RoadCanvasController {
     const label = new PIXI.Text(String(name), style);
     sharpenText(label, zoom);
     label.anchor?.set?.(anchorX, 0.5);
-    label.position?.set?.(point.x,point.y-(subtitle?6/scale:0));
+    const y=point.y-(territorySubtitle?18/scale:0);
+    label.position?.set?.(point.x,y-(subtitle?6/scale:0));
     label.eventMode = "none";
     label.alpha = opacity;
     graphics.addChild(label);
@@ -1530,7 +1543,18 @@ export class RoadCanvasController {
       const small=new PIXI.Text(String(subtitle),smallStyle);
       sharpenText(small,zoom);
       small.anchor?.set?.(anchorX,.5);
-      small.position?.set?.(point.x,point.y+fontSize*.73);
+      small.position?.set?.(point.x,y+fontSize*.73);
+      small.eventMode="none";small.alpha=opacity*.85;
+      graphics.addChild(small);this.labels.push(small);
+    }
+    if(territorySubtitle){
+      const smallStyle=major>=8
+        ?{...common,fontSize:fontSize*.73,stroke:{color:0x000000,width:2/scale}}
+        :{...common,fontSize:fontSize*.73,stroke:0x000000,strokeThickness:2/scale};
+      const small=new PIXI.Text(String(territorySubtitle),smallStyle);
+      sharpenText(small,zoom);
+      small.anchor?.set?.(anchorX,.5);
+      small.position?.set?.(point.x,y+fontSize*.73*(subtitle?2:1));
       small.eventMode="none";small.alpha=opacity*.85;
       graphics.addChild(small);this.labels.push(small);
     }
@@ -2185,9 +2209,17 @@ export class RoadCanvasController {
           ?roadSurfaceAtPoint(this.hoveredRoadPoint,surfaceRegions) ??
             travelPresets.find(p=>p.id===item.road.travelPresetId)?.name:null;
         const labelLayer=this.hoveredRoadId===roadId?gmLayers?.hover:gmLayers?.roadLabels;
+        // The Road-line point (not the text's offset position) is the native
+        // Region test anchor. Suppress extra text near Map Marker banners.
+        const nearMarker=checkpointPositions.some(marker=>
+          Math.hypot(point.x-marker.x,point.y-marker.y)<110/zoom);
+        const territory=this.roadTerritoryHoverEnabled&&
+          this.hoveredRoadId===roadId&&!nearMarker&&opacity===1?
+          gmRoadTerritoryAtPoint(canvas.scene,canvas,point):null;
         if (opacity > 0) this.#addLabel(labelLayer??g, item.road.name +
           (journalUuidFor(gmJournals,"road",roadId) ? " 📖" : ""),
-          { x: point.x, y: point.y - 18 / zoom }, item.style.textColor, 0.5, zoom, opacity,surface);
+          { x: point.x, y: point.y - 18 / zoom }, item.style.textColor,
+          0.5, zoom, opacity,surface,territory);
       }
     }
     const checkpointMarkers = [];
