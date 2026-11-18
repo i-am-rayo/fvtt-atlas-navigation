@@ -87,6 +87,7 @@ import { registerWorldTravelPresets, readWorldTravelPresets }
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
 import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
 import { createSettingsInput } from "./settings-input.js";
+import {confirmAtlasVisibilityChange} from "./atlas-visibility-confirmation.js";
 import { promptNativeMovementAction } from "./native-movement-action-picker.js";
 import { createRoadPresetStage } from "./road-settings-preset.js";
 import { arrangeRoadDialogFooter } from "./road-settings-dialog-footer.js";
@@ -808,10 +809,18 @@ function actions() {
         visibleIcon.setAttribute("aria-label",visibleIcon.title);
         visibleIcon.querySelector("i").className="fa-solid fa-"+(shown?"eye":"eye-slash");
       };
-      visibleIcon.addEventListener("click",()=>{
-        visibility.checked=!visibility.checked;
-        visibility.defaultChecked=visibility.checked;
-        syncVisible();
+      visibleIcon.addEventListener("click",async()=>{
+        if(visibleIcon.disabled)return;
+        visibleIcon.disabled=true;
+        try{
+          const show=!visibility.checked;
+          if(!await confirmAtlasVisibilityChange({kind:"road",name:name.value,
+            show,staged:true}))return;
+          visibility.checked=show;
+          visibility.defaultChecked=show;
+          syncVisible();
+        }catch(error){ui.notifications.error(error.message??String(error));}
+        finally{visibleIcon.disabled=false;}
       });
       visibilityRow.hidden=true;
       roadTools.append(locateRoad,visibleIcon);
@@ -1676,29 +1685,35 @@ function actions() {
       const atlas = readAtlas(scene);
       const actual = atlas.checkpoints?.find(c => c.id === checkpoint.id);
       if (!actual) throw new Error("Map Marker no longer exists.");
+      const show=actual.playerVisible!==true;
+      if(!await confirmAtlasVisibilityChange({kind:"marker",name:actual.name,show}))return;
+      ensureIdle(scene);
       await saveCheckpointPlayerVisibility(scene, {
-        checkpointId: checkpoint.id, visible: actual.playerVisible !== true,
+        checkpointId: checkpoint.id, visible: show,
         expectedRevision: atlas.revision
       });
       roadCanvas.refresh(); refresh();
-      ui.notifications.info(actual.playerVisible === true
-        ? "Map Marker hidden from players." : "Map Marker now visible to players.");
+      ui.notifications.info(show
+        ? "Map Marker now visible to players." : "Map Marker hidden from players.");
     },
     async toggleRoadPlayerVisibility(scene, road, refresh) {
       ensureIdle(scene);
       const atlas = readAtlas(scene);
       const actual = atlas.roads?.find(item => item.id === road.id);
       if (!actual) throw new Error("Road no longer exists.");
+      const show=actual.playerVisible!==true;
+      if(!await confirmAtlasVisibilityChange({kind:"road",name:actual.name,show}))return;
+      ensureIdle(scene);
       const saved=await saveRoadPlayerVisibility(scene, {
-        roadId: road.id, visible: actual.playerVisible !== true,
+        roadId: road.id, visible: show,
         expectedRevision: atlas.revision
       });
-      if(actual.playerVisible!==true)
+      if(show)
         atlasAnnouncementRuntime.publishDiscovery({scene,kind:"road",recordId:road.id,
           previous:atlas,committed:saved});
       roadCanvas.refresh(); refresh();
-      ui.notifications.info(actual.playerVisible === true
-        ? "Road hidden from players." : "Road now visible to players.");
+      ui.notifications.info(show
+        ? "Road now visible to players." : "Road hidden from players.");
     },
     editCheckpointAppearance(scene, checkpoint, refresh) {
       ensureIdle(scene);
@@ -2692,22 +2707,11 @@ function actions() {
       const expected=readPlayerTerritorySharing(region);
       const expectedName=region.name,expectedHidden=region.hidden===true;
       const enable=!expected;
-      const content=document.createElement("div");
-      const message=document.createElement("p");
-      message.textContent=enable?
-        `Share the native boundary of ${region.name} with players? Players may choose `+
-        "to display this Territory in Atlas Layers, even where the map is unexplored. " +
-        "Its name remains hidden unless separately published as a public Journey name. " +
-        "Native Region Shapes and Behaviors will not change.":
-        `Stop sharing the native boundary of ${region.name} with players? `+
-        "Its public Journey name and other native Region data will remain unchanged.";
-      content.appendChild(message);
-      const approved=await DialogV2.confirm({
-        window:{title:enable?"Share Territory with players":"Hide Territory from players"},
-        content,yes:{label:enable?"Share Boundary":"Hide Boundary"},
-        rejectClose:false,modal:true
-      });
+      const approved=await confirmAtlasVisibilityChange({kind:"territory",
+        name:region.name,show:enable});
       if(!approved)return;
+      if(!game.user?.isGM||!scene.canUserModify?.(game.user,"update"))
+        throw Error("Only a Scene-authorized GM may share Territory boundaries.");
       await savePlayerTerritorySharing(scene,regionId,{visible:enable,expected,
         expectedName,expectedHidden});
       atlasLayers.refresh();refresh();
