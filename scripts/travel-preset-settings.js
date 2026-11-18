@@ -37,8 +37,8 @@ export function registerWorldTravelPresets() {
   });
   game.settings.registerMenu(MODULE_ID, "atlasTravelPresetsMenu", {
     name: "Atlas — Region Surfaces & Costs",
-    label: "Configure Corridor Surface and Movement Presets",
-    hint: "Land, Air and Water surface colors for Atlas road overlays and new generated native Regions; native costs remain separately confirmed.",
+    label: "Configure Surface Presets",
+    hint: "World Land, Water and Air surface appearance and suggested movement costs. Existing native Region Behaviors change only after explicit GM approval.",
     icon: "fa-solid fa-route",
     type: AtlasTravelPresetSettings,
     restricted: true
