@@ -96,8 +96,8 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.deepEqual(ctx.calls,[]);
     const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     assert.equal(first, again, "per-Scene instance must be reused");
-    await enter(first,"Settings");
-    const territories = buttons(first.result).find(item => item.textContent === "Territory batch & native Region tools");
+    await enter(first,"Map directory");
+    const territories = buttons(first.result).find(item => item.textContent === "Territory tools");
     await territories.listeners.get("click")({ preventDefault() {} });
     assert.match(text(first.result), /Millstone/);
     const add=buttons(first.result).find(item=>
@@ -290,9 +290,9 @@ test("Checkpoint Workspace has one [+] placement action and compact searchable r
     ctx.actions.manageCheckpointRoad = () => ctx.calls.push(["link"]);
     ctx.actions.removeCheckpoint = () => ctx.calls.push(["remove"]);
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
-    await enter(workspace,"Settings");
+    await enter(workspace,"Map directory");
     const tab = buttons(workspace.result).find(item =>
-      item.textContent === "Map Marker discovery & connections");
+      item.textContent === "Map Marker tools");
     assert.ok(tab);
     await tab.listeners.get("click")({ preventDefault() {} });
     const panel = walk(workspace.result, item =>
@@ -337,9 +337,9 @@ test("isolated Checkpoint in Workspace offers explicit Road connection action", 
     } : null;
     ctx.actions.manageCheckpointRoad = (_scene, id) => ctx.calls.push(["connect", id]);
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
-    await enter(workspace,"Settings");
+    await enter(workspace,"Map directory");
     const tab = buttons(workspace.result).find(item =>
-      item.textContent === "Map Marker discovery & connections");
+      item.textContent === "Map Marker tools");
     await tab.listeners.get("click")({ preventDefault() {} });
     assert.match(text(workspace.result), /Free Village/);
     const connect = buttons(workspace.result).find(item =>
@@ -394,8 +394,8 @@ test("Roads tab is a working Workspace view with legacy Scene settings unaffecte
   const ctx = context();
   try {
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
-    await enter(workspace,"Settings");
-    const roads = buttons(workspace.result).find(item => item.textContent === "Road topology & legacy tools");
+    await enter(workspace,"Map directory");
+    const roads = buttons(workspace.result).find(item => item.textContent === "Road tools");
     assert.ok(roads, "Roads has its own Workspace navigation entry");
     await roads.listeners.get("click")({ preventDefault() {} });
     assert.equal(workspace.activeSection, "roads");
@@ -420,8 +420,8 @@ test("native Levels are isolated in Topology and never constructed inside Roads"
     assert.equal(workspace.activeSection, "topology");
     assert.match(text(workspace.result), /Native Scene Levels/);
     assert.doesNotMatch(text(workspace.result), /Territories & custom native Regions/);
-    await enter(workspace,"Settings");
-    const roads = buttons(workspace.result).find(item => item.textContent === "Road topology & legacy tools");
+    await enter(workspace,"Map directory");
+    const roads = buttons(workspace.result).find(item => item.textContent === "Road tools");
     await roads.listeners.get("click")({ preventDefault() {} });
     assert.doesNotMatch(text(workspace.result), /Native Scene Levels/);
     await workspace.close();
@@ -458,8 +458,8 @@ test("GM Territory directory remains accessible; Atlas Layers owns persistent ma
     assert.equal(allowed.disabled,false);
     await allowed.listeners.get("click")({preventDefault(){}});
     assert.equal(sharedId,"settlement-1");
-    await enter(workspace,"Settings");
-    const territories = buttons(workspace.result).find(item=>item.textContent==="Territory batch & native Region tools");
+    await enter(workspace,"Map directory");
+    const territories = buttons(workspace.result).find(item=>item.textContent==="Territory tools");
     await territories.listeners.get("click")({preventDefault(){}});
     const rows = () => walk(workspace.result,item=>item.attributes?.has("data-atlas-native-region-id"));
     assert.deepEqual(rows().map(item=>item.attributes.get("data-atlas-native-region-id")),
@@ -505,8 +505,8 @@ test("Locate uses public canvas bounds and workspace does not own canvas preview
       animatePan:async options=>{moves.push(options);}};
     const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     assert.equal(subscriptions.size,0,"persistent Atlas Layers controller owns canvas hooks");
-    await enter(workspace,"Settings");
-    await buttons(workspace.result).find(item=>item.textContent==="Territory batch & native Region tools")
+    await enter(workspace,"Map directory");
+    await buttons(workspace.result).find(item=>item.textContent==="Territory tools")
       .listeners.get("click")({preventDefault(){}});
     const locate=buttons(workspace.result).find(item=>
       item.title==="Locate this native Region on the map");
@@ -647,9 +647,15 @@ test("Directory keeps Create/View commands and moves unique management into Sett
     await Promise.all([first,duplicate]);
     assert.equal(display.disabled,false,"visibility action re-enables after completion");
     await enter(ws,"Settings");
-    assert.ok(walk(ws.result,item=>item.className==="atlas-workspace-advanced-management")[0],
-      "unique Road topology and Territory recovery operations remain discoverable");
-    assert.deepEqual(ctx.calls,[],"opening the Map Directory does not write Scene data");
+    assert.equal(walk(ws.result,item=>item.className==="atlas-workspace-advanced-management").length,0,
+      "obsolete Advanced Map Operations disclosure is gone from Settings");
+    await enter(ws,"Map directory");
+    assert.deepEqual(buttons(ws.result).filter(item=>["Territory tools",
+      "Road tools","Map Marker tools"].includes(item.textContent))
+      .map(item=>item.textContent),
+      ["Territory tools","Road tools","Map Marker tools"],
+      "the existing directory provides contextual access to unique native and recovery tools");
+    assert.deepEqual(ctx.calls,[],"moving tools into Map Directory never writes Scene data");
     await ws.close();
   }finally{ctx.restore();}
 });
