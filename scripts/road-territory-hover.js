@@ -12,8 +12,10 @@ export function gmRoadTerritoryAtPoint(scene,view,point){
   if(!globalThis.game?.user?.isGM||!scene?.id||!view?.ready||
       view.scene?.id!==scene.id||
       !Number.isFinite(point?.x)||!Number.isFinite(point?.y))return null;
-  const entries=listSceneGeography(scene).filter(entry=>
-    entry.linked&&!entry.invalid&&entry.geography);
+  let entries;
+  try{entries=listSceneGeography(scene).filter(entry=>
+    entry.linked&&!entry.invalid&&entry.geography);}
+  catch{return null;}
   // ponytail: bounded read on a hovered Road; if an Atlas has >256 classified
   // native Regions, profile before adding a spatial index. Fail closed today.
   if(entries.length>MAX_CANDIDATES)return null;
