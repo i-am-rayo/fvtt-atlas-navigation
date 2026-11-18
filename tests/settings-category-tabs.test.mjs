@@ -23,6 +23,8 @@ test("World catalog tabs are keyboard navigable, keep all draft panels mounted a
       return [id,el];
     }));
     assert.equal(tabs.nav.attrs.get("role"),"tablist");
+    assert.deepEqual(tabs.nav.children.map(tab=>tab.attrs.get("aria-selected")),
+      ["true","false","false"],"initial tab must be accessible and visibly selected");
     assert.deepEqual([...drafts].map(([,el])=>el.hidden),[false,true,true]);
     const next=tabs.nav.children[1];
     next.listeners.get("click")();
