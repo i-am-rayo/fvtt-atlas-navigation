@@ -222,8 +222,8 @@ export function registerWorldRoadAppearance(onChange = () => {}) {
     default: structuredClone(DEFAULT_WORLD_ROAD_APPEARANCE), onChange
   });
   game.settings.registerMenu(MODULE_ID, "atlasRoadAppearanceMenu", {
-    name: "Atlas — Road Overlay Appearance", label: "Configure Land / Air / Water Road Styles",
-    hint: "Atlas-drawn line and text colors only. Region surface colors and movement cost presets are separate.",
+    name: "Atlas — Road Appearance", label: "Configure Road Appearance",
+    hint: "World Land, Water and Air Road line and label defaults. This does not edit native Region colors, Shapes or movement Behaviors.",
     icon: "fa-solid fa-palette", type: AtlasRoadAppearanceSettings, restricted: true
   });
 }
