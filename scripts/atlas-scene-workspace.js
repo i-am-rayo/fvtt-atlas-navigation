@@ -17,7 +17,7 @@ import {renderTravelRules,renderJourneyPlayback} from "./navigation-transport-se
 import {createMapDirectory} from "./atlas-map-directory.js";
 import {readPartyExploration} from "./party-exploration-storage.js";
 
-const directoryViews = [["directory","By territory"],["allRoads","All roads"],["allCheckpoints","All Map Markers"]];
+const directoryViews = [["directory","By Territory"],["allRoads","All Roads"],["allCheckpoints","All Map Markers"]];
 const managers = [["territories","Territories"],["roads","Roads"],["checkpoints","Map Markers"]];
 const settingsViews = [["settings","Exploration & travel"],["surfaces","Surfaces"],["topology","Topology & Levels"],["portability","Import / Export"]];
 const workspaces = new Map();
@@ -129,7 +129,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     const refresh = () => (!this.rendered || this.minimized) ?
       Promise.resolve() : this.render(true);
     const addControls = container => {
-      for (const [label,handler] of [["Add territory","createNativeTerritory"],["Add road","begin"],["Add Map Marker","beginCheckpoint"]]) {
+      for (const [label,handler] of [["Add Territory","createNativeTerritory"],["Add Road","begin"],["Add Map Marker","beginCheckpoint"]]) {
         const button = action(label,label,()=>this.actions[handler](this.scene,refresh));
         button.disabled = Boolean(this.actions.draft(this.scene)) || (handler==="begin" && atlas.schemaVersion<=2 && Boolean(atlas.segments.length || atlas.nodes.length));
         container.appendChild(button);
