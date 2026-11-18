@@ -292,8 +292,15 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     field("Marker size (12–64 px)", markerSize.element);
     const color = createCheckpointColor(appearance.color,{label:"Map Marker color"});
     field("Map Marker color", color);
+    const borderEnabled=createCheckpointCheckbox(appearance.borderEnabled!==false,
+      {label:"Map Marker border enabled"});
+    field("Map Marker border",borderEnabled);
     const borderColor = createCheckpointColor(appearance.borderColor,{label:"Map Marker border color"});
     field("Map Marker border color", borderColor);
+    const borderRow=el("div");
+    borderRow.className="atlas-checkpoint-border-inline";
+    borderRow.append(borderEnabled.closest("label"),borderColor.closest("label"));
+    fields.appendChild(borderRow);
     const markerFields=fields;
     fields = el("div"); fields.style.cssText = "display:grid;gap:.55rem;";
     pageMarker.appendChild(fields);
@@ -394,6 +401,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     bannerSection.append(el("legend","Banner information"),bannerFields);
     pageMarker.replaceChildren(settingsSection,bannerSection,preview);
     const updatePreview=()=>{
+      borderColor.disabled=!borderEnabled.checked;
       const bannerOff=mode.value==="off";
       for(const control of [showRoad,showType,showElevation,textColor])
         control.disabled=bannerOff;
@@ -428,7 +436,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       marker.style.background="";
       if(type.value==="dot"){
         marker.style.borderRadius="50%";
-        marker.style.border="2px solid "+borderColor.value;
+        marker.style.border=borderEnabled.checked?"2px solid "+borderColor.value:"none";
         marker.style.background=color.value;
       }else if(type.value==="fa"&&
           (marker.tagName?.toLowerCase?.()??marker.tag)!=="img"){
@@ -436,8 +444,9 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           "-1px 0","1px 0","0 -1px","0 1px",
           "-1px -1px","1px -1px","-1px 1px","1px 1px"
         ].map(offset=>offset+" "+borderColor.value).join(",");
+        if(!borderEnabled.checked)marker.style.textShadow="none";
       }else{
-        marker.style.filter="drop-shadow(1px 0 "+borderColor.value+") "+
+        if(borderEnabled.checked)marker.style.filter="drop-shadow(1px 0 "+borderColor.value+") "+
           "drop-shadow(-1px 0 "+borderColor.value+")";
       }
       previewMarker.replaceChildren(marker);
@@ -498,6 +507,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       type.value=a.type;selected=a.icon;image.value=a.image;
       markerSize.setValue(a.size);markerSize.output.textContent=a.size+" px";
       color.value=a.color;borderColor.value=a.borderColor;
+      borderEnabled.checked=a.borderEnabled!==false;
       mode.value=a.labelMode;showRoad.checked=a.showRoadName;textColor.value=a.textColor;
       const portable=resolveCheckpointBanner(a);
       showType.checked=portable.showType;
@@ -695,7 +705,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         const a=withCheckpointBanner({
           type:type.value,icon:selected,image:image.value.trim(),
           size:markerSize.getValue(),color:color.value,borderColor:borderColor.value,
-          labelMode:mode.value,showRoadName:showRoad.checked,
+          borderEnabled:borderEnabled.checked,labelMode:mode.value,showRoadName:showRoad.checked,
           textColor:textColor.value},{
           showType:showType.checked,showElevation:showElevation.checked,
           // Portable World template: never capture Scene-specific Region ID.
@@ -751,8 +761,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         const next=value===null?null:withCheckpointBanner({
           type:type.value,icon:selected,image:image.value.trim(),
           size:markerSize.getValue(),color:color.value,
-          borderColor:borderColor.value,labelMode:mode.value,
-          showRoadName:showRoad.checked,textColor:textColor.value},{
+          borderColor:borderColor.value,borderEnabled:borderEnabled.checked,
+          labelMode:mode.value,showRoadName:showRoad.checked,textColor:textColor.value},{
           showType:showType.checked,showElevation:showElevation.checked,
           territoryRegionId:chosenTerritory,territorySceneId:chosenScene});
         const nextJournal=journalUuidFromForm(journalInput.value);
