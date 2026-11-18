@@ -76,7 +76,15 @@
 }
 .atlas-road-editor-body {flex:1 1 auto;min-height:0;overflow-y:auto;min-width:0;}
 .atlas-road-editor-gestures {padding-inline-start:1.2rem;margin:.3rem 0 .6rem;}
-.atlas-road-editor-gestures li {margin:.3rem 0;line-height:1.4;}
+.atlas-road-editor-gestures li {
+  display:flex;align-items:baseline;gap:.55rem;flex-wrap:wrap;
+  margin:.3rem 0;line-height:1.4;
+}
+.atlas-road-editor-gestures kbd {
+  padding:.1rem .3rem;border:1px solid var(--color-border-light-tertiary,#777);
+  border-radius:.2rem;white-space:nowrap;font:inherit;font-size:.82em;
+  background:var(--color-cool-5-90,#292931);
+}
 .atlas-road-editor-footer {
   display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;
   border-top:1px solid var(--color-border-light-tertiary,#666);padding:.45rem 0;
