@@ -232,6 +232,9 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
         glyph.style.borderRadius="50%";
         glyph.style.background=color.value;
         glyph.style.border="2px solid "+border.value;
+      }else if(markerType.value==="fa"&&glyph.tagName?.toLowerCase?.()==="img"){
+        glyph.style.filter="drop-shadow(1px 0 "+border.value+") "+
+          "drop-shadow(-1px 0 "+border.value+")";
       }else glyph.style.textShadow="1px 1px "+border.value+",-1px -1px "+border.value;
       previewMarker.replaceChildren(glyph);
       const description=[];
