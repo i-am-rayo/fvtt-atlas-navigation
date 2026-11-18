@@ -1727,6 +1727,7 @@ function actions() {
         onSaved: () => { roadCanvas.refresh(); refresh(); },
         onDelete:()=>actions().deleteCheckpointWithDependents(scene,checkpoint.id,refresh),
         onMove:()=>actions().moveMapMarker(scene,checkpoint.id,refresh),
+        onLocate:()=>actions().selectCheckpoint(scene,checkpoint.id),
         onRoad:()=>actions().manageCheckpointRoad(scene,checkpoint.id,refresh),
         onTerrainAction:async (action,regionId)=>{
           if(action==="clearPreview")return roadCanvas.clearRegionPreview();
