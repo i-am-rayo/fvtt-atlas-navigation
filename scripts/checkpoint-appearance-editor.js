@@ -841,6 +841,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       if(!this._skipClosePrompt){this._skipClosePrompt=true;await this.close();}
       await action();
     };
+    if(visibilityAction)leftActions.appendChild(visibilityAction);
     if(!this.createDraft&&this.onMove){
       const move=createSettingsIconButton({icon:"up-down-left-right",label:"Move Map Marker"});
       move.className+=" atlas-checkpoint-footer-icon";
@@ -876,8 +877,6 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       }
       pageTerrain.prepend(roads);
     }
-    if(visibilityAction)leftActions.insertBefore(visibilityAction,
-      leftActions.children[1]??null);
     rightActions.append(saveAsPreset,save);
     if(remove){
       remove.className+=" atlas-checkpoint-footer-delete";
