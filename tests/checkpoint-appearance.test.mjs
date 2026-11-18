@@ -266,12 +266,14 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       checkpointId: data.checkpoints[0].id, expectedRevision: data.revision,
       onTerrainAction:async action=>{actions.push(action);},
       onMove:()=>{actions.push("move");},
+      onLocate:()=>{actions.push("locate");},
       onDelete:async()=>false });
     assert.equal(editor.options.position.left,24,
       "checkpoint authoring opens at the left of the canvas");
     assert.equal(editor.options.window.title,"Atlas — Ridge Lookout — Map Marker Settings",
       "existing Map Marker settings identify the edited Checkpoint regardless of tab");
-    editor.close = async () => {};
+    let closeCalls=0;
+    editor.close = async () => {closeCalls++;};
     const root = await editor._renderHTML();
     const buttons = all(root).filter(node => node.tag === "button");
     const geographicLink=buttons.find(node=>node.textContent==="Link Territory");
@@ -363,6 +365,14 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       node.className==="atlas-checkpoint-banner-settings");
     assert.equal(independentBanner.children[1].hidden,true,
       "Standalone Checkpoints hide Road name without erasing its preference");
+    const draftFooter=all(independentRoot).find(node=>
+      node.className==="atlas-checkpoint-form-actions");
+    const draftLocate=draftFooter.children[0].children[0];
+    assert.equal(draftLocate.title,"Locate unavailable until Map Marker is saved");
+    assert.equal(draftLocate.disabled,true,
+      "unsaved new Map Marker must never invoke a misleading Locate action");
+    assert.equal(draftFooter.children[1].children.at(-1).title,"Create Map Marker",
+      "new marker creation has no destructive Delete action");
 
     const search = all(root).find(node => node.tag === "input" && node.type === "search");
     search.value = "github";
@@ -403,7 +413,12 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "atlas-checkpoint-settings-page")).length,4);
     assert.ok(all(root).filter(node=>node.className?.includes?.(
       "atlas-checkpoint-settings-page")).every(node=>node.style.overflowY==="auto"));
-    const footerVisibility=footer.children.find(node=>
+    const leftActions=footer.children[0],rightActions=footer.children[1];
+    assert.equal(footer.children.length,2,
+      "one anchored footer holds separate left/right DOM action groups");
+    assert.equal(leftActions.className,"atlas-checkpoint-footer-left");
+    assert.equal(rightActions.className,"atlas-checkpoint-footer-right");
+    const footerVisibility=leftActions.children.find(node=>
       node.className==="atlas-checkpoint-footer-visibility");
     const playerVisible=footerVisibility?.children.find(node=>
       node.tag==="input"&&node.type==="checkbox");
@@ -418,10 +433,16 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "World preset controls align with the right edge of the General form");
     assert.ok(all(root).some(node=>node.textContent==="Elevation (m)"),
       "metric unit preference yields a meter label when native Scene units are unspecified");
-    const moveFooter=footer.children.find(node=>
+    const moveFooter=leftActions.children.find(node=>
       node.title==="Move Map Marker");
     assert.ok(moveFooter?.className.includes("atlas-checkpoint-footer-icon"),
       "Move Map Marker is a compact action located in the footer");
+    assert.deepEqual(leftActions.children.map(node=>
+      node.className==="atlas-checkpoint-footer-visibility"?"Visibility":node.title),
+      ["Locate Map Marker","Visibility","Move Map Marker"],
+      "Locate, visibility and Move keep actual DOM/keyboard order");
+    const locate=leftActions.children[0];
+    assert.equal(locate.disabled,false);
     const showFooter=footerVisibility.children.find(node=>node.tag==="button");
     assert.ok(showFooter.className.includes("atlas-checkpoint-footer-icon"));
     assert.equal(showFooter.title,"Show Map Marker");
@@ -433,6 +454,14 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(showFooter.title,showFooter.attributes?.get?.("aria-label")??showFooter.title);
     name.value = "Revealed Lookout";
     elevation.value = "640";
+    await locate.listeners.get("click")();
+    assert.deepEqual(actions,["territory","locate"],
+      "Locate delegates to the injected read-only camera action");
+    assert.equal(name.value,"Revealed Lookout",
+      "Locate preserves the current unsaved Map Marker draft");
+    assert.equal(elevation.value,"640");
+    assert.equal(stored.revision,data.revision,"Locate does not persist Atlas data");
+    assert.equal(closeCalls,0,"Locate does not invoke the dirty-close guard");
     const show=buttons.find(node=>node.title==="Show Map Marker");
     assert.ok(show,"hidden checkpoint offers an accessible show icon");
     await show.listeners.get("click")();
@@ -453,18 +482,16 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(save?.className.includes("atlas-ui-icon-button"),
       "Save uses the shared icon action without changing its handler");
     assert.equal(save.type,"button","Save cannot accidentally submit the form");
-    assert.ok(all(root).some(node=>node.tag==="button"&&node.textContent==="Save as preset…"),
-      "preset saving is explicit in the footer");
-    assert.equal(footer.children.at(-3).textContent,"Save as preset…",
-      "saving a World preset remains distinct from saving the Checkpoint");
-    assert.equal(footer.children.at(-2),save,
+    assert.equal(rightActions.children[0].textContent,"Save as preset…",
+      "saving a World preset remains distinct from saving the Map Marker");
+    assert.equal(rightActions.children[1],save,
       "Save is immediately before the destructive Delete action");
-    assert.equal(footer.children.at(-1).title,"Delete Map Marker",
-      "Delete is the last element in DOM and keyboard order");
-    assert.equal(footer.children.at(-1).className.includes("atlas-checkpoint-footer-delete"),true);
-    assert.ok(footer.children.indexOf(footerVisibility)<footer.children.indexOf(save),
-      "editing controls appear before Save and Delete");
-    assert.equal(footer.children.at(-2),save);
+    assert.equal(rightActions.children[2].title,"Delete Map Marker",
+      "Delete is the final control in DOM and keyboard order");
+    assert.equal(rightActions.children[2].className.includes("atlas-checkpoint-footer-delete"),true);
+    assert.equal(rightActions.children.length,3);
+    assert.equal(footer.children.indexOf(leftActions),0,
+      "editing controls always precede Save and Delete");
     assert.equal(name.autofocus,true);
     save.listeners.get("click")();
     await new Promise(resolve => setImmediate(resolve));
