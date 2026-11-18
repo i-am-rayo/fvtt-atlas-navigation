@@ -25,7 +25,9 @@ export async function confirmAtlasVisibilityChange({kind,name,show,staged=false}
   const title=titles[kind],verb=kind==="territory"?(show?"Share":"Hide"):(show?"Show":"Hide");
   const content=document.createElement("div");
   for(const line of [
-    (show?"Show ":"Hide ")+title+" “"+name+"” "+(kind==="territory"?"to":"from")+" players?",
+    (kind==="territory"?(show?"Share ":"Hide "):show?"Show ":"Hide ")+
+      title+" “"+name+"” "+(show?"to":"from")+
+      (kind==="discovery"?" the party?":" players?"),
     messages[kind][show?"show":"hide"],
     staged?"This changes only the current draft. Save to apply it, or Cancel to discard.": 
       "This takes effect only after the existing save checks succeed. Hiding graphics is not data confidentiality."
