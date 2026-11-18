@@ -1726,8 +1726,9 @@ export class RoadCanvasController {
       // Silhouette outline follows the actual asset shape instead of a circle.
       const outline = Number.parseInt(appearance.borderColor.slice(1),16);
       const shift = 3 / zoom;
-      for (const [dx,dy] of [[-shift,0],[shift,0],[0,-shift],[0,shift],
-        [-shift,-shift],[shift,-shift],[-shift,shift],[shift,shift]]) {
+      for (const [dx,dy] of (appearance.borderEnabled===false?[]:
+        [[-shift,0],[shift,0],[0,-shift],[0,shift],
+         [-shift,-shift],[shift,-shift],[-shift,shift],[shift,shift]])) {
         const shadow = new PIXI.Sprite(texture);
         shadow.anchor?.set?.(0.5);
         shadow.position?.set?.(marker.x+dx,marker.y+dy);
@@ -1741,10 +1742,12 @@ export class RoadCanvasController {
       const glyph = new PIXI.Text(font.glyph, {
         fontFamily: font.family, fontWeight: font.weight,
         fontSize: size, fill: color, align: "center",
-        ...(Number(PIXI.VERSION?.split(".")[0]) >= 8
-          ? { stroke: { fill: Number.parseInt(appearance.borderColor.slice(1),16), width: 3 / zoom } }
-          : { stroke: Number.parseInt(appearance.borderColor.slice(1),16),
-            strokeThickness: 3 / zoom })
+        ...(appearance.borderEnabled===false?{}:
+          Number(PIXI.VERSION?.split(".")[0]) >= 8
+            ? {stroke:{fill:Number.parseInt(appearance.borderColor.slice(1),16),
+              width:3/zoom}}
+            : {stroke:Number.parseInt(appearance.borderColor.slice(1),16),
+              strokeThickness:3/zoom})
       });
       glyph.anchor?.set?.(0.5);
       glyph.position?.set?.(marker.x, marker.y);
@@ -1754,8 +1757,9 @@ export class RoadCanvasController {
     } else {
       const radius = appearance.type==="dot"?size/2:(selected?10:6)/zoom;
       drawDot(graphics, marker, color, radius);
-      drawCheckpointBorder(graphics, marker, radius,
-        Number.parseInt(appearance.borderColor.slice(1),16), zoom);
+      if(appearance.borderEnabled!==false)
+        drawCheckpointBorder(graphics, marker, radius,
+          Number.parseInt(appearance.borderColor.slice(1),16), zoom);
     }
   }
 
