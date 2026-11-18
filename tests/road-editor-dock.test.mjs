@@ -244,3 +244,31 @@ test("Map Marker relocation dock offers explicit Locate/Cancel, never an unconfi
     assert.equal(cancels,1);
   }finally{Object.assign(globalThis,prev);}
 });
+
+test("Road Editor keycaps describe implemented gestures without changing drafts",async()=>{
+  const before={foundry:globalThis.foundry,document:globalThis.document,
+    game:globalThis.game,window:globalThis.window};
+  try{
+    globalThis.foundry={applications:{api:{ApplicationV2:class {}}}};
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.window={innerWidth:1000,innerHeight:750};
+    globalThis.game={user:{isGM:true}};
+    const {AtlasRoadEditorDock}=await import("../scripts/road-editor-dock.js");
+    const scene={id:"gesture-help",canUserModify:()=>true},calls=[];
+    const controller={getDraft:()=>({mode:"points",points:5,dirty:true,
+      canUndo:true,canRedo:true})};
+    const dock=new AtlasRoadEditorDock({scene,controller,onFinish:()=>calls.push("save"),
+      onCancel:()=>calls.push("cancel"),onClosed(){}});
+    const root=await dock._renderHTML();
+    const gestures=descendants(root).find(node=>node.className==="atlas-road-editor-gestures");
+    assert.ok(gestures);
+    assert.equal(gestures.children.length,7);
+    assert.deepEqual(gestures.children.map(row=>row.children[0].tag),
+      Array(7).fill("kbd"),"shortcut labels use native key styling");
+    assert.ok(gestures.children.some(row=>row.children[0].textContent==="Ctrl/Cmd + Z"));
+    assert.ok(gestures.children.some(row=>row.children[0].textContent==="Esc"));
+    assert.ok(gestures.children.some(row=>row.children[1].textContent.includes(
+      "unconnected Road end")));
+    assert.deepEqual(calls,[],"rendering editor help never saves or cancels");
+  }finally{Object.assign(globalThis,before);}
+});
