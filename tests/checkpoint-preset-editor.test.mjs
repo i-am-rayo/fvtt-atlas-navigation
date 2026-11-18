@@ -9,7 +9,11 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     constructor(tag){this.tagName=tag.toUpperCase();this.tag=tag;this.children=[];
       this.style={};this.textContent="";this.value="";this.listeners=new Map();}
     append(...children){children.forEach(child=>this.appendChild(child));}
-    appendChild(child){child.parentNode=this;this.children.push(child);return child;}
+    appendChild(child){
+      if(child.parentNode)child.parentNode.children=
+        child.parentNode.children.filter(item=>item!==child);
+      child.parentNode=this;this.children.push(child);return child;
+    }
     insertBefore(child,reference){
       const index=this.children.indexOf(reference);
       child.parentNode=this;
