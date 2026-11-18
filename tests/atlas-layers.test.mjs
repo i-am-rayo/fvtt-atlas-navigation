@@ -50,8 +50,9 @@ test("GM and player map preferences remain client-local; players cannot select G
   globalThis.canvas={scene,ready:true,interface:{addChild(){}}};
   globalThis.document={createElement:tag=>new Element(tag)};
   try{
-    const suppressed=[];
+    const suppressed=[],hoverModes=[];
     const roadCanvas={setViewMode:mode=>viewModes.push(mode),
+      setRoadTerritoryHoverEnabled:enabled=>hoverModes.push(enabled),
       setTerritoryLabelCheckpointIds:ids=>suppressed.push([...ids])};
     const controller=new AtlasLayersController(roadCanvas);
     controller.register();
@@ -71,6 +72,14 @@ test("GM and player map preferences remain client-local; players cannot select G
     assert.equal(controller.read().continentFillOpacity,.33);
     assert.deepEqual(suppressed.at(-1),["checkpoint1"],
       "only currently drawn Territory labels suppress the duplicate Checkpoint Always label");
+    await controller.update({roadTerritoryHover:true});
+    assert.equal(hoverModes.at(-1),true,"GM opted into transient hover labels");
+    controller.setPlayerPreview(true);
+    assert.equal(hoverModes.at(-1),false,
+      "GM player preview suppresses every native Territory hover label");
+    controller.setPlayerPreview(false);
+    assert.equal(hoverModes.at(-1),true,
+      "exiting preview restores the GM's stored client preference");
     hooks.get("canvasReady")[0]();
     assert.equal(viewModes.at(-1),"terrain");
     const recreated=new AtlasLayersController(roadCanvas);
@@ -88,6 +97,8 @@ test("GM and player map preferences remain client-local; players cannot select G
     await controller.update({regionMode:"off"});
     assert.equal(controller.read().regionMode,"off");
     controller.refresh();
+    assert.equal(hoverModes.at(-1),false,
+      "non-GM overlay ignores GM-only client Territory preference");
     assert.equal(viewModes.at(-1),"terrain","non-GM cannot change the Road overlay");
     globalThis.game.user.isGM=true;
     values.set(ATLAS_LAYERS_SETTING,{schemaVersion:900});
