@@ -305,6 +305,13 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       }
       add("gear","Settings for",()=>actions.editCheckpointAppearance(scene,item,refresh));
       add("pen","Move on map",()=>actions.moveMapMarker(scene,item.id,refresh));
+      if(typeof actions.manageCheckpointRoad==="function"){
+        const linked=(atlas.segments??[]).filter(edge=>
+          edge.from===item.nodeId||edge.to===item.nodeId);
+        if(linked.length<=1)add(linked.length?"unlink":"link",
+          linked.length?"Review Road disconnection for":"Connect to Road:",
+          ()=>actions.manageCheckpointRoad(scene,item.id,refresh));
+      }
       add("trash","Delete",()=>actions.removeCheckpoint(scene,item,refresh),true);
     }
     (parent.children[0]??parent).appendChild(bar);
@@ -458,7 +465,56 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     list.replaceChildren(...rows);
   }
   root.className = "atlas-map-directory";
-  root.append(filters,list);
+  root.appendChild(filters);
+  // These are unique guarded operations, not alternate manager screens.
+  // Only show them in the view that owns the relevant Scene records.
+  const contextual=element("div");
+  contextual.className="atlas-directory-contextual-actions";
+  const action=(label,handler,disabled=false)=>{
+    const button=element("button",label);
+    button.type="button";
+    button.title=label;
+    button.setAttribute("aria-label",label);
+    button.disabled=disabled;
+    button.addEventListener("click",async event=>{
+      event.preventDefault?.();
+      if(button.disabled)return;
+      button.disabled=true;
+      try{await handler();}
+      catch(error){ui.notifications.error(error.message??String(error));}
+      finally{button.disabled=disabled;}
+    });
+    contextual.appendChild(button);
+  };
+  if(view==="directory"){
+    const blocked=Boolean(actions.draft?.(scene)||pending);
+    if(pending&&typeof actions.resolveTerritoryCellTransfer==="function"){
+      const warning=element("strong","Interrupted native Territory transfer needs GM recovery");
+      contextual.appendChild(warning);
+      action("Resume / Roll Back Transfer",
+        ()=>actions.resolveTerritoryCellTransfer(scene,refresh));
+    }else if(batch?.total){
+      contextual.appendChild(element("span",
+        "Territory batch: "+batch.count+" of "+batch.total+" staged"));
+      for(const target of batch.targets)
+        action("Paint "+target.name+(target.staged?" (staged)":""),
+          ()=>actions.editTerritoryBoundary(scene,target.id,refresh),blocked);
+      action("Review & Apply Batch",()=>actions.commitTerritoryBatch(scene,refresh),
+        blocked||batch.count!==batch.total);
+      action("Discard Staged Batch",()=>actions.discardTerritoryBatch(scene,refresh),blocked);
+    }else if(typeof actions.startTerritoryBatch==="function"){
+      action("Start Batch Edit",()=>actions.startTerritoryBatch(scene,refresh),blocked);
+    }
+    if(typeof actions.reconcileTerritoryBorders==="function")
+      action("Analyze Borders",()=>actions.reconcileTerritoryBorders(scene,refresh),blocked);
+  }else if(view==="allRoads"&&(atlas.nodes?.length||atlas.segments?.length)){
+    if(atlas.schemaVersion===1&&typeof actions.anchor==="function")
+      action("Anchor legacy Road graph",()=>actions.anchor(scene,refresh));
+    else if(atlas.schemaVersion===2&&typeof actions.organize==="function")
+      action("Organize legacy Roads",()=>actions.organize(scene,refresh));
+  }
+  if(contextual.children.length)root.appendChild(contextual);
+  root.appendChild(list);
   draw();
   return root;
 }
