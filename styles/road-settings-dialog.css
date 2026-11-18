@@ -11,15 +11,24 @@
   gap: .5rem;
 }
 
-.application:has([data-atlas-road-live]) .form-footer > button,
-.atlas-checkpoint-form-actions > button {
+.application:has([data-atlas-road-live]) .form-footer > button {
   flex: 0 0 auto;
   width: auto;
 }
-
-.application:has([data-atlas-road-live]) .form-footer > button[data-atlas-road-submit],
-.atlas-checkpoint-form-actions .atlas-checkpoint-footer-save {
+.application:has([data-atlas-road-live]) .form-footer > button[data-atlas-road-submit] {
   margin-inline-start: auto;
+}
+/* The Map Marker editor owns one stable footer with independent action groups.
+   DOM and keyboard order: Locate, visibility, Move … Preset, Save, Delete. */
+.atlas-checkpoint-form-actions .atlas-checkpoint-footer-left,
+.atlas-checkpoint-form-actions .atlas-checkpoint-footer-right {
+  display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;min-width:0;
+}
+.atlas-checkpoint-form-actions .atlas-checkpoint-footer-right {
+  margin-inline-start:auto;justify-content:flex-end;
+}
+.atlas-checkpoint-form-actions .atlas-checkpoint-footer-right > button {
+  flex:0 0 auto;width:auto;
 }
 
 .application:has([data-atlas-road-live]) .form-footer > button[data-atlas-road-submit].atlas-ui-icon-button {
