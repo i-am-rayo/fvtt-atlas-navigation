@@ -1,6 +1,6 @@
 # Atlas — GitHub-native goal milestone roadmap
 
-**Active canonical roadmap (verified November 18, 2026).** This document replaces the earlier **11-stage proposed milestone plan**. All **10 native GitHub Milestones have been created by the Product Owner** and their GitHub numbers/titles verified through the GitHub issue API. **All 47 active feature/defect issues plus draft baseline integration PR #405 have been assigned and individually verified**. Legacy issue [#271](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/271) is retained in Git history as the old Sunday private-beta roadmap and may now be closed *superseded*, not completed.
+**Active canonical roadmap (verified November 18, 2026).** This document replaces the earlier **11-stage proposed milestone plan**. All **10 native GitHub Milestones have been created by the Product Owner** and their GitHub numbers/titles verified through the GitHub issue API. **All 65 open development issues are assigned to native Milestones 01–10** (including the 18 issues #406–#423 from Codex's 34-annotation review); draft [PR #424](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/424) remains attached to Milestone 01. The baseline [PR #405](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/405) was merged into `main` at v0.3.9, and historical [issue #271](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/271) was closed as superseded, not completed.
 
 ## How to use these goals
 
@@ -8,19 +8,19 @@
 - **One primary milestone per issue.** A dependency across goals should link issues rather than duplicating them. Keep unfinished, unsafe or deferred issues open; owner-approved scoped work does not automatically complete a broad contract.
 - **Each milestone gets its own acceptance gates:** targeted regressions, `npm run check`, `npm run architecture:check`, syntax checks, `git diff --check`, and actual Foundry v14 GM/non-GM testing for affected behavior. No merge/release without explicit owner authorization.
 - **Safety over chronology:** 02 and 03 can advance in parallel, but no unsafe downstream feature should bypass unresolved native Region recovery or Journey authority. Optional P3 refinements must not hold up unrelated private-beta acceptance.
-- **Baseline:** The owner authorized promoting the large beta history in [integration PR #405](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/405) into `main` as **v0.3.9**. Verify GitHub live merge/manifest status before treating the promotion as complete; new feature branches start from the resulting mainline commit. Release checklist and known risks: [docs/RELEASE_0_3_9.md](RELEASE_0_3_9.md).
+- **Baseline:** [integration PR #405](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/405) is **merged** and `main` contains **v0.3.9**. Create short-lived development branches from the latest `main`; keep unrelated changes in separately reviewable PRs. Release checklist and known risks: [docs/RELEASE_0_3_9.md](RELEASE_0_3_9.md).
 
 ## Native milestones and issue assignments
 
 ### [01 — Atlas Workspace & UI/UX Stabilization](https://github.com/i-am-rayo/fvtt-atlas-navigation/milestone/1)
 
-**Outcome:** Complete consistent Foundry v14 editor forms and contextual titles, keyboard/focus/Workspace restoration; preserve a single reviewed integration path into main.
+**Outcome:** Finish consistent Foundry v14 editor forms, labels, controls, confirmations, World preset interfaces, contextual titles and keyboard/Workspace behavior without altering native data ownership.
 
-**Dependencies:** Accepted beta.8.62.1 test baseline; native review of PR #405 remains separately gated.
+**Dependencies:** v0.3.9 merged baseline on `main`; prioritize code-confirmed P1 data-loss and publication UX before dependent cosmetic parity. Keep native graph and Territory style feature work in their own Milestones.
 
-**Acceptance / exit:** All relevant UI controls pass GM/non-GM focus, unsaved-draft, 200%-zoom and permissions checks; PR #405 is thoroughly reviewed before any separately authorized integration merge.
+**Acceptance / exit:** Relevant controls pass GM/non-GM focus, unsaved-draft Save/Cancel, identity-preserving preset changes, publication confirmation, 200%-zoom and accessibility tests; each focused PR requires owner v14 live acceptance before merge.
 
-**Open issues (2):** [#216](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/216), [#289](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/289); plus [draft PR #405](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/405).
+**Open issues (18):** [#216](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/216), [#289](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/289), [#406](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/406), [#407](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/407), [#408](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/408), [#409](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/409), [#410](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/410), [#411](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/411), [#412](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/412), [#413](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/413), [#414](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/414), [#415](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/415), [#418](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/418), [#419](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/419), [#420](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/420), [#421](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/421), [#422](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/422), [#423](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/423); plus [draft implementation PR #424](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/424) for #412.
 
 ### [02 — Native Map Authoring & Territory Integrity](https://github.com/i-am-rayo/fvtt-atlas-navigation/milestone/2)
 
@@ -36,7 +36,7 @@
 
 **Outcome:** Idempotent guided travel across canvas redraw, weather/world-time updates, checkpoint boundaries and inactive/returning GM.
 
-**Dependencies:** 01 integration baseline; can be investigated in parallel with native Region work.
+**Dependencies:** v0.3.9 mainline and Journey safety contracts; can be investigated in parallel with native Region work.
 
 **Acceptance / exit:** Reproduce and resolve documented failed transitions in backed-up Foundry v14 World; prove durable TokenDocument/Journal/World-time authority, no double movement, fares or rest, and safe interruption diagnostics.
 
@@ -60,7 +60,7 @@
 
 **Acceptance / exit:** Graph ID connectivity, shared-node warnings, explicit GM approvals, native measurement, terrain conflict/Behavior policy and live v14 regression acceptance.
 
-**Open issues (7):** [#187](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/187), [#195](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/195), [#196](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/196), [#200](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/200), [#221](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/221), [#222](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/222), [#267](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/267).
+**Open issues (8):** [#187](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/187), [#195](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/195), [#196](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/196), [#200](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/200), [#221](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/221), [#222](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/222), [#267](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/267), [#416](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/416).
 
 ### [06 — Player Atlas, Fog & Discovery](https://github.com/i-am-rayo/fvtt-atlas-navigation/milestone/6)
 
@@ -100,7 +100,7 @@
 
 **Acceptance / exit:** Whitelisted player-safe payloads, deduplicated confirmed event display, no gameplay writes from banners, accessible presentation at normal and high zoom.
 
-**Open issues (4):** [#228](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/228), [#233](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/233), [#294](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/294), [#295](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/295).
+**Open issues (5):** [#228](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/228), [#233](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/233), [#294](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/294), [#295](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/295), [#417](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/417).
 
 ### [10 — Advanced Traversal & Geographic Systems](https://github.com/i-am-rayo/fvtt-atlas-navigation/milestone/10)
 
@@ -114,8 +114,17 @@
 
 ## Reconciliation and safeguards
 
-- **GitHub assignment audit:** 47 open feature/defect issues assigned across Milestones 01–10 exactly once; draft PR #405 assigned to Milestone 01. No other open development issue was left unassigned. Historical issue #271 was deliberately excluded before its archival closeout.
+### Current Codex 34-annotation UI/UX intake
+
+- **Milestone 01:** #406–#415 and #418–#423 (16 issues). **P1:** #409 (GM confirmation for manual publication), #412 (type edit silently reapplies preset). **P2:** remaining visual, terminology, authoring-dock and World-editor improvements. First focused implementation: [PR #424](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/424), versioned `0.3.10-dev.1`, pending owner Foundry v14 GM/non-GM acceptance; #412 remains open.
+- **Milestone 05:** #416 (P1), direct Map Marker detachment, must preserve Road graph connectivity and identifiers; related #206/#187. Do not remove current shared-node safeguards without an approved graph transaction.
+- **Milestone 09:** #417 (P2), Territory Settings appearance integration, with native Region color and existing #295 label typography as proper data owners.
+- **Dependency ordering:** #406 precedes #407/#415/#420/#422/#423; #410 precedes #419; #412/#414/#413 inform #420. These are dependency guides, not permission to combine unrelated implementations.
+- The Codex issues cite the original numbered screenshot annotations but do **not** include those image attachments. The issue descriptions are the planning contracts; actual visual results still require the Product Owner's Foundry v14 live test.
+
+
+- **GitHub assignment audit (2026-11-18):** 65 open feature/defect issues assigned across Milestones 01–10 exactly once, including all 18 Codex intake issues #406–#423. Draft PR #424 is assigned to Milestone 01; PR #405 is merged. Archived #271 is closed and intentionally outside these active milestones.
 - Previously completed narrower features (for example #186 generator lifecycle, #226 checkpoint arrival, #292 one-cell Territory, #293 Territory Settings, #301 modeless windows) remain closed. The still-open broader recovery, permissions and UI issues retain their original acceptance criteria.
 - **Explicit remaining risks:** #265 native Region interrupted transfer; #135/#189/#218/#224 Journey recovery; #205/#217 external dependency portability; #269 player confidentiality; #289 external-rename title synchronization; #194 GM playback-speed life cycle. Do not close by assumption.
 - Reconcile the original historical tracking document [GITHUB_ISSUE_AUDIT_2026_11_18.md](GITHUB_ISSUE_AUDIT_2026_11_18.md) as a **pre-milestone audit snapshot**, not the current assignment authority. [Issue #271](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/271) retains its historical comments and archived deadline.
-- For future approved features (such as dragging route previews and branch-route decisions), create scoped issues in the earliest milestone with the required invariants. Avoid renumbering or reclassifying old completed milestones merely because a new beta is built.
+- For future approved features (such as dragging route previews and branch-route decisions), create scoped issues in the earliest milestone with the required invariants. Avoid renumbering or reclassifying old completed milestones merely because a new development build is created.
