@@ -152,14 +152,14 @@ export function roadAppearanceFromForm(values) {
 export class AtlasRoadAppearanceSettings extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-road-appearance",
-    window: { title: "Atlas — Road Overlay Appearance (Land / Air / Water)", resizable: true },
+    window: { title: "Atlas — Road Appearance", resizable: true },
     position: { width: 560, height: 670 }
   };
 
   async _renderHTML() {
     const root = element("div");
     root.style.cssText = "padding:1rem;display:grid;gap:0.75rem;overflow:auto;height:100%;";
-    root.appendChild(element("p", "ROAD OVERLAY APPEARANCE — Land, Air and Water " +
+    root.appendChild(element("p", "WORLD ROAD APPEARANCE — Land, Water and Air " +
       "share category defaults across Scenes. A named road takes the category of its assigned " +
       "travel surface preset (or Land when unassigned). These visuals do not alter native " +
       "Region colors, geometry or movement costs."));
