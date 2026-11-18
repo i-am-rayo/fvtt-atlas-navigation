@@ -756,3 +756,24 @@ test("Directory section Plus uses existing authoring and never implies a Road at
     await ws.close();
   }finally{ctx.restore();}
 });
+
+test("late canvas editor refresh never reopens a GM-closed or minimized Workspace",async()=>{
+  const ctx=context();
+  try{
+    let refresh;
+    ctx.actions.beginCheckpoint=(_scene,callback)=>{refresh=callback;};
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    const add=buttons(ws.result).find(button=>button.textContent==="Add Map Marker");
+    assert.ok(add);
+    await add.listeners.get("click")({preventDefault(){}});
+    assert.equal(typeof refresh,"function");
+    await ws.minimize();
+    await refresh();
+    assert.equal(ws.minimized,true,"a background draft refresh must not expand Workspace");
+    await ws.close();
+    assert.equal(ws.rendered,false);
+    await refresh();
+    assert.equal(ws.rendered,false,"late close must not resurrect a user-closed Workspace");
+    assert.deepEqual(ctx.calls,[],"refresh is a client-only presentation action");
+  }finally{ctx.restore();}
+});
