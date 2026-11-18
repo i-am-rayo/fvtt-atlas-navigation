@@ -99,7 +99,9 @@ test("checkpoint offers are only visible near authored checkpoint positions",()=
 test("bulk apply is opt-in, field selective and leaves graph/discovery untouched",async()=>{
   const {scene,atlas,data}=fixture();
   const preset=defaultCheckpointPresets().presets.find(p=>p.category==="port");
-  assert.equal(CHECKPOINT_BULK_FIELDS.length,9);
+  assert.equal(CHECKPOINT_BULK_FIELDS.length,10,
+    "new Border enabled is an opt-in, independently selectable bulk field");
+  assert.ok(CHECKPOINT_BULK_FIELDS.some(([id])=>id==="borderEnabled"));
   assert.throws(()=>buildCheckpointBulkUpdate(scene,preset,{fields:[]}),/Choose/);
   assert.throws(()=>buildCheckpointBulkUpdate(scene,preset,{scope:"assigned",
     fields:["size"],expectedRevision:atlas.revision+1}),/changed/);
