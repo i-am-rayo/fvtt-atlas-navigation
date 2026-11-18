@@ -82,7 +82,7 @@ import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegio
 import { availableMovementActions, readPreset, previewNativeMovementCost }
   from "./native-movement-cost.js";
 import { presetCostSummary } from "./travel-preset-model.js";
-import { registerWorldTravelPresets, readWorldTravelPresets }
+import { registerWorldTravelPresets, readWorldTravelPresets,AtlasTravelPresetSettings }
   from "./travel-preset-settings.js";
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
 import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
@@ -98,9 +98,10 @@ import { roadCheckpointsAlphabetical } from "./road-settings-linked-items.js";
 import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges,
   interceptDialogHeaderClose } from "./settings-close-guard.js";
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
-import { registerWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
+import { registerWorldCheckpointPresets,AtlasCheckpointPresetSettings }
+  from "./checkpoint-preset-settings.js";
 import { roadAppearanceForm, roadAppearanceFromForm, refreshRoadAppearancePreview,
-  registerWorldRoadAppearance }
+  registerWorldRoadAppearance,AtlasRoadAppearanceSettings }
   from "./road-appearance-settings.js";
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
@@ -2949,11 +2950,35 @@ Hooks.once("init", () => {
     fogPalette.close();
     navigation.activate();
   };
-  roadActions.openWorldTravelSettings=async()=>{
-    if(!game.user?.isGM)throw Error("World Travel Settings require GM authority.");
-    const app=new AtlasTransportationSettings();
-    return app.render(true);
+  // Atlas Workspace and its older Travel shortcut launch the same GM World
+  // editors registered under module settings; no Scene flags or duplicate stores.
+  const presetEditors={markers:AtlasCheckpointPresetSettings,
+    transport:AtlasTransportationSettings,surfaces:AtlasTravelPresetSettings,
+    roads:AtlasRoadAppearanceSettings};
+  const openedPresets=new Map();
+  roadActions.openWorldPresetEditor=async kind=>{
+    if(!game.user?.isGM)throw Error("Only a GM may open World preset editors.");
+    const Editor=presetEditors[kind];
+    if(!Editor)throw Error("Unknown World preset editor.");
+    let app=openedPresets.get(kind);
+    if(app?.rendered){
+      if(app.minimized)await app.maximize();
+      app.bringToFront?.();
+      return app;
+    }
+    app=new Editor();
+    openedPresets.set(kind,app);
+    try{
+      await app.render(true);
+      app.bringToFront?.();
+      return app;
+    }catch(error){
+      if(openedPresets.get(kind)===app)openedPresets.delete(kind);
+      throw error;
+    }
   };
+  roadActions.openWorldTravelSettings=()=>
+    roadActions.openWorldPresetEditor("transport");
   atlasLayers.configureRegion=(scene,regionId)=>roadActions.configureRegion(scene,regionId);
   atlasLayers.configureSharing=(scene,regionId,refresh)=>
     roadActions.configureTerritorySharing(scene,regionId,refresh);
