@@ -122,7 +122,9 @@ test("Road travel preset controls match Map Marker stage/select workflow with no
 
 test("Road Settings places the World preset control above Road name in General",()=>{
   const main=readFileSync(new URL("../scripts/main.js",import.meta.url),"utf8");
-  assert.match(main,/panels\\.general\\.append\\(presetRow,presetHint,nameRow,visibilityRow,journalControls\\)/);
+  assert.ok(main.includes("panels.general.append(presetRow,presetHint,nameRow,visibilityRow,journalControls);"),
+    "the existing native form appends Travel preset and its hint before Road name");
   const css=readFileSync(new URL("../styles/road-settings-dialog.css",import.meta.url),"utf8");
-  assert.match(css,/\\.atlas-road-preset-controls\\s*\\{[^}]*margin-inline-start:auto/s);
+  assert.ok(css.includes("width:min(100%,20rem);margin-inline-start:auto;"),
+    "Road picker remains right-aligned, like the Map Marker preset control");
 });
