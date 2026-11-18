@@ -1,5 +1,7 @@
 # Open GitHub Issue audit — 2026-11-18
 
+> **Historical snapshot — superseded by [10 verified native GitHub Milestones](GITHUB_MILESTONE_ROADMAP.md):** This issue audit was conducted before native Milestones existed. Its five issue closures and acceptance evidence remain historical facts, but its **11 proposed goal-group sections are not the current milestone assignments**. The canonical roadmap now lists 10 real GitHub Milestones with all 47 active issues and PR #405 assigned.
+
 **Repository:** [fvtt-atlas-navigation](https://github.com/i-am-rayo/fvtt-atlas-navigation). **Reviewed against:** current draft beta.8.62.1 integration [PR #405](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/405), its native Foundry adapters and regression tests, recorded Product Owner live outcomes, and individual issue bodies/comments.
 
 **Result:** 53 open issues before audit → **5 closed as completed** → **48 still open**, including one historical roadmap issue #271. Exactly one draft integration PR (#405) remains open separately; GitHub counts PRs as issues in some APIs. No gameplay implementation, release, native data mutation or PR merge was performed.
