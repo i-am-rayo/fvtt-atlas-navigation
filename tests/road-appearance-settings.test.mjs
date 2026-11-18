@@ -54,7 +54,9 @@ test("World Road Appearance settings show Land/Air/Water separately and only sav
     };
     globalThis.ui = { notifications: { info() {}, error(m) { throw Error(m); } } };
     registerWorldRoadAppearance();
-    assert.match(menu.name, /Road Overlay/);
+    assert.equal(menu.name,"Atlas — Road Appearance");
+    assert.equal(menu.label,"Configure Road Appearance");
+    assert.match(menu.hint,/does not edit native Region/);
     const app = new AtlasRoadAppearanceSettings();
     const root = await app._renderHTML();
     const groups = root.children.filter(child => child.tag === "fieldset");
