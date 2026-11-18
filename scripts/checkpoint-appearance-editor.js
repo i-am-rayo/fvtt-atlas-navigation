@@ -128,7 +128,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const category=field("Map Marker type",createSettingsGroupedSelect(
       CHECKPOINT_TYPE_GROUPS.map(([heading,types])=>({label:heading,options:types})),
       {selectedId:this.createDraft?"generic":checkpointCategory(this.scene,this.checkpointId)}));
-    category.title="Changing type suggests a World Map Marker preset. Changes are staged until Save.";
+    category.title="Map Marker type is independent of its assigned preset. Use Change preset to apply different defaults.";
     const presetPicker=el("select");
     const saveAsPreset=el("button","Save as preset…");
     saveAsPreset.type="button";
@@ -495,11 +495,6 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         (preset.terrain.presetId??"None")+" · radius "+preset.terrain.radiusCells+
         " cells. Native Region geometry and Behaviors stay unchanged.";
     };
-    category.addEventListener("change",()=>{
-      const suggested=catalog.presets.find(p=>p.category===category.value);
-      presetPicker.value=suggested?.id??"";
-      if(suggested)applyPreset();
-    });
     presetPicker.addEventListener("change",applyPreset);
     populatePresets();
     if(!this.createDraft){

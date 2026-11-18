@@ -53,6 +53,9 @@ After creation, preset editing displays the current preset identity and a Change
 
 Use consistent label/control alignment, row spacing, section headings and color-picker dimensions. Settings-only previews are draft-driven and do not mutate live documents. Window initial dimensions should expose ordinary controls and preview on supported desktop sizes, bounded by the viewport. Keep tabs and footer accessible, avoid horizontal scrolling, and allow a single predictable content scroll region on smaller screens. Do not promise no scrolling at every zoom/viewport, continually resize on every input, or overwrite user-resized dimensions.
 
+
+**Map Marker type is not a preset-selection command.** Changing a placed marker's Type must not automatically apply any World preset, reassign the current preset ID, or reset appearance, discovery, Journal, transportation or visibility drafts. Only an explicit **Change preset** selection can apply another preset's defaults; Save/Cancel remain the commit boundary. See [issue #412 test checklist](TEST_0_3_10_DEV_1_ISSUE_412.md).
+
 ## Navigation, lists and state
 
 Center labels horizontally and vertically inside navigation buttons. Directory view controls must be visibly grouped and labeled as views/filters, with a strong selected state, keyboard support and appropriate semantics. Keep Add actions separate from filter controls.
