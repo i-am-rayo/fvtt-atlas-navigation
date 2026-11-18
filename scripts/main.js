@@ -90,6 +90,7 @@ import { createSettingsInput } from "./settings-input.js";
 import {confirmAtlasVisibilityChange} from "./atlas-visibility-confirmation.js";
 import { promptNativeMovementAction } from "./native-movement-action-picker.js";
 import { createRoadPresetStage } from "./road-settings-preset.js";
+import { createRoadTravelPresetRow } from "./road-settings-preset-view.js";
 import { arrangeRoadDialogFooter } from "./road-settings-dialog-footer.js";
 import { openRoadSettingsWindow } from "./road-settings-window.js";
 import { TerritoryLocateHighlight } from "./territory-locate-highlight.js";
@@ -777,24 +778,8 @@ function actions() {
         panels[key].dataset.atlasRoadPanel=key;
         panels[key].hidden=key!=="general";
       }
-      const presetSelect=createTravelPresetSelect({selectedId:actual.travelPresetId,
-        name:"atlasRoadPresetId",noneLabel:"None (Land fallback)"});
-      const presetControls=document.createElement("div");
-      presetControls.className="atlas-road-preset-controls";
-      const presetName=document.createElement("span");
-      const changePreset=createSettingsIconButton({icon:"pen",label:"Change travel preset"});
-      const updatePresetName=()=>{
-        presetName.textContent=readWorldTravelPresets().presets.find(
-          p=>p.id===presetSelect.value)?.name??"None (Land fallback)";
-      };
-      updatePresetName();
-      presetSelect.hidden=true;
-      changePreset.addEventListener("click",()=>{
-        presetSelect.hidden=false;changePreset.hidden=true;presetSelect.focus();
-      });
-      presetSelect.addEventListener("change",updatePresetName);
-      presetControls.append(presetName,presetSelect,changePreset);
-      const presetRow=createSettingsFieldRow("Travel preset",presetControls);
+      const {row:presetRow,hint:presetHint,select:presetSelect}=
+        createRoadTravelPresetRow(actual.travelPresetId);
       const roadTools=document.createElement("div");
       roadTools.dataset.atlasRoadActions="";
       roadTools.style.cssText="position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:.4rem;align-items:center;padding:.5rem 0;background:#100f17;z-index:2;";
@@ -832,7 +817,7 @@ function actions() {
         btn.dataset.atlasRoadTool=kind;
         roadTools.appendChild(btn);
       }
-      panels.general.append(nameRow,visibilityRow,presetRow,journalControls);
+      panels.general.append(presetRow,presetHint,nameRow,visibilityRow,journalControls);
       panels.style.appendChild(roadAppearanceForm(baseline));
       const addCheckpoint=createSettingsIconButton({icon:"plus",label:"Add Map Marker"});
       addCheckpoint.dataset.atlasRoadTool="newCheckpoint";
