@@ -81,6 +81,15 @@ test("World Road Appearance settings show Land/Air/Water separately and only sav
     fields.find(field => field.name === "atlasRoadColor").value = "#f0a041";
     fields.find(field => field.name === "atlasRoadTextColor").value = "#121212";
     const button = root.children.at(-1).children[0];
+    const width=fields.find(field => field.name === "atlasRoadWidth");
+    width.value="-1"; // Air is hidden: Save must validate it anyway.
+    await assert.rejects(()=>button.listeners.get("click")(),/between|range|number|valid/i);
+    assert.equal(writes,0,"hidden invalid category cannot save any World defaults");
+    assert.equal(nav.children[2].tabIndex,0,
+      "validation selects the Air tab with the invalid draft");
+    assert.equal(groups[2].hidden,false);
+    assert.equal(button.disabled,false,"invalid draft never strands the Save control");
+    width.value="4";
     await button.listeners.get("click")();
     assert.equal(writes, 1);
     assert.equal(app.closed, true);
