@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {readFileSync} from "node:fs";
 import { createEmptyAtlas, validateAtlas, upgradeAtlasRoadTextAppearance,
   upgradeAtlasCheckpointAppearance } from "../scripts/atlas-model.js";
 import { addRoad } from "../scripts/road-model.js";
@@ -320,6 +321,25 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       node.type==="checkbox");
     const labelMode=all(root).find(node=>node.tag==="select"&&node.value==="off");
     assert.ok(showRoad&&labelMode);
+    const inlineBanner=all(root).find(node=>
+      node.className==="atlas-checkpoint-banner-inline");
+    assert.ok(inlineBanner,"display and color share one banner row");
+    assert.equal(sections[1].children[1],inlineBanner,
+      "banner row appears first in the existing Banner information section");
+    assert.equal(inlineBanner.children.length,2,
+      "display and text color retain separate native labels and tab stops");
+    assert.equal(inlineBanner.children[0].children[0].textContent,"Banner display");
+    assert.equal(inlineBanner.children[1].children[0].textContent,"Banner text color");
+    assert.equal(inlineBanner.children[0].children[1],labelMode);
+    const bannerTextColor=inlineBanner.children[1].children[1];
+    assert.equal(bannerTextColor.type,"color");
+    assert.equal(bannerTextColor.disabled,true,
+      "Banner Off disables color editing without changing the selected color");
+    const originalBannerColor=bannerTextColor.value;
+    const css=readFileSync(new URL("../styles/atlas-ui.css",import.meta.url),"utf8");
+    assert.ok(css.includes(".atlas-checkpoint-banner-inline {")&&
+      css.includes("display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;"),
+      "the two labeled controls share a responsive horizontal row");
     const bannerSettings=all(root).find(node=>
       node.className==="atlas-checkpoint-banner-settings");
     assert.ok(bannerSettings);
@@ -334,6 +354,11 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(bannerTerritory.disabled,true);
     showRoad.checked=true;labelMode.value="always";
     root.listeners.get("change")();
+    assert.equal(bannerTextColor.disabled,false);
+    bannerTextColor.value="#cc55ee";
+    root.listeners.get("input")();
+    assert.equal(labelPreview.style.color,"#cc55ee",
+      "banner preview uses the unsaved text-color draft");
     assert.equal(showRoad.disabled,false,"re-enabling Banner restores controls");
     assert.equal(bannerType.disabled,false);
     assert.equal(bannerElevation.disabled,false);
@@ -341,8 +366,17 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     labelMode.value="off";root.listeners.get("change")();
     assert.equal(showRoad.checked,true,"Banner Off preserves draft choices");
     assert.equal(showRoad.disabled,true);
+    assert.equal(bannerTextColor.disabled,true);
+    assert.equal(bannerTextColor.value,"#cc55ee",
+      "Banner Off retains the unsaved text color");
     assert.equal(labelPreview.hidden,true,"Banner Off hides text only");
     labelMode.value="always";root.listeners.get("change")();
+    assert.equal(bannerTextColor.disabled,false);
+    assert.equal(bannerTextColor.value,"#cc55ee",
+      "Banner On restores the retained color draft");
+    assert.equal(labelPreview.style.color,"#cc55ee");
+    bannerTextColor.value=originalBannerColor;
+    root.listeners.get("input")();
     assert.equal(showRoad.checked,true);
     assert.equal(labelPreview.hidden,false);
     assert.equal(labelPreview.children.length,2,
