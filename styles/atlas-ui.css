@@ -230,3 +230,23 @@
   display:inline-flex;align-items:center;gap:.5rem;max-width:100%;
 }
 .atlas-world-category-legend > .atlas-ui-icon-button {vertical-align:middle;}
+
+/* World Map Marker preset preview uses the placed-marker presentation,
+   but only sample text: no Scene coordinates, Journal or native Region IDs. */
+.atlas-marker-preset-editor .atlas-marker-preset-preview-sample {
+  min-height:90px;display:flex;align-items:center;justify-content:center;
+  gap:12px;padding:.8rem;border-radius:5px;background:#303936;
+}
+.atlas-marker-preset-editor .atlas-marker-preset-preview-sample > span:last-child {
+  display:grid;gap:.15rem;justify-items:start;overflow-wrap:anywhere;
+  font-family:Arial,sans-serif;text-shadow:1px 1px 2px #000,-1px -1px 2px #000;
+}
+.atlas-marker-preset-editor .atlas-marker-preset-preview-sample > span:last-child > strong {
+  font-size:16px;line-height:1.25;
+}
+.atlas-marker-preset-editor .atlas-marker-preset-preview-sample > span:last-child > small {
+  font-size:12px;font-style:italic;
+}
+.atlas-marker-preset-editor .atlas-marker-preset-tabs > button[aria-selected="true"] {
+  font-weight:700;
+}
