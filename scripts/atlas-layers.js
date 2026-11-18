@@ -105,6 +105,14 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
         sample.setAttribute("aria-hidden","true");
         label.append(input,copy,sample);roads.appendChild(label);
       }
+      const territory=element("label",undefined,"atlas-layers-choice");
+      const toggle=element("input");
+      toggle.type="checkbox";toggle.checked=current.roadTerritoryHover;
+      toggle.setAttribute("aria-label","Show Territory under hovered Road name (GM only)");
+      toggle.addEventListener("change",()=>void change({roadTerritoryHover:toggle.checked}));
+      territory.append(toggle,element("span",
+        "Show Territory under hovered Road name (GM only)"));
+      roads.appendChild(territory);
     }else{
       group("Roads","The GM controls which Roads and Map Markers are revealed. " +
         "Their display remains unchanged by Territory settings.");
@@ -220,7 +228,10 @@ export class AtlasLayersController {
     });
     const sync=()=>this.refresh();
     Hooks.on("canvasReady",sync);
-    Hooks.on("canvasTearDown",()=>{this.playerPreview=false;this.previewSceneId=null;this.clear();});
+    Hooks.on("canvasTearDown",()=>{
+      this.playerPreview=false;this.previewSceneId=null;this.clear();
+      this.roadCanvas.setRoadTerritoryHoverEnabled?.(false);
+    });
     Hooks.on("canvasPan",()=>{
       this.regions.updateLabelScale();this.corridors.updateLabelScale();
     });
@@ -238,6 +249,7 @@ export class AtlasLayersController {
       Hooks.on(event,region=>{
         if(region?.parent?.id!==globalThis.canvas?.scene?.id)return;
         this.refresh();
+        if(this.roadCanvas.roadTerritoryHoverEnabled)this.roadCanvas.refresh();
         if(this.window?.rendered)
           void Promise.resolve(this.window.render(true)).catch(error=>
             console.warn("Atlas Layers palette native Region refresh failed",error));
@@ -274,15 +286,19 @@ export class AtlasLayersController {
     let settings;
     try{settings=validateAtlasLayers(preferences??this.read());}
     catch(error){
+      this.roadCanvas.setRoadTerritoryHoverEnabled?.(false);
       this.roadCanvas.setTerritoryLabelCheckpointIds(new Set());
       console.warn("Atlas Layers settings could not be read",error);return;
     }
     if(gm)this.roadCanvas.setViewMode(settings.roadMode);
+    this.roadCanvas.setRoadTerritoryHoverEnabled?.(gm&&!this.playerPreview&&
+      settings.roadTerritoryHover);
     const scene=globalThis.canvas?.scene;
     if(this.playerPreview&&scene?.id!==this.previewSceneId){
       this.playerPreview=false;this.previewSceneId=null;
     }
     if(!globalThis.canvas?.ready||!scene){
+      this.roadCanvas.setRoadTerritoryHoverEnabled?.(false);
       this.roadCanvas.setTerritoryLabelCheckpointIds(new Set());return;
     }
     try{
