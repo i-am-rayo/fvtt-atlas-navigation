@@ -9,6 +9,8 @@ import { TRAVEL_PRESET_SETTING, REGION_TRAVEL_PRESET_FLAG, TRAVEL_TYPES,
   addMissingRecommendedWaterPresets, addMissingRecommendedLandPresets } from "./travel-preset-model.js";
 import { availableMovementActions, unavailableMovementActions } from "./native-movement-cost.js";
 import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
+import { createAtlasIconButton } from "./ui-action-button.js";
 
 const TYPE_LABELS = { land: "Land", air: "Air", water: "Water" };
 const WATER_BODIES={river:"River",lake:"Lake",sea:"Sea",ocean:"Ocean",canal:"Canal",marsh:"Marsh / Swamp"};
@@ -95,14 +97,35 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
   async _renderHTML() {
     const presets = readWorldTravelPresets();
     const root = node("div");
-    root.style.cssText = "padding:0.8rem 1rem;display:grid;gap:1rem;overflow:auto;height:100%;";
+    root.style.cssText = "padding:.8rem 1rem;display:flex;flex-direction:column;"+
+      "gap:.75rem;overflow:hidden;height:100%;box-sizing:border-box;";
     root.appendChild(node("p",
       "World presets supply Atlas road-surface colors and movement-cost suggestions. Curved road strokes change color where their assigned Regions overlap; higher-ranked Regions win. Editing presets never changes existing native Region colors or Behaviors."));
-    for (const mode of TRAVEL_TYPES) {
+    const tabs=createSettingsCategoryTabs({id:"atlas-surface-catalog",
+      modes:[["land","Land"],["water","Water"],["air","Air"]],
+      active:this.activeCategory??"land",onChange:id=>{this.activeCategory=id;}});
+    root.appendChild(tabs.nav);
+    const scroll=node("div");
+    scroll.className="atlas-world-category-scroll";
+    scroll.style.cssText="flex:1 1 auto;min-height:0;overflow:auto;";
+    root.appendChild(scroll);
+    for (const mode of ["land","water","air"]) {
       const fieldset = node("fieldset");
       fieldset.style.cssText = "display:grid;gap:0.45rem;min-width:0;";
-      const legend = node("legend", TYPE_LABELS[mode]);
-      legend.style.fontWeight = "bold";
+      const legend = node("legend");
+      legend.className="atlas-world-category-legend";
+      legend.style.cssText="font-weight:bold;";
+      legend.appendChild(node("span",TYPE_LABELS[mode]));
+      const add=createAtlasIconButton({icon:"plus",
+        label:"Add "+TYPE_LABELS[mode]+" Surface Preset"});
+      add.addEventListener("click",async()=>{
+        if(add.disabled)return;
+        add.disabled=true;
+        try{await this._editPreset(null,mode);}
+        catch(error){ui.notifications.error(error.message??String(error));}
+        finally{add.disabled=false;}
+      });
+      legend.appendChild(add);
       fieldset.appendChild(legend);
       const group = presets.presets.filter(p => p.mode === mode);
       if (!group.length) fieldset.appendChild(node("p", "No presets configured."));
@@ -141,8 +164,6 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
         row.appendChild(button("Delete", () => this._deletePreset(preset)));
         destination.appendChild(row);
       }
-      fieldset.appendChild(button("＋ Add " + TYPE_LABELS[mode] + " Preset",
-        () => this._editPreset(null, mode)));
       if(mode==="land"){
         const next=addMissingRecommendedLandPresets(presets);
         if(next.presets.length>presets.presets.length)
@@ -157,7 +178,7 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
           () => this._addWaterConditions(),
           "Create Calm/Turbulent/Rough variants for each Water type without replacing existing presets."));
       }
-      root.appendChild(fieldset);
+      scroll.appendChild(tabs.addPanel(mode,fieldset));
     }
     root.appendChild(node("p",
       "Presets are shared within this Foundry World, not across different Worlds. Existing road or Region assignments retain their stable preset ID if a name or cost changes. Deleting a preset in use is blocked."));
