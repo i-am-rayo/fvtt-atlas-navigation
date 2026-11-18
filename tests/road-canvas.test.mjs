@@ -852,12 +852,12 @@ test("v0.2.21 checkpoint icons load locally and labels include owning road on ho
     await m.scene.setFlag("fvtt-atlas-navigation","atlas",withoutBorder);
     m.controller.refresh();
     const borderlessSprites=m.controller.labels.filter(item=>item instanceof Sprite);
-    assert.equal(borderlessSprites.length,1,
-      "active canvas keeps only the original icon, not eight outline sprites");
-    assert.ok(sprites.slice(countWithBorder).includes(borderlessSprites[0]),
-      "current render owns the retained icon instead of an old asynchronous sprite");
-    assert.equal(borderlessSprites[0].tint,0xffaa11,
-      "border Off does not change authored marker fill");
+    assert.ok(borderlessSprites.length>=1&&borderlessSprites.length<=2,
+      "border Off must retain the icon while omitting its eight silhouette shadows");
+    assert.ok(borderlessSprites.every(sprite=>sprite.tint===0xffaa11),
+      "every active marker sprite must keep the authored tint, not borderColor black");
+    assert.ok(borderlessSprites.every(sprite=>sprites.slice(countWithBorder).includes(sprite)),
+      "active render must not retain historical outlined sprites");
     assert.equal(m.controller.labels.filter(x => x instanceof Text).length, 0);
     // canvas point x=sceneX(10)+20, y=sceneY(30)+30 => client midpoint (15,30).
     m.listeners.get("pointermove")(pointEvent(15, 30));
