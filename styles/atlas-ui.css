@@ -250,3 +250,18 @@
 .atlas-marker-preset-editor .atlas-marker-preset-tabs > button[aria-selected="true"] {
   font-weight:700;
 }
+
+/* Explicit Map Marker border toggle + retained color; shared by placed and
+   World preset forms, without touching native Region border geometry. */
+.atlas-checkpoint-border-inline {
+  display:flex;align-items:center;flex-wrap:wrap;gap:.5rem .8rem;min-width:0;
+}
+.atlas-checkpoint-border-inline > label {
+  display:flex;align-items:center;gap:.4rem;flex:1 1 11rem;min-width:0;
+}
+.atlas-checkpoint-border-inline > label:first-child {
+  flex:0 1 12rem;
+}
+.atlas-checkpoint-border-inline input[type="color"] {
+  flex:0 0 3.75rem;width:3.75rem;min-width:3.75rem;
+}
