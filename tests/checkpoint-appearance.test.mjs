@@ -440,7 +440,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "Cancel or X must keep the original staged player visibility");
     assert.equal(confirmations.length,1);
     assert.equal(confirmations[0].content.tag,"div");
-    assert.match(confirmations[0].content.children[0].textContent,/Ridge Lookout/);
+    assert.match(confirmations[0].content.children[0].textContent,/Revealed Lookout/,
+      "visibility confirmation identifies the current unsaved Map Marker draft");
     assert.equal(stored.revision,data.revision,"cancel cannot write to Scene");
     approveVisibility=true;
     await show.listeners.get("click")();
