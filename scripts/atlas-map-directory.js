@@ -152,6 +152,26 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       for(const id of child._atlasMarkerIds??[])parent._atlasMarkerIds.add(id);
     }
   }
+  // These launch the original creation tools; no Road/Territory association
+  // is inferred from the directory group where the GM clicked Plus.
+  function addShortcut(section,type){
+    const handler={territory:"createNativeTerritory",road:"begin",
+      checkpoint:"beginCheckpoint"}[type];
+    const label={territory:"Add Territory (choose its location and type)",
+      road:"Add Road (draw on the Scene)",
+      checkpoint:"Add Map Marker (choose its position and Road attachment)"}[type];
+    if(!handler||typeof actions[handler]!=="function")return;
+    const button=createSettingsActionButton({icon:"plus",label,
+      onClick:async event=>{
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        try{await actions[handler](scene,refresh);}
+        catch(error){ui.notifications.error(error.message??String(error));}
+      }});
+    button.classList?.add?.("atlas-directory-shortcut");
+    button.disabled=Boolean(actions.draft?.(scene)||pending);
+    section.children[0].appendChild(button);
+  }
   function tools(parent, item, type) {
     const bar = element("span");
     bar.className = "atlas-directory-actions";
@@ -230,6 +250,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
           (!query||matches(item)||matches(marker))));
         const children=group(path+"/road/"+item.id+"/markers",
           "Map Markers ("+attached.length+")",Boolean(query));
+        addShortcut(children,"checkpoint");
         for(const marker of attached)
           children.appendChild(itemRow(marker,"checkpoint",path+"/road/"+item.id));
         if(!attached.length)children.appendChild(element("p","No associated Map Markers."));
@@ -242,6 +263,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     function section(key,label,entries,type,path){
       if(!entries.length)return null;
       const node=group(key,label+" ("+entries.length+")",Boolean(query));
+      addShortcut(node,type);
       const rows=entries.map(item=>type==="territory"?item:itemRow(item,type,path));
       node.append(...rows);
       collectCounts(node,rows);
