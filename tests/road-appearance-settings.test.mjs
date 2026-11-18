@@ -59,22 +59,35 @@ test("World Road Appearance settings show Land/Air/Water separately and only sav
     assert.match(menu.hint,/does not edit native Region/);
     const app = new AtlasRoadAppearanceSettings();
     const root = await app._renderHTML();
-    const groups = root.children.filter(child => child.tag === "fieldset");
-    assert.equal(groups.length, 3);
+    const nav=root.children.find(child=>child.className==="atlas-world-category-tabs");
+    const scroll=root.children.find(child=>child.className==="atlas-world-category-scroll");
+    assert.deepEqual(nav.children.map(tab=>tab.textContent),["Land","Water","Air"]);
+    const groups=scroll.children.filter(child=>child.tag==="fieldset");
+    assert.equal(groups.length,3);
+    assert.deepEqual(groups.map(panel=>panel.hidden),[false,true,true]);
+    assert.equal(writes,0);
+    const landColor=groups[0].children[1].querySelectorAll("[name]")
+      .find(field=>field.name==="atlasRoadColor");
+    landColor.value="#bb6622";
+    nav.children[1].listeners.get("click")();
+    assert.deepEqual(groups.map(panel=>panel.hidden),[true,false,true]);
+    nav.children[0].listeners.get("click")();
+    assert.equal(landColor.value,"#bb6622","switching keeps the existing unsaved field");
+    assert.equal(writes,0,"tab switching cannot persist World settings");
     assert.equal(writes, 0, "opening legacy flat World settings must not migrate");
-    const airForm = groups[1].children[1];
+    const airForm = groups[2].children[1];
     const fields = airForm.querySelectorAll("[name]");
     assert.ok(fields.some(field => field.name === "atlasRoadTextColor"));
     fields.find(field => field.name === "atlasRoadColor").value = "#f0a041";
     fields.find(field => field.name === "atlasRoadTextColor").value = "#121212";
-    const button = root.children.at(-1);
+    const button = root.children.at(-1).children[0];
     await button.listeners.get("click")();
     assert.equal(writes, 1);
     assert.equal(app.closed, true);
     assert.equal(stored.schemaVersion, 2);
     assert.equal(stored.profiles.air.color, "#f0a041");
     assert.equal(stored.profiles.air.textColor, "#121212");
-    assert.equal(stored.profiles.land.color, legacy.color);
+    assert.equal(stored.profiles.land.color, "#bb6622");
     assert.equal(stored.profiles.water.color, legacy.color);
   } finally { Object.assign(globalThis, previous); }
 });
@@ -102,13 +115,14 @@ test("World Road Appearance saves the actual border checkbox and reflected selec
     globalThis.ui={notifications:{info(){},error(error){throw Error(error);}}};
     const app=new AtlasRoadAppearanceSettings();
     const root=await app._renderHTML();
-    const land=root.children.find(child=>child.tag==="fieldset").children[1];
+    const land=root.children.find(child=>child.className==="atlas-world-category-scroll")
+      .children[0].children[1];
     const fields=land.querySelectorAll("[name]");
     const border=fields.find(field=>field.name==="atlasRoadBorderEnabled");
     border.checked=false;
     const labels=fields.find(field=>field.name==="atlasRoadLabels");
     assert.equal(labels.children.filter(option=>option.defaultSelected).length,1);
-    await root.children.at(-1).listeners.get("click")();
+    await root.children.at(-1).children[0].listeners.get("click")();
     assert.equal(stored.profiles.land.borderEnabled,false,
       "unchecked HTML checkbox must not keep its fixed value attribute");
   }finally{Object.assign(globalThis,previous);}
