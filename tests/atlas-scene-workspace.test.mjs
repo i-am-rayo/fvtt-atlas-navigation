@@ -915,3 +915,61 @@ test("Map Directory tools retain batch, recovery entry and contextual native man
   }finally{ctx.restore();}
 });
 
+
+
+test("Map Directory shows authored colors/icons, transportation methods and only meaningful disclosures",async()=>{
+  const ctx=context();
+  try{
+    globalThis.game.system={id:"dnd5e"};
+    const {DEFAULT_CHECKPOINT_APPEARANCE}=await import("../scripts/checkpoint-appearance.js");
+    const graph={schemaVersion:10,coordinateSpace:"image",revision:1,
+      enabled:true,calibration:null,
+      roads:[{id:"road-1",name:"Coastal Road",travelPresetId:null,
+        appearance:null,playerVisible:false},
+        {id:"road-2",name:"Unconnected Road",travelPresetId:null,
+        appearance:null,playerVisible:false}],
+      nodes:[{id:"n1",x:0,y:0},{id:"n2",x:10,y:0},{id:"n3",x:40,y:0}],
+      segments:[{id:"edge",roadId:"road-1",from:"n1",to:"n2",via:[],bidirectional:true}],
+      checkpoints:[{id:"harbor",name:"Harbor",roadId:"road-1",nodeId:"n1",
+        elevationMeters:null,playerVisible:false,
+        appearance:{...DEFAULT_CHECKPOINT_APPEARANCE,type:"fa",icon:"solid:ship",
+          color:"#ab12cd"}},
+        {id:"lookout",name:"Lookout",roadId:null,nodeId:"n3",
+          elevationMeters:null,playerVisible:false,appearance:null}]};
+    const offers={schemaVersion:1,entries:{harbor:[
+      {methodId:"carriage",mode:"land",overrides:{}},
+      {methodId:"coach-hire",mode:"land",overrides:{}}]}};
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:
+      key==="checkpointTransportOffers"?offers:null;
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    assert.ok(!buttons(ws.result).some(item=>/^(Territory|Road|Map Marker) tools$/.test(item.textContent)));
+    await enter(ws,"All Roads");
+    const directory=()=>walk(ws.result,item=>item.className==="atlas-map-directory")[0];
+    const road=walk(directory(),item=>item.dataset?.atlasDirectoryKey==="all/road/road-1")[0];
+    const empty=walk(directory(),item=>item.dataset?.atlasDirectoryKey==="all/road/road-2")[0];
+    assert.equal(road.tag,"details","Road with Map Markers can expand");
+    assert.equal(empty.tag,"div","Road with no markers has no chevron or disclosure");
+    assert.match(text(road.children[0]),/Map Markers \(1\)/);
+    assert.match(text(empty.children[0]),/Map Markers \(0\)/);
+    const roadSymbol=walk(road.children[0],item=>item.className==="atlas-directory-color-dot")[0];
+    assert.equal(roadSymbol.style.backgroundColor,"#35c9ef",
+      "World Road color is resolved instead of an unrelated fixed dot");
+    await enter(ws,"All Map Markers");
+    const marker=walk(directory(),item=>item.dataset?.atlasDirectoryKey==="all/checkpoint/harbor")[0];
+    const plain=walk(directory(),item=>item.dataset?.atlasDirectoryKey==="all/checkpoint/lookout")[0];
+    assert.equal(marker.tag,"details","marker with transport offers can expand");
+    assert.equal(plain.tag,"div","marker with no offers cannot expand");
+    assert.match(text(marker.children[0]),/Transportation \(2\): Carriage, Coach ride between towns/);
+    assert.match(text(marker),/Carriage · Land/);
+    assert.match(text(marker),/Coach ride between towns · Land/);
+    assert.match(text(plain.children[0]),/No transportation/);
+    const glyph=walk(marker.children[0],item=>item.className==="atlas-directory-symbol")[0];
+    assert.ok(glyph);
+    assert.equal(glyph.children[0].style.color,"#ab12cd",
+      "selected Font Awesome marker glyph uses authored color");
+    assert.ok(!walk(plain,item=>item.className==="atlas-directory-chevron").length);
+    assert.deepEqual(ctx.calls,[],"all indicators and transport summaries are read-only");
+    await ws.close();
+  }finally{ctx.restore();}
+});
