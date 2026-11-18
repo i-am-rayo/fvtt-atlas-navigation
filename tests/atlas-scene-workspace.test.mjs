@@ -91,7 +91,7 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     assert.match(text(first.result), /Roads/);
     const tasks=walk(first.result,item=>item.className==="atlas-workspace-note")[0];
     assert.deepEqual(buttons(tasks).map(item=>item.textContent),
-      ["Browse map","Plan a route","Add territory","Add road","Add Map Marker"]);
+      ["Browse map","Plan a route","Add Territory","Add Road","Add Map Marker"]);
     assert.ok(buttons(first.result).find(item=>item.textContent==="Plan a route").disabled);
     assert.deepEqual(ctx.calls,[]);
     const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
@@ -533,7 +533,7 @@ test("Directory filters keep independent choices and row expansion across refres
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     await enter(ws,"Map directory");
     assert.match(text(ws.result),/Outside classified territories/);
-    await enter(ws,"All roads");
+    await enter(ws,"All Roads");
     let row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road")&&text(e.children[0]).includes("land"))[0];
     row.open=true;
     row.listeners.get("toggle")();
@@ -546,7 +546,7 @@ test("Directory filters keep independent choices and row expansion across refres
     assert.doesNotMatch(text(ws.result),/Coast Road/);
     assert.match(text(ws.result),/No matching entries/);
     await enter(ws,"All Map Markers");
-    await enter(ws,"All roads");
+    await enter(ws,"All Roads");
     assert.equal(walk(ws.result,e=>e.tag==="select")[0].value,"air");
     assert.deepEqual(ctx.calls,[]);
     await ws.close();
@@ -620,7 +620,7 @@ test("Directory keeps Create/View commands and moves unique management into Sett
     assert.ok(!walk(ws.result,item=>item.tag==="summary"&&
       item.textContent==="Manage map records").length,
       "redundant management disclosure is removed");
-    await enter(ws,"All roads");
+    await enter(ws,"All Roads");
     const directory=walk(ws.result,item=>item.className==="atlas-map-directory")[0];
     assert.ok(directory);
     const roadRow=walk(directory,item=>item.tag==="details"&&
@@ -673,7 +673,7 @@ test("Map Marker directory shares category taxonomy and sorts display copies onl
     sort.value="za";sort.listeners.get("change")();
     assert.deepEqual(rows().map(item=>text(item.children[0]).includes("Álpha")?"a":"z"),["z","a"]);
     assert.deepEqual(graph.checkpoints,original,"sorting never changes the stored graph");
-    await enter(ws,"All roads");
+    await enter(ws,"All Roads");
     const roadRow=walk(findDirectory(),node=>node.tag==="details"&&
       text(node.children[0]).includes("Coast Road"))[0];
     assert.ok(roadRow);
@@ -711,7 +711,7 @@ test("Map Directory renders Road marker counts with browser-like HTMLCollection 
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     await enter(ws,"Map directory");
     assert.match(text(ws.result),/Map Markers \(1\)/);
-    await enter(ws,"All roads");
+    await enter(ws,"All Roads");
     const road=walk(ws.result,item=>item.tag==="details"&&
       text(item.children[0]).includes("Coast Road"))[0];
     assert.ok(road,"linked Road remains available");
@@ -744,7 +744,7 @@ test("Directory section Plus uses existing authoring and never implies a Road at
     assert.deepEqual(ctx.calls,["road"],"uses existing Road GM authoring action");
     assert.equal(stopped,1,"Plus must not toggle its disclosure row");
     ctx.calls.length=0;
-    await enter(ws,"All roads");
+    await enter(ws,"All Roads");
     const addMarker=buttons(ws.result).find(node=>
       node.title==="Add Map Marker (choose its position and Road attachment)");
     assert.ok(addMarker,"a Road child collection offers a Map Marker Plus");
