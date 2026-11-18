@@ -19,7 +19,7 @@ import {readPartyExploration} from "./party-exploration-storage.js";
 
 const directoryViews = [["directory","By Territory"],["allRoads","All Roads"],["allCheckpoints","All Map Markers"]];
 const managers = [["territories","Territories"],["roads","Roads"],["checkpoints","Map Markers"]];
-const settingsViews = [["settings","Exploration & travel"],["surfaces","Surfaces"],["topology","Topology & Levels"],["portability","Import / Export"]];
+const settingsViews = [["settings","Exploration & travel"],["presets","Presets"],["surfaces","Surfaces"],["topology","Topology & Levels"],["portability","Import / Export"]];
 const workspaces = new Map();
 
 function assertEditable(scene) {
@@ -215,6 +215,24 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       });
       activate(this.travelSettingsTab);
       main.appendChild(action("Transportation presets","Transportation presets",()=>this.actions.openWorldTravelSettings()));
+    } else if(this.activeSection==="presets"){
+      main.appendChild(make("p","Open existing GM-only World preset editors. "+
+        "These defaults are shared across Scenes; opening them never changes a Scene, "+
+        "Map Marker, native Region, Actor or Journey.","hint"));
+      const choices=make("section",undefined,"atlas-workspace-preset-shortcuts");
+      for(const [kind,label,description] of [
+        ["markers","Map Marker Presets","Reusable Map Marker and discovery defaults"],
+        ["transport","Transportation Presets","World mounts, vehicles, services and estimates"],
+        ["surfaces","Surface Presets","Land, Water and Air movement-cost and Region-color suggestions"],
+        ["roads","Road Appearance","World Road line and name-style defaults"]
+      ]){
+        const row=make("div",undefined,"atlas-workspace-preset-shortcut");
+        row.appendChild(action(label,"Open World "+label,
+          ()=>this.actions.openWorldPresetEditor(kind)));
+        row.appendChild(make("small",description,"hint"));
+        choices.appendChild(row);
+      }
+      main.appendChild(choices);
     } else if(this.activeSection==="portability"){
       main.appendChild(createAtlasWorkspacePortabilityPanel(this.scene));
     } else if(this.activeSection==="surfaces"){
