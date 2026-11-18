@@ -153,8 +153,6 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       views.setAttribute("aria-label","Directory views");
       views.appendChild(make("strong","View"));
       links(views,directoryViews);
-      views.appendChild(make("strong","Tools"));
-      links(views,managers);
       for(const item of views.querySelectorAll?.("button")??[])
         item.setAttribute("aria-pressed",String(item.getAttribute("aria-current")==="page"));
       main.appendChild(views);
