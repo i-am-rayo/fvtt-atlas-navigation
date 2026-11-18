@@ -126,7 +126,8 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     heading.appendChild(action("Refresh", "Read current Scene and native Region records", () => this.render(true)));
     main.appendChild(heading);
 
-    const refresh = () => this.minimized ? Promise.resolve() : this.render(true);
+    const refresh = () => (!this.rendered || this.minimized) ?
+      Promise.resolve() : this.render(true);
     const addControls = container => {
       for (const [label,handler] of [["Add territory","createNativeTerritory"],["Add road","begin"],["Add Map Marker","beginCheckpoint"]]) {
         const button = action(label,label,()=>this.actions[handler](this.scene,refresh));
