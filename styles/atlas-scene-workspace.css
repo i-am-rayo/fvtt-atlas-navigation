@@ -603,3 +603,20 @@
 .atlas-map-directory summary > .atlas-directory-shortcut {
   margin-inline-start:auto;flex:0 0 2rem;
 }
+
+/* World Presets use existing restricted ApplicationV2 editors, never Scene drafts. */
+.atlas-workspace-preset-shortcuts {
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));
+  gap:.65rem;min-width:0;
+}
+.atlas-workspace-preset-shortcut {
+  display:grid;align-content:start;gap:.3rem;padding:.7rem;
+  border:1px solid var(--color-border-light-tertiary,#666);
+  border-radius:.45rem;min-width:0;
+}
+.atlas-workspace-preset-shortcut > button {
+  width:100%;min-width:0;text-align:left;white-space:normal;
+}
+.atlas-workspace-preset-shortcut > small {
+  line-height:1.35;overflow-wrap:anywhere;
+}
