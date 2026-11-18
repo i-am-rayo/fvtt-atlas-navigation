@@ -9,7 +9,7 @@ const messages={
     hide:"Players will no longer see this Map Marker through its direct visibility setting. Discovery and Journal permissions remain separate."
   },
   discovery:{
-    show:"The party will know this Map Marker through lore. Its discovery settings may reveal nearby terrain; Journal permissions do not change.",
+    show:"This Map Marker becomes known to the party using the selected discovery method. Atlas may reveal configured nearby terrain; Journal permissions do not change.",
     hide:"The party will no longer know this Map Marker. Previously explored terrain is not automatically hidden again."
   },
   territory:{
