@@ -18,7 +18,7 @@ import {createMapDirectory} from "./atlas-map-directory.js";
 import {readPartyExploration} from "./party-exploration-storage.js";
 
 const directoryViews = [["directory","By Territory"],["allRoads","All Roads"],["allCheckpoints","All Map Markers"]];
-const managers = [["territories","Territories"],["roads","Roads"],["checkpoints","Map Markers"]];
+const managers = [["territories","Territory tools"],["roads","Road tools"],["checkpoints","Map Marker tools"]];
 const settingsViews = [["settings","Exploration & travel"],["presets","Presets"],["surfaces","Surfaces"],["topology","Topology & Levels"],["portability","Import / Export"]];
 const workspaces = new Map();
 
@@ -153,6 +153,8 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       views.setAttribute("aria-label","Directory views");
       views.appendChild(make("strong","View"));
       links(views,directoryViews);
+      views.appendChild(make("strong","Tools"));
+      links(views,managers);
       for(const item of views.querySelectorAll?.("button")??[])
         item.setAttribute("aria-pressed",String(item.getAttribute("aria-current")==="page"));
       main.appendChild(views);
@@ -161,14 +163,6 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       views.setAttribute("aria-label","Atlas settings");
       links(views,settingsViews);
       main.appendChild(views);
-      const advanced=make("details",undefined,"atlas-workspace-advanced-management");
-      advanced.appendChild(make("summary","Advanced map operations"));
-      advanced.appendChild(make("p","Road graph and legacy tools, native Territory batch "+
-        "operations, and Map Marker discovery controls remain available here.", "hint"));
-      links(advanced,[["territories","Territory batch & native Region tools"],
-        ["roads","Road topology & legacy tools"],
-        ["checkpoints","Map Marker discovery & connections"]]);
-      main.appendChild(advanced);
     }
 
     if (directoryViews.some(([id])=>id===this.activeSection)) {
