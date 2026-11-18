@@ -132,10 +132,11 @@ test("Road Settings places the World preset control above Road name in General",
   assert.ok(main.includes("panels.general.append(presetRow,presetHint,nameRow,visibilityRow,journalControls);"),
     "the existing native form appends Travel preset and its hint before Road name");
   const css=readFileSync(new URL("../styles/road-settings-dialog.css",import.meta.url),"utf8");
-  assert.match(css,/\\.atlas-road-preset-row\\s*\\{[^}]*display:flex;flex-direction:row;align-items:center;[^}]*justify-content:space-between/s,
+  assert.ok(css.includes("display:flex;flex-direction:row;align-items:center;") &&
+    css.includes("justify-content:space-between;flex-wrap:wrap;"),
     "preset label and control must share a horizontal row, not stack as a native form-group");
-  assert.match(css,/\\.atlas-road-preset-controls\\s*\\{[^}]*justify-content:flex-end/s,
+  assert.ok(css.includes("display:flex;align-items:center;justify-content:flex-end;"),
     "the name and Change preset control form one right-aligned group");
-  assert.match(css,/\\.atlas-road-preset-controls > span\\s*\\{[^}]*flex:0 1 auto/s,
+  assert.ok(css.includes("flex:0 1 auto;min-width:0;overflow-wrap:anywhere;"),
     "preset name may not reserve an entire line before the Change button");
 });
