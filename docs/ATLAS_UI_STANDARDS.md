@@ -35,6 +35,8 @@ Visibility accessible text must communicate both state and operation (for exampl
 
 Reuse createAtlasIconButton / createSettingsIconButton and styles/atlas-ui.css. Adopt the existing standard 2rem square action target and separately sized 0.8rem glyph for Atlas action buttons, including toolbar, footer, inline plus, picker and transportation controls. Centralize tokens instead of adding per-window overrides. Icons are centered, with consistent border, padding, hover, disabled and visible keyboard-focus treatment. Do not shrink hit targets to shrink glyphs. Text zoom must remain usable; never reduce targets below 24 CSS px.
 
+Inside native Foundry fieldset legends, the same 2rem target / 0.8rem Font Awesome glyph applies to Add Land Travel Method, Add Map Marker and Generate Region. Prefer one sufficiently scoped shared CSS selector (including the icon pseudo-element where relevant) over per-dialog inline dimensions or `!important`. Record actual computed styles at standard and 200% text zoom before declaring #406 visually resolved. [Live checklist](TEST_0_3_11_DEV_1_ISSUE_406.md).
+
 This applies to UI action glyphs, not configurable map markers, map labels or decorative artwork. Keep units and content typography separate from action icon sizing.
 
 ## Numeric sliders and direct entry
