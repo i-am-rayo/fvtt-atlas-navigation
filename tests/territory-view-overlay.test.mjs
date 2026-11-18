@@ -1,0 +1,387 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {projectTerritoryView,territoryTier} from "../scripts/territory-view-model.js";
+import {readNativeTerritoryPaths,readNativeTerritoryTriangles,
+  territoryLabelPointExplored,TerritoryViewOverlay}
+  from "../scripts/territory-view-overlay.js";
+import {createEmptyAtlas} from "../scripts/atlas-model.js";
+import {addRoad} from "../scripts/road-model.js";
+import {addRoadCheckpoint} from "../scripts/checkpoint-model.js";
+import {setCheckpointPlayerVisibility} from "../scripts/player-visibility.js";
+
+const geo = (id,name,kind,linked=true) =>
+  ({id,name,linked,invalid:false,geography:kind?{kind}:null});
+
+test("tier projection orders combined map below settlements, while directory is settlement-first", () => {
+  const entries=[geo("c","C", "continent"),geo("u","Unknown",null,false),
+    geo("a","A","area"),geo("t","Town","town"),geo("v","Village","village"),
+    geo("s","Settlement","settlement")];
+  assert.deepEqual(projectTerritoryView(entries).map(e=>e.id),["s","t","v","a","c","u"]);
+  assert.deepEqual(projectTerritoryView(entries,"combined",{drawOrder:true}).map(e=>e.id),
+    ["a","c","s","t","v","u"]);
+  assert.deepEqual(projectTerritoryView(entries,"continents").map(e=>e.id),["a","c"]);
+  assert.deepEqual(projectTerritoryView(entries,"settlements").map(e=>e.id),["s","t","v"]);
+  assert.equal(territoryTier({...entries[0],invalid:true}),"unclassified");
+  assert.throws(()=>projectTerritoryView(entries,"unknown"),/Unknown Atlas Territory view/);
+});
+
+test("native polygon paths are absolute and reject excessive or invalid geometry", () => {
+  const region={polygons:[{points:[100,200,120,200,110,230]}],
+    shapes:[{origin:{x:500,y:500}}]};
+  assert.deepEqual(readNativeTerritoryPaths(region),[[100,200,120,200,110,230]],
+    "do not add a native Shape origin to already absolute polygon vertices");
+  assert.equal(readNativeTerritoryPaths(region,{vertexBudget:2}),null);
+  assert.equal(readNativeTerritoryPaths({polygons:[{points:[1,2,3,4,5,Infinity]}]}),null);
+  assert.equal(readNativeTerritoryPaths({get polygons(){throw Error("invalid shape");}}),null);
+});
+
+test("native Region triangulation drives translucent fills without bridging holes",()=>{
+  const triangulation={vertices:Float32Array.from([10,20,30,20,30,40,
+    110,120,130,120,130,140]),indices:Uint16Array.from([0,1,2,3,4,5])};
+  assert.deepEqual(readNativeTerritoryTriangles({triangulation}),
+    [[10,20,30,20,30,40],[110,120,130,120,130,140]],
+    "disconnected Region islands remain separate triangles");
+  assert.equal(readNativeTerritoryTriangles({triangulation},{maxTriangles:1}),null);
+  assert.equal(readNativeTerritoryTriangles({triangulation:{...triangulation,
+    indices:Uint16Array.from([0,1,6])}}),null,"out of bounds triangles are rejected");
+  assert.equal(readNativeTerritoryTriangles({get triangulation(){throw Error("unavailable");}}),null);
+});
+
+test("GM overlay mounts above fog, draws continents first, and cleans up with no native writes", () => {
+  const previous={canvas:globalThis.canvas,PIXI:globalThis.PIXI,game:globalThis.game};
+  const draw=[],graphicInstances=[];
+  class Container {
+    constructor(){this.children=[];this.parent=null;this.destroyed=false;}
+    addChild(c){c.parent=this;this.children.push(c);return c;}
+    removeChild(c){this.children.splice(this.children.indexOf(c),1);c.parent=null;}
+    destroy(){this.destroyed=true;}
+  }
+  class Graphics {
+    constructor(){this.operations=[];graphicInstances.push(this);}
+    poly(p){this.points=p;return this;}
+    stroke(opts){this.operations.push("stroke");draw.push({points:this.points,opts});return this;}
+    fill(opts){this.operations.push("fill");draw.push({fillPoints:this.points,opts});return this;}
+  }
+  class Text {
+    constructor(value,style){this.text=typeof value==="string"?value:String(value);
+      this.style=style;
+      this.anchor={set:(...args)=>{this.anchorSet=args;}};
+      this.position={set:(...args)=>{this.positionSet=args;}};
+      this.scale={set:value=>{this.scaleSet=value;}};}
+  }
+  try {
+    const regions=new Map([
+      ["big",{id:"big",name:"Valecor",color:new Number(0x4d972b),
+        triangulation:{vertices:Float32Array.from([0,0,100,0,100,100]),
+          indices:Uint16Array.from([0,1,2])},
+        polygons:[{points:[0,0,100,0,100,100,0,100]},
+          {points:[200,200,210,200,210,210,200,210]}],
+        bounds:{x:0,y:0,width:210,height:210}}],
+      ["small",{id:"small",name:"Dirwest",color:"#aabbcc",
+        polygons:[{points:[20,20,35,20,35,35,20,35]}],
+        bounds:{x:20,y:20,width:15,height:15}}]
+    ]);
+    let writeCount=0;
+    for(const region of regions.values())region.update=()=>{writeCount++;};
+    const scene={id:"scene",regions};
+    const interfaceGroup=new Container();
+    globalThis.PIXI={Container,Graphics,Text};
+    globalThis.game={user:{isGM:true}};
+    globalThis.canvas={scene,ready:true,interface:interfaceGroup,stage:{scale:{x:2}}};
+    const overlay=new TerritoryViewOverlay();
+    const result=overlay.sync(scene,[geo("small","Dirwest","city"),
+      geo("big","Valecor","continent")],{showNames:true,continentFillOpacity:.22,
+      settlementFillOpacity:.11});
+    assert.deepEqual(result,{shown:2,skipped:0});
+    assert.equal(interfaceGroup.children.length,1);
+    assert.equal(interfaceGroup.children[0].eventMode,"none");
+    assert.deepEqual(graphicInstances.map(instance=>[...new Set(instance.operations)]),
+      [["fill"],["stroke"]],
+      "fills and borders need isolated GraphicsContexts so triangle edges cannot bleed into strokes");
+    assert.deepEqual(draw.filter(item=>item.points).map(item=>item.points[0]),
+      [0,0,200,200,20,20],
+      "continent halo/core must draw before settlement halo/core");
+    assert.ok(draw.some(item=>item.points&&item.opts?.color===0x4d972b),
+      "native Region Appearance color is used for the continental boundary");
+    assert.ok(draw.some(item=>item.points&&item.opts?.color===0xaabbcc),
+      "nested settlement keeps its own native color");
+    assert.equal(draw.filter(item=>item.fillPoints).length,1,
+      "only Regions with public, valid native triangulation receive a fill");
+    assert.equal(draw.find(item=>item.fillPoints).opts.alpha,.22);
+    assert.deepEqual(overlay.labels.map(item=>item.text),["Valecor","Dirwest"]);
+    assert.equal(overlay.labels.some(item=>item.text==="[object Object]"),false,
+      "v14 positional PIXI.Text signature must receive a string");
+    assert.deepEqual(overlay.labels[0].positionSet,[50,50],
+      "a disconnected Region's label belongs to its largest island, not the empty overall bounds center");
+    assert.equal(overlay.labels[0].scaleSet,.5,"labels keep constant screen size while zoomed");
+    globalThis.canvas.stage.scale.x=4;
+    overlay.updateLabelScale();
+    assert.equal(overlay.labels[1].scaleSet,.25);
+    assert.equal(writeCount,0);
+    const priorLayer=overlay.layer;
+    overlay.clear();
+    assert.equal(interfaceGroup.children.length,0);
+    assert.equal(priorLayer.destroyed,true);
+    assert.equal(writeCount,0);
+    globalThis.game.user.isGM=false;
+    assert.deepEqual(overlay.sync(scene,[geo("big","Valecor","continent")]),
+      {shown:0,skipped:0},"missing player Primary must fail closed, never show above fog");
+    assert.equal(interfaceGroup.children.length,0,"non-GM must never fall back above fog");
+  } finally {Object.assign(globalThis,previous);}
+});
+
+test("linked geographic label uses Checkpoint name and double-click opens its authorized Journal",async()=>{
+  const previous={canvas:globalThis.canvas,PIXI:globalThis.PIXI,game:globalThis.game,
+    fromUuid:globalThis.fromUuid,foundry:globalThis.foundry};
+  const handlers=new Map(),removals=[];
+  class Container{
+    constructor(){this.children=[];}
+    addChild(item){item.parent=this;this.children.push(item);return item;}
+    removeChild(item){this.children.splice(this.children.indexOf(item),1);}
+    destroy(){}
+  }
+  class Graphics{poly(){return this;}stroke(){return this;}clear(){} }
+  class Text{
+    constructor(text){this.text=text;this.anchor={set(){}};this.position={set(){}};
+      this.scale={set(){}};}
+  }
+  try{
+    let linked=true;
+    const region={id:"region",name:"Dirwest Region",color:"#abcdef",
+      polygons:[{points:[0,0,100,0,100,100,0,100]}],
+      getFlag(_module,key){return linked&&key==="territoryCheckpoint"?
+        {schemaVersion:1,checkpointId:"checkpoint1"}:null;}};
+    const scene={id:"scene",regions:new Map([[region.id,region]]),
+      getFlag(_module,key){return key==="atlasJournalLinks"?
+        {schemaVersion:1,roads:{},checkpoints:{checkpoint1:"JournalEntry.ABCDEFGHIJKLMNOP"}}:null;}};
+    const canvasElement={addEventListener(name,handler){handlers.set(name,handler);},
+      removeEventListener(name,handler){removals.push(name);if(handlers.get(name)===handler)
+        handlers.delete(name);}};
+    globalThis.PIXI={Container,Graphics,Text};
+    globalThis.game={user:{id:"gm",isGM:true},users:[
+      {id:"gm",isGM:true},{id:"visible",isGM:false},{id:"private",isGM:false}]};
+    globalThis.canvas={scene,ready:true,interface:new Container(),
+      app:{canvas:canvasElement},stage:{scale:{x:1}},
+      canvasCoordinatesFromClient:point=>point};
+    let opened=0;
+    globalThis.foundry={utils:{fromUuid:async()=>({documentName:"JournalEntry",
+      testUserPermission:user=>user.id==="visible",
+      sheet:{render:async()=>{opened++;}}})}};
+    const overlay=new TerritoryViewOverlay();
+    overlay.sync(scene,[geo("region","Dirwest Region","city")],{
+      showNames:true,checkpointsById:new Map([["checkpoint1",
+        {id:"checkpoint1",name:"Dirwest"}]])});
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest"]);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest 📖 ◐"],
+      "the geographic Territory overlay uses the linked Checkpoint's live Journal status");
+    assert.equal(overlay.hitLabels[0].name,"Dirwest 📖 ◐",
+      "Journal status remains inside the label double-click hit area");
+    assert.deepEqual([...overlay.labelCheckpointIds],["checkpoint1"]);
+    assert.equal(typeof handlers.get("dblclick"),"function");
+    let prevented=0;
+    handlers.get("dblclick")({button:0,clientX:50,clientY:50,
+      preventDefault(){prevented++;},stopImmediatePropagation(){}});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(prevented,1);
+    assert.equal(opened,1);
+    linked=false;
+    handlers.get("dblclick")({button:0,clientX:50,clientY:50,
+      preventDefault(){prevented++;},stopImmediatePropagation(){}});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(prevented,1,"a stale native association never opens its former Journal");
+    assert.equal(opened,1);
+    overlay.clear();
+    assert.ok(removals.includes("dblclick"),"clear always unregisters Journal handlers");
+    assert.equal(handlers.size,0);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("player renders only granted boundaries below both native and Atlas manual fog",()=>{
+  const previous={canvas:globalThis.canvas,PIXI:globalThis.PIXI,game:globalThis.game,
+    foundry:globalThis.foundry};
+  class Container{
+    constructor(){this.children=[];}
+    addChild(item){item.parent=this;this.children.push(item);return item;}
+    removeChild(item){this.children.splice(this.children.indexOf(item),1);}
+    destroy(){}
+  }
+  class Graphics{poly(){return this;}stroke(){return this;}fill(){return this;}}
+  class Text{
+    constructor(value){this.text=value;this.position={set(){}};
+      this.scale={set(){}};this.anchor={set(){}};}
+  }
+  const makeRegion=(id,{share=true,publicName=null,hidden=false}={})=>({
+    id,name:`Secret ${id}`,hidden,color:"#abcdef",parent:{id:"scene"},
+    polygons:[{points:[0,0,100,0,100,100,0,100]}],
+    getFlag(_scope,key){
+      if(key==="playerTerritory")return share?{schemaVersion:1,visible:true}:null;
+      if(key==="publicTerritory")return publicName?
+        {schemaVersion:1,enabled:true,label:publicName}:null;
+      if(key==="atlas")return {schemaVersion:1,linked:true};
+      if(key==="territoryGeography")return {schemaVersion:1,kind:"city",
+        parentRegionId:null,roadOverrides:{}};
+      return null;
+    }
+  });
+  try{
+    const shared=makeRegion("shared",{publicName:"Approved city"});
+    let approvedName="Approved city";
+    const priorFlag=shared.getFlag;
+    shared.getFlag=(scope,key)=>key==="territoryCheckpoint"?
+      {schemaVersion:1,checkpointId:"point"}:key==="publicTerritory"?
+      {schemaVersion:1,enabled:true,label:approvedName}:priorFlag(scope,key);
+    const unnamed=makeRegion("unnamed");
+    const privateRegion=makeRegion("private",{share:false,publicName:"Published name"});
+    const hidden=makeRegion("hidden",{hidden:true,publicName:"Hidden name"});
+    const scene={id:"scene",regions:new Map([shared,unnamed,privateRegion,hidden]
+      .map(region=>[region.id,region]))};
+    globalThis.game={user:{isGM:false}};
+    globalThis.foundry={canvas:{groups:{PrimaryCanvasGroup:{SORT_LAYERS:{TILES:500}}}}};
+    globalThis.PIXI={Container,Graphics,Text};
+    const primary=new Container(),interfaceGroup=new Container();
+    primary.renderDirty=false;
+    globalThis.canvas={scene,ready:true,primary,interface:interfaceGroup,
+      stage:{scale:{x:1}}};
+    const overlay=new TerritoryViewOverlay();
+    const entries=[shared,unnamed,privateRegion,hidden].map(region=>({
+      id:region.id,name:region.name,linked:true,invalid:false,
+      geography:{kind:"city"},playerShared:true
+    }));
+    const checkpointsById=new Map([["point",{id:"point",name:"Approved city"}]]);
+    assert.deepEqual(overlay.sync(scene,entries,{showNames:true,checkpointsById}),
+      {shown:2,skipped:2});
+    assert.equal(interfaceGroup.children.length,0,"player boundaries must never mount above fog");
+    assert.equal(primary.children.length,1);
+    assert.equal(primary.children[0].sortLayer,501);
+    assert.equal(primary.children[0].sort,1e90,
+      "Territories must sort below Atlas manual Fog at 1e100");
+    assert.equal(primary.renderDirty,true,"cached Primary is invalidated on mount");
+    primary.renderDirty=false;
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Approved city"]);
+    assert.deepEqual([...overlay.labelCheckpointIds],["point"],
+      "identical shared Territory and Checkpoint labels deduplicate");
+    assert.equal(overlay.labels.some(label=>label.text.includes("Secret")),false);
+    approvedName="Different public alias";
+    overlay.sync(scene,entries,{showNames:true,checkpointsById});
+    assert.deepEqual(overlay.labels.map(label=>label.text),[approvedName]);
+    assert.deepEqual([...overlay.labelCheckpointIds],[],
+      "a different approved public alias must not suppress the Checkpoint name");
+    shared.getFlag=(_scope,key)=>key==="playerTerritory"?null:
+      key==="atlas"?{schemaVersion:1,linked:true}:
+      key==="territoryGeography"?{schemaVersion:1,kind:"city",
+        parentRegionId:null,roadOverrides:{}}:null;
+    assert.deepEqual(overlay.sync(scene,entries,{showNames:true,checkpointsById}),
+      {shown:1,skipped:3},"revoked sharing is rechecked before drawing");
+    assert.deepEqual(overlay.labels,[]);
+    overlay.clear();
+    assert.equal(primary.children.length,0);
+    assert.equal(primary.renderDirty,true,"cached Primary is invalidated on removal");
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("player Territory overlay shows only their own readable Journal glyph, beneath fog",async()=>{
+  const previous={canvas:globalThis.canvas,PIXI:globalThis.PIXI,game:globalThis.game,
+    foundry:globalThis.foundry};
+  class Container{
+    constructor(){this.children=[];this.parent=null;}
+    addChild(item){item.parent=this;this.children.push(item);return item;}
+    removeChild(item){this.children.splice(this.children.indexOf(item),1);item.parent=null;}
+    destroy(){}
+  }
+  class Graphics{poly(){return this;}stroke(){return this;}}
+  class Text{
+    constructor(value){this.text=value;this.position={set(){}};
+      this.scale={set(){}};this.anchor={set(){}};}
+  }
+  let sequence=0;
+  let atlas=addRoad(createEmptyAtlas(),{
+    points:[{x:0,y:0},{x:100,y:0}],name:"Dirwest Road",
+    idFactory:()=>`j${++sequence}`});
+  atlas=addRoadCheckpoint(atlas,{
+    roadId:atlas.roads[0].id,candidate:{kind:"node",nodeId:atlas.segments[0].from},
+    name:"Dirwest",idFactory:()=>`j${++sequence}`});
+  const id=atlas.checkpoints[0].id;
+  atlas=setCheckpointPlayerVisibility(atlas,{checkpointId:id,visible:true});
+  const uuid="JournalEntry.abcdefghijklmnop";
+  try{
+    const region={id:"region",name:"GM Secret Territory",color:"#abcdef",
+      polygons:[{points:[0,0,100,0,100,100,0,100]}],
+      getFlag(_module,key){return {
+        playerTerritory:{schemaVersion:1,visible:true},
+        publicTerritory:{schemaVersion:1,enabled:true,label:"Dirwest"},
+        atlas:{schemaVersion:1,linked:true},
+        territoryGeography:{schemaVersion:1,kind:"city",parentRegionId:null,
+          roadOverrides:{}},
+        territoryCheckpoint:{schemaVersion:1,checkpointId:id}
+      }[key]??null;}};
+    const scene={id:"scene",regions:new Map([[region.id,region]]),
+      getFlag(_module,key){return {
+        atlas,atlasJournalLinks:{schemaVersion:1,roads:{},checkpoints:{[id]:uuid}}
+      }[key]??null;}};
+    const reader={id:"reader",isGM:false},other={id:"other",isGM:false};
+    globalThis.game={user:reader,users:[reader,other]};
+    globalThis.foundry={canvas:{groups:{PrimaryCanvasGroup:{SORT_LAYERS:{TILES:500}}}},
+      utils:{fromUuid:async()=>({documentName:"JournalEntry",
+        testUserPermission:user=>user.id==="reader"})}};
+    globalThis.PIXI={Container,Graphics,Text};
+    const primary=new Container();primary.renderDirty=false;
+    globalThis.canvas={scene,ready:true,primary,interface:new Container(),
+      stage:{scale:{x:1}}};
+    const overlay=new TerritoryViewOverlay();
+    const entries=[{id:region.id,name:region.name,linked:true,invalid:false,
+      geography:{kind:"city"},playerShared:true}];
+    const options={showNames:true,checkpointsById:new Map([[id,{id,name:"Dirwest"}]])};
+    overlay.sync(scene,entries,options);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest 📖"],
+      "Observer may see their own Journal glyph, never global access status");
+    globalThis.game.user={id:"gm",isGM:true};
+    overlay.sync(scene,entries,{...options,asPlayer:true});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest"],
+      "GM player-projection preview never adds privileged Journal glyphs");
+    assert.equal(overlay.hitLabels.length,0,
+      "GM preview labels cannot open a Journal using GM permissions");
+    assert.equal(overlay.layer.parent,primary,
+      "GM player projection stays in fog-compatible Primary, not Interface");
+    globalThis.game.user=reader;
+    assert.equal(primary.renderDirty,true,"Primary canvas redraws asynchronous glyph");
+    assert.equal(globalThis.canvas.interface.children.length,0,
+      "player Journal glyph remains below native and Atlas fog");
+    globalThis.game.user=other;
+    overlay.sync(scene,entries,options);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest"],
+      "no Observer permission means no Journal indicator");
+    globalThis.game.user=reader;
+    scene.tokenVision=true;scene.fogExploration=true;
+    overlay.sync(scene,entries,options);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(overlay.labels.map(label=>label.text),["Dirwest"],
+      "unexplored territory cannot reveal a Journal glyph");
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("Territory Journal hit points honor both native and manual fog, failing closed",()=>{
+  const state={schemaVersion:1,enabled:false,revealed:[],hidden:[]};
+  const scene={tokenVision:true,fogExploration:true,grid:{size:100},
+    getFlag(_module,key){return key==="manualFog"?state:null;}};
+  const view={scene,fog:{isPointExplored:point=>point.x<50},
+    dimensions:{sceneX:0,sceneY:0},
+    grid:{getOffset:()=>({i:0,j:0}),getCenterPoint:()=>({x:50,y:50})}};
+  assert.equal(territoryLabelPointExplored(view,scene,{x:10,y:10}),true);
+  assert.equal(territoryLabelPointExplored(view,scene,{x:90,y:90}),false);
+  assert.equal(territoryLabelPointExplored({...view,fog:null},scene,{x:10,y:10}),false);
+  state.enabled=true;
+  assert.equal(territoryLabelPointExplored(view,scene,{x:10,y:10}),false,
+    "native fog discovery cannot bypass active Atlas manual fog");
+  state.revealed=[{x:50,y:50}];
+  assert.equal(territoryLabelPointExplored(view,scene,{x:10,y:10}),true);
+  state.hidden=[{x:50,y:50}];
+  state.revealed=[];
+  assert.equal(territoryLabelPointExplored(view,scene,{x:10,y:10}),false);
+  state.revealed=[{x:50,y:50}];
+  assert.equal(territoryLabelPointExplored(view,scene,{x:10,y:10}),false,
+    "invalid overlapping Hide/Reveal metadata must never expose a label");
+});

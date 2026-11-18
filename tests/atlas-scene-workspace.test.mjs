@@ -1,0 +1,779 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+class MockApplicationV2 {
+  constructor(options) { this.options = options; this.rendered = false;
+    this.minimized=false;this.minCalls=0;this.maxCalls=0; }
+  async render() { this.result = await this._renderHTML(); this.rendered = true; return this; }
+  async minimize(){this.minimized=true;this.minCalls++;}
+  async maximize(){this.minimized=false;this.maxCalls++;}
+  async close() { this.rendered = false; this._onClose(); return this; }
+}
+globalThis.foundry = { applications: { api: { ApplicationV2: MockApplicationV2 } } };
+const { AtlasSceneWorkspace, openAtlasSceneWorkspace, refreshAtlasSceneWorkspace,
+  restoreAtlasSceneWorkspace, minimizeAtlasSceneWorkspace } =
+  await import("../scripts/atlas-scene-workspace.js");
+
+class Element {
+  constructor(tag) {
+    this.tag = tag; this.children = []; this.attributes = new Map();
+    this.listeners = new Map(); this.style = {}; this.dataset = {};
+  }
+  setAttribute(key, value) { this.attributes.set(key, String(value)); }
+  appendChild(child) { this.children.push(child); child.parentNode = this; return child; }
+  append(...children) { for (const child of children) this.appendChild(child); }
+  replaceChildren(...children) { this.children=[]; this.append(...children); }
+  prepend(...children) { this.children.unshift(...children); }
+  insertBefore(child,reference){
+    const index=this.children.indexOf(reference);
+    if(index<0)return this.appendChild(child);
+    this.children.splice(index,0,child);child.parentNode=this;return child;
+  }
+  remove(){
+    if(!this.parentNode)return;
+    this.parentNode.children=this.parentNode.children.filter(c=>c!==this);
+    this.parentNode=null;
+  }
+  querySelector(){return null;}
+  querySelectorAll(){return [];}
+  get isConnected(){return true;}
+  focus(){this.focused=true;}
+  addEventListener(name, callback) { this.listeners.set(name, callback); }
+}
+function walk(root, predicate) {
+  return [root, ...root.children.flatMap(child => walk(child, predicate))].filter(predicate);
+}
+const text = root => [root.textContent ?? "", ...root.children.map(text)].join(" ");
+const buttons = root => walk(root, item => item.tag === "button");
+
+async function enter(workspace,label) {
+  const button=buttons(workspace.result).find(item=>item.textContent===label);
+  assert.ok(button,"Workspace exposes "+label);
+  await button.listeners.get("click")({preventDefault(){}});
+}
+
+function context() {
+  const before = { game: globalThis.game, document: globalThis.document, ui: globalThis.ui,
+    window: globalThis.window, Hooks:globalThis.Hooks, canvas:globalThis.canvas,
+    PIXI:globalThis.PIXI };
+  globalThis.document = { createElement: tag => new Element(tag),
+    createTextNode: value => ({ textContent: value, children: [] }) };
+  globalThis.window = { innerWidth: 1280, innerHeight: 900 };
+  globalThis.ui = { notifications: { error(message) { throw Error(message); } } };
+  globalThis.game = { user: { id: "gm", isGM: true },
+    settings: { get: () => null }, i18n: { localize: key => key, lang: "en" } };
+  const region = { id: "region-1", name: "Millstone", hidden: false, behaviors: [],
+    getFlag: () => null, shapes: [], color: "#ff0000" };
+  const regions = [region];
+  regions.get = id => regions.find(item => item.id === id);
+  regions.contents = regions;
+  const scene = { id: "scene-1", name: "Valecor", regions,
+    getFlag: () => null, canUserModify: () => true };
+  const calls = [];
+  const actions = { draft: () => null,
+    createNativeTerritory: () => calls.push(["create-native"]),
+    configureRegion: (_scene, id) => calls.push(["native", id]),
+    smoothNativeRegion: (_scene, id) => calls.push(["smooth", id]),
+    setNativeRegionLink: (_scene, id, linked) => calls.push(["link", id, linked]),
+    configurePublicTerritory: (_scene, _refresh, id) => calls.push(["label", id]) };
+  return { scene, calls, actions, restore: () => Object.assign(globalThis, before) };
+}
+
+test("GM-only standalone workspace reuses territory actions without writing on render", async () => {
+  const ctx = context();
+  try {
+    const first = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    assert.ok(first instanceof AtlasSceneWorkspace);
+    assert.equal(first.options.id, "atlas-scene-workspace-scene-1");
+    assert.equal(first.options.position.left,24,"Atlas Workspace opens against the left edge");
+    assert.match(text(first.result), /Scene Overview/);
+    assert.match(text(first.result), /Roads/);
+    const tasks=walk(first.result,item=>item.className==="atlas-workspace-note")[0];
+    assert.deepEqual(buttons(tasks).map(item=>item.textContent),
+      ["Browse map","Plan a route","Add territory","Add road","Add Map Marker"]);
+    assert.ok(buttons(first.result).find(item=>item.textContent==="Plan a route").disabled);
+    assert.deepEqual(ctx.calls,[]);
+    const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    assert.equal(first, again, "per-Scene instance must be reused");
+    await enter(first,"Settings");
+    const territories = buttons(first.result).find(item => item.textContent === "Territory batch & native Region tools");
+    await territories.listeners.get("click")({ preventDefault() {} });
+    assert.match(text(first.result), /Millstone/);
+    const add=buttons(first.result).find(item=>
+      item.title==="Create a Territory using Atlas nodes, native grid painting, or selected Blank Walls");
+    assert.ok(add,"the Territory legend offers the authoring-method [+] button");
+    await add.listeners.get("click")({preventDefault(){}});
+    const row = walk(first.result, item => item.className?.includes?.("atlas-territory-row"))[0];
+    assert.ok(row, "native Region has a compact workspace row");
+    assert.match(row.children[1].className, /atlas-territory-actions/,
+      "actions must be placed underneath the Region details");
+    assert.equal(row.children[1].children.length, 2,
+      "Territory Settings consolidates actions while Locate remains immediately accessible");
+    assert.ok(row.children[1].children.every(item =>
+      item.className?.includes?.("atlas-ui-icon-button")),
+    "all Territory actions must share the same icon size");
+    assert.ok(buttons(row).some(item=>item.title==="Open Millstone Territory Settings"));
+    assert.ok(buttons(row).some(item =>
+      item.title === "Locate this native Region on the map"));
+    assert.deepEqual(ctx.calls, [["create-native"]],
+      "Opening the Workspace never silently runs Territory actions");
+    await refreshAtlasSceneWorkspace(ctx.scene);
+    assert.match(text(first.result), /Millstone/);
+    await first.close();
+    const reopened = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    assert.notEqual(reopened, first,
+      "closed instances must be discarded");
+    await reopened.close();
+  } finally { ctx.restore(); }
+});
+
+test("Workspace Exploration reuses Scene manual Fog handler without writing on render",async()=>{
+  const ctx=context();
+  try{
+    ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
+    ctx.actions.saveManualFog=(scene,enabled)=>ctx.calls.push(["manual-fog",scene.id,enabled]);
+    ctx.actions.openManualBrushPalette=()=>ctx.calls.push(["brush"]);
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    assert.ok(!buttons(ws.result).some(item=>item.textContent==="Exploration"));
+    assert.equal(ws.activeSection,"overview");
+    await enter(ws,"Settings");
+    const panel=walk(ws.result,item=>
+      item.attributes?.has("data-atlas-exploration-panel"))[0];
+    assert.ok(panel,"Exploration is a dedicated Scene panel");
+    assert.match(text(panel),/Manual exploration/);
+    assert.match(text(panel),/Paint map/);
+    assert.deepEqual(ctx.calls,[],"render is read-only");
+    const brush=buttons(panel).find(item=>item.textContent==="Paint map");
+    await brush.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,[["brush"]],"Workspace reuses existing native brush launcher");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("Workspace Surfaces exposes existing native generator without creating Regions on read",async()=>{
+  const ctx=context();
+  try{
+    ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
+    ctx.actions.linkRegion=()=>ctx.calls.push(["link-native"]);
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Settings");
+    await buttons(ws.result).find(item=>item.textContent==="Surfaces")
+      .listeners.get("click")({preventDefault(){}});
+    assert.equal(ws.activeSection,"surfaces");
+    const panel=walk(ws.result,item=>
+      item.attributes?.has("data-atlas-surfaces-panel"))[0];
+    assert.ok(panel,"Surfaces reuses legacy generator and Region-cost control family");
+    assert.match(text(panel),/Create a native Region/);
+    assert.match(text(panel),/Generated Regions/);
+    assert.match(text(panel),/FVTTATLAS.Generated.NoCheckpoints/);
+    assert.deepEqual(ctx.calls,[],"displaying Surfaces does not authorize native Region writes");
+    const link=buttons(panel).find(item=>item.title==="FVTTATLAS.Regions.Link");
+    assert.ok(link,"Surfaces must retain the legacy native Region linking action");
+    await link.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,[["link-native"]],
+      "the Workspace uses the existing native Region association handler");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("Workspace Navigation launches the existing controller without committing or replacing drafts",async()=>{
+  const ctx=context();
+  try{
+    ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?
+      {schemaVersion:10,coordinateSpace:"image",revision:2,
+        enabled:true,calibration:null,roads:[{id:"road",name:"Main",travelPresetId:null,
+          appearance:null,playerVisible:false}],
+        nodes:[{id:"start",x:0,y:0},{id:"end",x:100,y:0}],
+        segments:[{id:"segment",roadId:"road",from:"start",to:"end",
+          via:[],bidirectional:true}],checkpoints:[]}:null;
+    ctx.actions.openNavigation=()=>ctx.calls.push(["navigation"]);
+    ctx.actions.openWorldTravelSettings=()=>ctx.calls.push(["world-rules"]);
+    const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    assert.ok(!buttons(workspace.result).some(item=>item.textContent==="Navigation"));
+    assert.equal(workspace.activeSection,"overview");
+    assert.deepEqual(ctx.calls,[],"opening navigation's read model never approves travel");
+    const launch=buttons(workspace.result).find(item=>item.textContent==="Plan a route");
+    assert.ok(launch);
+    assert.notEqual(launch.disabled,true,
+      "valid graph and native Scene Grid allow the navigation launcher");
+    await launch.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,[["navigation"]]);
+    assert.equal(workspace.minimized,true);
+    await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    assert.equal(workspace.minimized,false);
+    await enter(workspace,"Settings");
+    const settings=buttons(workspace.result).find(item=>
+      item.textContent==="Transportation presets");
+    await settings.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,[["navigation"],["world-rules"]]);
+    await workspace.close();
+  }finally{ctx.restore();}
+});
+
+test("Workspace Import / Export reports native dependencies without starting a migration",async()=>{
+  const ctx=context();
+  try{
+    ctx.scene.grid={type:1,size:100,distance:5,units:"km"};
+    ctx.scene.background={src:"worlds/paedor/background.webp"};
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Settings");
+    const tab=buttons(ws.result).find(item=>item.textContent==="Import / Export");
+    assert.ok(tab);
+    await tab.listeners.get("click")({preventDefault(){}});
+    const panel=walk(ws.result,item=>
+      item.attributes?.has("data-atlas-portability-panel"))[0];
+    assert.ok(panel);
+    assert.match(text(panel),/native Scene/);
+    assert.match(text(panel),/background.webp/);
+    assert.match(text(panel),/external map assets and linked Journals separately/i);
+    const diagnostics=panel.children.find(item=>item.tag==="details" &&
+      item.children[0]?.textContent==="Advanced GM diagnostics");
+    assert.ok(diagnostics);
+    assert.ok(!diagnostics.open);
+    assert.match(text(diagnostics),/Atlas graph revision/);
+    assert.match(text(diagnostics),/Schema version/);
+    assert.ok(panel.children.indexOf(diagnostics)>panel.children.indexOf(
+      buttons(panel).find(item=>item.textContent==="Check linked Journals in this World")));
+    assert.deepEqual(ctx.calls,[],"a dependency audit does not write to either World");
+    ctx.scene.getFlag=(_scope,key)=>key==="territoryGridTransferIntent"
+      ? {schemaVersion:999,records:[]} : null;
+    await ws.render(true);
+    const blocked=walk(ws.result,item=>
+      item.attributes?.has("data-atlas-portability-blocked"))[0];
+    assert.ok(blocked,"invalid native Region recovery ledger must block handoff");
+    assert.ok(ws.result && walk(ws.result,item=>item.tag==="section" && item.children.includes(blocked)).length);
+    assert.match(text(blocked),/STOP: The native Region recovery state is invalid/);
+    assert.deepEqual(ctx.calls,[],"invalid recovery reporting never clears the ledger");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("Checkpoint authoring minimizes existing Workspace; side tool restores without recreating or writing",async()=>{
+  const ctx=context();
+  try{
+    const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    workspace.activeSection="checkpoints";
+    await workspace.render(true);
+    assert.equal(workspace.minimized,false);
+    await minimizeAtlasSceneWorkspace(ctx.scene);
+    assert.equal(workspace.minimized,true);
+    assert.equal(workspace.minCalls,1);
+    const again=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    assert.equal(again,workspace);
+    assert.equal(again.minimized,false);
+    assert.equal(again.maxCalls,1);
+    assert.equal(again.activeSection,"checkpoints","native maximize retains tab and draft context");
+    await again.close();
+    await minimizeAtlasSceneWorkspace(ctx.scene);
+    assert.equal(again.minCalls,1,"closed Workspace is not revived by minimize");
+  }finally{ctx.restore();}
+});
+
+test("Checkpoint Workspace has one [+] placement action and compact searchable rows", async () => {
+  const ctx = context();
+  try {
+    ctx.actions.beginCheckpoint = () => ctx.calls.push(["checkpoint"]);
+    ctx.actions.beginIndependentCheckpoint = () => ctx.calls.push(["unexpected-legacy"]);
+    ctx.scene.getFlag = (_scope, flag) => flag === "atlas" ? {
+      schemaVersion: 10, coordinateSpace: "image", revision: 3,
+      enabled: false, calibration: null, roads: [], segments: [],
+      nodes: [{ id: "node", x: 10, y: 20 }],
+      checkpoints: [{ id: "cp", roadId: null, nodeId: "node",
+        name: "Free Village", elevationMeters: null,
+        appearance: null, playerVisible: false }]
+    } : null;
+    ctx.actions.selectCheckpoint = (_scene, id) => ctx.calls.push(["locate", id]);
+    ctx.actions.editCheckpoint = () => ctx.calls.push(["edit"]);
+    ctx.actions.editCheckpointAppearance = () => ctx.calls.push(["settings"]);
+    ctx.actions.manageCheckpointRoad = () => ctx.calls.push(["link"]);
+    ctx.actions.removeCheckpoint = () => ctx.calls.push(["remove"]);
+    const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    await enter(workspace,"Settings");
+    const tab = buttons(workspace.result).find(item =>
+      item.textContent === "Map Marker discovery & connections");
+    assert.ok(tab);
+    await tab.listeners.get("click")({ preventDefault() {} });
+    const panel = walk(workspace.result, item =>
+      item.attributes?.get("data-atlas-checkpoint-manager") === "")[0];
+    assert.ok(panel, "Checkpoint Workspace is a dedicated manager");
+    const add = buttons(panel).filter(item => item.textContent === "+");
+    assert.equal(add.length, 1, "there is one Checkpoints [+] authoring entrypoint");
+    assert.equal(buttons(panel).filter(item => item.textContent === "+ Independent Checkpoint" ||
+      item.textContent === "+ Road Checkpoint").length, 0);
+    await add[0].listeners.get("click")({ preventDefault() {} });
+    assert.deepEqual(ctx.calls, [["checkpoint"]]);
+    const row = walk(panel, item => item.className === "atlas-checkpoint-row")[0];
+    assert.ok(row);
+    assert.equal(row.children[0].className, "atlas-checkpoint-info");
+    assert.equal(row.children[1].className, "atlas-checkpoint-actions");
+    assert.equal(row.children[2].className, "atlas-checkpoint-details");
+    assert.equal(row.children[1].children.every(item =>
+      item.className?.includes?.("atlas-ui-icon-button")), true);
+    const search = walk(panel, item => item.tag === "input" &&
+      item.type === "search")[0];
+    assert.ok(search);
+    search.value = "not present";
+    search.listeners.get("input")();
+    assert.equal(row.hidden, true);
+    search.value = "Free Village";
+    search.listeners.get("input")();
+    assert.equal(row.hidden, false);
+    await workspace.close();
+  } finally { ctx.restore(); }
+});
+
+test("isolated Checkpoint in Workspace offers explicit Road connection action", async () => {
+  const ctx = context();
+  try {
+    ctx.scene.getFlag = (_scope, flag) => flag === "atlas" ? {
+      schemaVersion: 10, coordinateSpace: "image", revision: 3,
+      enabled: false, calibration: null, roads: [], segments: [],
+      nodes: [{ id: "node", x: 10, y: 20 }],
+      checkpoints: [{ id: "cp", roadId: null, nodeId: "node",
+        name: "Free Village", elevationMeters: null,
+        appearance: null, playerVisible: false }]
+    } : null;
+    ctx.actions.manageCheckpointRoad = (_scene, id) => ctx.calls.push(["connect", id]);
+    const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    await enter(workspace,"Settings");
+    const tab = buttons(workspace.result).find(item =>
+      item.textContent === "Map Marker discovery & connections");
+    await tab.listeners.get("click")({ preventDefault() {} });
+    assert.match(text(workspace.result), /Free Village/);
+    const connect = buttons(workspace.result).find(item =>
+      item.title === "Connect this isolated Map Marker to a Road endpoint");
+    assert.ok(connect);
+    await connect.listeners.get("click")({ preventDefault() {} });
+    assert.deepEqual(ctx.calls, [["connect", "cp"]]);
+    await workspace.close();
+  } finally { ctx.restore(); }
+});
+
+test("workspace refuses non-GM and unauthorized Scenes, including after open", async () => {
+  const ctx = context();
+  try {
+    globalThis.game.user.isGM = false;
+    assert.throws(() => openAtlasSceneWorkspace(ctx.scene, ctx.actions), /Only a GM/);
+    globalThis.game.user.isGM = true;
+    ctx.scene.canUserModify = () => false;
+    assert.throws(() => openAtlasSceneWorkspace(ctx.scene, ctx.actions), /Only a GM/);
+    ctx.scene.canUserModify = () => true;
+    const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    globalThis.game.user.isGM = false;
+    await assert.rejects(() => workspace.render(true), /Only a GM/);
+    await workspace.close();
+  } finally { ctx.restore(); }
+});
+
+test("returning from batch painting fully restores the existing minimized Workspace",async()=>{
+  const ctx=context();
+  try{
+    const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    workspace.activeSection="territories";
+    await workspace.minimize();
+    await restoreAtlasSceneWorkspace(ctx.scene);
+    assert.equal(workspace.minimized,false);
+    assert.equal(workspace.maxCalls,1);
+    assert.equal(workspace.activeSection,"territories");
+    assert.match(text(workspace.result),/Territories/);
+    await workspace.minimize();
+    const reopened=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    assert.equal(reopened,workspace);
+    assert.equal(workspace.minimized,false);
+    assert.equal(workspace.maxCalls,2);
+    await workspace.close();
+    await restoreAtlasSceneWorkspace(ctx.scene);
+    assert.equal(workspace.rendered,false,
+      "closing a Workspace deliberately must not reopen it");
+  }finally{ctx.restore();}
+});
+
+test("Roads tab is a working Workspace view with legacy Scene settings unaffected", async () => {
+  const ctx = context();
+  try {
+    const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    await enter(workspace,"Settings");
+    const roads = buttons(workspace.result).find(item => item.textContent === "Road topology & legacy tools");
+    assert.ok(roads, "Roads has its own Workspace navigation entry");
+    await roads.listeners.get("click")({ preventDefault() {} });
+    assert.equal(workspace.activeSection, "roads");
+    assert.match(text(workspace.result), /Roads/);
+    assert.match(text(workspace.result), /Add a road to begin/);
+    assert.doesNotMatch(text(workspace.result), /Territories & custom native Regions/,
+      "Roads view does not construct the Territory manager");
+    await workspace.close();
+  } finally { ctx.restore(); }
+});
+
+test("native Levels are isolated in Topology and never constructed inside Roads", async () => {
+  const ctx = context();
+  try {
+    globalThis.game.settings.get = (_scope, key) =>
+      key === "nativeLevelPlannerEnabled" ? true : null;
+    const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    await enter(workspace,"Settings");
+    const topology = buttons(workspace.result).find(item => item.textContent === "Topology & Levels");
+    assert.ok(topology);
+    await topology.listeners.get("click")({ preventDefault() {} });
+    assert.equal(workspace.activeSection, "topology");
+    assert.match(text(workspace.result), /Native Scene Levels/);
+    assert.doesNotMatch(text(workspace.result), /Territories & custom native Regions/);
+    await enter(workspace,"Settings");
+    const roads = buttons(workspace.result).find(item => item.textContent === "Road topology & legacy tools");
+    await roads.listeners.get("click")({ preventDefault() {} });
+    assert.doesNotMatch(text(workspace.result), /Native Scene Levels/);
+    await workspace.close();
+  } finally { ctx.restore(); }
+});
+
+test("Territory action row stays right-aligned alongside the Region label", () => {
+  const css = readFileSync(new URL("../styles/atlas-scene-workspace.css", import.meta.url), "utf8");
+  assert.match(css, /\.atlas-territory-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/s);
+  assert.match(css, /\.atlas-territory-actions\s*\{[^}]*justify-self:\s*end/s);
+});
+
+test("GM Territory directory remains accessible; Atlas Layers owns persistent map visibility", async () => {
+  const ctx = context();
+  try {
+    const flag = (kind,parentRegionId=null) => (_scope, key) => key === "atlas" ?
+      {schemaVersion:1,linked:true} : key === "territoryGeography" ?
+        {schemaVersion:1,kind,parentRegionId,roadOverrides:{}} : null;
+    ctx.scene.regions[0].name = "Unclassified native Region";
+    ctx.scene.regions.push({id:"continent-1",name:"Valecor",parent:{id:ctx.scene.id},
+      hidden:false,shapes:[],behaviors:[],getFlag:flag("continent")});
+    ctx.scene.regions.push({id:"settlement-1",name:"Dirwest",parent:{id:ctx.scene.id},
+      hidden:false,shapes:[],behaviors:[],getFlag:flag("city","continent-1")});
+    const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
+    await enter(workspace,"Map directory");
+    const boundary=buttons(workspace.result).find(item=>item.title==="Show boundary to players: Dirwest");
+    assert.ok(boundary);
+    assert.equal(boundary.disabled,true,"Region permission is required to offer sharing");
+    ctx.scene.regions.get("settlement-1").canUserModify=()=>true;
+    await workspace.render(true);
+    let sharedId;
+    ctx.actions.configureTerritorySharing=(_scene,id)=>{sharedId=id;};
+    const allowed=buttons(workspace.result).find(item=>item.title==="Show boundary to players: Dirwest");
+    assert.equal(allowed.disabled,false);
+    await allowed.listeners.get("click")({preventDefault(){}});
+    assert.equal(sharedId,"settlement-1");
+    await enter(workspace,"Settings");
+    const territories = buttons(workspace.result).find(item=>item.textContent==="Territory batch & native Region tools");
+    await territories.listeners.get("click")({preventDefault(){}});
+    const rows = () => walk(workspace.result,item=>item.attributes?.has("data-atlas-native-region-id"));
+    assert.deepEqual(rows().map(item=>item.attributes.get("data-atlas-native-region-id")),
+      ["continent-1","settlement-1","region-1"],
+      "Combined directory groups Continent rows ahead of their children and uncategorized Regions");
+    assert.equal(walk(workspace.result,item=>item.attributes?.has("data-atlas-territory-view")).length,0,
+      "Workspace must not own competing map-view settings");
+    assert.equal(rows().length,3,"native-only Regions remain available in Combined");
+    assert.match(text(workspace.result),/Atlas Layers toolbar button/);
+    assert.deepEqual(ctx.calls,[],"read-only views must never commit native or Atlas data");
+    await workspace.close();
+  } finally { ctx.restore(); }
+});
+
+test("Locate uses public canvas bounds and workspace does not own canvas preview Hooks", async () => {
+  const ctx=context();
+  try {
+    const subscriptions=new Map(),removed=[];
+    let next=1;
+    globalThis.Hooks={
+      on(event,handler){const id=next++;subscriptions.set(id,{event,handler});return id;},
+      off(event,id){removed.push([event,id]);subscriptions.delete(id);}
+    };
+    const moves=[];
+    ctx.scene.regions[0].parent={id:ctx.scene.id};
+    ctx.scene.regions[0].bounds={x:100,y:240,width:300,height:100};
+    ctx.scene.regions[0].polygons=[{points:[100,240,400,240,400,340,100,340]}];
+    class Container {
+      constructor(){this.children=[];this.parent=null;this.alpha=1;}
+      addChild(item){this.children.push(item);item.parent=this;return item;}
+      removeChild(item){this.children=this.children.filter(child=>child!==item);item.parent=null;}
+      destroy(){this.destroyed=true;}
+    }
+    class Graphics {
+      poly(){return this;}
+      stroke(){return this;}
+      destroy(){}
+    }
+    globalThis.PIXI={Container,Graphics};
+    globalThis.canvas={ready:true,scene:ctx.scene,
+      app:{renderer:{screen:{width:1000,height:800}}},
+      stage:{scale:{x:1}},interface:new Container(),
+      animatePan:async options=>{moves.push(options);}};
+    const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    assert.equal(subscriptions.size,0,"persistent Atlas Layers controller owns canvas hooks");
+    await enter(workspace,"Settings");
+    await buttons(workspace.result).find(item=>item.textContent==="Territory batch & native Region tools")
+      .listeners.get("click")({preventDefault(){}});
+    const locate=buttons(workspace.result).find(item=>
+      item.title==="Locate this native Region on the map");
+    await locate.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(moves,[{x:250,y:290,scale:2.25,duration:750}]);
+    assert.equal(globalThis.canvas.interface.children.length,1,
+      "Locate draws only the selected Region even when persistent Layers are off");
+    assert.equal(workspace.minimized,false,"Locate preserves the expanded Workspace");
+    assert.deepEqual(ctx.calls,[],"Locate never writes a Scene or native Region");
+    await workspace.close();
+    assert.equal(subscriptions.size,0);
+    assert.equal(removed.length,0);
+  } finally {ctx.restore();}
+});
+
+test("Directory filters keep independent choices and row expansion across refresh",async()=>{
+  const ctx=context();
+  try {
+    const graph={schemaVersion:10,coordinateSpace:"image",revision:2,enabled:true,calibration:null,
+      roads:[{id:"road",name:"Coast Road",travelPresetId:null,appearance:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:10,y:10}],
+      segments:[{id:"s",roadId:"road",from:"a",to:"b",via:[],bidirectional:true}],checkpoints:[]};
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    assert.match(text(ws.result),/Outside classified territories/);
+    await enter(ws,"All roads");
+    let row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road")&&text(e.children[0]).includes("land"))[0];
+    row.open=true;
+    row.listeners.get("toggle")();
+    await ws.render(true);
+    row=walk(ws.result,e=>e.tag==="details" && text(e.children[0]).includes("Coast Road")&&text(e.children[0]).includes("land"))[0];
+    assert.equal(row.open,true);
+    const type=walk(ws.result,e=>e.tag==="select")[0];
+    type.value="air";
+    type.listeners.get("change")();
+    assert.doesNotMatch(text(ws.result),/Coast Road/);
+    assert.match(text(ws.result),/No matching entries/);
+    await enter(ws,"All Map Markers");
+    await enter(ws,"All roads");
+    assert.equal(walk(ws.result,e=>e.tag==="select")[0].value,"air");
+    assert.deepEqual(ctx.calls,[]);
+    await ws.close();
+  } finally {ctx.restore();}
+});
+
+test("Named destination resolves current coordinates and blocks a stale selection during travel",async()=>{
+  const ctx=context();
+  try {
+    const {checkpointDestinationControl}=await import("../scripts/navigation-checkpoint-destination.js");
+    const graph={nodes:[{id:"n",x:12,y:34}], checkpoints:[{id:"c",nodeId:"n",name:"Pier"}]};
+    const view={ready:true,scene:ctx.scene};
+    const calls=[];
+    const planner={scene:ctx.scene,start:{x:0,y:0},atlasProvider:()=>graph,canvasProvider:()=>view,
+      calculateRoute:(v,a)=>calls.push(v===view && a===graph),draw:()=>{},render:()=>{}};
+    const controls=checkpointDestinationControl(planner);
+    const select=controls.children[1].children[0].children.find(node=>node.tag==="select");
+    select.value="c";
+    graph.nodes[0].x=99;
+    await select.listeners.get("change")();
+    assert.deepEqual(planner.end,{x:99,y:34});
+    planner.travelSession={};
+    await select.listeners.get("change")();
+    assert.deepEqual(calls,[true]);
+    assert.equal(checkpointDestinationControl(planner),null);
+  } finally {ctx.restore();}
+});
+
+test("Workspace travel tabs switch without saving or clearing unsaved World drafts",async()=>{
+  const ctx=context();
+  try{
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Settings");
+    const tabs=walk(ws.result,node=>node.attributes?.get("role")==="tab");
+    const panels=walk(ws.result,node=>node.className==="atlas-travel-settings-panel");
+    assert.equal(tabs.length,2);
+    assert.equal(panels.length,2);
+    assert.equal(tabs[0].attributes.get("aria-selected"),"true");
+    assert.equal(panels[0].hidden,false);
+    assert.equal(panels[1].hidden,true);
+    const firstDraft=walk(panels[0],node=>node.tag==="input")[0];
+    assert.ok(firstDraft);
+    firstDraft.value="13";
+    await tabs[1].listeners.get("click")({preventDefault(){}});
+    assert.equal(tabs[1].attributes.get("aria-selected"),"true");
+    assert.equal(panels[1].hidden,false);
+    assert.equal(panels[0].hidden,true);
+    await tabs[0].listeners.get("click")({preventDefault(){}});
+    assert.equal(panels[0].hidden,false);
+    assert.equal(walk(panels[0],node=>node.tag==="input")[0],firstDraft);
+    assert.equal(firstDraft.value,"13","switching tabs retains staged values");
+    assert.deepEqual(ctx.calls,[],"tab changes do not authorize World writes");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("Directory keeps Create/View commands and moves unique management into Settings",async()=>{
+  const ctx=context();
+  try{
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?{
+      schemaVersion:10,coordinateSpace:"image",revision:1,enabled:true,calibration:null,
+      roads:[{id:"road",name:"Coast Road",travelPresetId:null,appearance:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:10,y:10}],
+      segments:[{id:"s",roadId:"road",from:"a",to:"b",via:[],bidirectional:true}],
+      checkpoints:[]}:null;
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    for(const className of ["atlas-directory-toolbar","atlas-directory-creation",
+      "atlas-directory-views"])
+      assert.ok(walk(ws.result,item=>item.className===className)[0],className+" is present");
+    assert.ok(!walk(ws.result,item=>item.tag==="summary"&&
+      item.textContent==="Manage map records").length,
+      "redundant management disclosure is removed");
+    await enter(ws,"All roads");
+    const directory=walk(ws.result,item=>item.className==="atlas-map-directory")[0];
+    assert.ok(directory);
+    const roadRow=walk(directory,item=>item.tag==="details"&&
+      text(item.children[0]).includes("Coast Road")&&text(item.children[0]).includes("land"))[0];
+    assert.ok(roadRow);
+    assert.doesNotMatch(text(roadRow.children[0]),/\bHidden\b/,
+      "visibility is conveyed by the existing accessible eye action");
+    const summary=roadRow.children[0];
+    assert.equal(summary.tag,"summary");
+    assert.ok(summary.children.some(child=>child.className==="atlas-directory-actions"),
+      "actions remain beside the item label even when its details are collapsed");
+    await enter(ws,"Settings");
+    assert.ok(walk(ws.result,item=>item.className==="atlas-workspace-advanced-management")[0],
+      "unique Road topology and Territory recovery operations remain discoverable");
+    assert.deepEqual(ctx.calls,[],"opening the Map Directory does not write Scene data");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("Map Marker directory shares category taxonomy and sorts display copies only",async()=>{
+  const ctx=context();
+  try{
+    const graph={schemaVersion:10,coordinateSpace:"image",revision:3,enabled:true,calibration:null,
+      roads:[{id:"r",name:"Coast Road",travelPresetId:null,appearance:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:10,y:10},{id:"c",x:20,y:20}],
+      segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[],bidirectional:true}],
+      checkpoints:[
+        {id:"z",name:"Zeta",roadId:"r",nodeId:"a",elevationMeters:null,
+          appearance:null,playerVisible:false},
+        {id:"a",name:"Álpha",roadId:null,nodeId:"c",elevationMeters:null,
+          appearance:null,playerVisible:false}
+      ]};
+    const original=structuredClone(graph.checkpoints);
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:
+      key==="checkpointCategories"?{z:"security"}:null;
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    await enter(ws,"All Map Markers");
+    const findDirectory=()=>walk(ws.result,item=>item.className==="atlas-map-directory")[0];
+    const rows=()=>findDirectory().children[1].children.filter(item=>item.tag==="details");
+    assert.deepEqual(rows().map(item=>text(item.children[0]).includes("Álpha")?"a":"z"),["a","z"]);
+    const category=walk(findDirectory(),node=>node.tag==="optgroup"&&
+      node.label==="Infrastructure")[0];
+    assert.ok(category,"type filters share the marker Settings domain taxonomy");
+    assert.ok(category.children.some(item=>item.value==="security"&&
+      item.textContent==="Security Checkpoint"));
+    const sort=walk(findDirectory(),node=>node.tag==="select"&&
+      node.attributes?.get("aria-label")==="Sort by name")[0];
+    assert.ok(sort);
+    sort.value="za";sort.listeners.get("change")();
+    assert.deepEqual(rows().map(item=>text(item.children[0]).includes("Álpha")?"a":"z"),["z","a"]);
+    assert.deepEqual(graph.checkpoints,original,"sorting never changes the stored graph");
+    await enter(ws,"All roads");
+    const roadRow=walk(findDirectory(),node=>node.tag==="details"&&
+      text(node.children[0]).includes("Coast Road"))[0];
+    assert.ok(roadRow);
+    assert.ok(text(roadRow).includes("Map Markers (1)"),
+      "Road displays only its explicitly associated Map Markers");
+    assert.deepEqual(ctx.calls,[],"directory filtering, sorting and child previews are read-only");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("Map Directory renders Road marker counts with browser-like HTMLCollection children",async()=>{
+  const ctx=context();
+  try{
+    // HTMLElement.children is an HTMLCollection: iterable and indexed, but has no slice().
+    const originalCreate=document.createElement;
+    document.createElement=tag=>{
+      const node=originalCreate(tag);
+      if(tag==="details")node.children=new Proxy(node.children,{
+        get(items,key,receiver){
+          return key==="slice"?undefined:Reflect.get(items,key,receiver);
+        }
+      });
+      return node;
+    };
+    const graph={schemaVersion:10,coordinateSpace:"image",revision:2,
+      enabled:true,calibration:null,
+      roads:[{id:"road",name:"Coast Road",travelPresetId:null,
+        appearance:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:20,y:20}],
+      segments:[{id:"segment",roadId:"road",from:"a",to:"b",
+        via:[],bidirectional:true}],
+      checkpoints:[{id:"cp",name:"Bridge",roadId:"road",nodeId:"a",
+        elevationMeters:null,appearance:null,playerVisible:false}]};
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    assert.match(text(ws.result),/Map Markers \(1\)/);
+    await enter(ws,"All roads");
+    const road=walk(ws.result,item=>item.tag==="details"&&
+      text(item.children[0]).includes("Coast Road"))[0];
+    assert.ok(road,"linked Road remains available");
+    assert.match(text(road),/Map Markers \(1\)/);
+    assert.match(text(road),/Bridge/);
+    assert.deepEqual(ctx.calls,[],"directory render must not write graph or Region data");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("Directory section Plus uses existing authoring and never implies a Road attachment",async()=>{
+  const ctx=context();
+  try{
+    const graph={schemaVersion:10,coordinateSpace:"image",revision:1,enabled:true,
+      calibration:null,roads:[{id:"r",name:"Coast Road",appearance:null,
+        travelPresetId:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:20,y:20}],
+      segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[],bidirectional:true}],
+      checkpoints:[{id:"m",name:"Bridge",roadId:"r",nodeId:"a",
+        appearance:null,playerVisible:false,elevationMeters:null}]};
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
+    ctx.actions.beginCheckpoint=(_scene,refresh)=>{ctx.calls.push("marker");};
+    ctx.actions.begin=(_scene,refresh)=>{ctx.calls.push("road");};
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    const addRoad=buttons(ws.result).find(node=>node.title==="Add Road (draw on the Scene)");
+    assert.ok(addRoad,"Road collection has an accessible context Plus");
+    let stopped=0;
+    await addRoad.listeners.get("click")({preventDefault(){},stopPropagation(){stopped++;}});
+    assert.deepEqual(ctx.calls,["road"],"uses existing Road GM authoring action");
+    assert.equal(stopped,1,"Plus must not toggle its disclosure row");
+    ctx.calls.length=0;
+    await enter(ws,"All roads");
+    const addMarker=buttons(ws.result).find(node=>
+      node.title==="Add Map Marker (choose its position and Road attachment)");
+    assert.ok(addMarker,"a Road child collection offers a Map Marker Plus");
+    await addMarker.listeners.get("click")({preventDefault(){},stopPropagation(){stopped++;}});
+    assert.deepEqual(ctx.calls,["marker"],"no Road ID is preselected or persisted");
+    assert.deepEqual(graph.checkpoints.map(item=>item.roadId),["r"],
+      "opening contextual authoring leaves existing associations unchanged");
+    assert.equal(stopped,2);
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("late canvas editor refresh never reopens a GM-closed or minimized Workspace",async()=>{
+  const ctx=context();
+  try{
+    let refresh;
+    ctx.actions.beginCheckpoint=(_scene,callback)=>{refresh=callback;};
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    const add=buttons(ws.result).find(button=>button.textContent==="Add Map Marker");
+    assert.ok(add);
+    await add.listeners.get("click")({preventDefault(){}});
+    assert.equal(typeof refresh,"function");
+    await ws.minimize();
+    await refresh();
+    assert.equal(ws.minimized,true,"a background draft refresh must not expand Workspace");
+    await ws.close();
+    assert.equal(ws.rendered,false);
+    await refresh();
+    assert.equal(ws.rendered,false,"late close must not resurrect a user-closed Workspace");
+    assert.deepEqual(ctx.calls,[],"refresh is a client-only presentation action");
+  }finally{ctx.restore();}
+});

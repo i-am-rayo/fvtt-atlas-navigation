@@ -1,0 +1,333 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+
+class MockApplicationV2 {
+  constructor(){this.rendered=false;}
+  async render(){this.result=await this._renderHTML();this.rendered=true;return this;}
+}
+globalThis.foundry={applications:{api:{ApplicationV2:MockApplicationV2}}};
+const {AtlasLayersController,AtlasLayersWindow}=
+  await import("../scripts/atlas-layers.js");
+const {ATLAS_LAYERS_SETTING,DEFAULT_ATLAS_LAYERS,validateAtlasLayers,
+  updateAtlasLayers}=await import("../scripts/atlas-layer-preferences.js");
+
+test("Atlas Layers preferences have versioned, validated client-local defaults",()=>{
+  assert.deepEqual(validateAtlasLayers(null),DEFAULT_ATLAS_LAYERS);
+  const chosen=updateAtlasLayers(null,{roadMode:"terrain",regionMode:"combined",
+    showRegionNames:true,continentFillOpacity:.4,settlementFillOpacity:0});
+  assert.deepEqual(validateAtlasLayers(chosen),chosen);
+  const legacy={schemaVersion:1,roadMode:"terrain",regionMode:"off",
+    showRegionNames:false,continentFillOpacity:.2,settlementFillOpacity:.1};
+  assert.deepEqual(validateAtlasLayers(legacy),
+    {...legacy,schemaVersion:2,roadTerritoryHover:false},
+    "legacy client preferences upgrade in memory, never write on read");
+  assert.equal(legacy.schemaVersion,1);
+  assert.equal(updateAtlasLayers(legacy,{roadTerritoryHover:true}).roadTerritoryHover,true);
+  for(const change of [{roadMode:"unknown"},{regionMode:"everyone"},
+    {showRegionNames:"true"},{continentFillOpacity:-1},{settlementFillOpacity:.9},
+    {schemaVersion:2},{nativeRegions:true}])
+    assert.throws(()=>updateAtlasLayers(null,change),/Invalid|Unknown/);
+  assert.throws(()=>validateAtlasLayers({...chosen,schemaVersion:5}),/Unknown/);
+  assert.throws(()=>validateAtlasLayers({...chosen,secretFlag:1}),/Unknown/);
+});
+
+test("GM and player map preferences remain client-local; players cannot select GM Road modes",async()=>{
+  const previous={game:globalThis.game,Hooks:globalThis.Hooks,canvas:globalThis.canvas,
+    document:globalThis.document};
+  const values=new Map(),hooks=new Map(),registrations=new Map(),viewModes=[];
+  const scene={id:"scene1",regions:new Map(),getFlag:()=>null,
+    update:()=>{throw Error("Atlas Layers must not write Scenes");}};
+  globalThis.game={user:{id:"gm1",isGM:true},settings:{
+    register(_scope,key,options){registrations.set(key,options);
+      values.set(key,structuredClone(options.default));},
+    get(_scope,key){return values.get(key);},
+    async set(_scope,key,value){values.set(key,structuredClone(value));
+      registrations.get(key).onChange?.(value);}
+  }};
+  globalThis.Hooks={on(event,callback){if(!hooks.has(event))hooks.set(event,[]);
+    hooks.get(event).push(callback);}};
+  globalThis.canvas={scene,ready:true,interface:{addChild(){}}};
+  globalThis.document={createElement:tag=>new Element(tag)};
+  try{
+    const suppressed=[],hoverModes=[];
+    const roadCanvas={setViewMode:mode=>viewModes.push(mode),
+      setRoadTerritoryHoverEnabled:enabled=>hoverModes.push(enabled),
+      setTerritoryLabelCheckpointIds:ids=>suppressed.push([...ids])};
+    const controller=new AtlasLayersController(roadCanvas);
+    controller.register();
+    assert.equal(registrations.get(ATLAS_LAYERS_SETTING).scope,"client");
+    assert.equal(registrations.get(ATLAS_LAYERS_SETTING).config,false);
+    let regionOpts=null;
+    controller.regions.sync=(_scene,entries,options)=>{
+      assert.deepEqual(entries,[]);regionOpts=options;
+      controller.regions.labelCheckpointIds=new Set(["checkpoint1"]);
+    };
+    await controller.update({roadMode:"terrain",regionMode:"combined",
+      showRegionNames:true,continentFillOpacity:.33});
+    assert.equal(viewModes.at(-1),"terrain");
+    assert.equal(regionOpts.mode,"combined");
+    assert.equal(regionOpts.showNames,true);
+    assert.equal(regionOpts.continentFillOpacity,.33);
+    assert.equal(controller.read().continentFillOpacity,.33);
+    assert.deepEqual(suppressed.at(-1),["checkpoint1"],
+      "only currently drawn Territory labels suppress the duplicate Checkpoint Always label");
+    await controller.update({roadTerritoryHover:true});
+    assert.equal(hoverModes.at(-1),true,"GM opted into transient hover labels");
+    controller.setPlayerPreview(true);
+    assert.equal(hoverModes.at(-1),false,
+      "GM player preview suppresses every native Territory hover label");
+    controller.setPlayerPreview(false);
+    assert.equal(hoverModes.at(-1),true,
+      "exiting preview restores the GM's stored client preference");
+    hooks.get("canvasReady")[0]();
+    assert.equal(viewModes.at(-1),"terrain");
+    const recreated=new AtlasLayersController(roadCanvas);
+    assert.equal(recreated.read().showRegionNames,true,
+      "client persisted setting survives window/controller recreation");
+    assert.equal(recreated.read().roadMode,"terrain");
+    globalThis.game.user.isGM=false;
+    await controller.open();
+    const playerUI=controller.window.result;
+    assert.equal(all(playerUI).some(element=>element.attributes?.["aria-label"]===
+      "Show Territory under hovered Road name (GM only)"),false);
+    assert.equal(all(playerUI).filter(element=>element.type==="radio").length,4,
+      "only Region filter radio buttons are shown to players");
+    assert.match(playerUI.children[0].textContent,/explicitly shared by the GM/);
+    await controller.update({regionMode:"off"});
+    assert.equal(controller.read().regionMode,"off");
+    controller.refresh();
+    assert.equal(hoverModes.at(-1),false,
+      "non-GM overlay ignores GM-only client Territory preference");
+    assert.equal(viewModes.at(-1),"terrain","non-GM cannot change the Road overlay");
+    globalThis.game.user.isGM=true;
+    values.set(ATLAS_LAYERS_SETTING,{schemaVersion:900});
+    assert.throws(()=>controller.read(),/Unknown/,
+      "invalid old preferences are not silently repaired by a read");
+    await controller.reset();
+    assert.deepEqual(controller.read(),DEFAULT_ATLAS_LAYERS,
+      "only deliberate GM reset can rewrite an invalid setting");
+    assert.deepEqual(suppressed.at(-1),[],
+      "hiding geographic names restores the Checkpoint's stored label mode");
+  }finally{Object.assign(globalThis,previous);}
+});
+
+class Element {
+  constructor(tag){this.tagName=tag;this.children=[];this.listeners=new Map();
+    this.textContent="";this.attributes={};this.style={};this.dataset={};}
+  append(...children){this.children.push(...children);}
+  appendChild(child){this.children.push(child);return child;}
+  replaceChildren(...children){this.children=[...children];}
+  setAttribute(k,v){this.attributes[k]=v;}
+  addEventListener(k,fn){this.listeners.set(k,fn);}
+}
+function all(node){return [node,...node.children.flatMap(all)];}
+
+test("Atlas Layers modeless palette exposes Road/Region modes, names and fill controls",async()=>{
+  const previous={game:globalThis.game,document:globalThis.document};
+  globalThis.game={user:{isGM:true}};
+  globalThis.document={createElement:tag=>new Element(tag)};
+  const updates=[],controller={read:()=>({...DEFAULT_ATLAS_LAYERS}),
+    listColorRegions:()=>[],
+    async update(change){updates.push(change);}};
+  try{
+    const window=new AtlasLayersWindow(controller);
+    const root=await window._renderHTML();
+    const radios=all(root).filter(e=>e.type==="radio");
+    assert.deepEqual(radios.map(e=>e.value),
+      ["roads","terrain","corridors","off","continents","settlements","combined"]);
+    assert.deepEqual(all(root).filter(e=>e.className==="atlas-layers-choice-copy")
+      .map(e=>e.children[1].textContent),[
+      "Authored Road appearance and name labels.",
+      "Road lines colored by sampled terrain surfaces.",
+      "Existing native generated corridor Region boundaries."
+    ]);
+    assert.deepEqual(all(root).filter(e=>e.className==="atlas-layers-sample")
+      .map(e=>e.attributes["aria-hidden"]),["true","true","true"],
+      "miniature examples are decorative and never reveal hidden Region data");
+    assert.equal(radios.filter(e=>e.checked).length,2);
+    const hovered=all(root).find(node=>node.attributes?.["aria-label"]===
+      "Show Territory under hovered Road name (GM only)");
+    assert.ok(hovered);
+    assert.equal(hovered.checked,false,"GM Road Territory hover is opt-in");
+    hovered.checked=true;hovered.listeners.get("change")();
+    await window.updates;
+    assert.deepEqual(updates[0],{roadTerritoryHover:true});
+    const terrain=radios.find(e=>e.value==="terrain");
+    terrain.checked=true;terrain.listeners.get("change")();
+    await window.updates;
+    assert.deepEqual(updates[1],{roadMode:"terrain"});
+    const sliders=all(root).filter(e=>e.type==="range");
+    assert.equal(sliders.length,2);
+    assert.equal(sliders[0].max,"50");
+    const numbers=all(root).filter(e=>e.type==="number"&&e.max==="50");
+    assert.equal(numbers.length,2,"GM fill opacity controls allow direct percentage entry");
+    numbers[0].value="37";numbers[0].listeners.get("input")();
+    assert.equal(sliders[0].value,"37");
+    numbers[0].listeners.get("change")();
+    await window.updates;
+    assert.deepEqual(updates.at(-1),{continentFillOpacity:.37});
+    numbers[0].value="51";numbers[0].listeners.get("input")();
+    numbers[0].listeners.get("change")();
+    await window.updates;
+    assert.deepEqual(updates.at(-1),{continentFillOpacity:.37},
+      "out-of-range percentages cannot change the client setting");
+    const names=all(root).find(e=>e.attributes?.["aria-label"]==="Show Region names");
+    assert.ok(names);
+    assert.match(root.children[0].textContent,/saved for this client/);
+    let reset=false;
+    controller.read=()=>{if(!reset)throw Error("Invalid preferences");
+      return {...DEFAULT_ATLAS_LAYERS};};
+    controller.reset=async()=>{reset=true;};
+    const invalid=await window._renderHTML();
+    assert.match(invalid.children[0].textContent,/Invalid preferences/);
+    const button=all(invalid).find(e=>e.tagName==="button");
+    await button.listeners.get("click")();
+    assert.equal(reset,true,"invalid preferences require an explicit reset click");
+    assert.equal(window.rendered,true);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("GM palette starts with player preview and omits the publication roster",async()=>{
+  const previous={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document};
+  globalThis.document={createElement:tag=>new Element(tag)};
+  const region={id:"r1",name:"Dirwest",hidden:false,parent:{id:"s1"},
+    canUserModify:()=>true,getFlag:(_scope,key)=>key==="regionAtlas"?null:null};
+  globalThis.canvas={scene:{id:"s1",regions:new Map([["r1",region]]),
+    canUserModify:()=>true}};
+  globalThis.game={user:{isGM:true}};
+  const changes=[];
+  const controller={read:()=>({...DEFAULT_ATLAS_LAYERS}),
+    listPublicationRegions:()=>[{id:"r1",name:"Dirwest",shared:false,
+      publicName:true,eligible:true,editable:true}],
+    configurePublication:async id=>changes.push(id),update:async()=>{}};
+  try{
+    const window=new AtlasLayersWindow(controller);
+    const gm=await window._renderHTML();
+    assert.equal(all(gm).find(e=>e.tagName==="legend")?.textContent,"Player Territory Preview");
+    assert.equal(all(gm).some(e=>e.textContent==="Player Publication"),false);
+    assert.deepEqual(changes,[]);
+    globalThis.game.user.isGM=false;
+    const player=await window._renderHTML();
+    assert.equal(all(player).some(e=>e.textContent==="Player Publication"),false);
+    assert.equal(all(player).some(e=>e.textContent==="Share Boundary"),false);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("Atlas Layers omits native Region color editor without altering native colors",async()=>{
+  const previous={game:globalThis.game,canvas:globalThis.canvas,
+    document:globalThis.document};
+  globalThis.document={createElement:tag=>new Element(tag)};
+  const region={id:"nativeRegion1",name:"Reshara",color:"#5ccc28",behaviors:[],
+    parent:{id:"scene1"},canUserModify:()=>true,
+    getFlag(_scope,key){return key==="atlas"?{schemaVersion:1,linked:true}:
+      key==="territoryGeography"?{schemaVersion:1,kind:"continent",
+        parentRegionId:null,roadOverrides:{}}:null;},
+    update(){throw Error("Viewing colors must not write native Regions");}};
+  const scene={id:"scene1",regions:new Map([[region.id,region]]),
+    canUserModify:()=>true};
+  globalThis.game={user:{isGM:true}};
+  globalThis.canvas={scene,ready:true};
+  let opened=0;
+  const controller=new AtlasLayersController({setViewMode:()=>false});
+  controller.read=()=>({...DEFAULT_ATLAS_LAYERS});
+  controller.configureRegion=(_scene,id)=>{assert.equal(id,"nativeRegion1");opened++;};
+  try{
+    assert.deepEqual(controller.listColorRegions(),
+      [{id:"nativeRegion1",name:"Reshara",color:"#5ccc28"}]);
+    const palette=new AtlasLayersWindow(controller),root=await palette._renderHTML();
+    assert.equal(all(root).some(item=>item.type==="color"),false);
+    const edit=all(root).find(item=>item.tagName==="button"&&
+      item.textContent==="Edit native Region color");
+    assert.equal(edit,undefined);
+    assert.equal(opened,0);
+    assert.equal(region.color,"#5ccc28","Atlas never silently alters native color");
+    region.color=new Number(0x4d972b);
+    const updatedPalette=await palette._renderHTML();
+    assert.equal(all(updatedPalette).some(item=>item.type==="color"),false);
+    globalThis.game.user.isGM=false;
+    await assert.rejects(()=>controller.configureColorRegion(region.id),/authorized GM/);
+    assert.equal(opened,0);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("player Atlas Layers projects only shared Territories and leaves Road rendering unchanged",()=>{
+  const previous={game:globalThis.game,canvas:globalThis.canvas};
+  try{
+    const region={id:"dirwest",name:"Private Region Name",hidden:false,
+      parent:{id:"scene"},getFlag(_scope,key){
+        if(key==="atlas")return {schemaVersion:1,linked:true};
+        if(key==="territoryGeography")return {schemaVersion:1,kind:"city",
+          parentRegionId:null,roadOverrides:{}};
+        if(key==="playerTerritory")return {schemaVersion:1,visible:true};
+        if(key==="publicTerritory")return {schemaVersion:1,enabled:true,label:"Dirwest"};
+        return null;
+      }};
+    const scene={id:"scene",regions:new Map([[region.id,region]]),getFlag:()=>null};
+    const viewModes=[],labelIds=[];
+    globalThis.game={user:{isGM:false},settings:{get:()=>({
+      ...DEFAULT_ATLAS_LAYERS,roadMode:"corridors",regionMode:"settlements",
+      showRegionNames:true})}};
+    globalThis.canvas={scene,ready:true,interface:{addChild(){}}};
+    const controller=new AtlasLayersController({
+      setViewMode:mode=>viewModes.push(mode),
+      setTerritoryLabelCheckpointIds:ids=>labelIds.push([...ids])
+    });
+    let projection;
+    controller.regions.sync=(_scene,entries,options)=>{
+      projection=entries;
+      assert.equal(options.mode,"settlements");
+      assert.equal(options.showNames,true);
+    };
+    controller.refresh();
+    assert.deepEqual(projection,[{id:"dirwest",name:"Dirwest",publicName:"Dirwest",
+      playerShared:true,linked:true,invalid:false,geography:{kind:"city"}}]);
+    assert.deepEqual(viewModes,[],"player cannot request GM-only corridor Road mode");
+    assert.deepEqual(labelIds.at(-1),[]);
+    region.hidden=true;
+    controller.refresh();
+    assert.deepEqual(projection,[],"hidden native Region disappears immediately");
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("GM preview reuses shared-only player projection without changing client preferences",()=>{
+  const previous={game:globalThis.game,canvas:globalThis.canvas};
+  try{
+    const region={id:"dirwest",name:"GM secret",hidden:false,parent:{id:"scene"},
+      getFlag(_scope,key){return {
+        atlas:{schemaVersion:1,linked:true},territoryGeography:{schemaVersion:1,kind:"city",
+          parentRegionId:null,roadOverrides:{}},playerTerritory:{schemaVersion:1,visible:true},
+        publicTerritory:{schemaVersion:1,enabled:true,label:"Public Dirwest"}
+      }[key]??null;}};
+    const scene={id:"scene",regions:new Map([[region.id,region]]),getFlag:()=>null};
+    const values={...DEFAULT_ATLAS_LAYERS,regionMode:"off",showRegionNames:false};
+    globalThis.game={user:{isGM:true},settings:{get:()=>values}};
+    globalThis.canvas={scene,ready:true,interface:{addChild(){}}};
+    const controller=new AtlasLayersController({setViewMode(){},
+      setTerritoryLabelCheckpointIds(){}});
+    let drawn=null;
+    controller.regions.sync=(_scene,entries,options)=>{drawn={entries,options};};
+    controller.setPlayerPreview(true);
+    assert.equal(drawn.options.asPlayer,true);
+    assert.equal(drawn.options.mode,"combined");
+    assert.equal(drawn.options.showNames,true);
+    assert.equal(drawn.entries.length,1);
+    assert.equal(drawn.entries[0].name,"Public Dirwest");
+    assert.equal(drawn.entries.every(entry=>entry.playerShared),true);
+    assert.equal(controller.read().regionMode,"off","preview never persists a layer preference");
+    region.hidden=true;controller.refresh();
+    assert.deepEqual(drawn.entries,[],"revoked/hidden Regions disappear from GM preview");
+    globalThis.canvas.scene={id:"other",regions:new Map(),getFlag:()=>null};
+    controller.refresh();
+    assert.equal(controller.playerPreview,false,"scene change ends the ephemeral preview");
+    globalThis.game.user.isGM=false;
+    assert.throws(()=>controller.setPlayerPreview(true),/Only a GM/);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("layer tool supersedes the one-click Road/Corridor toggle",()=>{
+  const main=readFileSync(new URL("../scripts/main.js",import.meta.url),"utf8");
+  assert.match(main,/name:"atlasLayers",title:"Atlas Layers"/);
+  assert.match(main,/controls\.atlasPlayerLayers=\{/);
+  assert.doesNotMatch(main,/atlasRoadLayerView/);
+});

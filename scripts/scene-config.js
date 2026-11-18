@@ -1,0 +1,1718 @@
+import { readAtlas } from "./atlas-storage.js";
+import { readPartyExploration, savePartyExplorationConfig } from "./party-exploration-storage.js";
+import { readManualFog } from "./atlas-manual-fog-storage.js";
+import { readAtlasJournalLinks, journalUuidFor, openAtlasJournal, canOpenAtlasJournal }
+  from "./atlas-journal-links.js";
+import { checkpointKnowledge } from "./party-exploration-model.js";
+import { readSceneGridScale } from "./scene-grid.js";
+import { getRoadMergeCandidates, listRoadJunctions } from "./road-model.js";
+import { listSceneRegions } from "./region-atlas.js";
+import {listPublicTerritorySettings} from "./region-narration.js";
+import {readPlayerTerritorySharing} from "./player-territory-sharing.js";
+import { listRoadCheckpoints } from "./checkpoint-model.js";
+import { listGeneratedRegions } from "./generated-region.js";
+import { readWorldTravelPresets } from "./travel-preset-settings.js";
+import { checkpointTerrainSuggestion } from "./checkpoint-preset-snapshot.js";
+import { createCheckpointRegionWidth, createCheckpointRange } from "./checkpoint-form-controls.js";
+import { appendSettingsField } from "./settings-layout.js";
+import { createSettingsActionButton } from "./settings-controls.js";
+import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsInput } from "./settings-input.js";
+import { createTerrainRegionTravelPresetControl } from "./terrain-region-generator-controls.js";
+import { presetCostSummary } from "./travel-preset-model.js";
+import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
+  from "./road-appearance.js";
+import { availableMovementActions, unavailableMovementActions,
+  previewNativeMovementCost, nativeCostPresetStatus,
+  editableManagedNativeCost } from "./native-movement-cost.js";
+import {ATLAS_LEVEL_PLANNER_SETTING} from "./navigation-native-level-model.js";
+import {atlasNativeLevelSetup} from "./navigation-native-level-setup.js";
+import { listSceneGeography } from "./territory-geography-storage.js";
+import {readTerritoryCheckpointLink} from "./territory-checkpoint-link.js";
+import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
+import { readTerritoryRoadDirectory } from "./territory-road-directory.js";
+import {withInferredContinentParents} from "./territory-parent-inference.js";
+import {territoryBoundaryNeedsAdoption} from "./territory-authoring.js";
+import {projectTerritoryView,groupTerritoryEntries} from "./territory-view-model.js";
+import {nativeRegionColorHex} from "./native-region-color.js";
+import {readPendingTerritoryCellTransfer} from "./territory-grid-transfer.js";
+import {openAtlasTerritorySettings} from "./atlas-territory-settings.js";
+import {territoryCheckpointJournal,territoryJournalBadgeData}
+  from "./territory-journal-indicator.js";
+
+const ROOT_SELECTOR = "[data-fvtt-atlas-scene-root]";
+const junctionFilters = new Map();
+const generatorState = new Map();
+const expandedRoads = new Map();
+const expandedDetails = new Set();
+const collapsedTerritoryGroups = new Set();
+const generatorRoads = new Map();
+const regionLinkRoads = new Map();
+const territoryDirectorySelections = new Map();
+
+/** Read-only Workspace selection; it does not change authored Road state. */
+function selectedTerritoryRoads(scene, directory, atlas) {
+  const key = territoryDirectorySelections.get(scene.id) ?? "all";
+  if (key === "all") return new Set(directory.allRoadIds);
+  if (key === "unclassified") return new Set(directory.unclassifiedRoadIds);
+  const find = entries => {
+    for (const entry of entries) {
+      if (entry.id === key) return entry;
+      const child = find(entry.children);
+      if (child) return child;
+    }
+    return null;
+  };
+  const match = find(directory.tree);
+  if (match) return new Set(match.roadIds);
+  territoryDirectorySelections.set(scene.id,"all");
+  return new Set(atlas.roads.map(road => road.id));
+}
+
+function territoryDirectoryControls(scene, directory, refresh) {
+  const directoryElement = node("nav",undefined,"atlas-territory-directory");
+  directoryElement.setAttribute("aria-label","Roads by geographic territory");
+  directoryElement.appendChild(node("p","Geographic Road directory · inferred by sampled Road/Region overlap. " +
+    "A Road may appear in multiple territories; correct associations from Territories.","hint"));
+  if (!directory.geometryAvailable) directoryElement.appendChild(node("p",
+    "Open this Scene on the canvas to calculate geometric membership. Manual inclusions remain visible.","hint"));
+  if (directory.truncatedRoadIds.length) directoryElement.appendChild(node("p",
+    `${directory.truncatedRoadIds.length} long Roads reached the sampling limit; verify their membership manually.`,"hint"));
+  const current = territoryDirectorySelections.get(scene.id) ?? "all";
+  function choose(id, caption, count, container, depth = 0) {
+    const control=button(`${caption} (${count})`,`Show ${caption} Roads`,()=>{
+      territoryDirectorySelections.set(scene.id,id);refresh();
+    });
+    control.className="atlas-territory-directory-choice";
+    control.style.marginInlineStart=`${Math.min(4,depth)*1.15}rem`;
+    control.setAttribute("aria-pressed",String(current===id));
+    container.appendChild(control);
+  }
+  const rootControls=node("div",undefined,"atlas-territory-directory-global");
+  choose("all","All Roads",directory.allRoadIds.length,rootControls);
+  choose("unclassified","Unclassified",directory.unclassifiedRoadIds.length,rootControls);
+  directoryElement.appendChild(rootControls);
+  function appendTerritories(entries,container,depth=0) {
+    for (const entry of entries) {
+      const row=node("div",undefined,"atlas-territory-directory-node");
+      choose(entry.id,`${entry.name} · ${GEOGRAPHY_KINDS[entry.kind] ?? entry.kind}`,
+        entry.roadIds.length,row,depth);
+      container.appendChild(row);
+      appendTerritories(entry.children,container,depth+1);
+    }
+  }
+  appendTerritories(directory.tree,directoryElement);
+  if (!directory.classifiedCount) directoryElement.appendChild(node("p",
+    "No classified Territories yet. Link Regions in Territories and choose their geographic kind and parent.","hint"));
+  return directoryElement;
+}
+
+/** Shared display scope; filtering never edits Scene graph or native Regions. */
+export function filteredRoadIds(atlas, state) {
+  const ids = new Set(atlas.roads?.map(r => r.id) ?? []);
+  if (state.scope === "scene") return ids;
+  const allowed = new Set(ids.has(state.roadId) ? [state.roadId] : []);
+  if (state.scope === "connected") {
+    const nodes = new Set(atlas.segments.filter(s => s.roadId === state.roadId)
+      .flatMap(s => [s.from, s.to]));
+    for (const segment of atlas.segments) {
+      if (nodes.has(segment.from) || nodes.has(segment.to)) allowed.add(segment.roadId);
+    }
+  }
+  return allowed;
+}
+
+function junctionFilterFor(scene, atlas) {
+  let state = junctionFilters.get(scene.id);
+  if (!state || !atlas.roads?.some(road => road.id === state.roadId)) {
+    state = { roadId: atlas.roads?.[0]?.id ?? null, scope: "scene" };
+    junctionFilters.set(scene.id, state);
+  }
+  return state;
+}
+
+// No native SceneConfig tabs or PARTS are registered by Atlas.
+// Foundry owns Scene Settings; these reusable editor functions are consumed
+// by the GM Atlas Scene Workspace. The isolated legacy renderer below remains
+// temporarily for regression coverage and does not inject UI at runtime.
+
+const label = key => game.i18n.localize(key);
+const node = (tag, text, className) => {
+  const element = document.createElement(tag);
+  if (text !== undefined) element.textContent = text;
+  if (className) element.className = className;
+  return element;
+};
+
+function button(text, title, onClick) {
+  const element = node("button", text);
+  element.type = "button";
+  element.title = title;
+  element.setAttribute("aria-label", title);
+  element.addEventListener("click", async event => {
+    event.preventDefault();
+    try { await onClick(); }
+    catch (error) { ui.notifications.error(error.message); }
+  });
+  return element;
+}
+
+function iconAction(icon,title,onClick,{danger=false}={}){
+  return createSettingsActionButton({icon,label:title,danger,onClick:async event=>{
+    event.preventDefault();event.stopPropagation?.();
+    try{await onClick();}
+    catch(error){ui.notifications.error(error.message??String(error));}
+  }});
+}
+
+function format(value) {
+  return Number(value.toPrecision(7)).toLocaleString(game.i18n.lang || "en");
+}
+
+/** Scene-scoped native territory controls shared by the legacy tab and Workspace.
+ * Atlas never takes ownership of Region geometry or native Behaviors here. */
+export function createAtlasTerritoryPanel(scene, actions, refresh, {
+  generated = listGeneratedRegions(scene),
+  nativeRegions = listSceneRegions(scene),
+  publicById = new Map(listPublicTerritorySettings(scene)
+    .map(entry => [entry.id, entry])),
+  displayMode = "combined",
+  onLocate = null
+} = {}) {
+  const draft = actions.draft(scene);
+  const manager=node("fieldset");
+  manager.setAttribute("data-atlas-territory-manager", "");
+  const heading=node("legend","Territories & custom native Regions ");
+  const add=button("+","Create a Territory using Atlas nodes, native grid painting, or selected Blank Walls",()=>
+    actions.createNativeTerritory(scene,refresh));
+  add.className="atlas-territory-add";
+  add.disabled=!!draft;
+  heading.appendChild(add);
+  const borders=button("Analyze Borders","Analyze peer Territory overlaps and preview a native border correction",()=>
+    actions.reconcileTerritoryBorders(scene,refresh));
+  borders.className="atlas-territory-borders";
+  borders.disabled=!!draft;
+  heading.appendChild(borders);
+  manager.appendChild(heading);
+  manager.appendChild(node("p","Manage manually authored geographic or custom " +
+    "Regions here, including their public Journey names. Atlas-generated " +
+    "corridors are managed under Roads. Native Foundry geometry and Behaviors " +
+    "remain authoritative. Analyze peer overlaps to preview an optional " +
+    "one-sided native border correction; continent-to-settlement nesting is preserved.","hint"));
+  const pending=readPendingTerritoryCellTransfer(scene);
+  const checkpointById=new Map((scene?.getFlag?readAtlas(scene).checkpoints??[]:[])
+    .map(checkpoint=>[checkpoint.id,checkpoint]));
+  let territoryJournals=null;
+  try{territoryJournals=readAtlasJournalLinks(scene);}catch{/* Invalid links fail closed. */}
+  // Multiple settlements may intentionally refer to one Checkpoint/Journal.
+  // Resolve access only once per UUID during this one directory render.
+  const journalBadgeQueries=new Map();
+  const batch=actions.territoryBatchState?.(scene);
+  if(!batch&&typeof actions.startTerritoryBatch==="function"){
+    const start=button("Start Batch Edit",
+      "Choose receiving Hex/Grid Territories before entering Paint Territory",
+      ()=>actions.startTerritoryBatch(scene,refresh));
+    start.disabled=!!draft||!!pending;
+    manager.appendChild(start);
+    manager.appendChild(node("p","Batch Edit: select 2–4 Hex/Grid Territories, paint each " +
+      "one at a time, and stage without writing native Regions. Add unclaimed cells, " +
+      "erase, or receive cells from unselected peers. Review all staged changes once; " +
+      "one Territory can be edited with its normal Paint editor.","hint"));
+  }
+  if(batch?.total){
+    const queue=node("div",undefined,"atlas-territory-batch-queue");
+    queue.appendChild(node("p",`Hex/Grid batch: ${batch.count} of ${batch.total} `+
+      "Territories staged. The Paint destination selector switches among selected " +
+      "Territories while saving local drafts; Stage advances or opens the final " +
+      "Review & Apply without returning here. Workspace remains a fallback. Staging is local " +
+      "only; final approval applies all edits together, including unclaimed cells.","hint"));
+    for(const target of batch.targets){
+      const status=target.staged?"Staged":"Not staged";
+      const edit=button(`${target.name} — ${status}`,
+        `Paint ${target.name} as a batch destination`,()=>
+          actions.editTerritoryBoundary(scene,target.id,refresh));
+      edit.disabled=!!draft||!!pending;
+      queue.appendChild(edit);
+    }
+    const commit=button("Review & Apply Batch","Preview and confirm one recoverable multi-destination edit",() =>
+      actions.commitTerritoryBatch(scene,refresh));
+    commit.disabled=!!draft||!!pending||batch.count!==batch.total;
+    queue.appendChild(commit);
+    const clear=button("Discard Staged Batch","Discard local batch drafts without changing native Regions",() =>
+      actions.discardTerritoryBatch(scene,refresh));
+    clear.disabled=!!draft||!!pending;
+    queue.appendChild(clear);
+    manager.appendChild(queue);
+  }
+  if(pending){
+    const warning=node("div",undefined,"atlas-territory-transfer-pending");
+    warning.appendChild(node("p",`An interrupted ${pending.records.length}-Region cell transfer needs GM recovery. ` +
+      "Do not edit native Territory Shapes until it is resolved."));
+    warning.appendChild(button("Resume / Roll Back Transfer",
+      "Review the persisted native grid transfer recovery plan",
+      ()=>actions.resolveTerritoryCellTransfer(scene,refresh)));
+    manager.appendChild(warning);
+  }
+  const generatedById=new Map(generated.map(entry=>[entry.id,entry]));
+  const manualNative=nativeRegions.filter(region=>!generatedById.has(region.id));
+  const geographyById=new Map(withInferredContinentParents(scene,
+    listSceneGeography(scene),{log:false}).map(entry=>[entry.id,entry]));
+  const viewEntries=projectTerritoryView(manualNative.map(region=>({
+    ...region,geography:geographyById.get(region.id)?.geography,
+    invalid:geographyById.get(region.id)?.invalid??region.invalidLink
+  })),displayMode);
+  if(!manualNative.length)manager.appendChild(node("p",
+    "No manually authored Regions yet. Select [+] to create a Territory.","hint"));
+  if(manualNative.length && !viewEntries.length)
+    manager.appendChild(node("p","No Regions in this view. Choose Combined to see unclassified native Regions.","hint"));
+  const displayed=viewEntries.slice(0,60);
+  const rows=new Map();
+  for(const region of displayed){
+    const row=node("div",undefined,"form-group atlas-territory-row");
+    row.setAttribute("data-atlas-native-region-id",region.id);
+    const details=node("div");details.style.flex="1 1 auto";
+    const nativeRegion=scene.regions?.get?.(region.id);
+    let playerShared=false,invalidSharing=false;
+    try{playerShared=Boolean(readPlayerTerritorySharing(nativeRegion));}
+    catch{invalidSharing=true;}
+    let checkpointLink=null,invalidCheckpointLink=false;
+    try{checkpointLink=readTerritoryCheckpointLink(nativeRegion);}
+    catch{invalidCheckpointLink=true;}
+    const swatch=node("span",undefined,"atlas-territory-native-color");
+    swatch.style.backgroundColor=nativeRegionColorHex(nativeRegion?.color)??"transparent";
+    swatch.setAttribute("aria-hidden","true");
+    swatch.title="Native Region color (Atlas does not alter it)";
+    details.appendChild(swatch);
+    details.appendChild(node("span",region.name));
+    const linkedJournal=territoryCheckpointJournal(nativeRegion,checkpointById,
+      territoryJournals);
+    if(game.user?.isGM&&linkedJournal){
+      const journalSlot=node("span",undefined,"atlas-territory-journal-slot");
+      journalSlot.setAttribute("data-atlas-territory-journal",region.id);
+      details.appendChild(journalSlot);
+      const isCurrent=()=>{
+        // This panel is built off-DOM before Foundry mounts it. An immediate
+        // UUID resolution must not be discarded merely because isConnected
+        // is temporarily false; stale links/documents are checked instead.
+        if(!globalThis.game?.user?.isGM||
+            scene.regions?.get?.(region.id)!==nativeRegion)return false;
+        const activeCanvas=globalThis.canvas;
+        if(activeCanvas?.ready&&activeCanvas.scene?.id!==scene.id)return false;
+        try{
+          const checkpoints=new Map(readAtlas(scene).checkpoints.map(cp=>[cp.id,cp]));
+          return territoryCheckpointJournal(nativeRegion,checkpoints,
+            readAtlasJournalLinks(scene))?.uuid===linkedJournal.uuid;
+        }catch{return false;}
+      };
+      if(!journalBadgeQueries.has(linkedJournal.uuid))
+        journalBadgeQueries.set(linkedJournal.uuid,
+          territoryJournalBadgeData(linkedJournal.uuid));
+      void journalBadgeQueries.get(linkedJournal.uuid).then(data=>{
+        if(!data||!isCurrent())return;
+        const open=button(data.text,
+          `Checkpoint Journal: ${linkedJournal.checkpointName} — ${data.status}`,
+          async()=>{
+            if(!isCurrent())throw Error("This Territory's linked Journal changed. Reopen the directory.");
+            await openAtlasJournal(linkedJournal.uuid);
+          });
+        open.className="atlas-territory-journal-action";
+        open.setAttribute("aria-label",`Open ${linkedJournal.checkpointName} linked Map Marker Journal`);
+        journalSlot.appendChild(open);
+      }).catch(()=>{/* Never display an unverified Journal link. */});
+    }
+    const published=publicById.get(region.id);
+    const status=[region.linked?"Atlas linked":"Native only",
+      region.hidden?"Hidden":"Visible",
+      geographyById.get(region.id)?.invalid?"Unsupported geography flag":
+        geographyById.get(region.id)?.geography?.kind ?
+          GEOGRAPHY_KINDS[geographyById.get(region.id).geography.kind] : "Unclassified",
+      published?.invalid?"Unsupported public label flag":
+        published?.label?(published.label===region.name?"Public ✓":"Public: "+published.label):
+          "Private (no public label)",
+      invalidSharing?"Unsupported player boundary permission":
+        playerShared?"Player boundary ✓":"Player boundary hidden"];
+    const parent=geographyById.get(region.id)?.geography?.parentRegionId;
+    const entry=geographyById.get(region.id);
+    const boundaryStale=!!nativeRegion&&territoryBoundaryNeedsAdoption(nativeRegion);
+    if(invalidCheckpointLink)status.push("Unsupported Map Marker association");
+    else if(checkpointLink){
+      const checkpoint=checkpointById.get(checkpointLink.checkpointId);
+      status.push(checkpoint?`Checkpoint: ${checkpoint.name}`:
+        "Linked Map Marker missing — choose another");
+    }
+    if(boundaryStale)status.push("Native boundary changed — adopt before Atlas editing");
+    if(parent&&geographyById.has(parent))status.push("Parent: "+
+      geographyById.get(parent).name+(entry.inferredParent?
+        ` (auto · ${entry.inferredParent.coveragePercent}% overlap)`:" (manual)"));
+    details.appendChild(node("div",status.join(" · "),"hint"));
+    row.appendChild(details);
+    const controls=node("div",undefined,"form-fields atlas-territory-actions");
+    controls.appendChild(iconAction("gear",`Open ${region.name} Territory Settings`,
+      ()=>openAtlasTerritorySettings(scene,region.id,actions,refresh,onLocate)));
+    if(typeof onLocate==="function")controls.appendChild(iconAction("crosshairs",
+      "Locate this native Region on the map",()=>onLocate(region.id)));
+    row.appendChild(controls);rows.set(region.id,row);
+  }
+  const hierarchy=groupTerritoryEntries(displayed);
+  const buildGroup=item=>{
+    const group=node("details",undefined,"atlas-territory-group");
+    group.setAttribute("data-atlas-territory-group",item.entry.id);
+    const key=`${scene.id}:${item.entry.id}`;
+    group.open=!collapsedTerritoryGroups.has(key);
+    group.addEventListener("toggle",()=>{
+      if(group.open)collapsedTerritoryGroups.delete(key);
+      else collapsedTerritoryGroups.add(key);
+    });
+    const summary=node("summary",item.entry.name+(item.children.length?
+      ` (${item.children.length})`:""));
+    summary.setAttribute("aria-label",`Toggle ${item.entry.name} territory group`);
+    group.appendChild(summary);
+    const body=node("div",undefined,"atlas-territory-group-body");
+    body.appendChild(rows.get(item.entry.id));
+    const children=node("div",undefined,"atlas-territory-children");
+    for(const child of item.children)children.appendChild(child.children.length?
+      buildGroup(child):rows.get(child.entry.id));
+    body.appendChild(children);group.appendChild(body);
+    return group;
+  };
+  for(const group of hierarchy.continents)manager.appendChild(buildGroup(group));
+  if(hierarchy.uncategorized.length){
+    const uncategorized=node("details",undefined,"atlas-territory-group");
+    const key=`${scene.id}:uncategorized`;
+    uncategorized.setAttribute("data-atlas-territory-group","uncategorized");
+    uncategorized.open=!collapsedTerritoryGroups.has(key);
+    uncategorized.addEventListener("toggle",()=>{
+      if(uncategorized.open)collapsedTerritoryGroups.delete(key);
+      else collapsedTerritoryGroups.add(key);
+    });
+    uncategorized.appendChild(node("summary",`Uncategorized (${hierarchy.uncategorized.length})`));
+    const children=node("div",undefined,"atlas-territory-group-body");
+    for(const item of hierarchy.uncategorized)children.appendChild(item.children.length?
+      buildGroup(item):rows.get(item.entry.id));
+    uncategorized.appendChild(children);manager.appendChild(uncategorized);
+  }
+  if(viewEntries.length>60)manager.appendChild(node("p",
+    "First 60 Regions in this view shown; change the view or use Foundry's native Region tools for the remaining entries.","hint"));
+  return manager;
+}
+
+/** Scene-wide Checkpoint controls for Atlas Workspace; no second persistence path. */
+export function createAtlasCheckpointPanel(scene, actions, refresh, listState={}) {
+  listState.sort??="az";
+  listState.query??="";
+  const atlas = readAtlas(scene);
+  const party = readPartyExploration(scene);
+  const journals = readAtlasJournalLinks(scene);
+  const draft = actions.draft?.(scene);
+  const section = node("fieldset", undefined, "atlas-workspace-checkpoints");
+  section.setAttribute("data-atlas-checkpoint-manager", "");
+  const heading = node("legend",  "Map Markers ");
+  const create = button("+", "Create a Map Marker on a Road or independently on the Scene",
+    () => actions.beginCheckpoint(scene, refresh));
+  create.className = "atlas-checkpoint-add";
+  create.disabled = !!draft;
+  heading.appendChild(create);
+  section.appendChild(heading);
+  section.appendChild(node("p", "Click a Road to create a connected Map Marker. " +
+    "Click anywhere else on the map to create an independent landmark; " +
+    "Atlas asks for confirmation before saving.", "hint"));
+
+  if (draft?.mode === "checkpoint" || draft?.mode === "independent-checkpoint") {
+    const placement = node("div", undefined, "atlas-checkpoint-placement");
+    placement.appendChild(node("span",
+      "Placement active — click a map location, or press Escape to cancel."));
+    placement.appendChild(button("Cancel placement", "Cancel Map Marker placement", () => {
+      actions.cancel(); refresh();
+    }));
+    section.appendChild(placement);
+  }
+
+  const entries=[...listRoadCheckpoints(atlas)].sort((a,b)=>
+    (listState.sort==="za"?-1:1)*(a.name.localeCompare(b.name,undefined,{
+      sensitivity:"base"})||a.id.localeCompare(b.id)));
+  const toolbar = node("div", undefined, "atlas-checkpoint-toolbar");
+  const total = node("strong", `${entries.length} Map Markers`, "atlas-checkpoint-count");
+  toolbar.appendChild(total);
+  const sortLabel=node("label",undefined,"atlas-checkpoint-sort");
+  sortLabel.appendChild(node("span","Sort by name"));
+  const sort=createSettingsSelect([["az","A–Z"],["za","Z–A"]],{
+    selectedId:listState.sort,ariaLabel:"Sort Map Markers by name"});
+  sort.addEventListener("change",()=>{
+    listState.sort=sort.value;refresh();
+  });
+  sortLabel.appendChild(sort);toolbar.appendChild(sortLabel);
+  const searchLabel = node("label", undefined, "atlas-checkpoint-search");
+  searchLabel.appendChild(node("span", "Search", "atlas-visually-hidden"));
+  const search = node("input");
+  search.type = "search";
+  search.placeholder = "Find a Map Marker…";
+  search.setAttribute("aria-label", "Filter Map Markers by name or Road");
+  search.value=listState.query;
+  searchLabel.appendChild(search);
+  const icon=node("i");
+  icon.className="fa-solid fa-magnifying-glass";
+  icon.setAttribute("aria-hidden","true");
+  searchLabel.appendChild(icon);
+  toolbar.appendChild(searchLabel);
+  section.appendChild(toolbar);
+  const list = node("div", undefined, "atlas-checkpoint-list");
+  const rows = [];
+  for (const cp of entries.slice(0, 150)) {
+    const row = node("article", undefined, "atlas-checkpoint-row");
+    row.setAttribute("data-atlas-checkpoint-id", cp.id);
+    const description = node("div", undefined, "atlas-checkpoint-info");
+    description.appendChild(node("strong", cp.name, "atlas-checkpoint-name"));
+    const status = node("div", undefined, "atlas-checkpoint-metadata");
+    status.appendChild(node("span", cp.roadName || "Independent", "atlas-checkpoint-road"));
+    status.appendChild(node("span", cp.elevationMeters === null
+      ? "Elevation unspecified" : format(cp.elevationMeters) + " m", "hint"));
+    status.appendChild(node("span", party.enabled
+      ? `Discovery: ${checkpointKnowledge(party, cp.id)}`
+      : cp.playerVisible ? "Player-visible" : "GM-only", "hint"));
+    description.appendChild(status);
+    const journal = journalUuidFor(journals, "checkpoint", cp.id);
+    const controls = node("div", undefined, "atlas-checkpoint-actions");
+    controls.appendChild(iconAction("location-dot", `Locate ${cp.name}`,
+      () => actions.selectCheckpoint(scene, cp.id)));
+    if(!party.enabled)controls.appendChild(iconAction(
+      cp.playerVisible ? "eye-slash" : "eye",
+      cp.playerVisible ? "Hide Map Marker from players" : "Show Map Marker to players",
+      () => actions.toggleCheckpointPlayerVisibility(scene, cp, refresh)));
+    controls.appendChild(iconAction("gear", `Open ${cp.name} Map Marker Settings`,
+      () => actions.editCheckpointAppearance(scene, cp, refresh)));
+    const move=iconAction("pen", `Move ${cp.name} on map`,
+      ()=>actions.moveMapMarker(scene,cp.id,refresh));
+    // Linked Map Markers use the existing Road-point editor; standalone ones use
+    // the confirmed independent movement flow. Neither action writes on entry.
+    controls.appendChild(move);
+    const incident = atlas.segments.filter(s =>
+      s.from === cp.nodeId || s.to === cp.nodeId);
+    if (incident.length <= 1) controls.appendChild(iconAction(
+      incident.length ? "unlink" : "link",
+      incident.length ? "Review and disconnect this terminal Road section" :
+        "Connect this isolated Map Marker to a Road endpoint",
+      () => actions.manageCheckpointRoad(scene, cp.id, refresh)));
+    if (journal) controls.appendChild(iconAction("book-open", "Open linked Journal",
+      () => openAtlasJournal(journal)));
+    row.append(description, controls);
+
+    const details = node("details", undefined, "atlas-checkpoint-details");
+    details.appendChild(node("summary", "Discovery, reveal radius & removal"));
+    const detailBody = node("div", undefined, "atlas-checkpoint-detail-body");
+    if (party.enabled) {
+      const discovery = node("label", undefined, "atlas-checkpoint-field");
+      discovery.appendChild(node("span", "Discovery status"));
+      const select = createSettingsSelect([
+        ["unknown", "Undiscovered"], ["visited", "Seen / Visited"],
+        ["lore", "Known through Lore"]
+      ], { selectedId: checkpointKnowledge(party, cp.id) === "legacy" ? "unknown" :
+        checkpointKnowledge(party, cp.id), ariaLabel: `Knowledge of ${cp.name}` });
+      select.addEventListener("change", () => void actions.setCheckpointKnowledge(scene,
+        { checkpointId: cp.id, knowledge: select.value, expected: party }, refresh)
+        .catch(error => { ui.notifications.error(error.message ?? String(error)); refresh(); }));
+      discovery.appendChild(select);
+      detailBody.appendChild(discovery);
+      const radiusField = node("label", undefined, "atlas-checkpoint-field");
+      radiusField.appendChild(node("span", "Reveal radius (native cells)"));
+      const radius = createSettingsInput("number",
+        Object.hasOwn(party.checkpointRevealRadiusCells, cp.id)
+          ? party.checkpointRevealRadiusCells[cp.id]
+          : party.defaultRevealRadiusCells,
+        { min: 0, max: 100, step: 1,
+          ariaLabel: `Checkpoint terrain reveal radius for ${cp.name}` });
+      radius.title = "Terrain reveal radius in native cells (0 = marker only)";
+      radius.addEventListener("change", () => void actions.setCheckpointKnowledge(scene,
+        { checkpointId: cp.id,
+          knowledge: checkpointKnowledge(party, cp.id) === "legacy" ? "unknown" :
+            checkpointKnowledge(party, cp.id),
+          revealRadiusCells: Number(radius.value), expected: party }, refresh)
+        .catch(error => { ui.notifications.error(error.message ?? String(error)); refresh(); }));
+      radiusField.appendChild(radius);
+      detailBody.appendChild(radiusField);
+    }
+    detailBody.appendChild(button("Delete Map Marker", `Delete ${cp.name}`,
+      () => actions.removeCheckpoint(scene, cp, refresh)));
+    details.appendChild(detailBody);
+    row.appendChild(details);
+    list.appendChild(row);
+    rows.push({ row, filter: (cp.name + " " + (cp.roadName || "independent")).toLowerCase() });
+  }
+  const updateSearch=()=>{
+    listState.query=search.value;
+    const filter = search.value.trim().toLowerCase();
+    let shown = 0;
+    for (const entry of rows) {
+      entry.row.hidden = !entry.filter.includes(filter);
+      if (!entry.row.hidden) shown++;
+    }
+    total.textContent = filter ? `${shown} of ${entries.length} Map Markers`
+      : `${entries.length} Map Markers`;
+  };
+  search.addEventListener("input",updateSearch);
+  if(listState.query)updateSearch();
+  if (!entries.length) list.appendChild(node("p",
+    "No Map Markers yet. Choose [+] and click a map location.", "hint"));
+  section.appendChild(list);
+  if (entries.length > 150) section.appendChild(node("p",
+    "Showing the first 150 Map Markers; filter this list or use the legacy editor for the remainder.", "hint"));
+  return section;
+}
+
+/** GM-only Scene manual Exploration controls, shared verbatim with the
+ * legacy Scene Atlas tab; the handlers remain the single persistence path. */
+export function createAtlasExplorationPanel(scene,actions,refresh) {
+  if(!game.user?.isGM||!scene?.id||
+      !scene.canUserModify?.(game.user,"update"))
+    throw Error("Only a Scene-authorized GM can edit Atlas Exploration.");
+  const panel=createManualFogControls(scene,actions,refresh);
+  let expected=readPartyExploration(scene);
+  const radius=createCheckpointRange(expected.radius,{min:0.01,
+    max:Math.max(100,expected.radius),step:0.01,label:"Party discovery radius"});
+  appendSettingsField(panel,"Party discovery radius ("+(scene.grid?.units||"Scene units")+")",
+    radius.element,{variant:"split"});
+  panel.appendChild(node("p","Automatic Map Markers inside this distance become known as the party moves. Use GM-only discovery for places that must stay hidden.","hint"));
+  const save=button("Save discovery radius","Save party discovery radius",async()=>{
+    save.disabled=true;
+    try {
+      expected=await savePartyExplorationConfig(scene,{...expected,
+        radius:radius.getValue(),expected});
+      ui.notifications.info("Party discovery radius saved.");
+    } catch(error){ui.notifications.error(error.message??String(error));}
+    finally{save.disabled=false;}
+  });
+  panel.appendChild(save);
+  return panel;
+}
+
+function createManualFogControls(scene,actions,refresh) {
+  const state=readManualFog(scene);
+  const fogPanel = node("fieldset");
+  fogPanel.setAttribute("data-atlas-exploration-panel", "");
+  fogPanel.appendChild(node("legend", "Exploration"));
+  const checkbox = node("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = state.enabled;
+  const enabledLabel = node("label", " Manual exploration");
+  enabledLabel.prepend(checkbox);
+  fogPanel.appendChild(enabledLabel);
+  const unsupported = scene.grid?.type === (globalThis.CONST?.GRID_TYPES?.GRIDLESS ?? 0);
+  if (unsupported) {
+    checkbox.disabled = !state.enabled;
+    fogPanel.appendChild(node("p","Gridless Scenes are unsupported.", "hint"));
+  }
+  checkbox.title = "Use Atlas exploration on this Scene";
+  checkbox.addEventListener("change",async()=>{
+    const desired=checkbox.checked;
+    checkbox.disabled=true;
+    try {await actions.saveManualFog(scene,desired,refresh);}
+    catch(error){
+      checkbox.checked=!desired;
+      checkbox.disabled=false;
+      ui.notifications.error(error.message??String(error));
+    }
+  });
+  const brush = button("Paint map", "Open Atlas brushes",
+    () => actions.openManualBrushPalette());
+  brush.style.marginLeft = ".6rem";
+  fogPanel.appendChild(brush);
+  const count = node("small", `${state.revealed.length} revealed · ${state.hidden.length} hidden`, "hint");
+  count.style.cssText = "display:block;margin-top:.3rem;";
+  fogPanel.appendChild(count);
+  return fogPanel;
+}
+
+/** Shared native Region link/unlink/configure controls. The native Region
+ * Document owns Shapes and Behaviors; Atlas stores only an association. */
+function createAtlasNativeRegionLinks(scene,atlas,generated,actions,refresh,activeRoadId){
+  const regionSection = node("fieldset");
+  const regionLegend = node("legend");
+  const regionHeader = node("span");
+  regionHeader.style.display = "inline-flex";
+  regionHeader.style.alignItems = "center";
+  regionHeader.style.gap = "0.35rem";
+  regionHeader.appendChild(node("span", label("FVTTATLAS.Regions.Title")));
+  const regionBadge = node("span", "· Foundry Region Documents");
+  regionBadge.style.cssText = "font-size:0.75em;opacity:0.75;";
+  regionHeader.appendChild(regionBadge);
+  const nativeRegions = listSceneRegions(scene);
+  const roadByGeneratedRegionId = new Map(generated.filter(r => r.metadata)
+    .map(r => [r.id, r.metadata.roadId]));
+  const candidates = nativeRegions.filter(region => !region.linked && !region.invalidLink);
+  const link = button("+", label("FVTTATLAS.Regions.Link"),
+    () => actions.linkRegion(scene, refresh));
+  link.style.flex = "0 0 auto";
+  link.style.width = "1.65rem";
+  link.style.minWidth = "1.65rem";
+  link.style.padding = "0";
+  link.disabled = candidates.length === 0;
+  regionHeader.appendChild(link);
+  regionHeader.appendChild(button("↻", label("FVTTATLAS.Regions.Refresh"), refresh));
+  regionLegend.appendChild(regionHeader);
+  regionSection.appendChild(regionLegend);
+  // Native Region links are shown directly under the expanded road.
+  const activeRoad=atlas.roads?.find(road=>road.id===activeRoadId);
+  const visibleNative = nativeRegions.filter(region =>
+    activeRoad && !roadByGeneratedRegionId.has(region.id) &&
+    region.name?.startsWith?.(activeRoad.name + " —"));
+  const linkedRegions = visibleNative.filter(region => region.linked);
+  if (!nativeRegions.length) {
+    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.NoNative"), "hint"));
+  } else if (!linkedRegions.length) {
+    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.None"), "hint"));
+  }
+  for (const region of visibleNative.filter(region => region.linked || region.invalidLink)) {
+    const row = node("div", undefined, "form-group");
+    row.setAttribute("data-atlas-region-id", region.id);
+    const description = node("div");
+    description.style.flex = "1 1 auto";
+    description.style.minWidth = "0";
+    description.appendChild(node("span", region.name));
+    if (region.hidden) {
+      description.appendChild(node("div", label("FVTTATLAS.Regions.Hidden"), "hint"));
+    }
+    if (region.invalidLink) {
+      description.appendChild(node("div", label("FVTTATLAS.Regions.Invalid"), "hint"));
+    } else if (region.behaviors.length) {
+      const summary = region.behaviors.map(behavior =>
+        `${behavior.name} (${label(behavior.active ?
+          "FVTTATLAS.Regions.Active" : "FVTTATLAS.Regions.Inactive")})`).join(" · ");
+      description.appendChild(node("div", summary, "hint"));
+    } else {
+      description.appendChild(node("div", label("FVTTATLAS.Regions.NoBehaviors"), "hint"));
+    }
+    row.appendChild(description);
+    const controls = node("div", undefined, "form-fields");
+    controls.appendChild(button("⚙", label("FVTTATLAS.Regions.Configure"),
+      () => actions.configureRegion(scene, region.id)));
+    if (region.linked) {
+      controls.appendChild(button("×", label("FVTTATLAS.Regions.Unlink"),
+        () => actions.unlinkRegion(scene, region.id, refresh)));
+    }
+    row.appendChild(controls);
+    regionSection.appendChild(row);
+  }
+  if (nativeRegions.some(region => region.invalidLink)) {
+    regionSection.appendChild(node("p", label("FVTTATLAS.Regions.InvalidHint"), "hint"));
+  }
+  return {regionSection,nativeRegions,visibleNative};
+}
+
+function atlasPanel(scene, atlas, actions, refresh,
+  { generatorOnly = false, roadsOnly = false, surfacesOnly = false, surfaceExpansion } = {}) {
+  const root = node("section");
+  root.setAttribute("data-fvtt-atlas-setup", "");
+  const travelPresets = readWorldTravelPresets().presets;
+  const presetById = new Map(travelPresets.map(p => [p.id, p]));
+  const worldRoadAppearance = readWorldRoadAppearance();
+  const journalLinks = readAtlasJournalLinks(scene);
+  const publicById = new Map(listPublicTerritorySettings(scene)
+    .map(entry => [entry.id, entry]));
+  function linkedJournalIndicator(uuid) {
+    const badge=node("span","📖","hint");
+    badge.style.cssText="float:right;margin-left:.5rem;white-space:nowrap;font-size:.85em;";
+    badge.title="Journal linked — checking player access";
+    const players=[...(game.users??[])].filter(user=>!user.isGM);
+    if(!players.length) { badge.textContent="📖 —"; badge.title="Journal linked; no player users configured"; return badge; }
+    void Promise.all(players.map(user=>canOpenAtlasJournal(uuid,user))).then(access=>{
+      if(!badge.isConnected)return;
+      const count=access.filter(Boolean).length;
+      badge.textContent=count===players.length?"📖 ✓":count?"📖 ◐":"📖 🔒";
+      badge.title=count===players.length ? "All players have Observer access" :
+        count ? count+" of "+players.length+" players have Observer access" :
+        "Journal linked; players cannot view it";
+    }).catch(()=>{badge.textContent="📖 ?";badge.title="Player access could not be checked";});
+    return badge;
+  }
+  const sharedFilter = atlas.schemaVersion >= 3 && atlas.roads?.length
+    ? junctionFilterFor(scene, atlas) : null;
+  const territoryDirectory=roadsOnly && atlas.schemaVersion>=3 ?
+    readTerritoryRoadDirectory(scene,atlas):null;
+  const shownRoads = territoryDirectory ? selectedTerritoryRoads(scene,territoryDirectory,atlas) :
+    sharedFilter ? filteredRoadIds(atlas, sharedFilter) : new Set();
+
+  // A configured road network is what makes this Scene an Atlas. The old
+  // enabled flag remains persisted for v1 compatibility, but has no UI toggle.
+  const active = atlas.segments.length > 0;
+  if (!roadsOnly) root.appendChild(node("h3", label("FVTTATLAS.Atlas.Tab")));
+  if (!active) root.appendChild(node("p", "Add a road to begin.", "hint"));
+  if(!generatorOnly&&!roadsOnly&&game.user?.isGM&&
+      game.settings?.get?.("fvtt-atlas-navigation",ATLAS_LEVEL_PLANNER_SETTING)){
+    root.appendChild(atlasNativeLevelSetup(scene,{onSceneToggle:refresh}));
+  }
+
+  const legacy = atlas.schemaVersion === 1 && (atlas.nodes.length || atlas.segments.length);
+  if (legacy) {
+    const migration = node("fieldset");
+    migration.appendChild(node("legend", label("FVTTATLAS.Roads.LegacyTitle")));
+    migration.appendChild(node("p", label("FVTTATLAS.Roads.LegacyHint"), "hint"));
+    migration.appendChild(button(label("FVTTATLAS.Roads.Anchor"),
+      label("FVTTATLAS.Roads.Anchor"), () => actions.anchor(scene, refresh)));
+    root.appendChild(migration);
+  }
+
+  const needsOrganize = atlas.schemaVersion === 2 && (atlas.nodes.length || atlas.segments.length);
+  if (needsOrganize) {
+    const migration = node("fieldset");
+    migration.appendChild(node("legend", label("FVTTATLAS.Roads.Organize")));
+    migration.appendChild(node("p", label("FVTTATLAS.Roads.OrganizeHint"), "hint"));
+    migration.appendChild(button(label("FVTTATLAS.Roads.Organize"),
+      label("FVTTATLAS.Roads.Organize"), () => actions.organize(scene, refresh)));
+    root.appendChild(migration);
+  }
+
+  const section = node("fieldset");
+  const header = node("legend");
+  const titleGroup = node("span");
+  titleGroup.style.display = "inline-flex";
+  titleGroup.style.alignItems = "center";
+  titleGroup.style.gap = "0.35rem";
+  titleGroup.appendChild(node("span", label("FVTTATLAS.Roads.Title")));
+
+  if (!legacy && !needsOrganize) {
+    const add = button("+", label("FVTTATLAS.Roads.Add"), () => actions.begin(scene, refresh));
+    add.style.flex = "0 0 auto";
+    add.style.width = "1.65rem";
+    add.style.minWidth = "1.65rem";
+    add.style.padding = "0";
+    titleGroup.appendChild(add);
+  }
+  header.appendChild(titleGroup);
+  section.appendChild(header);
+
+  const draft = actions.draft(scene);
+  if (draft && !["junction", "checkpoint"].includes(draft.mode) && draft.source !== "junction") {
+    section.appendChild(node("p", draft.mode === "points" ?
+      label("FVTTATLAS.Roads.PointEditHint") : (label("FVTTATLAS.Roads.Drawing") + " " +
+      draft.points + " " + label("FVTTATLAS.Roads.Points")), "hint"));
+    const controls = node("div", undefined, "form-fields");
+    controls.appendChild(button(label(draft.mode === "points" ?
+      "FVTTATLAS.Roads.SavePoints" : "FVTTATLAS.Roads.Finish"),
+      label("FVTTATLAS.Roads.Finish"), () => actions.finish()));
+    if (draft.canUndo)controls.appendChild(button("Undo",
+      "Undo last Road edit",()=>actions.undo()));
+    if(draft.canRedo)controls.appendChild(button("Redo",
+      "Redo last undone Road edit",()=>actions.redo()));
+    const cancelKey = draft.mode === "points"
+      ? "FVTTATLAS.Roads.CancelEdits" : "FVTTATLAS.Roads.Cancel";
+    controls.appendChild(button(label(cancelKey), label(cancelKey), () => actions.cancel()));
+    section.appendChild(controls);
+  }
+
+  if (!atlas.segments.length) {
+    section.appendChild(node("p", label("FVTTATLAS.Roads.NoRoads"), "hint"));
+  }
+  if (draft?.mode === "junction" || (draft?.mode === "points" && draft.source === "junction")) {
+    const editing = node("div");
+    editing.style.cssText = "display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;";
+    editing.appendChild(node("span", draft.mode === "junction" ?
+      "Choose a connection on the map." : "Editing connection points.", "hint"));
+    if (draft.mode === "points") {
+      editing.appendChild(button("Save", "Save connection points", () => actions.finish()));
+      if(draft.canUndo)editing.appendChild(button("Undo","Undo last change",()=>actions.undo()));
+      if(draft.canRedo)editing.appendChild(button("Redo","Redo last undone change",()=>actions.redo()));
+    }
+    editing.appendChild(button("Cancel", "Stop editing connection", () => actions.cancel()));
+    section.appendChild(editing);
+  }
+
+  const roads = atlas.schemaVersion >= 3 ? atlas.roads : atlas.segments;
+  const roadList = node("div");
+  roadList.style.cssText = "display:grid;gap:.35rem;";
+  if (territoryDirectory) {
+    section.appendChild(territoryDirectoryControls(scene,territoryDirectory,refresh));
+  } else if (sharedFilter) {
+    const filter = node("div");
+    filter.style.cssText = "display:flex;align-items:center;gap:.6rem;margin:.35rem 0 .65rem;";
+    filter.appendChild(node("label","Road"));
+    const picker=createSettingsSelect([
+      ["","All roads"],...atlas.roads.map(road=>[road.id,road.name])
+    ],{selectedId:sharedFilter.scope==="scene"?"":sharedFilter.roadId,
+      ariaLabel:"Show road"});
+    picker.style.cssText = "flex:1;min-width:0;max-width:100%;";
+    picker.addEventListener("change",()=>{
+      sharedFilter.scope=picker.value ? "selected" : "scene";
+      if (picker.value) sharedFilter.roadId=picker.value;
+      refresh();
+    });
+    filter.appendChild(picker);
+    section.appendChild(filter);
+  }
+  section.appendChild(roadList);
+
+  function roadDetails(road) {
+    const body = node("div");
+    body.style.cssText = "display:grid;grid-template-columns:minmax(0,1fr);gap:.55rem;padding:.6rem .4rem;min-width:0;";
+    function group(name, items) {
+      const panel = node("fieldset");
+      panel.style.cssText = "min-width:0;margin:0;padding:.6rem .7rem;";
+      panel.appendChild(node("legend", name));
+      const controls = node("div");
+      controls.style.cssText = "display:flex;flex-wrap:wrap;gap:.35rem;";
+      for (const [caption, title, action, icon, danger] of items)
+        controls.appendChild(icon ? iconAction(icon,title,action,{danger}) : button(caption,title,action));
+      panel.appendChild(controls);
+      body.appendChild(panel);
+      return panel;
+    }
+    const roadActions = [
+      ["Settings", "Road settings", () => actions.editRoadAppearance(scene,road,refresh),"gear"],
+      [road.playerVisible === true ? "Hide" : "Show", road.playerVisible?"Hide road":"Show road",
+        () => actions.toggleRoadPlayerVisibility(scene,road,refresh),road.playerVisible?"eye-slash":"eye"],
+      ["Find on map", "Locate road", () => actions.select(scene,road.id),"location-dot"],
+      ["Edit path", "Edit road", () => actions.beginPointEdit(scene,road.id,refresh),"pen-to-square"],
+      ["Add connection", "Add connection", () => actions.beginJunction(scene,refresh),"link"],
+      ["Add Map Marker", "Add Map Marker", () => actions.beginCheckpoint(scene,refresh),"map-pin"]
+    ];
+    if (getRoadMergeCandidates(atlas,road.id).length)
+      roadActions.push(["Merge", "Merge connected roads", () => actions.merge(scene,road,refresh),"code-merge"]);
+    const preset = presetById.get(road.travelPresetId);
+    roadActions.push(["Travel preset: " + (preset?.name ?? "None"),
+      "Travel preset", () => actions.assignRoadTravelPreset(scene,road,refresh),"route"]);
+    roadActions.push(["Delete road", "Delete road",
+      () => actions.remove(scene,road,refresh),"trash",true]);
+    group("Road", roadActions);
+    const folder = (title, addAction=null, addLabel="") => {
+      const details = node("details");
+      details.style.cssText = "padding:.35rem .5rem;border:1px solid var(--color-border-light-tertiary,#665);border-radius:5px;min-width:0;";
+      const summary = node("summary",title);
+      summary.style.cssText = "cursor:pointer;font-weight:600;padding:.3rem 0;";
+      if(addAction){
+        const add=iconAction("plus",addLabel,addAction);
+        add.style.cssText="display:inline-flex;margin-left:.5rem;vertical-align:middle;";
+        add.addEventListener("click",event=>{event.preventDefault();event.stopPropagation();});
+        summary.appendChild(add);
+      }
+      details.appendChild(summary);
+      const key=scene.id+":"+road.id+":"+title;
+      details.dataset.atlasExpansionKey=key;
+      details.open=expandedDetails.has(key);
+      details.addEventListener("toggle",()=>{
+        if (!details.isConnected) return;
+        if (details.open) expandedDetails.add(key);
+        else expandedDetails.delete(key);
+      });
+      body.appendChild(details);
+      return details;
+    };
+    const miniActions = (parent,items) => {
+      const row = node("div");
+      row.style.cssText = "display:flex;flex-wrap:wrap;gap:.3rem;padding:.25rem .4rem;";
+      for (const [caption,title,action,icon,danger] of items) {
+        const control=icon?iconAction(icon,title,action,{danger}):button(caption,title,action);
+        if(!icon)control.style.cssText="flex:0 0 auto;width:auto;min-width:max-content;white-space:nowrap;";
+        row.appendChild(control);
+      }
+      parent.appendChild(row);
+    };
+    const checkpoints = (atlas.checkpoints ?? []).filter(item => item.roadId === road.id);
+    const checkpointFolder = folder("Map Markers (" + checkpoints.length + ")",
+      ()=>actions.beginCheckpoint(scene,refresh),"Add Map Marker");
+    for (const checkpoint of checkpoints) {
+      const child=node("details");
+      child.style.cssText="margin:.2rem .4rem;padding:.2rem .4rem;";
+      child.appendChild(node("summary",checkpoint.name || "Checkpoint"));
+      miniActions(child,[
+        ["Settings","Map Marker settings",()=>actions.editCheckpointAppearance(scene,checkpoint,refresh),"gear"],
+        ["Find on map","Locate Map Marker",()=>actions.selectCheckpoint(scene,checkpoint.id),"location-dot"],
+        ["Delete","Delete Map Marker",()=>actions.removeCheckpoint(scene,checkpoint,refresh),"trash",true]
+      ]);
+      checkpointFolder.appendChild(child);
+    }
+    const generated = listGeneratedRegions(scene).filter(item=>item.metadata?.roadId===road.id);
+    const regionFolder=folder("Terrain Regions (" + generated.length + ")",
+      ()=>openAtlasRegionGenerator(scene,road.id,actions,refresh),"Add Terrain Region");
+    regionFolder.dataset.atlasRegionFolder = road.id;
+    for (const region of generated) {
+      const child=node("details");
+      child.style.cssText="margin:.2rem .4rem;padding:.2rem .4rem;";
+      child.appendChild(node("summary",region.name || "Region"));
+      const key=scene.id+":"+road.id+":region:"+region.id;
+      child.dataset.atlasExpansionKey=key;
+      child.open=expandedDetails.has(key);
+      child.addEventListener("toggle",()=>{
+        if (!child.isConnected) return;
+        if (child.open) expandedDetails.add(key);
+        else expandedDetails.delete(key);
+      });
+      miniActions(child,[
+        ["Region settings","Region settings",()=>actions.configureRegion(scene,region.id),"gear"],
+        ["Public name","Public Journey label",
+          ()=>actions.configurePublicTerritory(scene,refresh,region.id),"tag"],
+        ["Travel preset" + (presetById.get(region.presetId)?.name ? ": " + presetById.get(region.presetId).name : ": None"),
+          "Travel preset",()=>actions.assignGeneratedRegionTravelPreset(scene,region,refresh),"route"],
+        ["Regenerate","Regenerate Region",()=>actions.regenerateRegion(scene,region,refresh),"rotate"]
+      ]);
+      regionFolder.appendChild(child);
+    }
+    return body;
+  }
+
+  for (const [index, road] of roads.entries()) {
+    const entry = node("details");
+    entry.setAttribute("data-atlas-road-id",road.id);
+    entry.style.cssText = "min-width:0;border:1px solid var(--color-border-light-tertiary, #665);border-radius:5px;";
+    const row = node("summary");
+    row.style.cssText = "display:flex;align-items:center;gap:.65rem;min-height:2.6rem;padding:.3rem .6rem;cursor:pointer;list-style:none;";
+    row.title = "Expand road settings";
+    const appearance = atlas.schemaVersion >= 3 ?
+      resolveRoadAppearance(road,worldRoadAppearance,roadAppearanceMode(road,travelPresets)) : null;
+    const dot = node("span","●");
+    dot.style.color = appearance?.color || "#aaa";
+    dot.setAttribute("aria-hidden","true");
+    row.appendChild(dot);
+    const name = node("span",road.name || "Road " + (index+1));
+    name.style.cssText = "flex:1;min-width:0;overflow-wrap:anywhere;";
+    row.appendChild(name);
+    if (journalUuidFor(journalLinks,"road",road.id))
+      row.appendChild(linkedJournalIndicator(journalUuidFor(journalLinks,"road",road.id)));
+    const visible = node("span",road.playerVisible === true ? "👁" : "◌");
+    visible.title = road.playerVisible === true ? "Visible to players" : "Hidden from players";
+    visible.setAttribute("aria-label",visible.title);
+    row.appendChild(visible);
+    const arrow = node("span","›");
+    arrow.style.cssText = "font-size:1.4em;transition:transform .15s;";
+    row.appendChild(arrow);
+    entry.appendChild(row);
+    let mounted = false;
+    function sync() {
+      if (entry.open) {
+        expandedRoads.set(scene.id,road.id);
+        if (!mounted) { entry.appendChild(roadDetails(road)); mounted = true; }
+        arrow.style.transform = "rotate(90deg)";
+        for (const other of roadList.querySelectorAll("details[open]"))
+          if (other !== entry) other.open = false;
+      } else {
+        arrow.style.transform = "";
+        if (entry.isConnected && expandedRoads.get(scene.id) === road.id) expandedRoads.delete(scene.id);
+      }
+    }
+    entry.addEventListener("toggle",sync);
+    if (expandedRoads.get(scene.id) === road.id) {
+      entry.open = true;
+      sync();
+    }
+    if ((!sharedFilter&&!territoryDirectory) || shownRoads.has(road.id)) roadList.appendChild(entry);
+  }
+  root.appendChild(section);
+
+  // A focused, fully functional Road/Topology view for the Scene Workspace.
+  // Exit before constructing unrelated native Region, fog and checkpoint panels;
+  // the historical Scene tab still renders its original complete view.
+  if (roadsOnly) return root;
+
+  // Graph connections are edited via each road's Map tools, not listed
+  // as internal IDs in the main Scene configuration.
+
+  const party = readPartyExploration(scene);
+  // Manual fog v0.2.26: Scene-owned state; token automation is intentionally disabled.
+  const state = readManualFog(scene);
+  const fogPanel=createManualFogControls(scene,actions,refresh);
+  root.insertBefore(fogPanel,section);
+
+  const advanced = node("details");
+  advanced.style.marginTop = ".7rem";
+  const advancedSummary = node("summary", "More tools · Map Markers & Terrain");
+  advancedSummary.style.cssText = "cursor:pointer;font-weight:600;padding:.6rem;";
+  advanced.appendChild(advancedSummary);
+
+  // v0.2.13: semantic checkpoints are optional records attached to stable
+  // road graph points. They are not bend handles or routing junction listings.
+  const checkpointSection = node("fieldset");
+  const checkpointLegend = node("legend");
+  const checkpointHeader = node("span");
+  checkpointHeader.style.display = "inline-flex";
+  checkpointHeader.style.alignItems = "center";
+  checkpointHeader.style.gap = "0.35rem";
+  checkpointHeader.appendChild(node("span", label("FVTTATLAS.Checkpoints.Title")));
+  const addCheckpoint = button("+", label("FVTTATLAS.Checkpoints.Add"),
+    () => actions.beginCheckpoint(scene, roadId => {
+      if (roadId && atlas.roads.some(r => r.id === roadId)) {
+        const state = junctionFilterFor(scene, readAtlas(scene));
+        state.roadId = roadId;
+        state.scope = "selected";
+      }
+      refresh();
+    }));
+  addCheckpoint.style.flex = "0 0 auto";
+  addCheckpoint.style.width = "1.65rem";
+  addCheckpoint.style.minWidth = "1.65rem";
+  addCheckpoint.style.padding = "0";
+  addCheckpoint.disabled = atlas.schemaVersion < 3 || !atlas.segments.length || !!draft;
+  checkpointHeader.appendChild(addCheckpoint);
+  checkpointLegend.appendChild(checkpointHeader);
+  checkpointSection.appendChild(checkpointLegend);
+  checkpointSection.appendChild(node("p", label("FVTTATLAS.Checkpoints.Hint"), "hint"));
+  if (draft?.mode === "checkpoint") {
+    checkpointSection.appendChild(node("p", label("FVTTATLAS.Checkpoints.Picking"), "hint"));
+    checkpointSection.appendChild(button(label("FVTTATLAS.Roads.Cancel"),
+      label("FVTTATLAS.Roads.Cancel"), () => actions.cancel()));
+  }
+
+  if (atlas.schemaVersion >= 3 && atlas.roads.length) {
+    const state = junctionFilterFor(scene, atlas);
+    const total = listRoadCheckpoints(atlas);
+    const matching = listRoadCheckpoints(atlas, state);
+    checkpointSection.appendChild(node("p",
+      matching.length + " / " + total.length + " " +
+      label("FVTTATLAS.Checkpoints.Count"), "hint"));
+    const visible = matching.slice(-25).reverse();
+    for (const checkpoint of visible) {
+      const row = node("div", undefined, "form-group");
+      row.setAttribute("data-atlas-checkpoint-id", checkpoint.id);
+      const description = node("div");
+      description.style.flex = "1 1 auto";
+      description.style.minWidth = "0";
+      description.appendChild(node("span", checkpoint.name));
+      const meters = checkpoint.elevationMeters === null
+        ? label("FVTTATLAS.Checkpoints.Unknown")
+        : format(checkpoint.elevationMeters) + " m";
+      description.appendChild(node("div", checkpoint.roadName + " · " + meters, "hint"));
+      const visibility = node("div", party.enabled
+        ? "Discovery: " + ({ lore: "Known through Lore",
+          visited: "Seen / Visited", unknown: "Undiscovered" }[
+          checkpointKnowledge(party, checkpoint.id)] ?? "Undiscovered")
+        : checkpoint.playerVisible === true
+          ? "Map Marker visible to players" : "Map Marker hidden from players", "hint");
+      visibility.style.fontSize = "0.8em";
+      description.appendChild(visibility);
+      if (checkpoint.appearance) {
+        const a = checkpoint.appearance;
+        const detail = node("div",
+          "Map Marker overlay: " + (a.type === "fa" ? "FA " + a.icon :
+            a.type === "image" ? "custom image" : "dot") +
+          " · label " + a.labelMode + (a.showRoadName ? " + road name" : ""), "hint");
+        detail.style.fontSize = "0.8em";
+        description.appendChild(detail);
+      }
+      row.appendChild(description);
+      const controls = node("div", undefined, "form-fields");
+      controls.appendChild(button("◎", label("FVTTATLAS.Checkpoints.Highlight"),
+        () => actions.selectCheckpoint(scene, checkpoint.id)));
+      controls.appendChild(button("✎", label("FVTTATLAS.Checkpoints.Edit"),
+        () => actions.editCheckpoint(scene, checkpoint, refresh)));
+      if (!party.enabled) controls.appendChild(button(
+        checkpoint.playerVisible === true ? "👁" : "◌",
+        checkpoint.playerVisible === true ? "Hide Map Marker from players" :
+          "Show Map Marker to players (visual only)",
+        () => actions.toggleCheckpointPlayerVisibility(scene, checkpoint, refresh)));
+      const checkpointJournal = journalUuidFor(journalLinks,"checkpoint",checkpoint.id);
+      if(checkpointJournal) {
+         description.insertBefore(linkedJournalIndicator(checkpointJournal),description.firstChild);
+         controls.appendChild(button("📖", "Open linked Map Marker Journal",
+        () => void openAtlasJournal(checkpointJournal).catch(error =>
+          ui.notifications.error(error.message||String(error)))));
+      }
+      controls.appendChild(button("🖼", "CHECKPOINT OVERLAY — Set Font Awesome icon / image, size, colors and name labels",
+        () => actions.editCheckpointAppearance(scene, checkpoint, refresh)));
+      controls.appendChild(button("×", label("FVTTATLAS.Checkpoints.Delete"),
+        () => actions.removeCheckpoint(scene, checkpoint, refresh)));
+      if (party.enabled || state.enabled) {
+        const knowledge = checkpointKnowledge(party, checkpoint.id);
+        const knowledgeSelect=createSettingsSelect([
+          ["unknown","Undiscovered"],
+          ["visited","Seen / Visited"],
+          ["lore","Known through Lore"]
+        ],{selectedId:knowledge==="legacy"?"unknown":knowledge,
+          ariaLabel:"Knowledge of "+checkpoint.name});
+        knowledgeSelect.title = "GM Map Marker discovery / lore knowledge";
+        knowledgeSelect.addEventListener("change", async () => {
+          try {
+            await actions.setCheckpointKnowledge(scene, {
+              checkpointId: checkpoint.id, knowledge: knowledgeSelect.value,
+              expected: party
+            }, refresh);
+          } catch (error) {
+            ui.notifications.error(error.message);
+            refresh();
+          }
+        });
+        controls.appendChild(knowledgeSelect);
+        if (state.enabled) {
+          const radiusLabel = node("label", "Terrain radius (cells)");
+          radiusLabel.title = "Map Marker reveal radius, 0 = show marker without revealing terrain.";
+          const radiusInput = createSettingsInput("number",
+            Object.hasOwn(party.checkpointRevealRadiusCells,checkpoint.id)
+              ? party.checkpointRevealRadiusCells[checkpoint.id]
+              : party.defaultRevealRadiusCells,
+            {min:0,max:100,step:1,ariaLabel:"Map Marker terrain reveal radius"});
+          radiusInput.style.width = "5em";
+          radiusInput.addEventListener("change", async () => {
+            try {
+              await actions.setCheckpointKnowledge(scene, {
+                checkpointId: checkpoint.id,
+                knowledge: knowledge === "legacy" ? "unknown" : knowledge,
+                revealRadiusCells: Number(radiusInput.value),
+                expected: party
+              }, refresh);
+            } catch(error) { ui.notifications.error(error.message); refresh(); }
+          });
+          radiusLabel.appendChild(radiusInput);
+          controls.appendChild(radiusLabel);
+        }
+      }
+      row.appendChild(controls);
+      checkpointSection.appendChild(row);
+    }
+    if (!matching.length) {
+      checkpointSection.appendChild(node("p", label("FVTTATLAS.Checkpoints.None"), "hint"));
+    } else if (matching.length > visible.length) {
+      checkpointSection.appendChild(node("p",
+        label("FVTTATLAS.Junctions.Recent") + " " + visible.length +
+        " / " + matching.length, "hint"));
+    }
+  }
+  advanced.appendChild(checkpointSection);
+
+
+  // v0.2.14: generate separate opt-in native Regions around one checkpoint
+  // or along one unambiguous chain between two checkpoints on the SAME road.
+  // No bulk or automatic generation occurs merely by opening this sheet.
+  const generated = listGeneratedRegions(scene);
+  const generatedSection = node("fieldset");
+  if(surfacesOnly)generatedSection.setAttribute("data-atlas-surfaces-panel","");
+  generatedSection.appendChild(node("legend", generatorOnly
+    ? "Generation settings" : surfacesOnly ? "Create a native Region" : label("FVTTATLAS.Generated.Title") + " · Native Regions"));
+  if (generatorOnly) generatedSection.appendChild(node("p",
+    "Create one native Foundry Region centered on a Map Marker or following the path between two Map Markers.", "hint"));
+  else if (surfacesOnly) generatedSection.appendChild(node("p","Choose a Road and Map Markers to preview a Region.","hint"));
+  else generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.Hint"), "hint"));
+  if (!generatorOnly && !surfacesOnly) generatedSection.appendChild(node("p",
+    "REGION SETTINGS — Preset colors and movement costs affect native Foundry Regions only " +
+    "after a separate GM-confirmed action. They do not change Atlas road lines or labels.", "hint"));
+  const available = atlas.schemaVersion >= 4 ? atlas.roads.filter(r =>
+    (generatorOnly ? r.id===generatorRoads.get(scene.id) : (!sharedFilter || shownRoads.has(r.id))) &&
+    atlas.checkpoints.some(c => c.roadId === r.id)) : [];
+  if (!available.length) {
+    generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.NoCheckpoints"), "hint"));
+  } else {
+    let selected = generatorState.get(scene.id);
+    if (!selected || !available.some(r => r.id === selected.roadId)) {
+      selected = { roadId: available[0].id, kind: "checkpoint",
+        presetId: available[0].travelPresetId ?? null, presetEdited: false,
+        applyNativeCost: false, movementAction: "" };
+      generatorState.set(scene.id, selected);
+    }
+    if(surfacesOnly){
+      // Surface generation is authored against one named Road at a time.
+      // This is transient selection, not a Scene/Region write.
+      const roadSelector=createSettingsSelect(available.map(road=>[road.id,road.name]),{
+        selectedId:selected.roadId,ariaLabel:"Road for native Surface generation"
+      });
+      roadSelector.addEventListener("change",()=>{
+        const chosen=available.find(road=>road.id===roadSelector.value);
+        if(!chosen)return;
+        selected.roadId=chosen.id;
+        selected.first=null;selected.last=null;
+        selected.presetEdited=false;
+        selected.applyNativeCost=false;
+        selected.movementAction="";
+        refresh();
+      });
+      appendSettingsField(generatedSection,"Road",roadSelector,
+        {variant:"native-div"});
+    }
+    // Road-default changes flow into the generator unless the GM chose an override.
+    if (!selected.presetEdited) {
+      selected.presetId = available.find(r => r.id === selected.roadId)?.travelPresetId ?? null;
+    }
+    if (selected.presetId !== null && selected.presetId !== undefined &&
+        !presetById.has(selected.presetId)) selected.presetId = null;
+    const makeSelect = (choices, current, changed) => {
+      return createSettingsSelect(choices,{selectedId:current,
+        onChange:value=>{changed(value);refresh();}});
+    };
+    const addField = (title, control) => appendSettingsField(
+      generatedSection,label(title),control,{variant:"native-div"});
+    const checkpoints = atlas.checkpoints.filter(c => c.roadId === selected.roadId);
+    addField("Region shape", makeSelect([
+      ["checkpoint", "Area around one Map Marker"],
+      ["corridor", "Path between two Map Markers"]
+    ], selected.kind, value => {
+      selected.kind = value;
+      selected.applyNativeCost = false;
+      selected.movementAction = "";
+    }));
+    const first = checkpoints.some(c => c.id === selected.first)
+      ? selected.first : checkpoints[0].id;
+    selected.first = first;
+    addField(selected.kind === "corridor" ? "From Map Marker" : "Center Map Marker", makeSelect(
+      checkpoints.map(c => [c.id, c.name]), first,
+      value => { selected.first = value; }));
+    if (selected.kind === "corridor") {
+      const other = checkpoints.filter(c => c.id !== first);
+      if (!other.some(c => c.id === selected.last)) selected.last = other[0]?.id ?? null;
+      if (other.length) addField("To Map Marker", makeSelect(
+        other.map(c => [c.id, c.name]), selected.last,
+        value => { selected.last = value; }));
+    }
+    const widthControl=createCheckpointRegionWidth(selected.widthCells??.5,{
+      label:selected.kind==="corridor"
+        ? "Distance on either side of the road in grid cells"
+        : "Radius around Map Marker in grid cells",
+      onChange:value=>{selected.widthCells=value;},
+      onInvalid:()=>{selected.widthCells=NaN;}
+    });
+    addField(selected.kind === "corridor"
+      ? "Distance on either side of road (cells)" : "Radius around Map Marker (cells)", widthControl.element);
+    // Shared with the Preview button state below; keep it outside the
+    // corridor-only block so opting in cannot crash the Atlas render.
+    const presetForCost = presetById.get(selected.presetId);
+    const perMode = selected.kind === "corridor" &&
+      !!presetForCost && presetForCost.movementCosts !== null;
+    {
+      // Same categorized option catalog as Road Settings. The generator owns
+      // preview/native-cost resets; the shared select never writes Regions.
+      const travelSelect=createTerrainRegionTravelPresetControl(selected,{
+        noneLabel:label("FVTTATLAS.Travel.None"),onChange:refresh
+      });
+      addField("Travel preset",travelSelect);
+      const supported = availableMovementActions();
+      const selectedPreset = presetForCost;
+      if (selected.kind === "corridor") {
+      const costOption = node("label");
+      costOption.style.display = "flex";
+      costOption.style.gap = "0.5rem";
+      costOption.style.alignItems = "center";
+      const checkbox = node("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = !!selected.applyNativeCost;
+      checkbox.disabled = !selected.presetId || supported.length === 0;
+      checkbox.addEventListener("change", () => {
+        selected.applyNativeCost = checkbox.checked;
+        if (!checkbox.checked) selected.movementAction = "";
+        refresh();
+      });
+      costOption.append(checkbox, node("span", "Apply movement costs in Foundry (optional)"));
+      generatedSection.appendChild(costOption);
+      if (selected.applyNativeCost && perMode) {
+        generatedSection.appendChild(node("p",
+          "One native Behavior with selected movement modes: " +
+            presetCostSummary(selectedPreset), "hint"));
+      }
+      if (selected.applyNativeCost && !perMode && supported.length && selected.presetId) {
+        addField("FVTTATLAS.Cost.Action", makeSelect([
+          ["", label("FVTTATLAS.Cost.Choose")],
+          ...supported.map(action => [action.id,
+            game.i18n.localize(action.label) || action.label])
+        ], selected.movementAction || "", value => { selected.movementAction = value; }));
+      }
+      // Validate the actual preset value before offering the create/preview
+      // action; the action-availability probe only uses a sample value.
+      if (selected.applyNativeCost && selected.presetId &&
+          (perMode || selected.movementAction)) {
+        try {
+          selected.nativeCostPreview =
+            previewNativeMovementCost(selected.presetId,
+              perMode ? null : selected.movementAction);
+        } catch (error) {
+          selected.nativeCostPreview = { ok: false, message: error.message };
+        }
+        if (!selected.nativeCostPreview.ok) {
+          const warning = node("p", selected.nativeCostPreview.message, "hint");
+          warning.style.color = "var(--color-text-danger, #a33131)";
+          generatedSection.appendChild(warning);
+        }
+      } else {
+        selected.nativeCostPreview = null;
+      }
+      if (selected.applyNativeCost) generatedSection.appendChild(node("p",
+        supported.length
+          ? "Foundry's native Region rules will use the supported movement costs from this preset."
+          : "Native movement-cost rules are unavailable for this game system.", "hint"));
+      // A selectable Token action is not necessarily a configurable Region-cost
+      // action (for example, Fly/Swim may be fixed or system-derived).
+      const unavailable = unavailableMovementActions();
+      if (selected.applyNativeCost && unavailable.length) {
+        const names = unavailable.slice(0, 5).map(action =>
+          game.i18n.localize(action.label) || action.label).join(", ");
+        generatedSection.appendChild(node("p",
+          "Some movement modes cannot be customized in Foundry: " +
+          names + (unavailable.length > 5 ? "…" : "") + ".",
+          "hint"));
+      }
+      }
+    }
+    const selectedCheckpointIds = selected.kind === "corridor"
+      ? [selected.first, selected.last].sort()
+      : [selected.first];
+    const existingInterval = generated.find(region => region.metadata && !region.invalid &&
+      region.metadata.roadId === selected.roadId &&
+      region.metadata.kind === selected.kind &&
+      region.metadata.checkpointIds.join("|") === selectedCheckpointIds.join("|"));
+    const create = button("Preview & Confirm",
+      "Preview and confirm this native Region",
+      () => actions.generateRegion(scene, {
+        kind: selected.kind, roadId: selected.roadId,
+        checkpointId: selected.first,
+        endCheckpointId: selected.kind === "corridor" ? selected.last : null,
+        widthCells: Number(widthControl.input.value),
+        presetId: selected.presetId ?? null,
+        applyNativeCost: selected.kind === "corridor" && !!selected.applyNativeCost,
+        movementAction: selected.kind === "corridor" ? selected.movementAction : null
+      }, refresh));
+    create.disabled = !!draft || (selected.kind === "corridor" && checkpoints.length < 2) ||
+      (selected.kind === "corridor" && selected.applyNativeCost &&
+        ((!perMode && !selected.movementAction) ||
+          selected.nativeCostPreview?.ok !== true));
+    if (existingInterval) generatedSection.appendChild(node("p",
+      "A Region already exists for this location. Use Terrain Regions under this road to edit or regenerate it.",
+      "hint"));
+    create.disabled ||= !!existingInterval;
+    const previewActions = node("div");
+    previewActions.style.cssText = "position:sticky;bottom:0;z-index:2;padding:.65rem 0 .2rem;" +
+      "background:var(--color-bg-primary, #100f17);";
+    previewActions.appendChild(create);
+    generatedSection.appendChild(previewActions);
+  }
+  if (generatorOnly) return generatedSection;
+  const visibleGenerated = generated.filter(region => !region.metadata ||
+    shownRoads.has(region.metadata.roadId));
+  const records = surfacesOnly ? node("section",undefined,"atlas-surface-records") : generatedSection;
+  if (surfacesOnly) records.appendChild(node("h3","Generated Regions"));
+  if (generated.length) {
+    records.appendChild(node("p",
+      visibleGenerated.length + " / " + generated.length + " " +
+      label("FVTTATLAS.Generated.Existing"), "hint"));
+  }
+  for (const region of visibleGenerated.slice(0, 50)) {
+    const row = node("div", undefined, "form-group");
+    const detail = node("div");
+    detail.style.flex = "1 1 auto";
+    if (!surfacesOnly) detail.appendChild(node("span", region.name));
+    if (region.metadata?.kind === "corridor") {
+      const preset = region.presetId ? presetById.get(region.presetId) : null;
+      detail.appendChild(node("div", region.invalidPreset
+        ? label("FVTTATLAS.Travel.InvalidPreset")
+        : region.presetId
+          ? preset
+            ? label("FVTTATLAS.Travel.CorridorPreset") + ": " + preset.name +
+              " (" + presetCostSummary(preset) + ")"
+            : label("FVTTATLAS.Travel.MissingPreset")
+          : label("FVTTATLAS.Travel.None"), "hint"));
+      if (preset) {
+        const currentColor = String(region.color ?? "").toUpperCase();
+        const colorMatches = currentColor === preset.color;
+        const swatch = node("span");
+        swatch.style.cssText = "display:inline-block;width:0.9rem;height:0.9rem;" +
+          "margin-right:0.4rem;border:1px solid currentColor;border-radius:0.15rem;" +
+          "background:" + preset.color + ";";
+        const colorLine = node("div", undefined, "hint");
+        colorLine.append(swatch, node("span",
+          "Native Region surface color " + preset.color + (colorMatches
+            ? " · Applied" : " · Region differs (manual or older color)")));
+        detail.appendChild(colorLine);
+        const costState = nativeCostPresetStatus(region.nativeCost, preset);
+        const costLine = node("div", "Cost status: " + costState.label, "hint");
+        costLine.setAttribute("data-atlas-cost-status", costState.state);
+        detail.appendChild(costLine);
+      }
+      if (region.nativeCost.existing) {
+        const authored = region.nativeCost.detail;
+        const summary = region.nativeCost.managed && authored
+          ? label("FVTTATLAS.Cost.Managed") + " · " +
+            (authored.schemaVersion === 1
+              ? authored.action + " ×" + authored.multiplier
+              : Object.entries(authored.movementCosts).map(([action, cost]) =>
+                action + " ×" + cost).join(", "))
+          : label("FVTTATLAS.Cost.Existing");
+        detail.appendChild(node("div", summary, "hint"));
+      }
+    }
+    detail.appendChild(node("div", region.invalid ?
+      label("FVTTATLAS.Generated.Invalid") :
+      region.modified ? label("FVTTATLAS.Generated.Modified") :
+      label("FVTTATLAS.Generated.Managed"), "hint"));
+    if(publicById.get(region.id)?.label){
+      detail.appendChild(node("div","Public Journey name: "+
+        publicById.get(region.id).label,"hint"));
+    }
+    row.appendChild(detail);
+    const controls = node("div", undefined, "form-fields");
+    controls.appendChild(button("⚙", label("FVTTATLAS.Regions.Configure"),
+      () => actions.configureRegion(scene, region.id)));
+    const publishName=button("🏷","Edit this road Region's public Journey label",
+      ()=>actions.configurePublicTerritory(scene,refresh,region.id));
+    publishName.disabled=!!draft;
+    controls.appendChild(publishName);
+    if (!region.invalid) {
+      if (region.metadata?.kind === "corridor") {
+        controls.appendChild(button("◈", label("FVTTATLAS.Travel.AssignRegion"),
+          () => actions.assignGeneratedRegionTravelPreset(scene, region, refresh)));
+        const color = button("🎨", "NATIVE REGION COLOR — Apply surface preset color (with confirmation)",
+          () => actions.applyGeneratedRegionColor(scene, region, refresh));
+        color.disabled = !!draft || !presetById.has(region.presetId) ||
+          String(region.color ?? "").toUpperCase() ===
+          presetById.get(region.presetId)?.color;
+        controls.appendChild(color);
+        const apply = button("⬆", label("FVTTATLAS.Cost.ApplyExisting"),
+          () => actions.applyGeneratedRegionCost(scene, region, refresh));
+        apply.disabled = !!draft || !region.presetId || !presetById.has(region.presetId) ||
+          region.nativeCost.existing || availableMovementActions().length === 0 ||
+          (presetById.get(region.presetId)?.movementCosts !== null &&
+            !Object.keys(presetById.get(region.presetId)?.movementCosts ?? {}).length);
+        controls.appendChild(apply);
+        if (region.nativeCost.existing) {
+          const update = button("↺", "Refresh this corridor's Atlas-managed native movement costs (confirmation)",
+            () => actions.updateGeneratedRegionCost(scene, region, refresh));
+          update.disabled = !!draft || !presetById.has(region.presetId) ||
+            !editableManagedNativeCost(region.nativeCost);
+          controls.appendChild(update);
+        }
+      }
+      const regenerate = button("↻", label("FVTTATLAS.Generated.Regenerate"),
+        () => actions.regenerateRegion(scene, region, refresh));
+      regenerate.disabled = !!draft || region.modified;
+      controls.appendChild(regenerate);
+    }
+    row.appendChild(controls);
+    if (surfacesOnly) {
+      const entry = node("details");
+      entry.appendChild(node("summary",region.name));
+      entry.appendChild(row);
+      entry.open = surfaceExpansion?.has(region.id) ?? false;
+      entry.addEventListener("toggle",()=>{
+        if (!entry.isConnected) return;
+        if (entry.open) surfaceExpansion?.add(region.id);
+        else surfaceExpansion?.delete(region.id);
+      });
+      records.appendChild(entry);
+    } else generatedSection.appendChild(row);
+  }
+  if (visibleGenerated.length > 50) records.appendChild(node("p",
+    label("FVTTATLAS.Generated.Limit"), "hint"));
+  if(surfacesOnly){
+    const roadId=generatorState.get(scene.id)?.roadId??null;
+    const links=createAtlasNativeRegionLinks(
+      scene,atlas,generated,actions,refresh,roadId);
+    const panel=node("section");
+    panel.setAttribute("data-atlas-surfaces-panel","");
+    panel.className="atlas-workspace-surfaces";
+    panel.append(generatedSection,records,links.regionSection);
+    return panel;
+  }
+  advanced.appendChild(generatedSection);
+
+  // Phase 2d associates existing native RegionDocuments. No Atlas geometry or
+  // terrain modifiers are stored here; Foundry's Region editor stays canonical.
+  const {regionSection,nativeRegions,visibleNative}=
+    createAtlasNativeRegionLinks(scene,atlas,generated,actions,refresh,
+      expandedRoads.get(scene.id));
+  advanced.appendChild(regionSection);
+
+  // Reuse exactly the same native Region controls in both Scene tab and Workspace.
+  root.insertBefore(createAtlasTerritoryPanel(scene,actions,refresh,
+    {generated,nativeRegions,publicById}),section);
+
+  const measurement = node("fieldset");
+  measurement.appendChild(node("legend", label("FVTTATLAS.Atlas.Measurement")));
+  const grid = readSceneGridScale(scene);
+  if (grid) measurement.appendChild(node("p",
+    `${label("FVTTATLAS.Atlas.NativeGrid")}: ${format(grid.unitsPerSpace)} ${grid.unit} / ${format(grid.pixelsPerSpace)} px`));
+  else measurement.appendChild(node("p", label("FVTTATLAS.Atlas.GridUnavailable"), "hint"));
+  measurement.appendChild(node("p", label("FVTTATLAS.Atlas.SceneGridSaveHint"), "hint"));
+  advanced.appendChild(measurement);
+  // Generated Region creation uses its own window; existing Regions stay here.
+  if (generatorOnly) return generatedSection;
+  generatedSection.remove();
+  const regionTarget = root.querySelector(`[data-atlas-region-folder="${expandedRoads.get(scene.id)??""}"]`);
+  if (regionTarget && visibleNative.some(region=>region.linked||region.invalidLink))
+    regionTarget.appendChild(regionSection);
+  fogPanel.appendChild(measurement);
+  return root;
+}
+
+/** Existing authored Road actions, independently mountable in the Workspace.
+ * Scene flags and edit drafts remain owned by their established adapters. */
+export function createAtlasRoadsPanel(scene, actions, refresh) {
+  if (!game.user?.isGM || !scene?.id ||
+      !scene.canUserModify?.(game.user, "update")) {
+    throw Error("Only a Scene-authorized GM can use Atlas Road authoring tools.");
+  }
+  return atlasPanel(scene, readAtlas(scene), actions, refresh, { roadsOnly: true });
+}
+
+/** Reuses the existing native Region generator, travel preset and movement-cost
+ * controls; viewing Workspace never creates or mutates a Foundry Region. */
+export function createAtlasSurfacesPanel(scene,actions,refresh,surfaceExpansion){
+  if(!game.user?.isGM||!scene?.id||
+      !scene.canUserModify?.(game.user,"update"))
+    throw Error("Only a Scene-authorized GM can manage Atlas Surfaces.");
+  return atlasPanel(scene,readAtlas(scene),actions,refresh,{surfacesOnly:true,surfaceExpansion});
+}
+
+/** Native elevation setup is distinct from geographic territory hierarchy.
+ * The Workspace hosts its existing preview/approval workflow without writes on read. */
+export function createAtlasTopologyPanel(scene, refresh) {
+  if (!game.user?.isGM || !scene?.id ||
+      !scene.canUserModify?.(game.user, "update")) {
+    throw Error("Only a Scene-authorized GM can configure native Scene Levels.");
+  }
+  const panel = node("section");
+  panel.setAttribute("data-atlas-topology-panel", "");
+  if (!game.settings?.get?.("fvtt-atlas-navigation", ATLAS_LEVEL_PLANNER_SETTING)) {
+    panel.appendChild(node("p", "Enable Atlas — Native Scene Level Setup in " +
+      "World module settings to use this GM-reviewed tool.", "hint"));
+    return panel;
+  }
+  panel.appendChild(atlasNativeLevelSetup(scene, { onSceneToggle: refresh }));
+  return panel;
+}
+
+/** Standalone native Region generator; never changes graph or Region Behaviors implicitly. */
+class AtlasRegionGeneratorWindow extends foundry.applications.api.ApplicationV2 {
+  static DEFAULT_OPTIONS = {
+    id:"fvtt-atlas-region-generator",
+    window:{ title:"Atlas — Generate Terrain Region", resizable:true,minimizable:true },
+    position:{width:600,height:620,left:24}
+  };
+  constructor({scene,roadId,checkpointId=null,actions,refresh}) {
+    super({ position:{
+      left: 24,
+      width:Math.min(600,window.innerWidth-60),
+      height:Math.min(620,window.innerHeight-85)
+    } });
+    this.scene=scene;this.roadId=roadId;this.checkpointId=checkpointId;
+    this.actions=actions;this.externalRefresh=refresh;
+  }
+  async _renderHTML() {
+    this._scrollY = this.element?.querySelector?.("[data-atlas-generator-scroll]")?.scrollTop ?? 0;
+    generatorRoads.set(this.scene.id,this.roadId);
+    const selected=generatorState.get(this.scene.id);
+    if (selected && selected.roadId!==this.roadId) {
+      selected.roadId=this.roadId;selected.presetEdited=false;
+    }
+    if(this.checkpointId && (!selected || selected.first!==this.checkpointId)) {
+      const road=readAtlas(this.scene).roads.find(item=>item.id===this.roadId);
+      const suggestion=checkpointTerrainSuggestion(this.scene,this.checkpointId);
+      generatorState.set(this.scene.id,{
+        roadId:this.roadId,kind:"checkpoint",first:this.checkpointId,
+        widthCells:suggestion?.radiusCells??.5,
+        presetId:suggestion?.presetId??road?.travelPresetId??null,
+        presetEdited:false,applyNativeCost:false,movementAction:""
+      });
+    }
+    const scopedActions={...this.actions,generateRegion:async(...args)=>{
+      // Let the GM inspect the live canvas without the editor obscuring the
+      // preview. Cancel restores the form; a committed Region closes it.
+      await this.minimize?.();
+      try{
+        const saved=await this.actions.generateRegion(...args);
+        if(saved?.created)await this.close();
+        else await this.maximize?.();
+        return saved;
+      }catch(error){await this.maximize?.();throw error;}
+    }};
+    const body=atlasPanel(this.scene,readAtlas(this.scene),scopedActions,
+      ()=>{this.externalRefresh?.();void this.render(true);},{generatorOnly:true});
+    const root=node("div");
+    root.dataset.atlasGeneratorScroll = "";
+    root.style.cssText="padding:.65rem;box-sizing:border-box;min-height:0;overflow-y:auto;" +
+      "max-height:"+Math.max(250,Math.min(610,(this.position?.height??620)-100,window.innerHeight-165))+"px;";
+    root.appendChild(body);
+    root.appendChild(button("Close","Close Region generator",()=>this.close()));
+    return root;
+  }
+  _replaceHTML(result,content){
+    content.replaceChildren(result);
+    const scroll=content.querySelector?.("[data-atlas-generator-scroll]");
+    if (scroll) scroll.scrollTop=this._scrollY??0;
+  }
+}
+
+const checkpointGenerators=new Map();
+const generatorKey=(scene,checkpointId)=>`${scene.id}:${checkpointId}`;
+
+/** Closing one checkpoint's automatic generator never affects other generators. */
+export async function closeCheckpointRegionGenerator(scene,checkpointId){
+  if(!scene?.id||!checkpointId)return false;
+  const key=generatorKey(scene,checkpointId);
+  const app=checkpointGenerators.get(key);
+  if(!app)return false;
+  await app.close();
+  return true;
+}
+
+export function openAtlasRegionGenerator(scene,roadId,actions,refresh,checkpointId=null) {
+  if (!game.user?.isGM) throw Error("Only the GM can generate terrain Regions.");
+  const key=checkpointId?generatorKey(scene,checkpointId):null;
+  let app=key?checkpointGenerators.get(key):null;
+  if(!app){
+    app=new AtlasRegionGeneratorWindow({scene,roadId,checkpointId,actions,refresh});
+    if(key){
+      checkpointGenerators.set(key,app);
+      const baseClose=app.close.bind(app);
+      app.close=async options=>{
+        const result=await baseClose(options);
+        if(checkpointGenerators.get(key)===app)checkpointGenerators.delete(key);
+        return result;
+      };
+    }
+  }
+  void app.render(true);
+  return app;
+}
+
+/**
+ * Add the road list inside the existing native Scene Configuration Atlas part.
+ * All Atlas buttons are type=button: they save only Atlas flags, never submit
+ * unrelated core Scene form fields.
+ */
+const openAtlasSheets = new Map();
+
+/** The visible Scene configuration remains the owner of Atlas operations. */
+export function getAtlasSceneConfig(scene) {
+  return openAtlasSheets.get(scene?.id)?.app ?? null;
+}
+
+export function refreshAtlasSceneConfig(scene) {
+  openAtlasSheets.get(scene?.id)?.refresh?.();
+}
+
+export function forgetAtlasSceneConfig(app) {
+  if (openAtlasSheets.get(app?.document?.id)?.app === app) {
+    openAtlasSheets.delete(app.document.id);
+  }
+}
+
+/** The legacy SceneConfig renderer is deliberately NOT registered.
+ * Retained for tests of shared Road/Region controls until the owner accepts
+ * parity across all Workspace panels. Do not restore a renderSceneConfig hook. */
+export function addAtlasRoadsToSceneConfig(app, element, actions) {
+  const scene = app?.document;
+  if (!globalThis.game?.user?.isGM ||
+      !scene?.id ||
+      !scene?.canUserModify?.(game.user, "update")) return;
+  const form = element?.matches?.("form") ? element : element?.querySelector?.("form");
+  const nativeRoot = element?.querySelector?.(ROOT_SELECTOR);
+  const fallback = !nativeRoot && (
+    element?.querySelector?.('[data-tab="misc"]') ||
+    element?.querySelector?.('[data-tab="grid"]') ||
+    form
+  );
+  const target = nativeRoot || fallback;
+  if (!target) return;
+  // Capture live disclosure state before rebuilding after native Region updates.
+  // This also covers toggle events which have not yet been dispatched.
+  for (const item of target.querySelectorAll?.("[data-atlas-expansion-key]") ?? []) {
+    const key = item.dataset.atlasExpansionKey;
+    if (item.open) expandedDetails.add(key);
+    else expandedDetails.delete(key);
+  }
+  const openRoad = target.querySelector?.("[data-atlas-road-id][open]");
+  if (openRoad) expandedRoads.set(scene.id, openRoad.dataset.atlasRoadId);
+  target.querySelector?.("[data-fvtt-atlas-setup]")?.remove();
+  const refresh = () => {
+    if (app.rendered === false) return;
+    addAtlasRoadsToSceneConfig(app, element, actions);
+  };
+  openAtlasSheets.set(scene.id, { app, refresh });
+
+  let panel;
+  try { panel = atlasPanel(scene, readAtlas(scene), actions, refresh); }
+  catch (error) {
+    panel = node("section");
+    panel.setAttribute("data-fvtt-atlas-setup", "");
+    panel.appendChild(node("p", error.message, "hint"));
+  }
+  target.appendChild(panel);
+}

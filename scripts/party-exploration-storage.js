@@ -1,0 +1,140 @@
+import { MODULE_ID, readAtlas } from "./atlas-storage.js";
+import { readManualFog } from "./atlas-fog-readers.js";
+import { nativeFogCells } from "./atlas-manual-fog-geometry.js";
+import { checkpointRevealKeys, clearHiddenForCheckpoint } from "./checkpoint-exploration.js";
+import { validateManualFog } from "./atlas-manual-fog-model.js";
+import { CHECKPOINT_METHOD_FLAG, readCheckpointDiscoveryMethods,
+  validateCheckpointDiscoveryMethods, checkpointDiscoveryMethod,
+  withCheckpointDiscoveryMethod } from "./checkpoint-discovery-method.js";
+import { PARTY_EXPLORATION_FLAG, validatePartyExploration,
+  setCheckpointKnowledge, setCheckpointRevealRadius } from "./party-exploration-model.js";
+
+export function readPartyExploration(scene) {
+  if (!scene || typeof scene.getFlag !== "function") {
+    throw new Error("Select a Scene for party exploration.");
+  }
+  return validatePartyExploration(scene.getFlag(MODULE_ID, PARTY_EXPLORATION_FLAG));
+}
+
+function authorize(scene) {
+  if (!globalThis.game?.user?.isGM ||
+      !scene?.canUserModify?.(game.user, "update")) {
+    throw new Error("Only a GM with Scene update permission can change Atlas exploration.");
+  }
+}
+
+/**
+ * Separate from the Atlas road-graph flag. A snapshot check detects a stale
+ * single-GM form; Foundry flag writes are not atomic compare-and-swap.
+ */
+async function savePartyState(scene, expected, update) {
+  authorize(scene);
+  const before = readPartyExploration(scene);
+  if (JSON.stringify(before) !== JSON.stringify(validatePartyExploration(expected))) {
+    throw new Error("Party exploration changed. Reopen the Scene Atlas tab.");
+  }
+  const after = validatePartyExploration(update(before));
+  await scene.setFlag(MODULE_ID, PARTY_EXPLORATION_FLAG, after);
+  return after;
+}
+
+export async function savePartyExplorationConfig(scene, {
+  enabled, tokenId, radius, defaultRevealRadiusCells, expected
+}) {
+  if (typeof enabled !== "boolean") throw new Error("Enable exploration explicitly.");
+  if (tokenId !== null && !scene?.tokens?.get?.(tokenId)) {
+    throw new Error("Select an existing token on this Scene.");
+  }
+  if (enabled && !tokenId) throw new Error("Choose the party token first.");
+  return savePartyState(scene, expected, before => ({
+    ...before, enabled: enabled || (readManualFog(scene).enabled && before.enabled), tokenId, radius,
+    defaultRevealRadiusCells: defaultRevealRadiusCells ?? before.defaultRevealRadiusCells
+  }));
+}
+
+export async function saveCheckpointKnowledge(scene, {
+  checkpointId, knowledge, revealRadiusCells, expected,
+  method, expectedMethods
+}) {
+  authorize(scene);
+  const before = readPartyExploration(scene);
+  if (JSON.stringify(before) !== JSON.stringify(validatePartyExploration(expected))) {
+    throw new Error("Checkpoint knowledge changed. Reopen its settings.");
+  }
+  const methods = readCheckpointDiscoveryMethods(scene);
+  if (expectedMethods !== undefined && JSON.stringify(methods) !==
+      JSON.stringify(validateCheckpointDiscoveryMethods(expectedMethods))) {
+    throw new Error("Checkpoint discovery method changed. Reopen its settings.");
+  }
+  const atlas = readAtlas(scene);
+  if (!atlas.checkpoints?.some(checkpoint => checkpoint.id === checkpointId)) {
+    throw new Error("Checkpoint no longer exists.");
+  }
+  const manual = readManualFog(scene);
+  const source = manual.enabled ? {...before,enabled:true} : before;
+  const nextKnowledge = setCheckpointKnowledge(source, checkpointId, knowledge);
+  const after = revealRadiusCells === undefined ? nextKnowledge :
+    setCheckpointRevealRadius(nextKnowledge, checkpointId, revealRadiusCells);
+  const updates = {
+    ["flags." + MODULE_ID + "." + PARTY_EXPLORATION_FLAG]: after
+  };
+  if (method !== undefined) {
+    const nextMethods = withCheckpointDiscoveryMethod(methods,checkpointId,method);
+    if (JSON.stringify(nextMethods) !== JSON.stringify(methods)) {
+      updates["flags." + MODULE_ID + "." + CHECKPOINT_METHOD_FLAG] = nextMethods;
+    }
+  }
+  // A fresh explicit checkpoint reveal supersedes prior Hide brush strokes only
+  // within its terrain circle. Later GM Hide strokes still take precedence.
+  if (manual.enabled && (knowledge === "visited" || knowledge === "lore") &&
+      manual.hidden.length > 0) {
+    const view = globalThis.canvas;
+    if (!view?.ready || view.scene?.id !== scene.id) {
+      throw new Error("Open this Scene canvas before revealing checkpoint terrain.");
+    }
+    const cells = nativeFogCells(view);
+    const newlyVisible = checkpointRevealKeys(cells,atlas,after,
+      Number(scene.grid?.size),
+      {x:Number(view.dimensions.sceneX),y:Number(view.dimensions.sceneY)},
+      new Set([checkpointId]));
+    const hidden = clearHiddenForCheckpoint(manual.hidden,newlyVisible);
+    if (hidden.length !== manual.hidden.length) {
+      updates["flags." + MODULE_ID + ".manualFog"] =
+        validateManualFog({...manual,hidden});
+    }
+  }
+  // One native Scene update publishes knowledge and cleared overrides together.
+  // Neither token vision nor Foundry FogExploration is changed.
+  await scene.update(updates);
+  return after;
+}
+
+/** GM-only automatic checkpoint visits from a recorded explorer movement. */
+export async function saveAutomaticCheckpointVisits(scene, checkpointIds) {
+  authorize(scene);
+  const before=readPartyExploration(scene);
+  if(!before.enabled||!before.tokenId||!checkpointIds?.length)return [];
+  const atlas=readAtlas(scene);
+  const valid=new Set(atlas.checkpoints?.map(c=>c.id)??[]);
+  const methods=readCheckpointDiscoveryMethods(scene);
+  const lore=new Set(before.loreKnownCheckpointIds);
+  const seen=new Set(before.discoveredCheckpointIds);
+  const added=checkpointIds.filter(id=>valid.has(id)&&!lore.has(id)&&!seen.has(id)&&
+    checkpointDiscoveryMethod(methods,id)==="automatic");
+  if(!added.length)return [];
+  const after=validatePartyExploration({...before,
+    discoveredCheckpointIds:[...before.discoveredCheckpointIds,...added]});
+  const updates={["flags."+MODULE_ID+"."+PARTY_EXPLORATION_FLAG]:after};
+  const manual=readManualFog(scene),view=globalThis.canvas;
+  if(manual.enabled&&manual.hidden.length&&view?.ready&&view.scene?.id===scene.id){
+    const projected=checkpointRevealKeys(nativeFogCells(view),atlas,after,
+      Number(scene.grid?.size),
+      {x:Number(view.dimensions.sceneX),y:Number(view.dimensions.sceneY)},
+      new Set(added));
+    const hidden=clearHiddenForCheckpoint(manual.hidden,projected);
+    if(hidden.length!==manual.hidden.length)
+      updates["flags."+MODULE_ID+".manualFog"]=validateManualFog({...manual,hidden});
+  }
+  await scene.update(updates);
+  return added;
+}

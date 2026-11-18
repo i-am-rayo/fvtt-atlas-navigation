@@ -1,0 +1,71 @@
+/* One modeless GM settings surface replaces the per-row Territory icon bar. */
+.atlas-territory-settings {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 0.8rem;
+  gap: 0.7rem;
+}
+.atlas-territory-settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 0.45rem;
+  flex: 0 0 auto;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--color-border-light-tertiary,#777);
+}
+.atlas-territory-settings-tabs button {
+  min-width: 0;
+  white-space: normal;
+  font-weight: 600;
+  padding: 0.5rem 0.35rem;
+}
+.atlas-territory-settings-tabs button[aria-current="true"] {
+  background: var(--color-cool-4,#3d315a);
+  border-color: var(--color-border-highlight,#a590dc);
+}
+.atlas-territory-settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.35rem;
+}
+.atlas-territory-settings-body fieldset {
+  margin: 0 0 0.85rem;
+  padding: 0.75rem;
+  min-width: 0;
+}
+.atlas-territory-settings-body legend {
+  font-weight: 700;
+  padding-inline: 0.25rem;
+}
+.atlas-territory-settings-body .hint {
+  opacity: 0.82;
+  margin: 0.1rem 0 0.6rem;
+}
+.atlas-territory-settings-action {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--color-border-light-tertiary,#555);
+}
+.atlas-territory-settings-action strong { display: block; }
+.atlas-territory-settings-action .hint { margin: 0.2rem 0 0; }
+.atlas-territory-settings-action button { min-width: 9rem; max-width: 13rem; }
+.atlas-territory-settings-facts {
+  display: grid;
+  grid-template-columns: minmax(7.5rem,0.4fr) minmax(0,1fr);
+  gap: 0.25rem 0.75rem;
+  margin: 0.4rem 0 0.9rem;
+}
+.atlas-territory-settings-facts dt { opacity: 0.8; }
+.atlas-territory-settings-facts dd { margin: 0; overflow-wrap: anywhere; }
+@media(max-width:560px){
+  .atlas-territory-settings-tabs { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .atlas-territory-settings-action { grid-template-columns: 1fr; gap: 0.4rem; }
+  .atlas-territory-settings-action button { max-width: none; }
+}

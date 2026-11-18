@@ -1,0 +1,17 @@
+# Local advisory Graphify output, including extraction caches and logs.
+/graphify-out/
+
+# Local development caches, temporary files and credentials.
+/node_modules/
+/.venv/
+/.cache/
+/tmp/
+*.tmp
+*.swp
+*~
+.DS_Store
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example

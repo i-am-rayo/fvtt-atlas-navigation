@@ -1,0 +1,164 @@
+/* The Road ApplicationV2 form owns submission; no native document is written on render.
+ * Shared Atlas order: edit actions then Cancel/Save, Delete last on the right.
+ * DOM focus order matches visual order; CSS only handles available spacing.
+ */
+.application:has([data-atlas-road-live]) .form-footer,
+.atlas-checkpoint-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: .5rem;
+}
+
+.application:has([data-atlas-road-live]) .form-footer > button,
+.atlas-checkpoint-form-actions > button {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.application:has([data-atlas-road-live]) .form-footer > button[data-atlas-road-submit],
+.atlas-checkpoint-form-actions .atlas-checkpoint-footer-save {
+  margin-inline-start: auto;
+}
+
+.application:has([data-atlas-road-live]) .form-footer > button[data-atlas-road-submit].atlas-ui-icon-button {
+  flex:0 0 2rem;
+  width:2rem;min-width:2rem;max-width:2rem;
+  height:2rem;min-height:2rem;max-height:2rem;
+  padding:.2rem;
+}
+
+.application:has([data-atlas-road-live]) [data-atlas-road-actions] {
+  display: none;
+}
+
+.application:has([data-atlas-road-live]) .atlas-road-linked-heading {
+  display:flex;align-items:center;justify-content:space-between;
+  gap:.6rem;margin:.55rem 0;
+}
+.application:has([data-atlas-road-live]) .atlas-road-linked-heading .atlas-ui-icon-button {
+  flex:0 0 2rem;width:2rem;min-width:2rem;height:2rem;min-height:2rem;
+}
+
+.atlas-road-customization-section {
+  display:grid;gap:.55rem;min-width:0;
+  padding:.6rem .75rem;border:1px solid var(--color-border-light-tertiary,#666);
+  border-radius:.45rem;
+}
+.atlas-road-customization-section > legend {padding:0 .3rem;font-weight:700;}
+.atlas-road-customization-section .atlas-number-range {max-width:20rem;}
+.atlas-road-map-preview {min-height:7rem;}
+.atlas-road-map-preview > svg {background:var(--color-cool-5-90,#20242b88);border-radius:.35rem;}
+.atlas-road-map-preview .atlas-road-preview-name {
+  font:600 14px Arial,sans-serif;paint-order:stroke;
+  stroke:#111;stroke-width:1.5px;
+}
+.atlas-road-map-preview .atlas-road-preview-name[hidden] {display:none;}
+.atlas-road-customization[data-atlas-road-preview-mode="hover"] .atlas-road-preview-name {opacity:0;}
+.atlas-road-customization[data-atlas-road-preview-mode="hover"]:hover .atlas-road-preview-name {opacity:1;}
+
+.application:has([data-atlas-road-live]) .atlas-road-preset-controls {
+  display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;min-width:0;
+}
+.application:has([data-atlas-road-live]) .atlas-road-preset-controls > span {
+  flex:1 1 8rem;min-width:0;overflow-wrap:anywhere;
+}
+.application:has([data-atlas-road-live]) .atlas-road-preset-controls select {
+  flex:1 1 9rem;min-width:0;
+}
+.application:has([data-atlas-road-live]) .atlas-road-preset-controls [hidden] {display:none;}
+
+/* Road Editor body scrolls independently; actions remain inside the app viewport. */
+.atlas-road-editor-dock {
+  display:flex;flex-direction:column;min-height:0;height:100%;
+  padding:.5rem .65rem;gap:.45rem;box-sizing:border-box;
+}
+.atlas-road-editor-body {flex:1 1 auto;min-height:0;overflow-y:auto;min-width:0;}
+.atlas-road-editor-gestures {padding-inline-start:1.2rem;margin:.3rem 0 .6rem;}
+.atlas-road-editor-gestures li {
+  display:flex;align-items:baseline;gap:.55rem;flex-wrap:wrap;
+  margin:.3rem 0;line-height:1.4;
+}
+.atlas-road-editor-gestures kbd {
+  padding:.1rem .3rem;border:1px solid var(--color-border-light-tertiary,#777);
+  border-radius:.2rem;white-space:nowrap;font:inherit;font-size:.82em;
+  background:var(--color-cool-5-90,#292931);
+}
+.atlas-road-editor-footer {
+  display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;
+  border-top:1px solid var(--color-border-light-tertiary,#666);padding:.45rem 0;
+  flex:0 0 auto;
+}
+.atlas-road-editor-footer > button:last-child:not(.atlas-ui-icon-button) {
+  margin-inline-start:auto;min-width:max-content;
+}
+
+/* Related options share one row, but remain separate accessible form labels. */
+.atlas-road-inline-colors {
+  display:flex;gap:.6rem;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;min-width:0;
+}
+.atlas-road-inline-colors > label.form-group {
+  display:inline-flex!important;gap:.45rem!important;align-items:center;
+  flex:1 1 auto;min-width:0;
+}
+.atlas-road-inline-colors > label.form-group:has(input[type="color"]) {
+  flex:0 0 auto;
+}
+.atlas-road-inline-colors input[type="color"] {
+  width:3.75rem;min-width:3.75rem;height:2.25rem;
+}
+
+/* The native ApplicationV2 window owns vertical bounds. Only its body scrolls. */
+.application:has([data-atlas-road-live]) .atlas-road-settings-form {
+  display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;
+}
+.application:has([data-atlas-road-live]) .atlas-road-settings-content {
+  display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;
+}
+.application:has([data-atlas-road-live]) .atlas-road-settings-scroll {
+  flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  padding:.8rem 1rem;box-sizing:border-box;
+}
+.application:has([data-atlas-road-live]) .form-footer {
+  flex:0 0 auto;margin-top:auto;padding:.45rem .4rem;
+  border-top:1px solid var(--color-border-light-tertiary,#666);
+}
+.application:has([data-atlas-road-live]) .atlas-road-linked-section {
+  display:block;min-width:0;margin:.4rem 0;padding:.5rem .65rem;
+  border:1px solid var(--color-border-light-tertiary,#666);
+  border-radius:.45rem;
+}
+.application:has([data-atlas-road-live]) .atlas-road-linked-section legend.atlas-road-linked-heading {
+  display:flex;align-items:center;justify-content:space-between;
+  gap:.55rem;width:auto;max-width:100%;padding:0 .35rem;
+}
+.application:has([data-atlas-road-live]) .atlas-road-linked-section legend .atlas-ui-icon-button {
+  width:2rem;min-width:2rem;height:2rem;min-height:2rem;
+}
+.application:has([data-atlas-road-live]) .atlas-road-linked-section [aria-live="polite"] {
+  min-width:0;overflow-wrap:anywhere;
+}
+
+/* Match the Paint Territory editor's readable hierarchy without replacing
+   Foundry's native ApplicationV2 window, actions or theme colors. */
+.application:has([data-atlas-road-live]) .atlas-road-settings-heading {
+  margin:0 0 .75rem;padding:0 0 .65rem;
+  border-bottom:1px solid var(--color-border-light-tertiary,#666);
+}
+.application:has([data-atlas-road-live]) .atlas-road-settings-heading h3 {
+  font-size:1.25rem;font-weight:700;margin:0 0 .35rem;
+}
+.application:has([data-atlas-road-live]) .atlas-road-settings-heading p {
+  margin:0;line-height:1.45;opacity:.85;
+}
+.application:has([data-atlas-road-live]) .atlas-road-settings-scroll
+  [data-atlas-road-panel]:not([hidden]) {min-width:0;}
+.application:has([data-atlas-road-live]) .form-footer {
+  padding:.65rem 1rem;
+}
+@media(max-width:540px){
+  .application:has([data-atlas-road-live]) .atlas-road-settings-scroll {padding:.55rem;}
+  .application:has([data-atlas-road-live]) .form-footer {padding:.4rem .55rem;}
+}
