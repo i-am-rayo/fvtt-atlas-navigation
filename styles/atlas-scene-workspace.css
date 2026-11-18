@@ -563,14 +563,8 @@
   .atlas-directory-filters .atlas-directory-search {flex-basis:100%;max-width:none;}
 }
 
-/* Legacy manager services are retained only for unique GM topology/recovery tools. */
-.atlas-workspace-advanced-management {
-  margin:.7rem 0;padding:.55rem .75rem;
-  border:1px solid var(--color-border-light-tertiary,#666);
-  border-radius:.45rem;
-}
-.atlas-workspace-advanced-management > summary {cursor:pointer;font-weight:700;}
-.atlas-workspace-advanced-management > button {margin:.3rem;min-width:0;width:auto;}
+/* Map Directory's existing View/Tools navigation replaces the obsolete
+   Settings disclosure; no duplicate diagnostics or persisted UI state. */
 .atlas-scene-workspace .atlas-checkpoint-toolbar {display:flex;gap:.5rem;align-items:end;flex-wrap:wrap;}
 .atlas-scene-workspace .atlas-checkpoint-sort {display:grid;gap:.2rem;min-width:8rem;}
 .atlas-scene-workspace .atlas-checkpoint-search {
