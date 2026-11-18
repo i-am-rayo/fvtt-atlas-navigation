@@ -791,3 +791,63 @@ test("late canvas editor refresh never reopens a GM-closed or minimized Workspac
     assert.deepEqual(ctx.calls,[],"refresh is a client-only presentation action");
   }finally{ctx.restore();}
 });
+
+
+test("Map Directory keeps derived counts next to names, before actions, without writes (#408)",async()=>{
+  const ctx=context();
+  try{
+    const geography=(kind,parentRegionId=null)=>(_scope,key)=>key==="atlas"?
+      {schemaVersion:1,linked:true}:key==="territoryGeography"?
+      {schemaVersion:1,kind,parentRegionId,roadOverrides:{}}:null;
+    const continent=ctx.scene.regions[0];
+    continent.name="A Very Long Continent Name For Narrow Screens";
+    continent.parent={id:ctx.scene.id};
+    continent.getFlag=geography("continent");
+    continent.canUserModify=()=>true;
+    ctx.scene.regions.push({id:"town-1",name:"Harbor Town",parent:{id:ctx.scene.id},
+      hidden:false,behaviors:[],shapes:[],getFlag:geography("town",continent.id),
+      canUserModify:()=>true});
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    const findRow=key=>walk(ws.result,item=>
+      item.tag==="details"&&item.dataset?.atlasDirectoryKey===key)[0];
+    const assertSummary=(row,label,actionsLast)=>{
+      assert.ok(row,"the expected native directory row remains present");
+      const summary=row.children[0];
+      assert.equal(summary.children[0].className,"fa-solid fa-chevron-right atlas-directory-chevron");
+      const identity=summary.children[1];
+      assert.equal(identity.className,"atlas-directory-identity");
+      assert.equal(identity.children[0].textContent,label);
+      const count=identity.children.find(item=>item.className==="atlas-directory-counts");
+      assert.ok(count,"counts sit inside the title/metadata group");
+      assert.match(count.textContent,/^Map Markers \(\d+\) \| Roads \(\d+\)$/);
+      assert.equal(summary.children.indexOf(count),-1,"counts do not follow the action bar");
+      assert.ok(identity.children.indexOf(count)>0);
+      if(actionsLast)assert.equal(summary.children.at(-1).className,"atlas-directory-actions");
+      else assert.match(summary.children.at(-1).className,/atlas-directory-shortcut/);
+      return count.textContent;
+    };
+    const continents=findRow("continents");
+    assert.equal(assertSummary(continents,"Continents (1)",false),
+      "Map Markers (0) | Roads (0)");
+    const continentRow=findRow("territory/"+continent.id);
+    assert.equal(assertSummary(continentRow,continent.name,true),
+      "Map Markers (0) | Roads (0)");
+    assert.ok(continentRow.children[0].children[1].children.some(item=>
+      item.textContent==="Continent"),"Territory type remains beside its label");
+    assert.deepEqual(ctx.calls,[],"displaying labels and derived counts never writes");
+    continents.open=true;
+    continents.listeners.get("toggle")();
+    await ws.render(true);
+    assert.equal(findRow("continents").open,true,"native disclosure state survives refresh");
+    assertSummary(findRow("continents"),"Continents (1)",false);
+    assert.deepEqual(ctx.calls,[]);
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("Map Directory metadata layout wraps without moving actions ahead of counts (#408)",()=>{
+  const css=readFileSync(new URL("../styles/atlas-scene-workspace.css",import.meta.url),"utf8");
+  assert.match(css,/\.atlas-map-directory \.atlas-directory-identity\s*\{[^}]*flex-wrap:wrap/s);
+  assert.match(css,/\.atlas-map-directory \.atlas-directory-actions\s*\{[^}]*margin-inline-start:auto/s);
+});
