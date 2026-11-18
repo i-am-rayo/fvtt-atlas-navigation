@@ -55,9 +55,9 @@ export class AtlasAnnouncementPreviewSettings extends foundry.applications.api.A
 
 export function registerAtlasAnnouncementPreviewMenu(){
   game.settings.registerMenu(MODULE_ID,"atlasAnnouncementPreviewMenu",{
-    name:"Atlas — Announcement Banner Samples",
-    label:"Preview Journey & Discovery Banners",
-    hint:"Preview the future Journey, rest, Map Marker and Road announcements on this GM client only. No gameplay or player effects.",
+    name:"Atlas — Announcement Previews",
+    label:"Preview Atlas Announcements",
+    hint:"Review sample Journey, rest, Map Marker, Road and discovery banners on this GM client only. Previews do not send player announcements or change gameplay.",
     icon:"fa-solid fa-scroll",type:AtlasAnnouncementPreviewSettings,restricted:true
   });
 }
