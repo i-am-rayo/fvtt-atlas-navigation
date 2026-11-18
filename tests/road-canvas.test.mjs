@@ -844,6 +844,18 @@ test("v0.2.21 checkpoint icons load locally and labels include owning road on ho
     assert.equal(sprites[0].tint, 0xffaa11);
     assert.equal(sprites[0].position.x, 30);
     assert.equal(sprites[0].position.y, 30, "visual icon is anchored above the checkpoint node at y=60");
+    const countWithBorder=sprites.length;
+    const withoutBorder=editCheckpointAppearance(styled,{
+      checkpointId:cp.checkpoints[0].id,
+      appearance:{...styled.checkpoints[0].appearance,borderEnabled:false}
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",withoutBorder);
+    m.controller.refresh();
+    const borderlessSprites=sprites.slice(countWithBorder);
+    assert.equal(borderlessSprites.length,1,
+      "border Off removes all eight silhouette shadow sprites but keeps the actual icon");
+    assert.equal(borderlessSprites[0].tint,0xffaa11,
+      "border Off does not change authored marker fill");
     assert.equal(m.controller.labels.filter(x => x instanceof Text).length, 0);
     // canvas point x=sceneX(10)+20, y=sceneY(30)+30 => client midpoint (15,30).
     m.listeners.get("pointermove")(pointEvent(15, 30));
