@@ -206,3 +206,27 @@
 .atlas-marker-preset-editor .atlas-marker-preset-banner-colors input[type="color"] {
   width:3.75rem;min-width:3.75rem;height:2.25rem;
 }
+
+/* World catalog navigation (#421–#423). Panels stay mounted, so tab changes
+   only change presentation; each editor owns its existing guarded Save. */
+.atlas-world-category-tabs {
+  display:flex;gap:.4rem;flex-wrap:wrap;min-width:0;flex:0 0 auto;
+  border-bottom:1px solid var(--color-border-light-tertiary,#666);
+  padding-bottom:.55rem;
+}
+.atlas-world-category-tabs > button {
+  flex:1 1 7rem;min-width:0;padding:.35rem .6rem;
+}
+.atlas-world-category-tabs > button[aria-selected="true"] {
+  background:var(--color-cool-5-90,rgba(156,123,240,.22));
+  font-weight:700;
+}
+.atlas-world-category-tabs > button:focus-visible {
+  outline:2px solid var(--color-focus, #b49bfa);outline-offset:2px;
+}
+.atlas-world-category-scroll {min-width:0;}
+.atlas-world-category-scroll > fieldset[hidden] {display:none!important;}
+.atlas-world-category-legend {
+  display:inline-flex;align-items:center;gap:.5rem;max-width:100%;
+}
+.atlas-world-category-legend > .atlas-ui-icon-button {vertical-align:middle;}
