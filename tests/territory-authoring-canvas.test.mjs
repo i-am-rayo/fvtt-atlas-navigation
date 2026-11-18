@@ -69,7 +69,8 @@ test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel
     const polygonShortcuts=editor.session.panel.children.find(child=>
       child.className==="atlas-territory-shortcuts");
     assert.deepEqual(polygonShortcuts.children.slice(1).map(row=>row.children[0].textContent),
-      ["Left click","Drag","Right click","Cmd / Ctrl + Z","Esc"]);
+      ["Left click","Drag","Right click","Cmd / Ctrl + Z","Esc",
+        "Arrow keys on title"]);
     assert.equal(group.children.length,1);
     assert.equal(view.visibility.visible,false,"GM native fog is locally hidden while editing");
     assert.deepEqual(fogChanges,[true],"Atlas manual fog is locally hidden too");
@@ -329,11 +330,11 @@ test("hex/square brush rings show a live add/erase footprint before any write",a
       child.className==="atlas-territory-shortcuts");
     assert.deepEqual(gridShortcuts.children.slice(1).map(row=>row.children[0].textContent),
       ["Click / drag","Shift + click / drag","Scroll","Shift + scroll",
-        "Cmd / Ctrl + Z","Esc"]);
+        "Cmd / Ctrl + Z","Esc","Arrow keys on title"]);
     assert.equal(gridShortcuts.children[3].children[1].textContent,
       "Zoom map (Foundry default)");
     assert.equal(gridShortcuts.children[4].children[1].textContent,"Brush size");
-    assert.match(gridShortcuts.children.at(-1).children[1].textContent,/return to Atlas Workspace/);
+    assert.match(gridShortcuts.children.at(-2).children[1].textContent,/return to Atlas Workspace/);
     const label=editor.session.panel.children.find(child=>child.tagName==="label"&&
       child.textContent.includes("Brush radius"));
     const slider=descendants(label).find(child=>child.tagName==="input"&&child.type==="range");
@@ -828,3 +829,71 @@ test("Paint Territory shows a full-sized progress surface and hides brush contro
     editor.cancel();assert.equal(await pending,false);
   }finally{Object.assign(globalThis,saved);}
 });
+
+test("Territory title moves within viewport by pointer and keyboard without staging or leaking listeners",async()=>{
+  const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
+    window:globalThis.window,PIXI:globalThis.PIXI,
+    requestAnimationFrame:globalThis.requestAnimationFrame};
+  const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
+  doc.createElement=tag=>new Element(tag);doc.body=body;
+  const win=new Element("window");win.innerWidth=500;win.innerHeight=430;
+  const scene={id:"scene1"},group={addChild(g){g.parent=this;},removeChild(g){g.parent=null;}};
+  let canvasPoints=0,writes=0;
+  globalThis.game={user:{isGM:true}};
+  globalThis.document=doc;globalThis.window=win;globalThis.PIXI={Graphics};
+  globalThis.requestAnimationFrame=undefined;
+  globalThis.canvas={ready:true,scene,app:{canvas:surface},interface:group,
+    stage:{scale:{x:1}},dimensions:{sceneX:0,sceneY:0,sceneWidth:300,sceneHeight:300},
+    canvasCoordinatesFromClient:point=>{canvasPoints++;return point;},
+    grid:{getShape:()=>[{x:-5,y:-5},{x:5,y:-5},{x:5,y:5},{x:-5,y:5}],
+      getCenterPoint:({i,j})=>({x:i*10+5,y:j*10+5}),
+      getOffset:({x,y})=>({i:Math.floor(x/10),j:Math.floor(y/10)}),
+      getAdjacentOffsets:()=>[]}};
+  const editor=new TerritoryAuthoringCanvas();
+  try{
+    for(const kind of ["polygon","grid"]){
+      const draft=kind==="grid"?{kind,offsets:[]}:
+        {kind,points:[{id:"a",x:10,y:10},{id:"b",x:100,y:10},
+          {id:"c",x:100,y:100}],smoothing:0};
+      const pending=editor.begin(scene,draft,async()=>{writes++;});
+      const panel=editor.session.panel;
+      const head=panel.children.find(child=>child.tagName==="h3");
+      const original=JSON.stringify(editor.session.draft);
+      assert.equal(head.tabIndex,0,"keyboard users can focus the drag title");
+      assert.match(panel.children[1].textContent,kind==="grid"?
+        /Paint cells to add them/ : /Edit boundary nodes/);
+      let blocked=0;
+      head.listeners.get("pointerdown")({button:0,pointerId:7,
+        clientX:40,clientY:100,preventDefault(){blocked++;},
+        stopImmediatePropagation(){blocked++;}});
+      doc.listeners.get("pointermove")({pointerId:7,target:head,
+        clientX:120,clientY:155,preventDefault(){blocked++;},
+        stopImmediatePropagation(){blocked++;}});
+      assert.equal(panel.style.left,"104px");
+      assert.equal(panel.style.top,"145px");
+      assert.equal(canvasPoints,0,"dragging the dock must never map client positions to the canvas");
+      assert.equal(blocked,4,"the dock movement is isolated from native canvas input");
+      assert.equal(JSON.stringify(editor.session.draft),original);
+      doc.listeners.get("pointerup")({pointerId:7});
+      assert.equal(editor.session.dockDrag,null);
+      doc.listeners.get("keydown")({key:"ArrowRight",target:head,
+        preventDefault(){},stopImmediatePropagation(){}});
+      assert.equal(panel.style.left,"114px");
+      win.innerWidth=220;win.innerHeight=260;
+      win.listeners.get("resize")();
+      assert.equal(panel.style.left,"8px","resize recovers the dock horizontally");
+      assert.ok(parseFloat(panel.style.top)<=12,"resize keeps the title visible");
+      assert.equal(JSON.stringify(editor.session.draft),original,"moving never edits authoring draft");
+      assert.equal(writes,0,"moving never writes native Regions");
+      let prevented=false;
+      doc.listeners.get("keydown")({key:"Escape",target:head,
+        preventDefault(){prevented=true;},stopImmediatePropagation(){}});
+      assert.ok(prevented);
+      assert.equal(await pending,false);
+      assert.equal(doc.listeners.size,0);
+      assert.equal(win.listeners.size,0,"drag/resize listeners are torn down with session");
+      win.innerWidth=500;win.innerHeight=430;
+    }
+  }finally{editor.cancel();Object.assign(globalThis,saved);}
+});
+
