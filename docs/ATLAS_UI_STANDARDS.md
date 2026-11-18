@@ -56,6 +56,10 @@ Use consistent label/control alignment, row spacing, section headings and color-
 
 **Map Marker type is not a preset-selection command.** Changing a placed marker's Type must not automatically apply any World preset, reassign the current preset ID, or reset appearance, discovery, Journal, transportation or visibility drafts. Only an explicit **Change preset** selection can apply another preset's defaults; Save/Cancel remain the commit boundary. See [issue #412 test checklist](TEST_0_3_10_DEV_1_ISSUE_412.md).
 
+### GM language and menu scope
+
+Use **Add Territory**, **Add Road**, **Add Map Marker** and **By Territory / All Roads / All Map Markers** in Atlas Workspace. Show display categories as **Land / Water / Air**, while preserving stored lowercase surface IDs. Use **Map Marker Presets** for World marker defaults and short, distinct menu tasks for **Transportation Presets**, **Surface Presets**, **Road Appearance**, and **Announcement Previews**. The menu copy must identify explicit GM save/application boundaries and must not imply that World presets retroactively rewrite placed markers or native Region Behaviors. Genuine in-world categories such as Security Checkpoint and all internal `checkpoint*` keys remain unchanged. [#410 live checklist](TEST_0_3_10_DEV_3_ISSUE_410.md).
+
 ## Navigation, lists and state
 
 Center labels horizontally and vertically inside navigation buttons. Directory view controls must be visibly grouped and labeled as views/filters, with a strong selected state, keyboard support and appropriate semantics. Keep Add actions separate from filter controls.

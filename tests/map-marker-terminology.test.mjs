@@ -31,3 +31,30 @@ test("Map Marker Settings, Territory links and World presets use public-facing n
   assert.match(preset,/checkpointPresetAppearance/);
   assert.match(territory,/readTerritoryCheckpointLink/);
 });
+
+test("World Map Marker preset menu keeps stable setting identity with GM-facing wording",async()=>{
+  const previous={foundry:globalThis.foundry,game:globalThis.game};
+  const menus=new Map(),settings=new Map();
+  try{
+    globalThis.foundry={applications:{api:{ApplicationV2:class{}}}};
+    globalThis.game={settings:{
+      register(_module,key,value){settings.set(key,value);},
+      registerMenu(_module,key,value){menus.set(key,value);}
+    }};
+    const {registerWorldCheckpointPresets,AtlasCheckpointPresetSettings}=
+      await import("../scripts/checkpoint-preset-settings.js");
+    registerWorldCheckpointPresets();
+    const menu=menus.get("checkpointPresetMenu");
+    assert.equal(menu.name,"Atlas — Map Marker Presets");
+    assert.equal(menu.label,"Configure Map Marker Presets");
+    assert.equal(menu.restricted,true);
+    assert.match(menu.hint,/do not automatically update placed markers/);
+    assert.equal(AtlasCheckpointPresetSettings.DEFAULT_OPTIONS.window.title,
+      "Atlas — Map Marker Presets");
+    assert.ok(settings.has("checkpointPresets"),
+      "the existing World setting ID must not change during a UI rename");
+  }finally{
+    globalThis.foundry=previous.foundry;
+    globalThis.game=previous.game;
+  }
+});

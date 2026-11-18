@@ -29,6 +29,9 @@ test("navigation World Settings register once in a reusable module with bounded 
   assert.equal(levels.default,true);
   assert.equal(levels.restricted,true);
   assert.equal(menus.get("atlasTransportationPresetsMenu").restricted,true);
+  assert.equal(menus.get("atlasTransportationPresetsMenu").label,
+    "Configure Transportation Presets");
+  assert.match(menus.get("atlasTransportationPresetsMenu").hint,/does not initiate travel/);
   assert.equal(catalog.get("guidedTransportationCatalog").config,false);
   const groupConfig=catalog.get(GROUP_TRANSPORT_SETTING);
   assert.equal(groupConfig.scope,"world");

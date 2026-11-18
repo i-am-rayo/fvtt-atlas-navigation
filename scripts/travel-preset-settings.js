@@ -28,17 +28,17 @@ export function readWorldTravelPresets() {
 
 export function registerWorldTravelPresets() {
   game.settings.register(MODULE_ID, TRAVEL_PRESET_SETTING, {
-    name: "Atlas Corridor Travel Presets",
-    hint: "World-wide movement-cost suggestions for Atlas roads and corridors.",
+    name: "Atlas Surface Presets",
+    hint: "World-wide surface appearance and movement-cost suggestions; no native Behavior updates on edit.",
     scope: "world",
     config: false,
     type: Object,
     default: defaultTravelPresets()
   });
   game.settings.registerMenu(MODULE_ID, "atlasTravelPresetsMenu", {
-    name: "Atlas — Region Surfaces & Costs",
-    label: "Configure Corridor Surface and Movement Presets",
-    hint: "Land, Air and Water surface colors for Atlas road overlays and new generated native Regions; native costs remain separately confirmed.",
+    name: "Atlas — Surface Presets",
+    label: "Configure Surface Presets",
+    hint: "World Land, Water and Air surface appearance and suggested movement costs. Existing native Region Behaviors change only after explicit GM approval.",
     icon: "fa-solid fa-route",
     type: AtlasTravelPresetSettings,
     restricted: true
@@ -88,7 +88,7 @@ function worldPresetUses(presetId) {
 export class AtlasTravelPresetSettings extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-travel-presets",
-    window: { title: "Atlas Presets — Corridor Travel", resizable: true },
+    window: { title: "Atlas — Surface Presets", resizable: true },
     position: { width: 690, height: 630 }
   };
 

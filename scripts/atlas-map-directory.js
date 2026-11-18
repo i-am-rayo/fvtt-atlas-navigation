@@ -96,7 +96,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     input(label, control, key, "change");
   }
   if (view === "directory") select("Territory type", "type", Object.entries(GEOGRAPHY_KINDS));
-  if (view === "allRoads") select("Travel type", "type", [["land","Land"],["air","Air"],["water","Water"]]);
+  if (view === "allRoads") select("Travel type", "type", [["land","Land"],["water","Water"],["air","Air"]]);
   if (view === "allCheckpoints") {
     const type=createSettingsGroupedSelect([
       {label:null,options:[["","All"]]},
@@ -263,8 +263,10 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     const matches = item => !query || item.name.toLocaleLowerCase().includes(query);
     const filtered = Boolean(query || saved.type || saved.place);
     function itemRow(item,type,path){
+      const mode=type==="road"?roadAppearanceMode(item,presets):null;
       const subtitle=type==="road"?
-        roadAppearanceMode(item,presets):categoryNames.get(categories[item.id]??"generic");
+        ({land:"Land",water:"Water",air:"Air"}[mode]??mode):
+        categoryNames.get(categories[item.id]??"generic");
       const row=group(path+"/"+type+"/"+item.id,item.name,false,subtitle);
       if(type==="road")row._atlasRoadIds.add(item.id);
       else row._atlasMarkerIds.add(item.id);
