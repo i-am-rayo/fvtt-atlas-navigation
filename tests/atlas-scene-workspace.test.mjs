@@ -97,8 +97,7 @@ test("GM-only standalone workspace reuses territory actions without writing on r
     const again = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     assert.equal(first, again, "per-Scene instance must be reused");
     await enter(first,"Map directory");
-    const territories = buttons(first.result).find(item => item.textContent === "Territory tools");
-    await territories.listeners.get("click")({ preventDefault() {} });
+    await first._showSection("territories");
     assert.match(text(first.result), /Millstone/);
     const add=buttons(first.result).find(item=>
       item.title==="Create a Territory using Atlas nodes, native grid painting, or selected Blank Walls");
@@ -291,10 +290,7 @@ test("Checkpoint Workspace has one [+] placement action and compact searchable r
     ctx.actions.removeCheckpoint = () => ctx.calls.push(["remove"]);
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     await enter(workspace,"Map directory");
-    const tab = buttons(workspace.result).find(item =>
-      item.textContent === "Map Marker tools");
-    assert.ok(tab);
-    await tab.listeners.get("click")({ preventDefault() {} });
+    await workspace._showSection("checkpoints");
     const panel = walk(workspace.result, item =>
       item.attributes?.get("data-atlas-checkpoint-manager") === "")[0];
     assert.ok(panel, "Checkpoint Workspace is a dedicated manager");
@@ -338,9 +334,7 @@ test("isolated Checkpoint in Workspace offers explicit Road connection action", 
     ctx.actions.manageCheckpointRoad = (_scene, id) => ctx.calls.push(["connect", id]);
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     await enter(workspace,"Map directory");
-    const tab = buttons(workspace.result).find(item =>
-      item.textContent === "Map Marker tools");
-    await tab.listeners.get("click")({ preventDefault() {} });
+    await workspace._showSection("checkpoints");
     assert.match(text(workspace.result), /Free Village/);
     const connect = buttons(workspace.result).find(item =>
       item.title === "Connect this isolated Map Marker to a Road endpoint");
@@ -395,9 +389,7 @@ test("Roads tab is a working Workspace view with legacy Scene settings unaffecte
   try {
     const workspace = await openAtlasSceneWorkspace(ctx.scene, ctx.actions);
     await enter(workspace,"Map directory");
-    const roads = buttons(workspace.result).find(item => item.textContent === "Road tools");
-    assert.ok(roads, "Roads has its own Workspace navigation entry");
-    await roads.listeners.get("click")({ preventDefault() {} });
+    await workspace._showSection("roads");
     assert.equal(workspace.activeSection, "roads");
     assert.match(text(workspace.result), /Roads/);
     assert.match(text(workspace.result), /Add a road to begin/);
@@ -421,8 +413,7 @@ test("native Levels are isolated in Topology and never constructed inside Roads"
     assert.match(text(workspace.result), /Native Scene Levels/);
     assert.doesNotMatch(text(workspace.result), /Territories & custom native Regions/);
     await enter(workspace,"Map directory");
-    const roads = buttons(workspace.result).find(item => item.textContent === "Road tools");
-    await roads.listeners.get("click")({ preventDefault() {} });
+    await workspace._showSection("roads");
     assert.doesNotMatch(text(workspace.result), /Native Scene Levels/);
     await workspace.close();
   } finally { ctx.restore(); }
@@ -459,8 +450,7 @@ test("GM Territory directory remains accessible; Atlas Layers owns persistent ma
     await allowed.listeners.get("click")({preventDefault(){}});
     assert.equal(sharedId,"settlement-1");
     await enter(workspace,"Map directory");
-    const territories = buttons(workspace.result).find(item=>item.textContent==="Territory tools");
-    await territories.listeners.get("click")({preventDefault(){}});
+    await workspace._showSection("territories");
     const rows = () => walk(workspace.result,item=>item.attributes?.has("data-atlas-native-region-id"));
     assert.deepEqual(rows().map(item=>item.attributes.get("data-atlas-native-region-id")),
       ["continent-1","settlement-1","region-1"],
@@ -506,8 +496,7 @@ test("Locate uses public canvas bounds and workspace does not own canvas preview
     const workspace=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     assert.equal(subscriptions.size,0,"persistent Atlas Layers controller owns canvas hooks");
     await enter(workspace,"Map directory");
-    await buttons(workspace.result).find(item=>item.textContent==="Territory tools")
-      .listeners.get("click")({preventDefault(){}});
+    await workspace._showSection("territories");
     const locate=buttons(workspace.result).find(item=>
       item.title==="Locate this native Region on the map");
     await locate.listeners.get("click")({preventDefault(){}});
@@ -650,11 +639,8 @@ test("Directory keeps Create/View commands and moves unique management into Sett
     assert.equal(walk(ws.result,item=>item.className==="atlas-workspace-advanced-management").length,0,
       "obsolete Advanced Map Operations disclosure is gone from Settings");
     await enter(ws,"Map directory");
-    assert.deepEqual(buttons(ws.result).filter(item=>["Territory tools",
-      "Road tools","Map Marker tools"].includes(item.textContent))
-      .map(item=>item.textContent),
-      ["Territory tools","Road tools","Map Marker tools"],
-      "the existing directory provides contextual access to unique native and recovery tools");
+    assert.ok(!buttons(ws.result).some(item=>/^(Territory|Road|Map Marker) tools$/.test(item.textContent)),
+      "duplicate management navigation is absent from all directory views");
     assert.deepEqual(ctx.calls,[],"moving tools into Map Directory never writes Scene data");
     await ws.close();
   }finally{ctx.restore();}
@@ -908,28 +894,19 @@ test("Map Directory tools retain batch, recovery entry and contextual native man
     assert.equal(walk(ws.result,node=>node.className==="atlas-workspace-advanced-management").length,0);
     assert.doesNotMatch(text(ws.result),/Advanced map operations/);
     await enter(ws,"Map directory");
-    const tools=buttons(ws.result).filter(item=>["Territory tools","Road tools",
-      "Map Marker tools"].includes(item.textContent));
-    assert.deepEqual(tools.map(item=>item.textContent),
-      ["Territory tools","Road tools","Map Marker tools"]);
-    assert.equal(ctx.calls.length,0,"opening Map Directory tools is read-only");
-    await enter(ws,"Territory tools");
-    assert.equal(ws.activeSection,"territories");
+    assert.ok(!buttons(ws.result).some(item=>/^(Territory|Road|Map Marker) tools$/.test(item.textContent)),
+      "no duplicate Tools navigation remains");
+    assert.equal(ctx.calls.length,0,"opening Map Directory is read-only");
     const batch=buttons(ws.result).find(item=>item.textContent==="Start Batch Edit");
-    assert.ok(batch,"unique native batch and recovery tools remain in Territory management");
+    assert.ok(batch,"unique native batch action is available directly in By Territory");
     await batch.listeners.get("click")({preventDefault(){}});
     assert.deepEqual(ctx.calls,[["batch"]],"batch invokes existing guarded action");
-    await enter(ws,"Map directory");
-    await enter(ws,"Road tools");
-    assert.equal(ws.activeSection,"roads");
-    assert.match(text(ws.result),/Add a road to begin/);
-    await enter(ws,"Map directory");
-    await enter(ws,"Map Marker tools");
-    assert.equal(ws.activeSection,"checkpoints");
-    assert.ok(buttons(ws.result).some(item=>item.title===
-      "Create a Map Marker on a Road or independently on the Scene"));
+    await enter(ws,"All Roads");
+    assert.ok(!buttons(ws.result).some(item=>/^(Territory|Road|Map Marker) tools$/.test(item.textContent)));
+    await enter(ws,"All Map Markers");
+    assert.ok(!buttons(ws.result).some(item=>/^(Territory|Road|Map Marker) tools$/.test(item.textContent)));
     assert.deepEqual(ctx.calls,[["batch"]],
-      "navigation never writes, starts drawing or advances Journeys");
+      "changing directory views never writes, starts drawing or advances Journeys");
     await ws.close();
   }finally{ctx.restore();}
 });
