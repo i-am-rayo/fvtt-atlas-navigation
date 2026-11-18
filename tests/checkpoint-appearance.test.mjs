@@ -473,6 +473,39 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(stored.checkpoints[0].name, "Revealed Lookout");
     assert.equal(stored.checkpoints[0].elevationMeters, 640);
     assert.equal(stored.checkpoints[0].playerVisible, true);
+    // #412: A deliberate preset change applies its defaults, but changing the
+    // marker category afterwards must not silently select another preset or
+    // wipe the GM's unrelated edits.
+    const typeRow=all(root).find(node=>node.children?.some(child=>
+      child.textContent==="Map Marker type"));
+    const typeSelect=all(typeRow).find(node=>node.tag==="select");
+    const presetSelect=all(presetRow).find(node=>node.tag==="select");
+    assert.ok(typeSelect&&presetSelect);
+    assert.ok(presetSelect.listeners.has("change"),
+      "Change preset remains the explicit defaults-application action");
+    presetSelect.value="checkpoint-bridge";
+    presetSelect.listeners.get("change")();
+    assert.equal(typeSelect.value,"bridge",
+      "an explicit preset selection still changes the staged marker type");
+    const assignedPreset=presetSelect.value;
+    showRoad.checked=true;
+    playerVisible.checked=true;
+    name.value="Custom bridge lookout";
+    const beforeCategoryEdit=JSON.stringify(stored);
+    typeSelect.value="town";
+    typeSelect.listeners.get("change")?.();
+    root.listeners.get("change")();
+    assert.equal(typeSelect.value,"town");
+    assert.equal(presetSelect.value,assignedPreset,
+      "changing marker type must retain its selected World preset");
+    assert.equal(showRoad.checked,true,
+      "changing marker type must not reset customized banner settings");
+    assert.equal(playerVisible.checked,true,
+      "changing marker type must not reset visibility");
+    assert.equal(name.value,"Custom bridge lookout",
+      "changing marker type must not overwrite the marker's other fields");
+    assert.equal(JSON.stringify(stored),beforeCategoryEdit,
+      "editing the type remains a draft with no Scene writes");
   } finally {
     Object.assign(globalThis, previous);
   }
