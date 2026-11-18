@@ -624,7 +624,7 @@ test("Directory keeps Create/View commands and moves unique management into Sett
     const directory=walk(ws.result,item=>item.className==="atlas-map-directory")[0];
     assert.ok(directory);
     const roadRow=walk(directory,item=>item.tag==="details"&&
-      text(item.children[0]).includes("Coast Road")&&text(item.children[0]).includes("land"))[0];
+      text(item.children[0]).includes("Coast Road")&&text(item.children[0]).includes("Land"))[0];
     assert.ok(roadRow);
     assert.doesNotMatch(text(roadRow.children[0]),/\bHidden\b/,
       "visibility is conveyed by the existing accessible eye action");
