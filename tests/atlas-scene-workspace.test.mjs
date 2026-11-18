@@ -721,3 +721,38 @@ test("Map Directory renders Road marker counts with browser-like HTMLCollection 
     await ws.close();
   }finally{ctx.restore();}
 });
+
+test("Directory section Plus uses existing authoring and never implies a Road attachment",async()=>{
+  const ctx=context();
+  try{
+    const graph={schemaVersion:10,coordinateSpace:"image",revision:1,enabled:true,
+      calibration:null,roads:[{id:"r",name:"Coast Road",appearance:null,
+        travelPresetId:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:20,y:20}],
+      segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[],bidirectional:true}],
+      checkpoints:[{id:"m",name:"Bridge",roadId:"r",nodeId:"a",
+        appearance:null,playerVisible:false}]};
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
+    ctx.actions.beginCheckpoint=(_scene,refresh)=>{ctx.calls.push("marker");};
+    ctx.actions.begin=(_scene,refresh)=>{ctx.calls.push("road");};
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    const addRoad=buttons(ws.result).find(node=>node.title==="Add Road (draw on the Scene)");
+    assert.ok(addRoad,"Road collection has an accessible context Plus");
+    let stopped=0;
+    await addRoad.listeners.get("click")({preventDefault(){},stopPropagation(){stopped++;}});
+    assert.deepEqual(ctx.calls,["road"],"uses existing Road GM authoring action");
+    assert.equal(stopped,1,"Plus must not toggle its disclosure row");
+    ctx.calls.length=0;
+    await enter(ws,"All roads");
+    const addMarker=buttons(ws.result).find(node=>
+      node.title==="Add Map Marker (choose its position and Road attachment)");
+    assert.ok(addMarker,"a Road child collection offers a Map Marker Plus");
+    await addMarker.listeners.get("click")({preventDefault(){},stopPropagation(){stopped++;}});
+    assert.deepEqual(ctx.calls,["marker"],"no Road ID is preselected or persisted");
+    assert.deepEqual(graph.checkpoints.map(item=>item.roadId),["r"],
+      "opening contextual authoring leaves existing associations unchanged");
+    assert.equal(stopped,2);
+    await ws.close();
+  }finally{ctx.restore();}
+});
