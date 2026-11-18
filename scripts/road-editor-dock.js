@@ -82,29 +82,36 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       : "Click the map to draw the Road. Finish Road saves; Cancel discards.";
     root.appendChild(guidance);
     const gestures=draft.mode==="points"?
-      ["Drag — move a bend or junction",
-        "Double-click a road — add a bend",
-        "Shift-click a free Road end — continue from that end",
-        "Alt-click a bend — remove that bend",
-        "Ctrl/Cmd+Z — Undo; Ctrl/Cmd+Shift+Z — Redo",
-        "Escape — stop continuation or cancel editing"]:
+      [["Drag","Move a bend or a junction"],
+       ["Double-click","Add a bend to the Road line"],
+       ["Shift-click","Continue from an unconnected Road end (an end not joined to another Road)"],
+       ["Alt/Option-click","Remove a bend"],
+       ["Ctrl/Cmd + Z","Undo this draft"],
+       ["Ctrl/Cmd + Shift + Z / Y","Redo this draft"],
+       ["Esc","Stop continuation or cancel editing"]]:
       draft.mode==="new"?
-        ["Click map — add a Road point","Enter — finish Road",
-          "Ctrl/Cmd+Z / Backspace — Undo","Ctrl/Cmd+Shift+Z — Redo",
-          "Escape — cancel without saving"]:
-        draft.mode==="checkpoint"?
-          ["Click a Road — request a linked Map Marker",
-           "Click elsewhere — request an independent Map Marker",
-           "Escape — cancel placement"]:
-        draft.mode==="checkpoint-relocate"?
-          ["Click the map — preview the new position",
-           "Review and confirm Save New Position before any Scene write",
-           "Escape or Cancel — discard the movement draft"]:
-        ["Click the first Road, then a second Road to connect",
-         "Review the connection before approving", "Escape — cancel"];
+        [["Click","Add a Road point on the map"],["Enter","Finish and save the Road"],
+         ["Ctrl/Cmd + Z / Backspace","Undo the last Road point"],
+         ["Ctrl/Cmd + Shift + Z / Y","Redo the last Road point"],
+         ["Esc","Cancel without saving"]]:
+      draft.mode==="checkpoint"?
+        [["Click Road","Request a linked Map Marker"],
+         ["Click elsewhere","Request an independent Map Marker"],
+         ["Esc","Cancel placement"]]:
+      draft.mode==="checkpoint-relocate"?
+        [["Click","Preview the new map position"],
+         ["Confirm","Review and approve Save New Position before any Scene write"],
+         ["Esc / Cancel","Discard the movement draft"]]:
+        [["Click","Choose the first Road, then the second Road"],
+         ["Confirm","Review the connection before approving"],
+         ["Esc","Cancel without saving"]];
     const gestureList=element("ul");
     gestureList.className="atlas-road-editor-gestures";
-    for(const label of gestures)gestureList.appendChild(element("li",label));
+    for(const [key,description] of gestures){
+      const item=element("li");
+      item.append(element("kbd",key),element("span",description));
+      gestureList.appendChild(item);
+    }
     root.appendChild(gestureList);
     const row = (title, input) => {
       const wrapper = element("label");
