@@ -853,3 +853,42 @@ test("Map Directory metadata layout wraps without moving actions ahead of counts
   assert.match(css,/\.atlas-map-directory \.atlas-directory-identity\s*\{[^}]*flex-wrap:wrap/s);
   assert.match(css,/\.atlas-map-directory \.atlas-directory-actions\s*\{[^}]*margin-inline-start:auto/s);
 });
+
+test("Workspace Presets opens four existing GM-only World editors without Scene writes",async()=>{
+  const ctx=context();
+  try{
+    ctx.actions.openWorldPresetEditor=kind=>ctx.calls.push(["world-preset",kind]);
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Settings");
+    await enter(ws,"Presets");
+    assert.equal(ws.activeSection,"presets");
+    const choices=walk(ws.result,node=>
+      node.className==="atlas-workspace-preset-shortcuts")[0];
+    assert.ok(choices);
+    assert.deepEqual(buttons(choices).map(node=>node.textContent),
+      ["Map Marker Presets","Transportation Presets","Surface Presets","Road Appearance"]);
+    assert.deepEqual(ctx.calls,[],"opening World shortcuts never saves a Scene");
+    for(const [kind,label] of [
+      ["markers","Map Marker Presets"],["transport","Transportation Presets"],
+      ["surfaces","Surface Presets"],["roads","Road Appearance"]
+    ]){
+      const control=buttons(choices).find(node=>node.textContent===label);
+      assert.equal(control.title,"Open World "+label);
+      await control.listeners.get("click")({preventDefault(){}});
+      assert.deepEqual(ctx.calls.at(-1),["world-preset",kind],
+        "the Workspace delegates to the existing registered World editor action");
+      assert.equal(ws.activeSection,"presets",
+        "opening a World editor must leave the Workspace on Presets");
+      assert.equal(ws.rendered,true);
+    }
+    assert.equal(ctx.calls.length,4);
+    assert.equal(ctx.scene.id,"scene-1");
+    const source=readFileSync(new URL("../scripts/main.js",import.meta.url),"utf8");
+    assert.ok(source.includes("roadActions.openWorldPresetEditor=async kind=>"));
+    assert.ok(source.includes('if(!game.user?.isGM)throw Error("Only a GM may open World preset editors.")'));
+    assert.ok(source.includes('roadActions.openWorldTravelSettings=()=>'),
+      "legacy Transportation shortcut routes through same editor opener");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
