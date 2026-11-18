@@ -96,6 +96,22 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
       "preview uses an unsaved World preset name, without a Scene name");
     const markerColors=all(sections[0]).filter(item=>item.tag==="input"&&item.type==="color");
     assert.equal(markerColors.length,2);
+    const borderRow=all(root).find(item=>item.className==="atlas-checkpoint-border-inline");
+    assert.equal(borderRow.children.length,2,"World preset pairs Border and Border Color");
+    const borderEnabled=borderRow.children[0].children[1];
+    const borderColor=borderRow.children[1].children[1];
+    assert.equal(borderEnabled.type,"checkbox");
+    assert.equal(borderEnabled.checked,true);
+    const retainedBorder=borderColor.value;
+    borderEnabled.checked=false;
+    customization.listeners.get("change")();
+    assert.equal(borderColor.disabled,true);
+    assert.equal(borderColor.value,retainedBorder,
+      "World preview retains border color when disabled");
+    borderEnabled.checked=true;
+    customization.listeners.get("change")();
+    assert.equal(borderColor.disabled,false);
+    assert.equal(borderColor.value,retainedBorder);
     markerColors[0].value="#8844cc";
     const bannerPair=all(root).find(item=>item.className==="atlas-marker-preset-banner-colors");
     assert.ok(bannerPair,"banner mode and its text color remain adjacent");
