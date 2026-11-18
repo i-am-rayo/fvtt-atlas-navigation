@@ -1,6 +1,6 @@
 # Atlas goal-driven GitHub Milestones — successor to issue #271
 
-**Roadmap status:** Milestone definitions ready for GitHub-native creation; GitHub Milestone records are **not yet created**. The connected GitHub action supports issue/PR edits and assignment to *existing* Milestones but cannot create Milestones. Do not mark this migration complete or close #271 until every native Milestone and issue assignment is verified.
+**Roadmap status:** Open-issue audit reconciled 2026-11-18; Milestone definitions ready for GitHub-native creation; GitHub Milestone records are **not yet created**. The connected GitHub action supports issue/PR edits and assignment to *existing* Milestones but cannot create Milestones. Do not mark this migration complete or close #271 until every native Milestone and issue assignment is verified.
 
 **Sources:** [original issue #271](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/271), its owner result comments and 14 historical stages; current repository issues; accepted `0.3.9-beta.8.62.1`; [baseline integration PR #405](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/405). Earlier Sunday November 15, 2026 target was a **historical deadline**, not an ongoing due date.
 
@@ -17,14 +17,14 @@
 ### 01 — Baseline Integration & Authoring Acceptance
 **Outcome:** One audited Foundry v14 Atlas baseline on `main`, no orphaned draft chains. Preserve and verify accepted authoring, Workspace and independent Map Marker contracts. **Integration PR:** [#405](https://github.com/i-am-rayo/fvtt-atlas-navigation/pull/405) (draft; not merge-authorized).
 
-**Primary open issues:** [#206](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/206) independent Checkpoint/Map Marker full contract; [#301](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/301) modeless Settings parity. These have substantial implemented code; remaining acceptance is not automatically complete.
+**Primary open issues:** [#206](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/206) independent Checkpoint/Map Marker full contract. This has substantial implemented code; remaining full independent-Checkpoint acceptance is not automatically complete. Editor parity #301 was closed completed after the beta.8.30.1 owner report.
 
 **Exit:** reviewed/owner-authorized main integration, matching version/manifest, GM/non-GM authoring/reload/Save/Cancel/permissions checks, known unresolved defects retained in their own issues. No claim of automatic native recovery, cross-World Journal portability, or blanket Journey safety.
 
 ### 02 — Native Territory Integrity & Recoverable Editing
 **Depends on:** 01. **Outcome:** No unsafe native Region overwrite, complete safe Hex/Grid edit/recovery decisions.
 
-**Primary open issues:** [#265](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/265) multi-source transfer and blocked recovery; [#264](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/264) shared-cell seam editing; [#268](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/268) spatial membership; [#204](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/204) native containment/authoring; [#292](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/292) GM-confirmed one-cell Settlement/City/Town/Village creation/link.
+**Primary open issues:** [#265](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/265) multi-source transfer and blocked recovery; [#264](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/264) shared-cell seam editing; [#268](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/268) spatial membership; [#204](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/204) native containment/authoring; the opt-in one-cell creation #292 is already completed, while broader containment and recovery remain here.
 
 **Exit:** explicit diagnostic/root-cause and recovery for the documented v3 multi-Region intent; no bypassed stale/GM guards; native shapes, Behaviors, elevation and player views preserved; polygon/mixed ownership cases documented. **Do not** treat historical green CI as recovery acceptance.
 
@@ -73,7 +73,7 @@
 ### 09 — Announcements, Narration & Territory Appearance
 **Depends on:** 06 and 07; optionally 08 event sources. **Outcome:** safe, accessible, consistent GM/player announcements and optional styling.
 
-**Primary open issues:** [#226](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/226) checkpoint arrival, [#228](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/228) modular events, [#233](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/233) themes/Region banners, [#294](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/294) linked icon prefix, [#295](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/295) geography typography.
+**Primary open issues:** [#228](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/228) modular events, [#233](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/233) themes/Region banners, [#294](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/294) linked icon prefix, [#295](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/295) geography typography.
 
 **Exit:** player-safe names, no repeated announcements on reconnect, reduced-motion/readability, no native Region/name or Journey state mutation.
 
@@ -87,7 +87,7 @@
 ### 11 — Product UX, Performance & Release Readiness
 **Depends on:** required work above; not a mandate to implement every optional P3 idea before a private beta. **Outcome:** understandable, accessible, measured multi-system Foundry v14 release.
 
-**Primary open issues:** [#216](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/216) consistent accessible forms, [#186](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/186) Region generator lifecycle, [#289](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/289) context-rich Settings titles, [#293](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/293) unified Territory Settings where authority permits.
+**Primary open issues:** [#216](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/216) consistent accessible forms and [#289](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/289) contextual titles / external-rename freshness. Region generator #186 and unified Territory Settings #293 were completed in earlier accepted UI slices.
 
 **Exit:** multi-World and GM/non-GM regression, large-hex Scene performance, native API compatibility, accessible controls, staged-save ownership, documented migrations/rollback and owner-authorized release.
 
