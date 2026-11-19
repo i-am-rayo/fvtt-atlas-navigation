@@ -145,5 +145,47 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     assert.ok(labels.includes("All / Advanced"));
     assert.ok(all(root).some(item=>item.tag==="optgroup"&&item.label==="Land"));
     assert.ok(all(root).some(item=>item.tag==="optgroup"&&item.label==="Air"));
+
+    let world=defaultCheckpointPresets();
+    const errors=[];
+    globalThis.game.settings.get=(_m,key)=>
+      key==="checkpointPresets"?world:key==="measuringUnits"?"metric":null;
+    globalThis.game.settings.set=async(_m,key,value)=>{
+      if(key==="checkpointPresets"){world=value;writes++;}
+    };
+    globalThis.ui.notifications.error=message=>errors.push(String(message));
+    const first=new AtlasCheckpointPresetEditor({preset:world.presets[0]});
+    const second=new AtlasCheckpointPresetEditor({preset:world.presets[1]});
+    assert.notEqual(first.options.id,second.options.id,
+      "separate saved Map Marker presets have distinct ApplicationV2 window IDs");
+    first.close=async()=>{};second.close=async()=>{};
+    const a=await first._renderHTML(),b=await second._renderHTML();
+    const textInput=root=>all(root).find(item=>item.tag==="input"&&item.maxLength===120);
+    const save=async root=>{
+      all(root).find(item=>item.title==="Save preset").listeners.get("click")();
+      await new Promise(resolve=>setImmediate(resolve));
+    };
+    const firstId=world.presets[0].id,secondId=world.presets[1].id;
+    textInput(a).value="Edited preset A";
+    textInput(b).value="Edited preset B";
+    await save(a);await save(b);
+    assert.equal(world.presets.find(item=>item.id===firstId).name,"Edited preset A");
+    assert.equal(world.presets.find(item=>item.id===secondId).name,"Edited preset B");
+    assert.equal(errors.length,0,"unrelated preset saves must not show conflicts");
+    const live=new AtlasCheckpointPresetEditor({
+      preset:world.presets.find(item=>item.id===firstId)});
+    const stale=new AtlasCheckpointPresetEditor({
+      preset:world.presets.find(item=>item.id===firstId)});
+    live.close=async()=>{};stale.close=async()=>{};
+    const x=await live._renderHTML(),y=await stale._renderHTML();
+    textInput(x).value="Live preset edit";
+    textInput(y).value="Stale preset edit";
+    await save(x);
+    const priorWrites=writes;
+    await save(y);
+    assert.equal(writes,priorWrites,"stale same-preset Save fails before any World write");
+    assert.match(errors.join("\n"),/Map Marker preset changed elsewhere/);
+    assert.equal(world.presets.find(item=>item.id===firstId).name,"Live preset edit");
+    assert.equal(textInput(y).value,"Stale preset edit","stale preset draft retained");
   }finally{Object.assign(globalThis,previous);}
 });
