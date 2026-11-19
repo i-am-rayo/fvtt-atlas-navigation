@@ -230,6 +230,51 @@ const wirePresetDialog=container=>{
   }
   update();
 };
+/** Keep owned Party values on the shared transport form without editing World data. */
+function wireGroupOwnedTransport(root,profiles) {
+  if(!root?.querySelector)return;
+  const get=name=>root.querySelector('[name="'+name+'"]');
+  const custom=["groupSpeedCustom","groupCapacityCustom","groupCostCustom",
+    "groupBasisCustom","groupAppliesCustom","groupPurchaseCustom","groupNoteCustom"];
+  for(const input of root.querySelectorAll?.(
+    '[data-atlas-preset-panel="services"] input, [data-atlas-preset-panel="services"] select, [data-atlas-preset-panel="services"] button')??[])
+    input.disabled=true;
+  const put=(name,value)=>{
+    const input=get(name);if(input)input.value=String(value??"");
+    const range=root.querySelector?.('[data-atlas-range-for="'+name+'"]');
+    if(range&&value!=null&&value!=="")range.value=String(value);
+  };
+  const money=(prefix,cp)=>{
+    let rest=Math.max(0,Math.round(Number(cp)||0));
+    for(const [unit,ratio] of [["pp",1000],["gp",100],["ep",50],["sp",10],["cp",1]]){
+      const n=Math.floor(rest/ratio);rest-=n*ratio;put(prefix+"_"+unit,n);
+    }
+  };
+  const populate=()=>{
+    const method=profiles.find(p=>p.id===get("groupProfileId")?.value);
+    if(!method)return;
+    if(!get("groupSpeedCustom")?.checked)
+      put("speedDisplay",Number(atlasDisplayPresetSpeed(method.speedMph).value.toFixed(2)));
+    if(!get("groupCapacityCustom")?.checked)put("capacity",method.capacity??"");
+    if(!get("groupCostCustom")?.checked)
+      money("cost",method.costBasis==="mile"?
+        atlasDisplayCostPerDistance(method.costCp):method.costCp);
+    if(!get("groupBasisCustom")?.checked)put("costBasis",method.costBasis);
+    if(!get("groupAppliesCustom")?.checked)put("costApplies",method.costApplies);
+    if(!get("groupPurchaseCustom")?.checked){
+      const buy=get("purchaseEnabled");
+      if(buy)buy.checked=method.purchaseGp!=null;
+      money("purchase",(method.purchaseGp??0)*100);
+    }
+    if(!get("groupNoteCustom")?.checked)put("note",method.note??"");
+  };
+  root.querySelector?.("[data-atlas-scope-reset]")?.addEventListener("click",()=>{
+    for(const name of custom){const flag=get(name);if(flag)flag.checked=false;}
+    populate();
+  });
+  get("groupProfileId")?.addEventListener("change",populate);
+  for(const name of custom)get(name)?.addEventListener("change",populate);
+}
 const costLabel=p=>p.costBasis==="none"?"No recurring cost":
   coinLabel(p.costBasis==="mile"?atlasDisplayCostPerDistance(p.costCp):p.costCp)+
     " / "+(p.costBasis==="day"?"day":resolveAtlasMeasuringUnits()==="metric"?"km":"mi")+
@@ -705,6 +750,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
         throw Error("GM note must not exceed 240 characters.");
       const speed=active("groupSpeedCustom")?
         atlasPresetSpeedFromDisplay(Number(response.speedDisplay)):null;
+      if(!chosen&&speed!==null)
+        throw Error("Link a World profile before customizing Party travel speed.");
       if(speed!==null&&(!Number.isFinite(speed)||speed<.1||speed>600))
         throw Error("Party speed override must be between 0.1 and 600 mph.");
       const costBasis=active("groupBasisCustom")?String(response.costBasis??""):null;
@@ -715,7 +762,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       const groupCost=active("groupCostCustom")?
         currencyFromResponse(response,"cost"):null;
       const convertedCost=groupCost!==null&&
-        (costBasis??value.costBasis)==="mile"?
+        (costBasis??profiles.find(p=>p.id===chosen)?.costBasis??"none")==="mile"?
         atlasCostPerMileFromDisplay(groupCost):groupCost;
       if(convertedCost!==null&&(!Number.isFinite(convertedCost)||
         convertedCost<0||convertedCost>100000000))
