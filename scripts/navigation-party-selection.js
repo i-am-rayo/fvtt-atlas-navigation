@@ -25,11 +25,15 @@ export function projectPartyTravelSelection(roster,{mode="all",ids=[]}={}){
   const additionalPassengers=Math.max(0,roster.travelers-members.length);
   const count=mode==="all"?roster.travelers:selected.length+additionalPassengers;
   const partial=mode==="selected"&&selected.length<members.length;
+  const passengerNpcIds=roster.members.filter(m=>m.actorType==="npc"&&
+    m.role==="passenger"&&m.quantity===1).map(m=>m.actorId);
   return {
     members,selectedIds:selected,pcCount:members.length,travelerCount:count,
     additionalPassengers,partial,empty:count===0,
-    // Only the preview count differs; never mutate native Group/Actor state.
-    previewRoster:{...roster,travelers:count}
+    // Preview-only selection restricts personal mounts to participating riders.
+    // Never mutate the native Group Actor or authorize its Token movement.
+    previewRoster:{...roster,travelers:count,
+      selectedTravelerIds:[...selected,...passengerNpcIds]}
   };
 }
 
