@@ -10,7 +10,7 @@
 }
 .atlas-territory-settings-tabs {
   display: grid;
-  grid-template-columns: repeat(4,minmax(0,1fr));
+  grid-template-columns: repeat(auto-fit,minmax(min(100%,8rem),1fr));
   gap: 0.45rem;
   flex: 0 0 auto;
   padding-bottom: 0.55rem;
@@ -22,9 +22,13 @@
   font-weight: 600;
   padding: 0.5rem 0.35rem;
 }
-.atlas-territory-settings-tabs button[aria-current="true"] {
+.atlas-territory-settings-tabs button[aria-selected="true"] {
   background: var(--color-cool-4,#3d315a);
   border-color: var(--color-border-highlight,#a590dc);
+}
+.atlas-territory-settings-tabs button:focus-visible {
+  outline: 2px solid var(--color-focus,#b49bfa);
+  outline-offset: 2px;
 }
 .atlas-territory-settings-body {
   flex: 1 1 auto;
@@ -47,7 +51,7 @@
 }
 .atlas-territory-settings-action {
   display: grid;
-  grid-template-columns: minmax(0,1fr) auto;
+  grid-template-columns: repeat(auto-fit,minmax(min(100%,13rem),1fr));
   align-items: center;
   gap: 0.75rem;
   padding: 0.65rem 0;
@@ -64,8 +68,5 @@
 }
 .atlas-territory-settings-facts dt { opacity: 0.8; }
 .atlas-territory-settings-facts dd { margin: 0; overflow-wrap: anywhere; }
-@media(max-width:560px){
-  .atlas-territory-settings-tabs { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .atlas-territory-settings-action { grid-template-columns: 1fr; gap: 0.4rem; }
-  .atlas-territory-settings-action button { max-width: none; }
-}
+/* Layout follows actual editor width, not the Foundry browser viewport.
+ * At high UI scale narrow modeless windows still wrap tabs/actions. */

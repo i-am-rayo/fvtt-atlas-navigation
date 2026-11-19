@@ -130,16 +130,6 @@
   font-size: .8rem;
   line-height: 1.2;
 }
-.atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-actions button {
-  margin: 0;
-  padding: .4rem;
-  flex: 0 0 2.3rem;
-  width: 2.3rem;
-  min-width: 2.3rem;
-  height: 2.3rem;
-  min-height: 2.3rem;
-  font-size: .9rem;
-}
 .atlas-scene-workspace .atlas-workspace-roads {
   min-width: 0;
 }
@@ -342,16 +332,6 @@
   justify-content: flex-end;
   gap: .3rem;
   min-width: 0;
-}
-.atlas-scene-workspace .atlas-checkpoint-actions .atlas-ui-icon-button {
-  box-sizing: border-box;
-  flex: 0 0 2.15rem;
-  width: 2.15rem;
-  min-width: 2.15rem;
-  height: 2.15rem;
-  min-height: 2.15rem;
-  margin: 0;
-  padding: .25rem;
 }
 .atlas-scene-workspace .atlas-checkpoint-details {
   grid-column: 1 / -1;

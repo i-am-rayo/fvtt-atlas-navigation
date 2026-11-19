@@ -56,6 +56,9 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     }
     const draft = this.controller.getDraft(this.scene);
     if (!draft) throw new Error("The road-editing session ended.");
+    if(draft.mode==="points"&&typeof draft.roadName==="string"&&this.window?.title)
+      this.window.title.textContent=atlasSettingsTitle("Road",draft.roadName)
+        .replace(/ Settings$/," Editor");
     const root = element("div");
     root.className="atlas-road-editor-dock";
     const status = draft.mode === "points" ? "Edit points" :
