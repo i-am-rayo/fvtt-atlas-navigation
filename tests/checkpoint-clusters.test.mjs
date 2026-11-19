@@ -31,9 +31,11 @@ test("v0.2.23 high-density grouping remains bounded", () => {
   assert.equal(groups[0].x, 100);
 });
 
-test("v0.2.23 quick info includes road/elevation and bounds large cluster previews", () => {
-  assert.equal(checkpointQuickInfo({ name: "Outpost", elevationMeters: -20 },
-    { name: "Stone Road" }), "Outpost\nRoad: Stone Road\nElevation: -20 m");
+test("quick info never invents a Road label; banner controls it separately", () => {
+  assert.equal(checkpointQuickInfo({ name: "Outpost", elevationMeters: -20 }),
+    "Outpost\nElevation: -20 m");
+  assert.doesNotMatch(checkpointQuickInfo({name:"Outpost",elevationMeters:-20},
+    {name:"Stone Road"}),/Road:/);
   assert.equal(checkpointQuickInfo({ name: "Watch", elevationMeters: null }, null), "Watch");
   const members = Array.from({ length: 10 }, (_, i) => ({ checkpoint: { name: "Node " + i } }));
   const info = clusterQuickInfo(members);
