@@ -119,6 +119,41 @@ test("single modeless Territory Settings window retains tabs, permissions and al
   }finally{f.restore();}
 });
 
+test("Territory Settings refreshes external native name and supports keyboard tabs without writes",async()=>{
+  const f=fixture();
+  try{
+    const app=new AtlasTerritorySettings({scene:f.scene,regionId:"r1",
+      actions:f.actions,refresh:()=>{}});
+    app.window={title:{textContent:"Previous title"}};
+    await app.render();
+    assert.equal(app.window.title.textContent,
+      "Atlas — Hearth's Heart — Territory Settings");
+    const tabs=all(app.result,node=>node.dataset?.atlasTerritoryPage);
+    const nav=all(app.result,node=>node.tag==="nav")[0];
+    assert.equal(nav.attributes.get("role"),"tablist");
+    assert.equal(tabs[0].attributes.get("aria-selected"),"true");
+    assert.equal(tabs[0].tabIndex,0);
+    assert.equal(tabs[1].tabIndex,-1);
+    let stopped=0;
+    nav.listeners.get("keydown")({key:"ArrowRight",target:tabs[0],
+      preventDefault(){stopped++;}});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(app.activePage,"Map Marker & Journal");
+    assert.equal(stopped,1);
+    const nextTabs=all(app.result,node=>node.dataset?.atlasTerritoryPage);
+    assert.equal(nextTabs[1].attributes.get("aria-selected"),"true");
+    assert.equal(nextTabs[1].tabIndex,0);
+    f.region.name="West Hearth";
+    await app.render();
+    assert.equal(app.window.title.textContent,
+      "Atlas — West Hearth — Territory Settings",
+      "external committed native rename refreshes header without reassigning document name");
+    assert.equal(f.region.name,"West Hearth");
+    assert.deepEqual(f.calls,[],"title and tab navigation never call native writers");
+    await app.close();
+  }finally{f.restore();}
+});
+
 test("unlinked or unauthorized Territories fail closed without side effects",async()=>{
   const f=fixture({linked:false});
   try{
