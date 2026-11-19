@@ -211,6 +211,9 @@ test("Road Editor exposes only available reversible draft actions with accessibl
     assert.ok(button(root,"Save Points").className.includes("atlas-ui-icon-button"));
     assert.ok(button(root,"Undo").title==="Undo");
     assert.ok(button(root,"Redo").title==="Redo");
+    assert.deepEqual(root.children[1].children.map(control=>control.ariaLabel??control.textContent),
+      ["Locate Road","Undo","Redo","Cancel","Save Points"],
+      "reversible controls precede Cancel, explicit Save last in keyboard order");
     await button(root,"Undo").listeners.get("click")();
     await button(root,"Redo").listeners.get("click")();
     assert.deepEqual(calls,["undo","redo"]);

@@ -202,6 +202,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       this.listeners = new Map();
       this.value = "";
       this.textContent = "";
+      this.attributes=new Map();
     }
     append(...items) { for (const item of items) this.appendChild(item); }
     prepend(...items) {
@@ -233,7 +234,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       return search(this);
     }
     addEventListener(name, listener) { this.listeners.set(name, listener); }
-    setAttribute() {}
+    setAttribute(name,value){this.attributes.set(name,String(value));}
+    focus(){this.focused=true;}
     hidePopover(){this.popoverClosed=true;}
     focus(){this.focused=true;}
   }
@@ -315,6 +317,39 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const customizationTab=all(root).find(node=>node.tag==="button"&&
       node.textContent==="Customization");
     assert.ok(customizationTab,"Checkpoint appearance tab uses shared terminology");
+    const tabBar=all(root).find(node=>node.attributes?.get("role")==="tablist"&&
+      node.attributes?.get("aria-label")==="Map Marker settings sections");
+    assert.ok(tabBar,"Map Marker settings expose a named keyboard-accessible tablist");
+    const markerTabs=tabBar.children;
+    const markerPages=all(root).filter(node=>node.attributes?.get("role")==="tabpanel");
+    assert.deepEqual(markerTabs.map(tab=>tab.textContent),
+      ["General","Customization","Terrain Region","Transportation"]);
+    assert.equal(markerPages.length,4);
+    for(let index=0;index<4;index++){
+      assert.equal(markerTabs[index].attributes.get("aria-controls"),markerPages[index].id);
+      assert.equal(markerPages[index].attributes.get("aria-labelledby"),markerTabs[index].id);
+    }
+    const draftName=all(root).find(node=>node.tag==="input"&&node.value==="Ridge Lookout");
+    draftName.value="Uncommitted title";
+    let prevented=0;
+    tabBar.listeners.get("keydown")({key:"End",target:markerTabs[0],
+      preventDefault(){prevented++;}});
+    assert.equal(markerTabs[3].focused,true);
+    assert.equal(markerPages[3].hidden,false);
+    assert.equal(markerTabs[3].tabIndex,0);
+    tabBar.listeners.get("keydown")({key:"Home",target:markerTabs[3],
+      preventDefault(){prevented++;}});
+    assert.equal(markerTabs[0].focused,true);
+    assert.equal(markerPages[0].hidden,false);
+    assert.equal(markerTabs[3].tabIndex,-1);
+    markerTabs[1].listeners.get("click")();
+    assert.equal(markerPages[1].hidden,false);
+    markerTabs[0].listeners.get("click")();
+    assert.equal(draftName.value,"Uncommitted title",
+      "switching Map Marker tabs keeps the same unsaved input mounted");
+    draftName.value="Ridge Lookout";
+    assert.equal(prevented,2);
+    assert.equal(stored.revision,data.revision,"tab navigation cannot write Scene flags");
     const sections=all(root).filter(node=>
       node.className==="atlas-checkpoint-customization-section");
     assert.equal(sections.length,2);

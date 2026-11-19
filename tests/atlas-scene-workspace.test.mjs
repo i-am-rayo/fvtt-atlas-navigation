@@ -176,6 +176,35 @@ test("Workspace Surfaces exposes existing native generator without creating Regi
   }finally{ctx.restore();}
 });
 
+test("Workspace travel settings tabs link panels and preserve keyboard focus without writes",async()=>{
+  const ctx=context();
+  try{
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Settings");
+    const nav=walk(ws.result,item=>item.attributes?.get("role")==="tablist"&&
+      item.attributes.get("aria-label")==="World travel settings")[0];
+    assert.ok(nav);
+    const tabs=nav.children;
+    const panels=walk(ws.result,item=>item.attributes?.get("role")==="tabpanel"&&
+      item.className==="atlas-travel-settings-panel");
+    assert.equal(tabs.length,2);
+    assert.equal(panels.length,2);
+    for(let i=0;i<tabs.length;i++){
+      assert.equal(tabs[i].attributes.get("aria-controls"),panels[i].id);
+      assert.equal(panels[i].attributes.get("aria-labelledby"),tabs[i].id);
+    }
+    nav.listeners.get("keydown")({key:"End",target:tabs[0],preventDefault(){}});
+    assert.equal(tabs[1].focused,true);
+    assert.equal(panels[1].hidden,false);
+    nav.listeners.get("keydown")({key:"Home",target:tabs[1],preventDefault(){}});
+    assert.equal(tabs[0].focused,true);
+    assert.equal(panels[0].hidden,false);
+    assert.equal(ws.travelSettingsTab,"rules");
+    assert.deepEqual(ctx.calls,[],"settings navigation must not write Scene or World data");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
 test("Workspace Navigation launches the existing controller without committing or replacing drafts",async()=>{
   const ctx=context();
   try{
