@@ -119,6 +119,9 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
     const fields=CHECKPOINT_BULK_FIELDS.filter(([id])=>Boolean(values["field_"+id]))
       .map(([id])=>id);
     if(!fields.length)throw Error("Choose at least one field to apply.");
+    const samePreset=()=>JSON.stringify(readWorldCheckpointPresets().presets
+      .find(item=>item.id===preset.id)??null)===JSON.stringify(preset);
+    if(!samePreset())throw Error("This Map Marker preset changed elsewhere. Reopen before applying.");
     const options={scope:values.scope,fields,expectedRevision:readAtlas(scene).revision};
     const plan=buildCheckpointBulkUpdate(scene,preset,options);
     const confirmContent=node("div");
@@ -130,6 +133,7 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
       window:{title:"Confirm Map Marker bulk update"},
       content:confirmContent,modal:true,rejectClose:false});
     if(!confirmed)return;
+    if(!samePreset())throw Error("This Map Marker preset changed during review. Reopen before applying.");
     const count=await applyCheckpointPresetBulk(scene,preset,options);
     ui.notifications.info("Updated "+count+" Map Marker(s). Roads and exploration were preserved.");
     await this.render();
