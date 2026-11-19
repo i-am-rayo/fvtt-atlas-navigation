@@ -167,8 +167,8 @@ test("Locate Road requests map focus without minimizing or writing an unsaved ro
     globalThis.game={user:{isGM:true}};
     globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
     const {AtlasRoadEditorDock}=await import("../scripts/road-editor-dock.js");
-    assert.equal(AtlasRoadEditorDock.DEFAULT_OPTIONS.window.frame,false,
-      "canvas editor shares Paint Territory's frameless panel presentation");
+    assert.equal(AtlasRoadEditorDock.DEFAULT_OPTIONS.window.frame,true,
+      "retain Foundry's framed ApplicationV2 for reliable floating positioning");
     assert.equal(AtlasRoadEditorDock.DEFAULT_OPTIONS.window.positioned,true,
       "Foundry v14 still owns window positioning");
     const scene={id:"map-focus-scene",canUserModify:()=>true};
@@ -295,6 +295,12 @@ test("Road Editor keycaps describe implemented gestures without changing drafts"
       "unconnected Road end")));
     assert.ok(gestures.children.some(row=>row.children[0].textContent==="Scroll"));
     assert.ok(gestures.children.some(row=>row.children[0].textContent==="Arrow keys on title"));
+    const shift=gestures.children.find(row=>row.children[0].textContent==="Shift-click");
+    const alt=gestures.children.find(row=>row.children[0].textContent==="Alt/Option-click");
+    assert.match(shift.children[1].textContent,/promote.*bend.*junction.*demote/i,
+      "on-panel help must include the missing promotion/demotion gestures");
+    assert.match(alt.children[1].textContent,/detach.*junction.*branch/i,
+      "on-panel help must include the missing detach choices");
     assert.deepEqual(calls,[],"rendering editor help never saves or cancels");
   }finally{Object.assign(globalThis,before);}
 });
@@ -381,4 +387,19 @@ test("painter-style canvas dock retains its theme and stable action footer at hi
   assert.match(css,/\.atlas-road-editor-heading:focus-visible/);
   assert.match(css,/max-height:calc\(100vh - 110px\)/);
   assert.match(css,/\.atlas-road-editor-footer/);
+  assert.match(css,/\.application\.atlas-road-editor-window > \.window-header\s*\{display:none;\}/,
+    "hide native title chrome but keep the native frame positioning contract");
+  assert.match(css,/\.application\.atlas-road-editor-window > \.window-content\s*\{/,
+    "native window content must remain a bounded standalone editor");
+});
+
+test("canvas authoring startup guidance is in docks, not duplicate notification banners",()=>{
+  const main=readFileSync(new URL("../scripts/main.js",import.meta.url),"utf8");
+  assert.doesNotMatch(main,/notifications\.info\(game\.i18n\.localize\("FVTTATLAS\.Roads\.EditNotice"\)\)/);
+  assert.doesNotMatch(main,/notifications\.info\(game\.i18n\.localize\("FVTTATLAS\.Roads\.StartNotice"\)\)/);
+  assert.doesNotMatch(main,/notifications\.info\(game\.i18n\.localize\("FVTTATLAS\.Junctions\.StartNotice"\)\)/);
+  assert.doesNotMatch(main,/notifications\.info\("Click a Road to create a linked Map Marker/);
+  assert.doesNotMatch(main,/notifications\.info\("Click a new map location, review the change/);
+  assert.match(main,/notifications\.info\("Atlas road settings saved\."\)/,
+    "success feedback must not be removed with redundant instructions");
 });
