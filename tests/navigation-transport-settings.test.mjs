@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AtlasTransportationSettings, renderTravelRules, renderJourneyPlayback } from "../scripts/navigation-transport-settings.js";
+import { AtlasTransportationSettings,openTransportationMethodEditor,
+  renderTravelRules,renderJourneyPlayback } from "../scripts/navigation-transport-settings.js";
 
 class FakeElement {
   constructor(tag){
@@ -303,4 +304,49 @@ test("Journey editor exposes explicit Save for this trip and Save to checkpoint 
     assert.deepEqual(result,{hireBasis:"mile",__atlasSaveScope:"checkpoint"});
     assert.deepEqual(ctx.changes,[],"opening scoped editor makes no settings writes");
   }finally{globalThis.foundry=old;ctx.restore();}
+});
+
+
+test("Group scope reuses transport dialog but only stages validated Group overrides",async()=>{
+  const ctx=setup(),prior=globalThis.foundry;
+  const applied=[],seen=[];
+  const method={id:"camel",name:"Camel",kind:"mount",surface:"land"};
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{
+      input:async({content,ok})=>{
+        assert.equal(content.tagName,"DIV");
+        assert.equal(content.attributes.size,0);
+        seen.push(flatten(content).map(el=>el.textContent??"").join(" "));
+        assert.equal(ok.label,"Apply to Party draft");
+        return {profileId:"camel",quantity:"3",capacity:"",speedMphOverride:"",
+          costCpOverride:"0",costBasisOverride:"none",costAppliesOverride:"",
+          purchaseMode:"none",purchaseGpOverride:"",noteOverride:"Group-only"};
+      }
+    }}}};
+    const result=await openTransportationMethodEditor({scope:"group",method,
+      profiles:[method],groupAssignment:{profileId:"camel",quantity:2,
+        capacity:null,speedMphOverride:null,costCpOverride:null},
+      onSave:value=>{applied.push(value);}});
+    assert.match(seen[0],/Quantity Available/);
+    assert.match(seen[0],/Group-only values inherit World/);
+    assert.equal(result.quantity,3);
+    assert.equal(result.capacity,null);
+    assert.equal(result.costCpOverride,0);
+    assert.equal(result.costBasisOverride,"none");
+    assert.equal(result.purchaseGpOverride,"none");
+    assert.deepEqual(applied,[result]);
+    assert.deepEqual(ctx.changes,[],"child Apply never writes a World setting");
+
+    globalThis.foundry.applications.api.DialogV2.input=async()=>({
+      profileId:"camel",quantity:"0",capacity:"",speedMphOverride:"",
+      costCpOverride:"",costBasisOverride:"",costAppliesOverride:"",
+      purchaseMode:"inherit",noteOverride:""});
+    await assert.rejects(()=>openTransportationMethodEditor({scope:"group",
+      method,profiles:[method],groupAssignment:{quantity:1},onSave:()=>{}}),
+      /Quantity Available/);
+    globalThis.foundry.applications.api.DialogV2.input=async()=>null;
+    assert.equal(await openTransportationMethodEditor({scope:"group",
+      method,profiles:[method],groupAssignment:{quantity:1},onSave:()=>{}}),null);
+    assert.deepEqual(ctx.changes,[]);
+  }finally{globalThis.foundry=prior;ctx.restore();}
 });

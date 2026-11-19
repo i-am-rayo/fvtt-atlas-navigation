@@ -343,8 +343,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
   }
 
   async _edit(preset,surface="land",{scope="world",onSave=null,onReset=null,
-    onSaveCheckpoint=null,checkpointName=null,journeyOperation=null}={}){
+    onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,
+    groupAssignment=null,profiles=[]}={}){
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
+    if(scope==="group")return this._editGroup({onSave,groupAssignment,profiles});
     const existing=Boolean(preset),profile=selectedTransportationProfile(game.settings,game.system?.id);
     const before=snapshot();
     const initialWalkingSpeed=preset?.id==="walking"?
@@ -712,6 +714,144 @@ export class AtlasTransportationSettings extends ApplicationBase {
     ui.notifications.info("Transportation preset saved.");
     await this.render();
   }
+
+  /** Group assignments borrow the existing transport dialog entrypoint and controls,
+   * but its Group-only values never edit the World preset or native Actor.
+   * The parent Group editor alone commits the approved draft. */
+  async _editGroup({onSave,groupAssignment,profiles}){
+    if(!game.user?.isGM||typeof onSave!=="function")
+      throw Error("Only a GM may customize Party transportation.");
+    const catalogBefore=snapshot();
+    const options=profiles.filter(method=>method.kind==="mount"||method.kind==="vehicle");
+    const baseline=groupAssignment??{};
+    const initial=String(baseline.profileId??"");
+    const selectedOptions=[["","No linked World profile"],...options.map(method=>
+      [method.id,method.name+" ("+names[method.surface]+")"])];
+    if(initial&&!options.some(method=>method.id===initial))
+      selectedOptions.push([initial,"Unavailable profile: "+initial]);
+    const body=element("div");
+    body.className="atlas-transport-edit-dialog";
+    body.style.cssText="display:grid;gap:.85rem;padding:.5rem;max-height:min(58vh,560px);overflow:auto;";
+    body.append(heading("Party transportation settings",
+      "These Group-only values inherit World transportation presets until customized. Apply updates the Party draft only; Save Party Transportation Assignments commits it."));
+    const general=element("fieldset");
+    general.style.cssText="display:grid;gap:.65rem;min-width:0;border-radius:.5rem;";
+    general.append(element("legend","General"));
+    const profile=selected(selectedOptions,initial,"profileId");
+    general.append(field("Transportation profile",profile,
+      "Choose an existing compatible World preset. A renamed preset stays linked by ID."));
+    const count=numberInput("quantity",baseline.quantity??1,{min:1,max:100,step:1});
+    general.append(field("Quantity Available",count,
+      "How many mounts or vehicles this Group Actor represents for the party."));
+    const capacity=numberInput("capacity",baseline.capacity??"",{min:1,max:1000,step:1});
+    general.append(field("Passenger seats per unit",capacity,
+      "Blank inherits the World preset, then any native Vehicle capacity; an unknown value stays unknown."));
+    const speed=numberInput("speedMphOverride",baseline.speedMphOverride??"",
+      {min:0.1,max:600,step:0.01});
+    general.append(field("Travel speed override (mph)",speed,
+      "Blank inherits sustained travel speed from the World preset."));
+    body.append(general);
+    const ownership=element("fieldset");
+    ownership.style.cssText="display:grid;gap:.65rem;min-width:0;border-radius:.5rem;";
+    ownership.append(element("legend","Ownership — optional Group overrides"));
+    const upkeep=numberInput("costCpOverride",baseline.costCpOverride??"",
+      {min:0,max:100000000,step:0.01});
+    ownership.append(field("Recurring upkeep (CP)",upkeep,
+      "Blank inherits the World preset; zero means explicitly no cost."));
+    const basis=selected([["","World default"],["none","No recurring cost"],
+      ["day","Per travel day"],["mile","Per traveled mile"]],
+      baseline.costBasisOverride??"","costBasisOverride");
+    const applies=selected([["","World default"],["unit","Per transport unit"],
+      ["passenger","Per passenger"]],
+      baseline.costAppliesOverride??"","costAppliesOverride");
+    ownership.append(field("Upkeep frequency",basis),field("Charge upkeep for",applies));
+    const mode=selected([["inherit","World purchase price"],
+      ["none","No purchase price"],["custom","Custom purchase price"]],
+      baseline.purchaseGpOverride==="none"?"none":
+      typeof baseline.purchaseGpOverride==="number"?"custom":"inherit","purchaseMode");
+    const purchase=numberInput("purchaseGpOverride",
+      typeof baseline.purchaseGpOverride==="number"?baseline.purchaseGpOverride:"",
+      {min:0,max:100000000,step:0.01});
+    ownership.append(field("Purchase price option",mode),
+      field("Custom purchase price (GP)",purchase));
+    const note=element("textarea");
+    note.name="noteOverride";note.rows=2;note.maxLength=240;
+    note.value=baseline.noteOverride??"";note.defaultValue=note.value;
+    ownership.append(field("GM note override",note,
+      "Blank inherits the World preset's note."));
+    body.append(ownership);
+    const reset=element("button","Reset optional values to World defaults");
+    reset.type="button";reset.setAttribute("data-atlas-group-reset","");
+    body.append(reset);
+    const shell=element("div");shell.append(body);
+    const response=await foundry.applications.api.DialogV2.input({
+      window:{title:"Atlas — Party Transportation Settings"},
+      position:{width:Math.max(360,Math.min(760,(globalThis.window?.innerWidth??900)-60)),
+        height:Math.max(420,Math.min(670,(globalThis.window?.innerHeight??850)-110))},
+      content:shell,ok:{label:"Apply to Party draft"},
+      rejectClose:false,modal:true,
+      render:(app,html)=>{
+        const root=html??app?.element;
+        const clear=root?.querySelector?.("[data-atlas-group-reset]");
+        clear?.addEventListener("click",()=>{
+          for(const name of ["capacity","speedMphOverride","costCpOverride",
+            "costBasisOverride","costAppliesOverride","purchaseGpOverride","noteOverride"]){
+            const input=root.querySelector('[name="'+name+'"]');
+            if(input)input.value="";
+          }
+          const input=root.querySelector('[name="purchaseMode"]');
+          if(input)input.value="inherit";
+        });
+      }
+    });
+    if(!response)return null;
+    if(catalogBefore!==snapshot())
+      throw Error("World transportation presets changed. Reopen the Party editor.");
+    const whole=(name,value,min,max,optional=false)=>{
+      if(optional&&(value==null||value===""))return null;
+      const parsed=Number(value);
+      if(!Number.isInteger(parsed)||parsed<min||parsed>max)
+        throw Error(name+" must be a whole number between "+min+" and "+max+".");
+      return parsed;
+    };
+    const decimal=(name,value,min,max)=>{
+      if(value==null||value==="")return null;
+      const parsed=Number(value);
+      if(!Number.isFinite(parsed)||parsed<min||parsed>max)
+        throw Error(name+" must be between "+min+" and "+max+".");
+      return parsed;
+    };
+    const profileId=String(response.profileId??"");
+    if(profileId&&!options.some(method=>method.id===profileId))
+      throw Error("Choose an available World transportation profile.");
+    const purchaseMode=String(response.purchaseMode??"inherit");
+    if(!["inherit","none","custom"].includes(purchaseMode))
+      throw Error("Invalid Group purchase price option.");
+    const costBasisOverride=String(response.costBasisOverride??"");
+    const costAppliesOverride=String(response.costAppliesOverride??"");
+    if(!["","none","day","mile"].includes(costBasisOverride)||
+        !["","unit","passenger"].includes(costAppliesOverride))
+      throw Error("Invalid Group upkeep selection.");
+    const noteOverride=String(response.noteOverride??"").trim();
+    if(noteOverride.length>240)throw Error("GM note must not exceed 240 characters.");
+    const result={
+      profileId:profileId||null,
+      quantity:whole("Quantity Available",response.quantity,1,100),
+      capacity:whole("Passenger seats",response.capacity,1,1000,true),
+      speedMphOverride:decimal("Speed override",response.speedMphOverride,.1,600),
+      costCpOverride:decimal("Upkeep override",response.costCpOverride,0,100000000),
+      costBasisOverride:costBasisOverride||null,
+      costAppliesOverride:costAppliesOverride||null,
+      purchaseGpOverride:purchaseMode==="none"?"none":purchaseMode==="custom"?
+        decimal("Purchase price",response.purchaseGpOverride,0,100000000):null,
+      noteOverride:noteOverride||null
+    };
+    if(purchaseMode==="custom"&&result.purchaseGpOverride===null)
+      throw Error("Enter a custom purchase price.");
+    await onSave(result);
+    return result;
+  }
+
   async _reset(preset,profile){
     if(!game.user?.isGM)throw new Error("Only a GM may reset presets.");
     const yes=await foundry.applications.api.DialogV2.confirm({
@@ -767,14 +907,15 @@ export class AtlasTransportationSettings extends ApplicationBase {
  * Callers own the Save callback; this helper never changes World settings.
  */
 export async function openTransportationMethodEditor({method,scope,onSave,onReset=null,
-  onSaveCheckpoint=null,checkpointName=null,journeyOperation=null}={}){
-  if(!method||!["checkpoint","journey"].includes(scope)||
+  onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,
+  groupAssignment=null,profiles=[]}={}){
+  if((!method&&scope!=="group")||!["checkpoint","journey","group"].includes(scope)||
       typeof onSave!=="function"||
       (onSaveCheckpoint!==null&&typeof onSaveCheckpoint!=="function"))
     throw Error("Invalid transportation editor context.");
   const app=new AtlasTransportationSettings();
-  return app._edit(method,method.surface,{scope,onSave,onReset,
-    onSaveCheckpoint,checkpointName,journeyOperation});
+  return app._edit(method,method?.surface??"land",{scope,onSave,onReset,
+    onSaveCheckpoint,checkpointName,journeyOperation,groupAssignment,profiles});
 }
 
 
