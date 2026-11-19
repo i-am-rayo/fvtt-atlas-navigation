@@ -111,7 +111,10 @@ export class AtlasGroupTransportationSettings extends base {
     window:{title:"Atlas — Party-owned Transportation",resizable:true},
     position:{width:790,height:700}
   };
-  constructor(groupId,...args){super(...args);this.groupId=groupId;this.activeTab="vehicle";}
+  constructor(groupId,...args){
+    super({id:"fvtt-atlas-group-transportation-"+groupId},...args);
+    this.groupId=groupId;this.activeTab="vehicle";
+  }
   _replaceHTML(result,content){content.replaceChildren(result);}
   async _renderHTML(){
     if(!globalThis.game?.user?.isGM)
