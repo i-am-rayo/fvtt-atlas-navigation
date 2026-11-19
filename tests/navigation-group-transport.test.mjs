@@ -235,3 +235,22 @@ test("optional per-unit crew wages appear in the owned Group navigation quote",(
     {distanceMi:100,hours:40,dayHours:24});
   assert.equal(noWages.amount,0,"crew costs remain off by default");
 });
+
+
+test("linked World capacity is inherited while explicit Group seats win",()=>{
+  const profile={id:"warship",name:"Warship",kind:"vehicle",surface:"water",
+    capacity:45,speedMph:3,costCp:0,costBasis:"none",costApplies:"unit"};
+  let saved=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship1",
+    {role:"unassigned",quantity:2,capacity:null,surface:"water",profileId:"warship"});
+  let p=projectGroupTransportation(group([pc,warship]),saved,[profile]);
+  assert.equal(p.members.find(m=>m.actorId==="ship1").capacity,45);
+  assert.equal(groupMethodCapacityStatus(p,profile).seats,90);
+  p=projectGroupTransportation(group([pc,warship]),saved,[{...profile,capacity:12}]);
+  assert.equal(groupMethodCapacityStatus(p,profile).seats,24,
+    "inherited capacity changes with the World preset");
+  saved=setGroupTransportationMember(saved,"group1","ship1",
+    {role:"unassigned",quantity:2,capacity:17,surface:"water",profileId:"warship"});
+  p=projectGroupTransportation(group([pc,warship]),saved,[{...profile,capacity:12}]);
+  assert.equal(groupMethodCapacityStatus(p,profile).seats,34,
+    "explicitly saved Group capacity remains stable");
+});

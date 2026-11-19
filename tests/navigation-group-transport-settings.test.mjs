@@ -273,3 +273,40 @@ test("individual recurring-cost and frequency overrides share the same top align
     assert.deepEqual(ctx.changes,[]);
   }finally{ctx.restore();}
 });
+
+
+test("Party transportation child editor stages existing Group data without writing",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    app.render=async()=>{};
+    const root=await app._renderHTML(),elements=flatten(root);
+    const labels=elements.map(e=>e.textContent??"").join(" ");
+    assert.match(labels,/Quantity Available/);
+    const hidden=elements.find(e=>e.name==="cost-camel1");
+    assert.ok(hidden,"existing validated parent fields preserve their storage contract");
+    assert.ok(elements.some(e=>e.hidden&&e.children.some(c=>c.children.includes(hidden))),
+      "inline override controls are hidden from the Group overview");
+    const edit=elements.find(e=>e.textContent==="Edit Camel transportation");
+    assert.ok(edit?.events.click?.length);
+    globalThis.foundry={applications:{api:{DialogV2:{
+      input:async()=>({
+        profileId:"camel",quantity:"4",capacity:"",speedMphOverride:"3.75",
+        costCpOverride:"0",costBasisOverride:"none",costAppliesOverride:"unit",
+        purchaseMode:"inherit",purchaseGpOverride:"",noteOverride:""
+      })
+    }}}};
+    await edit.events.click[0]();
+    assert.equal(ctx.changes.length,0,"child edit does not save World/Group");
+    assert.equal(elements.find(e=>e.name==="quantity-camel1").value,"4");
+    assert.equal(elements.find(e=>e.name==="speed-camel1").value,"3.75");
+    const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
+    await save.events.click[0]();
+    assert.equal(ctx.saved.groups.group1.members.camel1.quantity,4);
+    assert.equal(ctx.saved.groups.group1.members.camel1.speedMphOverride,3.75);
+    assert.equal(ctx.saved.groups.group1.members.camel1.capacity,null);
+    assert.equal(ctx.saved.groups.group1.members.camel1.costCpOverride,0);
+    assert.equal(ctx.changes.length,1,"only Group metadata World setting is persisted");
+    assert.equal(ctx.group.system.members.length,3,"native roster untouched");
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
