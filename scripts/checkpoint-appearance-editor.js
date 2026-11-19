@@ -767,6 +767,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
         const latestExploration=readPartyExploration(this.scene);
         const latestMethods=readCheckpointDiscoveryMethods(this.scene);
         const latestLinks=readAtlasJournalLinks(this.scene);
+        // New Map Marker creation still owns the original Scene revision:
+        // a stale graph/Node candidate must never be silently rebased.
+        if(this.createDraft&&latestAtlas.revision!==this.expectedRevision)
+          throw new Error("Scene Atlas changed. Reopen New Map Marker before drawing.");
         if(!this.createDraft){
           const target=latestAtlas.checkpoints.find(cp=>cp.id===this.checkpointId);
           const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
