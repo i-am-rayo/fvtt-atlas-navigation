@@ -55,6 +55,7 @@ const setup=(isGM=true)=>{
       if(key==="guidedGroupTransportation")saved=value;return value;}}};
   globalThis.ui={notifications:{info(){},error(){}}};
   return {pc,camel,ship,group,changes,get saved(){return saved;},
+    setSaved(value){saved=value;},
     restore(){globalThis.document=old.document;globalThis.game=old.game;globalThis.ui=old.ui;}};
 };
 
@@ -119,6 +120,34 @@ test("saving matching profile ID preserves mount capacity across Actor rename",a
     const projection=projectGroupTransportation(ctx.group,ctx.saved);
     assert.equal(groupMethodCapacityStatus(projection,
       {id:"camel",name:"Camel",surface:"land"}).seats,3);
+  }finally{ctx.restore();}
+});
+
+test("two open Group assignment menus save different Groups without overwriting, same Group remains guarded",async()=>{
+  const ctx=setup();
+  try{
+    const first=new AtlasGroupTransportationSettings(ctx.group.id);
+    first.render=async()=>{};
+    const root=flatten(await first._renderHTML());
+    ctx.setSaved({...ctx.saved,groups:{...ctx.saved.groups,otherGroup:{members:{}}}});
+    const button=root.find(e=>e.textContent==="Save Party Transportation Assignments");
+    await button.events.click[0]();
+    assert.equal(ctx.changes.length,1,"unrelated Group change must not block saving this Group");
+    assert.deepEqual(ctx.saved.groups.otherGroup,{members:{}},
+      "saving this Group preserves other Group assignments");
+
+    const stale=new AtlasGroupTransportationSettings(ctx.group.id);
+    stale.render=async()=>{};
+    const draft=flatten(await stale._renderHTML());
+    const prior=ctx.saved.groups.group1;
+    ctx.setSaved({...ctx.saved,groups:{...ctx.saved.groups,
+      group1:{members:{...prior.members,
+        camel1:{...prior.members.camel1,quantity:9}}}}});
+    const count=ctx.changes.length;
+    await draft.find(e=>e.textContent==="Save Party Transportation Assignments")
+      .events.click[0]();
+    assert.equal(ctx.changes.length,count,"same Group stale write is rejected");
+    assert.equal(ctx.saved.groups.group1.members.camel1.quantity,9);
   }finally{ctx.restore();}
 });
 
