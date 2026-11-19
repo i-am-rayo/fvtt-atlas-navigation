@@ -562,6 +562,19 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(stored.checkpoints[0].name, "Revealed Lookout");
     assert.equal(stored.checkpoints[0].elevationMeters, 640);
     assert.equal(stored.checkpoints[0].playerVisible, true);
+    // Unlike an existing unchanged marker, an unsaved new marker may have a
+    // stale graph anchor. It must still require the original Scene revision.
+    const createErrors=[];
+    const priorNotifyError=globalThis.ui.notifications.error;
+    globalThis.ui.notifications.error=message=>createErrors.push(String(message));
+    const staleCreate=all(independentRoot).find(node=>
+      node.tag==="button"&&node.title==="Create Map Marker");
+    staleCreate.listeners.get("click")();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.match(createErrors.join("\n"),/Scene Atlas changed/);
+    assert.equal(independentEditor.createResolved,false,
+      "stale New Map Marker must never send a creation config");
+    globalThis.ui.notifications.error=priorNotifyError;
     // #412: A deliberate preset change applies its defaults, but changing the
     // marker category afterwards must not silently select another preset or
     // wipe the GM's unrelated edits.
