@@ -114,7 +114,7 @@ test("two World Road Appearance windows merge independent modes and reject same-
     const appA=new AtlasRoadAppearanceSettings(),appB=new AtlasRoadAppearanceSettings();
     const a=await appA._renderHTML(),b=await appB._renderHTML();
     const field=(root,mode)=>{
-      const index={land:0,air:1,water:2}[mode];
+      const index={land:0,water:1,air:2}[mode];
       return root.children.find(item=>item.className==="atlas-world-category-scroll")
         .children[index].children[1].querySelectorAll("[name]")
         .find(item=>item.name==="atlasRoadColor");
@@ -122,7 +122,7 @@ test("two World Road Appearance windows merge independent modes and reject same-
     const save=async root=>root.children.at(-1).children[0].listeners.get("click")();
     const {settingsFormValues}=await import("../scripts/settings-input.js");
     const form=(root,mode)=>root.children.find(item=>item.className==="atlas-world-category-scroll")
-      .children[{land:0,air:1,water:2}[mode]].children[1];
+      .children[{land:0,water:1,air:2}[mode]].children[1];
     for(const mode of ["land","air","water"]){
       assert.deepEqual(roadAppearanceFromForm(settingsFormValues(form(a,mode).querySelectorAll("[name]"))),
         stored.profiles[mode],"Editor A untouched "+mode+" form reflects saved style");
