@@ -22,7 +22,7 @@ import {projectGroupTransportation,readGroupTransportation} from "./navigation-g
 import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
   from "./navigation-travel-method.js";
-import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
 import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
 import { createAtlasIconButton } from "./ui-action-button.js";
 import {createTransportNumberSlider,createTransportCurrencyPool,transportCurrencyAmount}
@@ -467,18 +467,28 @@ export class AtlasTransportationSettings extends ApplicationBase {
       panels.services.setAttribute("aria-disabled","true");
       const options=profiles.filter(item=>item.kind===groupKind);
       const selectedId=String(baseline.profileId??"");
-      const choices=[["","No linked World profile"],
-        ...options.map(item=>[item.id,item.name+" ("+names[item.surface]+")"])];
+      const groups=[{label:null,options:[["","No linked World profile"]]}];
+      for(const surface of TRANSPORT_SURFACES){
+        const members=options.filter(item=>item.surface===surface)
+          .sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:"base"})||
+            a.id.localeCompare(b.id));
+        if(members.length)groups.push({label:names[surface],
+          options:members.map(item=>[item.id,item.name])});
+      }
       if(selectedId&&!options.some(item=>item.id===selectedId))
-        choices.push([selectedId,"Unavailable profile: "+selectedId]);
+        groups.push({label:null,options:[[selectedId,"Unavailable profile: "+selectedId]]});
+      const profileSelect=createSettingsGroupedSelect(groups,{
+        selectedId,name:"groupProfileId",ariaLabel:"Transportation profile"});
+      profileSelect.style.cssText="width:100%;min-width:0;";
       const groupFields=element("div");
       groupFields.className="atlas-transport-row";
       groupFields.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.75rem;";
       groupFields.append(
-        field("Transportation profile",selected(choices,selectedId,"groupProfileId"),
+        field("Transportation profile",profileSelect,
           "Choose a World profile by ID; changing the profile never modifies the catalog."),
-        field("Quantity Available",numberInput("groupQuantity",baseline.quantity??1,
-          {min:1,max:100,step:1}),"Number of owned mounts or vehicles represented by this Actor.")
+        field("Quantity Available",slider("groupQuantity",baseline.quantity??1,
+          {min:1,max:100,step:1,numericStep:1,label:"Quantity Available"}),
+          "Number of owned mounts or vehicles represented by this Actor.")
       );
       panels.general.appendChild(groupFields);
       panels.general.appendChild(element("p",
