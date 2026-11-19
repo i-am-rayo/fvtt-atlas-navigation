@@ -1,3 +1,18 @@
+/* Shared roving-focus tabs keep the existing Road Settings appearance. */
+.application:has([data-atlas-road-live]) .atlas-road-settings-tabs {
+  display:flex;gap:.4rem;padding-bottom:.65rem;
+  border-bottom:1px solid var(--color-border-light-tertiary,#655);
+  margin-bottom:.8rem;
+}
+.application:has([data-atlas-road-live]) .atlas-road-settings-tabs > button {
+  flex:1;min-width:0;border:1px solid var(--color-border-light-tertiary,#655);
+  background:transparent;font-weight:400;
+}
+.application:has([data-atlas-road-live])
+  .atlas-road-settings-tabs > button[aria-selected="true"] {
+  background:rgba(156,123,240,.22);font-weight:700;
+}
+
 /* The Road ApplicationV2 form owns submission; no native document is written on render.
  * Shared Atlas order: edit actions then Cancel/Save, Delete last on the right.
  * DOM focus order matches visual order; CSS only handles available spacing.
