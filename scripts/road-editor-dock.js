@@ -35,7 +35,14 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
 
   constructor({ scene, controller, sceneSheet, onFinish, onCancel, onClosed,
     onFocus=null }) {
-    super({ position: {
+    const draft=controller.getDraft(scene);
+    const markerMode=draft?.mode==="checkpoint"||draft?.mode==="checkpoint-relocate";
+    const roadName=draft?.mode==="new"?controller.getNewRoadOptions?.(scene)?.name:
+      draft?.mode==="points"?draft.roadName:null;
+    const title=markerMode?"Atlas — Map Marker Editor":roadName?
+      atlasSettingsTitle("Road",roadName).replace(/ Settings$/," Editor"):
+      "Atlas — Road Editor";
+    super({window:{title},position:{
       width: Math.min(360, Math.max(240, window.innerWidth - 48)),
       height: "auto", left: 24, top: 90
     } });
