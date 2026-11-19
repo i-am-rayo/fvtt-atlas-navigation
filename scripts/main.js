@@ -86,6 +86,7 @@ import { registerWorldTravelPresets, readWorldTravelPresets,AtlasTravelPresetSet
   from "./travel-preset-settings.js";
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
 import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
+import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
 import { createSettingsInput } from "./settings-input.js";
 import {confirmAtlasVisibilityChange} from "./atlas-visibility-confirmation.js";
 import { promptNativeMovementAction } from "./native-movement-action-picker.js";
@@ -762,22 +763,25 @@ function actions() {
       const baseline = resolveRoadAppearance(actual, readWorldRoadAppearance(), mode);
       const journalLinks = readAtlasJournalLinks(scene);
       const journalControls = journalLinkFields(journalLinks,"road",road.id);
-      const tabs=document.createElement("nav");
-      tabs.style.cssText="display:flex;gap:.4rem;padding-bottom:.65rem;border-bottom:1px solid var(--color-border-light-tertiary,#655);margin-bottom:.8rem;";
+      const roadDialogToken=foundry.utils.randomID();
+      // Use the same roving-focus tab behavior as the World preset editors.
+      // Panels remain mounted so tab navigation cannot discard Road drafts.
+      const roadTabs=createSettingsCategoryTabs({
+        id:"atlas-road-settings-"+roadDialogToken,
+        modes:[["general","General"],["style","Customization"],
+          ["checkpoints","Map Markers"],["regions","Terrain Regions"]],
+        active:"general"
+      });
+      const tabs=roadTabs.nav;
+      tabs.className="atlas-road-settings-tabs";
+      tabs.setAttribute("aria-label","Road settings sections");
       const panels={general:document.createElement("div"),
         style:document.createElement("div"),
         checkpoints:document.createElement("div"),regions:document.createElement("div")};
-      for (const [key,text] of [["general","General"],["style","Customization"],["checkpoints","Map Markers"],["regions","Terrain Regions"]]) {
-        const tab=document.createElement("button");
-        tab.type="button";tab.textContent=text;tab.dataset.atlasRoadTab=key;
-        tab.style.flex="1";
-        tab.style.cssText="flex:1;border:1px solid var(--color-border-light-tertiary,#655);background:"+
-          (key==="general"?"rgba(156,123,240,.22)":"transparent")+";font-weight:"+
-          (key==="general"?"700":"400")+";";
-        tab.setAttribute("aria-selected",String(key==="general"));
-        tabs.appendChild(tab);
+      for (const [index,key] of ["general","style","checkpoints","regions"].entries()) {
+        tabs.children[index].dataset.atlasRoadTab=key;
         panels[key].dataset.atlasRoadPanel=key;
-        panels[key].hidden=key!=="general";
+        roadTabs.addPanel(key,panels[key]);
       }
       const {row:presetRow,hint:presetHint,select:presetSelect}=
         createRoadTravelPresetRow(actual.travelPresetId);
@@ -849,7 +853,6 @@ function actions() {
       regionList.setAttribute("aria-live","polite");
       regionSection.append(regionLegend,priorityHelp,regionList);
       panels.regions.appendChild(regionSection);
-      const roadDialogToken=foundry.utils.randomID();
       const regionLocator=new TerritoryLocateHighlight();
       // Track the user's actual dropdown change before DialogV2 serializes or
       // removes its content. FormData alone has proven unreliable for this field.
@@ -1064,21 +1067,6 @@ function actions() {
             }
           }).catch(error=>ui.notifications.error(error.message));
           return;
-        }
-        const tab=event.target?.closest?.("[data-atlas-road-tab]");
-        if (!tab) return;
-        const form=tab.closest?.(".application");
-        if (!form?.querySelector?.('input[name="atlasRoadName"]')) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        for (const panel of form.querySelectorAll("[data-atlas-road-panel]"))
-          panel.hidden=panel.dataset.atlasRoadPanel!==tab.dataset.atlasRoadTab;
-        for (const item of form.querySelectorAll("[data-atlas-road-tab]")) {
-          const selected=item===tab;
-          item.disabled=false;
-          item.setAttribute("aria-selected",String(selected));
-          item.style.background=selected?"rgba(156,123,240,.22)":"transparent";
-          item.style.fontWeight=selected?"700":"400";
         }
       };
       // RegionDocuments and checkpoint flags can change while this DialogV2
