@@ -326,7 +326,18 @@ test("Group scope uses the actual General/Services/Ownership editor, with hired 
         assert.equal(elements.find(e=>e.attributes.get("data-atlas-preset-panel")==="services")
           .attributes.has("inert"),true);
         seen.push(elements.map(el=>el.textContent??"").join(" "));
-        assert.match(window.title,/Edit Camel Transportation/);
+        const general=elements.find(el=>el.attributes.get("data-atlas-preset-panel")==="general");
+        const ownership=elements.find(el=>el.attributes.get("data-atlas-preset-panel")==="cost");
+        const generalText=flatten(general).map(e=>e.textContent??"").join(" ");
+        const ownershipText=flatten(ownership).map(e=>e.textContent??"").join(" ");
+        assert.doesNotMatch(generalText,/Required crew/,"Group hides World-owned crew counts");
+        assert.doesNotMatch(ownershipText,/Available for purchase|Crew wage per person/,
+          "already-owned resources cannot change sale offers or crew wages");
+        assert.ok(elements.find(el=>el.name==="groupSpeedCustom")?.hidden);
+        assert.ok(elements.find(el=>el.name==="groupCostCustom")?.hidden);
+        assert.equal(elements.find(el=>el.name==="name")?.value,"Hamilton",
+          "Group native Actor name remains authoritative");
+        assert.match(window.title,/Edit Hamilton Transportation/);
         assert.equal(ok.label,"Apply to Party draft");
         return {groupProfileId:"camel",groupQuantity:"3",capacity:"",
           groupCostCustom:"on",cost_pp:"0",cost_gp:"0",cost_ep:"0",
@@ -337,19 +348,21 @@ test("Group scope uses the actual General/Services/Ownership editor, with hired 
       }
     }}}};
     const result=await openTransportationMethodEditor({scope:"group",method,
-      groupKind:"mount",groupActorName:"Camel",
+      groupKind:"mount",groupActorName:"Hamilton",
       profiles:[method],groupAssignment:{profileId:"camel",quantity:2,
         capacity:null,speedMphOverride:null,costCpOverride:null},
       onSave:value=>applied.push(value)});
     assert.match(seen[0],/Quantity Available/);
-    assert.match(seen[0],/Customize Party travel speed/);
+    assert.doesNotMatch(seen[0],/Customize Party travel speed/,
+      "reuse Map Marker fields without extra visible customization rows");
     assert.match(seen[0],/Recurring upkeep/);
     assert.equal(result.quantity,3);
     assert.equal(result.capacity,null);
     assert.equal(result.speedMphOverride,null,"inherit World speed");
     assert.equal(result.costCpOverride,0,"explicit zero is not inherited");
     assert.equal(result.costBasisOverride,"none");
-    assert.equal(result.purchaseGpOverride,"none");
+    assert.equal(result.purchaseGpOverride,null,
+      "purchase policy for already-owned resources remains World-owned");
     assert.equal(result.noteOverride,"Group-only");
     assert.deepEqual(applied,[result]);
     assert.deepEqual(ctx.changes,[],"child Apply never writes World settings");
@@ -364,4 +377,48 @@ test("Group scope uses the actual General/Services/Ownership editor, with hired 
       groupAssignment:{quantity:1},onSave:()=>{}}),undefined);
     assert.deepEqual(ctx.changes,[]);
   }finally{globalThis.foundry=prior;ctx.restore();}
+});
+
+test("Group editor records touched Map Marker fields as overrides without new visible controls",async()=>{
+  const ctx=setup(),previous=globalThis.foundry;
+  try{
+    const method={id:"camel",name:"Camel",kind:"mount",surface:"land",
+      speedMph:3,capacity:1,costCp:5,costBasis:"day",
+      costApplies:"unit",purchaseGp:50,note:"World note"};
+    globalThis.foundry={applications:{api:{DialogV2:{
+      input:async({content,render})=>{
+        const root=content.children[0];
+        const elements=flatten(root);
+        root.querySelectorAll=()=>[];
+        root.querySelector=selector=>{
+          const match=selector.match(/^\\[name="([^"]+)"\\]$/);
+          if(match)return elements.find(el=>el.name===match[1])??null;
+          if(selector==="[data-atlas-scope-reset]")
+            return elements.find(el=>el.attributes.get("data-atlas-scope-reset")!==undefined)??null;
+          return null;
+        };
+        render(null,root);
+        const speedFlag=elements.find(e=>e.name==="groupSpeedCustom");
+        const upkeepFlag=elements.find(e=>e.name==="groupCostCustom");
+        assert.equal(speedFlag.checked,false,"speed starts World-inherited");
+        root.listeners.get("input")({target:{name:"speedDisplay"}});
+        assert.equal(speedFlag.checked,true,"typing a speed makes a Party override");
+        root.listeners.get("input")({target:{
+          getAttribute:key=>key==="data-atlas-range-for"?"speedDisplay":null
+        }});
+        assert.equal(speedFlag.checked,true,"slider edits count, too");
+        root.listeners.get("input")({target:{name:"cost_gp"}});
+        assert.equal(upkeepFlag.checked,true,"native currency controls create a Group-only override");
+        const reset=root.querySelector("[data-atlas-scope-reset]");
+        reset.listeners.get("click")();
+        assert.equal(speedFlag.checked,false,"Reset restores World inheritance");
+        assert.equal(upkeepFlag.checked,false);
+        return null;
+      }
+    }}}};
+    await openTransportationMethodEditor({scope:"group",method,groupKind:"mount",
+      groupActorName:"Hamilton",profiles:[method],groupAssignment:{
+        profileId:"camel",quantity:3},onSave:()=>{throw Error("No save after cancel");}});
+    assert.deepEqual(ctx.changes,[]);
+  }finally{globalThis.foundry=previous;ctx.restore();}
 });

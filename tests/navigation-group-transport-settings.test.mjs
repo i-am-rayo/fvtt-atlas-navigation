@@ -106,8 +106,20 @@ test("Group editor shows compact native-Actor transportation by travel surface",
     assert.equal(actorRows.length,2,"only native transport resources get compact rows");
     assert.equal(elements.filter(e=>e.className==="atlas-group-transport-surface").length,3);
     assert.ok(elements.some(e=>e.attributes.get("aria-label")==="Edit Camel transportation"));
-    assert.ok(elements.some(e=>e.attributes.get("aria-label")===
-      "Remove Camel from Party transportation"));
+    assert.equal(elements.some(e=>e.attributes.get("aria-label")===
+      "Remove Camel from Party transportation"),false,
+      "NPC membership and role govern removal; do not duplicate native removal");
+    const camelRow=actorRows.find(e=>e.children[0]?.children[0]?.textContent==="Camel");
+    const horseControls=camelRow?.children[0]?.children[1];
+    assert.equal(horseControls?.children[0]?.tagName,"SELECT",
+      "NPC role selection follows the name on the same row");
+    assert.match(horseControls?.style.cssText??"",/margin-left:auto/);
+    assert.equal(horseControls?.children.length,2,
+      "NPC has only Role and Edit, no Delete");
+    const shipRow=actorRows.find(e=>e.children[0]?.children[0]?.textContent==="Warship ★ Primary vehicle");
+    assert.equal(shipRow?.children[0]?.children[1]?.children.length,2,
+      "Vehicles retain Edit and confirmed Atlas opt-out");
+    assert.equal(camelRow?.children[1]?.hidden,true,"hidden draft fields do not break the single-row layout");
     assert.deepEqual(ctx.changes,[],"opening Group editor never changes World or native Group");
   }finally{ctx.restore();}
 });
