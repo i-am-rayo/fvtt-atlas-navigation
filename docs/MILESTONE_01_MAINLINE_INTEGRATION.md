@@ -1,18 +1,12 @@
-# Milestone 01 mainline integration candidate — v0.3.11
+# Milestone 01 — Release-formatted mainline integration for 0.3.11
 
-**Status:** Draft integration preparation only. No merge, public release, tag or Milestone/issue closure is authorized by building this branch.
+This document records the integration of the **owner-accepted cumulative dev.21** UI implementation. The earlier dev.19 candidate was superseded without force-pushing: integration history includes the dev.21 head as a parent, with only release metadata/documentation changed relative to the dev.21 implementation.
 
-## Why a separate branch
-
-- `main` is currently `0.3.10`, whereas the 19 cumulative development builds use branch-specific `0.3.11-dev.*` URLs.
-- A previous attempt to bring a development manifest into `main` was correctly blocked by `tests/release-manifest.test.mjs`. Never weaken that test.
-- This candidate contains the cumulative Milestone 01 implementation and the **release-formatted** `0.3.11` package/module versions, with manifest and ZIP URLs pointing to `main` as required once merged.
-- Use the separate [dev.19 installer](https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/fix/0.3.11-m01-final-ui-exit-batch/module.json) to conduct the Product Owner's final live testing. This integration branch is **not** the dev.19 installer.
-
-## Integration gates
-
-1. Verify cumulative `main...` diff contains **only** Product Owner-accepted Milestone 01 UI changes, docs and tests. Keep previous stacked PRs unchanged; preserve native Region/Scene, Road/Checkpoint, Fog, Token, Actor, Journal and Journey authority.
-2. Verify `npm run check`, `npm run architecture:check`, syntax, `git diff --check`, release manifest values, and mainline URLs.
-3. Record actual Foundry v14 GM + non-GM final dev.19 live acceptance, including 200% UI scale, multi-window Save/Cancel and permission checks. Any failed live test blocks this integration; issue #216/#289 remain open.
-4. Obtain the Product Owner's explicit permission for the `main` merge and version 0.3.11 publication. No tag, GitHub release or issue/milestone closure merely because a draft PR exists.
-5. After the owner approves and integration is successful, reconcile old stacked draft PRs without destroying branch history; close only issues whose *full* acceptance criteria are verified. Keep unrelated #265 native recovery and #135/#189/#224 Journey safety work open.
+- Version: `0.3.11` in `module.json` and `package.json`.
+- Manifest: `https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/main/module.json`.
+- Archive: `https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/main.zip`.
+- Keep `tests/release-manifest.test.mjs` unchanged and passing.
+- Confirm `npm run check`, `npm run architecture:check`, syntax and patch whitespace before merging.
+- Product Owner explicitly approved the **mainline merge** in the 2026-11-19 conversation, after confirming dev.21 working. That is distinct from any GitHub tag/release publication; no tag/release is authorized here.
+- Once the mainline PR is merged, close prior M01 stacked draft PRs **as integrated/superseded**, not as individually GitHub-merged PRs, and close only the implemented-and-owner-accepted UI issues.
+- **Do not close** ongoing post-update startup failure #453 or startup performance review #455 as solved. High-risk native Region/Journey recovery issues remain separate and unresolved.
