@@ -58,8 +58,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
   constructor({ scene, checkpointId, expectedRevision, onSaved, createDraft = null, onCreate = null, onTerrainAction = null, onDelete = null, onMove = null, onRoad = null, onLocate = null }) {
     const checkpointName=createDraft?null:
       readAtlas(scene).checkpoints?.find(checkpoint=>checkpoint.id===checkpointId)?.name;
-    super({ window:{title:atlasSettingsTitle("Map Marker",checkpointName,
-      {creating:Boolean(createDraft)})}, position: {
+    super({ ...(scene?.id&&checkpointId&&!createDraft?
+      {id:`fvtt-atlas-map-marker-settings-${scene.id}-${checkpointId}`}:{}),
+      window:{title:atlasSettingsTitle("Map Marker",checkpointName,
+        {creating:Boolean(createDraft)})}, position: {
       left: 24,
       width: Math.min(630, Math.max(360, window.innerWidth - 60)),
       height: Math.min(710, Math.max(440, window.innerHeight - 70))
@@ -109,6 +111,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       appearance: null, playerVisible: false
     } : readAtlas(this.scene).checkpoints?.find(c => c.id === this.checkpointId);
     if (!current) throw new Error("Map Marker no longer exists.");
+    // Use Foundry's public header element; never promote an unsaved name draft.
+    if(this.window?.title)
+      this.window.title.textContent=atlasSettingsTitle("Map Marker",current.name,
+        {creating:Boolean(this.createDraft)});
     const appearance = resolveCheckpointAppearance(current.appearance);
     const existingBanner=resolveCheckpointBanner(appearance);
     const exploration = readPartyExploration(this.scene);
