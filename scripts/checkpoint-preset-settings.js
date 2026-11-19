@@ -143,8 +143,12 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
       window:{title:"Delete Map Marker Preset"},content,
       rejectClose:false,modal:true});
     if(!confirmed)return;
+    const latest=readWorldCheckpointPresets();
+    if(JSON.stringify(latest.presets.find(item=>item.id===preset.id)??null)!==
+        JSON.stringify(preset))
+      throw Error("This Map Marker preset changed elsewhere. Refresh before deleting.");
     await game.settings.set(MODULE_ID,CHECKPOINT_PRESET_SETTING,
-      removeCheckpointPreset(readWorldCheckpointPresets(),preset.id));
+      removeCheckpointPreset(latest,preset.id));
     await this.render();
   }
 }
