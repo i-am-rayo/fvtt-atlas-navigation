@@ -307,46 +307,61 @@ test("Journey editor exposes explicit Save for this trip and Save to checkpoint 
 });
 
 
-test("Group scope reuses transport dialog but only stages validated Group overrides",async()=>{
+test("Group scope uses the actual General/Services/Ownership editor, with hired Services disabled",async()=>{
   const ctx=setup(),prior=globalThis.foundry;
   const applied=[],seen=[];
-  const method={id:"camel",name:"Camel",kind:"mount",surface:"land"};
+  const method={id:"camel",name:"Camel",kind:"mount",surface:"land",
+    speedMph:3,capacity:1,costCp:5,costBasis:"day",costApplies:"unit",
+    purchaseGp:50,note:"World note"};
   try{
     globalThis.foundry={applications:{api:{DialogV2:{
-      input:async({content,ok})=>{
+      input:async({content,ok,window})=>{
         assert.equal(content.tagName,"DIV");
-        assert.equal(content.attributes.size,0);
-        seen.push(flatten(content).map(el=>el.textContent??"").join(" "));
+        assert.equal(content.attributes.size,0,"DialogV2 requires plain outer shell");
+        const elements=flatten(content);
+        const tabs=elements.filter(e=>e.attributes.get("role")==="tab");
+        assert.deepEqual(tabs.map(t=>t.textContent),["General","Services","Ownership"]);
+        assert.equal(tabs[1].disabled,true,"owned Group cannot offer a hired service");
+        assert.equal(tabs[1].attributes.get("aria-disabled"),"true");
+        assert.equal(elements.find(e=>e.attributes.get("data-atlas-preset-panel")==="services")
+          .attributes.has("inert"),true);
+        seen.push(elements.map(el=>el.textContent??"").join(" "));
+        assert.match(window.title,/Edit Camel Transportation/);
         assert.equal(ok.label,"Apply to Party draft");
-        return {profileId:"camel",quantity:"3",capacity:"",speedMphOverride:"",
-          costCpOverride:"0",costBasisOverride:"none",costAppliesOverride:"",
-          purchaseMode:"none",purchaseGpOverride:"",noteOverride:"Group-only"};
+        return {groupProfileId:"camel",groupQuantity:"3",capacity:"",
+          groupCostCustom:"on",cost_pp:"0",cost_gp:"0",cost_ep:"0",
+          cost_sp:"0",cost_cp:"0",
+          groupBasisCustom:"on",costBasis:"none",
+          groupPurchaseCustom:"on",purchaseEnabled:false,
+          groupNoteCustom:"on",note:"Group-only"};
       }
     }}}};
     const result=await openTransportationMethodEditor({scope:"group",method,
+      groupKind:"mount",groupActorName:"Camel",
       profiles:[method],groupAssignment:{profileId:"camel",quantity:2,
         capacity:null,speedMphOverride:null,costCpOverride:null},
-      onSave:value=>{applied.push(value);}});
+      onSave:value=>applied.push(value)});
     assert.match(seen[0],/Quantity Available/);
-    assert.match(seen[0],/Group-only values inherit World/);
+    assert.match(seen[0],/Customize Party travel speed/);
+    assert.match(seen[0],/Recurring upkeep/);
     assert.equal(result.quantity,3);
     assert.equal(result.capacity,null);
-    assert.equal(result.costCpOverride,0);
+    assert.equal(result.speedMphOverride,null,"inherit World speed");
+    assert.equal(result.costCpOverride,0,"explicit zero is not inherited");
     assert.equal(result.costBasisOverride,"none");
     assert.equal(result.purchaseGpOverride,"none");
+    assert.equal(result.noteOverride,"Group-only");
     assert.deepEqual(applied,[result]);
-    assert.deepEqual(ctx.changes,[],"child Apply never writes a World setting");
-
+    assert.deepEqual(ctx.changes,[],"child Apply never writes World settings");
     globalThis.foundry.applications.api.DialogV2.input=async()=>({
-      profileId:"camel",quantity:"0",capacity:"",speedMphOverride:"",
-      costCpOverride:"",costBasisOverride:"",costAppliesOverride:"",
-      purchaseMode:"inherit",noteOverride:""});
+      groupProfileId:"camel",groupQuantity:"0",capacity:""});
     await assert.rejects(()=>openTransportationMethodEditor({scope:"group",
-      method,profiles:[method],groupAssignment:{quantity:1},onSave:()=>{}}),
-      /Quantity Available/);
+      method,groupKind:"mount",profiles:[method],
+      groupAssignment:{quantity:1},onSave:()=>{}}),/Quantity Available/);
     globalThis.foundry.applications.api.DialogV2.input=async()=>null;
     assert.equal(await openTransportationMethodEditor({scope:"group",
-      method,profiles:[method],groupAssignment:{quantity:1},onSave:()=>{}}),null);
+      method,groupKind:"mount",profiles:[method],
+      groupAssignment:{quantity:1},onSave:()=>{}}),undefined);
     assert.deepEqual(ctx.changes,[]);
   }finally{globalThis.foundry=prior;ctx.restore();}
 });

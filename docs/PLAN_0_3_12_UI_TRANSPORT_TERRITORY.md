@@ -56,3 +56,7 @@ Each build still groups coherent UI/validation/tests, retains a stacked DRAFT PR
 - Issues #417 and #460 close **only when their own acceptance requirements are actually met**. #295 may stay in its later milestone if not fully delivered; do not declare completion by association.
 
 **Out of scope:** new native Vehicle/Group roster editing, boarding, fares/Actor deductions, Token or Journey movements, native Region geometry ownership changes, schema rewrites on read, auto-generated Map Marker icons, and #294's separate icon-link work.
+
+## Dev.1 owner-test correction and dev.2 implementation status
+
+The Product Owner **did not accept dev.1**: its new Group-only dialog did not match the shared Map Marker editor; its cards lacked shared Edit/Delete icons and travel-type sections. Dev.2 fixes the shared renderer, disables Services for owned assets, replaces Vehicles/NPC/PC tabs with compact Land/Water/Air and separate Other NPCs, and adds an explicit versioned Group-only opt-out/re-enable representation. **Dev.2 is automated-test candidate, not owner-tested.** The latest owner requirement for #459 reserves an assigned unique mount for that person in prospective eligibility; it supersedes the earlier informational-only plan and must be implemented in a separate, recovery-safe gameplay batch (with no approved-Journey reinterpretation) after finalizing UI contracts. #417 Territory appearance remains queued; startup #453 remains independently open.

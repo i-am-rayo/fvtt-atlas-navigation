@@ -6,7 +6,7 @@
 export const GROUP_TRANSPORT_SETTING="guidedGroupTransportation";
 import { projectedGroupFare } from "./navigation-currency.js";
 
-export const GROUP_TRANSPORT_VERSION=4;
+export const GROUP_TRANSPORT_VERSION=5;
 export const GROUP_TRANSPORT_ROLES=Object.freeze([
   "unassigned","mount","passenger","crew","pack","ignore"
 ]);
@@ -26,7 +26,7 @@ export function defaultGroupTransportation(){return {version:GROUP_TRANSPORT_VER
 
 export function validateGroupTransportation(input){
   if(!input||typeof input!=="object"||Array.isArray(input)||
-      ![1,2,3,GROUP_TRANSPORT_VERSION].includes(input.version)||
+      ![1,2,3,4,GROUP_TRANSPORT_VERSION].includes(input.version)||
       !input.groups||typeof input.groups!=="object"||Array.isArray(input.groups)||
       Object.keys(input.groups).length>MAX_GROUPS)
     throw new Error("Invalid Atlas Group transportation configuration.");
@@ -43,6 +43,7 @@ export function validateGroupTransportation(input){
           !integer(entry.quantity,1,100)||
           !(entry.capacity===null||integer(entry.capacity,1,1000))||
           !GROUP_TRANSPORT_SURFACES.includes(entry.surface)||
+          !(entry.enabled===undefined||typeof entry.enabled==="boolean")||
           !validProfileId(entry.profileId??null)||
           !validTravelSpeedOverride(entry.speedMphOverride??null)||
           !validMoneyOverride(entry.costCpOverride??null)||
@@ -52,7 +53,8 @@ export function validateGroupTransportation(input){
           !validNoteOverride(entry.noteOverride??null))
         throw new Error("Invalid Atlas Group member transportation assignment.");
       members[actorId]={role:entry.role,quantity:entry.quantity,
-        capacity:entry.capacity,surface:entry.surface,profileId:entry.profileId??null,
+        capacity:entry.capacity,surface:entry.surface,enabled:entry.enabled??true,
+        profileId:entry.profileId??null,
         speedMphOverride:entry.speedMphOverride??null,
         costCpOverride:entry.costCpOverride??null,
         costBasisOverride:entry.costBasisOverride??null,
@@ -129,6 +131,7 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
     const noteOverride=saved?.noteOverride??null;
     members.push({actorId:actor.id,actorName:actor.name??"Unnamed Actor",
       actorType:actor.type,role,quantity,capacity,surface,profileId,
+      enabled:saved?.enabled??true,
       speedMphOverride,costCpOverride,costBasisOverride,costAppliesOverride,
       purchaseGpOverride,noteOverride,
       primaryVehicle:Boolean(vehicle&&group.system?.primaryVehicle?.id===actor.id),
@@ -137,7 +140,8 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
   const travelers=members.reduce((sum,m)=>
     sum+(m.role==="passenger"?m.quantity:0),0);
   const unclassified=members.filter(m=>m.role==="unassigned").length;
-  const resources=members.filter(m=>m.role==="mount"||m.role==="vehicle");
+  const resources=members.filter(m=>m.enabled&&
+    (m.role==="mount"||m.role==="vehicle"));
   const capacityBySurface=Object.fromEntries(GROUP_TRANSPORT_SURFACES.map(surface=>[
     surface,resources.filter(m=>m.surface===surface).reduce((total,m)=>
       total+(m.capacity??0)*m.quantity,0)
@@ -150,7 +154,8 @@ export function groupTravelCapacityStatus(projection,surface){
   if(!GROUP_TRANSPORT_SURFACES.includes(surface))throw new Error("Unknown travel surface.");
   const seats=projection.capacityBySurface[surface]??0;
   const unknown=projection.members.filter(m=>
-    (m.role==="vehicle"||m.role==="mount")&&m.surface===surface&&m.capacity===null).length;
+    m.enabled&&(m.role==="vehicle"||m.role==="mount")&&
+    m.surface===surface&&m.capacity===null).length;
   return {travelers:projection.travelers,seats,
     missing:Math.max(0,projection.travelers-seats),unknown,
     sufficient:projection.travelers>0&&projection.travelers<=seats};
@@ -162,6 +167,7 @@ const matchingResources=(projection,method)=>{
   if(!method||!GROUP_TRANSPORT_SURFACES.includes(method.surface))
     throw new Error("A valid transport method is required.");
   return projection.members.filter(m=>{
+    if(!m.enabled)return false;
     if(method.id==="mounted")return m.role==="mount"&&m.surface===method.surface;
     if(m.profileId!==null)return (m.role==="mount"||m.role==="vehicle")&&
       m.profileId===method.id;
