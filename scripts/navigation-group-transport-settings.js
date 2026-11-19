@@ -336,19 +336,21 @@ export class AtlasGroupTransportationSettings extends base {
     const footer=node("div");footer.style.cssText="display:flex;flex-wrap:wrap;gap:.6rem;flex:0 0 auto;";
     footer.appendChild(action("Save Party Transportation Assignments",async()=>{
       if(!game.user?.isGM)throw new Error("Only a GM may assign transportation.");
-      if(JSON.stringify(readGroupTransportation(game.settings))!==JSON.stringify(assignments))
-        throw new Error("Group assignments changed elsewhere. Reopen the editor.");
+      const currentAssignments=readGroupTransportation(game.settings);
+      if(JSON.stringify(currentAssignments.groups[this.groupId]??null)!==
+          JSON.stringify(assignments.groups[this.groupId]??null))
+        throw new Error("This Group's assignments changed elsewhere. Reopen the editor.");
       const currentGroup=game.actors?.get?.(this.groupId);
       if(!currentGroup||currentGroup.type!=="group")
         throw new Error("The Group Actor is no longer available.");
-      const currentRoster=projectGroupTransportation(currentGroup,assignments,methods);
+      const currentRoster=projectGroupTransportation(currentGroup,currentAssignments,methods);
       if(JSON.stringify(currentRoster.members.map(m=>m.actorId))!==
           JSON.stringify(roster.members.map(m=>m.actorId)))
         throw new Error("Group membership changed. Reopen the editor.");
       const now=listTransportationPresets(game.settings,game.system.id);
       if(JSON.stringify(now)!==methodSnapshot)
         throw new Error("Transportation profiles changed. Reopen the editor.");
-      let next=assignments;
+      let next=currentAssignments;
       for(const entry of editable){
         const {member,role,quantity,capacity,profile,speedOverride,
           costOverride,costBasisOverride,costAppliesOverride,
