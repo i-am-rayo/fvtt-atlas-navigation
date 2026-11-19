@@ -391,7 +391,12 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
       movementCostMultiplier: Number(raw), movementCosts,
       color: String(result.presetColor ?? "")
     };
-    const next = upsertTravelPreset(readWorldTravelPresets(), preset);
+    const latest=readWorldTravelPresets();
+    const saved=latest.presets.find(item=>item.id===preset.id);
+    if(existing&&JSON.stringify(saved??null)!==JSON.stringify(existing))
+      throw Error("This Surface preset changed elsewhere. Reopen it before saving.");
+    if(!existing&&saved)throw Error("A Surface preset already has this ID. Try again.");
+    const next = upsertTravelPreset(latest, preset);
     await game.settings.set(MODULE_ID, TRAVEL_PRESET_SETTING, next);
     ui.notifications.info("Atlas travel preset saved.");
     await this.render();
@@ -411,7 +416,11 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
       rejectClose: false, modal: true
     });
     if (!approved) return;
-    const next = removeTravelPreset(readWorldTravelPresets(), preset.id);
+    const latest=readWorldTravelPresets();
+    if(JSON.stringify(latest.presets.find(item=>item.id===preset.id)??null)!==
+        JSON.stringify(preset))
+      throw Error("This Surface preset changed elsewhere. Reopen before deleting.");
+    const next = removeTravelPreset(latest, preset.id);
     await game.settings.set(MODULE_ID, TRAVEL_PRESET_SETTING, next);
     ui.notifications.info("Atlas travel preset deleted.");
     await this.render();
