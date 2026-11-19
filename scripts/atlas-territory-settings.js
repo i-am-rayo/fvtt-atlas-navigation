@@ -74,13 +74,18 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
     this._membershipHooks=[];
   }
 
+  async _onRender(context,options){
+    await super._onRender?.(context,options);
+    const native=this.scene.regions?.get?.(this.regionId);
+    if(native&&this.window?.title)
+      this.window.title.textContent=atlasSettingsTitle("Territory",native.name);
+  }
+
   async _renderHTML(){
     if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update"))
       throw Error("Only a Scene-authorized GM can edit Territory settings.");
     const native=this.scene.regions?.get?.(this.regionId);
     if(!native)throw Error("This native Territory no longer exists in the Scene.");
-    if(this.window?.title)
-      this.window.title.textContent=atlasSettingsTitle("Territory",native.name);
     this._watchMembership();
     this._scrollY=this.element?.querySelector?.("[data-atlas-territory-settings-body]")?.scrollTop??this._scrollY;
     const summary=listSceneRegions(this.scene).find(item=>item.id===this.regionId);
