@@ -330,6 +330,11 @@ test("painter-style Road and isolated Map Marker canvases move by title only",as
         roadName:"Coastal Road",checkpointId:"marker"})};
       const dock=new AtlasRoadEditorDock({scene,controller,
         onFinish:()=>{saves++;},onCancel:()=>{cancels++;},onClosed(){}});
+      // The editor class was imported earlier by DOM tests with a minimal
+      // ApplicationV2 mock; provide the public Foundry positioning API here.
+      dock.position={left:24,top:90,width:360};
+      dock.setPosition=next=>Object.assign(dock.position,next);
+      dock.element={getBoundingClientRect:()=>({width:360,height:420})};
       const root=await dock._renderHTML();
       const heading=descendants(root).find(node=>node.tag==="h3");
       assert.ok(heading?.attributes.get("aria-label").includes("arrow keys"));
