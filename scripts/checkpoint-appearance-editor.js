@@ -584,16 +584,10 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       updateGeographicHint();terrainSummary.appendChild(hint);
     }
     const terrainButton=(title,action,regionId=null)=>{
-      const button=el("button",title);button.type="button";
-      const icon={geometry:"fa-solid fa-ruler-combined",
-        regenerate:"fa-solid fa-rotate",delete:"fa-solid fa-trash"}[action];
-      if(icon){
-        button.textContent="";
-        const glyph=el("i");glyph.className=icon;
-        button.appendChild(glyph);
-        button.title=title;button.setAttribute("aria-label",title);
-        button.style.cssText="width:2.6rem;min-width:2.6rem;display:inline-flex;justify-content:center;align-items:center;";
-      }
+      const icon={geometry:"ruler-combined",regenerate:"rotate",delete:"trash"}[action];
+      const button=icon?createSettingsIconButton({icon,label:title,danger:action==="delete"}):
+        el("button",title);
+      button.type="button";
       button.addEventListener("click",async()=>{
         button.disabled=true;
         try{
@@ -643,34 +637,56 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     }
     const editorTabs = el("nav");
     editorTabs.style.cssText = "display:flex;gap:.4rem;flex-wrap:wrap;padding-bottom:.65rem;border-bottom:1px solid var(--color-border-light-tertiary,#655);";
+    editorTabs.setAttribute("role","tablist");
+    editorTabs.setAttribute("aria-label","Map Marker settings sections");
     const pages = [["General",pageGeneral],["Customization",pageMarker],["Terrain Region",pageTerrain],
       ["Transportation",pageTransport]];
-    for (const [name,page] of pages) {
+    const tabs=new Map();
+    const activate=name=>{
+      this.activePage=name;
+      for(const [key,page] of pages){
+        const selected=key===name;
+        page.hidden=!selected;
+        const tab=tabs.get(key);
+        tab.setAttribute("aria-selected",String(selected));
+        tab.tabIndex=selected?0:-1;
+        tab.style.background=selected?"rgba(156,123,240,.22)":"transparent";
+        tab.style.fontWeight=selected?"700":"400";
+      }
+    };
+    const tabPrefix=this.options?.id??"atlas-checkpoint-settings";
+    for (const [index,[name,page]] of pages.entries()) {
       const item=el("button",name);
-      item.type="button"; item.style.cssText="flex:1;min-width:8rem;border:1px solid var(--color-border-light-tertiary,#655);";
-      const selected=name===this.activePage;
-      item.style.background=selected?"rgba(156,123,240,.22)":"transparent";
-      item.style.fontWeight=selected?"700":"400";
-      item.setAttribute("aria-selected",String(selected));
-      item.addEventListener("click",()=>{
-        this.activePage=name;
-        for (const [,p] of pages) p.hidden=p!==page;
-        for (const b of editorTabs.children) {
-          const active=b===item;
-          b.disabled=false;b.setAttribute("aria-selected",String(active));
-          b.style.background=active?"rgba(156,123,240,.22)":"transparent";
-          b.style.fontWeight=active?"700":"400";
-        }
-      });
+      item.type="button";
+      item.style.cssText="flex:1;min-width:8rem;border:1px solid var(--color-border-light-tertiary,#655);";
+      item.id=tabPrefix+"-tab-"+index;
+      page.id=tabPrefix+"-panel-"+index;
+      item.setAttribute("role","tab");
+      item.setAttribute("aria-controls",page.id);
+      page.setAttribute("role","tabpanel");
+      page.setAttribute("aria-labelledby",item.id);
+      item.addEventListener("click",()=>activate(name));
+      tabs.set(name,item);
       editorTabs.appendChild(item);
     }
-    pages.forEach(([name,page])=>{
-      page.hidden=name!==this.activePage;
+    editorTabs.addEventListener("keydown",event=>{
+      const index=pages.findIndex(([name])=>tabs.get(name)===event.target);
+      if(index<0)return;
+      const next=event.key==="ArrowRight"?(index+1)%pages.length:
+        event.key==="ArrowLeft"?(index+pages.length-1)%pages.length:
+        event.key==="Home"?0:event.key==="End"?pages.length-1:-1;
+      if(next<0)return;
+      event.preventDefault?.();
+      activate(pages[next][0]);
+      tabs.get(pages[next][0]).focus?.();
+    });
+    pages.forEach(([,page])=>{
       page.className+=" atlas-checkpoint-settings-page";
       page.style.flex="1 1 auto";
       page.style.minHeight="0";
       page.style.overflowY="auto";
     });
+    activate(this.activePage);
 
     root.prepend(editorTabs);
     root.append(pageGeneral,pageMarker,pageTerrain,pageTransport);

@@ -187,9 +187,13 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
         ["rules","Travel rules",renderTravelRules],
         ["playback","Journey & playback",renderJourneyPlayback]]) {
         const tab=action(label,"Show "+label,()=>activate(id));
+        tab.id="atlas-workspace-travel-"+this.scene.id+"-"+id+"-tab";
         tab.setAttribute("role","tab");
         const panel=make("section",undefined,"atlas-travel-settings-panel");
+        panel.id="atlas-workspace-travel-"+this.scene.id+"-"+id+"-panel";
         panel.setAttribute("role","tabpanel");
+        tab.setAttribute("aria-controls",panel.id);
+        panel.setAttribute("aria-labelledby",tab.id);
         tabs.appendChild(tab);
         entries.push([id,tab,panel,renderForm]);
         main.appendChild(panel);

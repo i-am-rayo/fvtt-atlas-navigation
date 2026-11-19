@@ -158,6 +158,16 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
         locate.title="Draw the first road point before locating it.";
       }
     }
+    if(draft.canUndo || (draft.mode==="new"&&draft.points>0))
+      makeButton("Undo",()=>{this.controller.undo();void this.render(true);},"rotate-left");
+    if(draft.canRedo)
+      makeButton("Redo",()=>{this.controller.redo();void this.render(true);},"rotate-right");
+    makeButton("Cancel", async () => {
+      if (this.busy) return;
+      this.onCancel();
+      this.finished = true;
+      await this.close();
+    });
     const save = needsSave ? makeButton(draft.mode === "new" ? "Finish Road" : "Save Points", async () => {
       if (this.busy) return;
       this.busy = true;
@@ -171,16 +181,6 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       } catch (error) { ui.notifications.error(error.message || String(error)); }
       finally { this.busy = false; save.disabled = false; }
     },"floppy-disk") : null;
-    if(draft.canUndo || (draft.mode==="new"&&draft.points>0))
-      makeButton("Undo",()=>{this.controller.undo();void this.render(true);},"rotate-left");
-    if(draft.canRedo)
-      makeButton("Redo",()=>{this.controller.redo();void this.render(true);},"rotate-right");
-    makeButton("Cancel", async () => {
-      if (this.busy) return;
-      this.onCancel();
-      this.finished = true;
-      await this.close();
-    });
     const body=element("div");
     body.className="atlas-road-editor-body";
     body.append(...root.children);
