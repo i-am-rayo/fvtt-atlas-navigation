@@ -7,7 +7,8 @@ class MockApplicationV2{
     if(this.constructor.name==="AtlasRegionGeneratorWindow"){
       this.rendered=true;return this;
     }
-    this.result=await this._renderHTML();this.rendered=true;return this;
+    this.result=await this._renderHTML();this.rendered=true;
+    await this._onRender?.();return this;
   }
   async minimize(){this.minimized=true;}
   async maximize(){this.minimized=false;}
