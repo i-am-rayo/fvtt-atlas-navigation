@@ -259,9 +259,13 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "../scripts/checkpoint-appearance-editor.js");
     const data = upgradeAtlasCheckpointAppearance(fixture());
     let stored = data;
+    const sidecars=new Map();
     const scene = { id:"scene-one",canUserModify: () => true,
-      getFlag: (_scope, key) => key === ATLAS_FLAG ? stored : undefined,
-      setFlag: async (_scope, _key, value) => { stored = value; } };
+      getFlag: (_scope, key) => key === ATLAS_FLAG ? stored : sidecars.get(key),
+      setFlag: async (_scope, key, value) => {
+        if(key===ATLAS_FLAG)stored=value;
+        else sidecars.set(key,value);
+      } };
     const actions=[];
     const editor = new AtlasCheckpointAppearanceEditor({ scene,
       checkpointId: data.checkpoints[0].id, expectedRevision: data.revision,
@@ -620,6 +624,10 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     firstWindow.close=async()=>{};secondWindow.close=async()=>{};
     const firstForm=await firstWindow._renderHTML();
     const secondForm=await secondWindow._renderHTML();
+    const markerType=root=>all(root).find(node=>node.tag==="select"&&
+      node.title?.startsWith("Map Marker type is independent"));
+    markerType(firstForm).value="city";
+    markerType(secondForm).value="village";
     const savedName=root=>all(root).find(node=>node.tag==="input"&&node.type==="text"&&
       ["Newly Renamed Lookout","Dirwest","Changed Eyrie","Changed Dirwest",
         "Attempted stale overwrite"].includes(node.value));
@@ -639,6 +647,9 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(stored.checkpoints.find(cp=>cp.id===eyrieId).name,"Changed Eyrie");
     assert.equal(stored.checkpoints.find(cp=>cp.id===dirwestId).name,"Changed Dirwest",
       "saving a second open editor preserves the first marker's committed change");
+    assert.equal(sidecars.get("checkpointCategories")?.[eyrieId],"city");
+    assert.equal(sidecars.get("checkpointCategories")?.[dirwestId],"village",
+      "sidecar category writes merge separate targets without losing the first");
 
     const live=new AtlasCheckpointAppearanceEditor({scene,
       checkpointId:dirwestId,expectedRevision:stored.revision});
