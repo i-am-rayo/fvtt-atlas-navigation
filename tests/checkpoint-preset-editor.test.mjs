@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {defaultCheckpointPresets} from "../scripts/checkpoint-preset-model.js";
+import {defaultCheckpointPresets,validateCheckpointPresets} from "../scripts/checkpoint-preset-model.js";
 
 test("World checkpoint preset editor exposes all three tabs and full appearance controls",async()=>{
   const previous={foundry:globalThis.foundry,document:globalThis.document,
@@ -146,7 +146,7 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     assert.ok(all(root).some(item=>item.tag==="optgroup"&&item.label==="Land"));
     assert.ok(all(root).some(item=>item.tag==="optgroup"&&item.label==="Air"));
 
-    let world=defaultCheckpointPresets();
+    let world=validateCheckpointPresets(defaultCheckpointPresets());
     const errors=[];
     globalThis.game.settings.get=(_m,key)=>
       key==="checkpointPresets"?world:key==="measuringUnits"?"metric":null;
