@@ -168,7 +168,10 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     const firstId=world.presets[0].id,secondId=world.presets[1].id;
     textInput(a).value="Edited preset A";
     textInput(b).value="Edited preset B";
-    await save(a);await save(b);
+    await save(a);
+    assert.deepEqual(errors,[],"first World preset Save must pass validation");
+    await save(b);
+    assert.deepEqual(errors,[],"second World preset Save must pass validation");
     assert.equal(world.presets.find(item=>item.id===firstId).name,"Edited preset A");
     assert.equal(world.presets.find(item=>item.id===secondId).name,"Edited preset B");
     assert.equal(errors.length,0,"unrelated preset saves must not show conflicts");
