@@ -261,6 +261,13 @@ export class AtlasGroupTransportationSettings extends base {
         overrides.appendChild(overrideFields);
         overrides.appendChild(field("GM note override",noteOverride,
           "Optional campaign-specific note; blank inherits the World profile."));
+        const assignedOptions=[["","None — shared mount"],
+          ...groupRiders.map(rider=>[rider.id,rider.name+" · "+rider.id])];
+        if(member.assignedTo&&!groupRiders.some(rider=>rider.id===member.assignedTo))
+          assignedOptions.push([member.assignedTo,
+            "Unavailable party member: "+member.assignedTo]);
+        const assignedTo=select("assigned-to-"+member.actorId,
+          assignedOptions,member.assignedTo??"");
         const profileDetails=node("small");
         const riderDetails=node("small");
         const updateDetails=()=>{
@@ -335,13 +342,6 @@ export class AtlasGroupTransportationSettings extends base {
         const enabled=select("enabled-"+member.actorId,
           [["true","Available"],["false","Excluded from Party travel"]],
           member.enabled?"true":"false");
-        const assignedOptions=[["","None — shared mount"],
-          ...groupRiders.map(rider=>[rider.id,rider.name+" · "+rider.id])];
-        if(member.assignedTo&&!groupRiders.some(rider=>rider.id===member.assignedTo))
-          assignedOptions.push([member.assignedTo,
-            "Unavailable party member: "+member.assignedTo]);
-        const assignedTo=select("assigned-to-"+member.actorId,
-          assignedOptions,member.assignedTo??"");
         const draftControls=node("div");
         draftControls.hidden=true;
         draftControls.style.display="none";
