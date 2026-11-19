@@ -235,7 +235,7 @@ function wireGroupOwnedTransport(root,profiles) {
   if(!root?.querySelector)return;
   const get=name=>root.querySelector('[name="'+name+'"]');
   const custom=["groupSpeedCustom","groupCapacityCustom","groupCostCustom",
-    "groupBasisCustom","groupAppliesCustom","groupPurchaseCustom","groupNoteCustom"];
+    "groupBasisCustom","groupAppliesCustom","groupNoteCustom"];
   for(const input of root.querySelectorAll?.(
     '[data-atlas-preset-panel="services"] input, [data-atlas-preset-panel="services"] select, [data-atlas-preset-panel="services"] button')??[])
     input.disabled=true;
@@ -261,38 +261,31 @@ function wireGroupOwnedTransport(root,profiles) {
         atlasDisplayCostPerDistance(method.costCp):method.costCp);
     if(!get("groupBasisCustom")?.checked)put("costBasis",method.costBasis);
     if(!get("groupAppliesCustom")?.checked)put("costApplies",method.costApplies);
-    if(!get("groupPurchaseCustom")?.checked){
-      const buy=get("purchaseEnabled");
-      if(buy)buy.checked=method.purchaseGp!=null;
-      money("purchase",(method.purchaseGp??0)*100);
-    }
     if(!get("groupNoteCustom")?.checked)put("note",method.note??"");
   };
   root.querySelector?.("[data-atlas-scope-reset]")?.addEventListener("click",()=>{
     for(const name of custom){const flag=get(name);if(flag)flag.checked=false;}
-    populate();sync();
+    populate();
   });
-  const sync=()=>{
-    const set=(name,enabled)=>{
-      const input=get(name);if(input)input.disabled=!enabled;
-      const range=root.querySelector?.('[data-atlas-range-for="'+name+'"]');
-      if(range)range.disabled=!enabled;
-    };
-    set("speedDisplay",get("groupSpeedCustom")?.checked);
-    set("capacity",get("groupCapacityCustom")?.checked);
-    set("costBasis",get("groupBasisCustom")?.checked);
-    set("costApplies",get("groupAppliesCustom")?.checked);
-    set("note",get("groupNoteCustom")?.checked);
-    for(const kind of ["cost","purchase"])
-      for(const coin of ["pp","gp","ep","sp","cp"])
-        set(kind+"_"+coin,kind==="cost"?get("groupCostCustom")?.checked:
-          get("groupPurchaseCustom")?.checked&&get("purchaseEnabled")?.checked);
-    set("purchaseEnabled",get("groupPurchaseCustom")?.checked);
+  // No second set of visible Customize controls. Editing an existing field
+  // explicitly overrides its inherited value until Reset; initial saved
+  // overrides remain selected for the lifetime of this draft.
+  const groupFields={
+    speedDisplay:"groupSpeedCustom",capacity:"groupCapacityCustom",
+    costBasis:"groupBasisCustom",costApplies:"groupAppliesCustom",
+    note:"groupNoteCustom"
   };
-  get("groupProfileId")?.addEventListener("change",()=>{populate();sync();});
-  for(const name of custom)get(name)?.addEventListener("change",()=>{populate();sync();});
-  get("purchaseEnabled")?.addEventListener("change",sync);
-  sync();
+  const mark=event=>{
+    const name=event?.target?.getAttribute?.("data-atlas-range-for")||
+      event?.target?.name||"";
+    const override=groupFields[name]||
+      (name.startsWith("cost_")?"groupCostCustom":null);
+    if(override){const input=get(override);if(input)input.checked=true;}
+  };
+  root.addEventListener("input",mark);
+  root.addEventListener("change",mark);
+  get("groupProfileId")?.addEventListener("change",populate);
+  populate();
 }
 const costLabel=p=>p.costBasis==="none"?"No recurring cost":
   coinLabel(p.costBasis==="mile"?atlasDisplayCostPerDistance(p.costCp):p.costCp)+
@@ -427,7 +420,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
       speedMph:3,costCp:0,costBasis:"none",costApplies:"unit",capacity:null,
       purchaseGp:null,note:"",crewCount:0,crewWageCpPerDay:0,crewWageBasis:"day",
       includeCrewWages:false};
-    const value=group?{...baseValue,
+    const value=group?{...baseValue,name:groupActorName||baseValue.name,
+      kind:groupKind,
       speedMph:baseline.speedMphOverride??baseValue.speedMph,
       capacity:baseline.capacity??baseValue.capacity,
       costCp:baseline.costCpOverride??baseValue.costCp,
@@ -488,8 +482,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       );
       panels.general.appendChild(groupFields);
       panels.general.appendChild(element("p",
-        "Leave a customization unchecked to inherit the World preset. "+
-        "Group-only values never edit the World profile."));
+        "Changing a value creates a Party-only override. Reset to inherit World defaults."));
     }
     const row=(minimum="14rem",columns=null)=>{
       const section=element("div");
@@ -551,9 +544,14 @@ export class AtlasTransportationSettings extends ApplicationBase {
         (sceneUnit||"Scene units")+"/hour":atlasDisplayPresetSpeed(value.speedMph??3).unit)+")",
         speedControl,"Sustained travel pace, not combat speed."));
     panels.general.append(identity);
-    if(group)panels.general.append(field("Customize Party travel speed",
-      checkbox("groupSpeedCustom",baseline.speedMphOverride!==null&&baseline.speedMphOverride!==undefined),
-      "Unchecked: inherit sustained World speed."));
+    const groupOverride=(name,isOverridden)=>{
+      const flag=checkbox(name,isOverridden);
+      flag.hidden=true;
+      flag.style.display="none";
+      return flag;
+    };
+    if(group)panels.general.append(groupOverride("groupSpeedCustom",
+      baseline.speedMphOverride!=null));
     const capacity=slider("capacity",value.capacity??"",{min:1,max:1000,step:1,
       numericStep:1,label:"Passenger capacity"});
     const capNumber=capacity.querySelector?.('[name="capacity"]')??capacity.children?.[1];
@@ -568,19 +566,17 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(group)for(const input of crewControl.querySelectorAll?.("input")??crewControl.children??[])
       input.disabled=true;
     operations.append(field("Passenger capacity",capacity,
-      "Passenger seats excluding required crew."),
-      field("Required crew",crewControl,group?
-        "Required crew is read-only; it belongs to the linked World profile.":
-        "Crew separate from paying passengers; native ship values are reference counts."));
+      "Passenger seats excluding required crew."));
+    if(!group)operations.append(field("Required crew",crewControl,
+      "Crew separate from paying passengers; native ship values are reference counts."));
     panels.general.append(operations);
-    if(group)panels.general.append(field("Customize Party passenger capacity",
-      checkbox("groupCapacityCustom",baseline.capacity!==null&&baseline.capacity!==undefined),
-      "Unchecked: inherit World seats, then native Vehicle capacity."));
+    if(group)panels.general.append(groupOverride("groupCapacityCustom",
+      baseline.capacity!=null));
     const note=element("textarea");note.name="note";note.maxLength=240;
     note.rows=2;note.value=value.note??"";note.defaultValue=value.note??"";
     if(preset?.builtIn&&scope==="world"){note.readOnly=true;note.title="Reference note is read-only.";}
-    if(group)panels.general.append(field("Customize Party GM note",
-      checkbox("groupNoteCustom",baseline.noteOverride!==null&&baseline.noteOverride!==undefined)));
+    if(group)panels.general.append(groupOverride("groupNoteCustom",
+      baseline.noteOverride!=null));
     panels.general.append(field("GM note",note,preset?.builtIn&&scope==="world"?
       "Reference note is read-only; use a custom transport for your own notes.":
       "Optional setting and world-building details."));
@@ -662,15 +658,15 @@ export class AtlasTransportationSettings extends ApplicationBase {
         value.purchaseGp===null?0:value.purchaseGp*100)));
     const priceWrap=element("div");priceWrap.setAttribute("data-atlas-purchase-controls","");
     priceWrap.append(purchase.children?.[1]??element("span"));
-    if(group)panels.cost.append(field("Customize Party purchase availability and price",
-      checkbox("groupPurchaseCustom",baseline.purchaseGpOverride!==null&&
-        baseline.purchaseGpOverride!==undefined),"Unchecked: inherit the World purchase policy."));
+    if(group)panels.cost.append(element("small",
+      "Purchase offers and crew wages are configured in World transportation presets."));
     if(hiredOnly)panels.cost.append(element("p",
       "Hired-only passage is not a vehicle for sale. Crew and operating costs are part of the service."));
     else{
       const purchaseToggle=purchase.children?.[0];
       const buyRow=row("14rem",3);
-      buyRow.append(purchaseToggle,priceWrap);panels.cost.append(buyRow);
+      buyRow.append(purchaseToggle,priceWrap);
+      if(!group)panels.cost.append(buyRow);
       const wageRow=row("14rem",3);
       wageRow.append(field("Crew wage per person",priceInput("crewWage",
           value.crewWageCpPerDay??200),
@@ -699,12 +695,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
         field("Charge upkeep per",selected([["unit","Whole mount or vehicle"],
           ["passenger","Each passenger"]],value.costApplies??"unit","costApplies")));
       if(group)upkeepSection.append(
-        field("Customize recurring upkeep",checkbox("groupCostCustom",
-          baseline.costCpOverride!==null&&baseline.costCpOverride!==undefined)),
-        field("Customize upkeep frequency",checkbox("groupBasisCustom",
-          baseline.costBasisOverride!==null&&baseline.costBasisOverride!==undefined)),
-        field("Customize upkeep charge basis",checkbox("groupAppliesCustom",
-          baseline.costAppliesOverride!==null&&baseline.costAppliesOverride!==undefined)));
+        groupOverride("groupCostCustom",baseline.costCpOverride!=null),
+        groupOverride("groupBasisCustom",baseline.costBasisOverride!=null),
+        groupOverride("groupAppliesCustom",baseline.costAppliesOverride!=null));
       upkeepSection.append(upkeep,preview(["Example journey","Total upkeep"],
         ["scenario","total"],"data-atlas-upkeep-preview"));
       panels.cost.append(upkeepSection);
@@ -739,7 +732,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       render:(app,html)=>{
         const root=html??app?.element;
         wireSliders(root);wirePresetDialog(root);
-        if(group)wireGroupOwnedTransport(root,profiles,baseline);
+        if(group)wireGroupOwnedTransport(root,profiles);
         const reset=root?.querySelector?.("[data-atlas-scope-reset]");
         if(reset&&onReset&&!reset.dataset?.atlasResetWired){
           if(reset.dataset)reset.dataset.atlasResetWired="true";
@@ -790,8 +783,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
       if(convertedCost!==null&&(!Number.isFinite(convertedCost)||
         convertedCost<0||convertedCost>100000000))
         throw Error("Party upkeep must be a valid nonnegative amount.");
-      const purchase=active("groupPurchaseCustom")?
-        active("purchaseEnabled")?currencyFromResponse(response,"purchase")/100:"none":null;
+      // Existing v4/v5 purchase overrides survive unrelated Party edits.
+      // Purchase offers belong to World presets, not already-owned resources.
+      const purchase=baseline.purchaseGpOverride??null;
       if(typeof purchase==="number"&&(!Number.isFinite(purchase)||
         purchase<0||purchase>100000000))
         throw Error("Invalid Party purchase price.");
