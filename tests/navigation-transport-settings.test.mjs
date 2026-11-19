@@ -422,3 +422,50 @@ test("Group editor records touched Map Marker fields as overrides without new vi
     assert.deepEqual(ctx.changes,[]);
   }finally{globalThis.foundry=previous;ctx.restore();}
 });
+
+
+test("Party World profiles group Land/Water/Air alphabetically and quantity uses the shared slider",async()=>{
+  const ctx=setup(),prior=globalThis.foundry;
+  const profiles=[
+    {id:"zebra",name:"Zebra",kind:"mount",surface:"land"},
+    {id:"eagle",name:"Eagle",kind:"mount",surface:"air"},
+    {id:"horse",name:"Riding Horse",kind:"mount",surface:"land"},
+    {id:"otter",name:"Otter",kind:"mount",surface:"water"},
+    {id:"alpaca",name:"Alpaca",kind:"mount",surface:"land"},
+    {id:"falcon",name:"Falcon",kind:"mount",surface:"air"},
+    {id:"seal",name:"Seal",kind:"mount",surface:"water"}
+  ];
+  const saved=[];
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      const elements=flatten(content);
+      const select=elements.find(e=>e.tagName==="SELECT"&&e.name==="groupProfileId");
+      assert.ok(select);
+      assert.equal(select.children[0].textContent,"No linked World profile");
+      const groups=select.children.filter(e=>e.tagName==="OPTGROUP");
+      assert.deepEqual(groups.map(g=>g.label),["Land","Water","Air"]);
+      assert.deepEqual(groups.map(g=>g.children.map(option=>option.textContent)),[
+        ["Alpaca","Riding Horse","Zebra"],["Otter","Seal"],["Eagle","Falcon"]]);
+      assert.equal(groups.flatMap(g=>g.children).some(o=>/\\((Land|Water|Air)\\)/.test(o.textContent)),false,
+        "group heading supplies surface, not a name suffix");
+      assert.equal(groups[0].children.find(o=>o.value==="horse")?.defaultSelected,true,
+        "saved World profile ID remains selected regardless of alphabetical position");
+      const range=elements.find(e=>e.attributes.get("data-atlas-range-for")==="groupQuantity");
+      const numeric=elements.find(e=>e.name==="groupQuantity");
+      assert.ok(range&&numeric,"Quantity Available is a linked range and numeric input");
+      assert.equal(range.type,"range");assert.equal(numeric.type,"number");
+      assert.equal(range.min,"1");assert.equal(range.max,"100");assert.equal(range.step,"1");
+      assert.equal(numeric.step,"1");assert.equal(numeric.value,"3");
+      range.value="7";range.listeners.get("input")();
+      assert.equal(numeric.value,"7","slider synchronizes its numeric field");
+      return {groupProfileId:"otter",groupQuantity:numeric.value};
+    }}}}};
+    const result=await openTransportationMethodEditor({scope:"group",
+      method:profiles[2],profiles,groupKind:"mount",groupActorName:"Riding Horse",
+      groupAssignment:{profileId:"horse",quantity:3},onSave:next=>saved.push(next)});
+    assert.equal(result.profileId,"otter","selection persists stable World ID, not display label");
+    assert.equal(result.quantity,7);
+    assert.deepEqual(saved,[result]);
+    assert.deepEqual(ctx.changes,[],"child Apply makes no World or Group writes");
+  }finally{globalThis.foundry=prior;ctx.restore();}
+});
