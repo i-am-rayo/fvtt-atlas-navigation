@@ -70,6 +70,52 @@ test("Transport catalog and Workspace travel forms render without writing settin
   }finally{ctx.restore();}
 });
 
+test("rehydrated Transportation dialog tabs support Arrow/Home/End without saving",async()=>{
+  const ctx=setup(),prior=globalThis.foundry;
+  try{
+    const tabs=["general","services","cost"].map((id,i)=>{
+      const node=new FakeElement("button");
+      node.dataset={atlasPresetTab:id};
+      node.setAttribute("aria-selected",String(i===0));
+      return node;
+    });
+    const panels=["general","services","cost"].map(id=>{
+      const node=new FakeElement("section");
+      node.dataset={atlasPresetPanel:id};
+      return node;
+    });
+    const rendered=new FakeElement("div");
+    rendered.dataset={};
+    rendered.querySelectorAll=selector=>
+      selector==="[data-atlas-preset-tab]"?tabs:
+      selector==="[data-atlas-preset-panel]"?panels:[];
+    rendered.querySelector=()=>null;
+    globalThis.foundry={applications:{api:{DialogV2:{
+      input:async({render})=>{
+        render({element:rendered},rendered);
+        return null;
+      }
+    }}}};
+    await new AtlasTransportationSettings()._edit(null,"water");
+    assert.deepEqual(tabs.map(t=>t.tabIndex),[0,-1,-1]);
+    assert.deepEqual(panels.map(p=>p.hidden),[false,true,true]);
+    let prevented=false;
+    tabs[0].listeners.get("keydown")({key:"ArrowRight",
+      preventDefault(){prevented=true;}});
+    assert.equal(prevented,true);
+    assert.deepEqual(tabs.map(t=>t.attributes.get("aria-selected")),
+      ["false","true","false"]);
+    assert.deepEqual(panels.map(p=>p.hidden),[true,false,true]);
+    assert.equal(tabs[1].focused,true);
+    tabs[1].listeners.get("keydown")({key:"End",preventDefault(){}});
+    assert.deepEqual(tabs.map(t=>t.tabIndex),[-1,-1,0]);
+    tabs[2].listeners.get("keydown")({key:"Home",preventDefault(){}});
+    assert.deepEqual(panels.map(p=>p.hidden),[false,true,true]);
+    assert.equal(tabs[0].focused,true);
+    assert.deepEqual(ctx.changes,[],"tab switches are draft-only");
+  }finally{globalThis.foundry=prior;ctx.restore();}
+});
+
 test("Transportation editing refuses non-GMs at the action boundary",async()=>{
   const ctx=setup({isGM:false});
   try{
