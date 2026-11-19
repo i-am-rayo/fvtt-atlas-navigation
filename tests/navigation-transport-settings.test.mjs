@@ -435,6 +435,10 @@ test("Party World profiles group Land/Water/Air alphabetically and quantity uses
     {id:"falcon",name:"Falcon",kind:"mount",surface:"air"},
     {id:"seal",name:"Seal",kind:"mount",surface:"water"}
   ];
+  const fullProfiles=profiles.map(profile=>({
+    speedMph:3,capacity:1,costCp:0,costBasis:"none",costApplies:"unit",
+    purchaseGp:null,note:"",...profile
+  }));
   const saved=[];
   try{
     globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
@@ -461,7 +465,7 @@ test("Party World profiles group Land/Water/Air alphabetically and quantity uses
       return {groupProfileId:"otter",groupQuantity:numeric.value};
     }}}}};
     const result=await openTransportationMethodEditor({scope:"group",
-      method:profiles[2],profiles,groupKind:"mount",groupActorName:"Riding Horse",
+      method:fullProfiles[2],profiles:fullProfiles,groupKind:"mount",groupActorName:"Riding Horse",
       groupAssignment:{profileId:"horse",quantity:3},onSave:next=>saved.push(next)});
     assert.equal(result.profileId,"otter","selection persists stable World ID, not display label");
     assert.equal(result.quantity,7);
