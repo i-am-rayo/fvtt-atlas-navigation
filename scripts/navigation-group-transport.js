@@ -1,6 +1,6 @@
 /**
  * Pure read-only D&D5e Group transportation projection plus versioned Atlas
- * World-only assignments (read-only v1/v2/v3 to v4 normalization). Native Group members, currencies and Actor documents
+ * World-only assignments (read-only v1–v5 compatibility normalization). Native Group members, currencies and Actor documents
  * are never modified. NPCs are intentionally unclassified until a GM chooses.
  */
 export const GROUP_TRANSPORT_SETTING="guidedGroupTransportation";
