@@ -50,6 +50,8 @@ test("multiple Road edits Undo/Redo and a new edit invalidate redo without write
     element:{removeEventListener(){}},drag:null,extending:null,selectedHandle:null,
     confirming:false};
   assert.equal(editor.getState(scene).canUndo,true);
+  assert.equal(editor.getState(scene).roadName,"Coast Road",
+    "point editing identifies the saved Road from transient graph, without a Scene write");
   editor.undo();editor.undo();
   assert.equal(editor.getState(scene).canUndo,false,"Undo reaches initial snapshot");
   assert.equal(editor.getState(scene).canRedo,true);

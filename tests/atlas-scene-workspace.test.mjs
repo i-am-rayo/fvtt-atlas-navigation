@@ -1029,3 +1029,14 @@ test("Map Directory shows authored colors/icons, transportation methods and only
     await ws.close();
   }finally{ctx.restore();}
 });
+
+test("Milestone 01 Workspace icon targets use one shared 2rem action sizing rule",()=>{
+  const css=readFileSync(new URL("../styles/atlas-scene-workspace.css",import.meta.url),"utf8");
+  assert.doesNotMatch(css,/\.atlas-territory-actions button\s*\{[^}]*\b2\.3rem/s,
+    "Territory workspace icons must not override shared action dimensions");
+  assert.doesNotMatch(css,/\.atlas-checkpoint-actions \.atlas-ui-icon-button\s*\{/,
+    "Map Marker workspace actions must use shared icon sizing");
+  const shared=readFileSync(new URL("../styles/atlas-ui.css",import.meta.url),"utf8");
+  assert.match(shared,/\.atlas-ui-icon-button,[\s\S]*?width:\s*2rem;/,
+    "one component sets the accessible shared 2rem icon target");
+});

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 
 class MockApplicationV2{
   constructor(options={}){this.options=options;this.rendered=false;this.minimized=false;}
@@ -267,4 +268,18 @@ test("auto generator lifecycle closes only the checkpoint that completed a link"
     assert.equal(second.rendered,false);
     assert.equal(AtlasTerritorySettings.DEFAULT_OPTIONS.window.minimizable,true);
   }finally{f.restore();}
+});
+
+test("Milestone 01 Territory tabs match their selected styling and reflow by actual editor width",()=>{
+  const css=readFileSync(new URL("../styles/atlas-territory-settings.css",import.meta.url),"utf8");
+  assert.match(css,/\.atlas-territory-settings-tabs button\[aria-selected="true"\]/,
+    "CSS highlights the actual role=tab selected attribute");
+  assert.doesNotMatch(css,/tabs button\[aria-current="true"\]/,
+    "aria-current is not the setting used on Territory tabs");
+  assert.match(css,/grid-template-columns: repeat\(auto-fit,minmax\(min\(100%,8rem\),1fr\)\)/,
+    "tabs must wrap by window width, regardless of browser viewport and 200% text scaling");
+  assert.match(css,/\.atlas-territory-settings-tabs button:focus-visible/,
+    "focus is visible for keyboard navigation");
+  assert.match(css,/grid-template-columns: repeat\(auto-fit,minmax\(min\(100%,13rem\),1fr\)\)/,
+    "action controls stack by narrow editor width, not global media query");
 });

@@ -135,7 +135,11 @@ test("floating Save Points remains available after its parent Scene sheet closes
     assert.equal(editorEnded, false, "closing the parent sheet preserves the active point session");
     assert.equal(activeRoadDockForSceneConfig({ document: { id: "other" } },
       dock, controller), false, "other Scene sheets do not own this editor");
+    dock.window={title:{textContent:"Atlas — Road Editor"}};
     const root = await dock._renderHTML();
+    // The points controller may return a read-only Road identity.
+    assert.equal(dock.window.title.textContent,"Atlas — Road Editor",
+      "legacy controller without roadName keeps an honest generic title");
     assert.ok(button(root, "Save Points"), "Save Points remains available");
     assert.ok(button(root, "Locate Road"));
     dock.close = async () => { dock._onClose({}); };
