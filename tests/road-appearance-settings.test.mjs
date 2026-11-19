@@ -120,6 +120,11 @@ test("two World Road Appearance windows merge independent modes and reject same-
         .find(item=>item.name==="atlasRoadColor");
     };
     const save=async root=>root.children.at(-1).children[0].listeners.get("click")();
+    const {settingsFormValues}=await import("../scripts/settings-input.js");
+    const form=(root,mode)=>root.children.find(item=>item.className==="atlas-world-category-scroll")
+      .children[{land:0,air:1,water:2}[mode]].children[1];
+    assert.deepEqual(roadAppearanceFromForm(settingsFormValues(form(b,"land").querySelectorAll("[name]"))),
+      stored.profiles.land,"untouched Road appearance form must exactly reflect persisted Land");
     field(a,"land").value="#aa2211";
     field(b,"water").value="#2255bb";
     await save(a);
