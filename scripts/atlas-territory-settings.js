@@ -31,7 +31,8 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
 
   constructor({scene,regionId,actions,refresh,onLocate}){
     const name=scene.regions?.get?.(regionId)?.name;
-    super({window:{title:atlasSettingsTitle("Territory",name),minimizable:true},
+    super({id:`fvtt-atlas-territory-settings-${scene.id}-${regionId}`,
+      window:{title:atlasSettingsTitle("Territory",name),minimizable:true},
       position:{width:Math.min(710,Math.max(390,window.innerWidth-65)),
         height:Math.min(700,Math.max(450,window.innerHeight-85))}});
     this.scene=scene;
@@ -51,6 +52,9 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
   _watchMembership(){
     if(this._membershipHooks.length||!globalThis.Hooks?.on)return;
     const changed=doc=>{
+      if(this.rendered&&doc?.id===this.regionId&&
+          doc?.parent?.id===this.scene.id&&this.window?.title)
+        this.window.title.textContent=atlasSettingsTitle("Territory",doc.name);
       if(this.activePage!=="Map Marker & Journal"||!this.rendered||
           (doc?.id!==this.scene.id&&doc?.parent?.id!==this.scene.id)||
           this._membershipQueued)return;
@@ -118,6 +122,8 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
     const tabBar=el("nav",undefined,"atlas-territory-settings-tabs");
     tabBar.setAttribute("role","tablist");
     tabBar.setAttribute("aria-label","Territory settings sections");
+    // This editor renders one active page into a stable panel on each selection.
+    const tabPrefix=`atlas-territory-${this.scene.id}-${this.regionId}`;
     const switchPage=(page,restoreFocus=false)=>{
       if(this.activePage===page)return;
       this.activePage=page;
@@ -127,11 +133,13 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
           '[data-atlas-territory-page="'+page+'"]')?.focus?.();
       }).catch(error=>ui.notifications.error(error.message??String(error)));
     };
-    for(const page of pages){
+    for(const [index,page] of pages.entries()){
       const tab=el("button",page);
       tab.type="button";
+      tab.id=tabPrefix+"-tab-"+index;
       tab.dataset.atlasTerritoryPage=page;
       tab.setAttribute("role","tab");
+      tab.setAttribute("aria-controls",tabPrefix+"-panel");
       tab.setAttribute("aria-selected",String(this.activePage===page));
       tab.tabIndex=this.activePage===page?0:-1;
       tab.addEventListener("click",()=>switchPage(page));
@@ -149,6 +157,9 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
     });
     root.appendChild(tabBar);
     const body=el("div",undefined,"atlas-territory-settings-body");
+    body.id=tabPrefix+"-panel";
+    body.setAttribute("role","tabpanel");
+    body.setAttribute("aria-labelledby",tabPrefix+"-tab-"+pages.indexOf(this.activePage));
     body.setAttribute("data-atlas-territory-settings-body","");
     root.appendChild(body);
     const group=(title,description)=>{

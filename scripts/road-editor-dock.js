@@ -1,5 +1,6 @@
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { createSettingsIconButton } from "./settings-controls.js";
+import { atlasSettingsTitle } from "./atlas-settings-title.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
   ROAD_APPEARANCE_MODES } from "./road-appearance.js";
 
@@ -62,12 +63,14 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       draft.mode === "checkpoint" ? "Place Map Marker" :
       draft.mode === "checkpoint-relocate" ? "Move Map Marker" : "Add connection";
     root.appendChild(element("strong", status));
-    root.appendChild(element("small", draft.mode === "points"
+    const progress=element("small", draft.mode === "points"
       ? `${draft.points} points · ${draft.dirty ? "Unsaved" : "No changes"}`
       : draft.mode === "checkpoint" ? "Click the map to place a Map Marker."
       : draft.mode === "checkpoint-relocate" ? "Choose a new location and confirm."
       : draft.mode === "junction" ? "Click a Road to connect."
-      : `${draft.points} points · Click the map to draw.`));
+      : `${draft.points} points · Click the map to draw.`);
+    progress.setAttribute?.("role","status");
+    root.appendChild(progress);
 
     const guidance = element("p");
     guidance.style.cssText="font-size:.9em;line-height:1.35;opacity:.8;margin:.1rem 0 .5rem;";
@@ -123,6 +126,9 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     };
     if (draft.mode === "new") {
       const options = this.controller.getNewRoadOptions(this.scene);
+      if(this.window?.title)
+        this.window.title.textContent=atlasSettingsTitle("Road",options.name)
+          .replace(/ Settings$/," Editor");
       const summary = element("div");
       summary.style.cssText = "padding:.5rem;border:1px solid var(--color-border-light-tertiary,#655);border-radius:5px;";
       summary.appendChild(element("strong", options.name));
