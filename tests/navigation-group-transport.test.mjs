@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {projectPartyTravelSelection} from "../scripts/navigation-party-selection.js";
 import {
   defaultGroupTransportation,validateGroupTransportation,
   setGroupTransportationMember,setGroupTransportationMembers,eligibleGroupRiders,
@@ -396,4 +397,19 @@ test("an individually traveling NPC passenger is eligible; pooled passengers are
   const pooled=projectGroupTransportation(group([camel,camel2]),saved);
   assert.deepEqual(eligibleGroupRiders(pooled),[]);
   assert.equal(groupTravelCapacityStatus(pooled,"land").seats,0);
+});
+
+test("selected party previews cannot borrow a personal mount owned by an absent PC",()=>{
+  const second=actor("pc2","Lucious","character");
+  const saved=setGroupTransportationMember(defaultGroupTransportation(),"group1","camel1",{
+    role:"mount",quantity:1,capacity:1,surface:"land",assignedTo:"pc1"
+  });
+  const projection=projectGroupTransportation(group([pc,second,camel]),saved);
+  const other=projectPartyTravelSelection(projection,{mode:"selected",ids:["pc2"]});
+  assert.equal(other.previewRoster.travelers,1);
+  assert.deepEqual(other.previewRoster.selectedTravelerIds,["pc2"]);
+  assert.equal(groupTravelCapacityStatus(other.previewRoster,"land").seats,0);
+  const rider=projectPartyTravelSelection(projection,{mode:"selected",ids:["pc1"]});
+  assert.equal(groupTravelCapacityStatus(rider.previewRoster,"land").seats,1);
+  assert.equal(projection.travelers,2,"preview selection never mutates authoritative Group");
 });
