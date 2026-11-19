@@ -259,7 +259,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "../scripts/checkpoint-appearance-editor.js");
     const data = upgradeAtlasCheckpointAppearance(fixture());
     let stored = data;
-    const scene = { canUserModify: () => true,
+    const scene = { id:"scene-one",canUserModify: () => true,
       getFlag: (_scope, key) => key === ATLAS_FLAG ? stored : undefined,
       setFlag: async (_scope, _key, value) => { stored = value; } };
     const actions=[];
@@ -273,6 +273,10 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "checkpoint authoring opens at the left of the canvas");
     assert.equal(editor.options.window.title,"Atlas — Ridge Lookout — Map Marker Settings",
       "existing Map Marker settings identify the edited Checkpoint regardless of tab");
+    const second=new AtlasCheckpointAppearanceEditor({scene,
+      checkpointId:"other-marker",expectedRevision:data.revision});
+    assert.notEqual(editor.options.id,second.options.id,
+      "different Map Markers get distinct Foundry application window identities");
     let closeCalls=0;
     editor.close = async () => {closeCalls++;};
     const root = await editor._renderHTML();
@@ -587,6 +591,16 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "changing marker type must not overwrite the marker's other fields");
     assert.equal(JSON.stringify(stored),beforeCategoryEdit,
       "editing the type remains a draft with no Scene writes");
+    editor.window={title:{textContent:editor.options.window.title}};
+    stored={...stored,checkpoints:stored.checkpoints.map(cp=>({...cp,
+      name:"Newly Renamed Lookout"}))};
+    const revision=stored.revision;
+    await editor._renderHTML();
+    assert.equal(editor.window.title.textContent,
+      "Atlas — Newly Renamed Lookout — Map Marker Settings",
+      "committed external rename refreshes an open editor header on render");
+    assert.equal(stored.revision,revision,
+      "refreshing the title never writes an Atlas Scene or changes its revision");
   } finally {
     Object.assign(globalThis, previous);
   }
