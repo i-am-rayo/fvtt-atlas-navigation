@@ -442,7 +442,8 @@ test("v0.2.23 checkpoint quick info works with labels Off without changing Scene
     const preview = m.controller.labels.find(label => label instanceof Text &&
       label.text.includes("Old Watchtower"));
     assert.ok(preview);
-    assert.match(preview.text, /Road: Quiet Trail/);
+    assert.doesNotMatch(preview.text, /Road: Quiet Trail/,
+      "legacy Road quick-info is removed when Map Marker Road banner is off");
     assert.match(preview.text, /Elevation: 125 m/);
     assert.deepEqual(readAtlas(m.scene), persisted, "hover presentation is read-only");
     m.listeners.get("pointerleave")();
