@@ -30,8 +30,9 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     position:{width:720,height:740,left:24}};
 
   constructor({preset=null,onSaved}){
-    super({position:{left:24,width:Math.min(720,window.innerWidth-60),
-      height:Math.min(740,window.innerHeight-65)}});
+    super({...(preset?.id?{id:"fvtt-atlas-checkpoint-preset-"+preset.id}:{}),
+      position:{left:24,width:Math.min(720,window.innerWidth-60),
+        height:Math.min(740,window.innerHeight-65)}});
     this.preset=preset;this.onSaved=onSaved;this.activeTab="General";
   }
 
