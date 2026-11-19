@@ -768,6 +768,10 @@ export function renderTravelRules(root){
       ["short",CUSTOM_SHORT_REST_HOURS_SETTING,"Short rest (hours)",1,.5,8,.5],
       ["long",CUSTOM_LONG_REST_HOURS_SETTING,"Long rest (hours)",8,1,24,1]
     ];
+    const baselineRules=[
+      current(NAVIGATION_RULES_PROFILE_SETTING,"system"),
+      ...fields.map(([,key,,fallback])=>current(key,fallback))
+    ];
     for(const [name,key,label,fallback,min,max,step] of fields)
       panel.appendChild(field(label,slider(name,current(key,fallback),
         {min,max,step,label:label}),
@@ -781,6 +785,11 @@ export function renderTravelRules(root){
         if(!Number.isFinite(value)||value<min||value>max)throw new Error("Invalid "+label+".");
         return [key,value];
       });
+      if(JSON.stringify([
+        current(NAVIGATION_RULES_PROFILE_SETTING,"system"),
+        ...fields.map(([,key,,fallback])=>current(key,fallback))
+      ])!==JSON.stringify(baselineRules))
+        throw Error("World travel rules changed elsewhere. Reopen and review.");
       for(const [key,val] of values)await game.settings.set(MODULE_ID,key,val);
       await game.settings.set(MODULE_ID,NAVIGATION_RULES_PROFILE_SETTING,profile);
       ui.notifications.info("Atlas travel rules saved.");
@@ -791,7 +800,11 @@ export function renderJourneyPlayback(root,exampleDistancesMi=[6,30,90]){
     root.appendChild(heading("Journey and playback",
       "World time and visual playback are independent. Atlas never applies Actor rests, exhaustion or transport fares."));
     const panel=element("div");panel.style.cssText="display:grid;gap:.85rem;max-width:48rem;";
-    const clock=checkbox("clock",current(NAVIGATION_WORLD_CLOCK_SETTING,false));
+    const baselineJourney=[
+      current(NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT),
+      current(NAVIGATION_WORLD_CLOCK_SETTING,false)
+    ];
+    const clock=checkbox("clock",baselineJourney[1]);
     const clockRow=element("label");clockRow.style.cssText="display:flex;gap:.6rem;align-items:center;";
     clockRow.append(clock,element("span","Advance World time for confirmed travel and GM-approved rests"));
     panel.append(clockRow);
@@ -849,6 +862,11 @@ export function renderJourneyPlayback(root,exampleDistancesMi=[6,30,90]){
       if(!Number.isFinite(playback)||playback<NAVIGATION_PLAYBACK_MIN||
           playback>NAVIGATION_PLAYBACK_MAX||Math.abs(playback*2-Math.round(playback*2))>1e-8)
         throw new Error("Animation speed must use half-second steps.");
+      if(JSON.stringify([
+        current(NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT),
+        current(NAVIGATION_WORLD_CLOCK_SETTING,false)
+      ])!==JSON.stringify(baselineJourney))
+        throw Error("World journey options changed elsewhere. Reopen and review.");
       await game.settings.set(MODULE_ID,NAVIGATION_PLAYBACK_SETTING,playback);
       await game.settings.set(MODULE_ID,NAVIGATION_WORLD_CLOCK_SETTING,clock.checked);
       ui.notifications.info("Atlas journey options saved.");
