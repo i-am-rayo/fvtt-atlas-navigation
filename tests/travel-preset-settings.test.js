@@ -122,6 +122,44 @@ test("Add and Edit use plain v14 DialogV2 content and persist serialized form de
     .getAttribute("value"), "water");
 });
 
+test("Surface Preset editors merge unrelated IDs and reject stale same-preset saves",async()=>{
+  const old={document:globalThis.document,game:globalThis.game,
+    foundry:globalThis.foundry,ui:globalThis.ui};
+  try{
+    const {defaultTravelPresets,validateTravelPresets}=await import("../scripts/travel-preset-model.js");
+    const {AtlasTravelPresetSettings,readWorldTravelPresets}=
+      await import("../scripts/travel-preset-settings.js");
+    let stored=validateTravelPresets(defaultTravelPresets()),writes=0;
+    let nextName="Updated";
+    globalThis.document={createElement:tag=>new ElementStub(tag)};
+    globalThis.game={user:{isGM:true},i18n:{localize:value=>value},settings:{
+      get:()=>stored,
+      async set(_module,_key,value){stored=value;writes++;}
+    }};
+    globalThis.foundry={applications:{api:{ApplicationV2:class{},
+      DialogV2:{input:async()=>({
+        presetCost:"1.5",presetMode:active.mode,presetName:nextName,
+        presetColor:active.color,atlasPerMode:false
+      })}}},utils:{randomID:()=> "new-unit-id"}};
+    globalThis.ui={notifications:{info(){},error(message){throw Error(message);}}};
+    const app=new AtlasTravelPresetSettings();app.render=async()=>{};
+    const first=readWorldTravelPresets().presets[0];
+    const second=readWorldTravelPresets().presets[1];
+    let active=first;nextName="First New";await app._editPreset(first);
+    active=second;nextName="Second New";await app._editPreset(second);
+    assert.equal(writes,2);
+    assert.equal(stored.presets.find(p=>p.id===first.id).name,"First New");
+    assert.equal(stored.presets.find(p=>p.id===second.id).name,"Second New");
+    const stale=readWorldTravelPresets().presets.find(p=>p.id===first.id);
+    stored={...stored,presets:stored.presets.map(p=>p.id===first.id?
+      {...p,name:"External Save"}:p)};
+    active=first;nextName="Stale Overwrite";
+    await assert.rejects(()=>app._editPreset(stale),/changed elsewhere/);
+    assert.equal(writes,2);
+    assert.equal(stored.presets.find(p=>p.id===first.id).name,"External Save");
+  }finally{Object.assign(globalThis,old);}
+});
+
 test("World Surface Presets tabs preserve mode, Water subgroups and legend Add without writes",async()=>{
   const previous={document:globalThis.document,game:globalThis.game};
   let writes=0;
