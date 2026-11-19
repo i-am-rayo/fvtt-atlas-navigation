@@ -142,7 +142,7 @@ test("two World Road Appearance windows merge independent modes and reject same-
     stored={...stored,profiles:{...stored.profiles,
       land:{...stored.profiles.land,color:"#123456"}}};
     const before=writes;
-    await assert.rejects(save(c),/edited elsewhere/);
+    await assert.rejects(save(c),/land mode changed elsewhere/);
     assert.equal(writes,before,"stale same-mode draft never overwrites new World values");
     assert.equal(stored.profiles.land.color,"#123456");
   }finally{Object.assign(globalThis,old);}
@@ -164,9 +164,9 @@ test("World Road Appearance saves the actual border checkbox and reflected selec
   let stored;
   try {
     globalThis.document={createElement:tag=>new Element(tag)};
-    const legacy=Object.fromEntries(Object.entries(DEFAULT_ROAD_APPEARANCE)
-      .filter(([key])=>["color","width","opacity","pattern","labelVisibility"].includes(key)));
-    globalThis.game={user:{isGM:true},settings:{get:()=>legacy,
+    const initial=structuredClone(DEFAULT_WORLD_ROAD_APPEARANCE);
+    initial.profiles.land.borderEnabled=true;
+    globalThis.game={user:{isGM:true},settings:{get:()=>initial,
       async set(_module,_name,value){stored=value;}}};
     globalThis.ui={notifications:{info(){},error(error){throw Error(error);}}};
     const app=new AtlasRoadAppearanceSettings();
