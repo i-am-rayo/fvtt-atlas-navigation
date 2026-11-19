@@ -124,13 +124,30 @@ const wirePresetDialog=container=>{
   if(!tabs.length)return;
   const panels=[...root.querySelectorAll("[data-atlas-preset-panel]")];
   const activate=id=>{
-    for(const tab of tabs)tab.setAttribute("aria-selected",String(tab.dataset.atlasPresetTab===id));
-    for(const panel of panels)panel.style.display=panel.dataset.atlasPresetPanel===id?"grid":"none";
+    for(const tab of tabs){
+      const chosen=tab.dataset.atlasPresetTab===id;
+      tab.setAttribute("aria-selected",String(chosen));
+      tab.tabIndex=chosen?0:-1;
+    }
+    for(const panel of panels){
+      const chosen=panel.dataset.atlasPresetPanel===id;
+      panel.hidden=!chosen;
+      panel.style.display=chosen?"grid":"none";
+    }
   };
-  for(const tab of tabs){
+  for(const [index,tab] of tabs.entries()){
     if(tab.dataset.atlasWired==="true")continue;
     tab.dataset.atlasWired="true";
     tab.addEventListener("click",()=>activate(tab.dataset.atlasPresetTab));
+    tab.addEventListener("keydown",event=>{
+      const next=event.key==="ArrowRight"?(index+1)%tabs.length:
+        event.key==="ArrowLeft"?(index+tabs.length-1)%tabs.length:
+        event.key==="Home"?0:event.key==="End"?tabs.length-1:-1;
+      if(next<0)return;
+      event.preventDefault();
+      activate(tabs[next].dataset.atlasPresetTab);
+      tabs[next].focus();
+    });
   }
   activate("general");
   const fieldValue=name=>root.querySelector('[name="'+name+'"]');
@@ -354,10 +371,13 @@ export class AtlasTransportationSettings extends ApplicationBase {
       const tab=element("button",label);tab.type="button";
       tab.setAttribute("role","tab");tab.setAttribute("data-atlas-preset-tab",id);
       tab.setAttribute("aria-selected",String(id==="general"));
+      tab.tabIndex=id==="general"?0:-1;
       tab.style.cssText="padding:.6rem 1rem;border-radius:.45rem .45rem 0 0;";
       nav.append(tab);
       const panel=element("section");panel.setAttribute("role","tabpanel");
+      panel.setAttribute("aria-label",label);
       panel.setAttribute("data-atlas-preset-panel",id);
+      panel.hidden=id!=="general";
       panel.style.cssText="display:"+(id==="general"?"grid":"none")+";gap:.85rem;min-width:0;";
       panels[id]=panel;
     }
