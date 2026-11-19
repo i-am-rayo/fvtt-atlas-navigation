@@ -9,6 +9,7 @@ import { GROUP_TRANSPORT_SETTING,readGroupTransportation,
 import { listTransportationPresets } from "./navigation-transport-catalog.js";
 import { AtlasTransportationSettings } from "./navigation-transport-settings.js";
 import {createSettingsCategoryTabs} from "./settings-category-tabs.js";
+import {createAtlasIconButton} from "./ui-action-button.js";
 
 const MODULE_ID="fvtt-atlas-navigation";
 const SURFACES=["land","water","air"];
@@ -85,16 +86,11 @@ export function addAtlasGroupTransportationControl(app,html){
   const header=root?.querySelector?.(".header.travel-pace");
   const heading=header?.querySelector?.("h3");
   if(!heading||header.querySelector(".atlas-transport-button"))return false;
-  const control=node("button");control.type="button";
-  control.className="unbutton config-button atlas-transport-button";
-  control.setAttribute("aria-label","Manage Party Transportation");
+  const control=createAtlasIconButton({icon:"horse",label:"Manage Party Transportation"});
+  control.className+=" config-button atlas-transport-button";
   control.setAttribute("data-tooltip","Manage Party Transportation (GM only)");
   control.title="Manage Party Transportation (GM only)";
-  control.style.cssText="display:inline-flex;align-items:center;justify-content:center;"+
-    "flex:0 0 1.7rem;width:1.7rem;height:1.7rem;padding:0;margin:0 .15rem;"+
-    "color:var(--color-text-light-highlight,#c7b68d);";
-  const icon=node("i");icon.className="fa-solid fa-horse";
-  icon.setAttribute("aria-hidden","true");control.appendChild(icon);
+  control.style.margin="0 .15rem";
   control.addEventListener("click",event=>{
     event?.preventDefault?.();event?.stopPropagation?.();
     try{openAtlasGroupTransportation(group.id);}catch(error){
@@ -171,10 +167,10 @@ export class AtlasGroupTransportationSettings extends base {
       const members=roster.members.filter(member=>member.actorType===type);
       if(!members.length)section.appendChild(node("p","No "+label.toLowerCase()+" in this Group."));
       for(const member of members){
-        const row=node("div");
+        const row=node("fieldset");
         row.style.cssText="border:1px solid var(--color-border-light-tertiary,#555);"+
-          "border-radius:.45rem;padding:.75rem;display:grid;gap:.65rem;";
-        row.appendChild(node("strong",member.actorName+
+          "border-radius:.45rem;padding:.75rem;display:grid;gap:.65rem;min-width:0;";
+        row.appendChild(node("legend",member.actorName+
           (member.primaryVehicle?" ★ Primary vehicle":"")));
         if(type==="character"){
           row.appendChild(node("small","Counts as one party traveler; transportation is configured separately."));

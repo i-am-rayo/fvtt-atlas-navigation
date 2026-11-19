@@ -356,3 +356,5 @@ checks are inside the canvas presentation layer, with no change to stored
 control-node flags, native Region Shapes/Behaviors, or authoring authority.
 The owner-observed `graphics.stroke` failure remains pending live retest.
 See [hotfix diagnosis and checklist](TERRITORY_GRAPHICS_BETA8_9_1_1.md).
+
+**Milestone 01 #216 — Token and Group accessibility (`0.3.11-dev.16`):** The GM-only native Token Atlas exploration section keeps its separate, explicit Save and Scene/Actor writer, while its status announces Save outcomes with `role=status`. The D&D5e Group transportation shortcut reuses the shared `createAtlasIconButton` rather than a manually sized glyph, and each Group member's controls use a named native fieldset/legend. Original tabs, roster, World assignment, permission and stale-save mechanisms remain unchanged; no migration or write on render. #216 remains open for other UI parity.

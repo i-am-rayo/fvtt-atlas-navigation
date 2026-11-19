@@ -72,6 +72,9 @@ test("GM Group header button is inserted at the specified spot once",()=>{
     assert.equal(header.children[1].className.includes("atlas-transport-button"),true);
     assert.equal(header.children[2],left,"native pace arrows retain their order");
     assert.equal(header.children[1].attributes.get("aria-label"),"Manage Party Transportation");
+    assert.match(header.children[1].className,/atlas-ui-icon-button/,
+      "Group shortcut uses the shared 2rem accessible action target");
+    assert.equal(header.children[1].children[0].className,"fa-solid fa-horse");
     assert.equal(addAtlasGroupTransportationControl({document:ctx.group},root),false);
     assert.equal(header.children.length,3,"rerender does not duplicate control");
     assert.equal(ctx.changes.length,0);
@@ -98,6 +101,10 @@ test("Group editor separates PCs, NPCs and Vehicles without a Group dropdown",as
       "Camel","Warship","Transportation profile","Save Party Transportation Assignments"])
       assert.match(labels,new RegExp(name));
     assert.equal(elements.some(e=>e.name==="atlasGroupSelection"),false);
+    const actorGroups=elements.filter(e=>e.tagName==="FIELDSET"&&
+      e.children.some(child=>child.tagName==="LEGEND"&&
+        /^(Camel|Warship)/.test(child.textContent)));
+    assert.equal(actorGroups.length,2,"each editable Actor has an accessible named fieldset");
     assert.deepEqual(ctx.changes,[],"opening Group editor never changes World or native Group");
   }finally{ctx.restore();}
 });
