@@ -92,19 +92,22 @@ test("non-GMs never see header control or open transportation editor",()=>{
     assert.rejects(()=>new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML(),/Only a GM/);
   }finally{ctx.restore();}
 });
-test("Group editor separates PCs, NPCs and Vehicles without a Group dropdown",async()=>{
+test("Group editor shows compact native-Actor transportation by travel surface",async()=>{
   const ctx=setup();
   try{
     const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
     const elements=flatten(root),labels=elements.map(e=>e.textContent??"").join(" ");
-    for(const name of ["Player Characters","NPC","Vehicles",
-      "Camel","Warship","Transportation profile","Save Party Transportation Assignments"])
+    for(const name of ["Land Travel","Water Travel","Air Travel","Other NPCs / Needs Setup",
+      "Camel","Warship","Save Party Transportation Assignments"])
       assert.match(labels,new RegExp(name));
+    assert.doesNotMatch(labels,/Player Characters/,"PCs count as travelers without a tab");
     assert.equal(elements.some(e=>e.name==="atlasGroupSelection"),false);
-    const actorGroups=elements.filter(e=>e.tagName==="FIELDSET"&&
-      e.children.some(child=>child.tagName==="LEGEND"&&
-        /^(Camel|Warship)/.test(child.textContent)));
-    assert.equal(actorGroups.length,2,"each editable Actor has an accessible named fieldset");
+    const actorRows=elements.filter(e=>e.className==="atlas-group-transport-resource");
+    assert.equal(actorRows.length,2,"only native transport resources get compact rows");
+    assert.equal(elements.filter(e=>e.className==="atlas-group-transport-surface").length,3);
+    assert.ok(elements.some(e=>e.attributes.get("aria-label")==="Edit Camel transportation"));
+    assert.ok(elements.some(e=>e.attributes.get("aria-label")===
+      "Remove Camel from Party transportation"));
     assert.deepEqual(ctx.changes,[],"opening Group editor never changes World or native Group");
   }finally{ctx.restore();}
 });
@@ -115,12 +118,13 @@ test("saving matching profile ID preserves mount capacity across Actor rename",a
     app.render=async()=>{};
     const elements=flatten(await app._renderHTML());
     const field=name=>elements.find(e=>e.name===name);
-    assert.equal(field("profile-camel1").value,"camel","current Camel gets a suggested profile");
+    assert.equal(field("profile-camel1").value,"","World method must be explicitly selected");
+    field("profile-camel1").value="camel";
     field("quantity-camel1").value="3";
     const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
     assert.ok(save.events.click?.length);
     await save.events.click[0]();
-    assert.equal(ctx.saved.version,4);
+    assert.equal(ctx.saved.version,5);
     assert.equal(ctx.saved.groups.group1.members.camel1.profileId,"camel");
     assert.equal(ctx.changes.length,1);
     ctx.camel.name="Biscuit";
@@ -158,40 +162,19 @@ test("two open Group assignment menus save different Groups without overwriting,
   }finally{ctx.restore();}
 });
 
-test("Group editor shows Vehicles / NPC / Player Characters tabs and preserves drafts on switch",async()=>{
+test("compact Land/Water/Air sections retain staged drafts without switching tabs",async()=>{
   const ctx=setup();
   try{
-    const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
-    const elements=flatten(root);
-    const tabs=elements.filter(e=>e.attributes.get("role")==="tab");
-    assert.deepEqual(tabs.map(t=>t.textContent),["Vehicles","NPC","Player Characters"]);
-    const panels=elements.filter(e=>e.attributes.get("role")==="tabpanel");
-    assert.deepEqual(panels.map(p=>p.id),
-      ["atlas-group-transport-vehicle-panel","atlas-group-transport-npc-panel",
-        "atlas-group-transport-character-panel"]);
-    assert.equal(panels[0].hidden,false,"Vehicles shown initially");
-    assert.equal(panels[1].hidden,true);
-    assert.equal(elements.some(e=>e.name==="surface-camel1"||e.name==="surface-ship1"),false,
-      "Profile derives travel surface without a duplicate selector");
-    const draft=elements.find(e=>e.name==="quantity-camel1");draft.value="5";
-    tabs[1].events.click[0]();
-    assert.equal(panels[1].hidden,false);
-    assert.equal(tabs[1].attributes.get("aria-selected"),"true");
-    assert.equal(tabs[1].tabIndex,0);
-    const bar=elements.find(e=>e.attributes.get("role")==="tablist");
-    let prevented=0;
-    bar.events.keydown[0]({key:"ArrowRight",target:tabs[1],
-      preventDefault(){prevented++;}});
-    assert.equal(tabs[2].focused,true);
-    assert.equal(panels[2].hidden,false);
-    bar.events.keydown[0]({key:"Home",target:tabs[2],
-      preventDefault(){prevented++;}});
-    assert.equal(tabs[0].focused,true);
-    assert.equal(panels[0].hidden,false);
-    assert.equal(prevented,2);
-    tabs[1].events.click[0]();
-    assert.equal(draft.value,"5","tab changes do not rebuild controls or discard edits");
-    assert.deepEqual(ctx.changes,[],"tab changes do not mutate Group or World flags");
+    const nodes=flatten(await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML());
+    const labels=nodes.filter(n=>n.className==="atlas-group-transport-surface")
+      .map(section=>section.children[0].textContent);
+    assert.deepEqual(labels,["Land Travel","Water Travel","Air Travel"]);
+    assert.equal(nodes.some(n=>n.attributes.get("role")==="tab"),false);
+    assert.equal(nodes.filter(n=>n.attributes.get("role")==="tabpanel").length,0);
+    const camel=nodes.find(n=>n.name==="quantity-camel1");
+    camel.value="5";
+    assert.equal(camel.value,"5","all surfaces remain mounted and preserve the same draft");
+    assert.deepEqual(ctx.changes,[]);
   }finally{ctx.restore();}
 });
 
@@ -206,6 +189,7 @@ test("saving a custom mount speed overrides only Group metadata and derives surf
     assert.equal(speed.disabled,false);
     speed.value="3.75";
     const profile=field("profile-camel1");
+    profile.value="camel";
     assert.equal(profile.value,"camel");
     const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
     await save.events.click[0]();
@@ -287,13 +271,15 @@ test("Party transportation child editor stages existing Group data without writi
     assert.ok(hidden,"existing validated parent fields preserve their storage contract");
     assert.ok(elements.some(e=>e.hidden&&flatten(e).includes(hidden)),
       "inline override controls are hidden from the Group overview");
-    const edit=elements.find(e=>e.textContent==="Edit Camel transportation");
+    const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit Camel transportation");
     assert.ok(edit?.events.click?.length);
     globalThis.foundry={applications:{api:{DialogV2:{
       input:async()=>({
-        profileId:"camel",quantity:"4",capacity:"",speedMphOverride:"3.75",
-        costCpOverride:"0",costBasisOverride:"none",costAppliesOverride:"unit",
-        purchaseMode:"inherit",purchaseGpOverride:"",noteOverride:""
+        groupProfileId:"camel",groupQuantity:"4",capacity:"",
+        groupSpeedCustom:"on",speedDisplay:"3.75",
+        groupCostCustom:"on",cost_pp:"0",cost_gp:"0",cost_ep:"0",cost_sp:"0",
+        cost_cp:"0",groupBasisCustom:"on",costBasis:"none",costApplies:"unit",
+        purchaseEnabled:false,note:""
       })
     }}}};
     await edit.events.click[0]();
@@ -309,4 +295,32 @@ test("Party transportation child editor stages existing Group data without writi
     assert.equal(ctx.changes.length,1,"only Group metadata World setting is persisted");
     assert.equal(ctx.group.system.members.length,3,"native roster untouched");
   }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
+test("remove/re-enable is staged, versioned and never deletes the native Group Actor",async()=>{
+  const ctx=setup(),prev=globalThis.foundry;
+  try{
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const root=flatten(await app._renderHTML());
+    const remove=root.find(n=>n.attributes.get("aria-label")==="Remove Warship from Party transportation");
+    assert.ok(remove?.events.click?.length);
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>true}}}};
+    await remove.events.click[0]();
+    assert.equal(root.find(n=>n.name==="enabled-ship1").value,"false");
+    assert.equal(ctx.changes.length,0,"removal is draft-only");
+    await root.find(n=>n.textContent==="Save Party Transportation Assignments").events.click[0]();
+    assert.equal(ctx.saved.groups.group1.members.ship1.enabled,false);
+    assert.equal(ctx.group.system.members.length,3);
+    const projected=projectGroupTransportation(ctx.group,ctx.saved);
+    assert.equal(projected.capacityBySurface.water,0,"excluded resource stays excluded on reload");
+    const second=flatten(await app._renderHTML());
+    const enable=second.find(n=>n.attributes.get("aria-label")===
+      "Re-enable Warship for Party transportation");
+    assert.ok(enable);
+    await enable.events.click[0]();
+    assert.equal(second.find(n=>n.name==="enabled-ship1").value,"true");
+    await second.find(n=>n.textContent==="Save Party Transportation Assignments")
+      .events.click[0]();
+    assert.equal(ctx.saved.groups.group1.members.ship1.enabled,true);
+  }finally{globalThis.foundry=prev;ctx.restore();}
 });

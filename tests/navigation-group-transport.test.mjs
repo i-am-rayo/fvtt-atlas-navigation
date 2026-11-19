@@ -87,7 +87,7 @@ test("legacy v1 Group assignments are normalized without writing or losing quant
   const changes=[];
   const settings={get:()=>old,set:(...args)=>changes.push(args)};
   const migrated=readGroupTransportation(settings);
-  assert.equal(migrated.version,4);
+  assert.equal(migrated.version,5);
   assert.equal(migrated.groups.group1.members.camel1.quantity,3);
   assert.equal(migrated.groups.group1.members.camel1.profileId,null);
   assert.deepEqual(changes,[],"read must not persist migration");
@@ -116,7 +116,7 @@ test("legacy v2 Group settings upgrade in memory and preserve stable profiles",(
     camel1:{role:"mount",quantity:2,capacity:1,surface:"land",profileId:"camel"}
   }}}};
   const migrated=validateGroupTransportation(previous);
-  assert.equal(migrated.version,4);
+  assert.equal(migrated.version,5);
   assert.equal(migrated.groups.group1.members.camel1.profileId,"camel");
   assert.equal(migrated.groups.group1.members.camel1.speedMphOverride,null);
   assert.equal(previous.version,2,"migrating is read-only");
@@ -163,7 +163,7 @@ test("v3 speed overrides migrate read-only into v4 with World prices inherited",
   }}}};
   const migrated=validateGroupTransportation(previous);
   const item=migrated.groups.group1.members.camel1;
-  assert.equal(migrated.version,4);
+  assert.equal(migrated.version,5);
   assert.equal(item.speedMphOverride,3.75);
   assert.equal(item.costCpOverride,null);
   assert.equal(item.purchaseGpOverride,null);
@@ -253,4 +253,25 @@ test("linked World capacity is inherited while explicit Group seats win",()=>{
   p=projectGroupTransportation(group([pc,warship]),saved,[{...profile,capacity:12}]);
   assert.equal(groupMethodCapacityStatus(p,profile).seats,34,
     "explicitly saved Group capacity remains stable");
+});
+
+test("v4 reads default to included; v5 exclusion survives World/Group projection and matching",()=>{
+  const old={version:4,groups:{group1:{members:{ship1:{
+    role:"unassigned",quantity:1,capacity:30,surface:"water",profileId:"warship"
+  }}}}};
+  const normalized=validateGroupTransportation(old);
+  assert.equal(normalized.version,5);
+  assert.equal(normalized.groups.group1.members.ship1.enabled,true);
+  const excluded=setGroupTransportationMember(normalized,"group1","ship1",{
+    ...normalized.groups.group1.members.ship1,enabled:false
+  });
+  const p=projectGroupTransportation(group([pc,warship]),excluded);
+  assert.equal(p.capacityBySurface.water,0);
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",
+    speedMph:3,costCp:5,costBasis:"day",costApplies:"unit"};
+  assert.equal(groupMethodCapacityStatus(p,method).seats,0);
+  assert.equal(groupMethodFareEstimate(p,method,{hours:8,distanceMi:10,dayHours:8}).amount,0);
+  assert.throws(()=>setGroupTransportationMember(normalized,"group1","ship1",{
+    ...normalized.groups.group1.members.ship1,enabled:"false"
+  }),/Invalid/);
 });
