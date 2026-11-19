@@ -2,16 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {openRoadSettingsWindow} from "../scripts/road-settings-window.js";
+import {createSettingsCategoryTabs} from "../scripts/settings-category-tabs.js";
 
 class Element {
   constructor(tag) {
     this.tag=tag;this.children=[];this.dataset={};this.listeners=new Map();
     this.className="";this.textContent="";this.valid=true;
+    this.style={};this.attrs=new Map();
   }
   append(...items){this.children.push(...items);}
   appendChild(item){this.append(item);}
   replaceChildren(...items){this.children=[...items];}
   addEventListener(type,listener){this.listeners.set(type,listener);}
+  setAttribute(key,value){this.attrs.set(key,String(value));}
+  focus(){this.focused=true;}
   querySelector(selector){
     if(selector==="form[data-atlas-road-form]")
       return this.children.find(item=>item.tag==="form"&&"atlasRoadForm" in item.dataset)??null;
@@ -91,6 +95,42 @@ test("invalid Road form cannot submit, and closing returns a null cancellation",
     await app.close();
     assert.equal(await resultPromise,null);
   }finally{Object.assign(globalThis,old);}
+});
+
+test("Road Settings uses the existing keyboard tab helper without touching drafts",()=>{
+  const old=globalThis.document;
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    const helper=createSettingsCategoryTabs({
+      id:"atlas-road-settings-test",active:"general",
+      modes:[["general","General"],["style","Customization"],
+        ["checkpoints","Map Markers"],["regions","Terrain Regions"]]
+    });
+    const panels=new Map(["general","style","checkpoints","regions"].map(key=>{
+      const panel=new Element("div");
+      panel.draft="unsaved "+key;
+      helper.addPanel(key,panel);
+      return [key,panel];
+    }));
+    assert.equal(helper.nav.attrs.get("role"),"tablist");
+    assert.deepEqual(helper.nav.children.map(tab=>tab.attrs.get("aria-selected")),
+      ["true","false","false","false"]);
+    helper.nav.listeners.get("keydown")({
+      target:helper.nav.children[0],key:"ArrowLeft",preventDefault(){}
+    });
+    assert.equal(helper.selected,"regions","keyboard navigation wraps");
+    assert.equal(helper.nav.children[3].focused,true);
+    assert.equal(panels.get("regions").hidden,false);
+    helper.nav.listeners.get("keydown")({
+      target:helper.nav.children[3],key:"Home",preventDefault(){}
+    });
+    assert.equal(helper.selected,"general");
+    assert.equal(panels.get("regions").draft,"unsaved regions",
+      "switching never removes linked Regions draft controls");
+    const main=readFileSync(new URL("../scripts/main.js",import.meta.url),"utf8");
+    assert.match(main,/const roadTabs=createSettingsCategoryTabs\(/);
+    assert.match(main,/roadTabs\.addPanel\(key,panels\[key\]\)/);
+  }finally{globalThis.document=old;}
 });
 
 test("Road linked Map Markers/Regions keep count legends inside bordered sections",()=>{
