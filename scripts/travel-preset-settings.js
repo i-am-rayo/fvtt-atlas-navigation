@@ -420,6 +420,8 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
     if(JSON.stringify(latest.presets.find(item=>item.id===preset.id)??null)!==
         JSON.stringify(preset))
       throw Error("This Surface preset changed elsewhere. Reopen before deleting.");
+    if(worldPresetUses(preset.id).length)
+      throw Error("This Surface preset became assigned during the confirmation. Refresh before deleting.");
     const next = removeTravelPreset(latest, preset.id);
     await game.settings.set(MODULE_ID, TRAVEL_PRESET_SETTING, next);
     ui.notifications.info("Atlas travel preset deleted.");
