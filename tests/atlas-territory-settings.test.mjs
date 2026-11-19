@@ -82,6 +82,11 @@ test("single modeless Territory Settings window retains tabs, permissions and al
     const app=openAtlasTerritorySettings(f.scene,"r1",f.actions,()=>{},()=>f.calls.push(["locate"]));
     await app.render();
     assert.equal(app.options.window.title,"Atlas — Hearth's Heart — Territory Settings");
+    assert.equal(app.options.id,"fvtt-atlas-territory-settings-s1-r1");
+    const other=new AtlasTerritorySettings({scene:f.scene,regionId:"r2",
+      actions:f.actions,refresh:()=>{}});
+    assert.notEqual(other.options.id,app.options.id,
+      "independently open Region settings require different native window IDs");
     assert.equal(AtlasTerritorySettings.DEFAULT_OPTIONS.window.minimizable,true);
     assert.equal(AtlasTerritorySettings.DEFAULT_OPTIONS.window.resizable,true);
     assert.match(text(app.result),/Geographic kind/);
@@ -132,6 +137,10 @@ test("Territory Settings refreshes external native name and supports keyboard ta
     const tabs=all(app.result,node=>node.dataset?.atlasTerritoryPage);
     const nav=all(app.result,node=>node.tag==="nav")[0];
     assert.equal(nav.attributes.get("role"),"tablist");
+    const panel=all(app.result,node=>node.attributes?.get("role")==="tabpanel")[0];
+    assert.ok(panel,"active Territory tab has an accessible content panel");
+    assert.equal(panel.attributes.get("aria-labelledby"),tabs[0].id);
+    assert.ok(tabs.every(tab=>tab.attributes.get("aria-controls")===panel.id));
     assert.equal(tabs[0].attributes.get("aria-selected"),"true");
     assert.equal(tabs[0].tabIndex,0);
     assert.equal(tabs[1].tabIndex,-1);
@@ -144,6 +153,8 @@ test("Territory Settings refreshes external native name and supports keyboard ta
     const nextTabs=all(app.result,node=>node.dataset?.atlasTerritoryPage);
     assert.equal(nextTabs[1].attributes.get("aria-selected"),"true");
     assert.equal(nextTabs[1].tabIndex,0);
+    const nextPanel=all(app.result,node=>node.attributes?.get("role")==="tabpanel")[0];
+    assert.equal(nextPanel.attributes.get("aria-labelledby"),nextTabs[1].id);
     f.region.name="West Hearth";
     await app.render();
     assert.equal(app.window.title.textContent,
@@ -153,6 +164,37 @@ test("Territory Settings refreshes external native name and supports keyboard ta
     assert.deepEqual(f.calls,[],"title and tab navigation never call native writers");
     await app.close();
   }finally{f.restore();}
+});
+
+test("native Region rename updates the open Territory header without forcing a tab render",async()=>{
+  const f=fixture(),original=globalThis.Hooks;
+  const hooks=new Map();
+  globalThis.Hooks={on:(name,handler)=>{hooks.set(name,handler);return handler;},
+    off:(name,handler)=>{if(hooks.get(name)===handler)hooks.delete(name);}};
+  try{
+    const app=openAtlasTerritorySettings(f.scene,"r1",f.actions,()=>{});
+    app.window={title:{textContent:"Original"}};
+    await app.render();
+    assert.equal(app.activePage,"General");
+    assert.equal(app.window.title.textContent,
+      "Atlas — Hearth's Heart — Territory Settings");
+    assert.ok(hooks.has("updateRegion"));
+    const oldRoot=app.result;
+    hooks.get("updateRegion")({id:"r1",name:"Updated Hearth",
+      parent:{id:"other-scene"}});
+    assert.equal(app.window.title.textContent,
+      "Atlas — Hearth's Heart — Territory Settings",
+      "an identically named Region in another Scene cannot update this header");
+    hooks.get("updateRegion")({id:"r1",name:"Updated Hearth",
+      parent:{id:"s1"}});
+    assert.equal(app.window.title.textContent,
+      "Atlas — Updated Hearth — Territory Settings");
+    assert.equal(app.result,oldRoot,
+      "native rename updates only title, not panel state or draft");
+    assert.deepEqual(f.calls,[],"native title events cannot write Atlas flags");
+    await app.close();
+    assert.equal(hooks.size,0,"close releases existing Region listeners");
+  }finally{globalThis.Hooks=original;f.restore();}
 });
 
 test("unlinked or unauthorized Territories fail closed without side effects",async()=>{

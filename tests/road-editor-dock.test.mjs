@@ -9,7 +9,9 @@ class Element {
     this.listeners = new Map();
     this.textContent = "";
     this.disabled = false;
+    this.attributes=new Map();
   }
+  setAttribute(name,value){this.attributes.set(name,String(value));}
   append(...items) { this.children.push(...items); }
   appendChild(item) { this.children.push(item); return item; }
   addEventListener(event, handler) { this.listeners.set(event, handler); }
@@ -43,7 +45,14 @@ test("floating new-road dock summarizes settings and does not edit the configure
       scene, controller, onFinish: async () => { saves++; return false; },
       onCancel() {}, onClosed() {}, onFocus:()=>{locates++;}
     });
+    dock.window={title:{textContent:"Atlas — Road Editor"}};
     const root = await dock._renderHTML();
+    assert.equal(dock.window.title.textContent,
+      "Atlas — Hidden River — Road Editor",
+      "new Road authoring identifies the staged Road without saving");
+    assert.ok(descendants(root).some(node => node.tag==="small"&&
+      node.attributes.get("role")==="status"),
+      "point/draft status is exposed to assistive technology");
     assert.ok(descendants(root).some(node => node.textContent === "Hidden River"));
     assert.equal(descendants(root).filter(node => ["input", "select"].includes(node.tag)).length, 0);
     assert.ok(button(root, "Finish Road"));
