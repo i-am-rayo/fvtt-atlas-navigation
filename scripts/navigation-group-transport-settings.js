@@ -195,6 +195,8 @@ export class AtlasGroupTransportationSettings extends base {
         const initial=member.profileId??"";
         const options=[["","No linked profile"],...compatible.map(method=>
           [method.id,method.name+" ("+displaySurface(method.surface)+")"])];
+        if(member.profileId&&!compatible.some(method=>method.id===member.profileId))
+          options.push([member.profileId,"Unavailable World profile: "+member.profileId]);
         const profile=select("profile-"+member.actorId,options,initial);
         const speedOverride=number("speed-"+member.actorId,
           member.speedMphOverride,0.1,600,{step:0.01,placeholder:"Use World speed"});
@@ -356,6 +358,9 @@ export class AtlasGroupTransportationSettings extends base {
               purchaseOverride.disabled=purchaseMode.value!=="custom";
               noteOverride.value=next.noteOverride??"";
               updateDetails();
+              const nextSurface=lookup.get(next.profileId)?.surface??member.surface;
+              if(type==="vehicle"||role.value==="mount")
+                (bucket[nextSurface]??other).appendChild(row);
               this.dirty=true;
             }
           });
