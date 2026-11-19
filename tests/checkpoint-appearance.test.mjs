@@ -602,6 +602,62 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "committed external rename refreshes an open editor header on render");
     assert.equal(stored.revision,revision,
       "refreshing the title never writes an Atlas Scene or changes its revision");
+
+    // Owner regression: The Eyrie and Dirwest editors stay open together.
+    // Distinct snapshots may save sequentially without reverting each other;
+    // a stale snapshot of the SAME Map Marker still fails closed.
+    stored=addRoadCheckpoint(stored,{
+      roadId:stored.roads[0].id,
+      candidate:{kind:"node",nodeId:stored.segments[0].to},
+      name:"Dirwest",elevationMeters:120,idFactory:()=>"dirwest-marker"
+    });
+    const eyrieId=stored.checkpoints[0].id;
+    const dirwestId=stored.checkpoints.find(cp=>cp.name==="Dirwest").id;
+    const firstWindow=new AtlasCheckpointAppearanceEditor({scene,
+      checkpointId:eyrieId,expectedRevision:stored.revision});
+    const secondWindow=new AtlasCheckpointAppearanceEditor({scene,
+      checkpointId:dirwestId,expectedRevision:stored.revision});
+    firstWindow.close=async()=>{};secondWindow.close=async()=>{};
+    const firstForm=await firstWindow._renderHTML();
+    const secondForm=await secondWindow._renderHTML();
+    const savedName=root=>all(root).find(node=>node.tag==="input"&&node.type==="text"&&
+      ["Newly Renamed Lookout","Dirwest","Changed Eyrie","Changed Dirwest"].includes(node.value));
+    const saveForm=async(root,nextName)=>{
+      const input=savedName(root);
+      assert.ok(input);
+      input.value=nextName;
+      const button=all(root).find(node=>node.tag==="button"&&node.title==="Save Map Marker");
+      button.listeners.get("click")();
+      await new Promise(resolve=>setImmediate(resolve));
+    };
+    const beforeSequential=stored.revision;
+    await saveForm(firstForm,"Changed Eyrie");
+    assert.equal(stored.revision,beforeSequential+1);
+    await saveForm(secondForm,"Changed Dirwest");
+    assert.equal(stored.revision,beforeSequential+2);
+    assert.equal(stored.checkpoints.find(cp=>cp.id===eyrieId).name,"Changed Eyrie");
+    assert.equal(stored.checkpoints.find(cp=>cp.id===dirwestId).name,"Changed Dirwest",
+      "saving a second open editor preserves the first marker's committed change");
+
+    const live=new AtlasCheckpointAppearanceEditor({scene,
+      checkpointId:dirwestId,expectedRevision:stored.revision});
+    const stale=new AtlasCheckpointAppearanceEditor({scene,
+      checkpointId:dirwestId,expectedRevision:stored.revision});
+    live.close=async()=>{};stale.close=async()=>{};
+    const liveForm=await live._renderHTML();
+    const staleForm=await stale._renderHTML();
+    await saveForm(liveForm,"Updated by Another Editor");
+    const conflictRevision=stored.revision;
+    const errors=[];
+    globalThis.ui.notifications.error=message=>errors.push(String(message));
+    await saveForm(staleForm,"Attempted stale overwrite");
+    assert.match(errors.join("\n"),/This Map Marker or its settings changed elsewhere/);
+    assert.equal(stored.revision,conflictRevision,
+      "stale same-target Save never reaches the revision writer");
+    assert.equal(stored.checkpoints.find(cp=>cp.id===dirwestId).name,
+      "Updated by Another Editor");
+    assert.equal(savedName(staleForm).value,"Attempted stale overwrite",
+      "a refused Save leaves the unsaved draft available to the GM");
   } finally {
     Object.assign(globalThis, previous);
   }
