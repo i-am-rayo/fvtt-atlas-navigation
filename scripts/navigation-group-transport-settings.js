@@ -4,7 +4,8 @@
  * and never modifies native Actors, currencies, or boarding state.
  */
 import { GROUP_TRANSPORT_SETTING,readGroupTransportation,
-  projectGroupTransportation,setGroupTransportationMember,groupTravelCapacityStatus }
+  projectGroupTransportation,setGroupTransportationMembers,eligibleGroupRiders,
+  groupTravelCapacityStatus }
   from "./navigation-group-transport.js";
 import { listTransportationPresets } from "./navigation-transport-catalog.js";
 import { AtlasTransportationSettings,openTransportationMethodEditor }
@@ -125,6 +126,7 @@ export class AtlasGroupTransportationSettings extends base {
     const assignments=readGroupTransportation(game.settings);
     const methods=listTransportationPresets(game.settings,game.system.id);
     const roster=projectGroupTransportation(group,assignments,methods);
+    const groupRiders=eligibleGroupRiders(roster);
     const methodSnapshot=JSON.stringify(methods);
     const lookup=new Map(methods.map(method=>[method.id,method]));
     const root=node("section");
@@ -260,7 +262,14 @@ export class AtlasGroupTransportationSettings extends base {
         overrides.appendChild(field("GM note override",noteOverride,
           "Optional campaign-specific note; blank inherits the World profile."));
         const profileDetails=node("small");
+        const riderDetails=node("small");
         const updateDetails=()=>{
+          const rider=groupRiders.find(item=>item.id===assignedTo.value);
+          riderDetails.textContent=assignedTo.value?
+            "Assigned To: "+(rider?rider.name+" · "+rider.id:
+              "Unavailable party member · "+assignedTo.value)+
+            " (exclusive personal mount; no boarding)":
+            "";
           const method=lookup.get(profile.value);
           const effectiveSpeed=method?(speedOverride.value===""?method.speedMph:
             Number(speedOverride.value)):null;
@@ -326,10 +335,17 @@ export class AtlasGroupTransportationSettings extends base {
         const enabled=select("enabled-"+member.actorId,
           [["true","Available"],["false","Excluded from Party travel"]],
           member.enabled?"true":"false");
+        const assignedOptions=[["","None — shared mount"],
+          ...groupRiders.map(rider=>[rider.id,rider.name+" · "+rider.id])];
+        if(member.assignedTo&&!groupRiders.some(rider=>rider.id===member.assignedTo))
+          assignedOptions.push([member.assignedTo,
+            "Unavailable party member: "+member.assignedTo]);
+        const assignedTo=select("assigned-to-"+member.actorId,
+          assignedOptions,member.assignedTo??"");
         const draftControls=node("div");
         draftControls.hidden=true;
         draftControls.style.display="none";
-        draftControls.append(controls,overrides,enabled);
+        draftControls.append(controls,overrides,enabled,assignedTo);
         const edit=action("Edit "+member.actorName+" transportation",async()=>{
           if(type==="npc"&&role.value!=="mount")
             throw Error("Choose Rideable Mount before assigning a transport profile.");
@@ -339,10 +355,10 @@ export class AtlasGroupTransportationSettings extends base {
           await openTransportationMethodEditor({
             scope:"group",method:lookup.get(profile.value)??null,profiles:compatible,
             groupActorName:member.actorName,
-            groupKind:type==="vehicle"?"vehicle":"mount",
+            groupKind:type==="vehicle"?"vehicle":"mount",groupRiders,
             groupAssignment:{
               profileId:profile.value||null,quantity:Number(quantity.value),
-              capacity:readNumber(capacity),
+              assignedTo:assignedTo.value||null,capacity:readNumber(capacity),
               speedMphOverride:readNumber(speedOverride),
               costCpOverride:readNumber(costOverride),
               costBasisOverride:costBasisOverride.value||null,
@@ -352,6 +368,7 @@ export class AtlasGroupTransportationSettings extends base {
             onSave:async next=>{
               profile.value=next.profileId??"";
               quantity.value=String(next.quantity);
+              assignedTo.value=next.assignedTo??"";
               capacity.value=next.capacity===null?"":String(next.capacity);
               speedOverride.value=next.speedMphOverride===null?"":
                 String(next.speedMphOverride);
@@ -420,6 +437,7 @@ export class AtlasGroupTransportationSettings extends base {
         if(type==="vehicle"||!member.enabled)visible.append(removal);
         header.append(visible);
         row.append(header,draftControls,profileDetails);
+        if(type==="npc")row.appendChild(riderDetails);
         if(member.profileId&&!lookup.has(member.profileId)){
           const missing=node("p","Previously selected profile '"+member.profileId+
             "' is unavailable. Choose another profile before saving.");
@@ -434,7 +452,7 @@ export class AtlasGroupTransportationSettings extends base {
           "Foundry's primary-vehicle flag does not mean the party is aboard."));
         editable.push({member,role,quantity,capacity,profile,speedOverride,
           costOverride,costBasisOverride,costAppliesOverride,
-          purchaseMode,purchaseOverride,noteOverride,enabled});
+          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo});
         const surface=lookup.get(profile.value)?.surface??member.surface;
         const target=type==="npc"&&member.role!=="mount"?other:
           bucket[surface]??other;
@@ -461,11 +479,11 @@ export class AtlasGroupTransportationSettings extends base {
       const now=listTransportationPresets(game.settings,game.system.id);
       if(JSON.stringify(now)!==methodSnapshot)
         throw new Error("Transportation profiles changed. Reopen the editor.");
-      let next=currentAssignments;
+      const changes={};
       for(const entry of editable){
         const {member,role,quantity,capacity,profile,speedOverride,
           costOverride,costBasisOverride,costAppliesOverride,
-          purchaseMode,purchaseOverride,noteOverride,enabled}=entry;
+          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo}=entry;
         const isTransport=member.actorType==="vehicle"||role.value==="mount";
         const profileId=isTransport?(profile.value||null):null;
         const method=profileId?lookup.get(profileId):null;
@@ -492,20 +510,32 @@ export class AtlasGroupTransportationSettings extends base {
         const note=isTransport?noteOverride.value.trim():null;
         if(note!==null&&note.length>240)
           throw new Error("GM note must be no longer than 240 characters.");
-        next=setGroupTransportationMember(next,this.groupId,member.actorId,{
+        const riderId=assignedTo.value||null;
+        if(riderId&&(role.value!=="mount"||Number(quantity.value)!==1||
+            enabled.value!=="true"))
+          throw Error("Clear Assigned To for "+member.actorName+
+            " before changing its role, quantity, or availability.");
+        changes[member.actorId]={
           role:member.actorType==="vehicle"?"unassigned":role.value,
           quantity:Number(quantity.value),
           capacity:capacity.value===""?null:Number(capacity.value),
           surface:method?.surface??member.surface,profileId,
-          enabled:enabled.value==="true",
+          enabled:enabled.value==="true",assignedTo:riderId,
           speedMphOverride:isTransport?override:null,
           costCpOverride:readMoney(costOverride),
           costBasisOverride:isTransport?(costBasisOverride.value||null):null,
           costAppliesOverride:isTransport?(costAppliesOverride.value||null):null,
           purchaseGpOverride:purchase,
           noteOverride:note||null
-        });
+        };
       }
+      const next=setGroupTransportationMembers(currentAssignments,this.groupId,changes);
+      const reviewed=projectGroupTransportation(currentGroup,next,now);
+      const eligible=new Set(eligibleGroupRiders(reviewed).map(rider=>rider.id));
+      for(const member of reviewed.members)
+        if(member.assignedTo&&!eligible.has(member.assignedTo))
+          throw Error("Assigned To for "+member.actorName+
+            " is no longer an eligible traveling Party member. Clear the assignment.");
       await game.settings.set(MODULE_ID,GROUP_TRANSPORT_SETTING,next);
       this.dirty=false;
       globalThis.ui?.notifications?.info?.("Party transportation assignments saved.");
