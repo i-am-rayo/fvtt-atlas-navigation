@@ -270,10 +270,29 @@ function wireGroupOwnedTransport(root,profiles) {
   };
   root.querySelector?.("[data-atlas-scope-reset]")?.addEventListener("click",()=>{
     for(const name of custom){const flag=get(name);if(flag)flag.checked=false;}
-    populate();
+    populate();sync();
   });
-  get("groupProfileId")?.addEventListener("change",populate);
-  for(const name of custom)get(name)?.addEventListener("change",populate);
+  const sync=()=>{
+    const set=(name,enabled)=>{
+      const input=get(name);if(input)input.disabled=!enabled;
+      const range=root.querySelector?.('[data-atlas-range-for="'+name+'"]');
+      if(range)range.disabled=!enabled;
+    };
+    set("speedDisplay",get("groupSpeedCustom")?.checked);
+    set("capacity",get("groupCapacityCustom")?.checked);
+    set("costBasis",get("groupBasisCustom")?.checked);
+    set("costApplies",get("groupAppliesCustom")?.checked);
+    set("note",get("groupNoteCustom")?.checked);
+    for(const kind of ["cost","purchase"])
+      for(const coin of ["pp","gp","ep","sp","cp"])
+        set(kind+"_"+coin,kind==="cost"?get("groupCostCustom")?.checked:
+          get("groupPurchaseCustom")?.checked&&get("purchaseEnabled")?.checked);
+    set("purchaseEnabled",get("groupPurchaseCustom")?.checked);
+  };
+  get("groupProfileId")?.addEventListener("change",()=>{populate();sync();});
+  for(const name of custom)get(name)?.addEventListener("change",()=>{populate();sync();});
+  get("purchaseEnabled")?.addEventListener("change",sync);
+  sync();
 }
 const costLabel=p=>p.costBasis==="none"?"No recurring cost":
   coinLabel(p.costBasis==="mile"?atlasDisplayCostPerDistance(p.costCp):p.costCp)+
@@ -544,11 +563,15 @@ export class AtlasTransportationSettings extends ApplicationBase {
         input.disabled=true;
     }
     const operations=row("13rem");
+    const crewControl=slider("crewCount",value.crewCount??0,
+      {min:0,max:1000,step:1,numericStep:1,label:"Required crew count"});
+    if(group)for(const input of crewControl.querySelectorAll?.("input")??crewControl.children??[])
+      input.disabled=true;
     operations.append(field("Passenger capacity",capacity,
       "Passenger seats excluding required crew."),
-      field("Required crew",slider("crewCount",value.crewCount??0,
-        {min:0,max:1000,step:1,numericStep:1,label:"Required crew count"}),
-      "Crew separate from paying passengers; native ship values are reference counts."));
+      field("Required crew",crewControl,group?
+        "Required crew is read-only; it belongs to the linked World profile.":
+        "Crew separate from paying passengers; native ship values are reference counts."));
     panels.general.append(operations);
     if(group)panels.general.append(field("Customize Party passenger capacity",
       checkbox("groupCapacityCustom",baseline.capacity!==null&&baseline.capacity!==undefined),
