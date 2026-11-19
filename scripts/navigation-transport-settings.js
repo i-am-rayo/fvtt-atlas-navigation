@@ -276,7 +276,8 @@ function wireGroupOwnedTransport(root,profiles) {
     note:"groupNoteCustom"
   };
   const mark=event=>{
-    const name=event?.target?.name??"";
+    const name=event?.target?.getAttribute?.("data-atlas-range-for")||
+      event?.target?.name||"";
     const override=groupFields[name]||
       (name.startsWith("cost_")?"groupCostCustom":null);
     if(override){const input=get(override);if(input)input.checked=true;}

@@ -405,15 +405,15 @@ export class AtlasGroupTransportationSettings extends base {
         };
         updateRemoval();
         if(type==="npc"){
-          const sync=()=>{
+          const sync=move=>{
             const mount=role.value==="mount";
             edit.disabled=!mount;
             removal.disabled=!mount;
-            (mount?(bucket[lookup.get(profile.value)?.surface??member.surface]??other):other)
+            if(move)(mount?(bucket[lookup.get(profile.value)?.surface??member.surface]??other):other)
               .appendChild(row);
           };
-          role.addEventListener("change",()=>{sync();this.dirty=true;});
-          sync();
+          role.addEventListener("change",()=>{sync(true);this.dirty=true;});
+          sync(false);
         }
         // Native Group membership and NPC role govern participation. Do not
         // duplicate native NPC deletion with an Atlas exclusion action.
