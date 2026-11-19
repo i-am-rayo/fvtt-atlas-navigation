@@ -136,7 +136,7 @@ test("saving matching profile ID preserves mount capacity across Actor rename",a
     const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
     assert.ok(save.events.click?.length);
     await save.events.click[0]();
-    assert.equal(ctx.saved.version,5);
+    assert.equal(ctx.saved.version,6);
     assert.equal(ctx.saved.groups.group1.members.camel1.profileId,"camel");
     assert.equal(ctx.changes.length,1);
     ctx.camel.name="Biscuit";
@@ -338,4 +338,81 @@ test("remove/re-enable is staged, versioned and never deletes the native Group A
       .events.click[0]();
     assert.equal(ctx.saved.groups.group1.members.ship1.enabled,true);
   }finally{globalThis.foundry=prev;ctx.restore();}
+});
+
+test("unique mount Assigned To uses current native Group IDs and stages until Group Save",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const sameName={id:"pc2",name:"Cassian",type:"character",system:{}};
+    ctx.group.system.members.push({actor:sameName});
+    ctx.setSaved({version:5,groups:{group1:{members:{
+      camel1:{role:"mount",quantity:1,capacity:1,surface:"land",profileId:"camel"}
+    }}}});
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const rider=elements.find(e=>e.name==="assigned-to-camel1");
+    assert.ok(rider,"staged Group-only Actor-ID field exists");
+    assert.equal(rider.value,"");
+    assert.deepEqual(rider.children.map(x=>x.value),["","pc1","pc2"]);
+    assert.notEqual(rider.children[1].textContent,rider.children[2].textContent,
+      "identically named characters are distinguished by stable IDs");
+    const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit Camel transportation");
+    globalThis.foundry={applications:{api:{DialogV2:{input:async()=>({
+      groupProfileId:"camel",groupQuantity:"1",groupAssignedTo:"pc2",
+      capacity:"",purchaseEnabled:false
+    })}}}};
+    await edit.events.click[0]();
+    assert.equal(rider.value,"pc2");
+    assert.equal(ctx.changes.length,0,"child Apply is a draft only");
+    await elements.find(e=>e.textContent==="Save Party Transportation Assignments")
+      .events.click[0]();
+    assert.equal(ctx.saved.groups.group1.members.camel1.assignedTo,"pc2");
+    assert.equal(ctx.changes.length,1);
+    assert.equal(ctx.group.system.members.length,4,"native Group membership is unchanged");
+    sameName.name="Renamed passenger";
+    const reopened=flatten(await app._renderHTML());
+    assert.equal(reopened.find(e=>e.name==="assigned-to-camel1").value,"pc2");
+    assert.ok(reopened.some(e=>(e.textContent??"").includes("Renamed passenger · pc2")),
+      "live display name updates but persisted ID never changes");
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
+test("invalid, orphan and duplicate mount rider assignments are rejected before settings write",async()=>{
+  const ctx=setup();
+  try{
+    ctx.group.system.members.push({actor:{id:"camel2",name:"Camel 2",type:"npc",system:{}}});
+    let saved={version:6,groups:{group1:{members:{
+      camel1:{role:"mount",quantity:1,capacity:1,surface:"land",assignedTo:"pc1"},
+      camel2:{role:"mount",quantity:1,capacity:1,surface:"land"}
+    }}}};
+    ctx.setSaved(saved);
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const nodes=flatten(await app._renderHTML());
+    const input=name=>nodes.find(x=>x.name===name);
+    const save=nodes.find(e=>e.textContent==="Save Party Transportation Assignments");
+    input("assigned-to-camel2").value="pc1";
+    await save.events.click[0]();
+    assert.equal(ctx.changes.length,0,"duplicate rider may not be saved");
+    input("assigned-to-camel2").value="";
+    input("quantity-camel1").value="2";
+    await save.events.click[0]();
+    assert.equal(ctx.changes.length,0,"assigned mount cannot silently become a pool");
+    input("quantity-camel1").value="1";
+    input("role-camel1").value="pack";
+    await save.events.click[0]();
+    assert.equal(ctx.changes.length,0,"role change requires explicit rider clearing");
+    input("role-camel1").value="mount";
+    input("assigned-to-camel1").value="";
+    await save.events.click[0]();
+    assert.equal(ctx.changes.length,1,"clearing assignment allows explicit transition");
+
+    const stale=new AtlasGroupTransportationSettings(ctx.group.id);stale.render=async()=>{};
+    const controls=flatten(await stale._renderHTML());
+    const next=controls.find(x=>x.name==="assigned-to-camel1");
+    next.value="pc1";
+    ctx.group.system.members.splice(0,1);
+    await controls.find(x=>x.textContent==="Save Party Transportation Assignments")
+      .events.click[0]();
+    assert.equal(ctx.changes.length,1,"changed native Group roster blocks stale rider save");
+  }finally{ctx.restore();}
 });

@@ -473,3 +473,44 @@ test("Party World profiles group Land/Water/Air alphabetically and quantity uses
     assert.deepEqual(ctx.changes,[],"child Apply makes no World or Group writes");
   }finally{globalThis.foundry=prior;ctx.restore();}
 });
+
+test("shared Party Transportation General tab lists eligible Assigned To rider IDs",async()=>{
+  const ctx=setup(),previous=globalThis.foundry;
+  const profile={id:"riding-horse",name:"Riding Horse",kind:"mount",surface:"land",
+    speedMph:3,capacity:1,costCp:0,costBasis:"none",costApplies:"unit",
+    purchaseGp:null,note:""};
+  const groupRiders=[{id:"pc1",name:"Cassian"},{id:"pc2",name:"Cassian"}];
+  const saved=[];
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      const elements=flatten(content);
+      const field=elements.find(e=>e.name==="groupAssignedTo");
+      assert.ok(field,"Assigned To belongs inside the shared General tab");
+      assert.deepEqual(field.children.map(child=>child.value),["","pc1","pc2"]);
+      assert.notEqual(field.children[1].textContent,field.children[2].textContent,
+        "identical display names require distinct Actor-ID labels");
+      assert.equal(field.value,"pc1");
+      return {groupProfileId:"riding-horse",groupQuantity:"1",groupAssignedTo:"pc2"};
+    }}}}};
+    const result=await openTransportationMethodEditor({scope:"group",method:profile,
+      groupKind:"mount",groupActorName:"Horse",profiles:[profile],groupRiders,
+      groupAssignment:{profileId:profile.id,quantity:1,assignedTo:"pc1"},
+      onSave:value=>saved.push(value)});
+    assert.equal(result.assignedTo,"pc2");
+    assert.equal(result.quantity,1);
+    assert.deepEqual(saved,[result]);
+    assert.deepEqual(ctx.changes,[],"child Apply makes no authoritative writes");
+    globalThis.foundry.applications.api.DialogV2.input=async()=>({
+      groupProfileId:profile.id,groupQuantity:"2",groupAssignedTo:"pc1"
+    });
+    await assert.rejects(()=>openTransportationMethodEditor({scope:"group",
+      method:profile,groupKind:"mount",profiles:[profile],groupRiders,
+      groupAssignment:{quantity:1},onSave:()=>{}}),/Choose None before increasing/);
+    globalThis.foundry.applications.api.DialogV2.input=async()=>({
+      groupProfileId:profile.id,groupQuantity:"1",groupAssignedTo:"deletedId"
+    });
+    await assert.rejects(()=>openTransportationMethodEditor({scope:"group",
+      method:profile,groupKind:"mount",profiles:[profile],groupRiders,
+      groupAssignment:{quantity:1},onSave:()=>{}}),/current eligible Party member/);
+  }finally{globalThis.foundry=previous;ctx.restore();}
+});
