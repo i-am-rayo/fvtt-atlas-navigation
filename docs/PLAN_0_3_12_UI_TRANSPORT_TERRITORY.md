@@ -4,6 +4,19 @@
 
 **Product Owner requests:** Group-owned Vehicles must present transportation like **Map Marker Settings → Transportation**, sourced from native D&D 5e Group membership and linked to World Transportation presets. Territory appearance issue **#417** is included for 0.3.12. Both are UI/UX scope; #417 was **already assigned** to UI/UX Milestone 01 at the live review, and #460 now tracks Group transportation under that milestone.
 
+## Updated issue sequencing — owner 2026-11-19
+
+The four new Party-owned Transportation issues were reviewed against main v0.3.11, labeled `area: ui-ux` / `area: transportation` and assigned to UI/UX Milestone 01: **#456 P1**, **#457 P2** (depends on #456), **#458 P2**, **#459 P2** (depends on #456 and #458). The earlier umbrella #460 is the visual acceptance endpoint and should not compete with these implementation tickets. The broader #197 remains in the Transportation milestone and is not closed by UI changes.
+
+**Reordered implementation batches to respect the dependency chain:**
+
+- **dev.1: #456 + #458 foundation** — the existing shared World/Map Marker transportation method editor gets an explicit Group draft scope; profile inheritance, quantity wording, no duplicate inline override controls, and consistent capacity source. Child Apply changes the parent draft only; the explicit Group Save remains authoritative. This batch intentionally retains the existing Vehicles/NPC/PC tabs until the foundation is accepted.
+- **dev.2: #457 + #460 compact UI** — Land, inland Water, Sea when explicitly classified, Air lists, matching Map Marker row layout, native-Group-only Actors, editor icon controls, staged remove/re-enable semantics, and elimination of the low-value PC tab. **Do not** implement fake Delete by simply erasing an override and causing automatic vehicle reactivation.
+- **dev.3: #459 + #460 refinement** — unique mount `Assigned To` by current native Group Actor ID, no boarding or capacity/fare effect, no implicit assignment for shared pools, compatible additive versioning, stale membership guard.
+- **dev.4+: #417 Territory appearance**, using native Region color and the reviewed #295 typography dependency; avoid mixing this native-Region write scope with Group transportation schemas.
+
+Each build still groups coherent UI/validation/tests, retains a stacked DRAFT PR and live GM/non-GM acceptance. Move the later batch numbers only when needed; do not claim the issue is completed until its acceptance criteria are satisfied.
+
 ## Batch 1 — 0.3.12-dev.1: Group Transportation display and controls (#460)
 
 **Scope one cohesive implementation, multiple items together.**
