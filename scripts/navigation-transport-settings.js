@@ -401,7 +401,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
 
   async _edit(preset,surface="land",{scope="world",onSave=null,onReset=null,
     onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,
-    groupAssignment=null,profiles=[],groupActorName="",groupKind="vehicle"}={}){
+    groupAssignment=null,profiles=[],groupActorName="",groupKind="vehicle",
+    groupRiders=[]}={}){
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
     const group=scope==="group";
     if(group&&(typeof onSave!=="function"||!["mount","vehicle"].includes(groupKind)))
@@ -490,6 +491,18 @@ export class AtlasTransportationSettings extends ApplicationBase {
           {min:1,max:100,step:1,numericStep:1,label:"Quantity Available"}),
           "Number of owned mounts or vehicles represented by this Actor.")
       );
+      if(groupKind==="mount"){
+        const riders=[["","None — shared mount"],...groupRiders.map(rider=>
+          [rider.id,rider.name+" · "+rider.id])];
+        const assignedId=String(baseline.assignedTo??"");
+        if(assignedId&&!groupRiders.some(rider=>rider.id===assignedId))
+          riders.push([assignedId,"Unavailable party member: "+assignedId]);
+        const assigned=createSettingsSelect(riders,{selectedId:assignedId,
+          name:"groupAssignedTo",ariaLabel:"Assigned To"});
+        groupFields.append(field("Assigned To",assigned,
+          "Optional exclusive personal mount for one current party member. "+
+          "A shared pool must have no assignee. Does not board an Actor."));
+      }
       panels.general.appendChild(groupFields);
       panels.general.appendChild(element("p",
         "Changing a value creates a Party-only override. Reset to inherit World defaults."));
@@ -799,9 +812,15 @@ export class AtlasTransportationSettings extends ApplicationBase {
       if(typeof purchase==="number"&&(!Number.isFinite(purchase)||
         purchase<0||purchase>100000000))
         throw Error("Invalid Party purchase price.");
+      const quantity=integer("Quantity Available",response.groupQuantity,1,100);
+      const assignedTo=group&&groupKind==="mount"?
+        String(response.groupAssignedTo??"")||null:null;
+      if(assignedTo&&(quantity!==1||
+          !groupRiders.some(rider=>rider.id===assignedTo)))
+        throw Error("Assigned To requires one mount and a current eligible Party member. "+
+          "Choose None before increasing Quantity Available.");
       const next={
-        profileId:chosen||null,
-        quantity:integer("Quantity Available",response.groupQuantity,1,100),
+        profileId:chosen||null,quantity,assignedTo,
         capacity:active("groupCapacityCustom")?
           integer("Passenger seats",response.capacity,1,1000,true):null,
         speedMphOverride:speed,
@@ -963,7 +982,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
  */
 export async function openTransportationMethodEditor({method,scope,onSave,onReset=null,
   onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,
-  groupAssignment=null,profiles=[],groupActorName="",groupKind="vehicle"}={}){
+  groupAssignment=null,profiles=[],groupActorName="",groupKind="vehicle",
+  groupRiders=[]}={}){
   if((!method&&scope!=="group")||!["checkpoint","journey","group"].includes(scope)||
       typeof onSave!=="function"||
       (onSaveCheckpoint!==null&&typeof onSaveCheckpoint!=="function"))
@@ -971,7 +991,7 @@ export async function openTransportationMethodEditor({method,scope,onSave,onRese
   const app=new AtlasTransportationSettings();
   return app._edit(method,method?.surface??"land",{scope,onSave,onReset,
     onSaveCheckpoint,checkpointName,journeyOperation,groupAssignment,profiles,
-    groupActorName,groupKind});
+    groupActorName,groupKind,groupRiders});
 }
 
 
