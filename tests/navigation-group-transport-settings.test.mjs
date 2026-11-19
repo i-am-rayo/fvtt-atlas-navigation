@@ -285,7 +285,7 @@ test("Party transportation child editor stages existing Group data without writi
     assert.match(labels,/Quantity Available/);
     const hidden=elements.find(e=>e.name==="cost-camel1");
     assert.ok(hidden,"existing validated parent fields preserve their storage contract");
-    assert.ok(elements.some(e=>e.hidden&&e.children.some(c=>c.children.includes(hidden))),
+    assert.ok(elements.some(e=>e.hidden&&flatten(e).includes(hidden)),
       "inline override controls are hidden from the Group overview");
     const edit=elements.find(e=>e.textContent==="Edit Camel transportation");
     assert.ok(edit?.events.click?.length);
