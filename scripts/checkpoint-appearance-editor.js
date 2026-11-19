@@ -102,6 +102,15 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     return super.close(options);
   }
 
+  async _onRender(context,options) {
+    await super._onRender?.(context,options);
+    const current=this.createDraft?null:readAtlas(this.scene).checkpoints?.find(
+      checkpoint=>checkpoint.id===this.checkpointId);
+    if(this.window?.title)
+      this.window.title.textContent=atlasSettingsTitle("Map Marker",current?.name,
+        {creating:Boolean(this.createDraft)});
+  }
+
   async _renderHTML() {
     if (!game.user?.isGM || !this.scene?.canUserModify?.(game.user, "update")) {
       throw new Error("Only a GM with Scene update permission may edit Map Markers.");
@@ -111,10 +120,6 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       appearance: null, playerVisible: false
     } : readAtlas(this.scene).checkpoints?.find(c => c.id === this.checkpointId);
     if (!current) throw new Error("Map Marker no longer exists.");
-    // Use Foundry's public header element; never promote an unsaved name draft.
-    if(this.window?.title)
-      this.window.title.textContent=atlasSettingsTitle("Map Marker",current.name,
-        {creating:Boolean(this.createDraft)});
     const appearance = resolveCheckpointAppearance(current.appearance);
     const existingBanner=resolveCheckpointBanner(appearance);
     const exploration = readPartyExploration(this.scene);
