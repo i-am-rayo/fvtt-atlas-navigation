@@ -186,10 +186,12 @@ test("saving a custom mount speed overrides only Group metadata and derives surf
     const elements=flatten(await app._renderHTML());
     const field=name=>elements.find(e=>e.name===name);
     const speed=field("speed-camel1");
-    assert.equal(speed.disabled,false);
-    speed.value="3.75";
     const profile=field("profile-camel1");
+    assert.equal(speed.disabled,true,"no implied World profile from Actor name");
     profile.value="camel";
+    profile.events.change?.forEach(callback=>callback());
+    assert.equal(speed.disabled,false,"explicit World profile permits a speed override");
+    speed.value="3.75";
     assert.equal(profile.value,"camel");
     const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
     await save.events.click[0]();
@@ -208,6 +210,7 @@ test("Group editor saves all resource-specific economy and note overrides",async
     app.render=async()=>{};
     const elements=flatten(await app._renderHTML());
     const input=name=>elements.find(e=>e.name===name);
+    input("profile-camel1").value="camel";
     input("cost-camel1").value="12.5";
     input("cost-basis-camel1").value="day";
     input("cost-applies-camel1").value="unit";
