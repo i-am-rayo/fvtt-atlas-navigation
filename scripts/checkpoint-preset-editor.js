@@ -308,8 +308,16 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
           terrain:{presetId:terrainId.value||null,radiusCells:regionRadius.getValue()},
           transportation:transportEditor.getOffers(),
           event:{kind:eventKind.value,enabled:false}};
+        const latest=readWorldCheckpointPresets();
+        const saved=latest.presets.find(item=>item.id===next.id);
+        if(preset){
+          if(JSON.stringify(saved??null)!==JSON.stringify(preset))
+            throw Error("This Map Marker preset changed elsewhere. Reopen it before saving.");
+        }else if(saved){
+          throw Error("A Map Marker preset with this ID already exists. Try creating again.");
+        }
         await game.settings.set(MODULE_ID,CHECKPOINT_PRESET_SETTING,
-          upsertCheckpointPreset(readWorldCheckpointPresets(),next));
+          upsertCheckpointPreset(latest,next));
         this._skipClosePrompt=true;
         await this.close();await this.onSaved?.();
         ui.notifications.info("Map Marker preset saved. Existing Map Markers remain unchanged.");
