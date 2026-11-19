@@ -1087,6 +1087,9 @@ function actions() {
         if (changedScene?.id!==scene.id) return;
         const live=document.querySelector('[data-atlas-road-live="'+roadDialogToken+'"]');
         if (!live) return;
+        const currentRoad=readAtlas(scene).roads.find(item=>item.id===actual.id);
+        if(currentRoad&&roadDialog?.window?.title)
+          roadDialog.window.title.textContent=atlasSettingsTitle("Road",currentRoad.name);
         const checkpoints=live.querySelector("[data-atlas-road-checkpoint-list]");
         const regions=live.querySelector("[data-atlas-road-region-list]");
         if (checkpoints && regions) populateRelatedLists(checkpoints,regions);
