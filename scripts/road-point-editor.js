@@ -30,6 +30,7 @@ export class RoadPointEditor {
     return {
       mode: "points",
       source: s.source,
+      roadName: s.working.roads?.find(road=>road.id===s.roadId)?.name??null,
       points: roadHandles(s.working, s.roadId).length,
       dirty: s.operations.length > 0,
       canUndo: s.operations.length > 0,

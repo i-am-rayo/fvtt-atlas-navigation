@@ -24,6 +24,15 @@
 .atlas-ui-icon-button > i { font-size: .8rem; line-height:1; }
 .atlas-ui-icon-button--compact,
 .atlas-ui-icon-button--footer { font-size:.8rem; }
+/* Foundry's native legend typography must not enlarge Atlas's nested + glyphs.
+ * This covers Transportation, Road Map Marker, and Region Add legends alike.
+ * Keep the shared 2rem button target and relative .8rem glyph at text zoom.
+ */
+.application fieldset > legend button.atlas-ui-icon-button > i,
+.application fieldset > legend button.atlas-ui-icon-button > i::before {
+  font-size: .8rem;
+  line-height: 1;
+}
 .atlas-ui-icon-button:focus-visible {
   outline: 2px solid var(--color-border-highlight,#dcb476);
   outline-offset: 2px;
@@ -77,12 +86,24 @@
 .atlas-checkpoint-customization-section > legend { font-weight:700; padding:0 .3rem; }
 .atlas-checkpoint-customization-section > div { min-width:0; }
 
+/* Same two-field banner row as Road/World preset editors. Each control keeps
+   its own label and can wrap independently on narrow Foundry windows. */
+.atlas-checkpoint-banner-inline {
+  display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;min-width:0;
+}
+.atlas-checkpoint-banner-inline > label {
+  flex:1 1 13rem;min-width:0;
+}
+.atlas-checkpoint-banner-inline > label:last-child {
+  flex:0 1 14rem;
+}
+.atlas-checkpoint-banner-inline select {
+  flex:1 1 8rem;min-width:0;max-width:100%;
+}
+
 /* Checkpoint controls preserve the existing staged form and native popover. */
 .atlas-checkpoint-form-actions .atlas-checkpoint-footer-visibility {
   display:inline-flex;align-items:center;gap:.35rem;
-}
-.atlas-checkpoint-form-actions .atlas-checkpoint-footer-save {
-  margin-inline-start:auto;
 }
 .atlas-checkpoint-marker-row {
   display:flex;gap:1rem;align-items:center;justify-content:space-between;
@@ -184,4 +205,63 @@
 }
 .atlas-marker-preset-editor .atlas-marker-preset-banner-colors input[type="color"] {
   width:3.75rem;min-width:3.75rem;height:2.25rem;
+}
+
+/* World catalog navigation (#421–#423). Panels stay mounted, so tab changes
+   only change presentation; each editor owns its existing guarded Save. */
+.atlas-world-category-tabs {
+  display:flex;gap:.4rem;flex-wrap:wrap;min-width:0;flex:0 0 auto;
+  border-bottom:1px solid var(--color-border-light-tertiary,#666);
+  padding-bottom:.55rem;
+}
+.atlas-world-category-tabs > button {
+  flex:1 1 7rem;min-width:0;padding:.35rem .6rem;
+}
+.atlas-world-category-tabs > button[aria-selected="true"] {
+  background:var(--color-cool-5-90,rgba(156,123,240,.22));
+  font-weight:700;
+}
+.atlas-world-category-tabs > button:focus-visible {
+  outline:2px solid var(--color-focus, #b49bfa);outline-offset:2px;
+}
+.atlas-world-category-scroll {min-width:0;}
+.atlas-world-category-scroll > fieldset[hidden] {display:none!important;}
+.atlas-world-category-legend {
+  display:inline-flex;align-items:center;gap:.5rem;max-width:100%;
+}
+.atlas-world-category-legend > .atlas-ui-icon-button {vertical-align:middle;}
+
+/* World Map Marker preset preview uses the placed-marker presentation,
+   but only sample text: no Scene coordinates, Journal or native Region IDs. */
+.atlas-marker-preset-editor .atlas-marker-preset-preview-sample {
+  min-height:90px;display:flex;align-items:center;justify-content:center;
+  gap:12px;padding:.8rem;border-radius:5px;background:#303936;
+}
+.atlas-marker-preset-editor .atlas-marker-preset-preview-sample > span:last-child {
+  display:grid;gap:.15rem;justify-items:start;overflow-wrap:anywhere;
+  font-family:Arial,sans-serif;text-shadow:1px 1px 2px #000,-1px -1px 2px #000;
+}
+.atlas-marker-preset-editor .atlas-marker-preset-preview-sample > span:last-child > strong {
+  font-size:16px;line-height:1.25;
+}
+.atlas-marker-preset-editor .atlas-marker-preset-preview-sample > span:last-child > small {
+  font-size:12px;font-style:italic;
+}
+.atlas-marker-preset-editor .atlas-marker-preset-tabs > button[aria-selected="true"] {
+  font-weight:700;
+}
+
+/* Explicit Map Marker border toggle + retained color; shared by placed and
+   World preset forms, without touching native Region border geometry. */
+.atlas-checkpoint-border-inline {
+  display:flex;align-items:center;flex-wrap:wrap;gap:.5rem .8rem;min-width:0;
+}
+.atlas-checkpoint-border-inline > label {
+  display:flex;align-items:center;gap:.4rem;flex:1 1 11rem;min-width:0;
+}
+.atlas-checkpoint-border-inline > label:first-child {
+  flex:0 1 12rem;
+}
+.atlas-checkpoint-border-inline input[type="color"] {
+  flex:0 0 3.75rem;width:3.75rem;min-width:3.75rem;
 }

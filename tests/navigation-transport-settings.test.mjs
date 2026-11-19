@@ -6,11 +6,13 @@ class FakeElement {
   constructor(tag){
     this.tagName=tag.toUpperCase();this.children=[];this.attributes=new Map();
     this.style={cssText:""};this.value="";this.defaultValue="";this.checked=false;
+    this.listeners=new Map();
   }
   appendChild(child){this.children.push(child);return child;}
   append(...children){for(const child of children)this.appendChild(child);}
   setAttribute(name,value){this.attributes.set(name,String(value));}
-  addEventListener(){}
+  addEventListener(name,fn){this.listeners.set(name,fn);}
+  focus(){this.focused=true;}
   replaceChildren(...children){this.children=[...children];}
 }
 const flatten=(root)=>[root,...root.children.flatMap(flatten)];
@@ -40,6 +42,21 @@ test("Transport catalog and Workspace travel forms render without writing settin
     assert.match(text,/Water travel/);
     assert.match(text,/Air travel/);
     assert.match(text,/Import optional workbook examples/);
+    const tabs=flatten(defaults).find(node=>node.className==="atlas-world-category-tabs");
+    const scroll=flatten(defaults).find(node=>node.className==="atlas-world-category-scroll");
+    assert.deepEqual(tabs.children.map(node=>node.textContent),["Land","Water","Air"]);
+    assert.deepEqual(scroll.children.filter(node=>node.tagName==="FIELDSET")
+      .map(node=>node.hidden),[false,true,true]);
+    tabs.children[1].listeners.get("click")();
+    assert.equal(app.activeCategory,"water");
+    assert.deepEqual(scroll.children.filter(node=>node.tagName==="FIELDSET")
+      .map(node=>node.hidden),[true,false,true],
+      "Water shows its original independent services, no storage changes");
+    const revisited=await app._renderHTML();
+    const active=flatten(revisited).find(node=>node.className==="atlas-world-category-tabs");
+    assert.equal(active.children[1].attributes.get("aria-selected"),"true",
+      "add/edit/reset rerenders return to the chosen World category");
+    assert.deepEqual(ctx.changes,[],"category navigation does not save");
     assert.equal(flatten(defaults).some(e=>e.textContent==="Travel rules"),false);
     const rulePanel=new FakeElement("section");renderTravelRules(rulePanel);
     const rules=flatten(rulePanel).map(e=>e.textContent??"").join(" ");
@@ -51,6 +68,52 @@ test("Transport catalog and Workspace travel forms render without writing settin
     assert.match(journey,/Animation speed/);
     assert.deepEqual(ctx.changes,[],"opening tabs never writes or migrates settings");
   }finally{ctx.restore();}
+});
+
+test("rehydrated Transportation dialog tabs support Arrow/Home/End without saving",async()=>{
+  const ctx=setup(),prior=globalThis.foundry;
+  try{
+    const tabs=["general","services","cost"].map((id,i)=>{
+      const node=new FakeElement("button");
+      node.dataset={atlasPresetTab:id};
+      node.setAttribute("aria-selected",String(i===0));
+      return node;
+    });
+    const panels=["general","services","cost"].map(id=>{
+      const node=new FakeElement("section");
+      node.dataset={atlasPresetPanel:id};
+      return node;
+    });
+    const rendered=new FakeElement("div");
+    rendered.dataset={};
+    rendered.querySelectorAll=selector=>
+      selector==="[data-atlas-preset-tab]"?tabs:
+      selector==="[data-atlas-preset-panel]"?panels:[];
+    rendered.querySelector=()=>null;
+    globalThis.foundry={applications:{api:{DialogV2:{
+      input:async({render})=>{
+        render({element:rendered},rendered);
+        return null;
+      }
+    }}}};
+    await new AtlasTransportationSettings()._edit(null,"water");
+    assert.deepEqual(tabs.map(t=>t.tabIndex),[0,-1,-1]);
+    assert.deepEqual(panels.map(p=>p.hidden),[false,true,true]);
+    let prevented=false;
+    tabs[0].listeners.get("keydown")({key:"ArrowRight",
+      preventDefault(){prevented=true;}});
+    assert.equal(prevented,true);
+    assert.deepEqual(tabs.map(t=>t.attributes.get("aria-selected")),
+      ["false","true","false"]);
+    assert.deepEqual(panels.map(p=>p.hidden),[true,false,true]);
+    assert.equal(tabs[1].focused,true);
+    tabs[1].listeners.get("keydown")({key:"End",preventDefault(){}});
+    assert.deepEqual(tabs.map(t=>t.tabIndex),[-1,-1,0]);
+    tabs[2].listeners.get("keydown")({key:"Home",preventDefault(){}});
+    assert.deepEqual(panels.map(p=>p.hidden),[false,true,true]);
+    assert.equal(tabs[0].focused,true);
+    assert.deepEqual(ctx.changes,[],"tab switches are draft-only");
+  }finally{globalThis.foundry=prior;ctx.restore();}
 });
 
 test("Transportation editing refuses non-GMs at the action boundary",async()=>{
@@ -166,6 +229,48 @@ test("World Transportation Presets no longer embeds Group-specific assignments",
     assert.doesNotMatch(content,/Group transportation resources|Save Group transportation|atlasGroupSelection/);
     assert.match(content,/Land travel/);
   }finally{ctx.restore();}
+});
+
+test("World transportation edits for different method IDs merge, stale same-method Save blocks",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry,oldUI=globalThis.ui;
+  try{
+    const {defaultTransportationCatalog,readTransportationCatalog,
+      listTransportationPresets,TRANSPORT_CATALOG_SETTING}=
+      await import("../scripts/navigation-transport-catalog.js");
+    let catalog=defaultTransportationCatalog(),writes=0;
+    const settings=globalThis.game.settings;
+    settings.get=(_m,key)=>key===TRANSPORT_CATALOG_SETTING?catalog:
+      key==="guidedTravelRulesProfile"?"dnd5e2024":undefined;
+    settings.set=async(_m,key,value)=>{
+      if(key===TRANSPORT_CATALOG_SETTING){catalog=value;writes++;}
+      return value;
+    };
+    const methods=listTransportationPresets(settings,"dnd5e");
+    const a=methods.find(m=>m.id==="mounted"),b=methods.find(m=>m.id==="sailing");
+    assert.ok(a&&b,"two independent built-in methods must exist");
+    let active=a;
+    const input=async()=>({
+      name:active.name,kind:active.kind,surface:active.surface,
+      speedDisplay:active.speedMph,capacity:active.capacity??"",
+      crewCount:active.crewCount??0,costBasis:active.costBasis??"none",
+      costApplies:active.costApplies??"unit",crewWageBasis:"day",
+      hireBasis:"day",hireApplies:"unit",overtimeExtraHours:8,
+      overtimeMultiplier:1.5
+    });
+    globalThis.foundry={applications:{api:{DialogV2:{input}}}};
+    globalThis.ui={notifications:{info(){},error(message){throw Error(message);}}};
+    const app=new AtlasTransportationSettings();app.render=async()=>{};
+    active=a;await app._edit(a);
+    active=b;await app._edit(b);
+    assert.equal(writes,2);
+    const updated=readTransportationCatalog(settings);
+    assert.ok(updated.overrides.dnd5e2024?.mounted);
+    assert.ok(updated.overrides.dnd5e2024?.sailing,
+      "saving a second method keeps the first method's override");
+    active=a;
+    await assert.rejects(()=>app._edit(a),/transportation method changed elsewhere/);
+    assert.equal(writes,2,"same-method stale edit never writes World catalog");
+  }finally{globalThis.foundry=oldFoundry;globalThis.ui=oldUI;ctx.restore();}
 });
 
 test("Journey editor exposes explicit Save for this trip and Save to checkpoint controls",async()=>{

@@ -53,6 +53,7 @@ export function addAtlasExplorerToTokenConfig(app, element) {
   checkboxLabel.append(checkbox, document.createTextNode("Use this token as the party explorer"));
   assignmentSection.append(checkboxLabel);
   const status=document.createElement("p");
+  status.setAttribute("role","status"); // Announce the dedicated Save outcome.
   status.style.cssText="margin:0;font-size:.85em;opacity:.85;";
   const currentStatus=()=>prototype ? "Saved with the Actor’s prototype token." : expected.tokenId===token.id&&expected.enabled?
     "Assigned: this token explores the Scene.":

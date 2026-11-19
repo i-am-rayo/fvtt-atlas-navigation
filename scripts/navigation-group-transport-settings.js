@@ -8,6 +8,8 @@ import { GROUP_TRANSPORT_SETTING,readGroupTransportation,
   from "./navigation-group-transport.js";
 import { listTransportationPresets } from "./navigation-transport-catalog.js";
 import { AtlasTransportationSettings } from "./navigation-transport-settings.js";
+import {createSettingsCategoryTabs} from "./settings-category-tabs.js";
+import {createAtlasIconButton} from "./ui-action-button.js";
 
 const MODULE_ID="fvtt-atlas-navigation";
 const SURFACES=["land","water","air"];
@@ -84,16 +86,11 @@ export function addAtlasGroupTransportationControl(app,html){
   const header=root?.querySelector?.(".header.travel-pace");
   const heading=header?.querySelector?.("h3");
   if(!heading||header.querySelector(".atlas-transport-button"))return false;
-  const control=node("button");control.type="button";
-  control.className="unbutton config-button atlas-transport-button";
-  control.setAttribute("aria-label","Manage Party Transportation");
+  const control=createAtlasIconButton({icon:"horse",label:"Manage Party Transportation"});
+  control.className+=" config-button atlas-transport-button";
   control.setAttribute("data-tooltip","Manage Party Transportation (GM only)");
   control.title="Manage Party Transportation (GM only)";
-  control.style.cssText="display:inline-flex;align-items:center;justify-content:center;"+
-    "flex:0 0 1.7rem;width:1.7rem;height:1.7rem;padding:0;margin:0 .15rem;"+
-    "color:var(--color-text-light-highlight,#c7b68d);";
-  const icon=node("i");icon.className="fa-solid fa-horse";
-  icon.setAttribute("aria-hidden","true");control.appendChild(icon);
+  control.style.margin="0 .15rem";
   control.addEventListener("click",event=>{
     event?.preventDefault?.();event?.stopPropagation?.();
     try{openAtlasGroupTransportation(group.id);}catch(error){
@@ -110,7 +107,10 @@ export class AtlasGroupTransportationSettings extends base {
     window:{title:"Atlas — Party-owned Transportation",resizable:true},
     position:{width:790,height:700}
   };
-  constructor(groupId,...args){super(...args);this.groupId=groupId;this.activeTab="vehicle";}
+  constructor(groupId,...args){
+    super({id:"fvtt-atlas-group-transportation-"+groupId},...args);
+    this.groupId=groupId;this.activeTab="vehicle";
+  }
   _replaceHTML(result,content){content.replaceChildren(result);}
   async _renderHTML(){
     if(!globalThis.game?.user?.isGM)
@@ -152,40 +152,14 @@ export class AtlasGroupTransportationSettings extends base {
       ["npc","NPC","Assign a role; select a mount profile only when applicable."],
       ["character","Player Characters","Native character members are counted as travelers."]
     ];
-    const tabBar=node("div");
-    tabBar.setAttribute("role","tablist");
-    tabBar.setAttribute("aria-label","Party transportation categories");
-    tabBar.style.cssText="display:flex;gap:.35rem;flex-wrap:wrap;border-bottom:1px solid #666;padding-bottom:.35rem;";
-    const panels=new Map();
-    const tabs=new Map();
+    const tabs=createSettingsCategoryTabs({id:"atlas-group-transport",
+      modes:categories.map(([type,label])=>[type,label]),
+      active:this.activeTab,onChange:type=>{this.activeTab=type;}});
+    tabs.nav.setAttribute("aria-label","Party transportation categories");
     const panelHost=node("div");
     panelHost.style.cssText="flex:1;min-height:0;overflow-y:auto;";
-    const activate=type=>{
-      this.activeTab=type;
-      for(const [id,panel] of panels){
-        const active=id===type;
-        panel.hidden=!active;
-        panel.style.display=active?"grid":"none";
-        panel.setAttribute("aria-hidden",String(!active));
-        const tab=tabs.get(id);
-        tab?.setAttribute("aria-selected",String(active));
-        if(tab)tab.style.cssText="padding:.4rem .8rem;border-radius:.45rem .45rem 0 0;"+
-          (active?"font-weight:700;border-bottom:3px solid #ba93ec;":"opacity:.75;");
-      }
-    };
     for(const [type,label,description] of categories){
-      const tab=node("button",label);
-      tab.type="button";
-      tab.setAttribute("role","tab");
-      tab.setAttribute("id","atlas-transport-tab-"+type);
-      tab.setAttribute("aria-controls","atlas-transport-panel-"+type);
-      tab.addEventListener("click",()=>activate(type));
-      tabs.set(type,tab);
-      tabBar.appendChild(tab);
       const section=node("fieldset");
-      section.setAttribute("role","tabpanel");
-      section.setAttribute("id","atlas-transport-panel-"+type);
-      section.setAttribute("aria-labelledby","atlas-transport-tab-"+type);
       section.style.cssText="border:1px solid var(--color-border-light-primary,#666);"+
         "border-radius:.5rem;padding:.75rem;display:grid;gap:.75rem;min-width:0;";
       section.appendChild(node("legend",label));
@@ -193,10 +167,10 @@ export class AtlasGroupTransportationSettings extends base {
       const members=roster.members.filter(member=>member.actorType===type);
       if(!members.length)section.appendChild(node("p","No "+label.toLowerCase()+" in this Group."));
       for(const member of members){
-        const row=node("div");
+        const row=node("fieldset");
         row.style.cssText="border:1px solid var(--color-border-light-tertiary,#555);"+
-          "border-radius:.45rem;padding:.75rem;display:grid;gap:.65rem;";
-        row.appendChild(node("strong",member.actorName+
+          "border-radius:.45rem;padding:.75rem;display:grid;gap:.65rem;min-width:0;";
+        row.appendChild(node("legend",member.actorName+
           (member.primaryVehicle?" ★ Primary vehicle":"")));
         if(type==="character"){
           row.appendChild(node("small","Counts as one party traveler; transportation is configured separately."));
@@ -354,28 +328,28 @@ export class AtlasGroupTransportationSettings extends base {
           purchaseMode,purchaseOverride,noteOverride});
         section.appendChild(row);
       }
-      panels.set(type,section);
-      panelHost.appendChild(section);
+      panelHost.appendChild(tabs.addPanel(type,section));
     }
-    root.appendChild(tabBar);
+    root.appendChild(tabs.nav);
     root.appendChild(panelHost);
-    activate(panels.has(this.activeTab)?this.activeTab:"vehicle");
     const footer=node("div");footer.style.cssText="display:flex;flex-wrap:wrap;gap:.6rem;flex:0 0 auto;";
     footer.appendChild(action("Save Party Transportation Assignments",async()=>{
       if(!game.user?.isGM)throw new Error("Only a GM may assign transportation.");
-      if(JSON.stringify(readGroupTransportation(game.settings))!==JSON.stringify(assignments))
-        throw new Error("Group assignments changed elsewhere. Reopen the editor.");
+      const currentAssignments=readGroupTransportation(game.settings);
+      if(JSON.stringify(currentAssignments.groups[this.groupId]??null)!==
+          JSON.stringify(assignments.groups[this.groupId]??null))
+        throw new Error("This Group's assignments changed elsewhere. Reopen the editor.");
       const currentGroup=game.actors?.get?.(this.groupId);
       if(!currentGroup||currentGroup.type!=="group")
         throw new Error("The Group Actor is no longer available.");
-      const currentRoster=projectGroupTransportation(currentGroup,assignments,methods);
+      const currentRoster=projectGroupTransportation(currentGroup,currentAssignments,methods);
       if(JSON.stringify(currentRoster.members.map(m=>m.actorId))!==
           JSON.stringify(roster.members.map(m=>m.actorId)))
         throw new Error("Group membership changed. Reopen the editor.");
       const now=listTransportationPresets(game.settings,game.system.id);
       if(JSON.stringify(now)!==methodSnapshot)
         throw new Error("Transportation profiles changed. Reopen the editor.");
-      let next=assignments;
+      let next=currentAssignments;
       for(const entry of editable){
         const {member,role,quantity,capacity,profile,speedOverride,
           costOverride,costBasisOverride,costAppliesOverride,

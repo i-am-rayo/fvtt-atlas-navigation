@@ -37,6 +37,8 @@ test("Placed Token shows only party assignment without mutation",()=>{
       "Party explorer"
     ]);
     assert.equal(sections.length,1);
+    assert.equal(sections[0].children.find(child=>child.tag==="p").role,"status",
+      "explorer status updates are announced without a separate write");
     assert.equal(scene.flags,undefined);
   }finally{
     globalThis.game=before.game;globalThis.document=before.document;

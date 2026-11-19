@@ -7,7 +7,12 @@ import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
 import { CHECKPOINT_TYPE_GROUPS, CHECKPOINT_TYPES, CHECKPOINT_TYPE_FLAG, validateCheckpointCategories } from "./checkpoint-types.js";
 import { createSettingsGroupedSelect } from "./settings-select.js";
 import { MODULE_ID } from "./atlas-storage.js";
-import { roadAppearanceMode } from "./road-appearance.js";
+import {roadAppearanceMode,readWorldRoadAppearance,resolveRoadAppearance} from "./road-appearance.js";
+import {nativeRegionColorHex} from "./native-region-color.js";
+import {resolveCheckpointAppearance,CHECKPOINT_ICONS,checkpointIconPath} from "./checkpoint-appearance.js";
+import {createCheckpointIconGlyph} from "./checkpoint-icon-control.js";
+import {readCheckpointTransportStore} from "./checkpoint-transportation.js";
+import {listTransportationPresets} from "./navigation-transport-catalog.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { createSettingsActionButton } from "./settings-controls.js";
 import { openAtlasTerritorySettings } from "./atlas-territory-settings.js";
@@ -33,6 +38,10 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     if (link) associate(link.checkpointId, regionId);
   }
   const presets = readWorldTravelPresets().presets;
+  const roadStyles=readWorldRoadAppearance();
+  const transportByMarker=readCheckpointTransportStore(scene).entries;
+  const transportNames=new Map(listTransportationPresets(
+    globalThis.game?.settings,globalThis.game?.system?.id).map(method=>[method.id,method.name]));
   const categories = validateCheckpointCategories(scene.getFlag(MODULE_ID, CHECKPOINT_TYPE_FLAG));
   const categoryNames = new Map(CHECKPOINT_TYPES);
   const party = readPartyExploration(scene);
@@ -122,25 +131,33 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   filters.appendChild(searchGroup);
   search.addEventListener("input",()=>{saved.query=search.value;draw();});
 
-  function group(key,label,expanded,subtitle="") {
-    const details=element("details");
-    details.open=expanded||state.open.has(key);
+  function group(key,label,expanded,subtitle="",expandable=true) {
+    const details=element(expandable?"details":"div");
+    if(expandable)details.open=expanded||state.open.has(key);
+    else details.className="atlas-directory-leaf";
     details.dataset.atlasDirectoryKey=key;
     details._atlasRoadIds=new Set();
     details._atlasMarkerIds=new Set();
-    const summary=element("summary");
-    const chevron=element("i");
-    chevron.className="fa-solid fa-chevron-right atlas-directory-chevron";
-    chevron.setAttribute("aria-hidden","true");
-    summary.appendChild(chevron);
-    summary.appendChild(element("span",label));
+    const summary=element(expandable?"summary":"div");
+    if(!expandable)summary.className="atlas-directory-row-heading";
+    if(expandable){
+      const chevron=element("i");
+      chevron.className="fa-solid fa-chevron-right atlas-directory-chevron";
+      chevron.setAttribute("aria-hidden","true");
+      summary.appendChild(chevron);
+    }
+    const identity=element("span");
+    identity.className="atlas-directory-identity";
+    identity.appendChild(element("span",label));
     if(subtitle) {
       const secondary=element("small",subtitle);
       secondary.className="atlas-directory-secondary";
-      summary.appendChild(secondary);
+      identity.appendChild(secondary);
     }
+    summary.appendChild(identity);
+    details._atlasSummaryIdentity=identity;
     details.appendChild(summary);
-    details.addEventListener("toggle",()=>{
+    if(expandable)details.addEventListener("toggle",()=>{
       if(!details.isConnected||expanded)return;
       if(details.open)state.open.add(key);
       else state.open.delete(key);
@@ -152,6 +169,58 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       for(const id of child._atlasRoadIds??[])parent._atlasRoadIds.add(id);
       for(const id of child._atlasMarkerIds??[])parent._atlasMarkerIds.add(id);
     }
+  }
+  function appendCounts(details){
+    const counts=element("small","Map Markers ("+details._atlasMarkerIds.size+
+      ") | Roads ("+details._atlasRoadIds.size+")");
+    counts.className="atlas-directory-counts";
+    // Keep the read-only metadata with the title, ahead of every action.
+    details._atlasSummaryIdentity.appendChild(counts);
+  }
+  function symbol(type,item){
+    const wrap=element("span");
+    wrap.className="atlas-directory-symbol";
+    wrap.setAttribute("aria-hidden","true");
+    if(type==="checkpoint"){
+      const style=resolveCheckpointAppearance(item.appearance);
+      if(style.type==="dot"){
+        const dot=element("span");
+        dot.className="atlas-directory-color-dot";
+        dot.style.backgroundColor=style.color;
+        wrap.appendChild(dot);
+      }else if(style.type==="image"){
+        const image=element("img");
+        image.src=checkpointIconPath(style);
+        image.alt="";
+        wrap.appendChild(image);
+      }else if(CHECKPOINT_ICONS.includes(style.icon)){
+        const glyph=element("span");
+        glyph.className="atlas-directory-masked-icon";
+        glyph.style.backgroundColor=style.color;
+        glyph.style.maskImage="url('"+checkpointIconPath(style)+"')";
+        glyph.style.webkitMaskImage=glyph.style.maskImage;
+        wrap.appendChild(glyph);
+      }else{
+        const glyph=createCheckpointIconGlyph(style.icon);
+        glyph.style.color=style.color;
+        glyph.style.fontSize="1rem";
+        wrap.appendChild(glyph);
+      }
+    }else{
+      const color=type==="road"
+        ?resolveRoadAppearance(item,roadStyles,roadAppearanceMode(item,presets)).color
+        :nativeRegionColorHex(scene.regions?.get?.(item.id)?.color);
+      const dot=element("span");
+      dot.className="atlas-directory-color-dot";
+      if(color)dot.style.backgroundColor=color;
+      else dot.classList?.add?.("atlas-directory-color-unavailable");
+      wrap.appendChild(dot);
+    }
+    return wrap;
+  }
+  function annotate(row,type,item){
+    row._atlasSummaryIdentity.insertBefore(symbol(type,item),
+      row._atlasSummaryIdentity.children[0]??null);
   }
   // These launch the original creation tools; no Road/Territory association
   // is inferred from the directory group where the GM clicked Plus.
@@ -236,6 +305,13 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       }
       add("gear","Settings for",()=>actions.editCheckpointAppearance(scene,item,refresh));
       add("pen","Move on map",()=>actions.moveMapMarker(scene,item.id,refresh));
+      if(typeof actions.manageCheckpointRoad==="function"){
+        const linked=(atlas.segments??[]).filter(edge=>
+          edge.from===item.nodeId||edge.to===item.nodeId);
+        if(linked.length<=1)add(linked.length?"unlink":"link",
+          linked.length?"Review Road disconnection for":"Connect to Road:",
+          ()=>actions.manageCheckpointRoad(scene,item.id,refresh));
+      }
       add("trash","Delete",()=>actions.removeCheckpoint(scene,item,refresh),true);
     }
     (parent.children[0]??parent).appendChild(bar);
@@ -267,23 +343,43 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       const subtitle=type==="road"?
         ({land:"Land",water:"Water",air:"Air"}[mode]??mode):
         categoryNames.get(categories[item.id]??"generic");
-      const row=group(path+"/"+type+"/"+item.id,item.name,false,subtitle);
-      if(type==="road")row._atlasRoadIds.add(item.id);
-      else row._atlasMarkerIds.add(item.id);
+      const attached=type==="road"?sorted(checkpoints.filter(marker=>
+        markerRoads.get(marker.id)?.has(item.id)&&
+        (!query||matches(item)||matches(marker)))):[];
+      const offers=type==="checkpoint"?transportByMarker[item.id]??[]:[];
+      const row=group(path+"/"+type+"/"+item.id,item.name,false,subtitle,
+        type==="road"?attached.length>0:offers.length>0);
+      annotate(row,type,item);
+      if(type==="road"){
+        row._atlasRoadIds.add(item.id);
+        const count=element("small","Map Markers ("+attached.length+")");
+        count.className="atlas-directory-counts";
+        row._atlasSummaryIdentity.appendChild(count);
+      }else{
+        row._atlasMarkerIds.add(item.id);
+        const names=offers.map(offer=>transportNames.get(offer.methodId)??offer.methodId);
+        const summary=element("small",names.length?
+          "Transportation ("+names.length+"): "+names.slice(0,3).join(", ")+
+          (names.length>3?" +"+(names.length-3)+" more":""):"No transportation");
+        summary.className="atlas-directory-counts";
+        row._atlasSummaryIdentity.appendChild(summary);
+        if(offers.length){
+          const list=element("ul");
+          list.className="atlas-directory-transport-offers";
+          for(const [index,offer] of offers.entries()){
+            const entry=element("li",names[index]+" · "+
+              ({land:"Land",water:"Water",sea:"Sea",air:"Air"}[offer.mode]??offer.mode));
+            list.appendChild(entry);
+          }
+          row.appendChild(list);
+        }
+      }
+      if(type==="road")addShortcut(row,"checkpoint");
       tools(row,item,type);
       if(type==="road"){
-        const attached=sorted(checkpoints.filter(marker=>
-          markerRoads.get(marker.id)?.has(item.id)&&
-          (!query||matches(item)||matches(marker))));
-        const children=group(path+"/road/"+item.id+"/markers",
-          "Map Markers ("+attached.length+")",Boolean(query));
-        addShortcut(children,"checkpoint");
-        for(const marker of attached)
-          children.appendChild(itemRow(marker,"checkpoint",path+"/road/"+item.id));
-        if(!attached.length)children.appendChild(element("p","No associated Map Markers."));
-        collectCounts(children,[...children.children].slice(1));
-        row.appendChild(children);
-        collectCounts(row,[children]);
+        const children=attached.map(marker=>itemRow(marker,"checkpoint",path+"/road/"+item.id));
+        row.append(...children);
+        collectCounts(row,children);
       }
       return row;
     }
@@ -318,16 +414,14 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
         if(node)children.push(node);
       }
       if(!own&&!children.length)return null;
-      const row=group(key,place.name,filtered,GEOGRAPHY_KINDS[place.kind]??"Territory");
+      const row=group(key,place.name,filtered,
+        GEOGRAPHY_KINDS[place.kind]??"Territory",children.length>0);
       row._atlasKind=place.kind;
+      annotate(row,"territory",place);
       tools(row,place,"territory");
       row.append(...children);
       collectCounts(row,children);
-      const counts=element("small","Map Markers ("+row._atlasMarkerIds.size+
-        ") | Roads ("+row._atlasRoadIds.size+")");
-      counts.className="atlas-directory-counts";
-      row.children[0].appendChild(counts);
-      if(!children.length)row.appendChild(element("p","No matching map records."));
+      appendCounts(row);
       return row;
     }
     let rows;
@@ -338,10 +432,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
       rows=[];
       const continentGroup=section("continents","Continents",continents,"territory","root");
       if(continentGroup){
-        const summary=element("small","Map Markers ("+continentGroup._atlasMarkerIds.size+
-          ") | Roads ("+continentGroup._atlasRoadIds.size+")");
-        summary.className="atlas-directory-counts";
-        continentGroup.children[0].appendChild(summary);
+        appendCounts(continentGroup);
         rows.push(continentGroup);
       }
       const otherGroup=section("other-territories","Other / unclassified territories",
@@ -376,7 +467,56 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     list.replaceChildren(...rows);
   }
   root.className = "atlas-map-directory";
-  root.append(filters,list);
+  root.appendChild(filters);
+  // These are unique guarded operations, not alternate manager screens.
+  // Only show them in the view that owns the relevant Scene records.
+  const contextual=element("div");
+  contextual.className="atlas-directory-contextual-actions";
+  const action=(label,handler,disabled=false)=>{
+    const button=element("button",label);
+    button.type="button";
+    button.title=label;
+    button.setAttribute("aria-label",label);
+    button.disabled=disabled;
+    button.addEventListener("click",async event=>{
+      event.preventDefault?.();
+      if(button.disabled)return;
+      button.disabled=true;
+      try{await handler();}
+      catch(error){ui.notifications.error(error.message??String(error));}
+      finally{button.disabled=disabled;}
+    });
+    contextual.appendChild(button);
+  };
+  if(view==="directory"){
+    const blocked=Boolean(actions.draft?.(scene)||pending);
+    if(pending&&typeof actions.resolveTerritoryCellTransfer==="function"){
+      const warning=element("strong","Interrupted native Territory transfer needs GM recovery");
+      contextual.appendChild(warning);
+      action("Resume / Roll Back Transfer",
+        ()=>actions.resolveTerritoryCellTransfer(scene,refresh));
+    }else if(batch?.total){
+      contextual.appendChild(element("span",
+        "Territory batch: "+batch.count+" of "+batch.total+" staged"));
+      for(const target of batch.targets)
+        action("Paint "+target.name+(target.staged?" (staged)":""),
+          ()=>actions.editTerritoryBoundary(scene,target.id,refresh),blocked);
+      action("Review & Apply Batch",()=>actions.commitTerritoryBatch(scene,refresh),
+        blocked||batch.count!==batch.total);
+      action("Discard Staged Batch",()=>actions.discardTerritoryBatch(scene,refresh),blocked);
+    }else if(typeof actions.startTerritoryBatch==="function"){
+      action("Start Batch Edit",()=>actions.startTerritoryBatch(scene,refresh),blocked);
+    }
+    if(typeof actions.reconcileTerritoryBorders==="function")
+      action("Analyze Borders",()=>actions.reconcileTerritoryBorders(scene,refresh),blocked);
+  }else if(view==="allRoads"&&(atlas.nodes?.length||atlas.segments?.length)){
+    if(atlas.schemaVersion===1&&typeof actions.anchor==="function")
+      action("Anchor legacy Road graph",()=>actions.anchor(scene,refresh));
+    else if(atlas.schemaVersion===2&&typeof actions.organize==="function")
+      action("Organize legacy Roads",()=>actions.organize(scene,refresh));
+  }
+  if(contextual.children.length)root.appendChild(contextual);
+  root.appendChild(list);
   draw();
   return root;
 }

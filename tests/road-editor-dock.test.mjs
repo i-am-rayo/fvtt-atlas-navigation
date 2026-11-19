@@ -1,3 +1,4 @@
+import {readFileSync} from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -9,7 +10,9 @@ class Element {
     this.listeners = new Map();
     this.textContent = "";
     this.disabled = false;
+    this.attributes=new Map();
   }
+  setAttribute(name,value){this.attributes.set(name,String(value));}
   append(...items) { this.children.push(...items); }
   appendChild(item) { this.children.push(item); return item; }
   addEventListener(event, handler) { this.listeners.set(event, handler); }
@@ -43,7 +46,14 @@ test("floating new-road dock summarizes settings and does not edit the configure
       scene, controller, onFinish: async () => { saves++; return false; },
       onCancel() {}, onClosed() {}, onFocus:()=>{locates++;}
     });
+    dock.window={title:{textContent:"Atlas — Road Editor"}};
     const root = await dock._renderHTML();
+    assert.equal(dock.window.title.textContent,
+      "Atlas — Hidden River — Road Editor",
+      "new Road authoring identifies the staged Road without saving");
+    assert.ok(descendants(root).some(node => node.tag==="small"&&
+      node.attributes.get("role")==="status"),
+      "point/draft status is exposed to assistive technology");
     assert.ok(descendants(root).some(node => node.textContent === "Hidden River"));
     assert.equal(descendants(root).filter(node => ["input", "select"].includes(node.tag)).length, 0);
     assert.ok(button(root, "Finish Road"));
@@ -126,7 +136,11 @@ test("floating Save Points remains available after its parent Scene sheet closes
     assert.equal(editorEnded, false, "closing the parent sheet preserves the active point session");
     assert.equal(activeRoadDockForSceneConfig({ document: { id: "other" } },
       dock, controller), false, "other Scene sheets do not own this editor");
+    dock.window={title:{textContent:"Atlas — Road Editor"}};
     const root = await dock._renderHTML();
+    // The points controller may return a read-only Road identity.
+    assert.equal(dock.window.title.textContent,"Atlas — Road Editor",
+      "legacy controller without roadName keeps an honest generic title");
     assert.ok(button(root, "Save Points"), "Save Points remains available");
     assert.ok(button(root, "Locate Road"));
     dock.close = async () => { dock._onClose({}); };
@@ -153,8 +167,10 @@ test("Locate Road requests map focus without minimizing or writing an unsaved ro
     globalThis.game={user:{isGM:true}};
     globalThis.ui={notifications:{error:message=>{throw Error(message);}}};
     const {AtlasRoadEditorDock}=await import("../scripts/road-editor-dock.js");
-    assert.equal(AtlasRoadEditorDock.DEFAULT_OPTIONS.window.minimizable,true,
-      "Foundry only offers native minimize/restore on minimizable windows");
+    assert.equal(AtlasRoadEditorDock.DEFAULT_OPTIONS.window.frame,true,
+      "retain Foundry's framed ApplicationV2 for reliable floating positioning");
+    assert.equal(AtlasRoadEditorDock.DEFAULT_OPTIONS.window.positioned,true,
+      "Foundry v14 still owns window positioning");
     const scene={id:"map-focus-scene",canUserModify:()=>true};
     const draft={mode:"points",points:8,dirty:true,canUndo:false};
     let saves=0,cancels=0,minimizes=0,reads=0,locates=0;
@@ -208,9 +224,13 @@ test("Road Editor exposes only available reversible draft actions with accessibl
     assert.equal(root.children[0].className,"atlas-road-editor-body");
     assert.equal(root.children[1].className,"atlas-road-editor-footer");
     assert.ok(button(root,"Locate Road").className.includes("atlas-ui-icon-button"));
-    assert.ok(button(root,"Save Points").className.includes("atlas-ui-icon-button"));
+    assert.equal(button(root,"Save Points").textContent,"Save Points",
+      "explicit text Save matches the Territory painter footer");
     assert.ok(button(root,"Undo").title==="Undo");
     assert.ok(button(root,"Redo").title==="Redo");
+    assert.deepEqual(root.children[1].children.map(control=>control.ariaLabel??control.textContent),
+      ["Locate Road","Undo","Redo","Cancel","Save Points"],
+      "reversible controls precede Cancel, explicit Save last in keyboard order");
     await button(root,"Undo").listeners.get("click")();
     await button(root,"Redo").listeners.get("click")();
     assert.deepEqual(calls,["undo","redo"]);
@@ -234,7 +254,10 @@ test("Map Marker relocation dock offers explicit Locate/Cancel, never an unconfi
       onCancel:()=>cancels++,onClosed(){},onFocus:()=>locates++});
     dock.close=async()=>{dock.finished=true;};
     const root=await dock._renderHTML();
-    assert.ok(descendants(root).some(item=>item.textContent==="Move Map Marker"));
+    assert.ok(descendants(root).some(item=>item.textContent==="Atlas · Move Map Marker"));
+    assert.equal(root.attributes.get("aria-label"),"Atlas Map Marker canvas editor");
+    assert.ok(descendants(root).some(item=>item.tag==="h3"&&
+      item.textContent==="Atlas · Move Map Marker"));
     assert.ok(button(root,"Locate Map Marker"));
     assert.equal(button(root,"Save Points"),undefined);
     assert.equal(button(root,"Finish Road"),undefined);
@@ -262,13 +285,121 @@ test("Road Editor keycaps describe implemented gestures without changing drafts"
     const root=await dock._renderHTML();
     const gestures=descendants(root).find(node=>node.className==="atlas-road-editor-gestures");
     assert.ok(gestures);
-    assert.equal(gestures.children.length,7);
+    assert.equal(gestures.children.length,9,
+      "Paint Territory's map scroll and movable title shortcuts are available");
     assert.deepEqual(gestures.children.map(row=>row.children[0].tag),
-      Array(7).fill("kbd"),"shortcut labels use native key styling");
+      Array(9).fill("kbd"),"shortcut labels use native key styling");
     assert.ok(gestures.children.some(row=>row.children[0].textContent==="Ctrl/Cmd + Z"));
     assert.ok(gestures.children.some(row=>row.children[0].textContent==="Esc"));
     assert.ok(gestures.children.some(row=>row.children[1].textContent.includes(
       "unconnected Road end")));
+    assert.ok(gestures.children.some(row=>row.children[0].textContent==="Scroll"));
+    assert.ok(gestures.children.some(row=>row.children[0].textContent==="Arrow keys on title"));
+    const shift=gestures.children.find(row=>row.children[0].textContent==="Shift-click");
+    const alt=gestures.children.find(row=>row.children[0].textContent==="Alt/Option-click");
+    assert.match(shift.children[1].textContent,/promote.*bend.*junction.*demote/i,
+      "on-panel help must include the missing promotion/demotion gestures");
+    assert.match(alt.children[1].textContent,/detach.*junction.*branch/i,
+      "on-panel help must include the missing detach choices");
     assert.deepEqual(calls,[],"rendering editor help never saves or cancels");
   }finally{Object.assign(globalThis,before);}
+});
+
+test("painter-style Road and isolated Map Marker canvases move by title only",async()=>{
+  const original={foundry:globalThis.foundry,document:globalThis.document,
+    game:globalThis.game,window:globalThis.window};
+  const docHandlers=new Map();
+  try{
+    class App {
+      constructor(options={}){
+        this.options=options;
+        this.position={left:24,top:90,width:360,...options.position};
+        this.element={getBoundingClientRect:()=>({width:360,height:420})};
+      }
+      setPosition(next){Object.assign(this.position,next);}
+    }
+    globalThis.foundry={applications:{api:{ApplicationV2:App}}};
+    globalThis.document={
+      createElement:tag=>new Element(tag),
+      addEventListener:(type,callback)=>docHandlers.set(type,callback),
+      removeEventListener:(type,callback)=>{
+        if(docHandlers.get(type)===callback)docHandlers.delete(type);
+      }
+    };
+    globalThis.window={innerWidth:1100,innerHeight:850};
+    globalThis.game={user:{isGM:true}};
+    const {AtlasRoadEditorDock}=await import("../scripts/road-editor-dock.js");
+    let saves=0,cancels=0;
+    const scene={id:"painter",canUserModify:()=>true};
+    for(const mode of ["points","checkpoint-relocate"]){
+      const cancelsBefore=cancels;
+      const controller={getDraft:()=>({mode,points:11,
+        roadName:"Coastal Road",checkpointId:"marker"})};
+      const dock=new AtlasRoadEditorDock({scene,controller,
+        onFinish:()=>{saves++;},onCancel:()=>{cancels++;},onClosed(){}});
+      // The editor class was imported earlier by DOM tests with a minimal
+      // ApplicationV2 mock; provide the public Foundry positioning API here.
+      dock.position={left:24,top:90,width:360};
+      dock.setPosition=next=>Object.assign(dock.position,next);
+      dock.element={getBoundingClientRect:()=>({width:360,height:420})};
+      const root=await dock._renderHTML();
+      const heading=descendants(root).find(node=>node.tag==="h3");
+      assert.ok(heading?.attributes.get("aria-label").includes("arrow keys"));
+      assert.equal(root.tag,"section");
+      assert.equal(root.attributes.get("role"),"region");
+      assert.equal(root.children[0].className,"atlas-road-editor-body");
+      heading.listeners.get("keydown")({key:"ArrowRight",shiftKey:false,
+        preventDefault(){},stopPropagation(){}});
+      assert.equal(dock.position.left,34);
+      heading.listeners.get("pointerdown")({
+        button:0,pointerId:8,clientX:100,clientY:100,
+        preventDefault(){},stopPropagation(){}
+      });
+      assert.ok(docHandlers.has("pointermove"));
+      docHandlers.get("pointermove")({pointerId:8,clientX:130,clientY:115,
+        preventDefault(){},stopPropagation(){}});
+      assert.equal(dock.position.left,64);
+      assert.equal(dock.position.top,105);
+      docHandlers.get("pointerup")({pointerId:8});
+      assert.equal(docHandlers.size,0,"dragging listeners release after pointer up");
+      assert.equal(dock._dockDrag,null);
+      assert.equal(saves,0,"moving the editor cannot save the map");
+      assert.equal(cancels,cancelsBefore,"moving the editor cannot cancel a draft");
+      assert.equal(dock.finished,false);
+      if(mode==="checkpoint-relocate"){
+        assert.equal(button(root,"Save Points"),undefined);
+        assert.equal(button(root,"Finish Road"),undefined);
+      }else{
+        assert.ok(button(root,"Save Points"));
+        assert.ok(descendants(root).some(node=>node.textContent==="Road: Coastal Road"));
+      }
+      dock._onClose({});
+      assert.equal(cancels,cancelsBefore+1,
+        "native close cancels the active draft exactly once per window");
+    }
+  }finally{Object.assign(globalThis,original);}
+});
+
+test("painter-style canvas dock retains its theme and stable action footer at high scale",()=>{
+  const css=readFileSync(new URL("../styles/road-settings-dialog.css",import.meta.url),"utf8");
+  assert.match(css,/\.atlas-road-editor-dock\s*\{[\s\S]*?background:#111019;/);
+  assert.match(css,/\.atlas-road-editor-shortcuts/);
+  assert.match(css,/\.atlas-road-editor-heading:focus-visible/);
+  assert.match(css,/max-height:calc\(100vh - 110px\)/);
+  assert.match(css,/\.atlas-road-editor-footer/);
+  assert.match(css,/\.application\.atlas-road-editor-window > \.window-header\s*\{display:none;\}/,
+    "hide native title chrome but keep the native frame positioning contract");
+  assert.match(css,/\.application\.atlas-road-editor-window > \.window-content\s*\{/,
+    "native window content must remain a bounded standalone editor");
+});
+
+test("canvas authoring startup guidance is in docks, not duplicate notification banners",()=>{
+  const main=readFileSync(new URL("../scripts/main.js",import.meta.url),"utf8");
+  assert.doesNotMatch(main,/notifications\.info\(game\.i18n\.localize\("FVTTATLAS\.Roads\.EditNotice"\)\)/);
+  assert.doesNotMatch(main,/notifications\.info\(game\.i18n\.localize\("FVTTATLAS\.Roads\.StartNotice"\)\)/);
+  assert.doesNotMatch(main,/notifications\.info\(game\.i18n\.localize\("FVTTATLAS\.Junctions\.StartNotice"\)\)/);
+  assert.doesNotMatch(main,/notifications\.info\("Click a Road to create a linked Map Marker/);
+  assert.doesNotMatch(main,/notifications\.info\("Click a new map location, review the change/);
+  assert.match(main,/notifications\.info\("Atlas road settings saved\."\)/,
+    "success feedback must not be removed with redundant instructions");
 });

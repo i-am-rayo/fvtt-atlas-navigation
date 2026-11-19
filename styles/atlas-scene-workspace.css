@@ -130,16 +130,6 @@
   font-size: .8rem;
   line-height: 1.2;
 }
-.atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-actions button {
-  margin: 0;
-  padding: .4rem;
-  flex: 0 0 2.3rem;
-  width: 2.3rem;
-  min-width: 2.3rem;
-  height: 2.3rem;
-  min-height: 2.3rem;
-  font-size: .9rem;
-}
 .atlas-scene-workspace .atlas-workspace-roads {
   min-width: 0;
 }
@@ -343,16 +333,6 @@
   gap: .3rem;
   min-width: 0;
 }
-.atlas-scene-workspace .atlas-checkpoint-actions .atlas-ui-icon-button {
-  box-sizing: border-box;
-  flex: 0 0 2.15rem;
-  width: 2.15rem;
-  min-width: 2.15rem;
-  height: 2.15rem;
-  min-height: 2.15rem;
-  margin: 0;
-  padding: .25rem;
-}
 .atlas-scene-workspace .atlas-checkpoint-details {
   grid-column: 1 / -1;
   margin: .1rem 0 0;
@@ -531,6 +511,15 @@
 .atlas-map-directory details > summary > span:not(.atlas-directory-actions) {
   flex:1 1 10rem;min-width:0;font-weight:600;overflow-wrap:anywhere;
 }
+/* Keep the title, type and distinct Road/Marker counts together as a single
+   wrapping metadata group; action controls remain to the far right. */
+.atlas-map-directory .atlas-directory-identity {
+  display:inline-flex;align-items:baseline;flex-wrap:wrap;
+  gap:.2rem .55rem;min-width:0;
+}
+.atlas-map-directory .atlas-directory-identity > span {
+  min-width:0;overflow-wrap:anywhere;
+}
 .atlas-map-directory .atlas-directory-secondary,
 .atlas-map-directory .atlas-directory-counts {
   flex:0 1 auto;font-weight:400;font-size:.8rem;
@@ -554,14 +543,8 @@
   .atlas-directory-filters .atlas-directory-search {flex-basis:100%;max-width:none;}
 }
 
-/* Legacy manager services are retained only for unique GM topology/recovery tools. */
-.atlas-workspace-advanced-management {
-  margin:.7rem 0;padding:.55rem .75rem;
-  border:1px solid var(--color-border-light-tertiary,#666);
-  border-radius:.45rem;
-}
-.atlas-workspace-advanced-management > summary {cursor:pointer;font-weight:700;}
-.atlas-workspace-advanced-management > button {margin:.3rem;min-width:0;width:auto;}
+/* Map Directory's existing View/Tools navigation replaces the obsolete
+   Settings disclosure; no duplicate diagnostics or persisted UI state. */
 .atlas-scene-workspace .atlas-checkpoint-toolbar {display:flex;gap:.5rem;align-items:end;flex-wrap:wrap;}
 .atlas-scene-workspace .atlas-checkpoint-sort {display:grid;gap:.2rem;min-width:8rem;}
 .atlas-scene-workspace .atlas-checkpoint-search {
@@ -593,4 +576,73 @@
 /* Contextual creation is a shortcut to the existing GM flow, not an auto-link. */
 .atlas-map-directory summary > .atlas-directory-shortcut {
   margin-inline-start:auto;flex:0 0 2rem;
+}
+
+/* World Presets use existing restricted ApplicationV2 editors, never Scene drafts. */
+.atlas-workspace-preset-shortcuts {
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));
+  gap:.65rem;min-width:0;
+}
+.atlas-workspace-preset-shortcut {
+  display:grid;align-content:start;gap:.3rem;padding:.7rem;
+  border:1px solid var(--color-border-light-tertiary,#666);
+  border-radius:.45rem;min-width:0;
+}
+.atlas-workspace-preset-shortcut > button {
+  width:100%;min-width:0;text-align:left;white-space:normal;
+}
+.atlas-workspace-preset-shortcut > small {
+  line-height:1.35;overflow-wrap:anywhere;
+}
+
+/* Static directory records have no disclosure arrow or fake expandable region. */
+.atlas-map-directory .atlas-directory-leaf {
+  padding:.4rem .55rem;
+  border-inline-start:2px solid var(--color-border-light-2,#777);
+}
+.atlas-map-directory .atlas-directory-row-heading {
+  display:flex;align-items:center;flex-wrap:wrap;gap:.45rem;padding:.25rem;min-width:0;
+}
+.atlas-map-directory .atlas-directory-row-heading > .atlas-directory-identity {
+  flex:1 1 10rem;font-weight:600;min-width:0;overflow-wrap:anywhere;
+}
+.atlas-map-directory .atlas-directory-row-heading > .atlas-directory-actions {
+  display:inline-flex;align-items:center;gap:.25rem;margin:0 0 0 auto;
+}
+.atlas-map-directory .atlas-directory-row-heading .atlas-ui-icon-button {
+  width:2rem;min-width:2rem;height:2rem;min-height:2rem;flex:0 0 2rem;
+}
+.atlas-map-directory .atlas-directory-identity {align-items:center;}
+.atlas-map-directory .atlas-directory-symbol {
+  width:1rem;height:1rem;display:inline-grid;place-items:center;
+  flex:0 0 1rem;line-height:1;overflow:hidden;
+}
+.atlas-map-directory .atlas-directory-symbol > img,
+.atlas-map-directory .atlas-directory-masked-icon {
+  width:1rem;height:1rem;object-fit:contain;display:block;
+}
+.atlas-map-directory .atlas-directory-masked-icon {
+  -webkit-mask-position:center;mask-position:center;
+  -webkit-mask-size:contain;mask-size:contain;
+  -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
+}
+.atlas-map-directory .atlas-directory-color-dot {
+  display:block;width:.8rem;height:.8rem;border-radius:50%;
+  border:1px solid var(--color-border-light-2,#777);
+}
+.atlas-map-directory .atlas-directory-color-unavailable {background:transparent;}
+.atlas-map-directory .atlas-directory-transport-offers {
+  margin:.4rem 0 .45rem 1.5rem;padding-left:1rem;
+  display:grid;gap:.2rem;overflow-wrap:anywhere;
+}
+.atlas-map-directory .atlas-directory-contextual-actions {
+  display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;
+  margin:0 0 .6rem;padding:.35rem .5rem;
+  border:1px solid var(--color-border-light-tertiary,#6666);border-radius:.35rem;
+}
+.atlas-map-directory .atlas-directory-contextual-actions > strong {
+  color:var(--color-level-error,#e8a099);
+}
+.atlas-map-directory .atlas-directory-contextual-actions > button {
+  width:auto;min-height:2rem;
 }

@@ -5,6 +5,7 @@ import { DEFAULT_WORLD_ROAD_APPEARANCE, ROAD_APPEARANCE_SETTING, readWorldRoadAp
   validateRoadAppearance, validateWorldRoadAppearance }
   from "./road-appearance.js";
 import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
 import { createSettingsInput, settingsFormValues } from "./settings-input.js";
 import { createSettingsNumberRange,parseBoundedRangeDraft } from "./settings-number-range.js";
 
@@ -158,14 +159,24 @@ export class AtlasRoadAppearanceSettings extends foundry.applications.api.Applic
 
   async _renderHTML() {
     const root = element("div");
-    root.style.cssText = "padding:1rem;display:grid;gap:0.75rem;overflow:auto;height:100%;";
+    root.style.cssText = "padding:1rem;display:flex;flex-direction:column;"+
+      "gap:.75rem;overflow:hidden;height:100%;box-sizing:border-box;";
     root.appendChild(element("p", "WORLD ROAD APPEARANCE — Land, Water and Air " +
       "share category defaults across Scenes. A named road takes the category of its assigned " +
       "travel surface preset (or Land when unassigned). These visuals do not alter native " +
       "Region colors, geometry or movement costs."));
     const catalog = readWorldRoadAppearance();
     const forms = new Map();
-    for (const mode of ROAD_APPEARANCE_MODES) {
+    const categoryTabs=createSettingsCategoryTabs({
+      id:"atlas-road-appearance",modes:[["land","Land"],["water","Water"],["air","Air"]],
+      active:this.activeCategory??"land",onChange:id=>{this.activeCategory=id;}
+    });
+    root.appendChild(categoryTabs.nav);
+    const scroll=element("div");
+    scroll.className="atlas-world-category-scroll";
+    scroll.style.cssText="flex:1 1 auto;min-height:0;overflow:auto;";
+    root.appendChild(scroll);
+    for (const mode of ["land","water","air"]) {
       const fieldset = element("fieldset");
       const title = mode.charAt(0).toUpperCase() + mode.slice(1);
       const legend = element("legend", title + " Road Overlay");
@@ -175,7 +186,7 @@ export class AtlasRoadAppearanceSettings extends foundry.applications.api.Applic
       form.dataset.atlasRoadAppearance = mode;
       form.style.padding = "0.5rem";
       fieldset.appendChild(form);
-      root.appendChild(fieldset);
+      scroll.appendChild(categoryTabs.addPanel(mode,fieldset));
       forms.set(mode, form);
     }
     const save = element("button", "Save Appearance Defaults");
@@ -184,20 +195,48 @@ export class AtlasRoadAppearanceSettings extends foundry.applications.api.Applic
       save.disabled = true;
       try {
         if (!game.user?.isGM) throw new Error("Only a GM may edit road appearance defaults.");
-        const profiles = Object.fromEntries([...forms].map(([mode, form]) => {
-          const values = settingsFormValues(form.querySelectorAll("[name]"));
-          return [mode, roadAppearanceFromForm(values)];
-        }));
-        await game.settings.set(MODULE_ID, ROAD_APPEARANCE_SETTING,
-          validateWorldRoadAppearance({ schemaVersion: 2, profiles }));
+        const profiles={};
+        for(const [mode,form] of forms){
+          try{
+            const values=settingsFormValues(form.querySelectorAll("[name]"));
+            profiles[mode]=roadAppearanceFromForm(values);
+          }catch(error){
+            categoryTabs.activate(mode);
+            form.querySelector?.(":invalid")?.focus?.();
+            throw error;
+          }
+        }
+        // Merge only the profiles actually edited in this window; a change to
+        // the same mode still conflicts instead of replacing another GM's work.
+        const latest=readWorldRoadAppearance();
+        // These validated profiles contain only scalar fields. Compare values,
+        // not JSON property insertion order (form objects use a different order).
+        const equal=(a,b)=>a&&b&&Object.keys(a).length===Object.keys(b).length&&
+          Object.keys(a).every(key=>a[key]===b[key]);
+        const changed=ROAD_APPEARANCE_MODES.filter(mode=>
+          !equal(profiles[mode],catalog.profiles[mode]));
+        const conflicts=changed.filter(mode=>
+          !equal(latest.profiles[mode],catalog.profiles[mode]));
+        if(conflicts.length)
+          throw Error("World Road appearance "+conflicts.join(", ")+" mode changed elsewhere. Reopen and review.");
+        if(changed.length)
+          await game.settings.set(MODULE_ID, ROAD_APPEARANCE_SETTING,
+            validateWorldRoadAppearance({schemaVersion:2,profiles:{
+              ...latest.profiles,...Object.fromEntries(changed.map(mode=>[mode,profiles[mode]]))
+            }}));
         ui.notifications.info("Atlas world road appearance defaults saved.");
         this.close();
       } catch (error) {
-        ui.notifications.error(error.message);
         save.disabled = false;
+        ui.notifications.error(error.message);
       }
     });
-    root.appendChild(save);
+    const footer=element("div");
+    footer.className="atlas-world-category-footer";
+    footer.style.cssText="flex:0 0 auto;display:flex;justify-content:flex-end;"+
+      "padding:.5rem 0;border-top:1px solid var(--color-border-light-tertiary,#666);";
+    footer.appendChild(save);
+    root.appendChild(footer);
     return root;
   }
 

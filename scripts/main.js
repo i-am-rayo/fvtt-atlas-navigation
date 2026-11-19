@@ -82,14 +82,16 @@ import { planSceneGeneratedRegion, saveGeneratedNativeRegion, listGeneratedRegio
 import { availableMovementActions, readPreset, previewNativeMovementCost }
   from "./native-movement-cost.js";
 import { presetCostSummary } from "./travel-preset-model.js";
-import { registerWorldTravelPresets, readWorldTravelPresets }
+import { registerWorldTravelPresets, readWorldTravelPresets,AtlasTravelPresetSettings }
   from "./travel-preset-settings.js";
 import { createTravelPresetSelect,createSettingsIconButton } from "./settings-controls.js";
 import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
+import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
 import { createSettingsInput } from "./settings-input.js";
 import {confirmAtlasVisibilityChange} from "./atlas-visibility-confirmation.js";
 import { promptNativeMovementAction } from "./native-movement-action-picker.js";
 import { createRoadPresetStage } from "./road-settings-preset.js";
+import { createRoadTravelPresetRow } from "./road-settings-preset-view.js";
 import { arrangeRoadDialogFooter } from "./road-settings-dialog-footer.js";
 import { openRoadSettingsWindow } from "./road-settings-window.js";
 import { TerritoryLocateHighlight } from "./territory-locate-highlight.js";
@@ -97,9 +99,10 @@ import { roadCheckpointsAlphabetical } from "./road-settings-linked-items.js";
 import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges,
   interceptDialogHeaderClose } from "./settings-close-guard.js";
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
-import { registerWorldCheckpointPresets } from "./checkpoint-preset-settings.js";
+import { registerWorldCheckpointPresets,AtlasCheckpointPresetSettings }
+  from "./checkpoint-preset-settings.js";
 import { roadAppearanceForm, roadAppearanceFromForm, refreshRoadAppearancePreview,
-  registerWorldRoadAppearance }
+  registerWorldRoadAppearance,AtlasRoadAppearanceSettings }
   from "./road-appearance-settings.js";
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
   from "./road-appearance.js";
@@ -674,7 +677,6 @@ function actions() {
       const settings=await promptNewRoadSettings(scene);
       if (!settings) return;
       beginRoadDock(scene, refresh, onChange => roadCanvas.start(scene, onChange, settings));
-      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.StartNotice"));
     },
     draft: scene => roadCanvas.getDraft(scene),
     async generateRegion(scene, settings, refresh) {
@@ -760,41 +762,28 @@ function actions() {
       const baseline = resolveRoadAppearance(actual, readWorldRoadAppearance(), mode);
       const journalLinks = readAtlasJournalLinks(scene);
       const journalControls = journalLinkFields(journalLinks,"road",road.id);
-      const tabs=document.createElement("nav");
-      tabs.style.cssText="display:flex;gap:.4rem;padding-bottom:.65rem;border-bottom:1px solid var(--color-border-light-tertiary,#655);margin-bottom:.8rem;";
+      const roadDialogToken=foundry.utils.randomID();
+      // Use the same roving-focus tab behavior as the World preset editors.
+      // Panels remain mounted so tab navigation cannot discard Road drafts.
+      const roadTabs=createSettingsCategoryTabs({
+        id:"atlas-road-settings-"+roadDialogToken,
+        modes:[["general","General"],["style","Customization"],
+          ["checkpoints","Map Markers"],["regions","Terrain Regions"]],
+        active:"general"
+      });
+      const tabs=roadTabs.nav;
+      tabs.className="atlas-road-settings-tabs";
+      tabs.setAttribute("aria-label","Road settings sections");
       const panels={general:document.createElement("div"),
         style:document.createElement("div"),
         checkpoints:document.createElement("div"),regions:document.createElement("div")};
-      for (const [key,text] of [["general","General"],["style","Customization"],["checkpoints","Map Markers"],["regions","Terrain Regions"]]) {
-        const tab=document.createElement("button");
-        tab.type="button";tab.textContent=text;tab.dataset.atlasRoadTab=key;
-        tab.style.flex="1";
-        tab.style.cssText="flex:1;border:1px solid var(--color-border-light-tertiary,#655);background:"+
-          (key==="general"?"rgba(156,123,240,.22)":"transparent")+";font-weight:"+
-          (key==="general"?"700":"400")+";";
-        tab.setAttribute("aria-selected",String(key==="general"));
-        tabs.appendChild(tab);
+      for (const [index,key] of ["general","style","checkpoints","regions"].entries()) {
+        tabs.children[index].dataset.atlasRoadTab=key;
         panels[key].dataset.atlasRoadPanel=key;
-        panels[key].hidden=key!=="general";
+        roadTabs.addPanel(key,panels[key]);
       }
-      const presetSelect=createTravelPresetSelect({selectedId:actual.travelPresetId,
-        name:"atlasRoadPresetId",noneLabel:"None (Land fallback)"});
-      const presetControls=document.createElement("div");
-      presetControls.className="atlas-road-preset-controls";
-      const presetName=document.createElement("span");
-      const changePreset=createSettingsIconButton({icon:"pen",label:"Change travel preset"});
-      const updatePresetName=()=>{
-        presetName.textContent=readWorldTravelPresets().presets.find(
-          p=>p.id===presetSelect.value)?.name??"None (Land fallback)";
-      };
-      updatePresetName();
-      presetSelect.hidden=true;
-      changePreset.addEventListener("click",()=>{
-        presetSelect.hidden=false;changePreset.hidden=true;presetSelect.focus();
-      });
-      presetSelect.addEventListener("change",updatePresetName);
-      presetControls.append(presetName,presetSelect,changePreset);
-      const presetRow=createSettingsFieldRow("Travel preset",presetControls);
+      const {row:presetRow,hint:presetHint,select:presetSelect}=
+        createRoadTravelPresetRow(actual.travelPresetId);
       const roadTools=document.createElement("div");
       roadTools.dataset.atlasRoadActions="";
       roadTools.style.cssText="position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:.4rem;align-items:center;padding:.5rem 0;background:#100f17;z-index:2;";
@@ -832,7 +821,7 @@ function actions() {
         btn.dataset.atlasRoadTool=kind;
         roadTools.appendChild(btn);
       }
-      panels.general.append(nameRow,visibilityRow,presetRow,journalControls);
+      panels.general.append(presetRow,presetHint,nameRow,visibilityRow,journalControls);
       panels.style.appendChild(roadAppearanceForm(baseline));
       const addCheckpoint=createSettingsIconButton({icon:"plus",label:"Add Map Marker"});
       addCheckpoint.dataset.atlasRoadTool="newCheckpoint";
@@ -863,7 +852,6 @@ function actions() {
       regionList.setAttribute("aria-live","polite");
       regionSection.append(regionLegend,priorityHelp,regionList);
       panels.regions.appendChild(regionSection);
-      const roadDialogToken=foundry.utils.randomID();
       const regionLocator=new TerritoryLocateHighlight();
       // Track the user's actual dropdown change before DialogV2 serializes or
       // removes its content. FormData alone has proven unreliable for this field.
@@ -1079,21 +1067,6 @@ function actions() {
           }).catch(error=>ui.notifications.error(error.message));
           return;
         }
-        const tab=event.target?.closest?.("[data-atlas-road-tab]");
-        if (!tab) return;
-        const form=tab.closest?.(".application");
-        if (!form?.querySelector?.('input[name="atlasRoadName"]')) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        for (const panel of form.querySelectorAll("[data-atlas-road-panel]"))
-          panel.hidden=panel.dataset.atlasRoadPanel!==tab.dataset.atlasRoadTab;
-        for (const item of form.querySelectorAll("[data-atlas-road-tab]")) {
-          const selected=item===tab;
-          item.disabled=false;
-          item.setAttribute("aria-selected",String(selected));
-          item.style.background=selected?"rgba(156,123,240,.22)":"transparent";
-          item.style.fontWeight=selected?"700":"400";
-        }
       };
       // RegionDocuments and checkpoint flags can change while this DialogV2
       // is open (the native create UI is a separate window).
@@ -1101,6 +1074,9 @@ function actions() {
         if (changedScene?.id!==scene.id) return;
         const live=document.querySelector('[data-atlas-road-live="'+roadDialogToken+'"]');
         if (!live) return;
+        const currentRoad=readAtlas(scene).roads.find(item=>item.id===actual.id);
+        if(currentRoad&&roadDialog?.window?.title)
+          roadDialog.window.title.textContent=atlasSettingsTitle("Road",currentRoad.name);
         const checkpoints=live.querySelector("[data-atlas-road-checkpoint-list]");
         const regions=live.querySelector("[data-atlas-road-region-list]");
         if (checkpoints && regions) populateRelatedLists(checkpoints,regions);
@@ -1441,7 +1417,6 @@ function actions() {
         }
       });
       openRoadDock(scene,refresh);
-      ui.notifications.info(game.i18n.localize("FVTTATLAS.Junctions.StartNotice"));
     },
     selectJunction: (scene, nodeId) => roadCanvas.selectJunction(scene, nodeId),
     beginCheckpoint(scene, refresh) {
@@ -1465,8 +1440,6 @@ function actions() {
         }),
         saveIndependent:args=>createIndependentCheckpointFromDraft(scene,args)
       });
-      ui.notifications.info("Click a Road to create a linked Map Marker, " +
-        "or click away from Roads for an independent Map Marker. Escape cancels.");
       // Reuse the same canvas editor focus lease and dock as Road placement:
       // only windows this operation minimized are restored on its close.
       openRoadDock(scene,refresh);
@@ -1568,7 +1541,6 @@ function actions() {
         onChange:()=>syncRoadDock(scene,refresh)
       });
       openRoadDock(scene,refresh);
-      ui.notifications.info("Click a new map location, review the change, and confirm Save New Position. Escape cancels.");
       refresh();
     },
     async manageCheckpointRoad(scene, checkpointId, refresh) {
@@ -1727,6 +1699,7 @@ function actions() {
         onSaved: () => { roadCanvas.refresh(); refresh(); },
         onDelete:()=>actions().deleteCheckpointWithDependents(scene,checkpoint.id,refresh),
         onMove:()=>actions().moveMapMarker(scene,checkpoint.id,refresh),
+        onLocate:()=>actions().selectCheckpoint(scene,checkpoint.id),
         onRoad:()=>actions().manageCheckpointRoad(scene,checkpoint.id,refresh),
         onTerrainAction:async (action,regionId)=>{
           if(action==="clearPreview")return roadCanvas.clearRegionPreview();
@@ -1910,7 +1883,6 @@ function actions() {
     },
     beginPointEdit(scene, roadId, refresh) {
       beginRoadDock(scene, refresh, onChange => roadCanvas.startPointEdit(scene, roadId, onChange));
-      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.EditNotice"));
     },
     undo: () => roadCanvas.undo(),
     redo: () => roadCanvas.redo(),
@@ -2963,11 +2935,35 @@ Hooks.once("init", () => {
     fogPalette.close();
     navigation.activate();
   };
-  roadActions.openWorldTravelSettings=async()=>{
-    if(!game.user?.isGM)throw Error("World Travel Settings require GM authority.");
-    const app=new AtlasTransportationSettings();
-    return app.render(true);
+  // Atlas Workspace and its older Travel shortcut launch the same GM World
+  // editors registered under module settings; no Scene flags or duplicate stores.
+  const presetEditors={markers:AtlasCheckpointPresetSettings,
+    transport:AtlasTransportationSettings,surfaces:AtlasTravelPresetSettings,
+    roads:AtlasRoadAppearanceSettings};
+  const openedPresets=new Map();
+  roadActions.openWorldPresetEditor=async kind=>{
+    if(!game.user?.isGM)throw Error("Only a GM may open World preset editors.");
+    const Editor=presetEditors[kind];
+    if(!Editor)throw Error("Unknown World preset editor.");
+    let app=openedPresets.get(kind);
+    if(app?.rendered){
+      if(app.minimized)await app.maximize();
+      app.bringToFront?.();
+      return app;
+    }
+    app=new Editor();
+    openedPresets.set(kind,app);
+    try{
+      await app.render(true);
+      app.bringToFront?.();
+      return app;
+    }catch(error){
+      if(openedPresets.get(kind)===app)openedPresets.delete(kind);
+      throw error;
+    }
   };
+  roadActions.openWorldTravelSettings=()=>
+    roadActions.openWorldPresetEditor("transport");
   atlasLayers.configureRegion=(scene,regionId)=>roadActions.configureRegion(scene,regionId);
   atlasLayers.configureSharing=(scene,regionId,refresh)=>
     roadActions.configureTerritorySharing(scene,regionId,refresh);

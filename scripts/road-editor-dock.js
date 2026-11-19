@@ -1,5 +1,6 @@
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
 import { createSettingsIconButton } from "./settings-controls.js";
+import { atlasSettingsTitle } from "./atlas-settings-title.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
   ROAD_APPEARANCE_MODES } from "./road-appearance.js";
 
@@ -26,17 +27,24 @@ export function activeRoadDockForSceneConfig(app, dock, controller) {
 export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-road-editor-dock",
-    window: { title: "Atlas — Road Editor", resizable: true, minimizable: true },
-    position: { width: 340, height: 270, left: 80, top: 115 }
+    classes: ["atlas-road-editor-window"],
+    window: { title: "Atlas — Canvas Editor", frame: true, positioned: true,
+      resizable: false, minimizable: false },
+    position: { width: 360, height: "auto", left: 24, top: 90 }
   };
 
   constructor({ scene, controller, sceneSheet, onFinish, onCancel, onClosed,
     onFocus=null }) {
-    const isNewRoad=controller.getDraft(scene)?.mode==="new";
-    super({ position: {
-      width: Math.min(340, Math.max(260, window.innerWidth - 60)),
-      height: Math.min(isNewRoad?500:270, Math.max(230, window.innerHeight - 100)),
-      left: 80, top: 115
+    const draft=controller.getDraft(scene);
+    const markerMode=draft?.mode==="checkpoint"||draft?.mode==="checkpoint-relocate";
+    const roadName=draft?.mode==="new"?controller.getNewRoadOptions?.(scene)?.name:
+      draft?.mode==="points"?draft.roadName:null;
+    const title=markerMode?"Atlas — Map Marker Editor":roadName?
+      atlasSettingsTitle("Road",roadName).replace(/ Settings$/," Editor"):
+      "Atlas — Road Editor";
+    super({window:{title},position:{
+      width: Math.min(360, Math.max(240, window.innerWidth - 48)),
+      height: "auto", left: 24, top: 90
     } });
     this.scene = scene;
     this.controller = controller;
@@ -47,6 +55,33 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     this.onFocus = onFocus;
     this.finished = false;
     this.busy = false;
+    this._dockDrag = null;
+    this._dragMove = event => {
+      const drag=this._dockDrag;
+      if(!drag||(drag.pointerId!==undefined&&drag.pointerId!==event.pointerId)||
+          !Number.isFinite(event.clientX)||!Number.isFinite(event.clientY))return;
+      this._moveDock(drag.left+event.clientX-drag.x,drag.top+event.clientY-drag.y);
+      event.preventDefault?.();event.stopPropagation?.();
+    };
+    this._endDrag = () => {
+      this._dockDrag=null;
+      document.removeEventListener?.("pointermove",this._dragMove,true);
+      document.removeEventListener?.("pointerup",this._endDrag,true);
+      document.removeEventListener?.("pointercancel",this._endDrag,true);
+    };
+  }
+
+  /** Move only the local painter-style UI, never Scene geometry or draft points. */
+  _moveDock(left,top) {
+    const width=globalThis.window?.innerWidth??1280;
+    const height=globalThis.window?.innerHeight??900;
+    const rect=this.element?.getBoundingClientRect?.();
+    const dockWidth=rect?.width??this.position?.width??360;
+    const dockHeight=rect?.height??300;
+    this.setPosition({
+      left:Math.round(Math.max(8,Math.min(left,Math.max(8,width-dockWidth-8)))),
+      top:Math.round(Math.max(8,Math.min(top,Math.max(8,height-dockHeight-8))))
+    });
   }
 
   async _renderHTML() {
@@ -55,19 +90,61 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     }
     const draft = this.controller.getDraft(this.scene);
     if (!draft) throw new Error("The road-editing session ended.");
-    const root = element("div");
+    if(draft.mode==="points"&&typeof draft.roadName==="string"&&this.window?.title)
+      this.window.title.textContent=atlasSettingsTitle("Road",draft.roadName)
+        .replace(/ Settings$/," Editor");
+    const markerMode=draft.mode==="checkpoint"||draft.mode==="checkpoint-relocate";
+    const editorTitle=draft.mode==="points"?"Atlas · Edit Road":
+      draft.mode==="new"?"Atlas · Draw Road":
+      draft.mode==="checkpoint"?"Atlas · Place Map Marker":
+      draft.mode==="checkpoint-relocate"?"Atlas · Move Map Marker":
+      "Atlas · Connect Roads";
+    if(this.window?.title&&markerMode)
+      this.window.title.textContent="Atlas — Map Marker Editor";
+    const root = element("section");
     root.className="atlas-road-editor-dock";
-    const status = draft.mode === "points" ? "Edit points" :
-      draft.mode === "new" ? "Draw Road" :
-      draft.mode === "checkpoint" ? "Place Map Marker" :
-      draft.mode === "checkpoint-relocate" ? "Move Map Marker" : "Add connection";
-    root.appendChild(element("strong", status));
-    root.appendChild(element("small", draft.mode === "points"
+    root.setAttribute?.("role","region");
+    root.setAttribute?.("aria-label",markerMode?
+      "Atlas Map Marker canvas editor":"Atlas Road canvas editor");
+    const head=element("h3",editorTitle);
+    head.className="atlas-road-editor-heading";
+    head.tabIndex=0;
+    head.setAttribute?.("aria-label",editorTitle+
+      ". Drag or use arrow keys to move this editor.");
+    head.addEventListener("pointerdown",event=>{
+      if(this.busy||event.button!==0||
+          !Number.isFinite(event.clientX)||!Number.isFinite(event.clientY))return;
+      this._endDrag();
+      this._dockDrag={x:event.clientX,y:event.clientY,
+        left:this.position?.left??24,top:this.position?.top??90,
+        pointerId:event.pointerId};
+      document.addEventListener?.("pointermove",this._dragMove,true);
+      document.addEventListener?.("pointerup",this._endDrag,true);
+      document.addEventListener?.("pointercancel",this._endDrag,true);
+      event.preventDefault?.();event.stopPropagation?.();
+    });
+    head.addEventListener("keydown",event=>{
+      const step=event.shiftKey?20:10;
+      const delta={ArrowLeft:[-step,0],ArrowRight:[step,0],
+        ArrowUp:[0,-step],ArrowDown:[0,step]}[event.key];
+      if(!delta||this.busy)return;
+      event.preventDefault?.();event.stopPropagation?.();
+      this._moveDock((this.position?.left??24)+delta[0],
+        (this.position?.top??90)+delta[1]);
+    });
+    root.appendChild(head);
+    const progress=element("small", draft.mode === "points"
       ? `${draft.points} points · ${draft.dirty ? "Unsaved" : "No changes"}`
       : draft.mode === "checkpoint" ? "Click the map to place a Map Marker."
       : draft.mode === "checkpoint-relocate" ? "Choose a new location and confirm."
       : draft.mode === "junction" ? "Click a Road to connect."
-      : `${draft.points} points · Click the map to draw.`));
+      : `${draft.points} points · Click the map to draw.`);
+    progress.setAttribute?.("role","status");
+    progress.setAttribute?.("aria-live","polite");
+    progress.className="atlas-road-editor-status";
+    root.appendChild(progress);
+    if(draft.mode==="points"&&draft.roadName)
+      root.appendChild(element("p","Road: "+draft.roadName));
 
     const guidance = element("p");
     guidance.style.cssText="font-size:.9em;line-height:1.35;opacity:.8;margin:.1rem 0 .5rem;";
@@ -84,8 +161,8 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     const gestures=draft.mode==="points"?
       [["Drag","Move a bend or a junction"],
        ["Double-click","Add a bend to the Road line"],
-       ["Shift-click","Continue from an unconnected Road end (an end not joined to another Road)"],
-       ["Alt/Option-click","Remove a bend"],
+       ["Shift-click","Continue an unconnected Road end; promote a white bend to a gold junction or demote an eligible gold pass-through to a bend"],
+       ["Alt/Option-click","Remove a white bend, detach a shared junction, or choose a same-Road branch to disconnect"],
        ["Ctrl/Cmd + Z","Undo this draft"],
        ["Ctrl/Cmd + Shift + Z / Y","Redo this draft"],
        ["Esc","Stop continuation or cancel editing"]]:
@@ -105,33 +182,35 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
         [["Click","Choose the first Road, then the second Road"],
          ["Confirm","Review the connection before approving"],
          ["Esc","Cancel without saving"]];
-    const gestureList=element("ul");
+    const shortcuts=element("aside");
+    shortcuts.className="atlas-road-editor-shortcuts";
+    shortcuts.setAttribute?.("aria-label","Canvas editor shortcuts");
+    shortcuts.appendChild(element("strong","Shortcuts"));
+    const gestureList=element("div");
     gestureList.className="atlas-road-editor-gestures";
-    for(const [key,description] of gestures){
-      const item=element("li");
+    for(const [key,description] of [...gestures,
+      ["Scroll","Zoom map (Foundry default)"],
+      ["Arrow keys on title","Move editor without editing the map"]]){
+      const item=element("div");
       item.append(element("kbd",key),element("span",description));
       gestureList.appendChild(item);
     }
-    root.appendChild(gestureList);
-    const row = (title, input) => {
-      const wrapper = element("label");
-      wrapper.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:0.5rem;";
-      wrapper.append(element("span", title), input);
-      input.style.maxWidth = "12.5rem";
-      root.appendChild(wrapper);
-      return input;
-    };
+    shortcuts.appendChild(gestureList);
+    root.appendChild(shortcuts);
     if (draft.mode === "new") {
       const options = this.controller.getNewRoadOptions(this.scene);
+      if(this.window?.title)
+        this.window.title.textContent=atlasSettingsTitle("Road",options.name)
+          .replace(/ Settings$/," Editor");
       const summary = element("div");
-      summary.style.cssText = "padding:.5rem;border:1px solid var(--color-border-light-tertiary,#655);border-radius:5px;";
+      summary.className="atlas-road-editor-summary";
       summary.appendChild(element("strong", options.name));
       summary.appendChild(element("p", "Road settings were configured before drawing. Add two or more points, then finish to save."));
       root.appendChild(summary);
     }
 
     const buttons = element("div");
-    buttons.style.cssText = "display:flex;gap:0.35rem;justify-content:flex-end;flex-wrap:wrap;";
+    buttons.className="atlas-road-editor-footer";
     const makeButton = (title, callback, icon=null) => {
       const button=icon?createSettingsIconButton({icon,label:title}):element("button",title);
       button.type = "button";
@@ -158,6 +237,16 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
         locate.title="Draw the first road point before locating it.";
       }
     }
+    if(draft.canUndo || (draft.mode==="new"&&draft.points>0))
+      makeButton("Undo",()=>{this.controller.undo();void this.render(true);},"rotate-left");
+    if(draft.canRedo)
+      makeButton("Redo",()=>{this.controller.redo();void this.render(true);},"rotate-right");
+    makeButton("Cancel", async () => {
+      if (this.busy) return;
+      this.onCancel();
+      this.finished = true;
+      await this.close();
+    });
     const save = needsSave ? makeButton(draft.mode === "new" ? "Finish Road" : "Save Points", async () => {
       if (this.busy) return;
       this.busy = true;
@@ -170,28 +259,21 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
         }
       } catch (error) { ui.notifications.error(error.message || String(error)); }
       finally { this.busy = false; save.disabled = false; }
-    },"floppy-disk") : null;
-    if(draft.canUndo || (draft.mode==="new"&&draft.points>0))
-      makeButton("Undo",()=>{this.controller.undo();void this.render(true);},"rotate-left");
-    if(draft.canRedo)
-      makeButton("Redo",()=>{this.controller.redo();void this.render(true);},"rotate-right");
-    makeButton("Cancel", async () => {
-      if (this.busy) return;
-      this.onCancel();
-      this.finished = true;
-      await this.close();
-    });
+    }) : null;
     const body=element("div");
     body.className="atlas-road-editor-body";
     body.append(...root.children);
-    buttons.className="atlas-road-editor-footer";
     root.replaceChildren(body,buttons);
     return root;
   }
 
-  _replaceHTML(result, content) { content.replaceChildren(result); }
+  _replaceHTML(result, content) {
+    this._endDrag();
+    content.replaceChildren(result);
+  }
 
   _onClose(options) {
+    this._endDrag();
     super._onClose?.(options);
     if (!this.finished && this.controller.getDraft(this.scene)) this.onCancel();
     this.onClosed?.();

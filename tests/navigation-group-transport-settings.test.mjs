@@ -15,6 +15,7 @@ class FakeElement {
   append(...children){for(const c of children)this.appendChild(c);}
   setAttribute(key,value){this.attributes.set(key,String(value));}
   addEventListener(name,handler){(this.events[name]??=[]).push(handler);}
+  focus(){this.focused=true;}
   insertAdjacentElement(position,child){
     if(position!=="afterend"||!this.parent)throw Error("Unsupported fake DOM insertion");
     const i=this.parent.children.indexOf(this);
@@ -54,6 +55,7 @@ const setup=(isGM=true)=>{
       if(key==="guidedGroupTransportation")saved=value;return value;}}};
   globalThis.ui={notifications:{info(){},error(){}}};
   return {pc,camel,ship,group,changes,get saved(){return saved;},
+    setSaved(value){saved=value;},
     restore(){globalThis.document=old.document;globalThis.game=old.game;globalThis.ui=old.ui;}};
 };
 
@@ -70,6 +72,9 @@ test("GM Group header button is inserted at the specified spot once",()=>{
     assert.equal(header.children[1].className.includes("atlas-transport-button"),true);
     assert.equal(header.children[2],left,"native pace arrows retain their order");
     assert.equal(header.children[1].attributes.get("aria-label"),"Manage Party Transportation");
+    assert.match(header.children[1].className,/atlas-ui-icon-button/,
+      "Group shortcut uses the shared 2rem accessible action target");
+    assert.equal(header.children[1].children[0].className,"fa-solid fa-horse");
     assert.equal(addAtlasGroupTransportationControl({document:ctx.group},root),false);
     assert.equal(header.children.length,3,"rerender does not duplicate control");
     assert.equal(ctx.changes.length,0);
@@ -96,6 +101,10 @@ test("Group editor separates PCs, NPCs and Vehicles without a Group dropdown",as
       "Camel","Warship","Transportation profile","Save Party Transportation Assignments"])
       assert.match(labels,new RegExp(name));
     assert.equal(elements.some(e=>e.name==="atlasGroupSelection"),false);
+    const actorGroups=elements.filter(e=>e.tagName==="FIELDSET"&&
+      e.children.some(child=>child.tagName==="LEGEND"&&
+        /^(Camel|Warship)/.test(child.textContent)));
+    assert.equal(actorGroups.length,2,"each editable Actor has an accessible named fieldset");
     assert.deepEqual(ctx.changes,[],"opening Group editor never changes World or native Group");
   }finally{ctx.restore();}
 });
@@ -121,6 +130,34 @@ test("saving matching profile ID preserves mount capacity across Actor rename",a
   }finally{ctx.restore();}
 });
 
+test("two open Group assignment menus save different Groups without overwriting, same Group remains guarded",async()=>{
+  const ctx=setup();
+  try{
+    const first=new AtlasGroupTransportationSettings(ctx.group.id);
+    first.render=async()=>{};
+    const root=flatten(await first._renderHTML());
+    ctx.setSaved({...ctx.saved,groups:{...ctx.saved.groups,otherGroup:{members:{}}}});
+    const button=root.find(e=>e.textContent==="Save Party Transportation Assignments");
+    await button.events.click[0]();
+    assert.equal(ctx.changes.length,1,"unrelated Group change must not block saving this Group");
+    assert.deepEqual(ctx.saved.groups.otherGroup,{members:{}},
+      "saving this Group preserves other Group assignments");
+
+    const stale=new AtlasGroupTransportationSettings(ctx.group.id);
+    stale.render=async()=>{};
+    const draft=flatten(await stale._renderHTML());
+    const prior=ctx.saved.groups.group1;
+    ctx.setSaved({...ctx.saved,groups:{...ctx.saved.groups,
+      group1:{members:{...prior.members,
+        camel1:{...prior.members.camel1,quantity:9}}}}});
+    const count=ctx.changes.length;
+    await draft.find(e=>e.textContent==="Save Party Transportation Assignments")
+      .events.click[0]();
+    assert.equal(ctx.changes.length,count,"same Group stale write is rejected");
+    assert.equal(ctx.saved.groups.group1.members.camel1.quantity,9);
+  }finally{ctx.restore();}
+});
+
 test("Group editor shows Vehicles / NPC / Player Characters tabs and preserves drafts on switch",async()=>{
   const ctx=setup();
   try{
@@ -129,9 +166,9 @@ test("Group editor shows Vehicles / NPC / Player Characters tabs and preserves d
     const tabs=elements.filter(e=>e.attributes.get("role")==="tab");
     assert.deepEqual(tabs.map(t=>t.textContent),["Vehicles","NPC","Player Characters"]);
     const panels=elements.filter(e=>e.attributes.get("role")==="tabpanel");
-    assert.deepEqual(panels.map(p=>p.attributes.get("id")),
-      ["atlas-transport-panel-vehicle","atlas-transport-panel-npc",
-        "atlas-transport-panel-character"]);
+    assert.deepEqual(panels.map(p=>p.id),
+      ["atlas-group-transport-vehicle-panel","atlas-group-transport-npc-panel",
+        "atlas-group-transport-character-panel"]);
     assert.equal(panels[0].hidden,false,"Vehicles shown initially");
     assert.equal(panels[1].hidden,true);
     assert.equal(elements.some(e=>e.name==="surface-camel1"||e.name==="surface-ship1"),false,
@@ -139,7 +176,19 @@ test("Group editor shows Vehicles / NPC / Player Characters tabs and preserves d
     const draft=elements.find(e=>e.name==="quantity-camel1");draft.value="5";
     tabs[1].events.click[0]();
     assert.equal(panels[1].hidden,false);
-    tabs[2].events.click[0]();
+    assert.equal(tabs[1].attributes.get("aria-selected"),"true");
+    assert.equal(tabs[1].tabIndex,0);
+    const bar=elements.find(e=>e.attributes.get("role")==="tablist");
+    let prevented=0;
+    bar.events.keydown[0]({key:"ArrowRight",target:tabs[1],
+      preventDefault(){prevented++;}});
+    assert.equal(tabs[2].focused,true);
+    assert.equal(panels[2].hidden,false);
+    bar.events.keydown[0]({key:"Home",target:tabs[2],
+      preventDefault(){prevented++;}});
+    assert.equal(tabs[0].focused,true);
+    assert.equal(panels[0].hidden,false);
+    assert.equal(prevented,2);
     tabs[1].events.click[0]();
     assert.equal(draft.value,"5","tab changes do not rebuild controls or discard edits");
     assert.deepEqual(ctx.changes,[],"tab changes do not mutate Group or World flags");

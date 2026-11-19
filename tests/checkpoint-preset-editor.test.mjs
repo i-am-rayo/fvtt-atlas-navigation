@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {defaultCheckpointPresets} from "../scripts/checkpoint-preset-model.js";
+import {defaultCheckpointPresets,validateCheckpointPresets} from "../scripts/checkpoint-preset-model.js";
 
 test("World checkpoint preset editor exposes all three tabs and full appearance controls",async()=>{
   const previous={foundry:globalThis.foundry,document:globalThis.document,
@@ -9,10 +9,23 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     constructor(tag){this.tagName=tag.toUpperCase();this.tag=tag;this.children=[];
       this.style={};this.textContent="";this.value="";this.listeners=new Map();}
     append(...children){children.forEach(child=>this.appendChild(child));}
-    appendChild(child){child.parentNode=this;this.children.push(child);return child;}
+    appendChild(child){
+      if(child.parentNode)child.parentNode.children=
+        child.parentNode.children.filter(item=>item!==child);
+      child.parentNode=this;this.children.push(child);return child;
+    }
+    insertBefore(child,reference){
+      const index=this.children.indexOf(reference);
+      child.parentNode=this;
+      if(index<0)this.children.push(child);
+      else this.children.splice(index,0,child);
+      return child;
+    }
     replaceChildren(...children){this.children=[];this.append(...children);}
     addEventListener(name,callback){this.listeners.set(name,callback);}
-    setAttribute(){}
+    setAttribute(key,value){(this.attrs??=new Map()).set(key,String(value));}
+    getAttribute(key){return this.attrs?.get(key)??null;}
+    focus(){this.focused=true;}
     closest(tag){for(let element=this;element;element=element.parentNode)
       if(element.tag===tag)return element;return null;}
   }
@@ -23,9 +36,12 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     }}}};
     globalThis.document={createElement:tag=>new Element(tag)};
     globalThis.window={innerWidth:1280,innerHeight:900};
-    globalThis.game={user:{isGM:true},settings:{get:(_module,key)=>
-      key==="checkpointPresets"?defaultCheckpointPresets():
-      key==="measuringUnits"?"metric":null}};
+    let writes=0;
+    globalThis.game={user:{isGM:true},settings:{
+      get:(_module,key)=>key==="checkpointPresets"?defaultCheckpointPresets():
+        key==="measuringUnits"?"metric":null,
+      async set(){writes++;}
+    }};
     globalThis.ui={notifications:{error(message){throw Error(message);},info(){}}};
     const {AtlasCheckpointPresetEditor}=await import("../scripts/checkpoint-preset-editor.js");
     const editor=new AtlasCheckpointPresetEditor({preset:defaultCheckpointPresets().presets[0]});
@@ -42,31 +58,137 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     const titleField=all(body).find(item=>item.tag==="input"&&item.maxLength===120);
     assert.ok(titleField);
     titleField.value="Unsaved map marker preset";
+    body.children[1].listeners.get("input")();
     tabs.children[1].listeners.get("click")();
     tabs.children[0].listeners.get("click")();
     assert.equal(titleField.value,"Unsaved map marker preset",
       "switching tab never discards an unsaved World preset draft");
+    assert.equal(tabs.getAttribute("role"),"tablist");
+    assert.equal(tabs.children[0].getAttribute("aria-selected"),"true");
+    tabs.children[1].listeners.get("click")();
+    assert.equal(tabs.children[1].getAttribute("aria-selected"),"true");
+    tabs.listeners.get("keydown")({key:"Home",target:tabs.children[1],
+      preventDefault(){}});
+    assert.equal(tabs.children[0].focused,true,"Home focuses the first tab");
+    tabs.children[1].listeners.get("click")();
     const labels=all(root).map(item=>item.textContent);
     for(const label of ["General","Customization","Terrain Region",
       "Default elevation (m)","Default discovery status","Default linked Journal / Page UUID",
       "Map Marker icon","Marker size (12–64 px)","Map Marker border color",
-      "Map Marker banner","Suggested travel preset","Air Travel"])
+      "Banner display","Suggested travel preset","Air Travel"])
       assert.ok(labels.includes(label),label);
     assert.ok(all(root).some(item=>item.title==="Save preset"),"shared save icon");
     assert.ok(all(root).some(item=>item.title==="Add Air Travel method"),
       "air travel shares the compact plus icon control");
     assert.equal(all(root).some(item=>item.textContent==="+ Add Land Travel"),false);
     assert.ok(all(root).some(item=>item.tag==="input"&&item.type==="color"));
+    const picker=all(root).find(item=>item.className?.includes?.("atlas-checkpoint-icon-selector"));
+    assert.equal(picker.tag,"div",
+      "the World preset uses the placed-marker compact icon trigger, not the expanded details");
+    const trigger=picker.children[0];
+    assert.ok(trigger.className?.includes("atlas-checkpoint-icon-trigger"));
+    assert.equal(trigger.title,"Choose checkpoint icon");
     assert.ok(all(root).some(item=>item.tag==="input"&&item.placeholder?.includes("fantasy icons")));
+    const customization=body.children[2];
+    const sections=customization.children;
+    assert.deepEqual(sections.map(item=>item.children[0]?.textContent),
+      ["Map Marker settings","Banner information","Map preview"],
+      "the World preset matches placed-marker appearance section order");
+    const preview=sections[2],sample=preview.children[1];
+    assert.equal(sample.className,"atlas-marker-preset-preview-sample");
+    assert.ok(all(sample).some(item=>item.textContent==="Unsaved map marker preset"),
+      "preview uses an unsaved World preset name, without a Scene name");
+    const markerColors=all(sections[0]).filter(item=>item.tag==="input"&&item.type==="color");
+    assert.equal(markerColors.length,2);
+    const borderRow=all(root).find(item=>item.className==="atlas-checkpoint-border-inline");
+    assert.equal(borderRow.children.length,2,"World preset pairs Border and Border Color");
+    const borderEnabled=borderRow.children[0].children[1];
+    const borderColor=borderRow.children[1].children[1];
+    assert.equal(borderEnabled.type,"checkbox");
+    assert.equal(borderEnabled.checked,true);
+    const retainedBorder=borderColor.value;
+    borderEnabled.checked=false;
+    customization.listeners.get("change")();
+    assert.equal(borderColor.disabled,true);
+    assert.equal(borderColor.value,retainedBorder,
+      "World preview retains border color when disabled");
+    borderEnabled.checked=true;
+    customization.listeners.get("change")();
+    assert.equal(borderColor.disabled,false);
+    assert.equal(borderColor.value,retainedBorder);
+    markerColors[0].value="#8844cc";
     const bannerPair=all(root).find(item=>item.className==="atlas-marker-preset-banner-colors");
     assert.ok(bannerPair,"banner mode and its text color remain adjacent");
     assert.equal(bannerPair.children.length,2,
       "mode and color retain separate accessible form labels");
-    assert.equal(bannerPair.children[0].children[0].textContent,"Map Marker banner");
+    assert.equal(bannerPair.children[0].children[0].textContent,"Banner display");
     assert.equal(bannerPair.children[1].children[0].textContent,"Banner text color");
+    const bannerMode=bannerPair.children[0].children[1];
+    const bannerColor=bannerPair.children[1].children[1];
+    bannerMode.value="always";
+    bannerColor.value="#aa55ee";
+    customization.listeners.get("change")();
+    assert.equal(bannerColor.disabled,false);
+    assert.equal(sample.children[0].children[0].style.color,"#8844cc");
+    assert.equal(sample.children[1].style.color,"#aa55ee");
+    assert.equal(preview.getAttribute("data-label-mode"),"always");
+    bannerMode.value="off";customization.listeners.get("change")();
+    assert.equal(bannerColor.disabled,true,"Banner Off disables but never clears the color draft");
+    assert.equal(sample.children[1].hidden,true);
+    assert.equal(bannerColor.value,"#aa55ee");
+    bannerMode.value="hover";customization.listeners.get("change")();
+    assert.equal(bannerColor.disabled,false);
+    assert.equal(sample.children[1].hidden,false);
+    assert.equal(preview.getAttribute("data-label-mode"),"hover");
+    assert.equal(writes,0,"icon and preview editing is entirely draft-only");
     assert.ok(labels.includes("RPG picks"));
     assert.ok(labels.includes("All / Advanced"));
     assert.ok(all(root).some(item=>item.tag==="optgroup"&&item.label==="Land"));
     assert.ok(all(root).some(item=>item.tag==="optgroup"&&item.label==="Air"));
+
+    let world=validateCheckpointPresets(defaultCheckpointPresets());
+    const errors=[];
+    globalThis.game.settings.get=(_m,key)=>
+      key==="checkpointPresets"?world:key==="measuringUnits"?"metric":null;
+    globalThis.game.settings.set=async(_m,key,value)=>{
+      if(key==="checkpointPresets"){world=value;writes++;}
+    };
+    globalThis.ui.notifications.error=message=>errors.push(String(message));
+    const first=new AtlasCheckpointPresetEditor({preset:world.presets[0]});
+    const second=new AtlasCheckpointPresetEditor({preset:world.presets[1]});
+    assert.notEqual(first.options.id,second.options.id,
+      "separate saved Map Marker presets have distinct ApplicationV2 window IDs");
+    first.close=async()=>{};second.close=async()=>{};
+    const a=await first._renderHTML(),b=await second._renderHTML();
+    const textInput=root=>all(root).find(item=>item.tag==="input"&&item.maxLength===120);
+    const save=async root=>{
+      all(root).find(item=>item.title==="Save preset").listeners.get("click")();
+      await new Promise(resolve=>setImmediate(resolve));
+    };
+    const firstId=world.presets[0].id,secondId=world.presets[1].id;
+    textInput(a).value="Edited preset A";
+    textInput(b).value="Edited preset B";
+    await save(a);
+    assert.deepEqual(errors,[],"first World preset Save must pass validation");
+    await save(b);
+    assert.deepEqual(errors,[],"second World preset Save must pass validation");
+    assert.equal(world.presets.find(item=>item.id===firstId).name,"Edited preset A");
+    assert.equal(world.presets.find(item=>item.id===secondId).name,"Edited preset B");
+    assert.equal(errors.length,0,"unrelated preset saves must not show conflicts");
+    const live=new AtlasCheckpointPresetEditor({
+      preset:world.presets.find(item=>item.id===firstId)});
+    const stale=new AtlasCheckpointPresetEditor({
+      preset:world.presets.find(item=>item.id===firstId)});
+    live.close=async()=>{};stale.close=async()=>{};
+    const x=await live._renderHTML(),y=await stale._renderHTML();
+    textInput(x).value="Live preset edit";
+    textInput(y).value="Stale preset edit";
+    await save(x);
+    const priorWrites=writes;
+    await save(y);
+    assert.equal(writes,priorWrites,"stale same-preset Save fails before any World write");
+    assert.match(errors.join("\n"),/Map Marker preset changed elsewhere/);
+    assert.equal(world.presets.find(item=>item.id===firstId).name,"Live preset edit");
+    assert.equal(textInput(y).value,"Stale preset edit","stale preset draft retained");
   }finally{Object.assign(globalThis,previous);}
 });

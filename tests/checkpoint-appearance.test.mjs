@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {readFileSync} from "node:fs";
 import { createEmptyAtlas, validateAtlas, upgradeAtlasRoadTextAppearance,
   upgradeAtlasCheckpointAppearance } from "../scripts/atlas-model.js";
 import { addRoad } from "../scripts/road-model.js";
@@ -201,6 +202,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       this.listeners = new Map();
       this.value = "";
       this.textContent = "";
+      this.attributes=new Map();
     }
     append(...items) { for (const item of items) this.appendChild(item); }
     prepend(...items) {
@@ -232,7 +234,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       return search(this);
     }
     addEventListener(name, listener) { this.listeners.set(name, listener); }
-    setAttribute() {}
+    setAttribute(name,value){this.attributes.set(name,String(value));}
+    focus(){this.focused=true;}
     hidePopover(){this.popoverClosed=true;}
     focus(){this.focused=true;}
   }
@@ -258,20 +261,30 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "../scripts/checkpoint-appearance-editor.js");
     const data = upgradeAtlasCheckpointAppearance(fixture());
     let stored = data;
-    const scene = { canUserModify: () => true,
-      getFlag: (_scope, key) => key === ATLAS_FLAG ? stored : undefined,
-      setFlag: async (_scope, _key, value) => { stored = value; } };
+    const sidecars=new Map();
+    const scene = { id:"scene-one",canUserModify: () => true,
+      getFlag: (_scope, key) => key === ATLAS_FLAG ? stored : sidecars.get(key),
+      setFlag: async (_scope, key, value) => {
+        if(key===ATLAS_FLAG)stored=value;
+        else sidecars.set(key,value);
+      } };
     const actions=[];
     const editor = new AtlasCheckpointAppearanceEditor({ scene,
       checkpointId: data.checkpoints[0].id, expectedRevision: data.revision,
       onTerrainAction:async action=>{actions.push(action);},
       onMove:()=>{actions.push("move");},
+      onLocate:()=>{actions.push("locate");},
       onDelete:async()=>false });
     assert.equal(editor.options.position.left,24,
       "checkpoint authoring opens at the left of the canvas");
     assert.equal(editor.options.window.title,"Atlas — Ridge Lookout — Map Marker Settings",
       "existing Map Marker settings identify the edited Checkpoint regardless of tab");
-    editor.close = async () => {};
+    const second=new AtlasCheckpointAppearanceEditor({scene,
+      checkpointId:"other-marker",expectedRevision:data.revision});
+    assert.notEqual(editor.options.id,second.options.id,
+      "different Map Markers get distinct Foundry application window identities");
+    let closeCalls=0;
+    editor.close = async () => {closeCalls++;};
     const root = await editor._renderHTML();
     const buttons = all(root).filter(node => node.tag === "button");
     const geographicLink=buttons.find(node=>node.textContent==="Link Territory");
@@ -304,22 +317,94 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const customizationTab=all(root).find(node=>node.tag==="button"&&
       node.textContent==="Customization");
     assert.ok(customizationTab,"Checkpoint appearance tab uses shared terminology");
+    const tabBar=all(root).find(node=>node.attributes?.get("role")==="tablist"&&
+      node.attributes?.get("aria-label")==="Map Marker settings sections");
+    assert.ok(tabBar,"Map Marker settings expose a named keyboard-accessible tablist");
+    const markerTabs=tabBar.children;
+    const markerPages=all(root).filter(node=>node.attributes?.get("role")==="tabpanel");
+    assert.deepEqual(markerTabs.map(tab=>tab.textContent),
+      ["General","Customization","Terrain Region","Transportation"]);
+    assert.equal(markerPages.length,4);
+    for(let index=0;index<4;index++){
+      assert.equal(markerTabs[index].attributes.get("aria-controls"),markerPages[index].id);
+      assert.equal(markerPages[index].attributes.get("aria-labelledby"),markerTabs[index].id);
+    }
+    const draftName=all(root).find(node=>node.tag==="input"&&node.value==="Ridge Lookout");
+    draftName.value="Uncommitted title";
+    let prevented=0;
+    tabBar.listeners.get("keydown")({key:"End",target:markerTabs[0],
+      preventDefault(){prevented++;}});
+    assert.equal(markerTabs[3].focused,true);
+    assert.equal(markerPages[3].hidden,false);
+    assert.equal(markerTabs[3].tabIndex,0);
+    tabBar.listeners.get("keydown")({key:"Home",target:markerTabs[3],
+      preventDefault(){prevented++;}});
+    assert.equal(markerTabs[0].focused,true);
+    assert.equal(markerPages[0].hidden,false);
+    assert.equal(markerTabs[3].tabIndex,-1);
+    markerTabs[1].listeners.get("click")();
+    assert.equal(markerPages[1].hidden,false);
+    markerTabs[0].listeners.get("click")();
+    assert.equal(draftName.value,"Uncommitted title",
+      "switching Map Marker tabs keeps the same unsaved input mounted");
+    draftName.value="Ridge Lookout";
+    assert.equal(prevented,2);
+    assert.equal(stored.revision,data.revision,"tab navigation cannot write Scene flags");
     const sections=all(root).filter(node=>
       node.className==="atlas-checkpoint-customization-section");
     assert.equal(sections.length,2);
     assert.deepEqual(sections.map(node=>node.children[0].textContent),
       ["Map Marker settings","Banner information"]);
     assert.equal(sections[0].children[1].children[0].textContent,"Marker size (12–64 px)");
+    const borderRow=all(root).find(node=>node.className==="atlas-checkpoint-border-inline");
+    assert.ok(borderRow,"Border Enabled and retained Border Color share one row");
+    assert.equal(borderRow.children.length,2);
+    const borderEnabled=borderRow.children[0].children[1];
+    const borderColor=borderRow.children[1].children[1];
+    assert.equal(borderEnabled.type,"checkbox");
+    assert.equal(borderEnabled.checked,true,"legacy marker border stays enabled");
+    assert.equal(borderColor.type,"color");
+    assert.equal(borderColor.disabled,false);
+    const originalBorderColor=borderColor.value;
+    borderColor.value="#aabbcc";
+    borderEnabled.checked=false;
+    root.listeners.get("change")();
+    assert.equal(borderColor.disabled,true,"Off disables the swatch, not its draft");
+    assert.equal(borderColor.value,"#aabbcc");
+    borderEnabled.checked=true;
+    root.listeners.get("change")();
+    assert.equal(borderColor.disabled,false);
+    assert.equal(borderColor.value,"#aabbcc","On restores the retained border swatch");
+    borderColor.value=originalBorderColor;
+    root.listeners.get("input")();
     const mapPreview=all(root).find(node=>node.className==="atlas-checkpoint-preview");
     assert.ok(mapPreview);
     const sample=mapPreview.children[1];
     const labelPreview=sample.children[1];
-    const showRoad=all(root).find(node=>node.tag==="input"&&
-      node.type==="checkbox");
-    const labelMode=all(root).find(node=>node.tag==="select"&&node.value==="off");
-    assert.ok(showRoad&&labelMode);
     const bannerSettings=all(root).find(node=>
       node.className==="atlas-checkpoint-banner-settings");
+    const showRoad=bannerSettings.children[1].children[0];
+    const labelMode=all(root).find(node=>node.tag==="select"&&node.value==="off");
+    assert.ok(showRoad&&labelMode);
+    const inlineBanner=all(root).find(node=>
+      node.className==="atlas-checkpoint-banner-inline");
+    assert.ok(inlineBanner,"display and color share one banner row");
+    assert.equal(sections[1].children[1].children[0],inlineBanner,
+      "banner row is the first field inside the existing Banner information section");
+    assert.equal(inlineBanner.children.length,2,
+      "display and text color retain separate native labels and tab stops");
+    assert.equal(inlineBanner.children[0].children[0].textContent,"Banner display");
+    assert.equal(inlineBanner.children[1].children[0].textContent,"Banner text color");
+    assert.equal(inlineBanner.children[0].children[1],labelMode);
+    const bannerTextColor=inlineBanner.children[1].children[1];
+    assert.equal(bannerTextColor.type,"color");
+    assert.equal(bannerTextColor.disabled,true,
+      "Banner Off disables color editing without changing the selected color");
+    const originalBannerColor=bannerTextColor.value;
+    const css=readFileSync(new URL("../styles/atlas-ui.css",import.meta.url),"utf8");
+    assert.ok(css.includes(".atlas-checkpoint-banner-inline {")&&
+      css.includes("display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;"),
+      "the two labeled controls share a responsive horizontal row");
     assert.ok(bannerSettings);
     assert.equal(bannerSettings.children[1].hidden,false,
       "Road-connected checkpoint offers Road name in the banner");
@@ -332,6 +417,11 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(bannerTerritory.disabled,true);
     showRoad.checked=true;labelMode.value="always";
     root.listeners.get("change")();
+    assert.equal(bannerTextColor.disabled,false);
+    bannerTextColor.value="#cc55ee";
+    root.listeners.get("input")();
+    assert.equal(labelPreview.style.color,"#cc55ee",
+      "banner preview uses the unsaved text-color draft");
     assert.equal(showRoad.disabled,false,"re-enabling Banner restores controls");
     assert.equal(bannerType.disabled,false);
     assert.equal(bannerElevation.disabled,false);
@@ -339,8 +429,17 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     labelMode.value="off";root.listeners.get("change")();
     assert.equal(showRoad.checked,true,"Banner Off preserves draft choices");
     assert.equal(showRoad.disabled,true);
+    assert.equal(bannerTextColor.disabled,true);
+    assert.equal(bannerTextColor.value,"#cc55ee",
+      "Banner Off retains the unsaved text color");
     assert.equal(labelPreview.hidden,true,"Banner Off hides text only");
     labelMode.value="always";root.listeners.get("change")();
+    assert.equal(bannerTextColor.disabled,false);
+    assert.equal(bannerTextColor.value,"#cc55ee",
+      "Banner On restores the retained color draft");
+    assert.equal(labelPreview.style.color,"#cc55ee");
+    bannerTextColor.value=originalBannerColor;
+    root.listeners.get("input")();
     assert.equal(showRoad.checked,true);
     assert.equal(labelPreview.hidden,false);
     assert.equal(labelPreview.children.length,2,
@@ -363,6 +462,14 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       node.className==="atlas-checkpoint-banner-settings");
     assert.equal(independentBanner.children[1].hidden,true,
       "Standalone Checkpoints hide Road name without erasing its preference");
+    const draftFooter=all(independentRoot).find(node=>
+      node.className==="atlas-checkpoint-form-actions");
+    const draftLocate=draftFooter.children[0].children[0];
+    assert.equal(draftLocate.title,"Locate unavailable until Map Marker is saved");
+    assert.equal(draftLocate.disabled,true,
+      "unsaved new Map Marker must never invoke a misleading Locate action");
+    assert.equal(draftFooter.children[1].children.at(-1).title,"Create Map Marker",
+      "new marker creation has no destructive Delete action");
 
     const search = all(root).find(node => node.tag === "input" && node.type === "search");
     search.value = "github";
@@ -403,7 +510,12 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "atlas-checkpoint-settings-page")).length,4);
     assert.ok(all(root).filter(node=>node.className?.includes?.(
       "atlas-checkpoint-settings-page")).every(node=>node.style.overflowY==="auto"));
-    const footerVisibility=footer.children.find(node=>
+    const leftActions=footer.children[0],rightActions=footer.children[1];
+    assert.equal(footer.children.length,2,
+      "one anchored footer holds separate left/right DOM action groups");
+    assert.equal(leftActions.className,"atlas-checkpoint-footer-left");
+    assert.equal(rightActions.className,"atlas-checkpoint-footer-right");
+    const footerVisibility=leftActions.children.find(node=>
       node.className==="atlas-checkpoint-footer-visibility");
     const playerVisible=footerVisibility?.children.find(node=>
       node.tag==="input"&&node.type==="checkbox");
@@ -418,10 +530,16 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "World preset controls align with the right edge of the General form");
     assert.ok(all(root).some(node=>node.textContent==="Elevation (m)"),
       "metric unit preference yields a meter label when native Scene units are unspecified");
-    const moveFooter=footer.children.find(node=>
+    const moveFooter=leftActions.children.find(node=>
       node.title==="Move Map Marker");
     assert.ok(moveFooter?.className.includes("atlas-checkpoint-footer-icon"),
       "Move Map Marker is a compact action located in the footer");
+    assert.deepEqual(leftActions.children.map(node=>
+      node.className==="atlas-checkpoint-footer-visibility"?"Visibility":node.title),
+      ["Locate Map Marker","Visibility","Move Map Marker"],
+      "Locate, visibility and Move keep actual DOM/keyboard order");
+    const locate=leftActions.children[0];
+    assert.equal(locate.disabled,false);
     const showFooter=footerVisibility.children.find(node=>node.tag==="button");
     assert.ok(showFooter.className.includes("atlas-checkpoint-footer-icon"));
     assert.equal(showFooter.title,"Show Map Marker");
@@ -433,6 +551,14 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(showFooter.title,showFooter.attributes?.get?.("aria-label")??showFooter.title);
     name.value = "Revealed Lookout";
     elevation.value = "640";
+    await locate.listeners.get("click")();
+    assert.deepEqual(actions,["territory","locate"],
+      "Locate delegates to the injected read-only camera action");
+    assert.equal(name.value,"Revealed Lookout",
+      "Locate preserves the current unsaved Map Marker draft");
+    assert.equal(elevation.value,"640");
+    assert.equal(stored.revision,data.revision,"Locate does not persist Atlas data");
+    assert.equal(closeCalls,0,"Locate does not invoke the dirty-close guard");
     const show=buttons.find(node=>node.title==="Show Map Marker");
     assert.ok(show,"hidden checkpoint offers an accessible show icon");
     await show.listeners.get("click")();
@@ -453,18 +579,16 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(save?.className.includes("atlas-ui-icon-button"),
       "Save uses the shared icon action without changing its handler");
     assert.equal(save.type,"button","Save cannot accidentally submit the form");
-    assert.ok(all(root).some(node=>node.tag==="button"&&node.textContent==="Save as preset…"),
-      "preset saving is explicit in the footer");
-    assert.equal(footer.children.at(-3).textContent,"Save as preset…",
-      "saving a World preset remains distinct from saving the Checkpoint");
-    assert.equal(footer.children.at(-2),save,
+    assert.equal(rightActions.children[0].textContent,"Save as preset…",
+      "saving a World preset remains distinct from saving the Map Marker");
+    assert.equal(rightActions.children[1],save,
       "Save is immediately before the destructive Delete action");
-    assert.equal(footer.children.at(-1).title,"Delete Map Marker",
-      "Delete is the last element in DOM and keyboard order");
-    assert.equal(footer.children.at(-1).className.includes("atlas-checkpoint-footer-delete"),true);
-    assert.ok(footer.children.indexOf(footerVisibility)<footer.children.indexOf(save),
-      "editing controls appear before Save and Delete");
-    assert.equal(footer.children.at(-2),save);
+    assert.equal(rightActions.children[2].title,"Delete Map Marker",
+      "Delete is the final control in DOM and keyboard order");
+    assert.equal(rightActions.children[2].className.includes("atlas-checkpoint-footer-delete"),true);
+    assert.equal(rightActions.children.length,3);
+    assert.equal(footer.children.indexOf(leftActions),0,
+      "editing controls always precede Save and Delete");
     assert.equal(name.autofocus,true);
     save.listeners.get("click")();
     await new Promise(resolve => setImmediate(resolve));
@@ -473,6 +597,19 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.equal(stored.checkpoints[0].name, "Revealed Lookout");
     assert.equal(stored.checkpoints[0].elevationMeters, 640);
     assert.equal(stored.checkpoints[0].playerVisible, true);
+    // Unlike an existing unchanged marker, an unsaved new marker may have a
+    // stale graph anchor. It must still require the original Scene revision.
+    const createErrors=[];
+    const priorNotifyError=globalThis.ui.notifications.error;
+    globalThis.ui.notifications.error=message=>createErrors.push(String(message));
+    const staleCreate=all(independentRoot).find(node=>
+      node.tag==="button"&&node.title==="Create Map Marker");
+    staleCreate.listeners.get("click")();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.match(createErrors.join("\n"),/Scene Atlas changed/);
+    assert.equal(independentEditor.createResolved,false,
+      "stale New Map Marker must never send a creation config");
+    globalThis.ui.notifications.error=priorNotifyError;
     // #412: A deliberate preset change applies its defaults, but changing the
     // marker category afterwards must not silently select another preset or
     // wipe the GM's unrelated edits.
@@ -506,6 +643,81 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       "changing marker type must not overwrite the marker's other fields");
     assert.equal(JSON.stringify(stored),beforeCategoryEdit,
       "editing the type remains a draft with no Scene writes");
+    editor.window={title:{textContent:editor.options.window.title}};
+    stored={...stored,checkpoints:stored.checkpoints.map(cp=>({...cp,
+      name:"Newly Renamed Lookout"}))};
+    const revision=stored.revision;
+    await editor._renderHTML();
+    await editor._onRender();
+    assert.equal(editor.window.title.textContent,
+      "Atlas — Newly Renamed Lookout — Map Marker Settings",
+      "committed external rename refreshes an open editor header on render");
+    assert.equal(stored.revision,revision,
+      "refreshing the title never writes an Atlas Scene or changes its revision");
+
+    // Owner regression: The Eyrie and Dirwest editors stay open together.
+    // Distinct snapshots may save sequentially without reverting each other;
+    // a stale snapshot of the SAME Map Marker still fails closed.
+    stored=addRoadCheckpoint(stored,{
+      roadId:stored.roads[0].id,
+      candidate:{kind:"node",nodeId:stored.segments[0].to},
+      name:"Dirwest",elevationMeters:120,idFactory:()=>"dirwest-marker"
+    });
+    const eyrieId=stored.checkpoints[0].id;
+    const dirwestId=stored.checkpoints.find(cp=>cp.name==="Dirwest").id;
+    const firstWindow=new AtlasCheckpointAppearanceEditor({scene,
+      checkpointId:eyrieId,expectedRevision:stored.revision});
+    const secondWindow=new AtlasCheckpointAppearanceEditor({scene,
+      checkpointId:dirwestId,expectedRevision:stored.revision});
+    firstWindow.close=async()=>{};secondWindow.close=async()=>{};
+    const firstForm=await firstWindow._renderHTML();
+    const secondForm=await secondWindow._renderHTML();
+    const markerType=root=>all(root).find(node=>node.tag==="select"&&
+      node.title?.startsWith("Map Marker type is independent"));
+    markerType(firstForm).value="city";
+    markerType(secondForm).value="village";
+    const savedName=root=>all(root).find(node=>node.tag==="input"&&node.type==="text"&&
+      ["Newly Renamed Lookout","Dirwest","Changed Eyrie","Changed Dirwest",
+        "Attempted stale overwrite"].includes(node.value));
+    const saveForm=async(root,nextName)=>{
+      const input=savedName(root);
+      assert.ok(input);
+      input.value=nextName;
+      const button=all(root).find(node=>node.tag==="button"&&node.title==="Save Map Marker");
+      button.listeners.get("click")();
+      await new Promise(resolve=>setImmediate(resolve));
+    };
+    const beforeSequential=stored.revision;
+    await saveForm(firstForm,"Changed Eyrie");
+    assert.equal(stored.revision,beforeSequential+1);
+    await saveForm(secondForm,"Changed Dirwest");
+    assert.equal(stored.revision,beforeSequential+2);
+    assert.equal(stored.checkpoints.find(cp=>cp.id===eyrieId).name,"Changed Eyrie");
+    assert.equal(stored.checkpoints.find(cp=>cp.id===dirwestId).name,"Changed Dirwest",
+      "saving a second open editor preserves the first marker's committed change");
+    assert.equal(sidecars.get("checkpointCategories")?.[eyrieId],"city");
+    assert.equal(sidecars.get("checkpointCategories")?.[dirwestId],"village",
+      "sidecar category writes merge separate targets without losing the first");
+
+    const live=new AtlasCheckpointAppearanceEditor({scene,
+      checkpointId:dirwestId,expectedRevision:stored.revision});
+    const stale=new AtlasCheckpointAppearanceEditor({scene,
+      checkpointId:dirwestId,expectedRevision:stored.revision});
+    live.close=async()=>{};stale.close=async()=>{};
+    const liveForm=await live._renderHTML();
+    const staleForm=await stale._renderHTML();
+    await saveForm(liveForm,"Updated by Another Editor");
+    const conflictRevision=stored.revision;
+    const errors=[];
+    globalThis.ui.notifications.error=message=>errors.push(String(message));
+    await saveForm(staleForm,"Attempted stale overwrite");
+    assert.match(errors.join("\n"),/This Map Marker or its settings changed elsewhere/);
+    assert.equal(stored.revision,conflictRevision,
+      "stale same-target Save never reaches the revision writer");
+    assert.equal(stored.checkpoints.find(cp=>cp.id===dirwestId).name,
+      "Updated by Another Editor");
+    assert.equal(savedName(staleForm).value,"Attempted stale overwrite",
+      "a refused Save leaves the unsaved draft available to the GM");
   } finally {
     Object.assign(globalThis, previous);
   }
@@ -520,6 +732,16 @@ test("v0.2.29 border colors default black, legacy styles remain readable", () =>
   assert.equal(legacy.borderColor, undefined, "read-only compatibility must not rewrite old flags");
   assert.equal(validateCheckpointAppearance({ ...fancy, borderColor: "#d34e55" }).borderColor, "#d34e55");
   assert.throws(() => validateCheckpointAppearance({ ...fancy, borderColor: "maroon" }));
+  assert.equal(DEFAULT_CHECKPOINT_APPEARANCE.borderEnabled,true,
+    "previously saved Map Markers rendered with a border");
+  const legacyStyle={...fancy};delete legacyStyle.borderEnabled;
+  assert.equal(validateCheckpointAppearance(legacyStyle).borderEnabled,true);
+  assert.equal(Object.hasOwn(legacyStyle,"borderEnabled"),false,
+    "reading a legacy Scene flag must not migrate or change it");
+  assert.equal(validateCheckpointAppearance({...fancy,borderEnabled:false}).borderEnabled,false);
+  for(const invalid of [null,0,"false",{},undefined])
+    assert.throws(()=>validateCheckpointAppearance({...fancy,borderEnabled:invalid}),
+      /border enabled/,"border enable is an explicit strict boolean, not a color sentinel");
 });
 
 

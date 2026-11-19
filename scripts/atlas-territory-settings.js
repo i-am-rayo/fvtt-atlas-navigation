@@ -31,7 +31,8 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
 
   constructor({scene,regionId,actions,refresh,onLocate}){
     const name=scene.regions?.get?.(regionId)?.name;
-    super({window:{title:atlasSettingsTitle("Territory",name),minimizable:true},
+    super({id:`fvtt-atlas-territory-settings-${scene.id}-${regionId}`,
+      window:{title:atlasSettingsTitle("Territory",name),minimizable:true},
       position:{width:Math.min(710,Math.max(390,window.innerWidth-65)),
         height:Math.min(700,Math.max(450,window.innerHeight-85))}});
     this.scene=scene;
@@ -51,6 +52,9 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
   _watchMembership(){
     if(this._membershipHooks.length||!globalThis.Hooks?.on)return;
     const changed=doc=>{
+      if(this.rendered&&doc?.id===this.regionId&&
+          doc?.parent?.id===this.scene.id&&this.window?.title)
+        this.window.title.textContent=atlasSettingsTitle("Territory",doc.name);
       if(this.activePage!=="Map Marker & Journal"||!this.rendered||
           (doc?.id!==this.scene.id&&doc?.parent?.id!==this.scene.id)||
           this._membershipQueued)return;
@@ -72,6 +76,13 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
   _unwatchMembership(){
     for(const {event,handle} of this._membershipHooks)globalThis.Hooks?.off?.(event,handle);
     this._membershipHooks=[];
+  }
+
+  async _onRender(context,options){
+    await super._onRender?.(context,options);
+    const native=this.scene.regions?.get?.(this.regionId);
+    if(native&&this.window?.title)
+      this.window.title.textContent=atlasSettingsTitle("Territory",native.name);
   }
 
   async _renderHTML(){
@@ -109,22 +120,46 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
     const root=el("section",undefined,"atlas-territory-settings");
     root.setAttribute("data-atlas-territory-settings",this.regionId);
     const tabBar=el("nav",undefined,"atlas-territory-settings-tabs");
+    tabBar.setAttribute("role","tablist");
     tabBar.setAttribute("aria-label","Territory settings sections");
-    for(const page of pages){
+    // This editor renders one active page into a stable panel on each selection.
+    const tabPrefix=`atlas-territory-${this.scene.id}-${this.regionId}`;
+    const switchPage=(page,restoreFocus=false)=>{
+      if(this.activePage===page)return;
+      this.activePage=page;
+      this._scrollY=0;
+      void this.render(true).then(()=>{
+        if(restoreFocus)this.element?.querySelector?.(
+          '[data-atlas-territory-page="'+page+'"]')?.focus?.();
+      }).catch(error=>ui.notifications.error(error.message??String(error)));
+    };
+    for(const [index,page] of pages.entries()){
       const tab=el("button",page);
       tab.type="button";
+      tab.id=tabPrefix+"-tab-"+index;
       tab.dataset.atlasTerritoryPage=page;
-      tab.setAttribute("aria-current",String(this.activePage===page));
-      tab.addEventListener("click",()=>{
-        if(this.activePage===page)return;
-        this.activePage=page;
-        this._scrollY=0;
-        void this.render(true);
-      });
+      tab.setAttribute("role","tab");
+      tab.setAttribute("aria-controls",tabPrefix+"-panel");
+      tab.setAttribute("aria-selected",String(this.activePage===page));
+      tab.tabIndex=this.activePage===page?0:-1;
+      tab.addEventListener("click",()=>switchPage(page));
       tabBar.appendChild(tab);
     }
+    tabBar.addEventListener("keydown",event=>{
+      const index=pages.indexOf(event.target?.dataset?.atlasTerritoryPage);
+      if(index<0)return;
+      const next=event.key==="ArrowRight"?(index+1)%pages.length:
+        event.key==="ArrowLeft"?(index+pages.length-1)%pages.length:
+        event.key==="Home"?0:event.key==="End"?pages.length-1:-1;
+      if(next<0)return;
+      event.preventDefault?.();
+      switchPage(pages[next],true);
+    });
     root.appendChild(tabBar);
     const body=el("div",undefined,"atlas-territory-settings-body");
+    body.id=tabPrefix+"-panel";
+    body.setAttribute("role","tabpanel");
+    body.setAttribute("aria-labelledby",tabPrefix+"-tab-"+pages.indexOf(this.activePage));
     body.setAttribute("data-atlas-territory-settings-body","");
     root.appendChild(body);
     const group=(title,description)=>{

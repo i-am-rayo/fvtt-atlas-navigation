@@ -87,7 +87,9 @@ test("player overlay read model whitelists visible geometry and cannot expose pr
       hiddenMetadata:"never-visible-segment"})),
     nodes:shown.nodes.map(node=>({...node,hiddenReference:"never-visible-node"})),
     checkpoints:shown.checkpoints.map(checkpoint=>({...checkpoint,
-      hiddenJournal:"never-visible-checkpoint"}))};
+      hiddenJournal:"never-visible-checkpoint",
+      appearance:{...DEFAULT_CHECKPOINT_APPEARANCE,borderEnabled:false,
+        secret:"never-visible-checkpoint-style"}}))};
   const projected=playerAtlasOverlay(input);
   const output=JSON.stringify(projected);
   assert.equal(output.includes("never-visible"),false);
@@ -96,6 +98,10 @@ test("player overlay read model whitelists visible geometry and cannot expose pr
   assert.deepEqual(projected.roads.map(road=>road.name),["Secret Road"]);
   assert.deepEqual(projected.checkpoints.map(checkpoint=>checkpoint.name),
     ["Secret Observatory"]);
+  assert.equal(projected.checkpoints[0].appearance.borderEnabled,false,
+    "player canvas receives only the explicit, allowed border toggle");
+  assert.equal(Object.hasOwn(projected.checkpoints[0].appearance,"secret"),false,
+    "no newly added appearance properties leak via the player projection");
   projected.nodes[0].x=987;
   projected.segments[0].via.push({x:999,y:999});
   assert.notEqual(input.nodes[0].x,987);

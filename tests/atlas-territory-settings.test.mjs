@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 
 class MockApplicationV2{
   constructor(options={}){this.options=options;this.rendered=false;this.minimized=false;}
@@ -7,7 +8,8 @@ class MockApplicationV2{
     if(this.constructor.name==="AtlasRegionGeneratorWindow"){
       this.rendered=true;return this;
     }
-    this.result=await this._renderHTML();this.rendered=true;return this;
+    this.result=await this._renderHTML();this.rendered=true;
+    await this._onRender?.();return this;
   }
   async minimize(){this.minimized=true;}
   async maximize(){this.minimized=false;}
@@ -81,6 +83,11 @@ test("single modeless Territory Settings window retains tabs, permissions and al
     const app=openAtlasTerritorySettings(f.scene,"r1",f.actions,()=>{},()=>f.calls.push(["locate"]));
     await app.render();
     assert.equal(app.options.window.title,"Atlas — Hearth's Heart — Territory Settings");
+    assert.equal(app.options.id,"fvtt-atlas-territory-settings-s1-r1");
+    const other=new AtlasTerritorySettings({scene:f.scene,regionId:"r2",
+      actions:f.actions,refresh:()=>{}});
+    assert.notEqual(other.options.id,app.options.id,
+      "independently open Region settings require different native window IDs");
     assert.equal(AtlasTerritorySettings.DEFAULT_OPTIONS.window.minimizable,true);
     assert.equal(AtlasTerritorySettings.DEFAULT_OPTIONS.window.resizable,true);
     assert.match(text(app.result),/Geographic kind/);
@@ -117,6 +124,78 @@ test("single modeless Territory Settings window retains tabs, permissions and al
     assert.deepEqual(f.errors,[]);
     await app.close();
   }finally{f.restore();}
+});
+
+test("Territory Settings refreshes external native name and supports keyboard tabs without writes",async()=>{
+  const f=fixture();
+  try{
+    const app=new AtlasTerritorySettings({scene:f.scene,regionId:"r1",
+      actions:f.actions,refresh:()=>{}});
+    app.window={title:{textContent:"Previous title"}};
+    await app.render();
+    assert.equal(app.window.title.textContent,
+      "Atlas — Hearth's Heart — Territory Settings");
+    const tabs=all(app.result,node=>node.dataset?.atlasTerritoryPage);
+    const nav=all(app.result,node=>node.tag==="nav")[0];
+    assert.equal(nav.attributes.get("role"),"tablist");
+    const panel=all(app.result,node=>node.attributes?.get("role")==="tabpanel")[0];
+    assert.ok(panel,"active Territory tab has an accessible content panel");
+    assert.equal(panel.attributes.get("aria-labelledby"),tabs[0].id);
+    assert.ok(tabs.every(tab=>tab.attributes.get("aria-controls")===panel.id));
+    assert.equal(tabs[0].attributes.get("aria-selected"),"true");
+    assert.equal(tabs[0].tabIndex,0);
+    assert.equal(tabs[1].tabIndex,-1);
+    let stopped=0;
+    nav.listeners.get("keydown")({key:"ArrowRight",target:tabs[0],
+      preventDefault(){stopped++;}});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(app.activePage,"Map Marker & Journal");
+    assert.equal(stopped,1);
+    const nextTabs=all(app.result,node=>node.dataset?.atlasTerritoryPage);
+    assert.equal(nextTabs[1].attributes.get("aria-selected"),"true");
+    assert.equal(nextTabs[1].tabIndex,0);
+    const nextPanel=all(app.result,node=>node.attributes?.get("role")==="tabpanel")[0];
+    assert.equal(nextPanel.attributes.get("aria-labelledby"),nextTabs[1].id);
+    f.region.name="West Hearth";
+    await app.render();
+    assert.equal(app.window.title.textContent,
+      "Atlas — West Hearth — Territory Settings",
+      "external committed native rename refreshes header without reassigning document name");
+    assert.equal(f.region.name,"West Hearth");
+    assert.deepEqual(f.calls,[],"title and tab navigation never call native writers");
+    await app.close();
+  }finally{f.restore();}
+});
+
+test("native Region rename updates the open Territory header without forcing a tab render",async()=>{
+  const f=fixture(),original=globalThis.Hooks;
+  const hooks=new Map();
+  globalThis.Hooks={on:(name,handler)=>{hooks.set(name,handler);return handler;},
+    off:(name,handler)=>{if(hooks.get(name)===handler)hooks.delete(name);}};
+  try{
+    const app=openAtlasTerritorySettings(f.scene,"r1",f.actions,()=>{});
+    app.window={title:{textContent:"Original"}};
+    await app.render();
+    assert.equal(app.activePage,"General");
+    assert.equal(app.window.title.textContent,
+      "Atlas — Hearth's Heart — Territory Settings");
+    assert.ok(hooks.has("updateRegion"));
+    const oldRoot=app.result;
+    hooks.get("updateRegion")({id:"r1",name:"Updated Hearth",
+      parent:{id:"other-scene"}});
+    assert.equal(app.window.title.textContent,
+      "Atlas — Hearth's Heart — Territory Settings",
+      "an identically named Region in another Scene cannot update this header");
+    hooks.get("updateRegion")({id:"r1",name:"Updated Hearth",
+      parent:{id:"s1"}});
+    assert.equal(app.window.title.textContent,
+      "Atlas — Updated Hearth — Territory Settings");
+    assert.equal(app.result,oldRoot,
+      "native rename updates only title, not panel state or draft");
+    assert.deepEqual(f.calls,[],"native title events cannot write Atlas flags");
+    await app.close();
+    assert.equal(hooks.size,0,"close releases existing Region listeners");
+  }finally{globalThis.Hooks=original;f.restore();}
 });
 
 test("unlinked or unauthorized Territories fail closed without side effects",async()=>{
@@ -189,4 +268,18 @@ test("auto generator lifecycle closes only the checkpoint that completed a link"
     assert.equal(second.rendered,false);
     assert.equal(AtlasTerritorySettings.DEFAULT_OPTIONS.window.minimizable,true);
   }finally{f.restore();}
+});
+
+test("Milestone 01 Territory tabs match their selected styling and reflow by actual editor width",()=>{
+  const css=readFileSync(new URL("../styles/atlas-territory-settings.css",import.meta.url),"utf8");
+  assert.match(css,/\.atlas-territory-settings-tabs button\[aria-selected="true"\]/,
+    "CSS highlights the actual role=tab selected attribute");
+  assert.doesNotMatch(css,/tabs button\[aria-current="true"\]/,
+    "aria-current is not the setting used on Territory tabs");
+  assert.match(css,/grid-template-columns: repeat\(auto-fit,minmax\(min\(100%,8rem\),1fr\)\)/,
+    "tabs must wrap by window width, regardless of browser viewport and 200% text scaling");
+  assert.match(css,/\.atlas-territory-settings-tabs button:focus-visible/,
+    "focus is visible for keyboard navigation");
+  assert.match(css,/grid-template-columns: repeat\(auto-fit,minmax\(min\(100%,13rem\),1fr\)\)/,
+    "action controls stack by narrow editor width, not global media query");
 });

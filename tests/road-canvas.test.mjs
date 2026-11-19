@@ -442,7 +442,8 @@ test("v0.2.23 checkpoint quick info works with labels Off without changing Scene
     const preview = m.controller.labels.find(label => label instanceof Text &&
       label.text.includes("Old Watchtower"));
     assert.ok(preview);
-    assert.match(preview.text, /Road: Quiet Trail/);
+    assert.doesNotMatch(preview.text, /Road: Quiet Trail/,
+      "legacy Road quick-info is removed when Map Marker Road banner is off");
     assert.match(preview.text, /Elevation: 125 m/);
     assert.deepEqual(readAtlas(m.scene), persisted, "hover presentation is read-only");
     m.listeners.get("pointerleave")();
@@ -844,6 +845,22 @@ test("v0.2.21 checkpoint icons load locally and labels include owning road on ho
     assert.equal(sprites[0].tint, 0xffaa11);
     assert.equal(sprites[0].position.x, 30);
     assert.equal(sprites[0].position.y, 30, "visual icon is anchored above the checkpoint node at y=60");
+    const countWithBorder=sprites.length;
+    const withoutBorder=editCheckpointAppearance(styled,{
+      checkpointId:cp.checkpoints[0].id,
+      appearance:{...styled.checkpoints[0].appearance,borderEnabled:false}
+    });
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",withoutBorder);
+    m.controller.refresh();
+    const borderlessSprites=m.controller.labels.filter(item=>item instanceof Sprite);
+    assert.ok(borderlessSprites.length>=1&&borderlessSprites.length<=2,
+      "border Off must retain the icon while omitting its eight silhouette shadows");
+    assert.ok(borderlessSprites.some(sprite=>sprite.tint===0xffaa11),
+      "border Off preserves the authored Map Marker icon tint");
+    assert.equal(borderlessSprites.filter(sprite=>sprite.tint===0x000000).length,0,
+      "border Off suppresses all black silhouette sprites; un-tinted overlay sprites are unrelated");
+    assert.ok(borderlessSprites.every(sprite=>sprites.slice(countWithBorder).includes(sprite)),
+      "active render must not retain historical outlined sprites");
     assert.equal(m.controller.labels.filter(x => x instanceof Text).length, 0);
     // canvas point x=sceneX(10)+20, y=sceneY(30)+30 => client midpoint (15,30).
     m.listeners.get("pointermove")(pointEvent(15, 30));

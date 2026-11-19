@@ -23,6 +23,7 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
   from "./navigation-travel-method.js";
 import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
 import { createAtlasIconButton } from "./ui-action-button.js";
 import {createTransportNumberSlider,createTransportCurrencyPool,transportCurrencyAmount}
  from "./navigation-transport-form-controls.js";
@@ -123,13 +124,30 @@ const wirePresetDialog=container=>{
   if(!tabs.length)return;
   const panels=[...root.querySelectorAll("[data-atlas-preset-panel]")];
   const activate=id=>{
-    for(const tab of tabs)tab.setAttribute("aria-selected",String(tab.dataset.atlasPresetTab===id));
-    for(const panel of panels)panel.style.display=panel.dataset.atlasPresetPanel===id?"grid":"none";
+    for(const tab of tabs){
+      const chosen=tab.dataset.atlasPresetTab===id;
+      tab.setAttribute("aria-selected",String(chosen));
+      tab.tabIndex=chosen?0:-1;
+    }
+    for(const panel of panels){
+      const chosen=panel.dataset.atlasPresetPanel===id;
+      panel.hidden=!chosen;
+      panel.style.display=chosen?"grid":"none";
+    }
   };
-  for(const tab of tabs){
+  for(const [index,tab] of tabs.entries()){
     if(tab.dataset.atlasWired==="true")continue;
     tab.dataset.atlasWired="true";
     tab.addEventListener("click",()=>activate(tab.dataset.atlasPresetTab));
+    tab.addEventListener("keydown",event=>{
+      const next=event.key==="ArrowRight"?(index+1)%tabs.length:
+        event.key==="ArrowLeft"?(index+tabs.length-1)%tabs.length:
+        event.key==="Home"?0:event.key==="End"?tabs.length-1:-1;
+      if(next<0)return;
+      event.preventDefault();
+      activate(tabs[next].dataset.atlasPresetTab);
+      tabs[next].focus();
+    });
   }
   activate("general");
   const fieldValue=name=>root.querySelector('[name="'+name+'"]');
@@ -249,8 +267,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
   };
   async _renderHTML(){
     const root=element("section");
-    root.style.cssText="padding:1rem;display:flex;flex-direction:column;gap:1rem;"+
-      "height:100%;overflow:auto;box-sizing:border-box;";
+    root.style.cssText="padding:1rem;display:flex;flex-direction:column;gap:.75rem;"+
+      "height:100%;overflow:hidden;box-sizing:border-box;";
     const top=heading("Transportation Presets",
       "Manage travel speeds and transport costs for this Foundry World. "+
       "Changes affect future estimates; no Actor resources or currency are changed.");
@@ -271,6 +289,14 @@ export class AtlasTransportationSettings extends ApplicationBase {
     toolbar.append(button("＋ Import optional workbook examples",()=>this._importExamples()));
     root.appendChild(toolbar);
     const methods=listTransportationPresets(game.settings,game.system?.id);
+    const tabs=createSettingsCategoryTabs({id:"atlas-transport-catalog",
+      modes:[["land","Land"],["water","Water"],["air","Air"]],
+      active:this.activeCategory??"land",onChange:id=>{this.activeCategory=id;}});
+    root.appendChild(tabs.nav);
+    const scroll=element("div");
+    scroll.className="atlas-world-category-scroll";
+    scroll.style.cssText="flex:1 1 auto;min-height:0;overflow:auto;";
+    root.appendChild(scroll);
     for(const surface of TRANSPORT_SURFACES){
       const group=methods.filter(p=>p.surface===surface);
       const section=element("fieldset");
@@ -308,9 +334,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
         if(!preset.builtIn)row.appendChild(iconButton("trash","Delete "+preset.name,()=>this._delete(preset)));
         section.appendChild(row);
       }
-      root.appendChild(section);
+      scroll.appendChild(tabs.addPanel(surface,section));
     }
-    root.appendChild(element("p",
+    scroll.appendChild(element("p",
       "All non-walking methods are distance/time previews until checkpoint embark/disembark "+
       "transfers and method-specific travel-day rules are implemented. A compatible road does "+
       "not yet authorize guided movement. Costs are reference estimates only."));
@@ -321,6 +347,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
     const existing=Boolean(preset),profile=selectedTransportationProfile(game.settings,game.system?.id);
     const before=snapshot();
+    const initialWalkingSpeed=preset?.id==="walking"?
+      current(NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED):null;
     const sceneUnit=globalThis.canvas?.scene?.grid?.units??
       game.scenes?.current?.grid?.units??"";
     const body=element("div");
@@ -343,10 +371,13 @@ export class AtlasTransportationSettings extends ApplicationBase {
       const tab=element("button",label);tab.type="button";
       tab.setAttribute("role","tab");tab.setAttribute("data-atlas-preset-tab",id);
       tab.setAttribute("aria-selected",String(id==="general"));
+      tab.tabIndex=id==="general"?0:-1;
       tab.style.cssText="padding:.6rem 1rem;border-radius:.45rem .45rem 0 0;";
       nav.append(tab);
       const panel=element("section");panel.setAttribute("role","tabpanel");
+      panel.setAttribute("aria-label",label);
       panel.setAttribute("data-atlas-preset-panel",id);
+      panel.hidden=id!=="general";
       panel.style.cssText="display:"+(id==="general"?"grid":"none")+";gap:.85rem;min-width:0;";
       panels[id]=panel;
     }
@@ -587,13 +618,25 @@ export class AtlasTransportationSettings extends ApplicationBase {
       }
     });
     if(!response)return;
-    if(before!==snapshot())throw new Error("Transportation presets changed while you were editing. Reopen and review.");
+    if(scope==="world"&&!onSave){
+      if(selectedTransportationProfile(game.settings,game.system?.id)!==profile)
+        throw Error("Transportation rules profile changed. Reopen and review.");
+      const live=preset?listTransportationPresets(game.settings,game.system?.id)
+        .find(item=>item.id===preset.id):null;
+      if(preset&&JSON.stringify(live??null)!==JSON.stringify(preset))
+        throw Error("This transportation method changed elsewhere. Reopen it before saving.");
+      if(preset?.id==="walking"&&
+          current(NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED)!==initialWalkingSpeed)
+        throw Error("Walking speed changed elsewhere. Reopen and review.");
+    }else if(before!==snapshot()){
+      throw Error("Transportation presets changed while you were editing. Reopen and review.");
+    }
+    let walkingSpeed=null;
     if(scope==="world"&&preset?.id==="walking"){
       const shown=Number(response.worldSpeed);
-      const numeric=sceneUnit?atlasSceneDistanceFromDisplay(shown,sceneUnit):shown;
-      if(!Number.isFinite(numeric)||numeric<.1||numeric>1000)
+      walkingSpeed=sceneUnit?atlasSceneDistanceFromDisplay(shown,sceneUnit):shown;
+      if(!Number.isFinite(walkingSpeed)||walkingSpeed<.1||walkingSpeed>1000)
         throw new Error("Walking fallback speed must be between 0.1 and 1000 Scene units/hour.");
-      await game.settings.set(MODULE_ID,NAVIGATION_SPEED_SETTING,numeric);
     }
     const id=preset?.id??"custom-"+(
       globalThis.foundry?.utils?.randomID?.(12)??crypto.randomUUID().replaceAll("-","").slice(0,12)
@@ -657,7 +700,14 @@ export class AtlasTransportationSettings extends ApplicationBase {
       }else await onSave(next,journey);
       return next;
     }
-    const updated=setTransportationPreset(readTransportationCatalog(game.settings),profile,next);
+    const liveCatalog=readTransportationCatalog(game.settings);
+    if(!preset&&liveCatalog.customs.some(item=>item.id===id))
+      throw Error("Transportation method ID already exists. Try creating again.");
+    const updated=setTransportationPreset(liveCatalog,profile,next);
+    // Validate the entire preset before either legacy walking-speed or catalog
+    // World setting is touched; Foundry settings have no multi-key transaction.
+    if(walkingSpeed!==null)
+      await game.settings.set(MODULE_ID,NAVIGATION_SPEED_SETTING,walkingSpeed);
     await game.settings.set(MODULE_ID,TRANSPORT_CATALOG_SETTING,updated);
     ui.notifications.info("Transportation preset saved.");
     await this.render();
@@ -669,9 +719,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
       content:"<p>Restore the reference speed and costs for this preset in the current Rules Profile?</p>"
     });
     if(!yes)return;
-    const before=snapshot();
+    if(selectedTransportationProfile(game.settings,game.system?.id)!==profile||
+        JSON.stringify(listTransportationPresets(game.settings,game.system?.id)
+          .find(item=>item.id===preset.id)??null)!==JSON.stringify(preset))
+      throw Error("This transportation method changed elsewhere. Reopen before resetting.");
     const updated=resetTransportationPreset(readTransportationCatalog(game.settings),profile,preset.id);
-    if(before!==snapshot())throw new Error("Preset data changed; reopen the editor.");
     // Legacy beta.1 speed values are explicitly reset only when resetting that preset.
     if(preset.id==="mounted")
       await game.settings.set(MODULE_ID,NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_MOUNTED_SPEED_DEFAULT);
@@ -688,6 +740,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
         "Previously saved Journey Journals and Scene data will not be changed.</p>"
     });
     if(!yes)return;
+    if(JSON.stringify(listTransportationPresets(game.settings,game.system?.id)
+      .find(item=>item.id===preset.id)??null)!==JSON.stringify(preset))
+      throw Error("This transportation method changed elsewhere. Reopen before deleting.");
     const next=deleteCustomTransportationPreset(readTransportationCatalog(game.settings),preset.id);
     await game.settings.set(MODULE_ID,TRANSPORT_CATALOG_SETTING,next);await this.render();
   }
@@ -737,6 +792,10 @@ export function renderTravelRules(root){
       ["short",CUSTOM_SHORT_REST_HOURS_SETTING,"Short rest (hours)",1,.5,8,.5],
       ["long",CUSTOM_LONG_REST_HOURS_SETTING,"Long rest (hours)",8,1,24,1]
     ];
+    const baselineRules=[
+      current(NAVIGATION_RULES_PROFILE_SETTING,"system"),
+      ...fields.map(([,key,,fallback])=>current(key,fallback))
+    ];
     for(const [name,key,label,fallback,min,max,step] of fields)
       panel.appendChild(field(label,slider(name,current(key,fallback),
         {min,max,step,label:label}),
@@ -750,6 +809,11 @@ export function renderTravelRules(root){
         if(!Number.isFinite(value)||value<min||value>max)throw new Error("Invalid "+label+".");
         return [key,value];
       });
+      if(JSON.stringify([
+        current(NAVIGATION_RULES_PROFILE_SETTING,"system"),
+        ...fields.map(([,key,,fallback])=>current(key,fallback))
+      ])!==JSON.stringify(baselineRules))
+        throw Error("World travel rules changed elsewhere. Reopen and review.");
       for(const [key,val] of values)await game.settings.set(MODULE_ID,key,val);
       await game.settings.set(MODULE_ID,NAVIGATION_RULES_PROFILE_SETTING,profile);
       ui.notifications.info("Atlas travel rules saved.");
@@ -760,7 +824,11 @@ export function renderJourneyPlayback(root,exampleDistancesMi=[6,30,90]){
     root.appendChild(heading("Journey and playback",
       "World time and visual playback are independent. Atlas never applies Actor rests, exhaustion or transport fares."));
     const panel=element("div");panel.style.cssText="display:grid;gap:.85rem;max-width:48rem;";
-    const clock=checkbox("clock",current(NAVIGATION_WORLD_CLOCK_SETTING,false));
+    const baselineJourney=[
+      current(NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT),
+      current(NAVIGATION_WORLD_CLOCK_SETTING,false)
+    ];
+    const clock=checkbox("clock",baselineJourney[1]);
     const clockRow=element("label");clockRow.style.cssText="display:flex;gap:.6rem;align-items:center;";
     clockRow.append(clock,element("span","Advance World time for confirmed travel and GM-approved rests"));
     panel.append(clockRow);
@@ -818,6 +886,11 @@ export function renderJourneyPlayback(root,exampleDistancesMi=[6,30,90]){
       if(!Number.isFinite(playback)||playback<NAVIGATION_PLAYBACK_MIN||
           playback>NAVIGATION_PLAYBACK_MAX||Math.abs(playback*2-Math.round(playback*2))>1e-8)
         throw new Error("Animation speed must use half-second steps.");
+      if(JSON.stringify([
+        current(NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT),
+        current(NAVIGATION_WORLD_CLOCK_SETTING,false)
+      ])!==JSON.stringify(baselineJourney))
+        throw Error("World journey options changed elsewhere. Reopen and review.");
       await game.settings.set(MODULE_ID,NAVIGATION_PLAYBACK_SETTING,playback);
       await game.settings.set(MODULE_ID,NAVIGATION_WORLD_CLOCK_SETTING,clock.checked);
       ui.notifications.info("Atlas journey options saved.");

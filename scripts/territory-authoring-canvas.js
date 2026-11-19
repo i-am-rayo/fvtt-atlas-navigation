@@ -167,6 +167,17 @@ export class TerritoryAuthoringCanvas{
     const editorTitle=batchContext?`Atlas · Paint ${batchContext.name}`:
       "Atlas · "+(draft.kind==="grid"?"Paint Territory":"Edit Territory Nodes");
     const head=el("h3",editorTitle);
+    head.tabIndex=0;
+    head.setAttribute("aria-label",editorTitle+
+      ". Drag or use arrow keys to move this editor.");
+    head.style.cssText="margin:0 0 .35rem;cursor:move;user-select:none;touch-action:none;";
+    const purpose=el("p",draft.kind==="grid"?
+      (!batchContext&&seamGuide?.available&&seamGuide.peers?.length?
+        "Paint cells to add them. Hold Shift to erase. To work along a shared border, "+
+          "choose a neighboring Territory below.":
+        "Paint cells to add them. Hold Shift to erase. Review before saving."):
+      "Edit boundary nodes on the map. Changes remain drafts until Preview & Save.");
+    purpose.style.cssText="margin:.2rem 0 .4rem;line-height:1.35;";
     const info=el("p");
     const batchNote=batchContext?el("p",`Batch destination ${batchContext.index} of `+
       `${batchContext.total}: ${batchContext.name}. Paint cells INTO this destination. `+
@@ -192,13 +203,15 @@ export class TerritoryAuthoringCanvas{
       ["Scroll","Zoom map (Foundry default)"],
       ["Shift + scroll","Brush size"],
       ["Cmd / Ctrl + Z","Undo last stroke"],
-      ["Esc","Close and return to Atlas Workspace"]
+      ["Esc","Close and return to Atlas Workspace"],
+      ["Arrow keys on title","Move the editor without painting"]
     ]:[
       ["Left click","Add / select node"],
       ["Drag","Move selected node"],
       ["Right click","Remove last node"],
       ["Cmd / Ctrl + Z","Undo last node edit"],
-      ["Esc","Close and return to Atlas Workspace"]
+      ["Esc","Close and return to Atlas Workspace"],
+      ["Arrow keys on title","Move the editor without editing nodes"]
     ];
     for(const [hotkey,description] of bindings){
       const row=el("div");row.style.cssText="display:flex;gap:.65rem;justify-content:space-between;"+
@@ -211,7 +224,7 @@ export class TerritoryAuthoringCanvas{
       history:[],radius:0,strokeErase:false,hoverErase:false,
       pointerSnapshot:null,dragNode:-1,selectedNode:-1,painting:false,saving:false,
       hoverAnchor:null,hoverOffsets:[],raf:null,end:null,close:null,onSave,
-      selectedSeam:null,seamCellKeys:null};
+      selectedSeam:null,seamCellKeys:null,dockDrag:null,dockLeft:24,dockTop:90};
     const progress=el("div");
     progress.setAttribute("role","status");progress.setAttribute("aria-live","polite");
     progress.className="atlas-territory-transfer-progress";
@@ -290,10 +303,8 @@ export class TerritoryAuthoringCanvas{
           this.#scheduleDraw(session);
         });
         picker.appendChild(select);panel.appendChild(picker);
-        const guidance=el("p","Choose an adjacent Territory to highlight its direct shared-edge " +
-          "cells. Click/drag to stage ONLY those cells; Shift+click removes staged " +
-          "edge additions. Free paint keeps the normal brush. Preview & Save " +
-          "still checks actual native ownership before any transfer.");
+        const guidance=el("p","Shared-boundary selection limits painting to eligible " +
+          "edge cells. Preview & Save still checks native ownership and permissions.");
         guidance.style.cssText="font-size:.82rem;color:#e3d1b8;margin:.4rem 0;";
         panel.appendChild(guidance);
       }
@@ -407,10 +418,37 @@ export class TerritoryAuthoringCanvas{
       });
     }
     progress.style.display="none";
-    panel.prepend(head,info);
+    panel.prepend(head,purpose,info);
+    panel.append(shortcuts);
     if(batchNote)panel.appendChild(batchNote);
-    panel.append(shortcuts,actions,progress);
+    panel.append(actions,progress);
     document.body.appendChild(panel);
+    // Reuse this transient canvas session instead of introducing a second
+    // ApplicationV2 lifecycle around native pointer/Stage/Save ownership.
+    const positionDock=(left,top)=>{
+      const width=globalThis.window?.innerWidth??1280;
+      const height=globalThis.window?.innerHeight??900;
+      const rect=panel.getBoundingClientRect?.();
+      const dockWidth=rect?.width??panel.offsetWidth??360;
+      const dockHeight=rect?.height??panel.offsetHeight??240;
+      session.dockLeft=Math.round(Math.max(8,Math.min(left,
+        Math.max(8,width-Math.min(dockWidth,width-16)-8))));
+      session.dockTop=Math.round(Math.max(8,Math.min(top,
+        Math.max(8,height-Math.min(dockHeight,height-16)-8))));
+      panel.style.left=`${session.dockLeft}px`;
+      panel.style.top=`${session.dockTop}px`;
+    };
+    const startDockDrag=event=>{
+      if(!this.#live(session)||session.saving||session.painting||
+          session.dragNode>=0||event.button!==0||
+          !Number.isFinite(event.clientX)||!Number.isFinite(event.clientY))return;
+      session.dockDrag={pointerId:event.pointerId,x:event.clientX,y:event.clientY,
+        left:session.dockLeft,top:session.dockTop};
+      event.preventDefault?.();event.stopImmediatePropagation?.();
+    };
+    const onResize=()=>positionDock(session.dockLeft,session.dockTop);
+    head.addEventListener("pointerdown",startDockDrag);
+    globalThis.window?.addEventListener?.("resize",onResize);
     const snapshot=()=>{session.history.push(copy(session.draft));
       if(session.history.length>40)session.history.shift();};
     const point=event=>view.canvasCoordinatesFromClient({x:event.clientX,y:event.clientY});
@@ -493,6 +531,15 @@ export class TerritoryAuthoringCanvas{
     let lastCell="";
     const move=event=>{
       if(!this.#live(session))return;
+      if(session.dockDrag){
+        const drag=session.dockDrag;
+        if(drag.pointerId!==undefined&&event.pointerId!==drag.pointerId)return;
+        if(Number.isFinite(event.clientX)&&Number.isFinite(event.clientY))
+          positionDock(drag.left+event.clientX-drag.x,
+            drag.top+event.clientY-drag.y);
+        event.preventDefault?.();event.stopImmediatePropagation?.();
+        return;
+      }
       const onSurface=event.target===surface||surface.contains?.(event.target);
       const p=point(event);
       if(!within(p)||(!onSurface&&!session.painting&&session.dragNode<0)){
@@ -509,7 +556,12 @@ export class TerritoryAuthoringCanvas{
         session.draft.points[session.dragNode].x=p.x;
         session.draft.points[session.dragNode].y=p.y;this.#scheduleDraw(session);}
     };
-    const up=()=>{
+    const up=event=>{
+      if(session.dockDrag){
+        if(session.dockDrag.pointerId===undefined||
+            session.dockDrag.pointerId===event?.pointerId)session.dockDrag=null;
+        return;
+      }
       if(session.pointerSnapshot&&session.history.at(-1)===session.pointerSnapshot&&
           JSON.stringify(session.pointerSnapshot)===JSON.stringify(session.draft))
         session.history.pop();
@@ -533,6 +585,16 @@ export class TerritoryAuthoringCanvas{
     };
     const key=event=>{
       if(!this.#live(session)||session.saving)return;
+      if(event.target===head&&["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"]
+          .includes(event.key)){
+        const step=event.shiftKey?20:10;
+        event.preventDefault?.();event.stopImmediatePropagation?.();
+        positionDock(session.dockLeft+(event.key==="ArrowRight"?step:
+          event.key==="ArrowLeft"?-step:0),
+        session.dockTop+(event.key==="ArrowDown"?step:
+          event.key==="ArrowUp"?-step:0));
+        return;
+      }
       if((event.metaKey||event.ctrlKey)&&!event.altKey&&!event.shiftKey&&
           String(event.key).toLowerCase()==="z"){
         const tag=String(event.target?.tagName??"").toLowerCase();
@@ -555,6 +617,7 @@ export class TerritoryAuthoringCanvas{
           session.draft.kind==="grid"&&session.hoverAnchor){
         session.hoverErase=false;this.#scheduleDraw(session);}
     };
+    const cancelDock=()=>{session.dockDrag=null;};
     session.close=success=>{
       if(this.session!==session)return;
       surface.removeEventListener("pointerdown",down,true);
@@ -563,8 +626,12 @@ export class TerritoryAuthoringCanvas{
       surface.removeEventListener("pointerleave",leave,true);
       document.removeEventListener("pointermove",move,true);
       document.removeEventListener("pointerup",up,true);
+      document.removeEventListener("pointercancel",cancelDock,true);
       document.removeEventListener("keydown",key,true);
       document.removeEventListener("keyup",keyup,true);
+      head.removeEventListener("pointerdown",startDockDrag);
+      globalThis.window?.removeEventListener?.("resize",onResize);
+      session.dockDrag=null;
       if(session.raf!==null)globalThis.cancelAnimationFrame?.(session.raf);
       panel.remove();layer.parent?.removeChild?.(layer);layer.destroy?.();
       session.restoreFog?.();
@@ -578,6 +645,7 @@ export class TerritoryAuthoringCanvas{
     surface.addEventListener("pointerleave",leave,true);
     document.addEventListener("pointermove",move,true);
     document.addEventListener("pointerup",up,true);
+    document.addEventListener("pointercancel",cancelDock,true);
     document.addEventListener("keydown",key,true);
     document.addEventListener("keyup",keyup,true);
     this.session=session;
@@ -622,10 +690,8 @@ export class TerritoryAuthoringCanvas{
       }
       for(const [i,p] of points.entries())drawControlNode(graphics,p,
         i===session.selectedNode,zoom);
-      session.info.textContent=`${points.length} control nodes · Click to add, `+
-        "drag a node to move; click an edge to insert; right-click removes the last node; " +
-        "Cmd/Ctrl+Z undoes the previous edit. " +
-        "Smoothing changes the native projection, never the controls.";
+      session.info.textContent=`${points.length} control nodes staged · `+
+        `Smoothing: ${["Off","Gentle","Moderate"][draft.smoothing??0]??"Custom"}.`;
     }else{
       const shape=view.grid.getShape(),cells=draft.offsets;
       if(session.selectedSeam){
@@ -648,8 +714,7 @@ export class TerritoryAuthoringCanvas{
       const chosen=new Set(cells.map(c=>`${c.i},${c.j}`));
       const changing=session.hoverOffsets.filter(c=>
         chosen.has(`${c.i},${c.j}`)===session.hoverErase).length;
-      session.info.textContent=`${cells.length} grid cells · Click/drag to paint; `+
-        "Shift+click/drag to erase; Shift+wheel changes brush; Cmd/Ctrl+Z to undo."+
+      session.info.textContent=`${cells.length} grid cells staged.`+
         (session.selectedSeam?` Shared boundary: ${session.selectedSeam.name}, `+
           `${session.selectedSeam.offsets.filter(c=>chosen.has(`${c.i},${c.j}`)).length}`+
           ` of ${session.selectedSeam.offsets.length} eligible cells staged.`:"")+

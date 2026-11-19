@@ -121,3 +121,82 @@ test("Add and Edit use plain v14 DialogV2 content and persist serialized form de
   assert.equal(addMode.children.find(option => option.getAttribute("selected") !== null)
     .getAttribute("value"), "water");
 });
+
+test("Surface Preset editors merge unrelated IDs and reject stale same-preset saves",async()=>{
+  const old={document:globalThis.document,game:globalThis.game,
+    foundry:globalThis.foundry,ui:globalThis.ui};
+  try{
+    const {defaultTravelPresets,validateTravelPresets}=await import("../scripts/travel-preset-model.js");
+    const {AtlasTravelPresetSettings,readWorldTravelPresets}=
+      await import("../scripts/travel-preset-settings.js");
+    let stored=validateTravelPresets(defaultTravelPresets()),writes=0;
+    let nextName="Updated";
+    globalThis.document={createElement:tag=>new ElementStub(tag)};
+    globalThis.game={user:{isGM:true},i18n:{localize:value=>value},settings:{
+      get:()=>stored,
+      async set(_module,_key,value){stored=value;writes++;}
+    }};
+    globalThis.foundry={applications:{api:{ApplicationV2:class{},
+      DialogV2:{input:async()=>({
+        presetCost:"1.5",presetMode:active.mode,presetName:nextName,
+        presetColor:active.color,atlasPerMode:false
+      })}}},utils:{randomID:()=> "new-unit-id"}};
+    globalThis.ui={notifications:{info(){},error(message){throw Error(message);}}};
+    const app=new AtlasTravelPresetSettings();app.render=async()=>{};
+    const first=readWorldTravelPresets().presets[0];
+    const second=readWorldTravelPresets().presets[1];
+    let active=first;nextName="First New";await app._editPreset(first);
+    active=second;nextName="Second New";await app._editPreset(second);
+    assert.equal(writes,2);
+    assert.equal(stored.presets.find(p=>p.id===first.id).name,"First New");
+    assert.equal(stored.presets.find(p=>p.id===second.id).name,"Second New");
+    const stale=readWorldTravelPresets().presets.find(p=>p.id===first.id);
+    stored={...stored,presets:stored.presets.map(p=>p.id===first.id?
+      {...p,name:"External Save"}:p)};
+    active=first;nextName="Stale Overwrite";
+    await assert.rejects(()=>app._editPreset(stale),/changed elsewhere/);
+    assert.equal(writes,2);
+    assert.equal(stored.presets.find(p=>p.id===first.id).name,"External Save");
+  }finally{Object.assign(globalThis,old);}
+});
+
+test("World Surface Presets tabs preserve mode, Water subgroups and legend Add without writes",async()=>{
+  const previous={document:globalThis.document,game:globalThis.game};
+  let writes=0;
+  try{
+    globalThis.document={createElement:tag=>new ElementStub(tag)};
+    globalThis.game={user:{isGM:true},settings:{
+      get:()=>undefined,async set(){writes++;}
+    }};
+    const {AtlasTravelPresetSettings}=await import("../scripts/travel-preset-settings.js");
+    const app=new AtlasTravelPresetSettings();
+    const root=await app._renderHTML();
+    const nav=root.children[1],scroll=root.children[2];
+    assert.equal(nav.getAttribute("role"),"tablist");
+    assert.deepEqual(nav.children.map(tab=>tab.text),["Land","Water","Air"]);
+    assert.equal(scroll.children.length,3);
+    assert.deepEqual(scroll.children.map(panel=>panel.hidden),[false,true,true]);
+    assert.equal(writes,0,"opening the catalog must not write or migrate");
+    const landLegend=scroll.children[0].children[0];
+    assert.equal(landLegend.children[0].text,"Land");
+    assert.equal(landLegend.children[1].getAttribute("aria-label"),"Add Land Surface Preset");
+    const calls=[];
+    app._editPreset=async(preset,mode)=>{calls.push([preset,mode]);};
+    await landLegend.children[1].listeners.get("click")();
+    assert.deepEqual(calls,[[null,"land"]],"legend Add uses current category");
+    nav.children[1].listeners.get("click")();
+    assert.equal(app.activeCategory,"water");
+    assert.deepEqual(scroll.children.map(panel=>panel.hidden),[true,false,true]);
+    const water=scroll.children[1];
+    const subgroupTitles=water.children.flatMap(child=>
+      child.tag==="section"?child.children.filter(x=>x.tag==="h4").map(x=>x.text):[]);
+    assert.ok(subgroupTitles.includes("River"),"Water retains River subgroup");
+    assert.ok(subgroupTitles.includes("Sea"),"Water retains Sea subgroup");
+    await water.children[0].children[1].listeners.get("click")();
+    assert.deepEqual(calls.at(-1),[null,"water"]);
+    const reopened=await app._renderHTML();
+    assert.equal(reopened.children[1].children[1].getAttribute("aria-selected"),"true",
+      "add/edit/delete rerenders retain the active Water category");
+    assert.equal(writes,0,"tabs and Add invocation do not auto-save World settings");
+  }finally{Object.assign(globalThis,previous);}
+});

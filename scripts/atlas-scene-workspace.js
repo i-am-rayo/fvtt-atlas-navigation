@@ -18,8 +18,8 @@ import {createMapDirectory} from "./atlas-map-directory.js";
 import {readPartyExploration} from "./party-exploration-storage.js";
 
 const directoryViews = [["directory","By Territory"],["allRoads","All Roads"],["allCheckpoints","All Map Markers"]];
-const managers = [["territories","Territories"],["roads","Roads"],["checkpoints","Map Markers"]];
-const settingsViews = [["settings","Exploration & travel"],["surfaces","Surfaces"],["topology","Topology & Levels"],["portability","Import / Export"]];
+const managers = [["territories","Territory tools"],["roads","Road tools"],["checkpoints","Map Marker tools"]];
+const settingsViews = [["settings","Exploration & travel"],["presets","Presets"],["surfaces","Surfaces"],["topology","Topology & Levels"],["portability","Import / Export"]];
 const workspaces = new Map();
 
 function assertEditable(scene) {
@@ -161,14 +161,6 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       views.setAttribute("aria-label","Atlas settings");
       links(views,settingsViews);
       main.appendChild(views);
-      const advanced=make("details",undefined,"atlas-workspace-advanced-management");
-      advanced.appendChild(make("summary","Advanced map operations"));
-      advanced.appendChild(make("p","Road graph and legacy tools, native Territory batch "+
-        "operations, and Map Marker discovery controls remain available here.", "hint"));
-      links(advanced,[["territories","Territory batch & native Region tools"],
-        ["roads","Road topology & legacy tools"],
-        ["checkpoints","Map Marker discovery & connections"]]);
-      main.appendChild(advanced);
     }
 
     if (directoryViews.some(([id])=>id===this.activeSection)) {
@@ -195,9 +187,13 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
         ["rules","Travel rules",renderTravelRules],
         ["playback","Journey & playback",renderJourneyPlayback]]) {
         const tab=action(label,"Show "+label,()=>activate(id));
+        tab.id="atlas-workspace-travel-"+this.scene.id+"-"+id+"-tab";
         tab.setAttribute("role","tab");
         const panel=make("section",undefined,"atlas-travel-settings-panel");
+        panel.id="atlas-workspace-travel-"+this.scene.id+"-"+id+"-panel";
         panel.setAttribute("role","tabpanel");
+        tab.setAttribute("aria-controls",panel.id);
+        panel.setAttribute("aria-labelledby",tab.id);
         tabs.appendChild(tab);
         entries.push([id,tab,panel,renderForm]);
         main.appendChild(panel);
@@ -215,6 +211,24 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       });
       activate(this.travelSettingsTab);
       main.appendChild(action("Transportation presets","Transportation presets",()=>this.actions.openWorldTravelSettings()));
+    } else if(this.activeSection==="presets"){
+      main.appendChild(make("p","Open existing GM-only World preset editors. "+
+        "These defaults are shared across Scenes; opening them never changes a Scene, "+
+        "Map Marker, native Region, Actor or Journey.","hint"));
+      const choices=make("section",undefined,"atlas-workspace-preset-shortcuts");
+      for(const [kind,label,description] of [
+        ["markers","Map Marker Presets","Reusable Map Marker and discovery defaults"],
+        ["transport","Transportation Presets","World mounts, vehicles, services and estimates"],
+        ["surfaces","Surface Presets","Land, Water and Air movement-cost and Region-color suggestions"],
+        ["roads","Road Appearance","World Road line and name-style defaults"]
+      ]){
+        const row=make("div",undefined,"atlas-workspace-preset-shortcut");
+        row.appendChild(action(label,"Open World "+label,
+          ()=>this.actions.openWorldPresetEditor(kind)));
+        row.appendChild(make("small",description,"hint"));
+        choices.appendChild(row);
+      }
+      main.appendChild(choices);
     } else if(this.activeSection==="portability"){
       main.appendChild(createAtlasWorkspacePortabilityPanel(this.scene));
     } else if(this.activeSection==="surfaces"){

@@ -6,7 +6,7 @@ globalThis.foundry = { applications: { api: { ApplicationV2: class {
 } } } };
 const { AtlasRoadAppearanceSettings, roadAppearanceForm, roadAppearanceFromForm,
   registerWorldRoadAppearance } = await import("../scripts/road-appearance-settings.js");
-const { DEFAULT_ROAD_APPEARANCE, ROAD_CURVE_SETTING }
+const { DEFAULT_ROAD_APPEARANCE, DEFAULT_WORLD_ROAD_APPEARANCE, ROAD_CURVE_SETTING }
   = await import("../scripts/road-appearance.js");
 
 class Element {
@@ -59,24 +59,93 @@ test("World Road Appearance settings show Land/Air/Water separately and only sav
     assert.match(menu.hint,/does not edit native Region/);
     const app = new AtlasRoadAppearanceSettings();
     const root = await app._renderHTML();
-    const groups = root.children.filter(child => child.tag === "fieldset");
-    assert.equal(groups.length, 3);
+    const nav=root.children.find(child=>child.className==="atlas-world-category-tabs");
+    const scroll=root.children.find(child=>child.className==="atlas-world-category-scroll");
+    assert.deepEqual(nav.children.map(tab=>tab.textContent),["Land","Water","Air"]);
+    const groups=scroll.children.filter(child=>child.tag==="fieldset");
+    assert.equal(groups.length,3);
+    assert.deepEqual(groups.map(panel=>panel.hidden),[false,true,true]);
+    assert.equal(writes,0);
+    const landColor=groups[0].children[1].querySelectorAll("[name]")
+      .find(field=>field.name==="atlasRoadColor");
+    landColor.value="#bb6622";
+    nav.children[1].listeners.get("click")();
+    assert.deepEqual(groups.map(panel=>panel.hidden),[true,false,true]);
+    nav.children[0].listeners.get("click")();
+    assert.equal(landColor.value,"#bb6622","switching keeps the existing unsaved field");
+    assert.equal(writes,0,"tab switching cannot persist World settings");
     assert.equal(writes, 0, "opening legacy flat World settings must not migrate");
-    const airForm = groups[1].children[1];
+    const airForm = groups[2].children[1];
     const fields = airForm.querySelectorAll("[name]");
     assert.ok(fields.some(field => field.name === "atlasRoadTextColor"));
     fields.find(field => field.name === "atlasRoadColor").value = "#f0a041";
     fields.find(field => field.name === "atlasRoadTextColor").value = "#121212";
-    const button = root.children.at(-1);
+    const button = root.children.at(-1).children[0];
+    const width=fields.find(field => field.name === "atlasRoadWidth");
+    width.value="-1"; // Air is hidden: Save must validate it anyway.
+    await assert.rejects(()=>button.listeners.get("click")(),/between|range|number|valid/i);
+    assert.equal(writes,0,"hidden invalid category cannot save any World defaults");
+    assert.equal(nav.children[2].tabIndex,0,
+      "validation selects the Air tab with the invalid draft");
+    assert.equal(groups[2].hidden,false);
+    assert.equal(button.disabled,false,"invalid draft never strands the Save control");
+    width.value="4";
     await button.listeners.get("click")();
     assert.equal(writes, 1);
     assert.equal(app.closed, true);
     assert.equal(stored.schemaVersion, 2);
     assert.equal(stored.profiles.air.color, "#f0a041");
     assert.equal(stored.profiles.air.textColor, "#121212");
-    assert.equal(stored.profiles.land.color, legacy.color);
+    assert.equal(stored.profiles.land.color, "#bb6622");
     assert.equal(stored.profiles.water.color, legacy.color);
   } finally { Object.assign(globalThis, previous); }
+});
+
+test("two World Road Appearance windows merge independent modes and reject same-mode conflicts",async()=>{
+  const old={game:globalThis.game,document:globalThis.document,ui:globalThis.ui};
+  let stored=structuredClone(DEFAULT_WORLD_ROAD_APPEARANCE),writes=0;
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},settings:{
+      get:()=>stored,
+      async set(_m,_key,value){stored=value;writes++;}
+    }};
+    globalThis.ui={notifications:{info(){},error(message){throw Error(message);}}};
+    const appA=new AtlasRoadAppearanceSettings(),appB=new AtlasRoadAppearanceSettings();
+    const a=await appA._renderHTML(),b=await appB._renderHTML();
+    const field=(root,mode)=>{
+      const index={land:0,water:1,air:2}[mode];
+      return root.children.find(item=>item.className==="atlas-world-category-scroll")
+        .children[index].children[1].querySelectorAll("[name]")
+        .find(item=>item.name==="atlasRoadColor");
+    };
+    const save=async root=>root.children.at(-1).children[0].listeners.get("click")();
+    const {settingsFormValues}=await import("../scripts/settings-input.js");
+    const form=(root,mode)=>root.children.find(item=>item.className==="atlas-world-category-scroll")
+      .children[{land:0,water:1,air:2}[mode]].children[1];
+    for(const mode of ["land","air","water"]){
+      assert.deepEqual(roadAppearanceFromForm(settingsFormValues(form(a,mode).querySelectorAll("[name]"))),
+        stored.profiles[mode],"Editor A untouched "+mode+" form reflects saved style");
+      assert.deepEqual(roadAppearanceFromForm(settingsFormValues(form(b,mode).querySelectorAll("[name]"))),
+        stored.profiles[mode],"Editor B untouched "+mode+" form reflects saved style");
+    }
+    field(a,"land").value="#aa2211";
+    field(b,"water").value="#2255bb";
+    await save(a);
+    await save(b);
+    assert.equal(writes,2);
+    assert.equal(stored.profiles.land.color,"#aa2211");
+    assert.equal(stored.profiles.water.color,"#2255bb");
+    const stale=new AtlasRoadAppearanceSettings();
+    const c=await stale._renderHTML();
+    field(c,"land").value="#334455";
+    stored={...stored,profiles:{...stored.profiles,
+      land:{...stored.profiles.land,color:"#123456"}}};
+    const before=writes;
+    await assert.rejects(save(c),/land mode changed elsewhere/);
+    assert.equal(writes,before,"stale same-mode draft never overwrites new World values");
+    assert.equal(stored.profiles.land.color,"#123456");
+  }finally{Object.assign(globalThis,old);}
 });
 
 test("road DialogV2 form serializes label color through explicit input defaults", () => {
@@ -95,20 +164,21 @@ test("World Road Appearance saves the actual border checkbox and reflected selec
   let stored;
   try {
     globalThis.document={createElement:tag=>new Element(tag)};
-    const legacy=Object.fromEntries(Object.entries(DEFAULT_ROAD_APPEARANCE)
-      .filter(([key])=>["color","width","opacity","pattern","labelVisibility"].includes(key)));
-    globalThis.game={user:{isGM:true},settings:{get:()=>legacy,
+    const initial=structuredClone(DEFAULT_WORLD_ROAD_APPEARANCE);
+    initial.profiles.land.borderEnabled=true;
+    globalThis.game={user:{isGM:true},settings:{get:()=>initial,
       async set(_module,_name,value){stored=value;}}};
     globalThis.ui={notifications:{info(){},error(error){throw Error(error);}}};
     const app=new AtlasRoadAppearanceSettings();
     const root=await app._renderHTML();
-    const land=root.children.find(child=>child.tag==="fieldset").children[1];
+    const land=root.children.find(child=>child.className==="atlas-world-category-scroll")
+      .children[0].children[1];
     const fields=land.querySelectorAll("[name]");
     const border=fields.find(field=>field.name==="atlasRoadBorderEnabled");
     border.checked=false;
     const labels=fields.find(field=>field.name==="atlasRoadLabels");
     assert.equal(labels.children.filter(option=>option.defaultSelected).length,1);
-    await root.children.at(-1).listeners.get("click")();
+    await root.children.at(-1).children[0].listeners.get("click")();
     assert.equal(stored.profiles.land.borderEnabled,false,
       "unchecked HTML checkbox must not keep its fixed value attribute");
   }finally{Object.assign(globalThis,previous);}
