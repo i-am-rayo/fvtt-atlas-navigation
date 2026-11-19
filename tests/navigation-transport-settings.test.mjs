@@ -391,7 +391,7 @@ test("Group editor records touched Map Marker fields as overrides without new vi
         const elements=flatten(root);
         root.querySelectorAll=()=>[];
         root.querySelector=selector=>{
-          const match=selector.match(/^\\[name="([^"]+)"\\]$/);
+          const match=selector.match(/^\[name="([^"]+)"\]$/);
           if(match)return elements.find(el=>el.name===match[1])??null;
           if(selector==="[data-atlas-scope-reset]")
             return elements.find(el=>el.attributes.get("data-atlas-scope-reset")!==undefined)??null;
