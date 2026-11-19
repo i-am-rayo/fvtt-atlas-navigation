@@ -2312,14 +2312,13 @@ export class RoadCanvasController {
             journalUuid:journalUuidFor(gmJournals,"checkpoint",checkpoint.id)});
       }
       if (hovered) {
-        const full = checkpointQuickInfo(checkpoint, roads.get(checkpoint.roadId)) +
+        const full = checkpointQuickInfo(checkpoint) +
           (journalUuidFor(gmJournals,"checkpoint",checkpoint.id) ? "\n📖 Journal linked" : "");
         const visibleRows=this.#checkpointBannerRows(canvas,atlas,checkpoint,
           appearance,roadName,false);
         const bannerElevation=visibleRows.some(row=>row.kind==="elevation");
         const preview=appearance.labelMode==="off"?full:full.split("\n")
-          .filter(line=>(line.startsWith("Elevation:")&&!bannerElevation)||
-            (!appearance.showRoadName&&line.startsWith("Road:"))).join("\n");
+          .filter(line=>line.startsWith("Elevation:")&&!bannerElevation).join("\n");
         if (preview) this.#addQuickInfo(labelParent, preview, group, zoom, {
           xOffset: checkpointCanvasSize(appearance.size, zoom) * zoom / 2 + 12,
           yOffset: appearance.labelMode==="off"?13:21+visibleRows.length*9
