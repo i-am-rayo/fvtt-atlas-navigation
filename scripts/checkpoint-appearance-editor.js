@@ -125,6 +125,16 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const exploration = readPartyExploration(this.scene);
     const journalLinks = readAtlasJournalLinks(this.scene);
     const discoveryMethods = readCheckpointDiscoveryMethods(this.scene);
+    // Each open editor owns one marker's immutable snapshot. Changes to other
+    // markers should not invalidate it; changes to this marker must still stop.
+    const baseline={
+      checkpoint:JSON.stringify(current),
+      category:this.createDraft?null:checkpointCategory(this.scene,this.checkpointId),
+      preset:this.createDraft?null:checkpointAssignedPresetId(this.scene,this.checkpointId),
+      terrain:this.createDraft?null:checkpointTerrainSuggestion(this.scene,this.checkpointId),
+      offers:this.createDraft?null:checkpointOffers(this.scene,this.checkpointId),
+      journal:this.createDraft?null:journalUuidFor(journalLinks,"checkpoint",this.checkpointId)
+    };
     const root = el("div");
     root.className="atlas-checkpoint-settings-root";
     root.style.cssText="padding:.85rem;display:flex;flex-direction:column;gap:.6rem;overflow:hidden;min-height:0;height:100%;box-sizing:border-box;";
@@ -753,8 +763,34 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
       try {
         // Validate all staged numeric values BEFORE the first Scene write.
         const revealValue=revealControl?.getValue()??null;
-        if (readAtlas(this.scene).revision !== this.expectedRevision) {
-          throw new Error("Scene Atlas changed. Close and reopen this Map Marker editor.");
+        const latestAtlas=readAtlas(this.scene);
+        const latestExploration=readPartyExploration(this.scene);
+        const latestMethods=readCheckpointDiscoveryMethods(this.scene);
+        const latestLinks=readAtlasJournalLinks(this.scene);
+        if(!this.createDraft){
+          const target=latestAtlas.checkpoints.find(cp=>cp.id===this.checkpointId);
+          const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+          const markerKnowledge=state=>[
+            state.discoveredCheckpointIds.includes(this.checkpointId),
+            state.loreKnownCheckpointIds.includes(this.checkpointId),
+            checkpointRevealRadiusCells(state,this.checkpointId)
+          ];
+          const globalExploration=state=>[
+            state.enabled,state.tokenId,state.radius,state.defaultRevealRadiusCells
+          ];
+          if(!target||!same(target,current)||
+            checkpointCategory(this.scene,this.checkpointId)!==baseline.category||
+            checkpointAssignedPresetId(this.scene,this.checkpointId)!==baseline.preset||
+            !same(checkpointTerrainSuggestion(this.scene,this.checkpointId),baseline.terrain)||
+            !same(checkpointOffers(this.scene,this.checkpointId),baseline.offers)||
+            journalUuidFor(latestLinks,"checkpoint",this.checkpointId)!==baseline.journal||
+            !same(markerKnowledge(latestExploration),markerKnowledge(exploration))||
+            !same(globalExploration(latestExploration),globalExploration(exploration))||
+            checkpointDiscoveryMethod(latestMethods,this.checkpointId)!==
+              checkpointDiscoveryMethod(discoveryMethods,this.checkpointId)){
+            throw new Error("This Map Marker or its settings changed elsewhere. "+
+              "Reopen this editor before overwriting that marker.");
+          }
         }
         const selectedBannerValue=bannerTerritory.value??"";
         const retainImported=selectedBannerValue.startsWith("imported:");
@@ -808,15 +844,11 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           await this.close();
           return true;
         }
-        if (discovery && JSON.stringify(readPartyExploration(this.scene)) !==
-            JSON.stringify(exploration)) {
-          throw new Error("Party discovery changed. Reopen Map Marker settings.");
-        }
         await saveCheckpointPresentation(this.scene, {
           checkpointId: this.checkpointId, name: name.value,
           elevationMeters: elevationMeters(),
           playerVisible: playerVisibility.checked, appearance: next,
-          expectedRevision: this.expectedRevision
+          expectedRevision: latestAtlas.revision
         });
         if(category.value!==checkpointCategory(this.scene,this.checkpointId))
           await saveCheckpointCategory(this.scene,this.checkpointId,category.value);
@@ -837,8 +869,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           await saveCheckpointKnowledge(this.scene, {
             checkpointId: this.checkpointId, knowledge: discovery.value,
             revealRadiusCells: revealValue,
-            expected: exploration,
-            method: discoveryMethod.value, expectedMethods: discoveryMethods
+            expected: latestExploration,
+            method: discoveryMethod.value, expectedMethods: latestMethods
           });
         }
         const offers=transportEditor.getOffers();
@@ -846,7 +878,7 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
           await saveCheckpointOffers(this.scene,this.checkpointId,offers);
         if (nextJournal !== journalUuidFor(journalLinks,"checkpoint",this.checkpointId)) {
           await saveAtlasJournalLink(this.scene,{
-            kind:"checkpoint",id:this.checkpointId,uuid:nextJournal,expected:journalLinks
+            kind:"checkpoint",id:this.checkpointId,uuid:nextJournal,expected:latestLinks
           });
         }
         this.onSaved?.();
