@@ -48,9 +48,9 @@ export function groupCheckpointMarkers(markers, zoom = 1, {
 }
 
 /** Short, read-only hover descriptions; no Journal or hidden network lookup. */
-export function checkpointQuickInfo(checkpoint, road) {
+export function checkpointQuickInfo(checkpoint) {
   const detail = [checkpoint.name];
-  if (road?.name) detail.push(`Road: ${road.name}`);
+  // Road names belong to the optional Map Marker banner, never fixed hover text.
   if (checkpoint.elevationMeters !== null &&
       Number.isFinite(checkpoint.elevationMeters)) {
     detail.push(`Elevation: ${checkpoint.elevationMeters} m`);
