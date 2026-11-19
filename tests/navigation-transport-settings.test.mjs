@@ -185,6 +185,48 @@ test("World Transportation Presets no longer embeds Group-specific assignments",
   }finally{ctx.restore();}
 });
 
+test("World transportation edits for different method IDs merge, stale same-method Save blocks",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry,oldUI=globalThis.ui;
+  try{
+    const {defaultTransportationCatalog,readTransportationCatalog,
+      listTransportationPresets,TRANSPORT_CATALOG_SETTING}=
+      await import("../scripts/navigation-transport-catalog.js");
+    let catalog=defaultTransportationCatalog(),writes=0;
+    const settings=globalThis.game.settings;
+    settings.get=(_m,key)=>key===TRANSPORT_CATALOG_SETTING?catalog:
+      key==="guidedTravelRulesProfile"?"dnd5e2024":undefined;
+    settings.set=async(_m,key,value)=>{
+      if(key===TRANSPORT_CATALOG_SETTING){catalog=value;writes++;}
+      return value;
+    };
+    const methods=listTransportationPresets(settings,"dnd5e");
+    const a=methods.find(m=>m.id==="mounted"),b=methods.find(m=>m.id==="sailing");
+    assert.ok(a&&b,"two independent built-in methods must exist");
+    let active=a;
+    const input=async()=>({
+      name:active.name,kind:active.kind,surface:active.surface,
+      speedDisplay:active.speedMph,capacity:active.capacity??"",
+      crewCount:active.crewCount??0,costBasis:active.costBasis??"none",
+      costApplies:active.costApplies??"unit",crewWageBasis:"day",
+      hireBasis:"day",hireApplies:"unit",overtimeExtraHours:8,
+      overtimeMultiplier:1.5
+    });
+    globalThis.foundry={applications:{api:{DialogV2:{input}}}};
+    globalThis.ui={notifications:{info(){},error(message){throw Error(message);}}};
+    const app=new AtlasTransportationSettings();app.render=async()=>{};
+    active=a;await app._edit(a);
+    active=b;await app._edit(b);
+    assert.equal(writes,2);
+    const updated=readTransportationCatalog(settings);
+    assert.ok(updated.overrides.dnd5e2024?.mounted);
+    assert.ok(updated.overrides.dnd5e2024?.sailing,
+      "saving a second method keeps the first method's override");
+    active=a;
+    await assert.rejects(()=>app._edit(a),/transportation method changed elsewhere/);
+    assert.equal(writes,2,"same-method stale edit never writes World catalog");
+  }finally{globalThis.foundry=oldFoundry;globalThis.ui=oldUI;ctx.restore();}
+});
+
 test("Journey editor exposes explicit Save for this trip and Save to checkpoint controls",async()=>{
   const ctx=setup();
   const old=globalThis.foundry;
