@@ -209,10 +209,14 @@ export class AtlasRoadAppearanceSettings extends foundry.applications.api.Applic
         // Merge only the profiles actually edited in this window; a change to
         // the same mode still conflicts instead of replacing another GM's work.
         const latest=readWorldRoadAppearance();
+        // These validated profiles contain only scalar fields. Compare values,
+        // not JSON property insertion order (form objects use a different order).
+        const equal=(a,b)=>a&&b&&Object.keys(a).length===Object.keys(b).length&&
+          Object.keys(a).every(key=>a[key]===b[key]);
         const changed=ROAD_APPEARANCE_MODES.filter(mode=>
-          JSON.stringify(profiles[mode])!==JSON.stringify(catalog.profiles[mode]));
-        const conflicts=changed.filter(mode=>JSON.stringify(latest.profiles[mode])!==
-          JSON.stringify(catalog.profiles[mode]));
+          !equal(profiles[mode],catalog.profiles[mode]));
+        const conflicts=changed.filter(mode=>
+          !equal(latest.profiles[mode],catalog.profiles[mode]));
         if(conflicts.length)
           throw Error("World Road appearance "+conflicts.join(", ")+" mode changed elsewhere. Reopen and review.");
         if(changed.length)
