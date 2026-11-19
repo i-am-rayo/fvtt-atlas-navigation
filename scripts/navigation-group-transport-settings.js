@@ -185,7 +185,8 @@ export class AtlasGroupTransportationSettings extends base {
           ],member.role);
         if(type==="vehicle")role.disabled=true;
         const quantity=number("quantity-"+member.actorId,member.quantity,1,100);
-        const capacity=number("capacity-"+member.actorId,member.capacity,1,1000);
+        const savedCapacity=assignments.groups[this.groupId]?.members?.[member.actorId]?.capacity;
+        const capacity=number("capacity-"+member.actorId,savedCapacity??null,1,1000);
         const compatible=methods.filter(method=>
           method.kind===(type==="vehicle"?"vehicle":"mount"));
         const suggested=compatible.find(method=>

@@ -112,8 +112,11 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
     const character=actor.type==="character";
     const role=vehicle?"vehicle":character?"passenger":saved?.role??"unassigned";
     const quantity=character?1:saved?.quantity??1;
-    const capacity=vehicle?saved?.capacity??passengerMaximum(actor):
-      role==="mount"?(saved?.capacity??1):null;
+    // Explicit saved seats win; otherwise inherit the linked World method,
+    // then D&D 5e native Vehicle seating (or one seat for an unlinked mount).
+    const capacity=vehicle?saved?.capacity??profileLookup.get(saved?.profileId)?.capacity??
+      passengerMaximum(actor):
+      role==="mount"?(saved?.capacity??profileLookup.get(saved?.profileId)?.capacity??1):null;
     const profileId=saved?.profileId??null;
     // The World profile is authoritative when available. Stored surface is
     // retained for legacy/unlinked resources and when a profile was deleted.
