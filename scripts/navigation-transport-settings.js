@@ -330,6 +330,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
     const existing=Boolean(preset),profile=selectedTransportationProfile(game.settings,game.system?.id);
     const before=snapshot();
+    const initialWalkingSpeed=preset?.id==="walking"?
+      current(NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED):null;
     const sceneUnit=globalThis.canvas?.scene?.grid?.units??
       game.scenes?.current?.grid?.units??"";
     const body=element("div");
@@ -596,7 +598,19 @@ export class AtlasTransportationSettings extends ApplicationBase {
       }
     });
     if(!response)return;
-    if(before!==snapshot())throw new Error("Transportation presets changed while you were editing. Reopen and review.");
+    if(scope==="world"&&!onSave){
+      if(selectedTransportationProfile(game.settings,game.system?.id)!==profile)
+        throw Error("Transportation rules profile changed. Reopen and review.");
+      const live=preset?listTransportationPresets(game.settings,game.system?.id)
+        .find(item=>item.id===preset.id):null;
+      if(preset&&JSON.stringify(live??null)!==JSON.stringify(preset))
+        throw Error("This transportation method changed elsewhere. Reopen it before saving.");
+      if(preset?.id==="walking"&&
+          current(NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED)!==initialWalkingSpeed)
+        throw Error("Walking speed changed elsewhere. Reopen and review.");
+    }else if(before!==snapshot()){
+      throw Error("Transportation presets changed while you were editing. Reopen and review.");
+    }
     if(scope==="world"&&preset?.id==="walking"){
       const shown=Number(response.worldSpeed);
       const numeric=sceneUnit?atlasSceneDistanceFromDisplay(shown,sceneUnit):shown;
@@ -666,7 +680,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
       }else await onSave(next,journey);
       return next;
     }
-    const updated=setTransportationPreset(readTransportationCatalog(game.settings),profile,next);
+    const liveCatalog=readTransportationCatalog(game.settings);
+    if(!preset&&liveCatalog.customs.some(item=>item.id===id))
+      throw Error("Transportation method ID already exists. Try creating again.");
+    const updated=setTransportationPreset(liveCatalog,profile,next);
     await game.settings.set(MODULE_ID,TRANSPORT_CATALOG_SETTING,updated);
     ui.notifications.info("Transportation preset saved.");
     await this.render();
