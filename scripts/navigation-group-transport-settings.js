@@ -7,7 +7,8 @@ import { GROUP_TRANSPORT_SETTING,readGroupTransportation,
   projectGroupTransportation,setGroupTransportationMember,groupTravelCapacityStatus }
   from "./navigation-group-transport.js";
 import { listTransportationPresets } from "./navigation-transport-catalog.js";
-import { AtlasTransportationSettings } from "./navigation-transport-settings.js";
+import { AtlasTransportationSettings,openTransportationMethodEditor }
+  from "./navigation-transport-settings.js";
 import {createSettingsCategoryTabs} from "./settings-category-tabs.js";
 import {createAtlasIconButton} from "./ui-action-button.js";
 
@@ -258,14 +259,16 @@ export class AtlasGroupTransportationSettings extends base {
           const effectivePurchase=purchaseMode.value==="inherit"?method?.purchaseGp:
             purchaseMode.value==="none"?null:Number(purchaseOverride.value);
           profileDetails.textContent=method?
-            "Surface: "+displaySurface(method.surface)+" · Travel: "+
+            "Quantity Available: "+quantity.value+" · Seats/unit: "+
+            (capacity.value||method.capacity||"unknown")+" · Surface: "+
+            displaySurface(method.surface)+" · Travel: "+
             (Number.isFinite(effectiveSpeed)?effectiveSpeed:"—")+" mph "+
             (speedOverride.value===""?"(World profile)":"(Group override; World "+method.speedMph+" mph)")+
             " · "+(effectiveBasis==="none"?"No recurring cost":
               effectiveCost+" CP / "+(effectiveBasis==="day"?"day":"mile")+
               " per "+(effectiveApplies==="passenger"?"passenger":"unit"))+
             " · Purchase: "+(effectivePurchase===null?"not specified":effectivePurchase+" GP"):
-            "Choose a World profile or create a custom one.";
+            "Quantity Available: "+quantity.value+" · Choose a World profile under Edit.";
         };
         updateDetails();
         if(type==="npc"&&member.role!=="mount")profile.disabled=true;
@@ -302,15 +305,63 @@ export class AtlasGroupTransportationSettings extends base {
         const controls=node("div");
         controls.style.cssText="display:grid;grid-template-columns:"+
           "repeat(auto-fit,minmax(9rem,1fr));gap:.65rem;";
-        controls.append(field("Role",role),field("Number available",quantity),
-          field("Riders per unit",capacity),
-          field("Transportation profile",profile,
-            "The profile supplies the travel surface, speed and default costs."),
-          field("Speed override (mph)",speedOverride,
-            "Optional for this Group only; leave blank for the World profile's travel speed."));
-        row.appendChild(controls);
-        row.appendChild(overrides);
-        row.appendChild(profileDetails);
+        // Controls hold the validated parent draft without repeating override
+        // fields in every Actor row; the shared method dialog edits this draft.
+        controls.append(field("Quantity Available",quantity,
+            "Number of mounts or vehicles represented by this Actor."),
+          field("Passenger seats per unit",capacity),
+          field("Transportation profile",profile),
+          field("Speed override (mph)",speedOverride));
+        const draftControls=node("div");
+        draftControls.hidden=true;
+        draftControls.style.display="none";
+        draftControls.append(controls,overrides);
+        const edit=action("Edit "+member.actorName+" transportation",async()=>{
+          if(type==="npc"&&role.value!=="mount")
+            throw Error("Choose Rideable Mount before assigning a transport profile.");
+          const readNumber=input=>input.value===""?null:Number(input.value);
+          const purchase=purchaseMode.value==="none"?"none":
+            purchaseMode.value==="custom"?readNumber(purchaseOverride):null;
+          await openTransportationMethodEditor({
+            scope:"group",method:lookup.get(profile.value)??null,profiles:compatible,
+            groupAssignment:{
+              profileId:profile.value||null,quantity:Number(quantity.value),
+              capacity:readNumber(capacity),
+              speedMphOverride:readNumber(speedOverride),
+              costCpOverride:readNumber(costOverride),
+              costBasisOverride:costBasisOverride.value||null,
+              costAppliesOverride:costAppliesOverride.value||null,
+              purchaseGpOverride:purchase,noteOverride:noteOverride.value||null
+            },
+            onSave:async next=>{
+              profile.value=next.profileId??"";
+              quantity.value=String(next.quantity);
+              capacity.value=next.capacity===null?"":String(next.capacity);
+              speedOverride.value=next.speedMphOverride===null?"":
+                String(next.speedMphOverride);
+              costOverride.value=next.costCpOverride===null?"":
+                String(next.costCpOverride);
+              costBasisOverride.value=next.costBasisOverride??"";
+              costAppliesOverride.value=next.costAppliesOverride??"";
+              purchaseMode.value=next.purchaseGpOverride==="none"?"none":
+                typeof next.purchaseGpOverride==="number"?"custom":"inherit";
+              purchaseOverride.value=typeof next.purchaseGpOverride==="number"?
+                String(next.purchaseGpOverride):"";
+              purchaseOverride.disabled=purchaseMode.value!=="custom";
+              noteOverride.value=next.noteOverride??"";
+              updateDetails();
+            }
+          });
+        });
+        if(type==="npc"){
+          edit.disabled=role.value!=="mount";
+          role.addEventListener("change",()=>{edit.disabled=role.value!=="mount";});
+        }
+        const visible=node("div");
+        visible.style.cssText="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;";
+        if(type==="npc")visible.append(field("Role",role));
+        visible.append(edit);
+        row.append(visible,draftControls,profileDetails);
         if(member.profileId&&!lookup.has(member.profileId)){
           const missing=node("p","Previously selected profile '"+member.profileId+
             "' is unavailable. Choose another profile before saving.");
