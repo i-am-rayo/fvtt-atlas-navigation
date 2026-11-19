@@ -6,7 +6,7 @@ globalThis.foundry = { applications: { api: { ApplicationV2: class {
 } } } };
 const { AtlasRoadAppearanceSettings, roadAppearanceForm, roadAppearanceFromForm,
   registerWorldRoadAppearance } = await import("../scripts/road-appearance-settings.js");
-const { DEFAULT_ROAD_APPEARANCE, ROAD_CURVE_SETTING }
+const { DEFAULT_ROAD_APPEARANCE, DEFAULT_WORLD_ROAD_APPEARANCE, ROAD_CURVE_SETTING }
   = await import("../scripts/road-appearance.js");
 
 class Element {
@@ -99,6 +99,44 @@ test("World Road Appearance settings show Land/Air/Water separately and only sav
     assert.equal(stored.profiles.land.color, "#bb6622");
     assert.equal(stored.profiles.water.color, legacy.color);
   } finally { Object.assign(globalThis, previous); }
+});
+
+test("two World Road Appearance windows merge independent modes and reject same-mode conflicts",async()=>{
+  const old={game:globalThis.game,document:globalThis.document,ui:globalThis.ui};
+  let stored=structuredClone(DEFAULT_WORLD_ROAD_APPEARANCE),writes=0;
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={user:{isGM:true},settings:{
+      get:()=>stored,
+      async set(_m,_key,value){stored=value;writes++;}
+    }};
+    globalThis.ui={notifications:{info(){},error(message){throw Error(message);}}};
+    const appA=new AtlasRoadAppearanceSettings(),appB=new AtlasRoadAppearanceSettings();
+    const a=await appA._renderHTML(),b=await appB._renderHTML();
+    const field=(root,mode)=>{
+      const index={land:0,air:1,water:2}[mode];
+      return root.children.find(item=>item.className==="atlas-world-category-scroll")
+        .children[index].children[1].querySelectorAll("[name]")
+        .find(item=>item.name==="atlasRoadColor");
+    };
+    const save=async root=>root.children.at(-1).children[0].listeners.get("click")();
+    field(a,"land").value="#aa2211";
+    field(b,"water").value="#2255bb";
+    await save(a);
+    await save(b);
+    assert.equal(writes,2);
+    assert.equal(stored.profiles.land.color,"#aa2211");
+    assert.equal(stored.profiles.water.color,"#2255bb");
+    const stale=new AtlasRoadAppearanceSettings();
+    const c=await stale._renderHTML();
+    field(c,"land").value="#334455";
+    stored={...stored,profiles:{...stored.profiles,
+      land:{...stored.profiles.land,color:"#123456"}}};
+    const before=writes;
+    await assert.rejects(save(c),/edited elsewhere/);
+    assert.equal(writes,before,"stale same-mode draft never overwrites new World values");
+    assert.equal(stored.profiles.land.color,"#123456");
+  }finally{Object.assign(globalThis,old);}
 });
 
 test("road DialogV2 form serializes label color through explicit input defaults", () => {
