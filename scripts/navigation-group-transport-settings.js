@@ -175,8 +175,12 @@ export class AtlasGroupTransportationSettings extends base {
         row.className="atlas-group-transport-resource";
         row.style.cssText="padding:.4rem 0;border-bottom:1px solid var(--color-border-light-primary,#555);"+
           "display:grid;gap:.3rem;min-width:0;";
-        row.appendChild(node("strong",member.actorName+
-          (member.primaryVehicle?" ★ Primary vehicle":"")));
+        const header=node("div");
+        header.style.cssText="display:flex;align-items:center;gap:.4rem;min-width:0;";
+        const title=node("strong",member.actorName+
+          (member.primaryVehicle?" ★ Primary vehicle":""));
+        title.style.cssText="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        header.append(title);
         const role=select("role-"+member.actorId,type==="vehicle"?
           [["vehicle","Vehicle"]]:[
             ["unassigned","Choose NPC role"],["mount","Mount"],
@@ -184,6 +188,10 @@ export class AtlasGroupTransportationSettings extends base {
             ["pack","Pack animal"],["ignore","Not traveling"]
           ],member.role);
         if(type==="vehicle")role.disabled=true;
+        else{
+          role.setAttribute("aria-label","Role for "+member.actorName);
+          role.style.cssText+=";width:12rem;max-width:32vw;";
+        }
         const quantity=number("quantity-"+member.actorId,member.quantity,1,100);
         const savedCapacity=assignments.groups[this.groupId]?.members?.[member.actorId]?.capacity;
         const capacity=number("capacity-"+member.actorId,savedCapacity??null,1,1000);
@@ -370,8 +378,8 @@ export class AtlasGroupTransportationSettings extends base {
           role.addEventListener("change",()=>{edit.disabled=role.value!=="mount";});
         }
         const visible=node("div");
-        visible.style.cssText="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;";
-        if(type==="npc")visible.append(field("Role",role));
+        visible.style.cssText="display:flex;align-items:center;gap:.4rem;flex:0 0 auto;margin-left:auto;";
+        if(type==="npc")visible.append(role);
         visible.append(edit);
         const removal=action("Remove "+member.actorName+" from Party transportation",async()=>{
           if(enabled.value==="true"){
@@ -397,13 +405,21 @@ export class AtlasGroupTransportationSettings extends base {
         };
         updateRemoval();
         if(type==="npc"){
-          const sync=()=>{const mount=role.value==="mount";edit.disabled=!mount;
-            removal.disabled=!mount;};
+          const sync=()=>{
+            const mount=role.value==="mount";
+            edit.disabled=!mount;
+            removal.disabled=!mount;
+            (mount?(bucket[lookup.get(profile.value)?.surface??member.surface]??other):other)
+              .appendChild(row);
+          };
           role.addEventListener("change",()=>{sync();this.dirty=true;});
           sync();
         }
-        visible.append(removal);
-        row.append(visible,draftControls,profileDetails);
+        // Native Group membership and NPC role govern participation. Do not
+        // duplicate native NPC deletion with an Atlas exclusion action.
+        if(type==="vehicle"||!member.enabled)visible.append(removal);
+        header.append(visible);
+        row.append(header,draftControls,profileDetails);
         if(member.profileId&&!lookup.has(member.profileId)){
           const missing=node("p","Previously selected profile '"+member.profileId+
             "' is unavailable. Choose another profile before saving.");
