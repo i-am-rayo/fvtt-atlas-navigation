@@ -211,9 +211,10 @@ export class AtlasRoadAppearanceSettings extends foundry.applications.api.Applic
         const latest=readWorldRoadAppearance();
         const changed=ROAD_APPEARANCE_MODES.filter(mode=>
           JSON.stringify(profiles[mode])!==JSON.stringify(catalog.profiles[mode]));
-        if(changed.some(mode=>JSON.stringify(latest.profiles[mode])!==
-            JSON.stringify(catalog.profiles[mode])))
-          throw Error("A changed World Road appearance mode was edited elsewhere. Reopen and review.");
+        const conflicts=changed.filter(mode=>JSON.stringify(latest.profiles[mode])!==
+          JSON.stringify(catalog.profiles[mode]));
+        if(conflicts.length)
+          throw Error("World Road appearance "+conflicts.join(", ")+" mode changed elsewhere. Reopen and review.");
         if(changed.length)
           await game.settings.set(MODULE_ID, ROAD_APPEARANCE_SETTING,
             validateWorldRoadAppearance({schemaVersion:2,profiles:{
