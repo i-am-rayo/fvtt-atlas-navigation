@@ -109,10 +109,16 @@
 }
 .application:has([data-atlas-road-live]) .atlas-road-preset-controls [hidden] {display:none;}
 
-/* Canvas editors follow the same frameless, positioned Paint Territory panel.
- * Foundry ApplicationV2 still owns render/close/position; CSS owns appearance. */
-.atlas-road-editor-window {
+/* Keep Foundry's native positioned ApplicationV2 frame for correct viewport
+ * placement. Hide its chrome, not the frame itself: frameless v14 apps may be
+ * laid out with the sidebar instead of as independent canvas editors. */
+.application.atlas-road-editor-window {
   background:transparent;border:0;box-shadow:none;min-height:0;overflow:visible;
+}
+.application.atlas-road-editor-window > .window-header {display:none;}
+.application.atlas-road-editor-window > .window-content {
+  display:block;min-height:0;padding:0;overflow:visible;
+  background:transparent;border:0;
 }
 .atlas-road-editor-dock {
   box-sizing:border-box;display:flex;flex-direction:column;gap:.45rem;

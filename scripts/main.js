@@ -677,7 +677,6 @@ function actions() {
       const settings=await promptNewRoadSettings(scene);
       if (!settings) return;
       beginRoadDock(scene, refresh, onChange => roadCanvas.start(scene, onChange, settings));
-      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.StartNotice"));
     },
     draft: scene => roadCanvas.getDraft(scene),
     async generateRegion(scene, settings, refresh) {
@@ -1418,7 +1417,6 @@ function actions() {
         }
       });
       openRoadDock(scene,refresh);
-      ui.notifications.info(game.i18n.localize("FVTTATLAS.Junctions.StartNotice"));
     },
     selectJunction: (scene, nodeId) => roadCanvas.selectJunction(scene, nodeId),
     beginCheckpoint(scene, refresh) {
@@ -1442,8 +1440,6 @@ function actions() {
         }),
         saveIndependent:args=>createIndependentCheckpointFromDraft(scene,args)
       });
-      ui.notifications.info("Click a Road to create a linked Map Marker, " +
-        "or click away from Roads for an independent Map Marker. Escape cancels.");
       // Reuse the same canvas editor focus lease and dock as Road placement:
       // only windows this operation minimized are restored on its close.
       openRoadDock(scene,refresh);
@@ -1545,7 +1541,6 @@ function actions() {
         onChange:()=>syncRoadDock(scene,refresh)
       });
       openRoadDock(scene,refresh);
-      ui.notifications.info("Click a new map location, review the change, and confirm Save New Position. Escape cancels.");
       refresh();
     },
     async manageCheckpointRoad(scene, checkpointId, refresh) {
@@ -1888,7 +1883,6 @@ function actions() {
     },
     beginPointEdit(scene, roadId, refresh) {
       beginRoadDock(scene, refresh, onChange => roadCanvas.startPointEdit(scene, roadId, onChange));
-      ui.notifications.info(game.i18n.localize("FVTTATLAS.Roads.EditNotice"));
     },
     undo: () => roadCanvas.undo(),
     redo: () => roadCanvas.redo(),

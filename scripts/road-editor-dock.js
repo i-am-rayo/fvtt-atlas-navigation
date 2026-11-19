@@ -28,7 +28,7 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-road-editor-dock",
     classes: ["atlas-road-editor-window"],
-    window: { title: "Atlas — Canvas Editor", frame: false, positioned: true,
+    window: { title: "Atlas — Canvas Editor", frame: true, positioned: true,
       resizable: false, minimizable: false },
     position: { width: 360, height: "auto", left: 24, top: 90 }
   };
@@ -161,8 +161,8 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     const gestures=draft.mode==="points"?
       [["Drag","Move a bend or a junction"],
        ["Double-click","Add a bend to the Road line"],
-       ["Shift-click","Continue from an unconnected Road end (an end not joined to another Road)"],
-       ["Alt/Option-click","Remove a bend"],
+       ["Shift-click","Continue an unconnected Road end; promote a white bend to a gold junction or demote an eligible gold pass-through to a bend"],
+       ["Alt/Option-click","Remove a white bend, detach a shared junction, or choose a same-Road branch to disconnect"],
        ["Ctrl/Cmd + Z","Undo this draft"],
        ["Ctrl/Cmd + Shift + Z / Y","Redo this draft"],
        ["Esc","Stop continuation or cancel editing"]]:
