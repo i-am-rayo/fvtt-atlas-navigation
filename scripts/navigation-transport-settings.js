@@ -695,9 +695,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
       content:"<p>Restore the reference speed and costs for this preset in the current Rules Profile?</p>"
     });
     if(!yes)return;
-    const before=snapshot();
+    if(selectedTransportationProfile(game.settings,game.system?.id)!==profile||
+        JSON.stringify(listTransportationPresets(game.settings,game.system?.id)
+          .find(item=>item.id===preset.id)??null)!==JSON.stringify(preset))
+      throw Error("This transportation method changed elsewhere. Reopen before resetting.");
     const updated=resetTransportationPreset(readTransportationCatalog(game.settings),profile,preset.id);
-    if(before!==snapshot())throw new Error("Preset data changed; reopen the editor.");
     // Legacy beta.1 speed values are explicitly reset only when resetting that preset.
     if(preset.id==="mounted")
       await game.settings.set(MODULE_ID,NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_MOUNTED_SPEED_DEFAULT);
@@ -714,6 +716,9 @@ export class AtlasTransportationSettings extends ApplicationBase {
         "Previously saved Journey Journals and Scene data will not be changed.</p>"
     });
     if(!yes)return;
+    if(JSON.stringify(listTransportationPresets(game.settings,game.system?.id)
+      .find(item=>item.id===preset.id)??null)!==JSON.stringify(preset))
+      throw Error("This transportation method changed elsewhere. Reopen before deleting.");
     const next=deleteCustomTransportationPreset(readTransportationCatalog(game.settings),preset.id);
     await game.settings.set(MODULE_ID,TRANSPORT_CATALOG_SETTING,next);await this.render();
   }
