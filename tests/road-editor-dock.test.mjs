@@ -326,6 +326,7 @@ test("painter-style Road and isolated Map Marker canvases move by title only",as
     let saves=0,cancels=0;
     const scene={id:"painter",canUserModify:()=>true};
     for(const mode of ["points","checkpoint-relocate"]){
+      const cancelsBefore=cancels;
       const controller={getDraft:()=>({mode,points:11,
         roadName:"Coastal Road",checkpointId:"marker"})};
       const dock=new AtlasRoadEditorDock({scene,controller,
@@ -357,7 +358,7 @@ test("painter-style Road and isolated Map Marker canvases move by title only",as
       assert.equal(docHandlers.size,0,"dragging listeners release after pointer up");
       assert.equal(dock._dockDrag,null);
       assert.equal(saves,0,"moving the editor cannot save the map");
-      assert.equal(cancels,0,"moving the editor cannot cancel a draft");
+      assert.equal(cancels,cancelsBefore,"moving the editor cannot cancel a draft");
       assert.equal(dock.finished,false);
       if(mode==="checkpoint-relocate"){
         assert.equal(button(root,"Save Points"),undefined);
@@ -367,7 +368,7 @@ test("painter-style Road and isolated Map Marker canvases move by title only",as
         assert.ok(descendants(root).some(node=>node.textContent==="Road: Coastal Road"));
       }
       dock._onClose({});
-      assert.equal(cancels,1+Number(mode==="checkpoint-relocate"),
+      assert.equal(cancels,cancelsBefore+1,
         "native close cancels the active draft exactly once per window");
     }
   }finally{Object.assign(globalThis,original);}
