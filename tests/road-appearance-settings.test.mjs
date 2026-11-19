@@ -123,8 +123,12 @@ test("two World Road Appearance windows merge independent modes and reject same-
     const {settingsFormValues}=await import("../scripts/settings-input.js");
     const form=(root,mode)=>root.children.find(item=>item.className==="atlas-world-category-scroll")
       .children[{land:0,air:1,water:2}[mode]].children[1];
-    assert.deepEqual(roadAppearanceFromForm(settingsFormValues(form(b,"land").querySelectorAll("[name]"))),
-      stored.profiles.land,"untouched Road appearance form must exactly reflect persisted Land");
+    for(const mode of ["land","air","water"]){
+      assert.deepEqual(roadAppearanceFromForm(settingsFormValues(form(a,mode).querySelectorAll("[name]"))),
+        stored.profiles[mode],"Editor A untouched "+mode+" form reflects saved style");
+      assert.deepEqual(roadAppearanceFromForm(settingsFormValues(form(b,mode).querySelectorAll("[name]"))),
+        stored.profiles[mode],"Editor B untouched "+mode+" form reflects saved style");
+    }
     field(a,"land").value="#aa2211";
     field(b,"water").value="#2255bb";
     await save(a);
