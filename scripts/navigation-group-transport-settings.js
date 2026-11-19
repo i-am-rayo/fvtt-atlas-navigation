@@ -185,7 +185,7 @@ export class AtlasGroupTransportationSettings extends base {
         header.append(title);
         const role=select("role-"+member.actorId,type==="vehicle"?
           [["vehicle","Vehicle"]]:[
-            ["unassigned","Choose NPC role"],["mount","Mount"],
+            ["unassigned","Choose NPC role"],["mount","Rideable Mount"],
             ["passenger","Companion / passenger"],["crew","Crew"],
             ["pack","Pack animal"],["ignore","Not traveling"]
           ],member.role);
