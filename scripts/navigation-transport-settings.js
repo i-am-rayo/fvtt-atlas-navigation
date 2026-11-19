@@ -611,12 +611,12 @@ export class AtlasTransportationSettings extends ApplicationBase {
     }else if(before!==snapshot()){
       throw Error("Transportation presets changed while you were editing. Reopen and review.");
     }
+    let walkingSpeed=null;
     if(scope==="world"&&preset?.id==="walking"){
       const shown=Number(response.worldSpeed);
-      const numeric=sceneUnit?atlasSceneDistanceFromDisplay(shown,sceneUnit):shown;
-      if(!Number.isFinite(numeric)||numeric<.1||numeric>1000)
+      walkingSpeed=sceneUnit?atlasSceneDistanceFromDisplay(shown,sceneUnit):shown;
+      if(!Number.isFinite(walkingSpeed)||walkingSpeed<.1||walkingSpeed>1000)
         throw new Error("Walking fallback speed must be between 0.1 and 1000 Scene units/hour.");
-      await game.settings.set(MODULE_ID,NAVIGATION_SPEED_SETTING,numeric);
     }
     const id=preset?.id??"custom-"+(
       globalThis.foundry?.utils?.randomID?.(12)??crypto.randomUUID().replaceAll("-","").slice(0,12)
@@ -684,6 +684,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(!preset&&liveCatalog.customs.some(item=>item.id===id))
       throw Error("Transportation method ID already exists. Try creating again.");
     const updated=setTransportationPreset(liveCatalog,profile,next);
+    // Validate the entire preset before either legacy walking-speed or catalog
+    // World setting is touched; Foundry settings have no multi-key transaction.
+    if(walkingSpeed!==null)
+      await game.settings.set(MODULE_ID,NAVIGATION_SPEED_SETTING,walkingSpeed);
     await game.settings.set(MODULE_ID,TRANSPORT_CATALOG_SETTING,updated);
     ui.notifications.info("Transportation preset saved.");
     await this.render();
