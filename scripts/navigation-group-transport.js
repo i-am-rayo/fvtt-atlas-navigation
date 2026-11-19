@@ -200,9 +200,8 @@ export function groupTravelCapacityStatus(projection,surface){
     (m.role==="vehicle"||m.role==="mount")&&m.surface===surface);
   const seats=eligibleResourceSeats(projection,resources)
     .reduce((sum,item)=>sum+item.seats,0);
-  const unknown=projection.members.filter(m=>
-    m.enabled&&(m.role==="vehicle"||m.role==="mount")&&
-    m.surface===surface&&m.capacity===null).length;
+  const unknown=resources.filter(m=>m.capacity===null&&
+    !(m.role==="mount"&&m.assignedTo)).length;
   return {travelers:projection.travelers,seats,
     missing:Math.max(0,projection.travelers-seats),unknown,
     sufficient:projection.travelers>0&&projection.travelers<=seats};
@@ -241,8 +240,9 @@ export function groupMethodCapacityStatus(projection,method){
   const relevant=matchingResources(projection,method);
   const usable=eligibleResourceSeats(projection,relevant);
   const seats=usable.reduce((sum,item)=>sum+item.seats,0);
-  const quantity=relevant.reduce((sum,m)=>sum+m.quantity,0);
-  const unknown=relevant.filter(m=>m.capacity===null).length;
+  const participating=usable.filter(item=>item.seats>0||
+    !item.member.assignedTo);
+  const unknown=participating.filter(item=>item.member.capacity===null).length;
   // Only resources available to traveling members affect estimated pace.
   const speeds=usable.filter(item=>item.seats>0)
     .map(({member})=>member.speedMphOverride??method.speedMph)
@@ -250,7 +250,8 @@ export function groupMethodCapacityStatus(projection,method){
   const effectiveSpeedMph=speeds.length?Math.min(...speeds):null;
   return {travelers:projection.travelers,seats,
     missing:Math.max(0,projection.travelers-seats),unknown,
-    matched:relevant.length,quantity,effectiveSpeedMph,
+    matched:participating.length,quantity:participating.reduce((sum,item)=>
+      sum+item.member.quantity,0),effectiveSpeedMph,
     sufficient:projection.travelers>0&&projection.travelers<=seats};
 }
 
@@ -267,6 +268,7 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
   let remaining=Math.max(0,projection.travelers-reservedCount),amount=0;
   const breakdown=[];
   for(const {member,seats,reserved} of usable){
+    if(member.role==="mount"&&member.assignedTo&&!reserved)continue;
     const effective=effectiveGroupResourceMethod(member,method);
     const passengers=reserved?1:Math.min(remaining,seats);
     if(!reserved)remaining-=passengers;
@@ -285,5 +287,6 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
       costBasis:effective.costBasis,costApplies:effective.costApplies,
       recurringCp:cost,crewWagesCp:wages,crewDays,crewWageBasis:effective.crewWageBasis??"day",amount:cost+wages});
   }
-  return {amount,breakdown,unseated:remaining,quantity:resources.reduce((n,m)=>n+m.quantity,0)};
+  return {amount,breakdown,unseated:remaining,
+    quantity:breakdown.reduce((sum,item)=>sum+item.quantity,0)};
 }
