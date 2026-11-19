@@ -18,6 +18,11 @@ test("Atlas object settings titles retain the selected object identity across ta
     "Atlas — The Eyrie — Terrain Region Settings");
   assert.equal(atlasSettingsTitle("Checkpoint",null),
     "Atlas — Unnamed Checkpoint — Checkpoint Settings");
+  assert.equal(atlasSettingsTitle("Map Marker","  A <script>\n Tavern\t "),
+    "Atlas — A <script> Tavern — Map Marker Settings",
+    "untrusted names remain plain text, normalized for native header textContent");
+  assert.equal(atlasSettingsTitle("Territory","   "),
+    "Atlas — Unnamed Territory — Territory Settings");
 });
 
 test("native RegionConfig keeps its own render and update behavior while Atlas supplies a title",async()=>{
