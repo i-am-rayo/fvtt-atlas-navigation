@@ -621,7 +621,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     const firstForm=await firstWindow._renderHTML();
     const secondForm=await secondWindow._renderHTML();
     const savedName=root=>all(root).find(node=>node.tag==="input"&&node.type==="text"&&
-      ["Newly Renamed Lookout","Dirwest","Changed Eyrie","Changed Dirwest"].includes(node.value));
+      ["Newly Renamed Lookout","Dirwest","Changed Eyrie","Changed Dirwest",
+        "Attempted stale overwrite"].includes(node.value));
     const saveForm=async(root,nextName)=>{
       const input=savedName(root);
       assert.ok(input);
