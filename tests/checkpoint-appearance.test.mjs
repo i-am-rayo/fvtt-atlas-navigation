@@ -596,6 +596,7 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
       name:"Newly Renamed Lookout"}))};
     const revision=stored.revision;
     await editor._renderHTML();
+    await editor._onRender();
     assert.equal(editor.window.title.textContent,
       "Atlas — Newly Renamed Lookout — Map Marker Settings",
       "committed external rename refreshes an open editor header on render");
