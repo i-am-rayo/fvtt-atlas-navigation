@@ -15,6 +15,7 @@ class FakeElement {
   append(...children){for(const c of children)this.appendChild(c);}
   setAttribute(key,value){this.attributes.set(key,String(value));}
   addEventListener(name,handler){(this.events[name]??=[]).push(handler);}
+  focus(){this.focused=true;}
   insertAdjacentElement(position,child){
     if(position!=="afterend"||!this.parent)throw Error("Unsupported fake DOM insertion");
     const i=this.parent.children.indexOf(this);
@@ -129,9 +130,9 @@ test("Group editor shows Vehicles / NPC / Player Characters tabs and preserves d
     const tabs=elements.filter(e=>e.attributes.get("role")==="tab");
     assert.deepEqual(tabs.map(t=>t.textContent),["Vehicles","NPC","Player Characters"]);
     const panels=elements.filter(e=>e.attributes.get("role")==="tabpanel");
-    assert.deepEqual(panels.map(p=>p.attributes.get("id")),
-      ["atlas-transport-panel-vehicle","atlas-transport-panel-npc",
-        "atlas-transport-panel-character"]);
+    assert.deepEqual(panels.map(p=>p.id),
+      ["atlas-group-transport-vehicle-panel","atlas-group-transport-npc-panel",
+        "atlas-group-transport-character-panel"]);
     assert.equal(panels[0].hidden,false,"Vehicles shown initially");
     assert.equal(panels[1].hidden,true);
     assert.equal(elements.some(e=>e.name==="surface-camel1"||e.name==="surface-ship1"),false,
@@ -139,7 +140,19 @@ test("Group editor shows Vehicles / NPC / Player Characters tabs and preserves d
     const draft=elements.find(e=>e.name==="quantity-camel1");draft.value="5";
     tabs[1].events.click[0]();
     assert.equal(panels[1].hidden,false);
-    tabs[2].events.click[0]();
+    assert.equal(tabs[1].attributes.get("aria-selected"),"true");
+    assert.equal(tabs[1].tabIndex,0);
+    const bar=elements.find(e=>e.attributes.get("role")==="tablist");
+    let prevented=0;
+    bar.events.keydown[0]({key:"ArrowRight",target:tabs[1],
+      preventDefault(){prevented++;}});
+    assert.equal(tabs[2].focused,true);
+    assert.equal(panels[2].hidden,false);
+    bar.events.keydown[0]({key:"Home",target:tabs[2],
+      preventDefault(){prevented++;}});
+    assert.equal(tabs[0].focused,true);
+    assert.equal(panels[0].hidden,false);
+    assert.equal(prevented,2);
     tabs[1].events.click[0]();
     assert.equal(draft.value,"5","tab changes do not rebuild controls or discard edits");
     assert.deepEqual(ctx.changes,[],"tab changes do not mutate Group or World flags");
