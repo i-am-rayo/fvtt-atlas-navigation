@@ -79,6 +79,8 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
       throw Error("Only a Scene-authorized GM can edit Territory settings.");
     const native=this.scene.regions?.get?.(this.regionId);
     if(!native)throw Error("This native Territory no longer exists in the Scene.");
+    if(this.window?.title)
+      this.window.title.textContent=atlasSettingsTitle("Territory",native.name);
     this._watchMembership();
     this._scrollY=this.element?.querySelector?.("[data-atlas-territory-settings-body]")?.scrollTop??this._scrollY;
     const summary=listSceneRegions(this.scene).find(item=>item.id===this.regionId);
@@ -109,20 +111,37 @@ export class AtlasTerritorySettings extends foundry.applications.api.Application
     const root=el("section",undefined,"atlas-territory-settings");
     root.setAttribute("data-atlas-territory-settings",this.regionId);
     const tabBar=el("nav",undefined,"atlas-territory-settings-tabs");
+    tabBar.setAttribute("role","tablist");
     tabBar.setAttribute("aria-label","Territory settings sections");
+    const switchPage=(page,restoreFocus=false)=>{
+      if(this.activePage===page)return;
+      this.activePage=page;
+      this._scrollY=0;
+      void this.render(true).then(()=>{
+        if(restoreFocus)this.element?.querySelector?.(
+          '[data-atlas-territory-page="'+page+'"]')?.focus?.();
+      }).catch(error=>ui.notifications.error(error.message??String(error)));
+    };
     for(const page of pages){
       const tab=el("button",page);
       tab.type="button";
       tab.dataset.atlasTerritoryPage=page;
-      tab.setAttribute("aria-current",String(this.activePage===page));
-      tab.addEventListener("click",()=>{
-        if(this.activePage===page)return;
-        this.activePage=page;
-        this._scrollY=0;
-        void this.render(true);
-      });
+      tab.setAttribute("role","tab");
+      tab.setAttribute("aria-selected",String(this.activePage===page));
+      tab.tabIndex=this.activePage===page?0:-1;
+      tab.addEventListener("click",()=>switchPage(page));
       tabBar.appendChild(tab);
     }
+    tabBar.addEventListener("keydown",event=>{
+      const index=pages.indexOf(event.target?.dataset?.atlasTerritoryPage);
+      if(index<0)return;
+      const next=event.key==="ArrowRight"?(index+1)%pages.length:
+        event.key==="ArrowLeft"?(index+pages.length-1)%pages.length:
+        event.key==="Home"?0:event.key==="End"?pages.length-1:-1;
+      if(next<0)return;
+      event.preventDefault?.();
+      switchPage(pages[next],true);
+    });
     root.appendChild(tabBar);
     const body=el("div",undefined,"atlas-territory-settings-body");
     body.setAttribute("data-atlas-territory-settings-body","");
