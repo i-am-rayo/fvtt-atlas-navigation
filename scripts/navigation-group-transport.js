@@ -6,7 +6,7 @@
 export const GROUP_TRANSPORT_SETTING="guidedGroupTransportation";
 import { projectedGroupFare } from "./navigation-currency.js";
 
-export const GROUP_TRANSPORT_VERSION=5;
+export const GROUP_TRANSPORT_VERSION=6;
 export const GROUP_TRANSPORT_ROLES=Object.freeze([
   "unassigned","mount","passenger","crew","pack","ignore"
 ]);
@@ -26,7 +26,7 @@ export function defaultGroupTransportation(){return {version:GROUP_TRANSPORT_VER
 
 export function validateGroupTransportation(input){
   if(!input||typeof input!=="object"||Array.isArray(input)||
-      ![1,2,3,4,GROUP_TRANSPORT_VERSION].includes(input.version)||
+      ![1,2,3,4,5,GROUP_TRANSPORT_VERSION].includes(input.version)||
       !input.groups||typeof input.groups!=="object"||Array.isArray(input.groups)||
       Object.keys(input.groups).length>MAX_GROUPS)
     throw new Error("Invalid Atlas Group transportation configuration.");
@@ -36,7 +36,7 @@ export function validateGroupTransportation(input){
         !group.members||typeof group.members!=="object"||Array.isArray(group.members)||
         Object.keys(group.members).length>MAX_MEMBERS)
       throw new Error("Invalid Atlas Group transportation roster.");
-    const members={};
+    const members={},assignedRiders=new Set();
     for(const [actorId,entry] of Object.entries(group.members)){
       if(!safeId(actorId)||!entry||typeof entry!=="object"||Array.isArray(entry)||
           !GROUP_TRANSPORT_ROLES.includes(entry.role)||
@@ -44,6 +44,9 @@ export function validateGroupTransportation(input){
           !(entry.capacity===null||integer(entry.capacity,1,1000))||
           !GROUP_TRANSPORT_SURFACES.includes(entry.surface)||
           !(entry.enabled===undefined||typeof entry.enabled==="boolean")||
+          !(entry.assignedTo==null||safeId(entry.assignedTo))||
+          (entry.assignedTo!=null&&(entry.role!=="mount"||
+            entry.quantity!==1||entry.enabled===false))||
           !validProfileId(entry.profileId??null)||
           !validTravelSpeedOverride(entry.speedMphOverride??null)||
           !validMoneyOverride(entry.costCpOverride??null)||
@@ -52,9 +55,14 @@ export function validateGroupTransportation(input){
           !validPurchaseOverride(entry.purchaseGpOverride??null)||
           !validNoteOverride(entry.noteOverride??null))
         throw new Error("Invalid Atlas Group member transportation assignment.");
+      if(entry.assignedTo!=null){
+        if(assignedRiders.has(entry.assignedTo))
+          throw new Error("One Party member cannot be assigned more than one personal mount.");
+        assignedRiders.add(entry.assignedTo);
+      }
       members[actorId]={role:entry.role,quantity:entry.quantity,
         capacity:entry.capacity,surface:entry.surface,enabled:entry.enabled??true,
-        profileId:entry.profileId??null,
+        assignedTo:entry.assignedTo??null,profileId:entry.profileId??null,
         speedMphOverride:entry.speedMphOverride??null,
         costCpOverride:entry.costCpOverride??null,
         costBasisOverride:entry.costBasisOverride??null,
@@ -74,13 +82,20 @@ export function readGroupTransportation(settings){
 }
 
 /** Save only Atlas metadata. Existing World overrides for other Groups survive. */
-export function setGroupTransportationMember(input,groupId,actorId,entry){
-  if(!safeId(groupId)||!safeId(actorId))throw new Error("A valid Group and Actor ID are required.");
+/** Apply a Group draft in one validation pass, allowing explicit rider reassignment
+ * without transient duplicates while retaining other Group revisions. */
+export function setGroupTransportationMembers(input,groupId,patches){
+  if(!safeId(groupId)||!patches||typeof patches!=="object"||
+      Object.keys(patches).some(id=>!safeId(id)))
+    throw new Error("Valid Group and Actor IDs are required.");
   const current=validateGroupTransportation(input);
   const next={...current,groups:{...current.groups}};
   const prior=next.groups[groupId]??{members:{}};
-  next.groups[groupId]={members:{...prior.members,[actorId]:{...entry}}};
+  next.groups[groupId]={members:{...prior.members,...patches}};
   return validateGroupTransportation(next);
+}
+export function setGroupTransportationMember(input,groupId,actorId,entry){
+  return setGroupTransportationMembers(input,groupId,{[actorId]:entry});
 }
 
 const readMemberActor=member=>member?.actor?.type?member.actor:
@@ -131,7 +146,7 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
     const noteOverride=saved?.noteOverride??null;
     members.push({actorId:actor.id,actorName:actor.name??"Unnamed Actor",
       actorType:actor.type,role,quantity,capacity,surface,profileId,
-      enabled:saved?.enabled??true,
+      enabled:saved?.enabled??true,assignedTo:saved?.assignedTo??null,
       speedMphOverride,costCpOverride,costBasisOverride,costAppliesOverride,
       purchaseGpOverride,noteOverride,
       primaryVehicle:Boolean(vehicle&&group.system?.primaryVehicle?.id===actor.id),
@@ -142,17 +157,49 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
   const unclassified=members.filter(m=>m.role==="unassigned").length;
   const resources=members.filter(m=>m.enabled&&
     (m.role==="mount"||m.role==="vehicle"));
+  const available=eligibleResourceSeats({members},resources);
   const capacityBySurface=Object.fromEntries(GROUP_TRANSPORT_SURFACES.map(surface=>[
-    surface,resources.filter(m=>m.surface===surface).reduce((total,m)=>
-      total+(m.capacity??0)*m.quantity,0)
+    surface,available.filter(item=>item.member.surface===surface).reduce((total,item)=>
+      total+item.seats,0)
   ]));
   return {groupId,groupName:group.name??"The Party",members,
     travelers,unclassified,capacityBySurface};
 }
+/** Eligible travelers are native Group characters or individual passenger NPCs.
+ * Selected-party preview limits PC availability but cannot authorize Token movement. */
+export function eligibleGroupRiders(projection){
+  return projection.members.filter(m=>m.role==="passenger"&&
+    (m.actorType==="character"||(m.actorType==="npc"&&m.quantity===1)))
+    .map(m=>({id:m.actorId,name:m.actorName}))
+    .sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+}
+const eligibleTravelerSet=projection=>{
+  const known=new Set(eligibleGroupRiders(projection).map(m=>m.id));
+  if(!Array.isArray(projection.selectedTravelerIds))return known;
+  return new Set(projection.selectedTravelerIds.filter(id=>known.has(id)));
+};
+/** A personal mount contributes one seat *only for its named traveler*.
+ * Its surplus seats cannot be consumed by others; a missing or absent rider
+ * contributes zero. Unassigned resource pools preserve legacy behavior. */
+const eligibleResourceSeats=(projection,resources)=>{
+  const traveling=eligibleTravelerSet(projection),reserved=new Set();
+  return resources.map(member=>{
+    if(member.role==="mount"&&member.assignedTo){
+      const eligible=member.quantity===1&&member.capacity>=1&&
+        traveling.has(member.assignedTo)&&!reserved.has(member.assignedTo);
+      if(eligible)reserved.add(member.assignedTo);
+      return {member,seats:eligible?1:0,reserved:eligible};
+    }
+    return {member,seats:(member.capacity??0)*member.quantity,reserved:false};
+  });
+};
 /** UI estimates do not imply boarding or approve mixed travel. */
 export function groupTravelCapacityStatus(projection,surface){
   if(!GROUP_TRANSPORT_SURFACES.includes(surface))throw new Error("Unknown travel surface.");
-  const seats=projection.capacityBySurface[surface]??0;
+  const resources=projection.members.filter(m=>m.enabled&&
+    (m.role==="vehicle"||m.role==="mount")&&m.surface===surface);
+  const seats=eligibleResourceSeats(projection,resources)
+    .reduce((sum,item)=>sum+item.seats,0);
   const unknown=projection.members.filter(m=>
     m.enabled&&(m.role==="vehicle"||m.role==="mount")&&
     m.surface===surface&&m.capacity===null).length;
@@ -192,12 +239,13 @@ export function effectiveGroupResourceMethod(resource,method){
  * the same road surface. The generic Mounted option accepts all GM-marked mounts. */
 export function groupMethodCapacityStatus(projection,method){
   const relevant=matchingResources(projection,method);
-  const seats=relevant.reduce((sum,m)=>sum+(m.capacity??0)*m.quantity,0);
+  const usable=eligibleResourceSeats(projection,relevant);
+  const seats=usable.reduce((sum,item)=>sum+item.seats,0);
   const quantity=relevant.reduce((sum,m)=>sum+m.quantity,0);
   const unknown=relevant.filter(m=>m.capacity===null).length;
-  // With no individual boarding assignments, assume every matching resource joins
-  // the convoy. The slowest participating resource determines its estimated pace.
-  const speeds=relevant.map(m=>m.speedMphOverride??method.speedMph)
+  // Only resources available to traveling members affect estimated pace.
+  const speeds=usable.filter(item=>item.seats>0)
+    .map(({member})=>member.speedMphOverride??method.speedMph)
     .filter(speed=>typeof speed==="number"&&Number.isFinite(speed)&&speed>0);
   const effectiveSpeedMph=speeds.length?Math.min(...speeds):null;
   return {travelers:projection.travelers,seats,
@@ -214,13 +262,14 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
   if(!Number.isFinite(hours)||hours<0||!Number.isFinite(distanceMi)||distanceMi<0||
       !Number.isFinite(dayHours)||dayHours<=0||dayHours>24)
     throw new Error("Invalid Group transportation cost inputs.");
-  let remaining=projection.travelers,amount=0;
+  const usable=eligibleResourceSeats(projection,resources);
+  const reservedCount=usable.filter(item=>item.reserved).length;
+  let remaining=Math.max(0,projection.travelers-reservedCount),amount=0;
   const breakdown=[];
-  for(const member of resources){
+  for(const {member,seats,reserved} of usable){
     const effective=effectiveGroupResourceMethod(member,method);
-    const seats=(member.capacity??0)*member.quantity;
-    const passengers=Math.min(remaining,seats);
-    remaining-=passengers;
+    const passengers=reserved?1:Math.min(remaining,seats);
+    if(!reserved)remaining-=passengers;
     const cost=projectedGroupFare(effective,{quantity:member.quantity,
       passengers,distanceMi,hours,dayHours});
     const crewDays=hours===0?0:Math.ceil(Math.max(0,hours-1e-7)/dayHours);
