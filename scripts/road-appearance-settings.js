@@ -206,6 +206,10 @@ export class AtlasRoadAppearanceSettings extends foundry.applications.api.Applic
             throw error;
           }
         }
+        // This editor owns all three global modes, not individual Road records.
+        // Refuse stale whole-catalog writes rather than silently replacing changes.
+        if(JSON.stringify(readWorldRoadAppearance())!==JSON.stringify(catalog))
+          throw Error("World Road appearance defaults changed elsewhere. Reopen and review.");
         await game.settings.set(MODULE_ID, ROAD_APPEARANCE_SETTING,
           validateWorldRoadAppearance({ schemaVersion: 2, profiles }));
         ui.notifications.info("Atlas world road appearance defaults saved.");
