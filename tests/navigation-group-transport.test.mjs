@@ -89,7 +89,7 @@ test("legacy v1 Group assignments are normalized without writing or losing quant
   const changes=[];
   const settings={get:()=>old,set:(...args)=>changes.push(args)};
   const migrated=readGroupTransportation(settings);
-  assert.equal(migrated.version,6);
+  assert.equal(migrated.version,7);
   assert.equal(migrated.groups.group1.members.camel1.quantity,3);
   assert.equal(migrated.groups.group1.members.camel1.profileId,null);
   assert.deepEqual(changes,[],"read must not persist migration");
@@ -118,7 +118,7 @@ test("legacy v2 Group settings upgrade in memory and preserve stable profiles",(
     camel1:{role:"mount",quantity:2,capacity:1,surface:"land",profileId:"camel"}
   }}}};
   const migrated=validateGroupTransportation(previous);
-  assert.equal(migrated.version,6);
+  assert.equal(migrated.version,7);
   assert.equal(migrated.groups.group1.members.camel1.profileId,"camel");
   assert.equal(migrated.groups.group1.members.camel1.speedMphOverride,null);
   assert.equal(previous.version,2,"migrating is read-only");
@@ -165,7 +165,7 @@ test("v3 speed overrides migrate read-only into v4 with World prices inherited",
   }}}};
   const migrated=validateGroupTransportation(previous);
   const item=migrated.groups.group1.members.camel1;
-  assert.equal(migrated.version,6);
+  assert.equal(migrated.version,7);
   assert.equal(item.speedMphOverride,3.75);
   assert.equal(item.costCpOverride,null);
   assert.equal(item.purchaseGpOverride,null);
@@ -262,7 +262,7 @@ test("v4 reads default to included; v5 exclusion survives World/Group projection
     role:"unassigned",quantity:1,capacity:30,surface:"water",profileId:"warship"
   }}}}};
   const normalized=validateGroupTransportation(old);
-  assert.equal(normalized.version,6);
+  assert.equal(normalized.version,7);
   assert.equal(normalized.groups.group1.members.ship1.enabled,true);
   const excluded=setGroupTransportationMember(normalized,"group1","ship1",{
     ...normalized.groups.group1.members.ship1,enabled:false
@@ -283,7 +283,7 @@ test("legacy v5 personal mounts normalize without writes; IDs survive rename",()
     camel1:{role:"mount",quantity:1,capacity:1,surface:"land",profileId:"camel"}
   }}}};
   const validated=validateGroupTransportation(old);
-  assert.equal(validated.version,6);
+  assert.equal(validated.version,7);
   assert.equal(validated.groups.group1.members.camel1.assignedTo,null);
   assert.equal(old.version,5,"legacy settings must not migrate on read");
   const saved=setGroupTransportationMember(validated,"group1","camel1",{
