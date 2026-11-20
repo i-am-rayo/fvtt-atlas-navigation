@@ -46,6 +46,26 @@ export function resolveTransportationHireFare(method,overrides=null){
   return fare;
 }
 
+/** Missing quantities on historical offers mean unlimited supply (legacy behavior).
+ * Finite offers fail closed if their requested vehicle count exceeds inventory.
+ */
+export function assessHiredTransportAvailability(method,{travelers,requestedUnits=null}={}){
+  const capacity=method?.capacity;
+  if(!Number.isInteger(travelers)||travelers<0||travelers>1000||
+      requestedUnits!==null&&(!Number.isInteger(requestedUnits)||requestedUnits<1||
+        requestedUnits>1000))
+    throw Error("Invalid hired transport passenger or unit count.");
+  const unknown=!Number.isInteger(capacity)||capacity<1||capacity>1000;
+  const requiredUnits=requestedUnits??(unknown?0:Math.ceil(travelers/capacity));
+  const unlimited=method?.hireUnlimited!==false;
+  const availableUnits=unlimited?null:method?.hireQuantity;
+  const validStock=unlimited||(Number.isInteger(availableUnits)&&
+    availableUnits>=0&&availableUnits<=100);
+  const missing=validStock&&!unlimited?Math.max(0,requiredUnits-availableUnits):requiredUnits;
+  return {requiredUnits,availableUnits,unlimited,unknown,missing,
+    sufficient:!unknown&&validStock&&missing===0};
+}
+
 /**
  * Read-only cost preview for a route. Only one operation can be selected:
  * standard 8h, overtime 8h+extra (max 16h), or continuous 24h.
@@ -59,7 +79,7 @@ export function resolveTransportationHireFare(method,overrides=null){
  */
 export function quoteTransportationService(method,{
   arrangement="owned",operation="normal",movingHours,distanceMi,
-  travelers=1,ownedQuote=null,hireTerms=null,adjustmentCp=0,regularHours=8
+  travelers=1,requestedUnits=null,ownedQuote=null,hireTerms=null,adjustmentCp=0,regularHours=8
 }={}){
   if(!method||!["owned","hire"].includes(arrangement)||
     !nonnegative(movingHours)||!nonnegative(distanceMi)||
@@ -77,11 +97,12 @@ export function quoteTransportationService(method,{
   }
   let units=1,baseCp=0,crewWagesCp=0,baseLabel="Owned Group resources";
   if(arrangement==="hire"){
-    const capacity=method.capacity;
-    if(!Number.isInteger(capacity)||capacity<1)
+    const supply=assessHiredTransportAvailability(method,{travelers,requestedUnits});
+    if(supply.unknown)
       throw Error("Set passenger capacity before pricing a hired transport.");
-    units=travelers===0?0:Math.ceil(travelers/capacity);
-    if(units>1000)throw Error("The hire quote needs too many transport units.");
+    if(!supply.sufficient)
+      throw Error("Not enough hired transportation units available at this checkpoint.");
+    units=supply.requiredUnits;
     const count=fare.hireApplies==="passenger"?travelers:units;
     const basis=fare.hireBasis==="day"?days:
       fare.hireBasis==="mile"?distanceMi: (movingHours>EPS?1:0);

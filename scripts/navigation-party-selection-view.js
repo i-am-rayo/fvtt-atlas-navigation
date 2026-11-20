@@ -18,6 +18,8 @@ export function renderNavigationPartySelection({roster,mode="all",ids=[],
   root.style.cssText="display:grid;gap:.5rem;margin:0;min-width:0;"+
     "padding:.65rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:9px;";
   root.appendChild(el("legend","Traveling party"));
+  const seatInfo=el("small",preview.travelerCount+" seats needed");
+  seatInfo.style.cssText="font-weight:600;opacity:.85;";
   const options=el("div");
   options.style.cssText="display:flex;flex-wrap:wrap;gap:1rem;";
   for(const [value,title] of [["all","All party · "+preview.pcCount+
@@ -36,7 +38,7 @@ export function renderNavigationPartySelection({roster,mode="all",ids=[],
     label.append(radio,el("span",title));
     options.appendChild(label);
   }
-  root.appendChild(options);
+  root.append(options,seatInfo);
   if(mode==="selected"){
     const list=el("div");
     list.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.35rem;";

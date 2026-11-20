@@ -24,7 +24,9 @@ const fareSummary=method=>{
   const frequency=method.hireBasis==="day"?"day":method.hireBasis;
   return method.speedMph+" mph · "+seats+" · "+(method.hireEnabled?
     "Hire "+dndCurrencyBreakdown(amount,globalThis.CONFIG?.DND5E?.currencies).label+
-    " / "+frequency+" / "+unit:"Not offered for hire");
+    " / "+frequency+" / "+unit+" · "+
+      (method.hireUnlimited===false?method.hireQuantity+" available":"Unlimited"):
+    "Not offered for hire");
 };
 
 /** Edits do not save a Scene/World document until the parent dialog saves. */

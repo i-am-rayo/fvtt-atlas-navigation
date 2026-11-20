@@ -53,12 +53,19 @@ export function describeTravelMethodCapacity({choice,roster=null,capacity=null}=
     if(!capacity)return "Capacity not configured";
     const units=capacity.quantity??0,seats=capacity.unknown?
       "? seats":(capacity.seats??0)+" seats";
-    return units+" available · "+seats;
+    return units+" available · "+seats+
+      (roster?.travelers!=null?" · "+roster.travelers+" seats needed":"");
   }
   if(choice.value.startsWith("hire|")){
     const perUnit=Number(choice.methodCapacity);
-    return Number.isFinite(perUnit)&&perUnit>0?
-      "Offered · "+perUnit+" seats/unit":"Service offered · seats unverified";
+    if(!Number.isFinite(perUnit)||perUnit<=0)
+      return "Service offered · seats unverified";
+    const stock=choice.methodUnlimited!==false?"Unlimited":
+      String(choice.methodQuantity??0)+" available";
+    const required=roster?.travelers!=null?Math.ceil(roster.travelers/perUnit):null;
+    return "Offered · "+perUnit+" seats/unit · "+stock+
+      (required!==null?" · "+roster.travelers+" seats needed ("+
+        required+" unit(s) required)":"");
   }
   return "";
 }
