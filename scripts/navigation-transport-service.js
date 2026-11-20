@@ -61,7 +61,8 @@ export function assessHiredTransportAvailability(method,{travelers,requestedUnit
   const availableUnits=unlimited?null:method?.hireQuantity;
   const validStock=unlimited||(Number.isInteger(availableUnits)&&
     availableUnits>=0&&availableUnits<=100);
-  const missing=validStock&&!unlimited?Math.max(0,requiredUnits-availableUnits):requiredUnits;
+  const missing=!validStock?requiredUnits:unlimited?0:
+    Math.max(0,requiredUnits-availableUnits);
   return {requiredUnits,availableUnits,unlimited,unknown,missing,
     sufficient:!unknown&&validStock&&missing===0&&
       (travelers>0||requestedUnits!==null)};
