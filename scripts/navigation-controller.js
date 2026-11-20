@@ -106,6 +106,8 @@ import {planWalkingCargoConvoy,validateWalkingCargoConvoy} from "./navigation-mi
 import {renderWalkingCargoControls} from "./navigation-mixed-convoy-view.js";
 import {planMixedLandConvoy,validateMixedLandConvoy}
   from "./navigation-mixed-land.js";
+import {planAggregateLandConvoy,validateAggregateLandConvoy}
+  from "./navigation-theater-convoy.js";
 import {renderNavigationMixedLandControls} from "./navigation-mixed-land-view.js";
 import {projectPartyTravelSelection,describeTravelMethodCapacity,partyTravelerRoster}
   from "./navigation-party-selection.js";
@@ -164,6 +166,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyPace=null;
     this.mixedKeys=[];
     this.mixedAssignments={};
+    this.mixedRiderCounts={};
     this.mixedUnits={};
     this.transferSelections={};
     this.transferLegOverrides={};
@@ -249,6 +252,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyPace=null;
     this.mixedKeys=[];
     this.mixedAssignments={};
+    this.mixedRiderCounts={};
     this.mixedUnits={};
     this.transferSelections={};
     this.transferLegOverrides={};
@@ -483,8 +487,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const walking=walkingTravel??this.resolveTravel({excludeConvoy:true}).travel;
     const hours=this.resolveTravelRules(walking).dailyHours??8;
     const hasWalking=selected.some(x=>x.key==="owned|walking");
-    return planMixedLandConvoy({travelers,
-      assignments:this.mixedAssignments,methods:hired,
+    return planAggregateLandConvoy({travelers,
+      riderCounts:this.mixedRiderCounts,methods:hired,
       walkingSpeed:walking.speed,sceneUnits,
       routeDistance:this.result.distance,
       weightedDistance:hasWalking&&this.result.terrainAware?
@@ -604,7 +608,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         " "+units+" ("+proposed.movingHours.toFixed(2)+
         " moving hours). Estimated transport cost: "+proposed.totalCp+
         " CP."+exception+" Atlas will move the assigned explorer as one Group. "+
-        "Seating and vehicles are GM-approved planning assignments only; "+
+        "The GM decides individual seating in theater of the mind; "+
         "no booking, boarding, payment or Actor changes occur automatically. Continue?"),
       rejectClose:false,modal:true
     });
@@ -624,7 +628,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(JSON.stringify(updated)!==JSON.stringify(proposed))
       throw Error("Passenger assignments, vehicle stock, speeds, fares or "+
         "World/Scene rules changed during confirmation. Review the updated Journey.");
-    return validateMixedLandConvoy(updated);
+    return validateAggregateLandConvoy(updated);
   }
 
   /** Only an explicitly offered, per-unit, land vehicle can accompany walkers as cargo. */
@@ -1026,7 +1030,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       ownsSelected?"owned":offer?"hire":"owned";
     if(preferred==="hire"&&!offer||preferred==="owned"&&method!=="walking"&&!ownsSelected)return;
     this.travelMethod=method;
-    this.mixedKeys=[];this.mixedAssignments={};this.mixedUnits={};
+    this.mixedKeys=[];this.mixedAssignments={};
+    this.mixedRiderCounts={};this.mixedUnits={};
     if(method!=="walking"){
       this.convoyEnabled=false;this.convoyCargoQuantities={};this.convoyPace=null;
     }
@@ -1062,7 +1067,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       void this.render(true);return;
     }
     if(next.length===1){
-      this.mixedKeys=[];this.mixedAssignments={};this.mixedUnits={};
+      this.mixedKeys=[];this.mixedAssignments={};
+    this.mixedRiderCounts={};this.mixedUnits={};
       this.convoyEnabled=false;this.convoyCargoQuantities={};this.convoyPace=null;
       const [singleArrangement,singleMethod]=next[0].split("|",2);
       if(this.travelMethod===singleMethod&&
@@ -1094,15 +1100,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "A mixed Journey must include the entire assigned Group explorer.");
       void this.render(true);return;
     }
-    const assignments={...this.mixedAssignments};
-    const all=partyTravelerRoster(party.previewRoster);
-    for(const t of all){
-      if(!next.includes(assignments[t.id]))
-        assignments[t.id]=next.includes("owned|walking")?
-          "owned|walking":""; // Choose the assigned ride explicitly.
-    }
-    this.mixedAssignments=assignments;
     this.mixedKeys=next;
+    this.mixedRiderCounts=Object.fromEntries(
+      Object.entries(this.mixedRiderCounts).filter(([key])=>next.includes(key)));
     this.mixedUnits=Object.fromEntries(Object.entries(this.mixedUnits)
       .filter(([key])=>next.includes(key)));
     this.convoyEnabled=false;this.convoyCargoQuantities={};
@@ -2184,8 +2184,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const previousConvoy=isUnfinishedJourneyLeg(this.recoveryRecord)?
       this.recoveryRecord.legs.at(-1)?.convoy:null;
     let approvedConvoy=previousConvoy?
-      previousConvoy.schemaVersion===2?validateMixedLandConvoy(previousConvoy):
-        validateWalkingCargoConvoy(previousConvoy):null;
+      previousConvoy.schemaVersion===3?validateAggregateLandConvoy(previousConvoy):
+        previousConvoy.schemaVersion===2?validateMixedLandConvoy(previousConvoy):
+          validateWalkingCargoConvoy(previousConvoy):null;
     if((this.convoyEnabled||this.mixedKeys.length)&&guidedLeg)
       throw Error("Mixed land convoys cannot cross an unresolved transport transfer.");
     if(!approvedConvoy&&this.mixedKeys.length){
@@ -3018,6 +3019,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyPace=null;
     this.mixedKeys=[];
     this.mixedAssignments={};
+    this.mixedRiderCounts={};
     this.mixedUnits={};
     this.recoveryJournal=null;
     this.recoveryRecord=null;
