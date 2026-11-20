@@ -425,7 +425,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const world=availability.methods.find(m=>m.id===offer.methodId);
       if(!world||world.kind!=="vehicle"||world.surface!=="land")return [];
       try{
-        const method=checkpointOfferMethod(offer,world);
+        const method=checkpointOfferMethod({methodId:offer.methodId,
+          mode:offer.mode,overrides:offer.overrides},world);
         if(!method.hireEnabled||method.hireApplies!=="unit")return [];
         return [{id:method.id,name:method.name,method,
           checkpointId:offer.checkpointId,unlimited:method.hireUnlimited!==false,
