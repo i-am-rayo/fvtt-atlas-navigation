@@ -152,6 +152,20 @@ export class AtlasGroupTransportationSettings extends base {
       root.appendChild(notice);
     }
     const editable=[];
+    // Eligible mount riders reflect staged NPC role/seat changes, not just
+    // persisted metadata from when this window first opened.
+    const stagedRiders=()=>{
+      const riders=new Map(groupRiders.map(member=>[member.id,member]));
+      for(const entry of editable)if(entry.member.actorType==="npc"){
+        riders.delete(entry.member.actorId);
+        if(entry.role.value==="passenger"&&entry.needsSeat.checked&&
+            Number(entry.quantity.value)===1)
+          riders.set(entry.member.actorId,{
+            id:entry.member.actorId,name:entry.member.actorName});
+      }
+      return [...riders.values()].sort((a,b)=>
+        a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+    };
     // Client-only tabs preserve every drafted row while switching categories.
     const tabs=createSettingsCategoryTabs({
       id:"atlas-group-transport-"+this.groupId,
@@ -313,11 +327,12 @@ export class AtlasGroupTransportationSettings extends base {
         seatField.style.cssText="display:flex;align-items:center;gap:.35rem;white-space:nowrap;";
         seatField.append(needsSeat,node("span","Needs seat"));
         seatField.hidden=role.value!=="passenger"||type!=="npc";
+        seatField.style.display=seatField.hidden?"none":"flex";
         needsSeat.addEventListener("change",()=>{updateDetails();this.dirty=true;});
         const profileDetails=node("small");
         const riderDetails=node("small");
         const updateDetails=()=>{
-          const rider=groupRiders.find(item=>item.id===assignedTo.value);
+          const rider=stagedRiders().find(item=>item.id===assignedTo.value);
           if(type==="npc"&&role.value!=="mount"){
             profileDetails.textContent=role.value==="passenger"?
               "Traveling NPC · Needs seat: "+(needsSeat.checked?"Yes":"No"):
@@ -366,6 +381,7 @@ export class AtlasGroupTransportationSettings extends base {
           profile.disabled=role.value!=="mount";
           speedOverride.disabled=role.value!=="mount"||!profile.value;
           seatField.hidden=role.value!=="passenger";
+          seatField.style.display=seatField.hidden?"none":"flex";
           updateDetails();
         });
         speedOverride.disabled=!profile.value||(type==="npc"&&member.role!=="mount");
@@ -412,7 +428,8 @@ export class AtlasGroupTransportationSettings extends base {
           await openTransportationMethodEditor({
             scope:"group",method:lookup.get(profile.value)??null,profiles:compatible,
             groupActorName:member.actorName,
-            groupKind:type==="vehicle"?"vehicle":"mount",groupRiders,
+            groupKind:type==="vehicle"?"vehicle":"mount",
+            groupRiders:stagedRiders(),
             groupAssignment:{
               profileId:profile.value||null,quantity:Number(quantity.value),
               assignedTo:assignedTo.value||null,capacity:readNumber(capacity),
@@ -449,7 +466,11 @@ export class AtlasGroupTransportationSettings extends base {
         },{icon:"pen-to-square"});
         if(type==="npc"){
           edit.hidden=role.value!=="mount";
-          role.addEventListener("change",()=>{edit.hidden=role.value!=="mount";});
+          edit.style.display=edit.hidden?"none":"";
+          role.addEventListener("change",()=>{
+            edit.hidden=role.value!=="mount";
+            edit.style.display=edit.hidden?"none":"";
+          });
         }
         const visible=node("div");
         visible.style.cssText="display:flex;align-items:center;gap:.4rem;flex:0 0 auto;margin-left:auto;";
