@@ -1998,8 +1998,15 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     const find=(node,match)=>match(node)?node:
       node.children.map(child=>find(child,match)).find(Boolean);
     const prepared=await nav._renderHTML();
-    const optIn=find(prepared,node=>node.tag==="input"&&node.type==="checkbox");
-    assert.equal(optIn,undefined,"Navigation has no per-journey clock checkbox");
+    const checkboxes=[];
+    const collect=node=>{
+      if(node.tag==="input"&&node.type==="checkbox")checkboxes.push(node);
+      for(const child of node.children)collect(child);
+    };
+    collect(prepared);
+    assert.ok(checkboxes.length>0,"travel methods now use explicit checkboxes");
+    assert.ok(checkboxes.every(input=>input.name==="atlas-navigation-travel-method"),
+      "only method selections are checkboxes; there is no per-journey clock override");
     assert.equal(find(prepared,node=>node.textContent?.startsWith?.(
       "Foundry World time advances for confirmed movement")),undefined,
       "redundant World-time note is removed from the GM planning view; actual clock logic is unchanged");
@@ -2738,6 +2745,9 @@ test("multi-method controller switches between walking/cargo and legacy single t
       if(method!=="walking"){nav.convoyEnabled=false;nav.convoyCargoQuantities={};}
     };
     nav.toggleTravelMethodChoice("hire|cart",true);
+    assert.equal(nav.travelMethod,"walking",
+      "checking Cart alongside Walking creates a cargo convoy, not solo Cart");
+    nav.toggleTravelMethodChoice("owned|walking",false);
     assert.equal(nav.travelMethod,"cart");
     assert.equal(nav.convoyEnabled,false);
     nav.toggleTravelMethodChoice("owned|walking",true);
