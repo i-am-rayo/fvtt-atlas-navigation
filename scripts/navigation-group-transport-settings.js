@@ -48,8 +48,8 @@ const number=(name,value,min,max,{step=1,placeholder="Unknown"}={})=>{
   control.style.cssText="width:100%;min-width:0;box-sizing:border-box;";
   return control;
 };
-const action=(label,callback,{icon=null,danger=false}={})=>{
-  const control=icon?createAtlasIconButton({icon,label,danger}):node("button",label);
+const action=(label,callback,{icon=null,danger=false,size="compact"}={})=>{
+  const control=icon?createAtlasIconButton({icon,label,danger,size}):node("button",label);
   control.type="button";
   control.addEventListener("click",async()=>{
     control.disabled=true;
@@ -504,8 +504,15 @@ export class AtlasGroupTransportationSettings extends base {
       if(section.children.length===1)section.appendChild(node("small","No owned resources."));
     updateNpcCategories();updateNeedSetup();
     root.appendChild(panelHost);
-    const footer=node("div");footer.style.cssText="display:flex;flex-wrap:wrap;gap:.6rem;flex:0 0 auto;";
-    footer.appendChild(action("Save Party Transportation Assignments",async()=>{
+    const footer=node("div");
+    footer.className="atlas-group-transport-footer";
+    footer.style.cssText="display:flex;justify-content:space-between;align-items:center;"+
+      "flex-wrap:wrap;gap:.6rem;flex:0 0 auto;"+
+      "padding:.4rem 0;border-top:1px solid var(--color-border-light-tertiary,#555);";
+    const leftActions=node("div"),rightActions=node("div");
+    leftActions.style.cssText="display:flex;align-items:center;gap:.35rem;";
+    rightActions.style.cssText="display:flex;align-items:center;gap:.35rem;margin-left:auto;";
+    const save=action("Save Party Transportation Assignments",async()=>{
       if(!game.user?.isGM)throw new Error("Only a GM may assign transportation.");
       const currentAssignments=readGroupTransportation(game.settings);
       if(JSON.stringify(currentAssignments.groups[this.groupId]??null)!==
@@ -583,14 +590,15 @@ export class AtlasGroupTransportationSettings extends base {
       this.dirty=false;
       globalThis.ui?.notifications?.info?.("Party transportation assignments saved.");
       await this.render();
-    }));
-    footer.appendChild(action("Edit World Transportation Profiles",()=>{
+    },{icon:"floppy-disk",size:"footer"});
+    rightActions.appendChild(save);
+    leftActions.appendChild(action("Transportation Presets",()=>{
       if(!game.user?.isGM)throw new Error("Only a GM may edit profiles.");
       const editor=new AtlasTransportationSettings();
       editor.activeTab="methods";
       return editor.render({force:true});
     }));
-    footer.appendChild(action("Refresh",async()=>{
+    leftActions.appendChild(action("Refresh Party Transportation",async()=>{
       if(this.dirty){
         const yes=await foundry.applications.api.DialogV2.confirm({
           window:{title:"Discard Party transportation changes?"},
@@ -601,11 +609,13 @@ export class AtlasGroupTransportationSettings extends base {
       }
       this.dirty=false;
       await this.render();
-    }));
+    },{icon:"rotate"}));
+    footer.append(leftActions,rightActions);
     root.appendChild(footer);
     root.appendChild(node("small","Atlas saves Group-only quantities, capacities, profile links, "+
       "speed, upkeep, purchase and note overrides. Transport surface and kind come from the "+
-      "World profile. No native Actor edits, boarding, movement or currency deductions."));
+      "World profile. Remove members in the native Group Actor sheet. "+ 
+      "No native Actor edits, boarding, movement or currency deductions."));
     return root;
   }
 }
