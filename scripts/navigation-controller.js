@@ -493,6 +493,83 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       paceOverride:this.convoyPace,regularHours:hours});
   }
 
+  renderMixedMethodAssignments(party,availability,{disabled=false}={}){
+    const sceneUnits=this.scene?.grid?.units?.trim()||"";
+    const formatSpeed=speed=>atlasDisplaySpeed(speed,sceneUnits,
+      game.settings,game.system?.id);
+    const travelers=partyTravelerRoster(party.previewRoster).map(t=>{
+      const original=party.previewRoster.members.find(m=>m.actorId===t.id);
+      return {actorId:t.id,name:t.name,seatsNeeded:t.seats,
+        passengers:Math.max(1,original?.quantity??1)};
+    });
+    let selected=[],error=null,preview=null;
+    try{selected=this.mixedLandChoices(availability);}
+    catch(reason){error=reason.message??String(reason);}
+    const walker=this.resolveTravel({excludeConvoy:true}).travel.speed;
+    const details=selected.map(entry=>{
+      const method=entry.method;
+      const speed=method.id==="walking"?walker:
+        convertGroupSpeed(method.speedMph,"mph",sceneUnits);
+      const owned=entry.arrangement==="owned"&&method.id!=="walking"?
+        groupMethodResourceInventory(party.previewRoster,method):[];
+      const seats=travelers.filter(t=>this.mixedAssignments[t.actorId]===entry.key)
+        .reduce((n,t)=>n+t.seatsNeeded,0);
+      return {key:entry.key,name:method.name,arrangement:entry.arrangement,
+        speed,available:entry.arrangement==="hire"?
+          method.hireUnlimited===false?method.hireQuantity:null:
+          method.id==="walking"?null:
+            owned.reduce((n,m)=>n+m.quantity,0),
+        minimumUnits:entry.arrangement==="hire"?
+          Math.max(1,Math.ceil(seats/Math.max(1,method.capacity))):undefined,
+        speedLabel:atlasFormatMeasure(formatSpeed(speed))};
+    });
+    const suggested=details.length?Math.min(...details.map(m=>m.speed)):walker;
+    const vehicles=details.filter(x=>x.key!=="owned|walking");
+    const ceiling=vehicles.length?Math.min(...vehicles.map(m=>m.speed)):null;
+    try{if(!error)preview=this.mixedLandPlan();}
+    catch(reason){error=reason.message??String(reason);}
+    const shown=formatSpeed(suggested);
+    const unit=shown.unit==="mi/hour"?"mph":
+      shown.unit==="km/hour"?"km/h":shown.unit;
+    const current=this.convoyPace===null?null:
+      formatSpeed(this.convoyPace).value;
+    return renderNavigationMixedLandControls({
+      travelers,methods:details,assignments:this.mixedAssignments,
+      units:this.mixedUnits,recommended:shown.value.toFixed(2),
+      maximum:ceiling===null?null:formatSpeed(ceiling).value.toFixed(2),
+      pace:current===null?null:Number(current.toFixed(4)),
+      unit,disabled,
+      preview:preview?{
+        speed:formatSpeed(preview.speedPerHour).value.toFixed(2),
+        moving:formatNavigationDuration(preview.movingHours,24),
+        passengers:preview.travelers.filter(t=>t.role==="riding")
+          .reduce((n,t)=>n+t.passengers,0),
+        walking:preview.travelers.filter(t=>t.role==="walking")
+          .reduce((n,t)=>n+t.passengers,0),
+        cost:preview.totalCp+" CP"
+      }:null,error,
+      onAssignment:(id,key)=>{
+        this.mixedAssignments={...this.mixedAssignments,[id]:key};
+        this.convoyPace=null;void this.render(true);
+      },
+      onUnits:(key,count)=>{
+        if(!Number.isInteger(count)||count<1||count>100){
+          globalThis.ui?.notifications?.warn?.(
+            "Hired units must be a whole number between 1 and 100.");
+          void this.render(true);return;
+        }
+        this.mixedUnits={...this.mixedUnits,[key]:count};
+        void this.render(true);
+      },
+      onPace:value=>{
+        this.convoyPace=value===null?null:
+          value==="custom"?suggested:atlasSceneSpeedFromDisplay(
+            value,sceneUnits,game.settings,game.system?.id,ceiling);
+        void this.render(true);
+      }
+    });
+  }
+
   /** Only an explicitly offered, per-unit, land vehicle can accompany walkers as cargo. */
   cargoConvoyChoices(availability=this.transportAvailability()){
     return [...availability.offers.values()].flatMap(offer=>{
@@ -3723,6 +3800,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       });
+      if(this.mixedKeys.length&&!locked&&this.sourceMode==="party"&&
+          partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
+        section.append(this.renderMixedMethodAssignments(partySelection,
+          availability,{disabled:Boolean(this.journalStarting||partySplitBlocked)}));
+      }
       if(this.convoyEnabled&&!locked&&this.sourceMode==="party"&&
           partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
         const sceneUnits=this.scene?.grid?.units??"";
