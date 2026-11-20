@@ -13,6 +13,7 @@ import { publishJourneySummary }
 import {captureApprovedJourneyPath} from "../scripts/navigation-approved-path.js";
 import {planWalkingCargoConvoy} from "../scripts/navigation-mixed-convoy.js";
 import {planMixedLandConvoy} from "../scripts/navigation-mixed-land.js";
+import {planAggregateLandConvoy} from "../scripts/navigation-theater-convoy.js";
 const MODULE_ID="fvtt-atlas-navigation";
 const itinerary=()=>({schemaVersion:1,scene:{name:"Paedor",units:"km"},
   endpoints:{departure:{x:0,y:0},destination:{x:120,y:30}},
@@ -481,5 +482,52 @@ test("mixed passenger assignments are saved, readable and recovered without new 
   const bad=structuredClone(stopped);
   bad.legs[0].convoy.travelers[0].methodKey="hire|absent";
   assert.equal(eligibleJourneyRecord(bad,{
+    sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
+});
+
+test("schema-v3 theater-of-mind seats recover without inventing named coach riders",()=>{
+  const group=[
+    {actorId:"pc1",passengers:1,seatsNeeded:1},
+    {actorId:"pc2",passengers:1,seatsNeeded:1},
+    {actorId:"npc1",passengers:1,seatsNeeded:0}
+  ];
+  const camel={key:"owned|camel",arrangement:"owned",
+    method:{id:"camel",name:"Camel",surface:"land",kind:"mount",
+      speedMph:3,capacity:1},
+    resources:[{actorId:"camel1",assignedTo:"pc1",capacity:1,
+      quantity:1,speedMph:3,method:{costCp:0,costBasis:"none",costApplies:"unit"}}]};
+  const walking={key:"owned|walking",arrangement:"owned",
+    method:{id:"walking",name:"Walking",kind:"foot",surface:"land"}};
+  const coach={key:"hire|coach",arrangement:"hire",
+    method:{id:"coach",name:"Coach",kind:"vehicle",surface:"land",
+      speedMph:4,capacity:4,hireEnabled:true,hireApplies:"passenger",
+      hireBasis:"day",hireCostCp:100,hireUnlimited:false,hireQuantity:1},
+    checkpointId:"hearth"};
+  const convoy=planAggregateLandConvoy({travelers:group,
+    methods:[walking,camel,coach],riderCounts:{"hire|coach":1},
+    walkingSpeed:3,sceneUnits:"mi",routeDistance:24,
+    weightedDistance:24,distanceMi:24});
+  const itineraryPlan=itinerary();
+  itineraryPlan.scene.units="mi";
+  itineraryPlan.travel={speedPerHour:3,methodId:"walking",
+    methodName:"Mixed Group transportation",arrangement:"owned",operation:"normal"};
+  itineraryPlan.measurements={distance:24,travelHours:8,terrainAware:false};
+  itineraryPlan.convoy=convoy;
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:itineraryPlan});
+  assert.deepEqual(saved.legs[0].convoy,convoy);
+  const stopped=checkpointJourneyRecord(saved,{
+    schedule:{...schedule,completedHours:4,events:[],restEvents:0},
+    progress:50,status:"interrupted"});
+  const html=formatJourneyJournalHTML(stopped);
+  assert.match(html,/mixed transportation/);
+  assert.match(html,/Coach/);
+  const resumed=resumeJourneyRecord(stopped,{
+    itinerary:{...itineraryPlan,convoy:undefined},atlasRevision:12});
+  assert.deepEqual(resumed.legs[1].convoy,convoy);
+  assert.equal(resumed.legs[1].speedPerHour,3);
+  const changed=structuredClone(stopped);
+  changed.legs[0].convoy.totalPassengers=40;
+  assert.equal(eligibleJourneyRecord(changed,{
     sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
 });
