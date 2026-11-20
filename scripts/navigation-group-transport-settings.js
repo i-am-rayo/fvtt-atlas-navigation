@@ -139,7 +139,8 @@ export class AtlasGroupTransportationSettings extends base {
       "Profiles use sustained travel speeds, not creature combat movement speeds."));
     const status=node("div");
     status.style.cssText="display:flex;gap:.8rem;flex-wrap:wrap;font-weight:650;";
-    status.appendChild(node("span",roster.travelers+" traveler(s)"));
+    status.appendChild(node("span",roster.pcCount+" PCs | "+roster.npcCount+
+      " NPCs · "+roster.travelers+" seats needed"));
     for(const surface of SURFACES){
       const capacity=groupTravelCapacityStatus(roster,surface);
       status.appendChild(node("span",displaySurface(surface)+" seats: "+capacity.seats));
@@ -151,25 +152,62 @@ export class AtlasGroupTransportationSettings extends base {
       root.appendChild(notice);
     }
     const editable=[];
+    // Client-only tabs preserve every drafted row while switching categories.
+    const tabs=createSettingsCategoryTabs({
+      id:"atlas-group-transport-"+this.groupId,
+      modes:[["land","Land"],["water","Water"],["air","Air"],
+        ["npc","NPC"],["setup","Need Setup"]],
+      active:this.activeCategory??"land",
+      onChange:category=>{this.activeCategory=category;}
+    });
+    tabs.nav.setAttribute("aria-label","Party transportation categories");
+    root.appendChild(tabs.nav);
     const panelHost=node("div");
-    panelHost.style.cssText="flex:1;min-height:0;overflow-y:auto;display:grid;gap:.65rem;align-content:start;";
+    panelHost.style.cssText="flex:1;min-height:0;overflow-y:auto;"+
+      "display:block;align-content:start;";
     const bucket={};
+    const sectionStyle="border:1px solid var(--color-border-light-primary,#666);"+
+      "border-radius:.5rem;padding:.6rem;min-width:0;gap:.35rem;";
     for(const [surface,label] of [["land","Land Travel"],["water","Water Travel"],["air","Air Travel"]]){
       const section=node("fieldset");
       section.className="atlas-group-transport-surface";
-      section.style.cssText="border:1px solid var(--color-border-light-primary,#666);"+
-        "border-radius:.5rem;padding:.6rem;min-width:0;display:grid;gap:.35rem;";
+      section.style.cssText=sectionStyle;
       section.appendChild(node("legend",label));
       bucket[surface]=section;
-      panelHost.appendChild(section);
+      panelHost.appendChild(tabs.addPanel(surface,section));
     }
+    const npcPanel=node("section");
+    npcPanel.className="atlas-group-transport-npc";
+    npcPanel.style.cssText="min-width:0;gap:.5rem;align-content:start;";
+    const npcRoles={};
+    for(const [role,label] of [["passenger","Companions / Passengers"],
+      ["crew","Crew"],["pack","Pack Animals"],["ignore","Not Traveling"]]){
+      const section=node("fieldset");
+      section.className="atlas-group-transport-npc-category";
+      section.style.cssText=sectionStyle;
+      section.appendChild(node("legend",label));
+      npcRoles[role]=section;
+      npcPanel.appendChild(section);
+    }
+    panelHost.appendChild(tabs.addPanel("npc",npcPanel));
     const other=node("fieldset");
     other.className="atlas-group-transport-needs-setup";
-    other.style.cssText="border:1px solid var(--color-border-light-primary,#666);"+
-      "border-radius:.5rem;padding:.6rem;min-width:0;display:grid;gap:.35rem;";
-    other.appendChild(node("legend","Other NPCs / Needs Setup"));
-    other.appendChild(node("small","Only explicitly marked mounts provide transportation. Other NPC roles remain editable here."));
-    panelHost.appendChild(other);
+    other.style.cssText=sectionStyle;
+    other.appendChild(node("legend","Needs Setup"));
+    other.appendChild(node("small","Choose a role to move each NPC into its category."));
+    panelHost.appendChild(tabs.addPanel("setup",other));
+    const setupTab=tabs.nav.children[4];
+    const updateNeedSetup=()=>{
+      const count=editable.filter(e=>e.member.actorType==="npc"&&
+        e.role.value==="unassigned").length;
+      setupTab.textContent=count?"Need Setup ! ("+count+")":"Need Setup";
+      setupTab.setAttribute("aria-label",count?
+        "Need Setup: "+count+" NPCs unconfigured":"Need Setup: all NPCs configured");
+    };
+    const updateNpcCategories=()=>{
+      for(const panel of Object.values(npcRoles))
+        panel.hidden=panel.children.length<=1;
+    };
     for(const type of ["vehicle","npc"]){
       const members=roster.members.filter(member=>member.actorType===type);
       for(const member of members){
