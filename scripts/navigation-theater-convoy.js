@@ -172,7 +172,7 @@ export function planAggregateLandConvoy({travelers,methods,riderCounts={},
         seatCapacity+=resource.quantity*resource.capacity;
         chosen.push({...resource,usedUnits:resource.quantity});
       }
-      usedResources.add(resource.actorId);
+      if(resource.assignedTo)usedResources.add(resource.actorId);
       actualSpeed=Math.min(actualSpeed,
         convertGroupSpeed(resource.speedMph,"mph",sceneUnits));
     }
@@ -233,6 +233,41 @@ export function planAggregateLandConvoy({travelers,methods,riderCounts={},
   if(peopleRemaining!==0||seatsRemaining!==0)
     throw Error("Selected travel methods do not cover the entire Group; "+
       "add Walking or increase aggregate passenger capacity.");
+  // Unassigned Group vehicles are a *pool*, not automatically all in use.
+  // Trim them to the seats/passengers actually allocated before computing
+  // speed or fare. Personal mounts remain reserved for their named rider.
+  for(const p of prepared){
+    if(p.arrangement!=="owned"||p.role==="walking")continue;
+    const selected=p.resources.filter(r=>r.assignedTo);
+    const fixedSeats=p.personalRiders.reduce((n,a)=>
+      n+persons.get(a.riderId).seatsNeeded,0);
+    let uncoveredSeats=Math.max(0,p.seatsUsed-fixedSeats);
+    let extraPassengers=p.passengers-p.personalRiders.length;
+    for(const resource of p.resources.filter(r=>!r.assignedTo)){
+      if(usedResources.has(resource.actorId))continue;
+      const needed=Math.max(Math.ceil(uncoveredSeats/resource.capacity),
+        !selected.length&&extraPassengers>0?1:0);
+      const quantity=Math.min(resource.quantity,needed);
+      if(!quantity)continue;
+      selected.push({...resource,usedUnits:quantity});
+      usedResources.add(resource.actorId);
+      uncoveredSeats=Math.max(0,uncoveredSeats-quantity*resource.capacity);
+      extraPassengers=Math.max(0,extraPassengers-quantity*resource.capacity);
+    }
+    if(uncoveredSeats>0||extraPassengers>0&&!p.personalRiders.length||
+        !selected.length)
+      throw Error("Insufficient unique owned transport seats for "+p.methodName+".");
+    p.resources=selected;
+    p.resourceIds=selected.map(r=>r.actorId);
+    p.units=selected.reduce((n,r)=>n+r.usedUnits,0);
+    const actualCapacity=selected.reduce((n,r)=>
+      n+r.usedUnits*(r.assignedTo?1:r.capacity),0);
+    p.capacity=Math.max(1,Math.ceil(actualCapacity/p.units));
+    p.speedPerHour=Math.min(
+      convertGroupSpeed(methods.find(e=>e.key===p.key).method.speedMph,
+        "mph",sceneUnits),
+      ...selected.map(r=>convertGroupSpeed(r.speedMph,"mph",sceneUnits)));
+  }
   const suggestedSpeedPerHour=Math.min(...prepared.map(x=>x.speedPerHour));
   const vehicleMax=Math.min(...prepared.filter(p=>p.role!=="walking")
     .map(p=>p.speedPerHour));
