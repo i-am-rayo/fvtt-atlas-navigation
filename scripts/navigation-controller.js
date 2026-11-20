@@ -56,7 +56,7 @@ import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure,
   atlasSceneSpeedFromDisplay }
   from "./navigation-measure-units.js";
 import { readGroupTransportation,projectGroupTransportation,
-  groupMethodCapacityStatus,groupMethodFareEstimate }
+  groupMethodCapacityStatus,groupMethodFareEstimate,groupMethodResourceInventory }
   from "./navigation-group-transport.js";
 import { dndCurrencyBreakdown } from "./navigation-currency.js";
 import { resolveTransportationOperation,quoteTransportationService,
@@ -104,6 +104,9 @@ import {liveJourneyPlayback,canAdjustLiveJourneyVisuals,expectedAdditionalTravel
 import {renderNavigationPartySelection} from "./navigation-party-selection-view.js";
 import {planWalkingCargoConvoy,validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import {renderWalkingCargoControls} from "./navigation-mixed-convoy-view.js";
+import {planMixedLandConvoy,validateMixedLandConvoy}
+  from "./navigation-mixed-land.js";
+import {renderNavigationMixedLandControls} from "./navigation-mixed-land-view.js";
 import {projectPartyTravelSelection,describeTravelMethodCapacity,partyTravelerRoster}
   from "./navigation-party-selection.js";
 import {navigationRouteMarkers,navigationDestinationCheckpoint} from "./navigation-direction-summary.js";
@@ -159,6 +162,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
     this.convoyPace=null;
+    this.mixedKeys=[];
+    this.mixedAssignments={};
+    this.mixedUnits={};
     this.transferSelections={};
     this.transferLegOverrides={};
     this.pendingTransfer=null;
@@ -241,6 +247,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
     this.convoyPace=null;
+    this.mixedKeys=[];
+    this.mixedAssignments={};
+    this.mixedUnits={};
     this.transferSelections={};
     this.transferLegOverrides={};
     this.pendingTransfer=null;
@@ -357,7 +366,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // Transport speeds are independent of native Walk/Swim terrain-action
       // costs. Until transport costs exist, estimate physical distance only.
       this.result=this.routeCalculator(view,this.scene,atlas,this.start,this.end,
-        this.travelMethod==="walking"?{}:{terrainAware:false});
+        this.travelMethod==="walking"&&
+          (!this.mixedKeys.length||this.mixedKeys.includes("owned|walking"))?
+          {}:{terrainAware:false});
       if(this.result?.status==="ok"){
         this.itinerary=createNavigationItinerary({
           sceneId:this.scene.id,sceneName:this.scene.name??"",
@@ -418,6 +429,68 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       atlasWarn("navigation","Party selection preview unavailable",error);
       return null;
     }
+  }
+
+  /** A combined Group explorer travels as one unit. Selection and assignment
+   * are drafts only; every resource is resolved again at GM confirmation.
+   */
+  mixedLandChoices(availability=this.transportAvailability()){
+    return this.mixedKeys.map(key=>{
+      const [arrangement,id]=key.split("|",2);
+      const world=availability.methods.find(item=>item.id===id);
+      if(!world||world.surface!=="land"||
+          (arrangement==="hire"&&id==="walking"))
+        throw Error("Selected mixed method is unavailable for this land route.");
+      if(arrangement==="owned"){
+        if(id!=="walking"&&!availability.owned.has(id))
+          throw Error("The Group no longer owns the selected travel method.");
+        return {key,arrangement,method:world};
+      }
+      const offer=availability.offers.get(id);
+      if(!offer)throw Error("Selected hired service is no longer offered at departure.");
+      const method=checkpointOfferMethod({methodId:offer.methodId,
+        mode:offer.mode,overrides:offer.overrides},world);
+      if(!method.hireEnabled)
+        throw Error("Selected hired service is no longer available.");
+      return {key,arrangement,method,checkpointId:offer.checkpointId,
+        units:this.mixedUnits[key]??undefined};
+    });
+  }
+
+  /** Assignments use stable Group Actor IDs and method IDs, never display text.
+   * NPCs sharing a seat still count as passengers when quoted per passenger.
+   */
+  mixedLandPlan(walkingTravel=null){
+    if(this.mixedKeys.length<2||this.sourceMode!=="party"||
+        this.result?.status!=="ok")
+      throw Error("Choose two compatible travel methods for the assigned Group.");
+    const available=this.transportAvailability();
+    const party=this.partyTravelSelection(available.all);
+    if(!party||party.partial||party.empty)
+      throw Error("A mixed Journey requires every Group traveler in the assigned explorer.");
+    const travelers=partyTravelerRoster(party.previewRoster).map(m=>{
+      const original=party.previewRoster.members.find(item=>item.actorId===m.id);
+      return {actorId:m.id,seatsNeeded:m.seats,
+        passengers:Math.max(1,original?.quantity??1)};
+    });
+    const selected=this.mixedLandChoices(available);
+    const hired=selected.map(entry=>{
+      if(entry.arrangement!=="owned"||entry.method.id==="walking")return entry;
+      return {...entry,resources:groupMethodResourceInventory(
+        party.previewRoster,entry.method)};
+    });
+    const sceneUnits=this.scene?.grid?.units?.trim()||"";
+    const walking=walkingTravel??this.resolveTravel({excludeConvoy:true}).travel;
+    const hours=this.resolveTravelRules(walking).dailyHours??8;
+    const hasWalking=selected.some(x=>x.key==="owned|walking");
+    return planMixedLandConvoy({travelers,
+      assignments:this.mixedAssignments,methods:hired,
+      walkingSpeed:walking.speed,sceneUnits,
+      routeDistance:this.result.distance,
+      weightedDistance:hasWalking&&this.result.terrainAware?
+        this.result.cost:this.result.distance,
+      distanceMi:convertGroupSpeed(this.result.distance,sceneUnits,"mi"),
+      paceOverride:this.convoyPace,regularHours:hours});
   }
 
   /** Only an explicitly offered, per-unit, land vehicle can accompany walkers as cargo. */
@@ -2789,6 +2862,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
     this.convoyPace=null;
+    this.mixedKeys=[];
+    this.mixedAssignments={};
+    this.mixedUnits={};
     this.recoveryJournal=null;
     this.recoveryRecord=null;
     this.recoveryOperationOverride=null;
