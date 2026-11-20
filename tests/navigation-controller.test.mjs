@@ -2771,3 +2771,52 @@ test("mixed checkbox selection stages owned, hired and walking methods without m
     assert.equal(notices.length,0);
   }finally{globalThis.game=prior.game;globalThis.ui=prior.ui;}
 });
+
+test("mixed passenger GM authorization rechecks fares and passengers before a Journey write",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,
+    document:globalThis.document};
+  let price=300,dialog=0,moves=0,writes=0;
+  try{
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
+      settings:{get:()=>undefined}};
+    globalThis.document={createElement:tag=>({tag,textContent:""})};
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>{
+      dialog++;price=400;return true;
+    }}}}};
+    const scene={id:"scene",name:"Paedor",
+      grid:{size:100,units:"mi"},canUserModify:()=>true};
+    const atlas={revision:3};
+    const token={id:"explorer",x:-50,y:-50,width:1,height:1,
+      canUserModify:()=>true,async move(){moves++;}};
+    const view={scene,ready:true};
+    const nav=new AtlasNavigationController({
+      canvasProvider:()=>view,atlasProvider:()=>atlas,
+      partyTokenProvider:()=>token,
+      atlasPoint:(_v,_a,p)=>p,journeyJournalStore:{
+        save:async()=>{writes++;throw Error("Unexpected Journey write");}
+      }
+    });
+    nav.scene=scene;nav.sourceMode="party";nav.routeRevision=3;
+    nav.result={status:"ok",start:{x:0,y:0}};
+    nav.assessTravelMethod=()=>({guided:true});
+    nav.mixedLandPlan=()=>({
+      schemaVersion:2,mode:"mixed-land",
+      travelers:[{actorId:"pc1",methodKey:"hire|coach-hire",
+        role:"riding",passengers:1,seatsNeeded:1}],
+      methods:[{methodName:"Coach",role:"riders",
+        passengers:1,seatsUsed:1,units:1}],
+      speedPerHour:3,movingHours:8,totalCp:price
+    });
+    await assert.rejects(()=>nav.confirmMixedLandJourney(view,token),
+      /Passenger assignments, vehicle stock, speeds, fares/);
+    assert.equal(dialog,1);
+    assert.equal(moves,0);
+    assert.equal(writes,0);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>false;
+    assert.equal(await nav.confirmMixedLandJourney(view,token),null,
+      "Cancel must not authorize or persist a Journey");
+    globalThis.game.user.isGM=false;
+    await assert.rejects(()=>nav.confirmMixedLandJourney(view,token),
+      /Only an authorized GM/);
+  }finally{Object.assign(globalThis,previous);}
+});
