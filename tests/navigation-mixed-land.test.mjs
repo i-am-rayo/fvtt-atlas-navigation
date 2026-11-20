@@ -100,6 +100,6 @@ test("two different owned methods cannot double-use a Group mount actor",()=>{
       {key:"owned|pony",arrangement:"owned",
         method:{...mount,id:"pony"},resources:[resource]}],
     assignments:{pc1:"owned|mounted",pc2:"owned|pony",
-      pc3:"hire|coach-hire",npc1:"hire|coach-hire",npc2:"hire|coach-hire"}
+      pc3:"owned|walking",npc1:"hire|coach-hire",npc2:"hire|coach-hire"}
   }),/cannot be selected twice/);
 });

@@ -2718,44 +2718,56 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
   }finally{Object.assign(globalThis,prior);}
 });
 
-test("multi-method controller switches between walking/cargo and legacy single travel",()=>{
+test("mixed checkbox selection stages owned, hired and walking methods without moving a token",()=>{
   const prior={game:globalThis.game,ui:globalThis.ui};
   try{
-    const notifications=[];
+    const notices=[];
     globalThis.game={user:{isGM:true}};
-    globalThis.ui={notifications:{warn:text=>notifications.push(text),
-      info:text=>notifications.push(text)}};
+    globalThis.ui={notifications:{warn:message=>notices.push(message),
+      info:message=>notices.push(message)}};
     const nav=new AtlasNavigationController();
     nav.scene={id:"scene"};nav.sourceMode="party";
-    nav.cargoConvoyChoices=()=>[{id:"cart",name:"Cart"}];
-    nav.render=()=>{};
+    nav.result={status:"ok",distance:20};
+    nav.render=()=>{};nav.draw=()=>{};
+    nav.canvasProvider=()=>({ready:false});
+    nav.transportAvailability=()=>({
+      methods:[
+        {id:"walking",surface:"land",kind:"foot"},
+        {id:"cart",surface:"land",kind:"vehicle"},
+        {id:"coach-hire",surface:"land",kind:"vehicle"},
+        {id:"riding-horse",surface:"land",kind:"mount"}
+      ],owned:new Set(["riding-horse"]),
+      offers:new Map([["cart",{}],["coach-hire",{}]])
+    });
+    nav.partyTravelSelection=()=>({
+      partial:false,empty:false,
+      previewRoster:{travelers:2,members:[
+        {actorId:"pc1",actorName:"PC 1",actorType:"character",
+          role:"passenger",quantity:1},
+        {actorId:"pc2",actorName:"PC 2",actorType:"character",
+          role:"passenger",quantity:1}]}
+    });
     nav.travelMethod="walking";nav.transportArrangement="owned";
+    nav.toggleTravelMethodChoice("hire|coach-hire",true);
+    assert.deepEqual(nav.mixedKeys,["owned|walking","hire|coach-hire"]);
+    assert.deepEqual(nav.mixedAssignments,{
+      pc1:"owned|walking",pc2:"owned|walking"});
+    nav.toggleTravelMethodChoice("owned|riding-horse",true);
+    assert.deepEqual(nav.mixedKeys,[
+      "owned|walking","hire|coach-hire","owned|riding-horse"]);
+    assert.equal(nav.convoyEnabled,false,"passenger assignments replace cargo-only mode");
     nav.toggleTravelMethodChoice("hire|cart",true);
-    assert.equal(nav.convoyEnabled,true);
-    assert.deepEqual(nav.convoyCargoQuantities,{cart:1});
-    nav.toggleTravelMethodChoice("owned|mounted",true);
-    assert.equal(nav.travelMethod,"walking",
-      "unsupported mixed mount must not silently replace cargo");
-    assert.ok(notifications.some(text=>text.includes("Only walkers")));
+    assert.equal(nav.mixedKeys.length,4);
     nav.toggleTravelMethodChoice("hire|cart",false);
-    assert.equal(nav.convoyEnabled,false);
-    assert.deepEqual(nav.convoyCargoQuantities,{});
-    // A finite cart selected by itself is still governed by legacy seat eligibility.
+    nav.toggleTravelMethodChoice("owned|riding-horse",false);
+    assert.deepEqual(nav.mixedKeys,["owned|walking","hire|coach-hire"]);
     nav.setTravelMethod=(method,arrangement)=>{
       nav.travelMethod=method;nav.transportArrangement=arrangement;
-      if(method!=="walking"){nav.convoyEnabled=false;nav.convoyCargoQuantities={};}
     };
-    nav.toggleTravelMethodChoice("hire|cart",true);
-    assert.equal(nav.travelMethod,"walking",
-      "checking Cart alongside Walking creates a cargo convoy, not solo Cart");
     nav.toggleTravelMethodChoice("owned|walking",false);
-    assert.equal(nav.travelMethod,"cart");
-    assert.equal(nav.convoyEnabled,false);
-    nav.toggleTravelMethodChoice("owned|walking",true);
-    assert.equal(nav.travelMethod,"walking");
-    assert.deepEqual(nav.convoyCargoQuantities,{cart:1});
-    nav.toggleTravelMethodChoice("owned|walking",false);
-    assert.equal(nav.travelMethod,"cart");
-    assert.equal(nav.convoyEnabled,false);
+    assert.equal(nav.mixedKeys.length,0);
+    assert.equal(nav.travelMethod,"coach-hire");
+    assert.equal(nav.transportArrangement,"hire");
+    assert.equal(notices.length,0);
   }finally{globalThis.game=prior.game;globalThis.ui=prior.ui;}
 });
