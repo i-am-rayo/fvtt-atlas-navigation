@@ -372,3 +372,32 @@ test("per-trip visual compression survives an interrupted Journey without schema
   assert.throws(()=>createJourneyRecord({sceneId:"scene",tokenId:"token",
     atlasRevision:12,itinerary:itinerary(),playbackSecondsPerHour:50}));
 });
+
+test("walking cargo Journal retains the approved convoy on interruption and resume",()=>{
+  const cargo={schemaVersion:1,mode:"walking-cargo",
+    travelers:[{actorId:"pc1",role:"walking",seatsNeeded:1}],
+    hires:[{methodId:"cart",methodName:"Cart",checkpointId:"hearth",
+      units:1,speedMph:4,unlimited:false,availableUnits:1,
+      hireCostCp:100,hireBasis:"day",estimatedCostCp:200}],
+    suggestedSpeedPerHour:2,speedPerHour:2,movingHours:10,totalCp:200};
+  const travel=itinerary();
+  travel.travel={speedPerHour:2,methodId:"walking",methodName:"Walking with cargo",
+    arrangement:"owned",operation:"normal"};
+  travel.measurements.distance=20;
+  travel.measurements.travelHours=10;
+  travel.convoy=cargo;
+  const record=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:travel});
+  assert.deepEqual(record.legs[0].convoy,cargo);
+  const paused=checkpointJourneyRecord(record,{
+    schedule:{...schedule,completedHours:5},progress:50,status:"interrupted"});
+  const resumed=resumeJourneyRecord(paused,{
+    itinerary:{...travel,convoy:undefined},atlasRevision:12});
+  assert.deepEqual(resumed.legs[1].convoy,cargo,
+    "saved approval persists without rechecking checkpoint inventory");
+  assert.match(formatJourneyJournalHTML(paused),/hired cargo transport/);
+  const altered=structuredClone(paused);
+  altered.legs[0].convoy.speedPerHour=3;
+  assert.equal(eligibleJourneyRecord(altered,{sceneId:"scene",tokenId:"token",
+    atlasRevision:12}),false);
+});

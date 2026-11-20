@@ -2647,3 +2647,60 @@ test("player rest completion prompt requires a saved rest and explicit active-GM
     assert.equal(messages.length,1,"inactive GM cannot duplicate the player notice");
   }finally{Object.assign(globalThis,prior);}
 });
+
+test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or movement",async()=>{
+  const prior={game:globalThis.game,foundry:globalThis.foundry,
+    document:globalThis.document};
+  try{
+    let available=1,moves=0,writes=0;
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
+      settings:{get:()=>undefined}};
+    globalThis.document={createElement:tag=>({tag,textContent:""})};
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>{
+      available=0;return true;
+    }}}}};
+    const group={id:"group1",type:"group",name:"Party",system:{members:[
+      {actor:{id:"pc1",name:"Traveler",type:"character"}}
+    ]}};
+    const token={id:"explorer",actor:group,x:-50,y:-50,width:1,height:1,
+      canUserModify:()=>true,async move(){moves++;}};
+    const scene={id:"scene",name:"Paedor",grid:{size:100,units:"mi"},
+      canUserModify:()=>true,getFlag:(_m,key)=>key==="checkpointTransportOffers"?{
+        schemaVersion:1,entries:{hearth:[{methodId:"cart",mode:"land",
+          overrides:{hireEnabled:true,hireApplies:"unit",hireQuantity:available,
+            hireUnlimited:false,capacity:2,speedMph:4}}]}}:null};
+    const atlas={revision:3,nodes:[{id:"a",x:0,y:0},{id:"b",x:100,y:0}],
+      roads:[{id:"road",name:"Road"}],segments:[{id:"s",roadId:"road",
+        from:"a",to:"b",via:[]}],
+      checkpoints:[{id:"hearth",name:"Hearth",nodeId:"a",roadId:"road"}]};
+    const route={status:"ok",start:point(0,0),end:point(100,0),
+      distance:20,cost:20,terrainAware:false,
+      legs:[{kind:"road",roadId:"road",segmentId:"s",
+        points:[point(0,0),point(100,0)],distance:20,cost:20}]};
+    const view={ready:true,scene};
+    const nav=new AtlasNavigationController({canvasProvider:()=>view,
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      atlasPoint:(_v,_a,p)=>p,journeyJournalStore:{
+        save:async()=>{writes++;throw Error("Unexpected Journal write");},
+        find:()=>null
+      }});
+    nav.scene=scene;nav.sourceMode="party";nav.routeRevision=3;
+    nav.start=route.start;nav.end=route.end;nav.result=route;
+    nav.travelMethod="walking";nav.transportArrangement="owned";
+    nav.convoyEnabled=true;nav.convoyCargoQuantities={cart:1};
+    nav.render=async()=>{};nav.draw=()=>{};
+    const a=nav.transportAvailability();
+    assert.ok(a.offers.has("cart"),JSON.stringify({offers:[...a.offers.keys()],
+      methods:a.methods.map(m=>m.id)}));
+    assert.ok(a.methods.some(m=>m.id==="cart"),JSON.stringify({
+      methods:a.methods.map(m=>m.id),offer:a.offers.get("cart")}));
+    assert.ok(nav.cargoConvoyChoices(a).some(x=>x.id==="cart"),
+      JSON.stringify({methods:a.methods.map(m=>m.id),choice:nav.cargoConvoyChoices(a)}));
+    const preview=nav.mixedConvoyPlan();
+    assert.equal(preview.hires[0].units,1);
+    assert.equal(nav.assessTravelMethod().guided,true);
+    await assert.rejects(nav.startGuidedTravel(),/inventory/);
+    assert.equal(moves,0,"stock change must not move the native token");
+    assert.equal(writes,0,"stock change must not create a Journey Journal");
+  }finally{Object.assign(globalThis,prior);}
+});
