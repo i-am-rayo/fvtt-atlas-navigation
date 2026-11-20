@@ -9,6 +9,7 @@ import {projectedGroupFare} from "./navigation-currency.js";
 const isId=x=>typeof x==="string"&&/^[\w-]{1,128}$/.test(x);
 const positive=x=>Number.isFinite(x)&&x>0;
 const integer=x=>Number.isSafeInteger(x)&&x>=0;
+const money=x=>Number.isFinite(x)&&x>=0&&x<=Number.MAX_SAFE_INTEGER;
 const sum=(xs,key)=>xs.reduce((n,x)=>n+x[key],0);
 const EPS=1e-7;
 
@@ -23,7 +24,7 @@ export function validateAggregateLandConvoy(snapshot){
     !positive(snapshot.walkingSpeedPerHour)||
     !positive(snapshot.suggestedSpeedPerHour)||!positive(snapshot.speedPerHour)||
     !positive(snapshot.movingHours)||!integer(snapshot.totalPassengers)||
-    !integer(snapshot.totalSeatsNeeded)||!integer(snapshot.totalCp))
+    !integer(snapshot.totalSeatsNeeded)||!money(snapshot.totalCp))
     throw Error("Invalid aggregate mixed Journey.");
   const actors=new Set(), keys=new Set(), mounts=new Set(), personalRiders=new Set();
   for(const t of snapshot.travelers){
@@ -41,7 +42,7 @@ export function validateAggregateLandConvoy(snapshot){
       !["hire","owned"].includes(m.arrangement)||keys.has(m.key)||
       !["walking","riders","cargo"].includes(m.role)||
       !positive(m.speedPerHour)||!integer(m.passengers)||!integer(m.seatsUsed)||
-      m.seatsUsed>m.passengers||!integer(m.units)||!integer(m.estimatedCostCp)||
+      m.seatsUsed>m.passengers||!integer(m.units)||!money(m.estimatedCostCp)||
       !Array.isArray(m.resourceIds)||!Array.isArray(m.personalRiders)||
       (m.role==="walking"?(m.key!=="owned|walking"||m.units!==0):
         m.units<1||!integer(m.capacity)||m.capacity<1||
@@ -193,8 +194,9 @@ export function planAggregateLandConvoy({travelers,methods,riderCounts={},
     if(p.arrangement==="owned"&&p.role!=="walking"){
       const fixed=p.personalRiders.length;
       const freeCap=p.seatCapacity-fixed;
-      const desired=riderCounts[p.key]??Math.min(
-        peopleRemaining,Math.max(0,freeCap));
+      const desired=riderCounts[p.key]===undefined?
+        Math.min(peopleRemaining,Math.max(0,freeCap)):
+        riderCounts[p.key]-fixed;
       if(!integer(desired)||desired>freeCap||desired>peopleRemaining)
         throw Error("Owned passenger count exceeds usable Group seats.");
       const otherSeats=Math.min(desired,seatsRemaining);
@@ -249,14 +251,21 @@ export function planAggregateLandConvoy({travelers,methods,riderCounts={},
       arrangement:"hire",travelers:p.passengers,requestedUnits:p.units,
       distanceMi,movingHours,regularHours}).totalCp;
     else if(p.role!=="walking"){
-      let remaining=p.passengers;
+      let remaining=p.passengers-p.personalRiders.length;
       for(const resource of p.resources){
         const billed=resource.assignedTo?1:Math.min(remaining,
           resource.usedUnits*resource.capacity);
-        remaining-=billed;
+        if(!resource.assignedTo)remaining-=billed;
         amount+=projectedGroupFare(resource.method,{
           quantity:resource.usedUnits,passengers:billed,
           distanceMi,hours:movingHours,dayHours:regularHours});
+        if(resource.method.includeCrewWages){
+          const days=Math.ceil(Math.max(0,movingHours-EPS)/regularHours);
+          const periods=resource.method.crewWageBasis==="trip"?1:
+            resource.method.crewWageBasis==="mile"?distanceMi:days;
+          amount+=(resource.method.crewCount??0)*
+            (resource.method.crewWageCpPerDay??200)*periods*resource.usedUnits;
+        }
       }
       if(remaining!==0)throw Error("Owned passenger allocation is incomplete.");
     }
