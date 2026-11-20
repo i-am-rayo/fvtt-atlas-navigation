@@ -3682,6 +3682,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         secondary:"Cargo only · "+this.convoyCargoQuantities[id]+" unit(s) selected · "+
           (methodUnlimited?"Unlimited stock":methodQuantity+" available")+
           " · no passenger seats used"};
+      if(this.mixedKeys.includes(choice.value))
+        return {...choice,insufficient:false,
+          secondary:"Mixed party · assign passenger seats below"};
       return {...choice,secondary:describeTravelMethodCapacity({
         choice:{...choice,methodCapacity,methodUnlimited,methodQuantity},
         roster:partySelection?.previewRoster,capacity
@@ -3705,11 +3708,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const section=(locked?renderNavigationTravelMethodSelector:
         renderNavigationTravelMethodButtons)({
         choices:annotatedChoices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
-        ...(!locked?{selectedValues:this.convoyEnabled?
-          ["owned|walking",...Object.keys(this.convoyCargoQuantities).map(id=>"hire|"+id)]:
-          [this.transportArrangement+"|"+this.travelMethod]}:{}),
+        ...(!locked?{selectedValues:this.mixedKeys.length?this.mixedKeys:
+          this.convoyEnabled?
+            ["owned|walking",...Object.keys(this.convoyCargoQuantities).map(id=>"hire|"+id)]:
+            [this.transportArrangement+"|"+this.travelMethod]}:{}),
         disabled:Boolean(this.travelSession||this.journalStarting||locked),
-        showEditor:this.travelMethod!=="walking"&&!locked&&!this.convoyEnabled,
+        showEditor:this.travelMethod!=="walking"&&!locked&&
+          !this.convoyEnabled&&!this.mixedKeys.length,
         onMethodChange:value=>{
           const [arrangement,method]=value.split("|",2);
           this.setTravelMethod(method,arrangement);
@@ -3889,7 +3894,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const travelSource=approvedActiveTransport?
       `${approvedActiveTransport.methodName} (approved ${approvedActiveTransport.arrangement} Journey leg) · ${showSpeed(speed)}`:
       travel.source==="mixed-convoy"||travel.source==="approved-convoy"?
-      "Walking with hired cargo (slowest convoy pace) · "+showSpeed(speed):
+      (this.mixedKeys.length?"Mixed passenger transportation":"Walking with hired cargo")+
+        " · "+showSpeed(speed):
       travel.source==="group-method"?
       `${travel.methodLabel} (party-owned convoy; slowest matching resource) · ${showSpeed(speed)}`:
       travel.source==="atlas-method"?
@@ -3903,7 +3909,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const blockedEstimate=Boolean(!this.travelSession&&!this.recoveryRecord&&
       !this.recoverableJourney&&!transferPlan?.hasTransitions&&
       (selectedMethodChoice?.insufficient||
-        this.convoyEnabled&&!methodAssessment.guided));
+        (this.convoyEnabled||this.mixedKeys.length)&&!methodAssessment.guided));
     const repeatingCheckpoint=isRepeatedArrivalCheckpoint(this.recoveryRecord,
       transferPlan?.legs[0]?.arrivalCheckpoint);
     const assistedLegReady=Boolean(transferPlan?.hasTransitions&&
@@ -4081,7 +4087,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(blockedEstimate){
         metric("Travel Time","Unavailable");
         metric("Total Trip","Unavailable");
-        tripExplanation=this.convoyEnabled&&!methodAssessment.guided?
+        tripExplanation=(this.convoyEnabled||this.mixedKeys.length)&&
+          !methodAssessment.guided?
           (methodAssessment.reason??"Choose a valid shared convoy pace."):
           "This method cannot carry all selected travelers. "+
             "Theoretical solo-vehicle timing is not a valid party journey estimate.";
