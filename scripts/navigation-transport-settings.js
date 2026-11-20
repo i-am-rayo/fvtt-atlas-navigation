@@ -903,7 +903,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
       hireBasis:String(response.hireBasis),hireApplies:String(response.hireApplies),
       hireCrewIncluded:bool("hireCrewIncluded"),
       ...(scope==="checkpoint"||scope==="journey"?{
-        hireUnlimited:bool("hireUnlimited"),hireQuantity:Number(response.hireQuantity??1)
+        hireUnlimited:bool("hireUnlimited"),
+        hireQuantity:Number(response.hireQuantity??value.hireQuantity??1)
       }:{}),
       overtimeEnabled:bool("overtimeEnabled"),
       overtimeExtraHours:Number(response.overtimeExtraHours),

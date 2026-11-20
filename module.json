@@ -3,7 +3,7 @@
   "type": "module",
   "title": "FVTT Atlas Navigation",
   "description": "Foundry v14 Scene Atlas with roads, checkpoints, terrain Regions and Atlas terrain-aware Navigation.",
-  "version": "0.3.12-dev.6",
+  "version": "0.3.12-dev.7",
   "authors": [
     {
       "name": "i-am-rayo",
@@ -38,6 +38,6 @@
   "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
   "readme": "README.md",
   "media": [],
-  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/fix/0.3.12-m01-459-npc-seats-layout-dev6/module.json",
-  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/fix/0.3.12-m01-459-npc-seats-layout-dev6.zip"
+  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/fix/0.3.12-m01-466-hire-availability-convoy-dev7/module.json",
+  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/fix/0.3.12-m01-466-hire-availability-convoy-dev7.zip"
 }
