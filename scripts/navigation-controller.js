@@ -842,12 +842,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.pendingTransfer)return;
     const [arrangement,method]=value.split("|",2);
     const selected=this.transportArrangement+"|"+this.travelMethod;
-    const cargo=this.cargoConvoyChoices().find(c=>c.id===method);
-    const cargoActive=Boolean(this.convoyEnabled&&this.convoyCargoQuantities[method]);
+    const cargos=this.cargoConvoyChoices();
+    const cargo=cargos.find(c=>c.id===method);
+    const currentCargo=cargos.find(c=>c.id===this.travelMethod);
+    const cargoActive=Boolean(arrangement==="hire"&&this.convoyEnabled&&
+      this.convoyCargoQuantities[method]);
     if(checked){
       if(value===selected||cargoActive)return;
       if(value==="owned|walking"&&this.transportArrangement==="hire"&&
-          this.travelMethod===cargo?.id&&this.sourceMode==="party"){
+          this.travelMethod===currentCargo?.id&&this.sourceMode==="party"){
         this.convoyEnabled=true;
         this.convoyCargoQuantities={[this.travelMethod]:1};
         this.convoyPace=null;
@@ -3785,6 +3788,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       `${travel.actorName} · ${travel.pace} pace · ${showSpeed(speed)}` :
       `Atlas default · ${showSpeed(speed)}`;
     const methodAssessment=this.assessTravelMethod();
+    const selectedMethodChoice=annotatedChoices.find(choice=>choice.value===
+      this.transportArrangement+"|"+this.travelMethod);
+    const blockedEstimate=Boolean(!this.travelSession&&!this.recoveryRecord&&
+      !this.recoverableJourney&&!transferPlan?.hasTransitions&&
+      (selectedMethodChoice?.insufficient||
+        this.convoyEnabled&&!methodAssessment.guided));
     const repeatingCheckpoint=isRepeatedArrivalCheckpoint(this.recoveryRecord,
       transferPlan?.legs[0]?.arrivalCheckpoint);
     const assistedLegReady=Boolean(transferPlan?.hasTransitions&&
@@ -3959,7 +3968,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         showDistance(activeLeg?.distance??this.result.distance),
         "Measured against the Scene Grid. The assigned party token is Point A.");
       let tripExplanation=null;
-      try{
+      if(blockedEstimate){
+        metric("Travel Time","Unavailable");
+        metric("Total Trip","Unavailable");
+        tripExplanation=this.convoyEnabled&&!methodAssessment.guided?
+          (methodAssessment.reason??"Choose a valid shared convoy pace."):
+          "This method cannot carry all selected travelers. "+
+            "Theoretical solo-vehicle timing is not a valid party journey estimate.";
+      }else try{
         const weighted=this.result.terrainAware?this.result.cost:this.result.distance;
         const hours=activeLeg?activeLeg.hours:approvedActiveTransport?
           this.travelSession.schedule.travelHours:navigationHours(weighted,speed);
@@ -4050,7 +4066,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
       }
       this.travelProgressUI=summary.progressUI;
-      if(summary.timeUI){
+      if(summary.timeUI&&!blockedEstimate){
         // The full multi-surface route is only a preview. Its distance must not
         // replace the checkpoint-clipped native journey's timing projection.
         const activeGuidedLeg=this.travelSession?.transportLeg;
@@ -4120,7 +4136,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.itinerary?.directions??buildNavigationSteps(this.result.legs,
           naming.directionRoadName,naming);
       const guidedTimeline=this.travelSession?.transportLeg;
-      const journeyHours=guidedTimeline?this.travelSession.schedule.travelHours:
+      const journeyHours=blockedEstimate?null:guidedTimeline?
+        this.travelSession.schedule.travelHours:
         navigationHours(this.result.terrainAware?this.result.cost:
           this.result.distance,speed);
       const journeySpeed=guidedTimeline?
@@ -4145,9 +4162,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
         return {kind:"direction",direction:step.direction,instruction:step.instruction,
           distanceValue:step.distance,
-          hoursValue:navigationHours(this.result.terrainAware?step.cost:step.distance,speed),
+          hoursValue:blockedEstimate?null:
+            navigationHours(this.result.terrainAware?step.cost:step.distance,speed),
           info:showDistance(step.distance)+
-            (transferPlan?.hasTransitions?" · See per-leg time above":" · "+
+            (blockedEstimate?" · time unavailable until travel method is valid":
+              transferPlan?.hasTransitions?" · See per-leg time above":" · "+
               formatGuidedWorldTime(Math.round(navigationHours(
                 this.result.terrainAware?step.cost:step.distance,speed)*3600))),
           surface:[step.terrain==="Unspecified terrain"?null:step.terrain,
