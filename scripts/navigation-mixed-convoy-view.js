@@ -1,57 +1,69 @@
-/** Preview-only GM selection of hired cargo that accompanies walkers. */
-const el=(tag,text)=>{const n=document.createElement(tag);
-  if(text!==undefined)n.textContent=String(text);return n;};
-export function renderWalkingCargoControls({enabled=false,choices=[],quantities={},
-  pace=null,sceneUnits="",plan=null,error=null,disabled=false,
-  onEnabled,onQuantity,onPace}={}){
-  const root=el("fieldset");root.className="atlas-navigation-cargo-convoy";
-  root.style.cssText="display:grid;gap:.6rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:9px;padding:.7rem;margin:0;min-width:0;";
-  root.append(el("legend","Travel together — walking + cargo"));
-  const toggleLabel=el("label");toggleLabel.style.cssText="display:flex;align-items:center;gap:.45rem;cursor:pointer;";
-  const toggle=el("input");toggle.type="checkbox";toggle.checked=enabled;toggle.disabled=disabled;
-  toggle.addEventListener("change",()=>onEnabled?.(toggle.checked));
-  toggleLabel.append(toggle,el("span","Hire cargo vehicles while everyone walks"));
-  root.append(toggleLabel);
-  if(!enabled)return root;
-  const help=el("small","Cargo-only: no passenger seats are occupied. Every traveler walks. "+
-    "The slowest participant determines the suggested speed. No booking or payment occurs.");
+/** Read-only multi-method pace comparison. All selection authority is in the controller. */
+const el=(tag,text)=>{const node=document.createElement(tag);
+  if(text!==undefined)node.textContent=String(text);return node;};
+export function renderWalkingCargoControls({participants=[],quantities={},
+  recommendedSpeed,customPace=null,unit="mph",plan=null,error=null,
+  disabled=false,onQuantity,onPace}={}){
+  const root=el("section");
+  root.className="atlas-navigation-convoy-pace";
+  root.style.cssText="display:grid;gap:.55rem;padding:.7rem 0 0;border-top:1px solid var(--color-border-light-tertiary,#555);";
+  const title=el("strong","Together: compare travel pace");
+  root.append(title);
+  const help=el("small","All Group travelers walk; hired vehicles carry cargo only. "+
+    "A shared party cannot move faster than its slowest participant. "+
+    "No booking, boarding or payment occurs.");
   help.style.opacity=".85";root.append(help);
-  if(!choices.length){root.append(el("small","No eligible hired cargo vehicles at departure."));return root;}
-  for(const choice of choices){
-    const row=el("div");row.style.cssText="display:flex;flex-wrap:wrap;align-items:center;gap:.55rem;";
-    const label=el("label");label.style.cssText="display:flex;gap:.45rem;align-items:center;flex:1 1 12rem;";
-    const check=el("input");check.type="checkbox";
-    check.checked=Number.isInteger(quantities[choice.id])&&quantities[choice.id]>0;
-    check.disabled=disabled||choice.available===0;
-    check.addEventListener("change",()=>onQuantity?.(choice.id,check.checked?1:0));
-    label.append(check,el("span",choice.name+" · "+
-      (choice.unlimited?"Unlimited":choice.available+" available")+" · "+
-      choice.speedMph+" mph"));
-    const count=el("input");count.type="number";count.min="1";
-    count.max=String(choice.unlimited?100:choice.available);
-    count.step="1";count.value=String(quantities[choice.id]||1);
-    count.disabled=disabled||!check.checked;
-    count.style.cssText="width:5.5rem;max-width:100%;";
-    count.setAttribute?.("aria-label","Number of hired "+choice.name+" cargo vehicles");
-    count.addEventListener("change",()=>onQuantity?.(choice.id,Number(count.value)));
-    row.append(label,count);root.append(row);
+  const summary=el("div");
+  summary.style.cssText="display:grid;gap:.3rem;";
+  for(const p of participants){
+    const line=el("div");
+    line.style.cssText="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem;";
+    line.append(el("span",p.label),el("strong",p.speed+" "+unit));
+    if(p.methodId){
+      const quantity=el("input");
+      quantity.type="number";quantity.min="1";
+      quantity.max=String(p.available===null?100:p.available);
+      quantity.step="1";quantity.value=String(quantities[p.methodId]??1);
+      quantity.disabled=disabled;
+      quantity.style.cssText="width:5rem;";
+      quantity.setAttribute?.("aria-label","Cargo units for "+p.label);
+      quantity.addEventListener("change",()=>
+        onQuantity?.(p.methodId,Number(quantity.value)));
+      line.append(quantity);
+    }
+    summary.append(line);
   }
-  const paceRow=el("label","GM slower pace (optional, "+sceneUnits+"/h)");
-  paceRow.style.cssText="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;";
-  const paceInput=el("input");paceInput.type="number";
-  paceInput.min="0.1";paceInput.step="0.1";
-  paceInput.value=pace===null?"":String(pace);
-  paceInput.placeholder="Use suggested slowest";
-  paceInput.disabled=disabled;paceInput.style.cssText="max-width:13rem;flex:1;";
-  paceInput.addEventListener("change",()=>
-    onPace?.(paceInput.value===""?null:Number(paceInput.value)));
-  paceRow.append(paceInput);root.append(paceRow);
-  const detail=el("small",plan?
-    "Suggested "+plan.suggestedSpeedPerHour.toFixed(2)+" "+sceneUnits+
-    "/h · Chosen "+plan.speedPerHour.toFixed(2)+" "+sceneUnits+
-    "/h · "+plan.movingHours.toFixed(2)+" moving hours · "+
-    plan.hires.length+" cargo type(s) · Estimated "+plan.totalCp+
-    " CP (not charged).":error??"Choose cargo vehicles to calculate convoy travel.");
-  detail.style.cssText="line-height:1.45;opacity:.9;";root.append(detail);
+  root.append(summary);
+  const pace=el("div");
+  pace.style.cssText="display:grid;gap:.35rem;";
+  const standard=el("label");
+  standard.style.cssText="display:flex;gap:.4rem;align-items:center;";
+  const normal=el("input");normal.type="radio";normal.name="atlas-convoy-pace";
+  normal.value="slowest";normal.checked=customPace===null;normal.disabled=disabled;
+  normal.addEventListener("change",()=>{if(normal.checked)onPace?.(null);});
+  standard.append(normal,el("span","Slowest participant (recommended): "+
+    recommendedSpeed+" "+unit));
+  pace.append(standard);
+  const slower=el("label");
+  slower.style.cssText="display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;";
+  const choice=el("input");choice.type="radio";choice.name="atlas-convoy-pace";
+  choice.value="custom";choice.checked=customPace!==null;choice.disabled=disabled;
+  choice.addEventListener("change",()=>{
+    if(choice.checked)onPace?.("custom");
+  });
+  const field=el("input");field.type="number";field.step="any";field.min="0.01";
+  field.value=customPace===null?"":String(customPace);
+  field.disabled=disabled||customPace===null;
+  field.style.cssText="width:7rem;max-width:100%;";
+  field.setAttribute?.("aria-label","Custom slower convoy speed in "+unit);
+  field.addEventListener("change",()=>onPace?.(Number(field.value)));
+  slower.append(choice,el("span","Custom slower pace"),field,el("span",unit));
+  pace.append(slower);root.append(pace);
+  const output=el("small",error??
+    (plan?"Shared pace: "+plan.speed+" "+unit+" · "+
+      plan.moving+" moving · Estimated hire "+plan.cost+" (not charged).":
+      "Choose a valid pace to preview travel time and cost."));
+  output.style.cssText="line-height:1.45;opacity:.9;";
+  root.append(output);
   return root;
 }
