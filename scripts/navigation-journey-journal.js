@@ -1,4 +1,5 @@
 import { MODULE_ID } from "./atlas-storage.js";
+import {validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import { formatNavigationDuration } from "./navigation-time.js";
 import {validatePlaybackSetting} from "./navigation-playback.js";
 import { atlasDisplayDistance } from "./navigation-measure-units.js";
@@ -62,8 +63,10 @@ export function journeyLegFromItinerary(itinerary){
     })),
     completedMovingHours:0,completedPercent:0,events:[],
     worldTravelSeconds:0,worldRestSeconds:0,
+    ...(itinerary.convoy?{convoy:validateWalkingCargoConvoy(itinerary.convoy)}:{}),
     ...(itinerary.transport?{transport:validateTransportJourneyInfo(itinerary.transport)}
-      :itinerary.travel?.methodId&&itinerary.travel.methodId!=="walking"?
+      :itinerary.travel?.methodId&&
+        (itinerary.travel.methodId!=="walking"||itinerary.convoy)?
         {travelMethod:{
           id:String(itinerary.travel.methodId),
           name:String(itinerary.travel.methodName??itinerary.travel.methodId),
@@ -132,6 +135,8 @@ export function validateJourneyRecord(value){
         (leg.approvedPath!==undefined&&
           !isApprovedJourneyPath(leg.approvedPath))||
         (leg.transport!==undefined&&!isTransportJourneyInfo(leg.transport))||
+        (leg.convoy!==undefined&&(!leg.travelMethod||
+          leg.travelMethod.id!=="walking"||leg.transport!==undefined))||
         (leg.travelMethod!==undefined&&!validJourneyMethod(leg.travelMethod))||
         (leg.transport!==undefined&&leg.travelMethod!==undefined))||
       !Number.isFinite(value.day?.todayHours)||value.day.todayHours<0||
@@ -141,6 +146,12 @@ export function validateJourneyRecord(value){
       !Number.isSafeInteger(value.day?.restEvents)||value.day.restEvents<0||
       value.day.restEvents>48)
     throw Error("This Atlas Journey Journal has invalid recovery metadata.");
+  for(const leg of value.legs)
+    if(leg.convoy!==undefined){
+      const convoy=validateWalkingCargoConvoy(leg.convoy);
+      if(Math.abs(convoy.speedPerHour-leg.speedPerHour)>1e-7)
+        throw Error("Approved convoy speed differs from the saved journey leg.");
+    }
   if(value.passengerRest!==undefined)validatePassengerRestMetadata(value.passengerRest);
   if(value.pendingNativeMove!==undefined&&value.pendingNativeMove!==null)
     validatePendingNativeMove(value.pendingNativeMove);
@@ -202,6 +213,13 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
   if(!RECOVERABLE.has(next.status)||atlasRevision!==next.atlasRevision||
       next.legs.length>=24)throw Error("This journey cannot safely resume. Plan a new route.");
   const resumed=journeyLegFromItinerary(itinerary);
+  const old=next.legs.at(-1);
+  if(isUnfinishedJourneyLeg(next)&&old?.convoy){
+    if(Math.abs(resumed.speedPerHour-old.speedPerHour)>1e-7)
+      throw Error("The saved convoy speed must be retained before recovery.");
+    resumed.convoy=validateWalkingCargoConvoy(old.convoy);
+    resumed.travelMethod=structuredClone(old.travelMethod);
+  }
   if(approvedPath)resumed.approvedPath=validateApprovedJourneyPath(approvedPath);
   next.legs.push(resumed);
   // The final Point B is independent of each checkpoint-bound travel leg.
@@ -271,7 +289,14 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       movingHours:leg.completedMovingHours,
       complete:leg.completedPercent>=99.999}).map(line=>
       `<li class="atlas-journey-transport-event">${escapeHTML(line)}</li>`).join("");
-    const landMethod=leg.travelMethod&&leg.completedMovingHours>0?
+    const convoyLines=leg.convoy&&leg.completedMovingHours>0?[
+      "The party walked together with hired cargo transport at "+
+        leg.convoy.speedPerHour+" "+leg.units+"/h (approved convoy pace).",
+      ...leg.convoy.hires.map(h=>h.units+" cargo-only "+h.methodName+
+        " (estimated fare "+h.estimatedCostCp+" CP; not charged).")
+    ].map(line=>'<li class="atlas-journey-transport-event">'+escapeHTML(line)+"</li>").join(""):"";
+    const landMethod=leg.travelMethod&&leg.completedMovingHours>0&&
+      !leg.convoy?
       `<li class="atlas-journey-transport-event">The party traveled using ${escapeHTML(leg.travelMethod.name)} (`+
         `${escapeHTML(leg.travelMethod.arrangement==="hire"?"hired":"party-owned")}).`+
         ` No automatic purchase, booking or currency deduction occurred.</li>`:"";
@@ -301,9 +326,9 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       `Moving time: ${escapeHTML(formatNavigationDuration(leg.movingHours,24))}; `+
       `Confirmed progress: ${percent}% `+
       `(${escapeHTML(formatNavigationDuration(leg.completedMovingHours,24))} moving).</p>`+
-      (transportLines||landMethod?
+      (transportLines||landMethod||convoyLines?
         `<div class="atlas-journey-leg-group"><h4>Confirmed Transportation and Transfers</h4>`+
-        `<ul>${transportLines}${landMethod}</ul></div>`:"")+
+        `<ul>${transportLines}${landMethod}${convoyLines}</ul></div>`:"")+
       `<div class="atlas-journey-leg-group"><h4>Confirmed Directions and Stops</h4>`+
       `<p class="atlas-journey-caption">The full planned route remains in this Journey's saved metadata. `+
       `Only confirmed travel and approved stops appear below.</p>`+
