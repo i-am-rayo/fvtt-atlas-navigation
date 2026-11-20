@@ -3849,7 +3849,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           " · no passenger seats used"};
       if(this.mixedKeys.includes(choice.value))
         return {...choice,insufficient:false,
-          secondary:"Mixed party · assign passenger seats below"};
+          secondary:"Mixed party · shared seating totals below"};
       return {...choice,secondary:describeTravelMethodCapacity({
         choice:{...choice,methodCapacity,methodUnlimited,methodQuantity},
         roster:partySelection?.previewRoster,capacity
