@@ -428,3 +428,69 @@ test("invalid, orphan and duplicate mount rider assignments are rejected before 
     assert.equal(ctx.changes.length,1,"changed native Group roster blocks stale rider save");
   }finally{ctx.restore();}
 });
+
+test("Need Setup role changes move NPC into category; Needs seat is staged and saved",async()=>{
+  const ctx=setup();try{
+    const nyx={id:"nyx",name:"Nyx",type:"npc",system:{}};
+    const jon={id:"jon",name:"Jonathan",type:"npc",system:{}};
+    ctx.group.system.members.push({actor:nyx},{actor:jon});
+    ctx.setSaved({version:6,groups:{group1:{members:{
+      camel1:{role:"mount",quantity:3,capacity:1,surface:"land"},
+      nyx:{role:"passenger",quantity:1,capacity:null,surface:"land"}
+    }}}});
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const root=await app._renderHTML(),elements=flatten(root);
+    const input=name=>elements.find(e=>e.name===name);
+    const tabs=elements.filter(e=>e.attributes.get("role")==="tab");
+    assert.equal(tabs.length,5);
+    assert.equal(tabs[4].textContent,"Need Setup ! (1)");
+    const nyxSeat=input("needs-seat-nyx");
+    assert.equal(nyxSeat.checked,true,"legacy NPC passenger conservatively needs a seat");
+    const jonSeat=input("needs-seat-jon");
+    const jonRole=input("role-jon");
+    assert.equal(jonSeat.parentElement.hidden,true,"toggle hidden before Companion / passenger");
+    const before=ctx.changes.length;
+    nyxSeat.checked=false;nyxSeat.events.change[0]();
+    jonRole.value="passenger";jonRole.events.change.forEach(fn=>fn());
+    assert.equal(tabs[4].textContent,"Need Setup");
+    assert.equal(jonSeat.parentElement.hidden,false);
+    assert.equal(jonSeat.checked,true);
+    const npcCategory=elements.find(e=>e.className==="atlas-group-transport-npc-category"&&
+      e.children[0]?.textContent==="Companions / Passengers");
+    assert.ok(npcCategory.children.some(e=>e.className==="atlas-group-transport-resource"&&
+      e.children[0]?.children[0]?.textContent==="Jonathan"));
+    assert.equal(before,ctx.changes.length,"role edits and seat toggles remain staged");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
+    await save.events.click[0]();
+    assert.equal(ctx.saved.version,7);
+    assert.equal(ctx.saved.groups.group1.members.nyx.needsSeat,false);
+    assert.equal(ctx.saved.groups.group1.members.jon.needsSeat,true);
+    const projected=projectGroupTransportation(ctx.group,ctx.saved);
+    assert.deepEqual([projected.pcCount,projected.npcCount,projected.travelers],[1,2,2]);
+    assert.equal(ctx.group.system.members.length,5,"native Group untouched");
+    assert.equal(ctx.changes.length,1,"one Atlas Group World-setting write");
+  }finally{ctx.restore();}
+});
+
+test("NPC roles and tab switches never write; Save, Refresh and Settings use standard footer actions",async()=>{
+  const ctx=setup();try{
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    const root=await app._renderHTML(),nodes=flatten(root);
+    const footer=nodes.find(n=>n.className==="atlas-group-transport-footer");
+    assert.ok(footer);
+    const left=footer.children[0],right=footer.children[1];
+    assert.ok(flatten(left).some(n=>n.textContent==="Transportation Presets"));
+    assert.ok(flatten(left).some(n=>n.attributes.get("aria-label")==="Refresh Party Transportation"));
+    const save=right.children[0];
+    assert.equal(save.attributes.get("aria-label"),"Save Party Transportation Assignments");
+    assert.match(save.className,/atlas-ui-icon-button--footer/);
+    assert.equal(save.children[0].className,"fa-solid fa-floppy-disk");
+    assert.equal(nodes.some(n=>/fa-trash/.test(n.className??"")),false,
+      "no duplicate Actor removal action on any active travel method");
+    const tabs=nodes.filter(n=>n.attributes.get("role")==="tab");
+    tabs[3].events.click[0]();
+    tabs[4].events.click[0]();
+    tabs[0].events.click[0]();
+    assert.deepEqual(ctx.changes,[],"render and navigation are read-only");
+  }finally{ctx.restore();}
+});
