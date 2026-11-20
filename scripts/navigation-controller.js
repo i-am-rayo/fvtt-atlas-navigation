@@ -52,7 +52,8 @@ import {restoreApprovedTransportPlan,hasUnfinishedApprovedTransport,
 import {requestPassengerRest,confirmPassengerRest,beginPassengerRestMetadata,
   recoverPassengerRestRequest,confirmedJourneyMovingHours,isRestUnderway}
   from "./navigation-passenger-rest.js";
-import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure }
+import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure,
+  atlasSceneSpeedFromDisplay }
   from "./navigation-measure-units.js";
 import { readGroupTransportation,projectGroupTransportation,
   groupMethodCapacityStatus,groupMethodFareEstimate }
@@ -830,6 +831,67 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.calculateRoute(view,this.atlasProvider(this.scene));
     this.draw();
     void this.render(true);
+  }
+
+  /** One selected method stays legacy; walking + per-unit cargo hires is the
+   * only approved multi-choice. Other combinations require per-rider contracts.
+   */
+  toggleTravelMethodChoice(value,checked){
+    if(!game.user?.isGM||!this.scene||this.travelSession||
+        this.journalStarting||this.recoverableJourney||this.recoveryRecord||
+        this.pendingTransfer)return;
+    const [arrangement,method]=value.split("|",2);
+    const selected=this.transportArrangement+"|"+this.travelMethod;
+    const cargo=this.cargoConvoyChoices().find(c=>c.id===method);
+    const cargoActive=Boolean(this.convoyEnabled&&this.convoyCargoQuantities[method]);
+    if(checked){
+      if(value===selected||cargoActive)return;
+      if(value==="owned|walking"&&this.transportArrangement==="hire"&&
+          this.travelMethod===cargo?.id&&this.sourceMode==="party"){
+        this.convoyEnabled=true;
+        this.convoyCargoQuantities={[this.travelMethod]:1};
+        this.convoyPace=null;
+        this.setTravelMethod("walking","owned");
+        return;
+      }
+      if(arrangement==="hire"&&cargo&&this.travelMethod==="walking"&&
+          this.sourceMode==="party"){
+        this.convoyEnabled=true;
+        this.convoyCargoQuantities={...this.convoyCargoQuantities,[method]:1};
+        this.convoyPace=null;this.travelNotice="";
+        void this.render(true);
+        return;
+      }
+      if(this.convoyEnabled){
+        globalThis.ui?.notifications?.warn?.(
+          "Only walkers with hired cargo-only vehicles can travel together yet. "+
+          "Remove cargo before choosing another passenger or mount method.");
+        void this.render(true);return;
+      }
+      if(!["owned","hire"].includes(arrangement)||!method)return;
+      globalThis.ui?.notifications?.info?.(
+        "Passenger and mount combinations need explicit rider assignments. "+
+        "Atlas will use this method alone.");
+      this.setTravelMethod(method,arrangement);
+    }else if(cargoActive){
+      const remaining={...this.convoyCargoQuantities};delete remaining[method];
+      this.convoyCargoQuantities=remaining;
+      this.convoyEnabled=Object.keys(remaining).length>0;
+      this.convoyPace=null;
+      void this.render(true);
+    }else if(value==="owned|walking"&&this.convoyEnabled){
+      const cargos=Object.keys(this.convoyCargoQuantities);
+      if(cargos.length===1)this.setTravelMethod(cargos[0],"hire");
+      else{
+        globalThis.ui?.notifications?.warn?.(
+          "Deselect all but one cargo vehicle before removing Walking.");
+        void this.render(true);
+      }
+    }else{
+      globalThis.ui?.notifications?.warn?.(
+        "Keep at least one travel method selected, or choose another method.");
+      void this.render(true);
+    }
   }
 
   assessTravelMethod(){
@@ -3505,6 +3567,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           atlasWarn("navigation","Invalid offered transport capacity",error);
         }
       }
+      const cargoOnly=this.convoyEnabled&&arrangement==="hire"&&
+        Number.isInteger(this.convoyCargoQuantities[id])&&
+        this.convoyCargoQuantities[id]>0;
+      if(cargoOnly)return {...choice,cargoOnly:true,insufficient:false,
+        secondary:"Cargo only · "+this.convoyCargoQuantities[id]+" unit(s) selected · "+
+          (methodUnlimited?"Unlimited stock":methodQuantity+" available")+
+          " · no passenger seats used"};
       return {...choice,secondary:describeTravelMethodCapacity({
         choice:{...choice,methodCapacity,methodUnlimited,methodQuantity},
         roster:partySelection?.previewRoster,capacity
@@ -3523,53 +3592,80 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           group:"Approved current Journey leg"}],
         selectedValue:"approved",disabled:true,onMethodChange:()=>{}
       }));
-    else if(this.result?.status==="ok"&&!transferPlan?.hasTransitions)
-      body.appendChild((approvedRecoveryLand||approvedRecoveryTransport?
-        renderNavigationTravelMethodSelector:renderNavigationTravelMethodButtons)({
+    else if(this.result?.status==="ok"&&!transferPlan?.hasTransitions){
+      const locked=Boolean(approvedRecoveryLand||approvedRecoveryTransport);
+      const section=(locked?renderNavigationTravelMethodSelector:
+        renderNavigationTravelMethodButtons)({
         choices:annotatedChoices,selectedValue:this.transportArrangement+"|"+this.travelMethod,
-        disabled:Boolean(this.travelSession||this.journalStarting||approvedRecoveryTransport||
-          approvedRecoveryLand),
-        showEditor:this.travelMethod!=="walking"&&!approvedRecoveryTransport&&
-          !approvedRecoveryLand,
+        ...(!locked?{selectedValues:this.convoyEnabled?
+          ["owned|walking",...Object.keys(this.convoyCargoQuantities).map(id=>"hire|"+id)]:
+          [this.transportArrangement+"|"+this.travelMethod]}:{}),
+        disabled:Boolean(this.travelSession||this.journalStarting||locked),
+        showEditor:this.travelMethod!=="walking"&&!locked&&!this.convoyEnabled,
         onMethodChange:value=>{
           const [arrangement,method]=value.split("|",2);
           this.setTravelMethod(method,arrangement);
         },
+        onMethodToggle:(value,checked)=>this.toggleTravelMethodChoice(value,checked),
         onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
-      }));
-    if(this.result?.status==="ok"&&this.sourceMode==="party"&&
-        partySelection&&!pendingNativeReview&&!approvedActiveTransport&&
-        !approvedRecoveryTransport&&!approvedRecoveryLand&&
-        !transferPlan?.hasTransitions&&this.travelMethod==="walking"&&
-        !this.recoveryRecord&&!this.recoverableJourney){
-      const cargoChoices=this.cargoConvoyChoices(availability);
-      if(cargoChoices.length||this.convoyEnabled){
+      });
+      if(this.convoyEnabled&&!locked&&this.sourceMode==="party"&&
+          partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
+        const sceneUnits=this.scene?.grid?.units??"";
+        const sceneSpeed=this.resolveTravel({excludeConvoy:true}).travel.speed;
+        const cargo=this.cargoConvoyChoices(availability).filter(c=>
+          this.convoyCargoQuantities[c.id]>0);
+        const displaySpeed=native=>atlasDisplaySpeed(native,sceneUnits,
+          game.settings,game.system?.id);
+        const walkDisplay=displaySpeed(sceneSpeed);
+        const participants=[{label:"Walking (party pace)",
+          speed:walkDisplay.value.toFixed(2)}];
+        for(const item of cargo){
+          const speed=convertGroupSpeed(item.method.speedMph,"mph",sceneUnits);
+          const converted=displaySpeed(speed);
+          const difference=converted.value-walkDisplay.value;
+          participants.push({label:item.name+" (cargo only) · "+
+            (difference>=0?"+":"")+difference.toFixed(2)+" "+walkDisplay.unit+
+            " vs walking",speed:converted.value.toFixed(2),
+            methodId:item.id,available:item.available});
+        }
+        const slowest=Math.min(sceneSpeed,...cargo.map(c=>
+          convertGroupSpeed(c.method.speedMph,"mph",sceneUnits)));
         let plan=null,error=null;
-        if(this.convoyEnabled)try{plan=this.mixedConvoyPlan();}
-        catch(problem){error=problem.message??String(problem);}
-        body.append(renderWalkingCargoControls({
-          enabled:this.convoyEnabled,choices:cargoChoices,
-          quantities:this.convoyCargoQuantities,pace:this.convoyPace,
-          sceneUnits:this.scene?.grid?.units??"Scene units",
-          plan,error,disabled:Boolean(this.journalStarting||partySplitBlocked),
-          onEnabled:enabled=>{
-            this.convoyEnabled=enabled;void this.render(true);
-          },
-          onQuantity:(id,quantity)=>{
-            if(!Number.isInteger(quantity)||quantity<0||quantity>100){
-              globalThis.ui?.notifications?.warn?.("Cargo units must be a whole number between 1 and 100.");
+        try{plan=this.mixedConvoyPlan();}
+        catch(e){error=e.message??String(e);}
+        const unit=walkDisplay.unit.replace("/hour", "/h");
+        const current=this.convoyPace===null?null:
+          displaySpeed(this.convoyPace).value;
+        section.append(renderWalkingCargoControls({
+          participants,quantities:this.convoyCargoQuantities,
+          recommendedSpeed:displaySpeed(slowest).value.toFixed(2),
+          customPace:current===null?null:Number(current.toFixed(4)),
+          unit,disabled:Boolean(this.journalStarting||partySplitBlocked),
+          plan:plan?{
+            speed:displaySpeed(plan.speedPerHour).value.toFixed(2),
+            moving:formatNavigationDuration(plan.movingHours,24),
+            cost:plan.totalCp+" CP"
+          }:null,error,
+          onQuantity:(id,count)=>{
+            if(!Number.isInteger(count)||count<1||count>100){
+              globalThis.ui?.notifications?.warn?.("Cargo units must be between 1 and 100.");
               void this.render(true);return;
             }
-            const values={...this.convoyCargoQuantities};
-            if(quantity===0)delete values[id];else values[id]=quantity;
-            this.convoyCargoQuantities=values;void this.render(true);
+            this.convoyCargoQuantities={...this.convoyCargoQuantities,[id]:count};
+            void this.render(true);
           },
           onPace:value=>{
-            this.convoyPace=value;void this.render(true);
+            const chosen=value==="custom"?slowest:
+              value===null?null:atlasSceneSpeedFromDisplay(value,sceneUnits,
+                game.settings,game.system?.id);
+            this.convoyPace=chosen;
+            void this.render(true);
           }
         }));
       }
+      body.appendChild(section);
     }
     if(this.result?.status==="ok"&&!pendingNativeReview&&!approvedActiveTransport&&
         !approvedRecoveryTransport&&!approvedRecoveryLand&&
