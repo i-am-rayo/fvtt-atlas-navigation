@@ -2689,6 +2689,13 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
     nav.travelMethod="walking";nav.transportArrangement="owned";
     nav.convoyEnabled=true;nav.convoyCargoQuantities={cart:1};
     nav.render=async()=>{};nav.draw=()=>{};
+    const a=nav.transportAvailability();
+    assert.ok(a.offers.has("cart"),JSON.stringify({offers:[...a.offers.keys()],
+      methods:a.methods.map(m=>m.id)}));
+    assert.ok(a.methods.some(m=>m.id==="cart"),JSON.stringify({
+      methods:a.methods.map(m=>m.id),offer:a.offers.get("cart")}));
+    assert.ok(nav.cargoConvoyChoices(a).some(x=>x.id==="cart"),
+      JSON.stringify({methods:a.methods.map(m=>m.id),choice:nav.cargoConvoyChoices(a)}));
     const preview=nav.mixedConvoyPlan();
     assert.equal(preview.hires[0].units,1);
     assert.equal(nav.assessTravelMethod().guided,true);
