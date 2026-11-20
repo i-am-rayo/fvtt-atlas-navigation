@@ -58,7 +58,8 @@ import { readGroupTransportation,projectGroupTransportation,
   groupMethodCapacityStatus,groupMethodFareEstimate }
   from "./navigation-group-transport.js";
 import { dndCurrencyBreakdown } from "./navigation-currency.js";
-import { resolveTransportationOperation,quoteTransportationService }
+import { resolveTransportationOperation,quoteTransportationService,
+  assessHiredTransportAvailability }
   from "./navigation-transport-service.js";
 import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
 import { offersAtOrigin,checkpointOffers,saveCheckpointOffers,
@@ -816,6 +817,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         reason:"Choose a valid party-owned or checkpoint-hired transportation arrangement."};
       const method=availability.methods.find(item=>item.id===this.travelMethod);
       const group=this.getPartyToken()?.actor;
+      if(!approvedLand&&this.transportArrangement==="hire"){
+        if(!method)return {...result,guided:false,
+          reason:"The hired method is no longer available."};
+        const travelers=game.system?.id==="dnd5e"&&group?.type==="group"?
+          projectGroupTransportation(group,readGroupTransportation(game.settings),
+            availability.all).travelers:1;
+        const supply=assessHiredTransportAvailability(
+          this.effectiveTransportMethod(method,availability),{travelers});
+        if(!supply.sufficient)return {...result,guided:false,
+          reason:supply.unknown?"Set a valid passenger capacity for this hired service.":
+            "Insufficient hired transport: "+supply.requiredUnits+
+            " unit(s) required, "+(supply.availableUnits??"unverified")+
+            " available at the departure checkpoint."};
+      }
       if(!approvedLand&&this.transportArrangement==="owned"&&method&&
           game.system?.id==="dnd5e"&&group?.type==="group"){
         const roster=projectGroupTransportation(group,
@@ -3331,22 +3346,31 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const [arrangement,id]=choice.value.split("|",2);
       const method=availability.all.find(item=>item.id===id);
       if(!method||id==="walking")return choice;
-      let capacity=null,methodCapacity=null;
+      let capacity=null,methodCapacity=null,methodUnlimited=true,
+        methodQuantity=null,hireSupply=null;
       if(arrangement==="owned"&&partySelection)
         capacity=groupMethodCapacityStatus(partySelection.previewRoster,method);
       if(arrangement==="hire"){
         const offer=availability.offers.get(id);
         try{
-          methodCapacity=offer?checkpointOfferMethod({
+          const offered=offer?checkpointOfferMethod({
             methodId:offer.methodId,mode:offer.mode,overrides:offer.overrides
-          },method).capacity:null;
+          },method):null;
+          methodCapacity=offered?.capacity??null;
+          methodUnlimited=offered?.hireUnlimited!==false;
+          methodQuantity=offered?.hireQuantity??null;
+          if(offered)hireSupply=assessHiredTransportAvailability(offered,{
+            travelers:partySelection?.previewRoster?.travelers??1
+          });
         }catch(error){
           atlasWarn("navigation","Invalid offered transport capacity",error);
         }
       }
       return {...choice,secondary:describeTravelMethodCapacity({
-        choice:{...choice,methodCapacity},capacity
-      }),insufficient:Boolean(capacity&&!capacity.sufficient)};
+        choice:{...choice,methodCapacity,methodUnlimited,methodQuantity},
+        roster:partySelection?.previewRoster,capacity
+      }),insufficient:Boolean(capacity&&!capacity.sufficient)||
+        Boolean(hireSupply&&!hireSupply.sufficient)};
     });
     if(pendingNativeReview)
       body.appendChild(renderNavigationTravelMethodSelector({
@@ -3510,14 +3534,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     // Seats and resource counts are now displayed beside each method.
     // A selected method with insufficient seats is explicitly called out.
-    if(!approvedRecoveryTransport&&this.travelMethod!=="walking"&&
-        this.transportArrangement==="owned"&&partySelection){
+    if(!approvedRecoveryTransport&&this.travelMethod!=="walking"){
       const selected=annotatedChoices.find(choice=>choice.value===
-        "owned|"+this.travelMethod);
+        this.transportArrangement+"|"+this.travelMethod);
       if(selected?.insufficient)
         body.appendChild(renderTransportAdvisory(
-          "Insufficient seats for the selected travelers. "+
-          "Choose another method or adjust the Group transportation roster."));
+          this.transportArrangement==="hire"?
+            "Not enough hired vehicles at this checkpoint for the selected travelers. "+
+            "Change availability, choose another method or adjust the party.":
+            "Insufficient seats for the selected travelers. "+
+            "Choose another method or adjust the Group transportation roster."));
     }
     if(!approvedActiveTransport&&!approvedRecoveryTransport&&
         this.travelMethod!=="walking"&&this.result?.status==="ok"&&

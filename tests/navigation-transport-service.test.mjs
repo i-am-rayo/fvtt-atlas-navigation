@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {resolveTransportationOperation,quoteTransportationService,resolveTransportationHireFare}
+import {resolveTransportationOperation,quoteTransportationService,resolveTransportationHireFare,
+  assessHiredTransportAvailability}
   from "../scripts/navigation-transport-service.js";
 import {estimateNavigationTotalTrip} from "../scripts/navigation-travel-day.js";
 
@@ -156,4 +157,35 @@ test("trip-local hire quotes validate bad GM terms without touching world prices
   assert.throws(()=>resolveTransportationHireFare(wagon,{hireApplies:"crew"}),/Invalid GM/);
   assert.throws(()=>quoteTransportationService(wagon,{arrangement:"hire",
     movingHours:8,distanceMi:24,hireTerms:{hireCostCp:Infinity}}),/Invalid GM/);
+});
+
+test("finite hire stock blocks insufficient carts; legacy offers remain unlimited",()=>{
+  const cart={...wagon,capacity:2,hireQuantity:1,hireUnlimited:false};
+  const inputs={arrangement:"hire",movingHours:5,distanceMi:20,travelers:4};
+  assert.deepEqual(assessHiredTransportAvailability(cart,{travelers:4}),{
+    requiredUnits:2,availableUnits:1,unlimited:false,
+    unknown:false,missing:1,sufficient:false
+  });
+  assert.throws(()=>quoteTransportationService(cart,inputs),/Not enough hired/);
+  const two={...cart,hireQuantity:2};
+  assert.equal(quoteTransportationService(two,inputs).units,2);
+  assert.equal(quoteTransportationService({...wagon,capacity:2},inputs).units,2,
+    "historical checkpoint offers have unlimited supply");
+  assert.throws(()=>quoteTransportationService({...cart,hireQuantity:-1},inputs),
+    /Not enough hired/);
+});
+
+test("one hired cargo cart can accompany walkers at walking speed without using passenger seats",()=>{
+  const cart={...wagon,capacity:2,hireUnlimited:false,hireQuantity:1};
+  const fast=quoteTransportationService(cart,{arrangement:"hire",
+    travelers:0,requestedUnits:1,movingHours:5,distanceMi:20});
+  const slow=quoteTransportationService(cart,{arrangement:"hire",
+    travelers:0,requestedUnits:1,movingHours:10,distanceMi:20});
+  assert.equal(fast.units,1);
+  assert.equal(slow.units,1);
+  assert.equal(fast.baseCp,400);
+  assert.equal(slow.baseCp,800,"per-day hired service must cost more when a convoy is slower");
+  assert.throws(()=>quoteTransportationService({...cart,hireQuantity:0},{
+    arrangement:"hire",travelers:0,requestedUnits:1,movingHours:10,distanceMi:20}),
+    /Not enough hired/);
 });

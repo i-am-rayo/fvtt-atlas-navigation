@@ -66,7 +66,7 @@ test("capacity labels distinguish quantity, known seats and unverified hire stoc
   assert.equal(describeTravelMethodCapacity({choice:{value:"owned|horse"},
     capacity:{quantity:2,seats:2,unknown:0}}),"2 available · 2 seats");
   assert.equal(describeTravelMethodCapacity({choice:{value:"hire|warship",
-    methodCapacity:60}}),"Offered · 60 seats/unit");
+    methodCapacity:60}}),"Offered · 60 seats/unit · Unlimited");
   assert.equal(describeTravelMethodCapacity({choice:{value:"hire|ship"}}),
     "Service offered · seats unverified");
 });
@@ -104,4 +104,11 @@ test("Nyx shares a seat, VIP needs one, and selection controls both NPCs",()=>{
     assert.match(text,/4 seats needed/);
     assert.equal(flat(view).filter(x=>x.type==="checkbox").length,5);
   }finally{restore();}
+});
+
+test("hired transport labels show local finite inventory and required seats",()=>{
+  const choice={value:"hire|cart",methodCapacity:2,
+    methodUnlimited:false,methodQuantity:1};
+  assert.equal(describeTravelMethodCapacity({choice,roster:{travelers:4}}),
+    "Offered · 2 seats/unit · 1 available · 4 seats needed (2 unit(s) required)");
 });
