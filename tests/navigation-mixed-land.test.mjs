@@ -122,3 +122,30 @@ test("owned mixed transport crew wages are charged for used resources only",()=>
   assert.equal(result.totalCp,505,
     "unused horse does not incur an extra feed cost or crew wage");
 });
+
+test("two hired passenger methods travel together without selecting Walking",()=>{
+  const cart={id:"cart",name:"Cart",kind:"vehicle",surface:"land",
+    capacity:2,speedMph:3,hireEnabled:true,hireApplies:"unit",
+    hireCostCp:200,hireBasis:"day",hireUnlimited:false,hireQuantity:1};
+  const options={methods:[coachMethod,{key:"hire|cart",arrangement:"hire",
+    method:cart,checkpointId:"hearth"}],
+    assignments:{pc1:"hire|coach-hire",pc2:"hire|coach-hire",
+      pc3:"hire|cart",npc1:"hire|coach-hire",npc2:"hire|cart"}};
+  const approved=plan(options);
+  assert.equal(approved.methods.length,2);
+  assert.equal(approved.travelers.filter(t=>t.role==="walking").length,0);
+  assert.equal(approved.suggestedSpeedPerHour,3);
+  assert.equal(approved.movingHours,8);
+  assert.equal(approved.totalSeatsNeeded,4);
+  assert.equal(approved.methods[0].passengers,3);
+  assert.equal(approved.methods[0].seatsUsed,2);
+  assert.equal(approved.methods[1].passengers,2);
+  assert.equal(approved.methods[1].seatsUsed,2);
+  assert.equal(approved.totalCp,500);
+  assert.throws(()=>plan({...options,paceOverride:4}),
+    /Cannot override the slowest mounted or hired method/);
+  const corrupted=structuredClone(approved);
+  corrupted.methods[1].seatsUsed=3;
+  assert.throws(()=>validateMixedLandConvoy(corrupted),
+    /Mixed Journey passenger coverage or fare does not balance/);
+});
