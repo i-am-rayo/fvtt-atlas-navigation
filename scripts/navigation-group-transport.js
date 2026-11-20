@@ -6,7 +6,7 @@
 export const GROUP_TRANSPORT_SETTING="guidedGroupTransportation";
 import { projectedGroupFare } from "./navigation-currency.js";
 
-export const GROUP_TRANSPORT_VERSION=6;
+export const GROUP_TRANSPORT_VERSION=7;
 export const GROUP_TRANSPORT_ROLES=Object.freeze([
   "unassigned","mount","passenger","crew","pack","ignore"
 ]);
@@ -26,7 +26,7 @@ export function defaultGroupTransportation(){return {version:GROUP_TRANSPORT_VER
 
 export function validateGroupTransportation(input){
   if(!input||typeof input!=="object"||Array.isArray(input)||
-      ![1,2,3,4,5,GROUP_TRANSPORT_VERSION].includes(input.version)||
+      ![1,2,3,4,5,6,GROUP_TRANSPORT_VERSION].includes(input.version)||
       !input.groups||typeof input.groups!=="object"||Array.isArray(input.groups)||
       Object.keys(input.groups).length>MAX_GROUPS)
     throw new Error("Invalid Atlas Group transportation configuration.");
@@ -44,6 +44,7 @@ export function validateGroupTransportation(input){
           !(entry.capacity===null||integer(entry.capacity,1,1000))||
           !GROUP_TRANSPORT_SURFACES.includes(entry.surface)||
           !(entry.enabled===undefined||typeof entry.enabled==="boolean")||
+          !(entry.needsSeat===undefined||typeof entry.needsSeat==="boolean")||
           !(entry.assignedTo==null||safeId(entry.assignedTo))||
           (entry.assignedTo!=null&&(entry.role!=="mount"||
             entry.quantity!==1||entry.enabled===false))||
@@ -62,7 +63,8 @@ export function validateGroupTransportation(input){
       }
       members[actorId]={role:entry.role,quantity:entry.quantity,
         capacity:entry.capacity,surface:entry.surface,enabled:entry.enabled??true,
-        assignedTo:entry.assignedTo??null,profileId:entry.profileId??null,
+        needsSeat:entry.needsSeat??true,assignedTo:entry.assignedTo??null,
+        profileId:entry.profileId??null,
         speedMphOverride:entry.speedMphOverride??null,
         costCpOverride:entry.costCpOverride??null,
         costBasisOverride:entry.costBasisOverride??null,
@@ -144,17 +146,24 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
     const costAppliesOverride=saved?.costAppliesOverride??null;
     const purchaseGpOverride=saved?.purchaseGpOverride??null;
     const noteOverride=saved?.noteOverride??null;
+    const needsSeat=character?true:saved?.needsSeat??true;
+    const profileSpeedMph=profileLookup.get(profileId)?.speedMph??null;
     members.push({actorId:actor.id,actorName:actor.name??"Unnamed Actor",
       actorType:actor.type,role,quantity,capacity,surface,profileId,
-      enabled:saved?.enabled??true,assignedTo:saved?.assignedTo??null,
-      speedMphOverride,costCpOverride,costBasisOverride,costAppliesOverride,
+      enabled:saved?.enabled??true,needsSeat,assignedTo:saved?.assignedTo??null,
+      profileSpeedMph,speedMphOverride,costCpOverride,costBasisOverride,costAppliesOverride,
       purchaseGpOverride,noteOverride,
       primaryVehicle:Boolean(vehicle&&group.system?.primaryVehicle?.id===actor.id),
       configured:Boolean(saved)});
   }
-  const travelers=members.reduce((sum,m)=>
-    sum+(m.role==="passenger"?m.quantity:0),0);
-  const unclassified=members.filter(m=>m.role==="unassigned").length;
+  // Travelers and required seats are distinct: companions may travel on
+  // another member's seat without consuming a separate one.
+  const partyMembers=members.filter(m=>m.role==="passenger");
+  const travelers=partyMembers.reduce((sum,m)=>
+    sum+(m.needsSeat?m.quantity:0),0);
+  const pcCount=partyMembers.filter(m=>m.actorType==="character").length;
+  const npcCount=partyMembers.filter(m=>m.actorType==="npc").length;
+  const unclassified=members.filter(m=>m.actorType==="npc"&&m.role==="unassigned").length;
   const resources=members.filter(m=>m.enabled&&
     (m.role==="mount"||m.role==="vehicle"));
   const available=eligibleResourceSeats({members},resources);
@@ -163,12 +172,12 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
       total+item.seats,0)
   ]));
   return {groupId,groupName:group.name??"The Party",members,
-    travelers,unclassified,capacityBySurface};
+    travelers,pcCount,npcCount,unclassified,capacityBySurface};
 }
 /** Eligible travelers are native Group characters or individual passenger NPCs.
  * Selected-party preview limits PC availability but cannot authorize Token movement. */
 export function eligibleGroupRiders(projection){
-  return projection.members.filter(m=>m.role==="passenger"&&
+  return projection.members.filter(m=>m.role==="passenger"&&m.needsSeat!==false&&
     (m.actorType==="character"||(m.actorType==="npc"&&m.quantity===1)))
     .map(m=>({id:m.actorId,name:m.actorName}))
     .sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
@@ -245,7 +254,8 @@ export function groupMethodCapacityStatus(projection,method){
   const unknown=participating.filter(item=>item.member.capacity===null).length;
   // Only resources available to traveling members affect estimated pace.
   const speeds=usable.filter(item=>item.seats>0)
-    .map(({member})=>member.speedMphOverride??method.speedMph)
+    .map(({member})=>member.speedMphOverride??
+      (method.id==="mounted"?member.profileSpeedMph:null)??method.speedMph)
     .filter(speed=>typeof speed==="number"&&Number.isFinite(speed)&&speed>0);
   const effectiveSpeedMph=speeds.length?Math.min(...speeds):null;
   return {travelers:projection.travelers,seats,
