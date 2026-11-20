@@ -2,7 +2,7 @@
 const el=(tag,text)=>{const node=document.createElement(tag);
   if(text!==undefined)node.textContent=String(text);return node;};
 export function renderWalkingCargoControls({participants=[],quantities={},
-  recommendedSpeed,customPace=null,unit="mph",plan=null,error=null,
+  recommendedSpeed,maximumSpeed,customPace=null,unit="mph",plan=null,error=null,
   disabled=false,onQuantity,onPace}={}){
   const root=el("section");
   root.className="atlas-navigation-convoy-pace";
@@ -10,7 +10,8 @@ export function renderWalkingCargoControls({participants=[],quantities={},
   const title=el("strong","Together: compare travel pace");
   root.append(title);
   const help=el("small","All Group travelers walk; hired vehicles carry cargo only. "+
-    "A shared party cannot move faster than its slowest participant. "+
+    "The slowest speed is recommended. A GM may explicitly override walking pace "+
+    "for this Journey, but cannot exceed the slowest hired vehicle. "+
     "No booking, boarding or payment occurs.");
   help.style.opacity=".85";root.append(help);
   const summary=el("div");
@@ -55,10 +56,16 @@ export function renderWalkingCargoControls({participants=[],quantities={},
   field.value=customPace===null?"":String(customPace);
   field.disabled=disabled||customPace===null;
   field.style.cssText="width:7rem;max-width:100%;";
-  field.setAttribute?.("aria-label","Custom slower convoy speed in "+unit);
+  field.setAttribute?.("aria-label","GM convoy pace override in "+unit);
   field.addEventListener("change",()=>onPace?.(Number(field.value)));
-  slower.append(choice,el("span","Custom slower pace"),field,el("span",unit));
+  slower.append(choice,el("span","GM pace override"),field,el("span",unit));
   pace.append(slower);root.append(pace);
+  if(maximumSpeed!==undefined){
+    const limit=el("small","Maximum with selected hired vehicles: "+
+      maximumSpeed+" "+unit+". Faster-than-recommended walking pace "+
+      "requires GM approval; Actor speeds remain unchanged.");
+    limit.style.opacity=".8";root.append(limit);
+  }
   const output=el("small",error??
     (plan?"Shared pace: "+plan.speed+" "+unit+" · "+
       plan.moving+" moving · Estimated hire "+plan.cost+" (not charged).":
