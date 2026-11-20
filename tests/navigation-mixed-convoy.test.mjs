@@ -54,3 +54,28 @@ test("legacy unlimited service remains available to cargo-only hires",()=>{
   assert.equal(quote(old).hires[0].unlimited,true);
   assert.equal(quote(old).hires[0].availableUnits,null);
 });
+
+test("cargo controls keep walking active and use explicit GM selections",async()=>{
+  const previous=globalThis.document;
+  globalThis.document={createElement:tag=>({
+    tag,children:[],style:{},listeners:new Map(),
+    append(...nodes){this.children.push(...nodes);},
+    addEventListener(name,cb){this.listeners.set(name,cb);},
+    setAttribute(){}
+  })};
+  try{
+    const {renderWalkingCargoControls}=await import("../scripts/navigation-mixed-convoy-view.js");
+    const updates=[];
+    const form=renderWalkingCargoControls({enabled:true,
+      quantities:{cart:1},choices:[{id:"cart",name:"Cart",speedMph:4,
+        unlimited:false,available:1}],sceneUnits:"mi",
+      onEnabled:state=>updates.push(["enabled",state]),
+      onQuantity:(id,count)=>updates.push([id,count])});
+    const all=node=>[node,...node.children.flatMap(all)];
+    const controls=all(form).filter(n=>n.tag==="input");
+    assert.equal(controls.length,4,"mode, cart, unit count and slower pace controls");
+    assert.equal(controls[1].checked,true);
+    controls[1].checked=false;controls[1].listeners.get("change")();
+    assert.deepEqual(updates,[["cart",0]]);
+  }finally{globalThis.document=previous;}
+});
