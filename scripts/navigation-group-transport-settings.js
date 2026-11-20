@@ -179,7 +179,7 @@ export class AtlasGroupTransportationSettings extends base {
     const panelHost=node("div");
     panelHost.style.cssText="flex:1;min-height:0;overflow-y:auto;"+
       "display:block;align-content:start;";
-    const bucket={};
+    const bucket={},emptyBySurface={};
     const sectionStyle="border:1px solid var(--color-border-light-primary,#666);"+
       "border-radius:.5rem;padding:.6rem;min-width:0;gap:.35rem;";
     for(const [surface,label] of [["land","Land Travel"],["water","Water Travel"],["air","Air Travel"]]){
@@ -187,9 +187,21 @@ export class AtlasGroupTransportationSettings extends base {
       section.className="atlas-group-transport-surface";
       section.style.cssText=sectionStyle;
       section.appendChild(node("legend",label));
+      const empty=node("small","No owned resources.");
+      empty.className="atlas-group-transport-empty";
+      section.appendChild(empty);
+      emptyBySurface[surface]=empty;
       bucket[surface]=section;
       panelHost.appendChild(tabs.addPanel(surface,section));
     }
+    const updateSurfaceEmpty=()=>{
+      for(const [surface,section] of Object.entries(bucket)){
+        const empty=emptyBySurface[surface];
+        empty.hidden=section.children.some(child=>
+          child.className==="atlas-group-transport-resource");
+        empty.style.display=empty.hidden?"none":"";
+      }
+    };
     const npcPanel=node("section");
     npcPanel.className="atlas-group-transport-npc";
     npcPanel.style.cssText="min-width:0;gap:.5rem;align-content:start;";
@@ -337,7 +349,7 @@ export class AtlasGroupTransportationSettings extends base {
             profileDetails.textContent=role.value==="passenger"?
               "Traveling NPC · Needs seat: "+(needsSeat.checked?"Yes":"No"):
               role.value==="unassigned"?"Choose a role in Need Setup.":
-              "NPC role: "+role.options?.[role.selectedIndex]?.textContent+
+              "NPC role: "+(role.options?.[role.selectedIndex]?.textContent??role.value)+
                 " · No passenger seat";
             riderDetails.textContent="";
             return;
@@ -458,8 +470,10 @@ export class AtlasGroupTransportationSettings extends base {
               noteOverride.value=next.noteOverride??"";
               updateDetails();
               const nextSurface=lookup.get(next.profileId)?.surface??member.surface;
-              if(type==="vehicle"||role.value==="mount")
+              if(type==="vehicle"||role.value==="mount"){
                 (bucket[nextSurface]??other).appendChild(row);
+                updateSurfaceEmpty();
+              }
               this.dirty=true;
             }
           });
@@ -493,7 +507,8 @@ export class AtlasGroupTransportationSettings extends base {
               npcRoles[role.value]??other;
           role.addEventListener("change",()=>{
             destination().appendChild(row);
-            updateNpcCategories();updateNeedSetup();this.dirty=true;
+            updateSurfaceEmpty();updateNpcCategories();updateNeedSetup();
+            this.dirty=true;
           });
         }
         header.append(visible);
@@ -521,9 +536,7 @@ export class AtlasGroupTransportationSettings extends base {
         target.appendChild(row);
       }
     }
-    for(const section of Object.values(bucket))
-      if(section.children.length===1)section.appendChild(node("small","No owned resources."));
-    updateNpcCategories();updateNeedSetup();
+    updateSurfaceEmpty();updateNpcCategories();updateNeedSetup();
     root.appendChild(panelHost);
     const footer=node("div");
     footer.className="atlas-group-transport-footer";
