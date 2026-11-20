@@ -1970,13 +1970,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(this.travelMethod!=="walking"||!this.assessTravelMethod().guided)
         throw Error(this.assessTravelMethod().reason??"Choose a valid walking cargo convoy.");
       const proposed=this.mixedConvoyPlan();
+      const shown=atlasDisplaySpeed(proposed.speedPerHour,
+        this.scene.grid.units,game.settings,game.system?.id);
+      const speedUnit=shown.unit==="mi/hour"?"mph":
+        shown.unit==="km/hour"?"km/h":shown.unit;
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm mixed walking and cargo travel"},
         content:el("div","GM confirmation: all "+proposed.travelers.length+
           " Group travelers will walk. Hire "+proposed.hires.map(h=>
             h.units+" cargo-only "+h.methodName).join(", ")+
-          " at a shared pace of "+proposed.speedPerHour+" "+
-          this.scene.grid.units+"/hour ("+proposed.movingHours.toFixed(2)+
+          " at a shared pace of "+shown.value.toFixed(2)+" "+speedUnit+
+          " ("+proposed.movingHours.toFixed(2)+
           " moving hours; estimated "+proposed.totalCp+
           " CP). No passengers board the cargo, and Atlas makes no booking, "+
           "currency deduction, Actor change or automatic hire payment. Continue?"),
@@ -3638,7 +3642,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         let plan=null,error=null;
         try{plan=this.mixedConvoyPlan();}
         catch(e){error=e.message??String(e);}
-        const unit=walkDisplay.unit.replace("/hour", "/h");
+        const unit=walkDisplay.unit==="mi/hour"?"mph":
+          walkDisplay.unit==="km/hour"?"km/h":walkDisplay.unit;
         const current=this.convoyPace===null?null:
           displaySpeed(this.convoyPace).value;
         section.append(renderWalkingCargoControls({
