@@ -2709,7 +2709,8 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
     nav.convoyPace=7;
     assert.equal(nav.assessTravelMethod().guided,false,
       "a too-fast pace must not authorize a joint Token move");
-    assert.match(nav.assessTravelMethod().reason,/faster than its slowest/);
+    assert.match(nav.assessTravelMethod().reason,/slowest hired vehicle speed/,
+      "a GM may raise walking pace, but must not outrun the hired cart");
     nav.convoyPace=null;
     await assert.rejects(nav.startGuidedTravel(),/inventory/);
     assert.equal(moves,0,"stock change must not move the native token");

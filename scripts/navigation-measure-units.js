@@ -73,9 +73,19 @@ export function atlasSceneDistanceFromDisplay(amount,sceneUnit,settings,systemId
   const displayUnit=resolveAtlasMeasuringUnits(settings,systemId,sceneUnit)==="metric"?"km":"mi";
   return convertDistance(amount,displayUnit,sceneUnit)??amount;
 }
-/** Convert a UI speed to native Scene units/hour; the common hour divisor cancels. */
-export function atlasSceneSpeedFromDisplay(speed,sceneUnit,settings,systemId){
-  return atlasSceneDistanceFromDisplay(speed,sceneUnit,settings,systemId);
+/** Convert a UI speed to Scene units/hour; the hour divisor cancels.
+ * Honor the rounded maximum shown beside the control without exceeding it.
+ */
+export function atlasSceneSpeedFromDisplay(speed,sceneUnit,settings,systemId,
+  canonicalMaximum=null){
+  const converted=atlasSceneDistanceFromDisplay(speed,sceneUnit,settings,systemId);
+  if(Number.isFinite(canonicalMaximum)){
+    const shown=atlasDisplaySpeed(canonicalMaximum,sceneUnit,settings,systemId).value;
+    if(Number.isFinite(shown)&&
+        Math.abs(speed-Number(shown.toFixed(2)))<1e-8)
+      return canonicalMaximum;
+  }
+  return converted;
 }
 export function atlasDisplayElevation(meters,settings,systemId){
   const imperial=resolveAtlasMeasuringUnits(settings,systemId)==="imperial";

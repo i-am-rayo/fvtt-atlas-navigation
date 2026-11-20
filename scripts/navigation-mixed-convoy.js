@@ -31,7 +31,16 @@ export function validateWalkingCargoConvoy(value){
           h.availableUnits>100))||
       new Set(value.hires.map(h=>h.methodId)).size!==value.hires.length||
       !positive(value.speedPerHour)||!positive(value.suggestedSpeedPerHour)||
-      value.speedPerHour>value.suggestedSpeedPerHour+1e-7||
+      (value.gmWalkingPaceOverride!==undefined&&
+        typeof value.gmWalkingPaceOverride!=="boolean")||
+      (value.gmWalkingPaceOverride===true?(
+        value.speedPerHour<=value.suggestedSpeedPerHour+1e-7||
+        typeof value.sceneUnits!=="string"||value.sceneUnits.length>32||
+        value.hires.some(h=>{
+          const cap=convertGroupSpeed(h.speedMph,"mph",value.sceneUnits);
+          return !positive(cap)||value.speedPerHour>cap+1e-7;
+        })
+      ):value.speedPerHour>value.suggestedSpeedPerHour+1e-7)||
       !positive(value.movingHours)||!money(value.totalCp)||
       Math.abs(value.totalCp-value.hires.reduce((n,h)=>n+h.estimatedCostCp,0))>1e-5)
     throw Error("Invalid approved walking-and-cargo convoy.");
@@ -65,9 +74,14 @@ export function planWalkingCargoConvoy({travelers,walkingSpeed,sceneUnits,
   }
   const suggestedSpeedPerHour=Math.min(walkingSpeed,
     ...hires.map(({method})=>speedOf(method)));
-  if(paceOverride!==null&&(!positive(paceOverride)||
-      paceOverride>suggestedSpeedPerHour+1e-7))
-    throw Error("A convoy cannot move faster than its slowest participant.");
+  // A GM may raise walking pace for this Journey, but not exceed any
+  // selected hired vehicle's speed. No Actor speeds or Rules are rewritten.
+  const cargoLimit=Math.min(...hires.map(({method})=>speedOf(method)));
+  if(paceOverride!==null&&(!positive(paceOverride)||paceOverride>1000||
+      paceOverride>cargoLimit+1e-7))
+    throw Error("GM convoy pace exceeds the slowest hired vehicle speed.");
+  const gmWalkingPaceOverride=paceOverride!==null&&
+    paceOverride>suggestedSpeedPerHour+1e-7;
   const speedPerHour=paceOverride??suggestedSpeedPerHour;
   const movingHours=weightedDistance/speedPerHour;
   if(!positive(movingHours)||movingHours>1e7)
@@ -85,6 +99,7 @@ export function planWalkingCargoConvoy({travelers,walkingSpeed,sceneUnits,
     travelers:travelers.map(t=>({actorId:t.actorId,role:"walking",
       seatsNeeded:t.seatsNeeded})),
     hires:entries,suggestedSpeedPerHour,speedPerHour,movingHours,
+    ...(gmWalkingPaceOverride?{gmWalkingPaceOverride:true,sceneUnits}:{}),
     totalCp:entries.reduce((n,h)=>n+h.estimatedCostCp,0)};
   return validateWalkingCargoConvoy(snapshot);
 }
