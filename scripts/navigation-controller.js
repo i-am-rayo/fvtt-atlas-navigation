@@ -1893,6 +1893,47 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           throw Error("The checkpoint's hired service or its terms changed during confirmation. Review the updated offer.");
       }
     }
+    // A fresh cargo convoy requires explicit GM authorization, with live
+    // stock/party/route revalidated after confirmation and before Journal creation.
+    const previousConvoy=isUnfinishedJourneyLeg(this.recoveryRecord)?
+      this.recoveryRecord.legs.at(-1)?.convoy:null;
+    let approvedConvoy=previousConvoy?validateWalkingCargoConvoy(previousConvoy):null;
+    if(this.convoyEnabled&&guidedLeg)
+      throw Error("Walking cargo convoys cannot cross an unresolved transport transfer.");
+    if(!approvedConvoy&&this.convoyEnabled){
+      if(this.travelMethod!=="walking"||!this.assessTravelMethod().guided)
+        throw Error(this.assessTravelMethod().reason??"Choose a valid walking cargo convoy.");
+      const proposed=this.mixedConvoyPlan();
+      const approval=await foundry.applications.api.DialogV2.confirm({
+        window:{title:"Confirm mixed walking and cargo travel"},
+        content:el("div","GM confirmation: all "+proposed.travelers.length+
+          " Group travelers will walk. Hire "+proposed.hires.map(h=>
+            h.units+" cargo-only "+h.methodName).join(", ")+
+          " at a shared pace of "+proposed.speedPerHour+" "+
+          this.scene.grid.units+"/hour ("+proposed.movingHours.toFixed(2)+
+          " moving hours; estimated "+proposed.totalCp+
+          " CP). No passengers board the cargo, and Atlas makes no booking, "+
+          "currency deduction, Actor change or automatic hire payment. Continue?"),
+        rejectClose:false,modal:true
+      });
+      if(!approval)return false;
+      if(this.travelSession||this.journalStarting||this.pendingTransfer||
+          !game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
+          this.scene.id!==view.scene?.id||
+          this.atlasProvider(this.scene).revision!==this.routeRevision||
+          this.getPartyToken()?.id!==token.id||
+          this.result?.status!=="ok")
+        throw Error("Scene, party or road changed during convoy confirmation.");
+      const actual=this.atlasPoint(view,this.atlasProvider(this.scene),
+        partyTokenCanvasCenter(token,this.scene.grid.size));
+      if(Math.hypot(actual.x-this.result.start.x,actual.y-this.result.start.y)>
+          Math.max(.01,this.scene.grid.size/50))
+        throw Error("The party moved while confirming the convoy. Recalculate the route.");
+      const updated=this.mixedConvoyPlan();
+      if(JSON.stringify(updated)!==JSON.stringify(proposed))
+        throw Error("Convoy passengers, supplies, pace or fare changed during confirmation. Review again.");
+      approvedConvoy=validateWalkingCargoConvoy(updated);
+    }
     const route=guidedLeg??this.result;
     if(this.recoveryRecord?.routeTargets&&!isUnfinishedJourneyLeg(this.recoveryRecord)){
       const target=nextJourneyTarget(this.recoveryRecord.routeTargets);
@@ -1906,6 +1947,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "No travel was committed; review the authored roads.");
     }
     let travel=this.resolveTravel().travel;
+    if(approvedConvoy)travel={...travel,speed:approvedConvoy.speedPerHour,
+      methodId:"walking",methodLabel:"Walking with hired cargo",
+      source:"approved-convoy"};
     if(guidedLeg){
       const option=this.transportationTransitionPlan()?.legs[0]?.selectedOption;
       guidedOption=option;
@@ -1952,6 +1996,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     });
     const itinerary=guidedLeg?{...snapshot,transport:guidedLeg.transport}:{
       ...snapshot,
+      ...(approvedConvoy?{convoy:approvedConvoy}:{}),
       travel:{...snapshot.travel,
         methodId:travel.methodId??this.travelMethod,
         methodName:travel.methodLabel??this.travelMethod,
@@ -3492,6 +3537,39 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       }));
+    if(this.result?.status==="ok"&&this.sourceMode==="party"&&
+        partySelection&&!pendingNativeReview&&!approvedActiveTransport&&
+        !approvedRecoveryTransport&&!approvedRecoveryLand&&
+        !transferPlan?.hasTransitions&&this.travelMethod==="walking"&&
+        !this.recoveryRecord&&!this.recoverableJourney){
+      const cargoChoices=this.cargoConvoyChoices(availability);
+      if(cargoChoices.length||this.convoyEnabled){
+        let plan=null,error=null;
+        if(this.convoyEnabled)try{plan=this.mixedConvoyPlan();}
+        catch(problem){error=problem.message??String(problem);}
+        body.append(renderWalkingCargoControls({
+          enabled:this.convoyEnabled,choices:cargoChoices,
+          quantities:this.convoyCargoQuantities,pace:this.convoyPace,
+          sceneUnits:this.scene?.grid?.units??"Scene units",
+          plan,error,disabled:Boolean(this.journalStarting||partySplitBlocked),
+          onEnabled:enabled=>{
+            this.convoyEnabled=enabled;void this.render(true);
+          },
+          onQuantity:(id,quantity)=>{
+            if(!Number.isInteger(quantity)||quantity<0||quantity>100){
+              globalThis.ui?.notifications?.warn?.("Cargo units must be a whole number between 1 and 100.");
+              void this.render(true);return;
+            }
+            const values={...this.convoyCargoQuantities};
+            if(quantity===0)delete values[id];else values[id]=quantity;
+            this.convoyCargoQuantities=values;void this.render(true);
+          },
+          onPace:value=>{
+            this.convoyPace=value;void this.render(true);
+          }
+        }));
+      }
+    }
     if(this.result?.status==="ok"&&!pendingNativeReview&&!approvedActiveTransport&&
         !approvedRecoveryTransport&&!approvedRecoveryLand&&
         !transferPlan?.hasTransitions&&this.travelMethod==="mounted"&&
@@ -3600,6 +3678,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const showSpeed=amount=>atlasFormatMeasure(atlasDisplaySpeed(amount,sceneUnit));
     const travelSource=approvedActiveTransport?
       `${approvedActiveTransport.methodName} (approved ${approvedActiveTransport.arrangement} Journey leg) · ${showSpeed(speed)}`:
+      travel.source==="mixed-convoy"||travel.source==="approved-convoy"?
+      "Walking with hired cargo (slowest convoy pace) · "+showSpeed(speed):
       travel.source==="group-method"?
       `${travel.methodLabel} (party-owned convoy; slowest matching resource) · ${showSpeed(speed)}`:
       travel.source==="atlas-method"?
