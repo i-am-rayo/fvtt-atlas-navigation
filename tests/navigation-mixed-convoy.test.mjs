@@ -29,6 +29,8 @@ test("zero stock, unsafe speed, passenger-priced hire and non-land roads fail cl
   assert.throws(()=>quote({...cart,hireQuantity:0}),/inventory/);
   assert.throws(()=>quote(cart,{paceOverride:3}),/faster/);
   assert.equal(quote(cart,{paceOverride:1}).movingHours,20);
+  assert.equal(quote(cart,{paceOverride:1}).totalCp,300,
+    "twenty convoy moving hours require three eight-hour hired days");
   assert.throws(()=>quote({...cart,hireApplies:"passenger"}),/unit pricing/);
   assert.throws(()=>quote({...cart,surface:"water"}),/land vehicle/);
   assert.throws(()=>quote({...cart,hireQuantity:1},{

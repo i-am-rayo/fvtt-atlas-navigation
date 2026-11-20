@@ -89,3 +89,10 @@ test("custom convoy speeds round-trip the World metric and imperial settings",()
     assert.equal(rendered.unit,choice==="metric"?"km/hour":"mi/hour");
   }
 });
+
+test("global metric comparison shows 3mph walkers and 4mph carts exactly 1.61km/h apart",()=>{
+  const metric=settings("metric");
+  const walking=atlasDisplaySpeed(3,"mi",metric,"dnd5e");
+  const cart=atlasDisplaySpeed(4,"mi",metric,"dnd5e");
+  near(cart.value-walking.value,1.609344);
+});

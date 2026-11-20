@@ -85,6 +85,12 @@ export function renderNavigationTravelMethodButtons({choices,selectedValue,
   const title=el("legend","Travel method");
   title.style.cssText="font-weight:700;padding:0 .35rem;";
   section.appendChild(title);
+  if(Array.isArray(selectedValues)){
+    const help=el("small","Select one method or combine Walking with hired cargo-only "+
+      "land vehicles. Other mixes need explicit passenger or mount assignments.");
+    help.style.cssText="opacity:.8;line-height:1.35;";
+    section.appendChild(help);
+  }
   const selected=new Set(selectedValues??[selectedValue]);
   const multiple=Array.isArray(selectedValues);
   const groups=new Map();
