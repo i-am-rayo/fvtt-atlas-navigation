@@ -892,6 +892,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       ownsSelected?"owned":offer?"hire":"owned";
     if(preferred==="hire"&&!offer||preferred==="owned"&&method!=="walking"&&!ownsSelected)return;
     this.travelMethod=method;
+    this.mixedKeys=[];this.mixedAssignments={};this.mixedUnits={};
     if(method!=="walking"){
       this.convoyEnabled=false;this.convoyCargoQuantities={};this.convoyPace=null;
     }
@@ -906,68 +907,78 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     void this.render(true);
   }
 
-  /** One selected method stays legacy; walking + per-unit cargo hires is the
-   * only approved multi-choice. Other combinations require per-rider contracts.
+  /** GM checkbox choices stage a single roster-wide mixed assignment.
+   * Mixed mode never infers seat assignments or writes Group/Token documents.
    */
   toggleTravelMethodChoice(value,checked){
     if(!game.user?.isGM||!this.scene||this.travelSession||
         this.journalStarting||this.recoverableJourney||this.recoveryRecord||
-        this.pendingTransfer)return;
+        this.pendingTransfer||!["owned","hire"].includes(value.split("|")[0]))
+      return;
     const [arrangement,method]=value.split("|",2);
-    const selected=this.transportArrangement+"|"+this.travelMethod;
-    const cargos=this.cargoConvoyChoices();
-    const cargo=cargos.find(c=>c.id===method);
-    const currentCargo=cargos.find(c=>c.id===this.travelMethod);
-    const cargoActive=Boolean(arrangement==="hire"&&this.convoyEnabled&&
-      this.convoyCargoQuantities[method]);
-    if(checked){
-      if(value===selected||cargoActive)return;
-      if(value==="owned|walking"&&this.transportArrangement==="hire"&&
-          this.travelMethod===currentCargo?.id&&this.sourceMode==="party"){
-        this.convoyEnabled=true;
-        this.convoyCargoQuantities={[this.travelMethod]:1};
-        this.convoyPace=null;
-        this.setTravelMethod("walking","owned");
-        return;
-      }
-      if(arrangement==="hire"&&cargo&&this.travelMethod==="walking"&&
-          this.sourceMode==="party"){
-        this.convoyEnabled=true;
-        this.convoyCargoQuantities={...this.convoyCargoQuantities,[method]:1};
-        this.convoyPace=null;this.travelNotice="";
+    const primary=this.transportArrangement+"|"+this.travelMethod;
+    const selected=this.mixedKeys.length?this.mixedKeys:
+      this.convoyEnabled?["owned|walking",...Object.keys(
+        this.convoyCargoQuantities).map(id=>"hire|"+id)]:[primary];
+    const wasSelected=selected.includes(value);
+    if(checked===wasSelected)return;
+    const next=checked?[...selected,value]:selected.filter(key=>key!==value);
+    if(!next.length){
+      globalThis.ui?.notifications?.warn?.("Choose at least one travel method.");
+      void this.render(true);return;
+    }
+    if(next.length===1){
+      this.mixedKeys=[];this.mixedAssignments={};this.mixedUnits={};
+      this.convoyEnabled=false;this.convoyCargoQuantities={};this.convoyPace=null;
+      const [singleArrangement,singleMethod]=next[0].split("|",2);
+      if(this.travelMethod===singleMethod&&
+          this.transportArrangement===singleArrangement){
         void this.render(true);
-        return;
-      }
-      if(this.convoyEnabled){
+      }else this.setTravelMethod(singleMethod,singleArrangement);
+      return;
+    }
+    if(this.sourceMode!=="party"||!this.result||this.result.status!=="ok"){
+      globalThis.ui?.notifications?.warn?.(
+        "A mixed party requires an assigned explorer and calculated road route.");
+      void this.render(true);return;
+    }
+    const available=this.transportAvailability();
+    for(const key of next){
+      const [source,id]=key.split("|",2);
+      const world=available.methods.find(item=>item.id===id);
+      if(!world||world.surface!=="land"||
+         source==="hire"&&!available.offers.has(id)||
+         source==="owned"&&id!=="walking"&&!available.owned.has(id)){
         globalThis.ui?.notifications?.warn?.(
-          "Only walkers with hired cargo-only vehicles can travel together yet. "+
-          "Remove cargo before choosing another passenger or mount method.");
+          "Selected methods cannot travel together on this land route.");
         void this.render(true);return;
       }
-      if(!["owned","hire"].includes(arrangement)||!method)return;
-      globalThis.ui?.notifications?.info?.(
-        "Passenger and mount combinations need explicit rider assignments. "+
-        "Atlas will use this method alone.");
-      this.setTravelMethod(method,arrangement);
-    }else if(cargoActive){
-      const remaining={...this.convoyCargoQuantities};delete remaining[method];
-      this.convoyCargoQuantities=remaining;
-      this.convoyEnabled=Object.keys(remaining).length>0;
-      this.convoyPace=null;
-      void this.render(true);
-    }else if(value==="owned|walking"&&this.convoyEnabled){
-      const cargos=Object.keys(this.convoyCargoQuantities);
-      if(cargos.length===1)this.setTravelMethod(cargos[0],"hire");
-      else{
-        globalThis.ui?.notifications?.warn?.(
-          "Deselect all but one cargo vehicle before removing Walking.");
-        void this.render(true);
-      }
-    }else{
-      globalThis.ui?.notifications?.warn?.(
-        "Keep at least one travel method selected, or choose another method.");
-      void this.render(true);
     }
+    const party=this.partyTravelSelection(available.all);
+    if(!party||party.partial||party.empty){
+      globalThis.ui?.notifications?.warn?.(
+        "A mixed Journey must include the entire assigned Group explorer.");
+      void this.render(true);return;
+    }
+    const assignments={...this.mixedAssignments};
+    const all=partyTravelerRoster(party.previewRoster);
+    for(const t of all){
+      if(!next.includes(assignments[t.id]))
+        assignments[t.id]=next.includes("owned|walking")?
+          "owned|walking":""; // Choose the assigned ride explicitly.
+    }
+    this.mixedAssignments=assignments;
+    this.mixedKeys=next;
+    this.mixedUnits=Object.fromEntries(Object.entries(this.mixedUnits)
+      .filter(([key])=>next.includes(key)));
+    this.convoyEnabled=false;this.convoyCargoQuantities={};
+    this.convoyPace=null;
+    this.travelMethod="walking";this.transportArrangement="owned";
+    this.travelNotice="";
+    const view=this.canvasProvider();
+    if(view?.ready&&view.scene?.id===this.scene.id)
+      this.calculateRoute(view,this.atlasProvider(this.scene));
+    this.draw();void this.render(true);
   }
 
   assessTravelMethod(){
@@ -990,9 +1001,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(this.recoveryRecord?.legs?.at(-1)?.convoy&&
           isUnfinishedJourneyLeg(this.recoveryRecord))
         return {compatible:true,guided:true,reason:null};
-      if(!this.convoyEnabled)return {compatible:true,guided:true,reason:null};
+      if(!this.mixedKeys.length&&!this.convoyEnabled)
+        return {compatible:true,guided:true,reason:null};
       try{
-        this.mixedConvoyPlan();
+        if(this.mixedKeys.length)this.mixedLandPlan();
+        else this.mixedConvoyPlan();
         return {compatible:true,guided:true,reason:null};
       }catch(error){return {compatible:false,guided:false,
         reason:error.message??String(error)};}
@@ -3258,13 +3271,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(approved)return {sceneUnit,travel:{...methodTravel,
         speed:approved.speedPerHour,source:"approved-convoy",
         methodLabel:"Walking with hired cargo"}};
-      if(this.convoyEnabled){
+      if(this.mixedKeys.length||this.convoyEnabled){
         try{
-          const planned=this.mixedConvoyPlan(methodTravel);
+          const planned=this.mixedKeys.length?
+            this.mixedLandPlan(methodTravel):this.mixedConvoyPlan(methodTravel);
           if(planned)return {sceneUnit,travel:{...methodTravel,
             speed:planned.speedPerHour,source:"mixed-convoy",
-            methodLabel:"Walking with hired cargo"}};
-        }catch{/* assessTravelMethod reports invalid cargo selections; preview stays read-only. */}
+            methodLabel:planned.schemaVersion===2?
+              "Mixed party transportation":"Walking with hired cargo"}};
+        }catch{/* Invalid assignments block travel; preview stays read-only. */}
       }
     }
     // A partial, non-checkpoint land leg keeps its approved speed across a
