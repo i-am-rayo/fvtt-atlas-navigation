@@ -28,7 +28,8 @@ export function validateMixedLandConvoy(record){
   const keys=new Set(),riders=new Set(),resources=new Set();
   for(const t of record.travelers){
     if(!id(t.actorId)||riders.has(t.actorId)||
-      !id(t.methodKey.replace("|","_"))||
+      typeof t.methodKey!=="string"||
+      !/^(owned|hire)\|[A-Za-z0-9_-]{1,128}$/.test(t.methodKey)||
       !["walking","riding"].includes(t.role)||
       !Number.isInteger(t.seatsNeeded)||t.seatsNeeded<0||t.seatsNeeded>100||
       !Number.isInteger(t.passengers)||t.passengers<1||t.passengers>100||
@@ -51,10 +52,7 @@ export function validateMixedLandConvoy(record){
       (m.role!=="walking"&&(m.units===0||!Number.isInteger(m.capacity)||
         m.capacity<1||m.seatsUsed>m.units*m.capacity))||
       (m.role==="cargo"&&(m.passengers!==0||m.seatsUsed!==0))||
-      (m.role==="riders"&&m.passengers===0)||
-      (m.arrangement==="hire"&&
-        (!id(m.checkpointId)||typeof m.unlimited!=="boolean"||
-         m.unlimited?false:false)))
+      (m.role==="riders"&&m.passengers===0))
       throw Error("Invalid approved mixed Journey transport.");
     if(m.arrangement==="hire"&&
       (!id(m.checkpointId)||typeof m.unlimited!=="boolean"||
@@ -175,6 +173,7 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
     if(!Array.isArray(resources)||!resources.length)
       throw Error("The selected owned method has no assigned Group transport resources.");
     let need=seatsUsed,count=0,costResources=[],speed=nativeSpeed;
+    const reservedRiders=new Set();
     for(const resource of resources){
       if(!id(resource.actorId)||usedResources.has(resource.actorId))
         throw Error("An owned mount or vehicle cannot be selected twice.");
@@ -185,16 +184,21 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
         throw Error("Owned Group transportation has invalid capacity or speed.");
       if(resource.assignedTo&&!people.some(t=>t.actorId===resource.assignedTo))
         continue;
-      const required=resource.assignedTo?
-        people.find(t=>t.actorId===resource.assignedTo)?.seatsNeeded??0:need;
+      const required=resource.assignedTo&&!reservedRiders.has(resource.assignedTo)?
+        people.find(t=>t.actorId===resource.assignedTo)?.seatsNeeded??0:
+        resource.assignedTo?0:need;
       const usable=resource.assignedTo?Math.min(1,resource.quantity):
         resource.quantity;
       const use=Math.min(usable,Math.ceil(Math.max(0,required)/resource.capacity));
       if(!use)continue;
       const covering=Math.min(need,use*resource.capacity);
       need-=covering;count+=use;
+      if(resource.assignedTo)reservedRiders.add(resource.assignedTo);
       speed=Math.min(speed,unitsOf(resource.speedMph,sceneUnits));
-      costResources.push({...resource,units:use});
+      costResources.push({...resource,units:use,
+        billedPassengers:resource.assignedTo?
+          people.find(t=>t.actorId===resource.assignedTo)?.passengers??0:
+          0});
     }
     if(need>0||!count||!passengers)
       throw Error("Insufficient assigned Group transport seats for "+method.name+".");
@@ -223,10 +227,15 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
         travelers:p.passengers,requestedUnits:p.units,movingHours,
         distanceMi,regularHours}).totalCp;
     }else if(p.role!=="walking"){
-      total=p.costResources.reduce((total,r)=>total+
-        projectedGroupFare(r.method,{quantity:r.units,
-          passengers:Math.min(p.passengers,r.units*r.capacity),
-          distanceMi,hours:movingHours,dayHours:regularHours}),0);
+      let remaining=p.passengers-p.costResources.reduce((n,r)=>
+        n+r.billedPassengers,0);
+      for(const r of p.costResources){
+        const billed=r.assignedTo?r.billedPassengers:
+          Math.min(remaining,r.units*r.capacity);
+        if(!r.assignedTo)remaining-=billed;
+        total+=projectedGroupFare(r.method,{quantity:r.units,
+          passengers:billed,distanceMi,hours:movingHours,dayHours:regularHours});
+      }
     }
     const {method,costResources,...record}=p;
     return {...record,estimatedCostCp:total};
