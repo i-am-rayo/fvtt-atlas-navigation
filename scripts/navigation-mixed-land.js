@@ -177,7 +177,6 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
     for(const resource of resources){
       if(!id(resource.actorId)||usedResources.has(resource.actorId))
         throw Error("An owned mount or vehicle cannot be selected twice.");
-      usedResources.add(resource.actorId);
       if(!Number.isInteger(resource.quantity)||resource.quantity<1||
         !Number.isInteger(resource.capacity)||resource.capacity<1||
         !positive(resource.speedMph))
@@ -191,6 +190,7 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
         resource.quantity;
       const use=Math.min(usable,Math.ceil(Math.max(0,required)/resource.capacity));
       if(!use)continue;
+      usedResources.add(resource.actorId);
       const covering=Math.min(need,use*resource.capacity);
       need-=covering;count+=use;
       if(resource.assignedTo)reservedRiders.add(resource.assignedTo);
@@ -235,6 +235,13 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
         if(!r.assignedTo)remaining-=billed;
         total+=projectedGroupFare(r.method,{quantity:r.units,
           passengers:billed,distanceMi,hours:movingHours,dayHours:regularHours});
+        if(r.method.includeCrewWages){
+          const days=Math.ceil(Math.max(0,movingHours-EPS)/regularHours);
+          const periods=r.method.crewWageBasis==="trip"?1:
+            r.method.crewWageBasis==="mile"?distanceMi:days;
+          total+=(r.method.crewCount??0)*
+            (r.method.crewWageCpPerDay??200)*periods*r.units;
+        }
       }
     }
     const {method,costResources,...record}=p;
