@@ -574,6 +574,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
    * roster, Scene, route, hire inventory, mounts, pricing and chosen pace.
    */
   async confirmMixedLandJourney(view,token){
+    if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update"))
+      throw Error("Only an authorized GM may approve mixed travel.");
     if(!this.assessTravelMethod().guided)
       throw Error(this.assessTravelMethod().reason??
         "Mixed transportation is not ready for GM confirmation.");
@@ -3862,8 +3864,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       });
-      if(this.mixedKeys.length&&!locked&&this.sourceMode==="party"&&
-          partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
+      if(this.mixedKeys.length&&!locked&&game.user?.isGM&&
+          this.sourceMode==="party"&&partySelection&&
+          !this.recoveryRecord&&!this.recoverableJourney){
         section.append(this.renderMixedMethodAssignments(partySelection,
           availability,{disabled:Boolean(this.journalStarting||partySplitBlocked)}));
       }

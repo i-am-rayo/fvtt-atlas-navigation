@@ -103,3 +103,22 @@ test("two different owned methods cannot double-use a Group mount actor",()=>{
       pc3:"owned|walking",npc1:"hire|coach-hire",npc2:"hire|coach-hire"}
   }),/cannot be selected twice/);
 });
+
+test("owned mixed transport crew wages are charged for used resources only",()=>{
+  const horse={id:"riding-horse",name:"Riding Horse",kind:"mount",
+    surface:"land",speedMph:4};
+  const resources=[{actorId:"horse1",quantity:1,capacity:1,speedMph:4,
+    assignedTo:"pc2",method:{costCp:5,costBasis:"day",costApplies:"unit",
+      includeCrewWages:true,crewCount:1,crewWageCpPerDay:200,crewWageBasis:"day"}},
+    {actorId:"horse2",quantity:1,capacity:1,speedMph:3,
+    assignedTo:"pc1",method:{costCp:5,costBasis:"day",costApplies:"unit",
+      includeCrewWages:true,crewCount:1,crewWageCpPerDay:200,crewWageBasis:"day"}}];
+  const result=plan({methods:[walking,coachMethod,{
+    key:"owned|riding-horse",arrangement:"owned",method:horse,resources
+  }],assignments:{pc1:"owned|walking",pc2:"owned|riding-horse",
+    pc3:"hire|coach-hire",npc1:"hire|coach-hire",npc2:"hire|coach-hire"}});
+  assert.deepEqual(result.methods[2].resourceIds,["horse1"]);
+  assert.equal(result.methods[2].estimatedCostCp,205);
+  assert.equal(result.totalCp,505,
+    "unused horse does not incur an extra feed cost or crew wage");
+});
