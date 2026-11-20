@@ -197,7 +197,7 @@ export class AtlasGroupTransportationSettings extends base {
     const updateSurfaceEmpty=()=>{
       for(const [surface,section] of Object.entries(bucket)){
         const empty=emptyBySurface[surface];
-        empty.hidden=section.children.some(child=>
+        empty.hidden=[...section.children].some(child=>
           child.className==="atlas-group-transport-resource");
         empty.style.display=empty.hidden?"none":"";
       }
