@@ -12,6 +12,7 @@ import { publishJourneySummary }
   from "../scripts/navigation-journey-summary-writer.js";
 import {captureApprovedJourneyPath} from "../scripts/navigation-approved-path.js";
 import {planWalkingCargoConvoy} from "../scripts/navigation-mixed-convoy.js";
+import {planMixedLandConvoy} from "../scripts/navigation-mixed-land.js";
 const MODULE_ID="fvtt-atlas-navigation";
 const itinerary=()=>({schemaVersion:1,scene:{name:"Paedor",units:"km"},
   endpoints:{departure:{x:0,y:0},destination:{x:120,y:30}},
@@ -439,4 +440,46 @@ test("GM-authorized faster walking with cargo is Journal-saved and recoverable",
   assert.equal(eligibleJourneyRecord(corrupted,{
     sceneId:"scene",tokenId:"token",atlasRevision:12}),false,
     "Journal cannot invent a faster pace without retained GM authorization");
+});
+
+test("mixed passenger assignments are saved, readable and recovered without new hire availability",()=>{
+  const coach={id:"coach-hire",name:"Coach",kind:"vehicle",surface:"land",
+    speedMph:4,capacity:4,hireEnabled:true,hireApplies:"passenger",
+    hireCostCp:100,hireBasis:"day",hireUnlimited:false,hireQuantity:1};
+  const mixed=planMixedLandConvoy({
+    travelers:[{actorId:"pc1",seatsNeeded:1,passengers:1},
+      {actorId:"pc2",seatsNeeded:1,passengers:1}],
+    assignments:{pc1:"owned|walking",pc2:"hire|coach-hire"},
+    methods:[{key:"owned|walking",arrangement:"owned",
+      method:{id:"walking",name:"Walking",kind:"foot",surface:"land"}},
+      {key:"hire|coach-hire",arrangement:"hire",method:coach,
+        checkpointId:"hearth"}],
+    walkingSpeed:3,sceneUnits:"mi",routeDistance:24,
+    weightedDistance:24,distanceMi:24
+  });
+  const scenario=itinerary();
+  scenario.scene.units="mi";
+  scenario.travel={speedPerHour:3,methodId:"walking",
+    methodName:"Mixed Group transportation",arrangement:"owned",
+    operation:"normal"};
+  scenario.measurements={distance:24,travelHours:8,terrainAware:false};
+  scenario.convoy=mixed;
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:scenario});
+  assert.deepEqual(saved.legs[0].convoy,mixed);
+  const stopped=checkpointJourneyRecord(saved,{
+    schedule:{...schedule,completedHours:4,events:[],restEvents:0},
+    progress:50,status:"interrupted"});
+  const html=formatJourneyJournalHTML(stopped);
+  assert.match(html,/Mixed party|mixed transportation/i);
+  assert.match(html,/Coach/);
+  assert.match(html,/riding/);
+  const resumed=resumeJourneyRecord(stopped,{
+    itinerary:{...scenario,convoy:undefined},atlasRevision:12});
+  assert.deepEqual(resumed.legs[1].convoy,mixed);
+  assert.equal(resumed.legs[1].speedPerHour,3);
+  const bad=structuredClone(stopped);
+  bad.legs[0].convoy.travelers[0].methodKey="hire|absent";
+  assert.equal(eligibleJourneyRecord(bad,{
+    sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
 });

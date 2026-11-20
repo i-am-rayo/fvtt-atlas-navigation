@@ -1,5 +1,8 @@
 import { MODULE_ID } from "./atlas-storage.js";
 import {validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
+import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
+const validateApprovedConvoy=value=>value?.schemaVersion===2?
+  validateMixedLandConvoy(value):validateWalkingCargoConvoy(value);
 import { formatNavigationDuration } from "./navigation-time.js";
 import {validatePlaybackSetting} from "./navigation-playback.js";
 import { atlasDisplayDistance,atlasDisplaySpeed } from "./navigation-measure-units.js";
@@ -63,7 +66,7 @@ export function journeyLegFromItinerary(itinerary){
     })),
     completedMovingHours:0,completedPercent:0,events:[],
     worldTravelSeconds:0,worldRestSeconds:0,
-    ...(itinerary.convoy?{convoy:validateWalkingCargoConvoy(itinerary.convoy)}:{}),
+    ...(itinerary.convoy?{convoy:validateApprovedConvoy(itinerary.convoy)}:{}),
     ...(itinerary.transport?{transport:validateTransportJourneyInfo(itinerary.transport)}
       :itinerary.travel?.methodId&&
         (itinerary.travel.methodId!=="walking"||itinerary.convoy)?
@@ -148,7 +151,7 @@ export function validateJourneyRecord(value){
     throw Error("This Atlas Journey Journal has invalid recovery metadata.");
   for(const leg of value.legs)
     if(leg.convoy!==undefined){
-      const convoy=validateWalkingCargoConvoy(leg.convoy);
+      const convoy=validateApprovedConvoy(leg.convoy);
       if(Math.abs(convoy.speedPerHour-leg.speedPerHour)>1e-7)
         throw Error("Approved convoy speed differs from the saved journey leg.");
     }
@@ -217,7 +220,7 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
   if(isUnfinishedJourneyLeg(next)&&old?.convoy){
     if(Math.abs(resumed.speedPerHour-old.speedPerHour)>1e-7)
       throw Error("The saved convoy speed must be retained before recovery.");
-    resumed.convoy=validateWalkingCargoConvoy(old.convoy);
+    resumed.convoy=validateApprovedConvoy(old.convoy);
     resumed.travelMethod=structuredClone(old.travelMethod);
   }
   if(approvedPath)resumed.approvedPath=validateApprovedJourneyPath(approvedPath);
@@ -295,17 +298,35 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         shown.unit==="km/hour"?"km/h":shown.unit;
       return Number(shown.value).toFixed(2)+" "+unit;
     };
-    const convoyLines=leg.convoy&&leg.completedMovingHours>0?[
-      "The party walked together with hired cargo transport at "+
-        convoySpeed(leg.convoy.speedPerHour)+" (approved convoy pace).",
-      ...(leg.convoy.gmWalkingPaceOverride?
-        ["GM-approved walking pace exception: recommended "+
-          convoySpeed(leg.convoy.suggestedSpeedPerHour)+
-          ", approved "+convoySpeed(leg.convoy.speedPerHour)+
-          " for this Journey; Actor movement speeds were not changed."]:[]),
-      ...leg.convoy.hires.map(h=>h.units+" cargo-only "+h.methodName+
-        " (estimated fare "+h.estimatedCostCp+" CP; not charged).")
-    ].map(line=>'<li class="atlas-journey-transport-event">'+escapeHTML(line)+"</li>").join(""):"";
+    const convoyLines=leg.convoy&&leg.completedMovingHours>0?(
+      leg.convoy.schemaVersion===2?[
+        "The Group traveled together using mixed transportation at "+
+          convoySpeed(leg.convoy.speedPerHour)+".",
+        ...leg.convoy.methods.map(m=>{
+          const label=m.role==="walking"?
+            m.passengers+" traveler(s) walking":
+            m.passengers+" traveler(s) riding, "+m.seatsUsed+" seat(s), "+
+            m.units+" "+m.methodName+" unit(s)"+(m.role==="cargo"?
+              " hauling cargo":"");
+          return label+" (estimated "+m.estimatedCostCp+
+            " CP; not charged).";
+        }),
+        ...(leg.convoy.gmWalkingPaceOverride?[
+          "GM-approved walking pace exception: recommended "+
+            convoySpeed(leg.convoy.suggestedSpeedPerHour)+
+            ", approved "+convoySpeed(leg.convoy.speedPerHour)+
+            " for this Journey; Actor speeds were not changed."]:[])
+      ]:[
+        "The party walked together with hired cargo transport at "+
+          convoySpeed(leg.convoy.speedPerHour)+" (approved convoy pace).",
+        ...(leg.convoy.gmWalkingPaceOverride?[
+          "GM-approved walking pace exception: recommended "+
+            convoySpeed(leg.convoy.suggestedSpeedPerHour)+
+            ", approved "+convoySpeed(leg.convoy.speedPerHour)+
+            " for this Journey; Actor movement speeds were not changed."]:[]),
+        ...leg.convoy.hires.map(h=>h.units+" cargo-only "+h.methodName+
+          " (estimated fare "+h.estimatedCostCp+" CP; not charged).")
+      ]).map(line=>'<li class="atlas-journey-transport-event">'+escapeHTML(line)+"</li>").join(""):"";
     const landMethod=leg.travelMethod&&leg.completedMovingHours>0&&
       !leg.convoy?
       `<li class="atlas-journey-transport-event">The party traveled using ${escapeHTML(leg.travelMethod.name)} (`+

@@ -265,6 +265,22 @@ export function groupMethodCapacityStatus(projection,method){
     sufficient:projection.travelers>0&&projection.travelers<=seats};
 }
 
+/** Stable resource inventory for explicit multi-method passenger allocation.
+ * Only GM-configured Group resources count. An assigned personal mount may
+ * carry its assigned rider only; duplicated Actor IDs are rejected by planner.
+ */
+export function groupMethodResourceInventory(projection,method){
+  if(!projection||!Array.isArray(projection.members))
+    throw Error("A valid Group transportation projection is required.");
+  return matchingResources(projection,method).map(resource=>{
+    const effective=effectiveGroupResourceMethod(resource,method);
+    return {actorId:resource.actorId,actorName:resource.actorName,
+      quantity:resource.quantity,capacity:effective.capacity,
+      assignedTo:resource.assignedTo??null,speedMph:effective.speedMph,
+      method:effective};
+  });
+}
+
 /** Display-only per-resource planning quote. For per-passenger overrides,
  * passengers are allocated across available seats in stable Group roster order;
  * no actual boarding or currency mutation occurs. */
