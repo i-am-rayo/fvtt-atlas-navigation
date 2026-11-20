@@ -11,7 +11,12 @@ class FakeElement {
     this.style={cssText:""};this.events={};
     this.textContent="";this.value="";this.defaultValue="";
   }
-  appendChild(child){this.children.push(child);return child;}
+  appendChild(child){
+    const previous=child.parentElement;
+    if(previous){const index=previous.children.indexOf(child);
+      if(index>=0)previous.children.splice(index,1);}
+    child.parentElement=this;this.children.push(child);return child;
+  }
   append(...children){for(const c of children)this.appendChild(c);}
   setAttribute(key,value){this.attributes.set(key,String(value));}
   addEventListener(name,handler){(this.events[name]??=[]).push(handler);}
@@ -97,8 +102,8 @@ test("Group editor shows compact native-Actor transportation by travel surface",
   try{
     const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
     const elements=flatten(root),labels=elements.map(e=>e.textContent??"").join(" ");
-    for(const name of ["Land Travel","Water Travel","Air Travel","Other NPCs / Needs Setup",
-      "Camel","Warship","Save Party Transportation Assignments"])
+    for(const name of ["Land Travel","Water Travel","Air Travel","Needs Setup",
+      "Camel","Warship","Transportation Presets"])
       assert.match(labels,new RegExp(name));
     assert.doesNotMatch(labels,/Player Characters/,"PCs count as travelers without a tab");
     assert.equal(elements.some(e=>e.name==="atlasGroupSelection"),false);
@@ -114,11 +119,13 @@ test("Group editor shows compact native-Actor transportation by travel surface",
     assert.equal(horseControls?.children[0]?.tagName,"SELECT",
       "NPC role selection follows the name on the same row");
     assert.match(horseControls?.style.cssText??"",/margin-left:auto/);
-    assert.equal(horseControls?.children.length,2,
-      "NPC has only Role and Edit, no Delete");
+    assert.equal(horseControls?.children.length,3,
+      "mount has role, hidden Needs seat and Edit; no Delete");
     const shipRow=actorRows.find(e=>e.children[0]?.children[0]?.textContent==="Warship ★ Primary vehicle");
-    assert.equal(shipRow?.children[0]?.children[1]?.children.length,2,
-      "Vehicles retain Edit and confirmed Atlas opt-out");
+    assert.equal(shipRow?.children[0]?.children[1]?.children.length,1,
+      "native Group membership owns vehicle removal; Atlas offers Edit only");
+    assert.equal(elements.some(e=>e.attributes.get("aria-label")===
+      "Remove Warship from Party transportation"),false);
     assert.equal(camelRow?.children[1]?.hidden,true,"hidden draft fields do not break the single-row layout");
     assert.deepEqual(ctx.changes,[],"opening Group editor never changes World or native Group");
   }finally{ctx.restore();}
@@ -133,10 +140,10 @@ test("saving matching profile ID preserves mount capacity across Actor rename",a
     assert.equal(field("profile-camel1").value,"","World method must be explicitly selected");
     field("profile-camel1").value="camel";
     field("quantity-camel1").value="3";
-    const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
     assert.ok(save.events.click?.length);
     await save.events.click[0]();
-    assert.equal(ctx.saved.version,6);
+    assert.equal(ctx.saved.version,7);
     assert.equal(ctx.saved.groups.group1.members.camel1.profileId,"camel");
     assert.equal(ctx.changes.length,1);
     ctx.camel.name="Biscuit";
@@ -153,7 +160,7 @@ test("two open Group assignment menus save different Groups without overwriting,
     first.render=async()=>{};
     const root=flatten(await first._renderHTML());
     ctx.setSaved({...ctx.saved,groups:{...ctx.saved.groups,otherGroup:{members:{}}}});
-    const button=root.find(e=>e.textContent==="Save Party Transportation Assignments");
+    const button=root.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
     await button.events.click[0]();
     assert.equal(ctx.changes.length,1,"unrelated Group change must not block saving this Group");
     assert.deepEqual(ctx.saved.groups.otherGroup,{members:{}},
@@ -167,25 +174,29 @@ test("two open Group assignment menus save different Groups without overwriting,
       group1:{members:{...prior.members,
         camel1:{...prior.members.camel1,quantity:9}}}}});
     const count=ctx.changes.length;
-    await draft.find(e=>e.textContent==="Save Party Transportation Assignments")
+    await draft.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments")
       .events.click[0]();
     assert.equal(ctx.changes.length,count,"same Group stale write is rejected");
     assert.equal(ctx.saved.groups.group1.members.camel1.quantity,9);
   }finally{ctx.restore();}
 });
 
-test("compact Land/Water/Air sections retain staged drafts without switching tabs",async()=>{
+test("Land/Water/Air/NPC/Need Setup tabs preserve drafts and accessible panels",async()=>{
   const ctx=setup();
   try{
     const nodes=flatten(await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML());
     const labels=nodes.filter(n=>n.className==="atlas-group-transport-surface")
       .map(section=>section.children[0].textContent);
     assert.deepEqual(labels,["Land Travel","Water Travel","Air Travel"]);
-    assert.equal(nodes.some(n=>n.attributes.get("role")==="tab"),false);
-    assert.equal(nodes.filter(n=>n.attributes.get("role")==="tabpanel").length,0);
+    const tabNodes=nodes.filter(n=>n.attributes.get("role")==="tab");
+    assert.deepEqual(tabNodes.map(n=>n.textContent),["Land","Water","Air","NPC","Need Setup"]);
+    assert.equal(nodes.filter(n=>n.attributes.get("role")==="tabpanel").length,5);
     const camel=nodes.find(n=>n.name==="quantity-camel1");
     camel.value="5";
-    assert.equal(camel.value,"5","all surfaces remain mounted and preserve the same draft");
+    tabNodes[1].events.click[0]();
+    assert.equal(tabNodes[1].attributes.get("aria-selected"),"true");
+    tabNodes[0].events.click[0]();
+    assert.equal(camel.value,"5","all drafted rows stay mounted between tabs");
     assert.deepEqual(ctx.changes,[]);
   }finally{ctx.restore();}
 });
@@ -205,7 +216,7 @@ test("saving a custom mount speed overrides only Group metadata and derives surf
     assert.equal(speed.disabled,false,"explicit World profile permits a speed override");
     speed.value="3.75";
     assert.equal(profile.value,"camel");
-    const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
     await save.events.click[0]();
     const entry=ctx.saved.groups.group1.members.camel1;
     assert.equal(entry.speedMphOverride,3.75);
@@ -229,7 +240,7 @@ test("Group editor saves all resource-specific economy and note overrides",async
     input("purchase-mode-camel1").value="custom";
     input("purchase-camel1").value="67";
     input("note-camel1").value="Special pack-trained breed";
-    const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
     await save.events.click[0]();
     const actual=ctx.saved.groups.group1.members.camel1;
     assert.equal(actual.costCpOverride,12.5);
@@ -248,7 +259,7 @@ test("Group editor can explicitly clear a vehicle's purchase price",async()=>{
     const elements=flatten(await app._renderHTML());
     const input=name=>elements.find(e=>e.name===name);
     input("purchase-mode-ship1").value="none";
-    const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
     await save.events.click[0]();
     assert.equal(ctx.saved.groups.group1.members.ship1.purchaseGpOverride,"none");
   }finally{ctx.restore();}
@@ -301,7 +312,7 @@ test("Party transportation child editor stages existing Group data without writi
     assert.equal(ctx.changes.length,0,"child edit does not save World/Group");
     assert.equal(elements.find(e=>e.name==="quantity-camel1").value,"4");
     assert.equal(elements.find(e=>e.name==="speed-camel1").value,"3.75");
-    const save=elements.find(e=>e.textContent==="Save Party Transportation Assignments");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
     await save.events.click[0]();
     assert.equal(ctx.saved.groups.group1.members.camel1.quantity,4);
     assert.equal(ctx.saved.groups.group1.members.camel1.speedMphOverride,3.75);
@@ -312,32 +323,33 @@ test("Party transportation child editor stages existing Group data without writi
   }finally{globalThis.foundry=oldFoundry;ctx.restore();}
 });
 
-test("remove/re-enable is staged, versioned and never deletes the native Group Actor",async()=>{
-  const ctx=setup(),prev=globalThis.foundry;
+test("native Group owns removal; legacy excluded resources can be explicitly restored",async()=>{
+  const ctx=setup();
   try{
     const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const initial=flatten(await app._renderHTML());
+    assert.equal(initial.some(n=>n.attributes.get("aria-label")==="Remove Warship from Party transportation"),false);
+    assert.equal(initial.some(n=>n.attributes.get("aria-label")==="Restore Warship to Party travel"),false);
+    const before=ctx.saved;
+    ctx.setSaved({version:6,groups:{group1:{members:{
+      ...before.groups.group1.members,
+      ship1:{role:"unassigned",quantity:1,capacity:60,surface:"water",enabled:false}
+    }}}});
     const root=flatten(await app._renderHTML());
-    const remove=root.find(n=>n.attributes.get("aria-label")==="Remove Warship from Party transportation");
-    assert.ok(remove?.events.click?.length);
-    globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>true}}}};
-    await remove.events.click[0]();
-    assert.equal(root.find(n=>n.name==="enabled-ship1").value,"false");
-    assert.equal(ctx.changes.length,0,"removal is draft-only");
-    await root.find(n=>n.textContent==="Save Party Transportation Assignments").events.click[0]();
-    assert.equal(ctx.saved.groups.group1.members.ship1.enabled,false);
-    assert.equal(ctx.group.system.members.length,3);
-    const projected=projectGroupTransportation(ctx.group,ctx.saved);
-    assert.equal(projected.capacityBySurface.water,0,"excluded resource stays excluded on reload");
-    const second=flatten(await app._renderHTML());
-    const enable=second.find(n=>n.attributes.get("aria-label")===
-      "Re-enable Warship for Party transportation");
-    assert.ok(enable);
-    await enable.events.click[0]();
-    assert.equal(second.find(n=>n.name==="enabled-ship1").value,"true");
-    await second.find(n=>n.textContent==="Save Party Transportation Assignments")
+    const restore=root.find(n=>n.attributes.get("aria-label")==="Restore Warship to Party travel");
+    assert.ok(restore?.events.click?.length);
+    assert.equal(ctx.changes.length,0,"rendering legacy exclusion is read-only");
+    await restore.events.click[0]();
+    assert.equal(root.find(n=>n.name==="enabled-ship1").value,"true");
+    assert.equal(ctx.changes.length,0,"restore is staged only");
+    await root.find(n=>n.attributes.get("aria-label")==="Save Party Transportation Assignments")
       .events.click[0]();
     assert.equal(ctx.saved.groups.group1.members.ship1.enabled,true);
-  }finally{globalThis.foundry=prev;ctx.restore();}
+    assert.equal(ctx.group.system.members.length,3,"native Group membership intact");
+    const reopened=flatten(await app._renderHTML());
+    assert.equal(reopened.some(n=>n.attributes.get("aria-label")==="Restore Warship to Party travel"),false);
+    assert.equal(reopened.some(n=>n.attributes.get("aria-label")==="Remove Warship from Party transportation"),false);
+  }finally{ctx.restore();}
 });
 
 test("unique mount Assigned To uses current native Group IDs and stages until Group Save",async()=>{
@@ -364,7 +376,7 @@ test("unique mount Assigned To uses current native Group IDs and stages until Gr
     await edit.events.click[0]();
     assert.equal(rider.value,"pc2");
     assert.equal(ctx.changes.length,0,"child Apply is a draft only");
-    await elements.find(e=>e.textContent==="Save Party Transportation Assignments")
+    await elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments")
       .events.click[0]();
     assert.equal(ctx.saved.groups.group1.members.camel1.assignedTo,"pc2");
     assert.equal(ctx.changes.length,1);
@@ -389,7 +401,7 @@ test("invalid, orphan and duplicate mount rider assignments are rejected before 
     const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
     const nodes=flatten(await app._renderHTML());
     const input=name=>nodes.find(x=>x.name===name);
-    const save=nodes.find(e=>e.textContent==="Save Party Transportation Assignments");
+    const save=nodes.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
     input("assigned-to-camel2").value="pc1";
     await save.events.click[0]();
     assert.equal(ctx.changes.length,0,"duplicate rider may not be saved");
@@ -411,7 +423,7 @@ test("invalid, orphan and duplicate mount rider assignments are rejected before 
     const next=controls.find(x=>x.name==="assigned-to-camel1");
     next.value="pc1";
     ctx.group.system.members.splice(0,1);
-    await controls.find(x=>x.textContent==="Save Party Transportation Assignments")
+    await controls.find(x=>x.attributes.get("aria-label")==="Save Party Transportation Assignments")
       .events.click[0]();
     assert.equal(ctx.changes.length,1,"changed native Group roster blocks stale rider save");
   }finally{ctx.restore();}
