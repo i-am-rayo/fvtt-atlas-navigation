@@ -29,6 +29,8 @@ test("zero stock, unsafe speed, passenger-priced hire and non-land roads fail cl
   assert.throws(()=>quote({...cart,hireQuantity:0}),/inventory/);
   assert.throws(()=>quote(cart,{paceOverride:3}),/faster/);
   assert.equal(quote(cart,{paceOverride:1}).movingHours,20);
+  assert.equal(quote(cart,{paceOverride:1}).totalCp,300,
+    "twenty convoy moving hours require three eight-hour hired days");
   assert.throws(()=>quote({...cart,hireApplies:"passenger"}),/unit pricing/);
   assert.throws(()=>quote({...cart,surface:"water"}),/land vehicle/);
   assert.throws(()=>quote({...cart,hireQuantity:1},{
@@ -55,7 +57,7 @@ test("legacy unlimited service remains available to cargo-only hires",()=>{
   assert.equal(quote(old).hires[0].availableUnits,null);
 });
 
-test("cargo controls keep walking active and use explicit GM selections",async()=>{
+test("inline pace comparison has one recommended/custom decision and unit-consistent speeds",async()=>{
   const previous=globalThis.document;
   globalThis.document={createElement:tag=>({
     tag,children:[],style:{},listeners:new Map(),
@@ -65,17 +67,29 @@ test("cargo controls keep walking active and use explicit GM selections",async()
   })};
   try{
     const {renderWalkingCargoControls}=await import("../scripts/navigation-mixed-convoy-view.js");
-    const updates=[];
-    const form=renderWalkingCargoControls({enabled:true,
-      quantities:{cart:1},choices:[{id:"cart",name:"Cart",speedMph:4,
-        unlimited:false,available:1}],sceneUnits:"mi",
-      onEnabled:state=>updates.push(["enabled",state]),
-      onQuantity:(id,count)=>updates.push([id,count])});
+    const changed=[];
+    const view=renderWalkingCargoControls({
+      participants:[
+        {label:"Walking (party pace)",speed:"4.83"},
+        {label:"Cart (cargo only)",speed:"6.44",methodId:"cart",available:1}
+      ],
+      quantities:{cart:1},recommendedSpeed:"4.83",customPace:null,unit:"km/h",
+      plan:{speed:"4.83",moving:"10h",cost:"200 CP"},
+      onQuantity:(id,count)=>changed.push(["units",id,count]),
+      onPace:pace=>changed.push(["pace",pace])
+    });
     const all=node=>[node,...node.children.flatMap(all)];
-    const controls=all(form).filter(n=>n.tag==="input");
-    assert.equal(controls.length,4,"mode, cart, unit count and slower pace controls");
-    assert.equal(controls[1].checked,true);
-    controls[1].checked=false;controls[1].listeners.get("change")();
-    assert.deepEqual(updates,[["cart",0]]);
+    const inputs=all(view).filter(n=>n.tag==="input");
+    const quantity=inputs.find(n=>n.type==="number"&&n.min==="1");
+    assert.equal(quantity.value,"1");
+    quantity.value="2";quantity.listeners.get("change")();
+    const radios=inputs.filter(n=>n.type==="radio");
+    assert.equal(radios.length,2);
+    assert.equal(radios[0].checked,true,"slowest is suggested by default");
+    radios[1].checked=true;radios[1].listeners.get("change")();
+    assert.equal(inputs.filter(n=>n.type==="checkbox").length,0,
+      "transport choices belong in the unified Travel method fieldset");
+    assert.ok(all(view).some(n=>String(n.textContent??"").includes("km/h")));
+    assert.deepEqual(changed,[["units","cart",2],["pace","custom"]]);
   }finally{globalThis.document=previous;}
 });

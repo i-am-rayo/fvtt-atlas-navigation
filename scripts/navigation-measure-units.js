@@ -73,6 +73,10 @@ export function atlasSceneDistanceFromDisplay(amount,sceneUnit,settings,systemId
   const displayUnit=resolveAtlasMeasuringUnits(settings,systemId,sceneUnit)==="metric"?"km":"mi";
   return convertDistance(amount,displayUnit,sceneUnit)??amount;
 }
+/** Convert a UI speed to native Scene units/hour; the common hour divisor cancels. */
+export function atlasSceneSpeedFromDisplay(speed,sceneUnit,settings,systemId){
+  return atlasSceneDistanceFromDisplay(speed,sceneUnit,settings,systemId);
+}
 export function atlasDisplayElevation(meters,settings,systemId){
   const imperial=resolveAtlasMeasuringUnits(settings,systemId)==="imperial";
   return {value:imperial?meters/0.3048:meters,unit:imperial?"ft":"m"};
