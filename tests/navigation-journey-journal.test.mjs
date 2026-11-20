@@ -11,6 +11,7 @@ import { journeySummaryDue,persistJourneyState }
 import { publishJourneySummary }
   from "../scripts/navigation-journey-summary-writer.js";
 import {captureApprovedJourneyPath} from "../scripts/navigation-approved-path.js";
+import {planWalkingCargoConvoy} from "../scripts/navigation-mixed-convoy.js";
 const MODULE_ID="fvtt-atlas-navigation";
 const itinerary=()=>({schemaVersion:1,scene:{name:"Paedor",units:"km"},
   endpoints:{departure:{x:0,y:0},destination:{x:120,y:30}},
@@ -400,4 +401,39 @@ test("walking cargo Journal retains the approved convoy on interruption and resu
   altered.legs[0].convoy.speedPerHour=3;
   assert.equal(eligibleJourneyRecord(altered,{sceneId:"scene",tokenId:"token",
     atlasRevision:12}),false);
+});
+
+test("GM-authorized faster walking with cargo is Journal-saved and recoverable",()=>{
+  const cart={id:"cart",name:"Cart",kind:"vehicle",surface:"land",
+    capacity:2,speedMph:4,hireEnabled:true,hireApplies:"unit",
+    hireCostCp:100,hireBasis:"day",hireCrewIncluded:true,
+    hireUnlimited:false,hireQuantity:1};
+  const approved=planWalkingCargoConvoy({
+    travelers:[{actorId:"pc1",seatsNeeded:1}],walkingSpeed:3,
+    sceneUnits:"mi",routeDistance:30,weightedDistance:30,
+    distanceMi:30,hires:[{method:cart,units:1,checkpointId:"hearth"}],
+    paceOverride:4
+  });
+  const plan=itinerary();
+  plan.scene.units="mi";
+  plan.travel={speedPerHour:4,methodId:"walking",
+    methodName:"Walking with cargo",arrangement:"owned",operation:"normal"};
+  plan.measurements={distance:30,travelHours:7.5,terrainAware:false};
+  plan.convoy=approved;
+  const record=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:plan});
+  assert.equal(record.legs[0].convoy.gmWalkingPaceOverride,true);
+  assert.equal(record.legs[0].speedPerHour,4);
+  const paused=checkpointJourneyRecord(record,{
+    schedule:{...schedule,completedHours:3},progress:40,status:"interrupted"});
+  assert.match(formatJourneyJournalHTML(paused),/GM-approved walking pace exception/);
+  const resumed=resumeJourneyRecord(paused,{
+    itinerary:{...plan,convoy:undefined},atlasRevision:12});
+  assert.deepEqual(resumed.legs[1].convoy,approved);
+  assert.equal(resumed.legs[1].speedPerHour,4);
+  const corrupted=structuredClone(paused);
+  delete corrupted.legs[0].convoy.gmWalkingPaceOverride;
+  assert.equal(eligibleJourneyRecord(corrupted,{
+    sceneId:"scene",tokenId:"token",atlasRevision:12}),false,
+    "Journal cannot invent a faster pace without retained GM authorization");
 });

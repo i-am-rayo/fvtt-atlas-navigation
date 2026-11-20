@@ -27,7 +27,12 @@ test("four walkers plus one finite cargo cart share the slower 2mph pace",()=>{
 });
 test("zero stock, unsafe speed, passenger-priced hire and non-land roads fail closed",()=>{
   assert.throws(()=>quote({...cart,hireQuantity:0}),/inventory/);
-  assert.throws(()=>quote(cart,{paceOverride:3}),/faster/);
+  const gm=quote(cart,{paceOverride:3});
+  assert.equal(gm.gmWalkingPaceOverride,true);
+  assert.equal(gm.sceneUnits,"mi");
+  assert.equal(gm.movingHours,20/3);
+  assert.equal(gm.totalCp,100,"a GM-approved faster pace changes day-rate hire cost");
+  assert.throws(()=>quote(cart,{paceOverride:5}),/slowest hired vehicle/);
   assert.equal(quote(cart,{paceOverride:1}).movingHours,20);
   assert.equal(quote(cart,{paceOverride:1}).totalCp,300,
     "twenty convoy moving hours require three eight-hour hired days");
@@ -73,7 +78,8 @@ test("inline pace comparison has one recommended/custom decision and unit-consis
         {label:"Walking (party pace)",speed:"4.83"},
         {label:"Cart (cargo only)",speed:"6.44",methodId:"cart",available:1}
       ],
-      quantities:{cart:1},recommendedSpeed:"4.83",customPace:null,unit:"km/h",
+      quantities:{cart:1},recommendedSpeed:"4.83",
+      maximumSpeed:"6.44",customPace:null,unit:"km/h",
       plan:{speed:"4.83",moving:"10h",cost:"200 CP"},
       onQuantity:(id,count)=>changed.push(["units",id,count]),
       onPace:pace=>changed.push(["pace",pace])
@@ -90,6 +96,37 @@ test("inline pace comparison has one recommended/custom decision and unit-consis
     assert.equal(inputs.filter(n=>n.type==="checkbox").length,0,
       "transport choices belong in the unified Travel method fieldset");
     assert.ok(all(view).some(n=>String(n.textContent??"").includes("km/h")));
+    assert.ok(all(view).some(n=>String(n.textContent??"").includes(
+      "Maximum with selected hired vehicles: 6.44 km/h")));
+    assert.ok(all(view).some(n=>String(n.textContent??"")==="GM pace override"));
     assert.deepEqual(changed,[["units","cart",2],["pace","custom"]]);
   }finally{globalThis.document=previous;}
+});
+
+test("3 mph walkers can explicitly travel at 4 mph with a 4 mph hired cargo cart",()=>{
+  const chosen=quote(cart,{walkingSpeed:3,paceOverride:4,
+    routeDistance:30,weightedDistance:30,distanceMi:30});
+  assert.equal(chosen.suggestedSpeedPerHour,3);
+  assert.equal(chosen.speedPerHour,4);
+  assert.equal(chosen.movingHours,7.5);
+  assert.equal(chosen.totalCp,100);
+  assert.equal(chosen.gmWalkingPaceOverride,true);
+  assert.deepEqual(validateWalkingCargoConvoy(chosen),chosen);
+  const recommended=quote(cart,{walkingSpeed:3,
+    routeDistance:30,weightedDistance:30,distanceMi:30});
+  assert.equal(recommended.movingHours,10);
+  assert.equal(recommended.totalCp,200);
+  assert.equal(recommended.gmWalkingPaceOverride,undefined);
+  const unapproved=structuredClone(chosen);
+  delete unapproved.gmWalkingPaceOverride;
+  assert.throws(()=>validateWalkingCargoConvoy(unapproved),/Invalid approved/);
+  const overVehicle=structuredClone(chosen);
+  overVehicle.speedPerHour=4.01;
+  assert.throws(()=>validateWalkingCargoConvoy(overVehicle),/Invalid approved/);
+  const changedCart=structuredClone(chosen);
+  changedCart.hires[0].speedMph=3;
+  assert.throws(()=>validateWalkingCargoConvoy(changedCart),/Invalid approved/);
+  const missingUnits=structuredClone(chosen);
+  missingUnits.sceneUnits="furlongs";
+  assert.throws(()=>validateWalkingCargoConvoy(missingUnits),/Invalid approved/);
 });
