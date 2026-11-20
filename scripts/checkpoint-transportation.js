@@ -99,7 +99,9 @@ export function transportationMethodOverrideDelta(base,edited){
   const overrides={};
   for(const key of KEYS){
     const value=edited[key];
-    if(value===undefined||value===base[key]||
+    const baseline=key==="hireUnlimited"?(base[key]??true):
+      key==="hireQuantity"?(base[key]??1):base[key];
+    if(value===undefined||value===baseline||
         (key==="capacity"&&value===null))continue;
     overrides[key]=value;
   }

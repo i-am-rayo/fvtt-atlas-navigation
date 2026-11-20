@@ -914,6 +914,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if((scope==="checkpoint"||scope==="journey"&&checkpointName)&&
         (!Number.isInteger(next.hireQuantity)||next.hireQuantity<0||next.hireQuantity>100))
       throw Error("Available transport quantity must be a whole number between 0 and 100.");
+    if(scope==="journey"&&response.__atlasSaveScope!=="checkpoint"&&
+        (next.hireUnlimited!==undefined&&next.hireUnlimited!==(value.hireUnlimited??true)||
+         next.hireQuantity!==undefined&&next.hireQuantity!==(value.hireQuantity??1)))
+      throw Error("Checkpoint inventory must be saved to the Map Marker, not this trip.");
     if(onSave){
       const operation=journeyOperation===null?null:
         String(response.atlasJourneyOperation??journeyOperation);

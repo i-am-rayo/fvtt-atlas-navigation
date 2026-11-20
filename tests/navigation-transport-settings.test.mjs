@@ -514,3 +514,25 @@ test("shared Party Transportation General tab lists eligible Assigned To rider I
       groupAssignment:{quantity:1},onSave:()=>{}}),/current eligible Party member/);
   }finally{globalThis.foundry=previous;ctx.restore();}
 });
+
+test("trip-only transportation edits cannot bypass a checkpoint's finite hire inventory",async()=>{
+  const ctx=setup(),old=globalThis.foundry;
+  const method={id:"cart",name:"Cart",kind:"vehicle",surface:"land",
+    speedMph:4,capacity:2,costCp:0,costBasis:"none",costApplies:"unit",
+    purchaseGp:15,note:"",hireEnabled:true,hireCostCp:100,
+    hireBasis:"day",hireApplies:"unit",hireCrewIncluded:true,
+    hireUnlimited:false,hireQuantity:1};
+  let calls=0;
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{input:async()=>({
+      hireUnlimited:true,hireQuantity:99,hireEnabled:true,
+      speedDisplay:4,capacity:2,hireBasis:"day",hireApplies:"unit",
+      overtimeExtraHours:8,overtimeMultiplier:1.5
+    })}}}};
+    await assert.rejects(()=>openTransportationMethodEditor({method,scope:"journey",
+      checkpointName:"Hearth's Heart",onSave:()=>{calls++;},
+      onSaveCheckpoint:()=>{calls++;}}),/Checkpoint inventory must be saved/);
+    assert.equal(calls,0);
+    assert.deepEqual(ctx.changes,[]);
+  }finally{globalThis.foundry=old;ctx.restore();}
+});
