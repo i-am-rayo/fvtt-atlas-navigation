@@ -90,13 +90,16 @@ export function compactNavigationDirectionRows(rows,{markers=[],
       sorted[markIndex].atDistance<progress+distance-0.02;
     if(canMerge&&!markerInside){
       previous.distanceValue+=distance??0;
-      previous.hoursValue+=hours??0;
+      previous.hoursValue=previous.hoursValue===null||hours===null?null:
+        previous.hoursValue+hours;
       previous.segments.push({info:row.info,surface:row.surface});
-      previous.info=formatDistance&&formatHours?
-        formatDistance(previous.distanceValue)+" · "+formatHours(previous.hoursValue):
+      previous.info=formatDistance?
+        formatDistance(previous.distanceValue)+(previous.hoursValue===null?
+          " · time unavailable":formatHours?
+          " · "+formatHours(previous.hoursValue):""):
         previous.info;
     }else{
-      result.push({...row,distanceValue:distance??0,hoursValue:hours??0,
+      result.push({...row,distanceValue:distance??0,hoursValue:hours,
         segments:[{info:row.info,surface:row.surface}]});
     }
     progress+=distance??0;
