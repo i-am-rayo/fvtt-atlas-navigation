@@ -145,8 +145,14 @@ test("two hired passenger methods travel together without selecting Walking",()=
   assert.throws(()=>plan({...options,paceOverride:4}),
     /GM pace exceeds the slowest participating mount or vehicle/,
     "the 3 mph cart prevents a faster 4 mph mixed-party override");
-  const corrupted=structuredClone(approved);
-  corrupted.methods[1].seatsUsed=3;
-  assert.throws(()=>validateMixedLandConvoy(corrupted),
-    /Mixed Journey passenger coverage or fare does not balance/);
+  const overCapacity=structuredClone(approved);
+  overCapacity.methods[1].seatsUsed=3;
+  assert.throws(()=>validateMixedLandConvoy(overCapacity),
+    /Invalid approved mixed Journey transport/,
+    "a tampered seat count exceeding the cart's capacity fails immediately");
+  const unmatched=structuredClone(approved);
+  unmatched.methods[0].seatsUsed=1;
+  assert.throws(()=>validateMixedLandConvoy(unmatched),
+    /Mixed Journey passenger coverage or fare does not balance/,
+    "a seat count that no longer matches the assigned travelers fails closed");
 });
