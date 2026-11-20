@@ -570,6 +570,61 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     });
   }
 
+  /** Confirm an explicit per-rider manifest and then re-read every authority:
+   * roster, Scene, route, hire inventory, mounts, pricing and chosen pace.
+   */
+  async confirmMixedLandJourney(view,token){
+    if(!this.assessTravelMethod().guided)
+      throw Error(this.assessTravelMethod().reason??
+        "Mixed transportation is not ready for GM confirmation.");
+    const proposed=this.mixedLandPlan();
+    const shown=atlasDisplaySpeed(proposed.speedPerHour,this.scene.grid.units,
+      game.settings,game.system?.id);
+    const units=shown.unit==="mi/hour"?"mph":
+      shown.unit==="km/hour"?"km/h":shown.unit;
+    const summary=proposed.methods.map(m=>m.methodName+": "+
+      (m.role==="walking"?m.passengers+" walkers":
+        m.role==="cargo"?m.units+" cargo-only unit(s)":
+        m.passengers+" passengers / "+m.seatsUsed+" seats / "+
+          m.units+" unit(s)")).join("; ");
+    const ordinary=proposed.gmWalkingPaceOverride?atlasDisplaySpeed(
+      proposed.suggestedSpeedPerHour,this.scene.grid.units,
+      game.settings,game.system?.id):null;
+    const exception=ordinary?
+      " GM walking pace exception: recommended "+ordinary.value.toFixed(2)+
+      " "+units+", approved "+shown.value.toFixed(2)+" "+units+
+      ". The GM confirms walkers can keep up; Actor movement and "+
+      "exhaustion statistics are not modified automatically.":"";
+    const confirmed=await foundry.applications.api.DialogV2.confirm({
+      window:{title:"Confirm mixed-party transportation"},
+      content:el("div","GM confirmation: "+summary+
+        ". All Group members remain together at "+shown.value.toFixed(2)+
+        " "+units+" ("+proposed.movingHours.toFixed(2)+
+        " moving hours). Estimated transport cost: "+proposed.totalCp+
+        " CP."+exception+" Atlas will move the assigned explorer as one Group. "+
+        "Seating and vehicles are GM-approved planning assignments only; "+
+        "no booking, boarding, payment or Actor changes occur automatically. Continue?"),
+      rejectClose:false,modal:true
+    });
+    if(!confirmed)return null;
+    if(this.travelSession||this.journalStarting||this.pendingTransfer||
+        !game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
+        this.scene.id!==view.scene?.id||
+        this.atlasProvider(this.scene).revision!==this.routeRevision||
+        this.getPartyToken()?.id!==token.id||this.result?.status!=="ok")
+      throw Error("Scene, party explorer or route changed during mixed travel confirmation.");
+    const current=this.atlasPoint(view,this.atlasProvider(this.scene),
+      partyTokenCanvasCenter(token,this.scene.grid.size));
+    if(Math.hypot(current.x-this.result.start.x,
+        current.y-this.result.start.y)>Math.max(.01,this.scene.grid.size/50))
+      throw Error("The party moved during mixed travel confirmation. Replan the route.");
+    const updated=this.mixedLandPlan();
+    if(JSON.stringify(updated)!==JSON.stringify(proposed))
+      throw Error("Passenger assignments, vehicle stock, speeds, fares or "+
+        "World/Scene rules changed during confirmation. Review the updated Journey.");
+    return validateMixedLandConvoy(updated);
+  }
+
   /** Only an explicitly offered, per-unit, land vehicle can accompany walkers as cargo. */
   cargoConvoyChoices(availability=this.transportAvailability()){
     return [...availability.offers.values()].flatMap(offer=>{
@@ -2126,9 +2181,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // stock/party/route revalidated after confirmation and before Journal creation.
     const previousConvoy=isUnfinishedJourneyLeg(this.recoveryRecord)?
       this.recoveryRecord.legs.at(-1)?.convoy:null;
-    let approvedConvoy=previousConvoy?validateWalkingCargoConvoy(previousConvoy):null;
-    if(this.convoyEnabled&&guidedLeg)
-      throw Error("Walking cargo convoys cannot cross an unresolved transport transfer.");
+    let approvedConvoy=previousConvoy?
+      previousConvoy.schemaVersion===2?validateMixedLandConvoy(previousConvoy):
+        validateWalkingCargoConvoy(previousConvoy):null;
+    if((this.convoyEnabled||this.mixedKeys.length)&&guidedLeg)
+      throw Error("Mixed land convoys cannot cross an unresolved transport transfer.");
+    if(!approvedConvoy&&this.mixedKeys.length){
+      approvedConvoy=await this.confirmMixedLandJourney(view,token);
+      if(!approvedConvoy)return false;
+    }
     if(!approvedConvoy&&this.convoyEnabled){
       if(this.travelMethod!=="walking"||!this.assessTravelMethod().guided)
         throw Error(this.assessTravelMethod().reason??"Choose a valid walking cargo convoy.");
@@ -2191,7 +2252,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     let travel=this.resolveTravel().travel;
     if(approvedConvoy)travel={...travel,speed:approvedConvoy.speedPerHour,
-      methodId:"walking",methodLabel:"Walking with hired cargo",
+      methodId:"walking",methodLabel:approvedConvoy.schemaVersion===2?
+        "Mixed Group transportation":"Walking with hired cargo",
       source:"approved-convoy"};
     if(guidedLeg){
       const option=this.transportationTransitionPlan()?.legs[0]?.selectedOption;
