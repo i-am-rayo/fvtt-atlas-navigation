@@ -1974,6 +1974,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.scene.grid.units,game.settings,game.system?.id);
       const speedUnit=shown.unit==="mi/hour"?"mph":
         shown.unit==="km/hour"?"km/h":shown.unit;
+      const ordinary=proposed.gmWalkingPaceOverride?atlasDisplaySpeed(
+        proposed.suggestedSpeedPerHour,this.scene.grid.units,
+        game.settings,game.system?.id):null;
+      const walkingException=ordinary?
+        " GM walking-pace exception: the recommended pace is "+
+          ordinary.value.toFixed(2)+" "+speedUnit+" but this Journey will "+
+          "use "+shown.value.toFixed(2)+" "+speedUnit+
+          ". You confirm all walkers can keep up; Actor movement speeds and "+
+          "exhaustion are not changed automatically.":"";
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm mixed walking and cargo travel"},
         content:el("div","GM confirmation: all "+proposed.travelers.length+
@@ -1982,7 +1991,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           " at a shared pace of "+shown.value.toFixed(2)+" "+speedUnit+
           " ("+proposed.movingHours.toFixed(2)+
           " moving hours; estimated "+proposed.totalCp+
-          " CP). No passengers board the cargo, and Atlas makes no booking, "+
+          " CP)."+walkingException+
+          " No passengers board the cargo, and Atlas makes no booking, "+
           "currency deduction, Actor change or automatic hire payment. Continue?"),
         rejectClose:false,modal:true
       });
@@ -3637,8 +3647,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             " vs walking",speed:converted.value.toFixed(2),
             methodId:item.id,available:item.available});
         }
-        const slowest=Math.min(sceneSpeed,...cargo.map(c=>
-          convertGroupSpeed(c.method.speedMph,"mph",sceneUnits)));
+        const cargoSpeeds=cargo.map(c=>
+          convertGroupSpeed(c.method.speedMph,"mph",sceneUnits));
+        const slowest=Math.min(sceneSpeed,...cargoSpeeds);
+        const cargoLimit=cargoSpeeds.length?Math.min(...cargoSpeeds):null;
         let plan=null,error=null;
         try{plan=this.mixedConvoyPlan();}
         catch(e){error=e.message??String(e);}
@@ -3649,6 +3661,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         section.append(renderWalkingCargoControls({
           participants,quantities:this.convoyCargoQuantities,
           recommendedSpeed:displaySpeed(slowest).value.toFixed(2),
+          ...(cargoLimit!==null?{
+            maximumSpeed:displaySpeed(cargoLimit).value.toFixed(2)}:{}),
           customPace:current===null?null:Number(current.toFixed(4)),
           unit,disabled:Boolean(this.journalStarting||partySplitBlocked),
           plan:plan?{

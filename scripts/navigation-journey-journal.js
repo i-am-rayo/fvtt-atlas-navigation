@@ -2,7 +2,7 @@ import { MODULE_ID } from "./atlas-storage.js";
 import {validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import { formatNavigationDuration } from "./navigation-time.js";
 import {validatePlaybackSetting} from "./navigation-playback.js";
-import { atlasDisplayDistance } from "./navigation-measure-units.js";
+import { atlasDisplayDistance,atlasDisplaySpeed } from "./navigation-measure-units.js";
 import { confirmedJourneyDirections } from "./navigation-journey-timeline.js";
 import {isRestUnderway,validatePassengerRestMetadata,confirmedJourneyMovingHours}
   from "./navigation-passenger-rest.js";
@@ -289,9 +289,20 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       movingHours:leg.completedMovingHours,
       complete:leg.completedPercent>=99.999}).map(line=>
       `<li class="atlas-journey-transport-event">${escapeHTML(line)}</li>`).join("");
+    const convoySpeed=n=>{
+      const shown=atlasDisplaySpeed(n,leg.units,settings,systemId);
+      const unit=shown.unit==="mi/hour"?"mph":
+        shown.unit==="km/hour"?"km/h":shown.unit;
+      return Number(shown.value).toFixed(2)+" "+unit;
+    };
     const convoyLines=leg.convoy&&leg.completedMovingHours>0?[
       "The party walked together with hired cargo transport at "+
-        leg.convoy.speedPerHour+" "+leg.units+"/h (approved convoy pace).",
+        convoySpeed(leg.convoy.speedPerHour)+" (approved convoy pace).",
+      ...(leg.convoy.gmWalkingPaceOverride?
+        ["GM-approved walking pace exception: recommended "+
+          convoySpeed(leg.convoy.suggestedSpeedPerHour)+
+          ", approved "+convoySpeed(leg.convoy.speedPerHour)+
+          " for this Journey; Actor movement speeds were not changed."]:[]),
       ...leg.convoy.hires.map(h=>h.units+" cargo-only "+h.methodName+
         " (estimated fare "+h.estimatedCostCp+" CP; not charged).")
     ].map(line=>'<li class="atlas-journey-transport-event">'+escapeHTML(line)+"</li>").join(""):"";
