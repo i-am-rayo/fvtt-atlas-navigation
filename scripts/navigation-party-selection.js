@@ -4,12 +4,21 @@
  */
 const validId=value=>typeof value==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(value);
 
-export function partyCharacterRoster(roster){
+/** NPC companions remain listed even when they share a seat with a traveler. */
+export function partyTravelerRoster(roster){
   if(!Array.isArray(roster?.members))return [];
-  return roster.members.filter(m=>m.actorType==="character"&&
-    m.role==="passenger"&&validId(m.actorId)).map(m=>({
-    id:m.actorId,name:String(m.actorName??"Unnamed PC").slice(0,120)
-  })).sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+  return roster.members.filter(m=>m.role==="passenger"&&
+    ["character","npc"].includes(m.actorType)&&validId(m.actorId))
+    .map(m=>({id:m.actorId,name:String(m.actorName??"Unnamed traveler").slice(0,120),
+      type:m.actorType,seats:m.actorType==="character"||m.needsSeat!==false?
+        (Number.isInteger(m.quantity)&&m.quantity>0?m.quantity:1):0}))
+    .sort((a,b)=>a.type===b.type?
+      a.name.localeCompare(b.name)||a.id.localeCompare(b.id):
+      a.type==="character"?-1:1);
+}
+export function partyCharacterRoster(roster){
+  return partyTravelerRoster(roster).filter(m=>m.type==="character")
+    .map(({id,name})=>({id,name}));
 }
 
 export function projectPartyTravelSelection(roster,{mode="all",ids=[]}={}){
@@ -19,21 +28,21 @@ export function projectPartyTravelSelection(roster,{mode="all",ids=[]}={}){
       ids.length>150||ids.some(x=>!validId(x))||
       new Set(ids).size!==ids.length)
     throw Error("Invalid GM party-member selection.");
-  const members=partyCharacterRoster(roster),known=new Set(members.map(x=>x.id));
+  const members=partyTravelerRoster(roster),known=new Set(members.map(x=>x.id));
   const selected=mode==="all"?members.map(x=>x.id):
     ids.filter(id=>known.has(id));
-  const additionalPassengers=Math.max(0,roster.travelers-members.length);
-  const count=mode==="all"?roster.travelers:selected.length+additionalPassengers;
+  const chosen=new Set(selected);
+  const count=members.reduce((sum,m)=>sum+(chosen.has(m.id)?m.seats:0),0);
+  const pcCount=members.filter(m=>m.type==="character").length;
+  const npcCount=members.length-pcCount;
   const partial=mode==="selected"&&selected.length<members.length;
-  const passengerNpcIds=roster.members.filter(m=>m.actorType==="npc"&&
-    m.role==="passenger"&&m.quantity===1).map(m=>m.actorId);
   return {
-    members,selectedIds:selected,pcCount:members.length,travelerCount:count,
-    additionalPassengers,partial,empty:count===0,
-    // Preview-only selection restricts personal mounts to participating riders.
-    // Never mutate the native Group Actor or authorize its Token movement.
-    previewRoster:{...roster,travelers:count,
-      selectedTravelerIds:[...selected,...passengerNpcIds]}
+    members,selectedIds:selected,pcCount,npcCount,travelerCount:count,
+    selectedPcCount:members.filter(m=>m.type==="character"&&chosen.has(m.id)).length,
+    selectedNpcCount:members.filter(m=>m.type==="npc"&&chosen.has(m.id)).length,
+    partial,empty:selected.length===0,
+    // Only previews change. Native Group/Token movement cannot split a party.
+    previewRoster:{...roster,travelers:count,selectedTravelerIds:selected}
   };
 }
 

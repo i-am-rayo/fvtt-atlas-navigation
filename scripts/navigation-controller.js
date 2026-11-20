@@ -3375,6 +3375,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       }));
+    if(this.result?.status==="ok"&&!pendingNativeReview&&!approvedActiveTransport&&
+        !approvedRecoveryTransport&&!approvedRecoveryLand&&
+        !transferPlan?.hasTransitions&&this.travelMethod==="mounted"&&
+        this.transportArrangement==="owned"&&partySelection){
+      const method=availability.all.find(candidate=>candidate.id==="mounted");
+      if(method){
+        const capacity=groupMethodCapacityStatus(partySelection.previewRoster,method);
+        if(capacity.matched>0&&capacity.effectiveSpeedMph!==null){
+          const note=el("small","FYI: Mixed mounts travel together at the slowest "+
+            "participating mount's sustained speed ("+
+            capacity.effectiveSpeedMph+" mph). Assigned mounts only count when "+
+            "their named rider travels. This is a planning estimate, not boarding.");
+          note.style.cssText="opacity:.85;line-height:1.45;";
+          body.appendChild(note);
+        }
+      }
+    }
     if(!pendingNativeReview&&!approvedActiveTransport&&!approvedRecoveryTransport&&
         !approvedRecoveryLand&&
         this.travelMethod!=="walking"&&!transferPlan?.hasTransitions){
