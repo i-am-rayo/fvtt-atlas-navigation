@@ -634,7 +634,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "Driver / crew included in fare","Included by default; never charge the same crew twice.");
     crewOption.setAttribute("data-atlas-hire-crew-option","");
     toggles.append(hireControl);
-    if(["checkpoint","journey"].includes(scope)){
+    if(scope==="checkpoint"||scope==="journey"&&checkpointName){
       toggles.append(serviceToggle("hireUnlimited",value.hireUnlimited??true,
         "Unlimited availability","Enough units may always be hired at this Map Marker."),
         field("Quantity available",
@@ -902,7 +902,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       hireEnabled:bool("hireEnabled"),hireCostCp,
       hireBasis:String(response.hireBasis),hireApplies:String(response.hireApplies),
       hireCrewIncluded:bool("hireCrewIncluded"),
-      ...(scope==="checkpoint"||scope==="journey"?{
+      ...(scope==="checkpoint"||scope==="journey"&&checkpointName?{
         hireUnlimited:bool("hireUnlimited"),
         hireQuantity:Number(response.hireQuantity??value.hireQuantity??1)
       }:{}),
@@ -911,7 +911,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       overtimeMultiplier:Number(response.overtimeMultiplier),
       continuousEnabled:bool("continuousEnabled"),
       note:scope==="world"&&preset?.builtIn?value.note:String(response.note??"")};
-    if(scope!=="world"&&scope!=="group"&&
+    if((scope==="checkpoint"||scope==="journey"&&checkpointName)&&
         (!Number.isInteger(next.hireQuantity)||next.hireQuantity<0||next.hireQuantity>100))
       throw Error("Available transport quantity must be a whole number between 0 and 100.");
     if(onSave){
