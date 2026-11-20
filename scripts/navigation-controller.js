@@ -3681,7 +3681,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           onPace:value=>{
             const chosen=value==="custom"?slowest:
               value===null?null:atlasSceneSpeedFromDisplay(value,sceneUnits,
-                game.settings,game.system?.id);
+                game.settings,game.system?.id,cargoLimit);
             this.convoyPace=chosen;
             void this.render(true);
           }

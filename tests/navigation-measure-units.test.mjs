@@ -96,3 +96,13 @@ test("global metric comparison shows 3mph walkers and 4mph carts exactly 1.61km/
   const cart=atlasDisplaySpeed(4,"mi",metric,"dnd5e");
   near(cart.value-walking.value,1.609344);
 });
+
+test("rounded metric cart ceiling 6.44 km/h maps to exactly 4 mph, not faster",()=>{
+  const metric=settings("metric",false);
+  const displayed=atlasDisplaySpeed(4,"mi",metric,"dnd5e");
+  assert.equal(Number(displayed.value.toFixed(2)),6.44);
+  assert.ok(atlasSceneSpeedFromDisplay(6.44,"mi",metric,"dnd5e")>4);
+  near(atlasSceneSpeedFromDisplay(6.44,"mi",metric,"dnd5e",4),4);
+  assert.equal(atlasSceneSpeedFromDisplay(6.45,"mi",metric,"dnd5e",4)>4,true,
+    "a genuinely faster pace remains above the vehicle ceiling");
+});
