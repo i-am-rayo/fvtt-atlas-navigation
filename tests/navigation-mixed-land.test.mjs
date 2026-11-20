@@ -143,7 +143,8 @@ test("two hired passenger methods travel together without selecting Walking",()=
   assert.equal(approved.methods[1].seatsUsed,2);
   assert.equal(approved.totalCp,500);
   assert.throws(()=>plan({...options,paceOverride:4}),
-    /Cannot override the slowest mounted or hired method/);
+    /GM pace exceeds the slowest participating mount or vehicle/,
+    "the 3 mph cart prevents a faster 4 mph mixed-party override");
   const corrupted=structuredClone(approved);
   corrupted.methods[1].seatsUsed=3;
   assert.throws(()=>validateMixedLandConvoy(corrupted),
