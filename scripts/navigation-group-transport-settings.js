@@ -648,7 +648,7 @@ export class AtlasGroupTransportationSettings extends base {
     root.appendChild(footer);
     root.appendChild(node("small","Atlas saves Group-only quantities, capacities, profile links, "+
       "speed, upkeep, purchase and note overrides. Transport surface and kind come from the "+
-      "World profile. Remove members in the native Group Actor sheet. "+ 
+      "World profile. Remove members in the native Group Actor sheet. "+
       "No native Actor edits, boarding, movement or currency deductions."));
     return root;
   }
