@@ -65,6 +65,17 @@ test("checkpoint offers reject duplicates, invalid fares, and surface mismatches
     overrides:{}},world("airship")) ,/surface/);
   assert.equal(carriage.hireCostCp,900);
   assert.equal(carriage.capacity,3);
+  assert.equal(carriage.hireUnlimited,true,"old checkpoint offers default to unlimited");
+  const finite=checkpointOfferMethod({methodId:"cart",mode:"land",
+    overrides:{hireUnlimited:false,hireQuantity:1}},world("cart"));
+  assert.equal(finite.hireQuantity,1);
+  assert.equal(finite.hireUnlimited,false);
+  assert.throws(()=>validateCheckpointTransportOffers([{methodId:"cart",mode:"land",
+    overrides:{hireQuantity:101}}]),/hireQuantity/);
+  assert.throws(()=>validateCheckpointTransportOffers([{methodId:"cart",mode:"land",
+    overrides:{hireQuantity:1.5}}]),/hireQuantity/);
+  assert.throws(()=>validateCheckpointTransportOffers([{methodId:"cart",mode:"land",
+    overrides:{hireUnlimited:"false"}}]),/hireUnlimited/);
   assert.equal(world("carriage").hireCostCp,400,"World rate is unmodified");
   assert.throws(()=>validateCheckpointTransportStore({schemaVersion:19,entries:{}}),/Unsupported/);
 });
@@ -160,7 +171,7 @@ test("checkpoint pencil opens the same World preset dialog and keeps drafts isol
     const fields=flatten(modal.content);
     const names=fields.map(el=>el.name);
     for(const field of ["name","kind","speedDisplay","capacity","crewCount",
-      "hireEnabled","hireBasis","hireApplies","purchaseEnabled","costBasis"])
+      "hireEnabled","hireUnlimited","hireQuantity","hireBasis","hireApplies","purchaseEnabled","costBasis"])
       assert.ok(names.includes(field),"shared editor is missing "+field);
     for(const prefix of ["hire","purchase","crewWage","cost"])
       for(const denomination of ["pp","gp","ep","sp","cp"]){

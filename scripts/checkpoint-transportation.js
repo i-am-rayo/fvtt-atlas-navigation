@@ -11,7 +11,7 @@ export const CHECKPOINT_TRANSPORT_MODES=Object.freeze(["land","water","sea","air
 const ID=/^[A-Za-z0-9_-]{1,128}$/;
 const KEYS=["speedMph","capacity","costCp","costBasis","costApplies",
   "purchaseGp","crewCount","crewWageCpPerDay","crewWageBasis","includeCrewWages",
-  "hireEnabled","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
+  "hireEnabled","hireUnlimited","hireQuantity","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
   "overtimeEnabled","overtimeExtraHours","overtimeMultiplier",
   "continuousEnabled","note"];
 const ENUM={
@@ -19,10 +19,10 @@ const ENUM={
   hireBasis:["trip","mile","day"],hireApplies:["unit","passenger"],
   crewWageBasis:["day","trip","mile"]
 };
-const BOOL=new Set(["includeCrewWages","hireEnabled","hireCrewIncluded",
+const BOOL=new Set(["includeCrewWages","hireEnabled","hireUnlimited","hireCrewIncluded",
   "overtimeEnabled","continuousEnabled"]);
 const NONNEG=new Set(["costCp","purchaseGp","crewWageCpPerDay","hireCostCp"]);
-const INTEGER=new Set(["capacity","crewCount","overtimeExtraHours"]);
+const INTEGER=new Set(["capacity","crewCount","hireQuantity","overtimeExtraHours"]);
 export function validateCheckpointTransportOffers(value){
   if(value==null)return [];
   if(!Array.isArray(value)||value.length>40)throw Error("Too many checkpoint transportation offers.");
@@ -47,6 +47,7 @@ export function validateCheckpointTransportOffers(value){
         (INTEGER.has(key)&&!Number.isInteger(value))||
         (key==="capacity"&&(value<1||value>1000))||
         (key==="crewCount"&&(value<0||value>1000))||
+         (key==="hireQuantity"&&(value<0||value>100))||
         (key==="overtimeExtraHours"&&(value<1||value>8))||
         (key==="overtimeMultiplier"&&(value<1||value>5))||
         (key==="speedMph"&&(value<0.1||value>600)))
@@ -98,7 +99,9 @@ export function transportationMethodOverrideDelta(base,edited){
   const overrides={};
   for(const key of KEYS){
     const value=edited[key];
-    if(value===undefined||value===base[key]||
+    const baseline=key==="hireUnlimited"?(base[key]??true):
+      key==="hireQuantity"?(base[key]??1):base[key];
+    if(value===undefined||value===baseline||
         (key==="capacity"&&value===null))continue;
     overrides[key]=value;
   }
@@ -114,7 +117,7 @@ export function checkpointOfferMethod(offer,worldMethod){
     throw Error("Checkpoint offer surface differs from its World method.");
   if(checked.overrides.continuousEnabled&&worldMethod.kind!=="vehicle")
     throw Error("Continuous travel needs a vehicle.");
-  return {...worldMethod,...checked.overrides};
+  return {...worldMethod,hireUnlimited:true,hireQuantity:1,...checked.overrides};
 }
 export function validateCheckpointTransportStore(value){
   if(value==null)return {schemaVersion:CHECKPOINT_TRANSPORT_VERSION,entries:{}};

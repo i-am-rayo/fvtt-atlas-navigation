@@ -44,3 +44,15 @@ test("Town transportation inherits ordinary town carriage and coach offers",()=>
   assert.ok(offers.every(offer=>Object.keys(offer.overrides)
     .every(key=>!["purchaseGp","crewCount"].includes(key))));
 });
+
+test("new inventory fields inherit legacy unlimited supply without noisy overrides",()=>{
+  const base=cart();
+  const neutral={...base,hireUnlimited:true,hireQuantity:1};
+  assert.deepEqual(transportationMethodOverrideDelta(base,neutral),{});
+  const local={...neutral,hireUnlimited:false,hireQuantity:2};
+  const delta=transportationMethodOverrideDelta(base,local);
+  assert.deepEqual(delta,{hireUnlimited:false,hireQuantity:2});
+  assert.equal(checkpointOfferMethod({methodId:base.id,mode:"land",
+    overrides:delta},base).hireQuantity,2);
+  assert.deepEqual(transportationMethodOverrideDelta(base,neutral),{});
+});

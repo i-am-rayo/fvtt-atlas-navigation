@@ -168,6 +168,10 @@ const wirePresetDialog=container=>{
       const crewOption=root.querySelector("[data-atlas-hire-crew-option]");
       if(crewOption){crewOption.style.opacity=hireOn?"1":".42";
         crewOption.style.pointerEvents=hireOn?"auto":"none";}
+      const unlimited=fieldValue("hireUnlimited")?.checked!==false;
+      for(const control of root.querySelectorAll(
+        '[name="hireQuantity"],[data-atlas-range-for="hireQuantity"]'))
+        control.disabled=!hireOn||unlimited;
       const hireControls=root.querySelector("[data-atlas-hire-controls]");
       if(hireControls){hireControls.style.opacity=hireOn?"1":".42";
         hireControls.style.pointerEvents=hireOn?"auto":"none";
@@ -629,7 +633,16 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const crewOption=serviceToggle("hireCrewIncluded",value.hireCrewIncluded??true,
       "Driver / crew included in fare","Included by default; never charge the same crew twice.");
     crewOption.setAttribute("data-atlas-hire-crew-option","");
-    toggles.append(hireControl,crewOption);
+    toggles.append(hireControl);
+    if(scope==="checkpoint"||scope==="journey"&&checkpointName){
+      toggles.append(serviceToggle("hireUnlimited",value.hireUnlimited??true,
+        "Unlimited availability","Enough units may always be hired at this Map Marker."),
+        field("Quantity available",
+          slider("hireQuantity",value.hireQuantity??1,
+            {min:0,max:100,step:1,numericStep:1,label:"Vehicles available"}),
+          "Finite number of mounts or vehicles at this location."));
+    }
+    toggles.append(crewOption);
     if(value.kind==="foot")toggles.style.opacity=".5";
     panels.services.append(toggles);
     const hireControls=element("div");hireControls.setAttribute("data-atlas-hire-controls","");
@@ -889,11 +902,22 @@ export class AtlasTransportationSettings extends ApplicationBase {
       hireEnabled:bool("hireEnabled"),hireCostCp,
       hireBasis:String(response.hireBasis),hireApplies:String(response.hireApplies),
       hireCrewIncluded:bool("hireCrewIncluded"),
+      ...(scope==="checkpoint"||scope==="journey"&&checkpointName?{
+        hireUnlimited:bool("hireUnlimited"),
+        hireQuantity:Number(response.hireQuantity??value.hireQuantity??1)
+      }:{}),
       overtimeEnabled:bool("overtimeEnabled"),
       overtimeExtraHours:Number(response.overtimeExtraHours),
       overtimeMultiplier:Number(response.overtimeMultiplier),
       continuousEnabled:bool("continuousEnabled"),
       note:scope==="world"&&preset?.builtIn?value.note:String(response.note??"")};
+    if((scope==="checkpoint"||scope==="journey"&&checkpointName)&&
+        (!Number.isInteger(next.hireQuantity)||next.hireQuantity<0||next.hireQuantity>100))
+      throw Error("Available transport quantity must be a whole number between 0 and 100.");
+    if(scope==="journey"&&response.__atlasSaveScope!=="checkpoint"&&
+        (next.hireUnlimited!==undefined&&next.hireUnlimited!==(value.hireUnlimited??true)||
+         next.hireQuantity!==undefined&&next.hireQuantity!==(value.hireQuantity??1)))
+      throw Error("Checkpoint inventory must be saved to the Map Marker, not this trip.");
     if(onSave){
       const operation=journeyOperation===null?null:
         String(response.atlasJourneyOperation??journeyOperation);
