@@ -112,3 +112,24 @@ test("Unsaved mounted rider IDs are never double counted in two selected modes",
     resources:[{...camel.resources[0]}]};
   assert.throws(()=>plan([walking,camel,duplicate]),/has no usable/);
 });
+
+test("unused slower owned mounts do not slow the shared pace or incur fares",()=>{
+  const mounted={key:"owned|mounted",arrangement:"owned",
+    method:{id:"mounted",name:"Mounted",kind:"mount",
+      surface:"land",capacity:1,speedMph:4},
+    resources:[{actorId:"horse1",quantity:1,capacity:1,speedMph:4,
+      method:{costCp:50,costBasis:"day",costApplies:"unit"}},
+      {actorId:"horse2",quantity:1,capacity:1,speedMph:2,
+        method:{costCp:50,costBasis:"day",costApplies:"unit"}}]};
+  const result=planAggregateLandConvoy({travelers,
+    methods:[walking,mounted],riderCounts:{"owned|mounted":1},
+    walkingSpeed:3,sceneUnits:"mi",routeDistance:24,
+    weightedDistance:24,distanceMi:24,regularHours:8});
+  const used=result.methods.find(m=>m.key==="owned|mounted");
+  assert.equal(used.passengers,1);
+  assert.equal(used.units,1);
+  assert.deepEqual(used.resourceIds,["horse1"]);
+  assert.equal(used.speedPerHour,4);
+  assert.equal(result.suggestedSpeedPerHour,3);
+  assert.equal(used.estimatedCostCp,50);
+});
