@@ -2699,8 +2699,52 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
     const preview=nav.mixedConvoyPlan();
     assert.equal(preview.hires[0].units,1);
     assert.equal(nav.assessTravelMethod().guided,true);
+    nav.convoyPace=7;
+    assert.equal(nav.assessTravelMethod().guided,false,
+      "a too-fast pace must not authorize a joint Token move");
+    assert.match(nav.assessTravelMethod().reason,/faster than its slowest/);
+    nav.convoyPace=null;
     await assert.rejects(nav.startGuidedTravel(),/inventory/);
     assert.equal(moves,0,"stock change must not move the native token");
     assert.equal(writes,0,"stock change must not create a Journey Journal");
   }finally{Object.assign(globalThis,prior);}
+});
+
+test("multi-method controller switches between walking/cargo and legacy single travel",()=>{
+  const prior={game:globalThis.game,ui:globalThis.ui};
+  try{
+    const notifications=[];
+    globalThis.game={user:{isGM:true}};
+    globalThis.ui={notifications:{warn:text=>notifications.push(text),
+      info:text=>notifications.push(text)}};
+    const nav=new AtlasNavigationController();
+    nav.scene={id:"scene"};nav.sourceMode="party";
+    nav.cargoConvoyChoices=()=>[{id:"cart",name:"Cart"}];
+    nav.render=()=>{};
+    nav.travelMethod="walking";nav.transportArrangement="owned";
+    nav.toggleTravelMethodChoice("hire|cart",true);
+    assert.equal(nav.convoyEnabled,true);
+    assert.deepEqual(nav.convoyCargoQuantities,{cart:1});
+    nav.toggleTravelMethodChoice("owned|mounted",true);
+    assert.equal(nav.travelMethod,"walking",
+      "unsupported mixed mount must not silently replace cargo");
+    assert.ok(notifications.some(text=>text.includes("Only walkers")));
+    nav.toggleTravelMethodChoice("hire|cart",false);
+    assert.equal(nav.convoyEnabled,false);
+    assert.deepEqual(nav.convoyCargoQuantities,{});
+    // A finite cart selected by itself is still governed by legacy seat eligibility.
+    nav.setTravelMethod=(method,arrangement)=>{
+      nav.travelMethod=method;nav.transportArrangement=arrangement;
+      if(method!=="walking"){nav.convoyEnabled=false;nav.convoyCargoQuantities={};}
+    };
+    nav.toggleTravelMethodChoice("hire|cart",true);
+    assert.equal(nav.travelMethod,"cart");
+    assert.equal(nav.convoyEnabled,false);
+    nav.toggleTravelMethodChoice("owned|walking",true);
+    assert.equal(nav.travelMethod,"walking");
+    assert.deepEqual(nav.convoyCargoQuantities,{cart:1});
+    nav.toggleTravelMethodChoice("owned|walking",false);
+    assert.equal(nav.travelMethod,"cart");
+    assert.equal(nav.convoyEnabled,false);
+  }finally{globalThis.game=prior.game;globalThis.ui=prior.ui;}
 });

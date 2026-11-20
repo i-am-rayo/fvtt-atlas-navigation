@@ -4,7 +4,7 @@ import {
   resolveAtlasMeasuringUnits,resolveCheckpointElevationUnits,
   atlasDisplayDistance,atlasDisplaySpeed,
   atlasDisplayPresetSpeed,atlasPresetSpeedFromDisplay,
-  atlasSceneDistanceFromDisplay,atlasDisplayElevation,
+  atlasSceneDistanceFromDisplay,atlasSceneSpeedFromDisplay,atlasDisplayElevation,
   atlasDisplayCostPerDistance,atlasCostPerMileFromDisplay
 } from "../scripts/navigation-measure-units.js";
 
@@ -78,4 +78,14 @@ test("checkpoint elevation follows native Foundry Scene grid unit family with sy
   assert.equal(resolveCheckpointElevationUnits("",dndMetric,"dnd5e"),"metric",
     "Scenes without a recognized unit use D&D5e metric setting");
   assert.equal(resolveCheckpointElevationUnits("unknown",settings("metric"),"pf2e"),"metric");
+});
+
+test("custom convoy speeds round-trip the World metric and imperial settings",()=>{
+  for(const choice of ["metric","imperial"]){
+    const config=settings(choice,false);
+    const original=4;
+    const rendered=atlasDisplaySpeed(original,"mi",config,"dnd5e");
+    near(atlasSceneSpeedFromDisplay(rendered.value,"mi",config,"dnd5e"),original);
+    assert.equal(rendered.unit,choice==="metric"?"km/hour":"mi/hour");
+  }
 });
