@@ -3,50 +3,49 @@ import assert from "node:assert/strict";
 import {renderNavigationMixedLandControls}
   from "../scripts/navigation-mixed-land-view.js";
 
-test("mixed travel view has per-member assignments, hire units and one shared pace",()=>{
+test("theater-of-mind UI has no individual rider dropdowns or hidden writes",()=>{
   const original=globalThis.document;
   globalThis.document={createElement:tag=>({
     tag,children:[],style:{},listeners:new Map(),
-    append(...elements){this.children.push(...elements);},
-    addEventListener(type,callback){this.listeners.set(type,callback);},
+    append(...nodes){this.children.push(...nodes);},
+    addEventListener(name,listener){this.listeners.set(name,listener);},
     setAttribute(){}
   })};
   try{
     const changes=[];
     const root=renderNavigationMixedLandControls({
-      travelers:[
-        {actorId:"pc1",name:"PC One",seatsNeeded:1,passengers:1},
-        {actorId:"npc1",name:"Companion",seatsNeeded:0,passengers:1}
-      ],
       methods:[
         {key:"owned|walking",name:"Walking",arrangement:"owned",
           speedLabel:"3 mph",available:null},
-        {key:"hire|coach-hire",name:"Coach",arrangement:"hire",
-          speedLabel:"4 mph",available:1,minimumUnits:1}
-      ],assignments:{pc1:"owned|walking",npc1:"hire|coach-hire"},
-      units:{},recommended:"3.00",maximum:"4.00",unit:"mph",
-      preview:{speed:"3.00",moving:"8h",passengers:1,walking:1,cost:"300 CP"},
-      onAssignment:(id,key)=>changes.push([id,key]),
-      onUnits:(key,n)=>changes.push([key,n]),
+        {key:"owned|camel",name:"Camel",arrangement:"owned",
+          speedLabel:"3 mph",available:1,canAdjustRiders:false,
+          personalAssignments:["Dr. Cassian Voss"]},
+        {key:"hire|coach",name:"Coach",arrangement:"hire",
+          speedLabel:"4 mph",available:1,canAdjustRiders:true,
+          suggestedRiders:1,maximumRiders:4}
+      ],riderCounts:{},units:{},recommended:"3.00",
+      maximum:"3.00",unit:"mph",
+      preview:{speed:"3.00",moving:"8h",passengers:2,walking:3,
+        seats:2,cost:"200 CP"},
+      onRiders:(key,count)=>changes.push(["riders",key,count]),
+      onUnits:(key,count)=>changes.push(["units",key,count]),
       onPace:pace=>changes.push(["pace",pace])
     });
     const all=node=>[node,...node.children.flatMap(all)];
-    const selects=all(root).filter(n=>n.tag==="select");
-    assert.equal(selects.length,2);
-    assert.equal(selects[0].value,"owned|walking");
-    assert.equal(selects[1].value,"hire|coach-hire");
-    assert.equal(selects[0].children.length,3,
-      "the option list includes neither an implicit seat nor hidden methods");
-    assert.deepEqual(changes,[],"rendering never assigns riders or books hires");
-    selects[0].value="hire|coach-hire";
-    selects[0].listeners.get("change")();
-    const quantity=all(root).find(n=>n.tag==="input"&&n.type==="number"&&n.min==="1");
-    quantity.value="2";quantity.listeners.get("change")();
-    const radios=all(root).filter(n=>n.tag==="input"&&n.type==="radio");
-    assert.equal(radios.length,2);
+    assert.equal(all(root).filter(node=>node.tag==="select").length,0);
+    assert.ok(all(root).some(node=>String(node.textContent??"").includes(
+      "Dr. Cassian Voss")),"party-owned mount assignment is summarized");
+    assert.deepEqual(changes,[],"rendering never edits Actors or navigation state");
+    const rider=all(root).find(node=>node.tag==="input"&&node.min==="0");
+    const units=all(root).find(node=>node.tag==="input"&&node.min==="1");
+    assert.equal(rider.value,"1");
+    rider.value="3";rider.listeners.get("change")();
+    units.value="2";units.listeners.get("change")();
+    const radios=all(root).filter(node=>node.tag==="input"&&node.type==="radio");
     radios[1].checked=true;radios[1].listeners.get("change")();
     assert.deepEqual(changes,[
-      ["pc1","hire|coach-hire"],["hire|coach-hire",2],["pace","custom"]
+      ["riders","hire|coach",3],["units","hire|coach",2],
+      ["pace","custom"]
     ]);
   }finally{globalThis.document=original;}
 });

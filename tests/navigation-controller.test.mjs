@@ -2750,8 +2750,8 @@ test("mixed checkbox selection stages owned, hired and walking methods without m
     nav.travelMethod="walking";nav.transportArrangement="owned";
     nav.toggleTravelMethodChoice("hire|coach-hire",true);
     assert.deepEqual(nav.mixedKeys,["owned|walking","hire|coach-hire"]);
-    assert.deepEqual(nav.mixedAssignments,{
-      pc1:"owned|walking",pc2:"owned|walking"});
+    assert.deepEqual(nav.mixedRiderCounts,{},
+      "method selection does not invent per-character travel assignments");
     nav.toggleTravelMethodChoice("owned|riding-horse",true);
     assert.deepEqual(nav.mixedKeys,[
       "owned|walking","hire|coach-hire","owned|riding-horse"]);

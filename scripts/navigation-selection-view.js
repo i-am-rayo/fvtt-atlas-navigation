@@ -86,8 +86,9 @@ export function renderNavigationTravelMethodButtons({choices,selectedValue,
   title.style.cssText="font-weight:700;padding:0 .35rem;";
   section.appendChild(title);
   if(Array.isArray(selectedValues)){
-    const help=el("small","Select one method or combine Walking with hired cargo-only "+
-      "land vehicles. Other mixes need explicit passenger or mount assignments.");
+    const help=el("small","Select compatible travel methods together. "+
+      "Personal mounts use Party-owned assignments; shared passengers and "+
+      "vehicle counts are organized in theater of the mind below.");
     help.style.cssText="opacity:.8;line-height:1.35;";
     section.appendChild(help);
   }

@@ -1,8 +1,10 @@
 import { MODULE_ID } from "./atlas-storage.js";
 import {validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
-const validateApprovedConvoy=value=>value?.schemaVersion===2?
-  validateMixedLandConvoy(value):validateWalkingCargoConvoy(value);
+import {validateAggregateLandConvoy} from "./navigation-theater-convoy.js";
+const validateApprovedConvoy=value=>value?.schemaVersion===3?
+  validateAggregateLandConvoy(value):value?.schemaVersion===2?
+    validateMixedLandConvoy(value):validateWalkingCargoConvoy(value);
 import { formatNavigationDuration } from "./navigation-time.js";
 import {validatePlaybackSetting} from "./navigation-playback.js";
 import { atlasDisplayDistance,atlasDisplaySpeed } from "./navigation-measure-units.js";
@@ -299,15 +301,15 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       return Number(shown.value).toFixed(2)+" "+unit;
     };
     const convoyLines=leg.convoy&&leg.completedMovingHours>0?(
-      leg.convoy.schemaVersion===2?[
+      [2,3].includes(leg.convoy.schemaVersion)?[
         "The Group traveled together using mixed transportation at "+
           convoySpeed(leg.convoy.speedPerHour)+".",
         ...leg.convoy.methods.map(m=>{
           const label=m.role==="walking"?
             m.passengers+" traveler(s) walking":
-            m.passengers+" traveler(s) riding, "+m.seatsUsed+" seat(s), "+
-            m.units+" "+m.methodName+" unit(s)"+(m.role==="cargo"?
-              " hauling cargo":"");
+            m.role==="cargo"?m.units+" "+m.methodName+
+              " cargo-only unit(s)":m.passengers+" traveler(s) riding, "+
+              m.seatsUsed+" seat(s), "+m.units+" "+m.methodName+" unit(s)";
           return label+" (estimated "+m.estimatedCostCp+
             " CP; not charged).";
         }),
