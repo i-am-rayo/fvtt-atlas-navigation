@@ -419,13 +419,16 @@ test("GM-authorized faster walking with cargo is Journal-saved and recoverable",
   plan.travel={speedPerHour:4,methodId:"walking",
     methodName:"Walking with cargo",arrangement:"owned",operation:"normal"};
   plan.measurements={distance:30,travelHours:7.5,terrainAware:false};
+  plan.directions[0].distance=30;
+  plan.directions[0].cost=30;
   plan.convoy=approved;
   const record=createJourneyRecord({sceneId:"scene",tokenId:"token",
     atlasRevision:12,itinerary:plan});
   assert.equal(record.legs[0].convoy.gmWalkingPaceOverride,true);
   assert.equal(record.legs[0].speedPerHour,4);
   const paused=checkpointJourneyRecord(record,{
-    schedule:{...schedule,completedHours:3},progress:40,status:"interrupted"});
+    schedule:{...schedule,completedHours:3,events:[],restEvents:0},
+    progress:40,status:"interrupted"});
   assert.match(formatJourneyJournalHTML(paused),/GM-approved walking pace exception/);
   const resumed=resumeJourneyRecord(paused,{
     itinerary:{...plan,convoy:undefined},atlasRevision:12});
