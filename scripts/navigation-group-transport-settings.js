@@ -306,10 +306,27 @@ export class AtlasGroupTransportationSettings extends base {
             "Unavailable party member: "+member.assignedTo]);
         const assignedTo=select("assigned-to-"+member.actorId,
           assignedOptions,member.assignedTo??"");
+        const needsSeat=node("input");
+        needsSeat.type="checkbox";needsSeat.name="needs-seat-"+member.actorId;
+        needsSeat.checked=member.needsSeat!==false;
+        const seatField=node("label");
+        seatField.style.cssText="display:flex;align-items:center;gap:.35rem;white-space:nowrap;";
+        seatField.append(needsSeat,node("span","Needs seat"));
+        seatField.hidden=role.value!=="passenger"||type!=="npc";
+        needsSeat.addEventListener("change",()=>{updateDetails();this.dirty=true;});
         const profileDetails=node("small");
         const riderDetails=node("small");
         const updateDetails=()=>{
           const rider=groupRiders.find(item=>item.id===assignedTo.value);
+          if(type==="npc"&&role.value!=="mount"){
+            profileDetails.textContent=role.value==="passenger"?
+              "Traveling NPC · Needs seat: "+(needsSeat.checked?"Yes":"No"):
+              role.value==="unassigned"?"Choose a role in Need Setup.":
+              "NPC role: "+role.options?.[role.selectedIndex]?.textContent+
+                " · No passenger seat";
+            riderDetails.textContent="";
+            return;
+          }
           riderDetails.textContent=assignedTo.value?
             "Assigned To: "+(rider?rider.name+" · "+rider.id:
               "Unavailable party member · "+assignedTo.value)+
@@ -348,6 +365,8 @@ export class AtlasGroupTransportationSettings extends base {
         if(type==="npc")role.addEventListener("change",()=>{
           profile.disabled=role.value!=="mount";
           speedOverride.disabled=role.value!=="mount"||!profile.value;
+          seatField.hidden=role.value!=="passenger";
+          updateDetails();
         });
         speedOverride.disabled=!profile.value||(type==="npc"&&member.role!=="mount");
         speedOverride.addEventListener("input",updateDetails);
@@ -429,50 +448,33 @@ export class AtlasGroupTransportationSettings extends base {
           });
         },{icon:"pen-to-square"});
         if(type==="npc"){
-          edit.disabled=role.value!=="mount";
-          role.addEventListener("change",()=>{edit.disabled=role.value!=="mount";});
+          edit.hidden=role.value!=="mount";
+          role.addEventListener("change",()=>{edit.hidden=role.value!=="mount";});
         }
         const visible=node("div");
         visible.style.cssText="display:flex;align-items:center;gap:.4rem;flex:0 0 auto;margin-left:auto;";
-        if(type==="npc")visible.append(role);
+        if(type==="npc")visible.append(role,seatField);
         visible.append(edit);
-        const removal=action("Remove "+member.actorName+" from Party transportation",async()=>{
-          if(enabled.value==="true"){
-            const yes=await foundry.applications.api.DialogV2.confirm({
-              window:{title:"Remove from Party transportation?"},
-              content:"<p>This will exclude the resource from Atlas Party travel "+
-                "after Save. Its native Group Actor membership will remain unchanged.</p>",
-              rejectClose:false,modal:true
-            });
-            if(!yes)return;
-          }
-          enabled.value=enabled.value==="true"?"false":"true";
-          updateRemoval();this.dirty=true;
-        },{icon:"trash",danger:true});
-        const updateRemoval=()=>{
-          const active=enabled.value==="true";
-          const label=(active?"Remove ":"Re-enable ")+member.actorName+
-            (active?" from Party transportation":" for Party transportation");
-          removal.setAttribute("aria-label",label);removal.title=label;removal.ariaLabel=label;
-          const glyph=removal.children?.[0];
-          if(glyph)glyph.className="fa-solid fa-"+(active?"trash":"rotate-left");
-          row.style.opacity=active?"1":".6";
-        };
-        updateRemoval();
-        if(type==="npc"){
-          const sync=move=>{
-            const mount=role.value==="mount";
-            edit.disabled=!mount;
-            removal.disabled=!mount;
-            if(move)(mount?(bucket[lookup.get(profile.value)?.surface??member.surface]??other):other)
-              .appendChild(row);
-          };
-          role.addEventListener("change",()=>{sync(true);this.dirty=true;});
-          sync(false);
+        // Native Group Actor membership owns removal. Older disabled Atlas
+        // resources remain recoverable via an explicit one-way Restore action.
+        if(!member.enabled){
+          row.style.opacity=".6";
+          const restore=action("Restore "+member.actorName+" to Party travel",()=>{
+            enabled.value="true";row.style.opacity="1";
+            restore.hidden=true;this.dirty=true;
+          },{icon:"rotate-left"});
+          visible.append(restore);
         }
-        // Native Group membership and NPC role govern participation. Do not
-        // duplicate native NPC deletion with an Atlas exclusion action.
-        if(type==="vehicle"||!member.enabled)visible.append(removal);
+        if(type==="npc"){
+          const destination=()=>role.value==="unassigned"?other:
+            role.value==="mount"?
+              (bucket[lookup.get(profile.value)?.surface??member.surface]??other):
+              npcRoles[role.value]??other;
+          role.addEventListener("change",()=>{
+            destination().appendChild(row);
+            updateNpcCategories();updateNeedSetup();this.dirty=true;
+          });
+        }
         header.append(visible);
         row.append(header,draftControls,profileDetails);
         if(type==="npc")row.appendChild(riderDetails);
@@ -490,15 +492,17 @@ export class AtlasGroupTransportationSettings extends base {
           "Foundry's primary-vehicle flag does not mean the party is aboard."));
         editable.push({member,role,quantity,capacity,profile,speedOverride,
           costOverride,costBasisOverride,costAppliesOverride,
-          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo});
+          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo,needsSeat});
         const surface=lookup.get(profile.value)?.surface??member.surface;
-        const target=type==="npc"&&member.role!=="mount"?other:
-          bucket[surface]??other;
+        const target=type!=="npc"||member.role==="mount"?
+          bucket[surface]??other:member.role==="unassigned"?
+          other:npcRoles[member.role]??other;
         target.appendChild(row);
       }
     }
     for(const section of Object.values(bucket))
       if(section.children.length===1)section.appendChild(node("small","No owned resources."));
+    updateNpcCategories();updateNeedSetup();
     root.appendChild(panelHost);
     const footer=node("div");footer.style.cssText="display:flex;flex-wrap:wrap;gap:.6rem;flex:0 0 auto;";
     footer.appendChild(action("Save Party Transportation Assignments",async()=>{
@@ -521,7 +525,7 @@ export class AtlasGroupTransportationSettings extends base {
       for(const entry of editable){
         const {member,role,quantity,capacity,profile,speedOverride,
           costOverride,costBasisOverride,costAppliesOverride,
-          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo}=entry;
+          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo,needsSeat}=entry;
         const isTransport=member.actorType==="vehicle"||role.value==="mount";
         const profileId=isTransport?(profile.value||null):null;
         const method=profileId?lookup.get(profileId):null;
@@ -559,6 +563,7 @@ export class AtlasGroupTransportationSettings extends base {
           capacity:capacity.value===""?null:Number(capacity.value),
           surface:method?.surface??member.surface,profileId,
           enabled:enabled.value==="true",assignedTo:riderId,
+          needsSeat:member.actorType==="npc"?needsSeat.checked:true,
           speedMphOverride:isTransport?override:null,
           costCpOverride:readMoney(costOverride),
           costBasisOverride:isTransport?(costBasisOverride.value||null):null,
