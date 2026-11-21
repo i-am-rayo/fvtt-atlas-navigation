@@ -507,102 +507,100 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   /** GM edits aggregate counts only. Native personal mount assignments are read-only. */
-  renderMixedMethodAssignments(party,availability,{disabled=false}={}){
+  /** One planning step: a single method shows checkboxes; mixed methods show
+   * drag/drop assignments. The submitted Journey still owns one Group token.
+   */
+  renderTravelersAndPace(party,availability,{disabled=false}={}){
+    const root=el("div");
+    root.style.cssText="display:grid;gap:.6rem;padding-top:.45rem;";
+    const all=partyTravelerRoster(party.previewRoster);
+    const picked=new Set(party.selectedIds);
+    const members=all.filter(t=>picked.has(t.id));
     const sceneUnits=this.scene?.grid?.units?.trim()||"";
-    const showSpeed=speed=>atlasDisplaySpeed(speed,sceneUnits,
-      game.settings,game.system?.id);
-    const travelers=partyTravelerRoster(party.previewRoster).map(t=>{
-      const member=party.previewRoster.members.find(m=>m.actorId===t.id);
-      return {actorId:t.id,seatsNeeded:t.seats,
-        passengers:Math.max(1,member?.quantity??1)};
-    });
-    const names=new Map(party.previewRoster.members.map(m=>
-      [m.actorId,m.actorName]));
-    let selected=[],error=null,preview=null;
-    try{selected=this.mixedLandChoices(availability);}
-    catch(reason){error=reason.message??String(reason);}
-    const walker=this.resolveTravel({excludeConvoy:true}).travel.speed;
-    const hasWalking=selected.some(entry=>entry.key==="owned|walking");
-    const details=selected.map(entry=>{
+    const showSpeed=n=>atlasDisplaySpeed(n,sceneUnits,game.settings,game.system?.id);
+    const speedUnit=n=>n==="mi/hour"?"mph":n==="km/hour"?"kph":n;
+    const walkingSpeed=this.resolveTravel({excludeConvoy:true}).travel.speed;
+    let options=[],resources={};
+    try{
+      options=this.mixedKeys.length?this.mixedLandChoices(availability):
+        (()=>{const method=availability.methods.find(m=>m.id===this.travelMethod);
+          if(!method)return [];
+          const key=this.transportArrangement+"|"+this.travelMethod;
+          return [{key,method,arrangement:this.transportArrangement,
+            units:this.mixedUnits[key]??1}];})();
+      resources=Object.fromEntries(options.filter(o=>
+        o.arrangement==="owned"&&o.method.id!=="walking")
+        .map(o=>[o.key,groupMethodResourceInventory(
+          party.previewRoster,o.method)]));
+    }catch(error){
+      root.append(el("small",error.message??String(error)));return root;
+    }
+    const assignments=suggestedTravelAssignments(members,options,
+      this.mixedAssignments,resources);
+    const descriptions=options.map(entry=>{
       const method=entry.method;
-      const speed=method.id==="walking"?walker:
+      const speed=method.id==="walking"?walkingSpeed:
         convertGroupSpeed(method.speedMph,"mph",sceneUnits);
-      const owned=entry.arrangement==="owned"&&method.id!=="walking"?
-        groupMethodResourceInventory(party.previewRoster,method):[];
-      const personal=owned.filter(r=>r.assignedTo&&r.quantity===1&&
-        travelers.some(t=>t.actorId===r.assignedTo));
-      const freeSeats=owned.filter(r=>!r.assignedTo).reduce((n,r)=>
-        n+r.quantity*r.capacity,0);
-      const available=entry.arrangement==="hire"?
-        method.hireUnlimited===false?method.hireQuantity:null:
-        method.id==="walking"?null:
-          owned.reduce((n,r)=>n+r.quantity,0);
-      const suggestedRiders=entry.arrangement==="hire"?
-        method.hireApplies==="passenger"?1:hasWalking?0:
-          Math.min(travelers.reduce((n,t)=>n+t.passengers,0),
-            (entry.units??1)*method.capacity):
-        personal.length+Math.min(freeSeats,
-          travelers.reduce((n,t)=>n+t.passengers,0)-personal.length);
+      const shown=showSpeed(speed);
+      const total=resources[entry.key]?.reduce((n,r)=>
+        n+r.quantity*r.capacity,0)??0;
+      const hires=entry.arrangement==="hire";
       return {key:entry.key,name:method.name,arrangement:entry.arrangement,
-        available,speedLabel:atlasFormatMeasure(showSpeed(speed)),speed,
-        canAdjustRiders:entry.arrangement==="hire"||freeSeats>0,
-        suggestedRiders,maximumRiders:entry.arrangement==="hire"?
-          (entry.units??1)*method.capacity:personal.length+freeSeats,
-        personalAssignments:personal.map(r=>
-          names.get(r.assignedTo)??"Assigned rider")};
+        speed,speedLabel:shown.value.toFixed(2)+" "+speedUnit(shown.unit),
+        capacity:method.id==="walking"?null:hires?
+          (this.mixedUnits[entry.key]??entry.units??1)*method.capacity:total,
+        available:hires?method.hireUnlimited===false?
+          method.hireQuantity:null:null};
     });
-    const minimum=details.length?Math.min(...details.map(m=>m.speed)):walker;
-    const vehicles=details.filter(m=>m.key!=="owned|walking");
-    const ceiling=vehicles.length?Math.min(...vehicles.map(m=>m.speed)):null;
-    try{if(!error)preview=this.mixedLandPlan();}
-    catch(reason){error=reason.message??String(reason);}
-    const shown=showSpeed(minimum);
-    const unit=shown.unit==="mi/hour"?"mph":
-      shown.unit==="km/hour"?"km/h":shown.unit;
-    const selectedPace=this.convoyPace===null?null:
-      showSpeed(this.convoyPace).value;
-    return renderNavigationMixedLandControls({
-      methods:details,riderCounts:this.mixedRiderCounts,units:this.mixedUnits,
-      recommended:shown.value.toFixed(2),
-      maximum:ceiling===null?null:showSpeed(ceiling).value.toFixed(2),
-      pace:selectedPace===null?null:Number(selectedPace.toFixed(4)),
-      unit,disabled,error,
-      preview:preview?{
-        speed:showSpeed(preview.speedPerHour).value.toFixed(2),
-        moving:formatNavigationDuration(preview.movingHours,24),
-        passengers:preview.methods.filter(m=>m.role==="riders")
-          .reduce((n,m)=>n+m.passengers,0),
-        walking:preview.methods.filter(m=>m.role==="walking")
-          .reduce((n,m)=>n+m.passengers,0),
-        seats:preview.methods.filter(m=>m.role==="riders")
-          .reduce((n,m)=>n+m.seatsUsed,0),
-        cost:preview.totalCp+" CP"
-      }:null,
-      onRiders:(key,count)=>{
-        if(!Number.isInteger(count)||count<0||count>150){
-          globalThis.ui?.notifications?.warn?.(
-            "Passengers must be a whole number between 0 and 150.");
-          void this.render(true);return;
-        }
-        this.mixedRiderCounts={...this.mixedRiderCounts,[key]:count};
-        this.convoyPace=null;void this.render(true);
+    const setIncluded=(id,include)=>{
+      if(disabled)return;
+      const next=new Set(party.selectedIds);
+      if(include)next.add(id);else next.delete(id);
+      this.partySelectionMode=next.size===all.length?"all":"selected";
+      this.partySelectedIds=next.size===all.length?[]:[...next];
+      this.convoyPace=null;
+      void this.render(true);
+    };
+    root.append(renderNavigationTravelRoster({
+      travelers:all,selectedIds:party.selectedIds,
+      methods:descriptions,assignments,
+      units:this.mixedUnits,disabled,previewOnly:party.partial,
+      onInclude:setIncluded,
+      onAssign:(id,key)=>{
+        if(disabled||!descriptions.some(m=>m.key===key))return;
+        this.mixedAssignments={...this.mixedAssignments,[id]:key};
+        if(!picked.has(id))setIncluded(id,true);
+        else {this.convoyPace=null;void this.render(true);}
       },
       onUnits:(key,count)=>{
-        if(!Number.isInteger(count)||count<1||count>100){
-          globalThis.ui?.notifications?.warn?.(
-            "Hired units must be a whole number between 1 and 100.");
+        const method=descriptions.find(m=>m.key===key);
+        if(!method||method.arrangement!=="hire"||
+            !Number.isInteger(count)||count<1||count>100||
+            method.available!==null&&count>method.available){
+          globalThis.ui?.notifications?.warn?.("Invalid hired vehicle quantity.");
           void this.render(true);return;
         }
         this.mixedUnits={...this.mixedUnits,[key]:count};
-        void this.render(true);
-      },
-      onPace:value=>{
-        this.convoyPace=value===null?null:
-          value==="custom"?minimum:atlasSceneSpeedFromDisplay(
-            value,sceneUnits,game.settings,game.system?.id,ceiling);
-        void this.render(true);
+        this.convoyPace=null;void this.render(true);
       }
-    });
+    }));
+    if(this.mixedKeys.length>1){
+      const speeds=descriptions.map(d=>({...d,speed:showSpeed(d.speed).value}));
+      const slowestVehicle=Math.min(...descriptions.filter(d=>
+        d.key!=="owned|walking").map(d=>d.speed));
+      const selected=this.convoyPace===null?null:showSpeed(this.convoyPace).value;
+      const choice=renderNavigationPaceChoice({
+        methods:speeds,selected,unit:speedUnit(showSpeed(walkingSpeed).unit),
+        maxSpeed:showSpeed(slowestVehicle).value,disabled,
+        onPace:value=>{
+          this.convoyPace=value===null?null:atlasSceneSpeedFromDisplay(
+            value,sceneUnits,game.settings,game.system?.id,slowestVehicle);
+          void this.render(true);
+        }
+      });
+      if(choice)root.append(choice);
+    }
+    return root;
   }
 
   /** Confirm an explicit per-rider manifest and then re-read every authority:
