@@ -134,7 +134,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-navigation-panel",
     window: { title: "Atlas — Navigation", resizable: true },
-    position: { width: 900, height: 745, left: 70, top: 50 }
+    position: { width: 900, height: 665, left: 70, top: 50 }
   };
 
   constructor({ canvasProvider = () => globalThis.canvas,

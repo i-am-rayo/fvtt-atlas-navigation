@@ -4,7 +4,7 @@ Stacked on dev.14 recovery-integrity guard (draft PR #475).
 No release or merge authorized.
 
 ## Owner feedback (Foundry v14, 2026-11-21)
-- Increase default Navigation window to 900 × 745, remaining resizable.
+- Increase default Navigation window to 900 × 665, remaining resizable.
   Retain Foundry native window behavior on narrow screens.
 - Preserve tab scroll position across ApplicationV2 re-render on traveler
   drag, keyboard move, check/uncheck or transport-unit quantity change.
