@@ -158,3 +158,17 @@ test("Not traveling is always shown, accepts drags, and allows a return to trave
     assert.ok(all(emptyColumn).some(n=>n.textContent==="0 staying"));
   }finally{restore();}
 });
+
+test("deck shares Font Awesome icons and omits walking fare",()=>{
+  const restore=dom();
+  try{
+    const choices=methods.map(m=>({...m,costLabel:"1 SP",costDetail:"1 unit"}));
+    const nodes=all(renderNavigationTravelRoster({travelers,selectedIds:travelers.map(t=>t.id),
+      methods:choices,assignments:suggestedTravelAssignments(travelers,choices)}));
+    assert.deepEqual(nodes.filter(n=>n.tag==="i").map(n=>n.className),
+      ["fa-solid fa-person-walking","fa-solid fa-horse","fa-solid fa-wagon-covered"]);
+    assert.equal(nodes.filter(n=>n.textContent==="1 SP").length,2);
+    assert.ok(nodes.some(n=>n.children?.some(c=>c.textContent==="3 · Who goes where?")&&
+      n.children?.some(c=>c.textContent==="5/5 travelers · 4 seats")));
+  }finally{restore();}
+});

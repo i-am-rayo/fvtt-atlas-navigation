@@ -22,8 +22,8 @@ export function renderNavigationSummaryMetrics({
   metrics,explanation=null,progressPercent=null
 }){
   const summary=el("div");
-  summary.style.cssText="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;";
-  for(const {label,value,tooltip=null,hint=null} of metrics){
+  summary.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr));gap:.65rem;";
+  for(const {label,value,tooltip=null,hint=null,lines=[]} of metrics){
     const card=el("div");
     card.style.cssText="border:1px solid var(--color-border-light-tertiary,#666);border-radius:8px;padding:.65rem;min-width:0;";
     const small=el("div",label);
@@ -42,6 +42,12 @@ export function renderNavigationSummaryMetrics({
       const alternative=el("small",hint);
       alternative.style.cssText="display:block;opacity:.75;margin-top:.3rem;line-height:1.3;";
       card.appendChild(alternative);
+    }
+    for(const line of lines){
+      const detail=el("div");
+      detail.style.cssText="display:flex;justify-content:space-between;flex-wrap:wrap;gap:.25rem;font-size:.8em;margin-top:.2rem;";
+      detail.append(el("span",line.label),el("span",line.value));
+      card.appendChild(detail);
     }
     summary.appendChild(card);
   }

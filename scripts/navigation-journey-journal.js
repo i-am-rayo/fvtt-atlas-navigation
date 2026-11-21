@@ -2,6 +2,7 @@ import { MODULE_ID } from "./atlas-storage.js";
 import {validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 import {describeConfirmedTravelers} from "./navigation-journey-manifest.js";
+import {mixedTransportFareBreakdown} from "./navigation-currency.js";
 import {validateAggregateLandConvoy} from "./navigation-theater-convoy.js";
 const validateApprovedConvoy=value=>value?.schemaVersion===3?
   validateAggregateLandConvoy(value):value?.schemaVersion===2?
@@ -298,9 +299,12 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     const convoySpeed=n=>{
       const shown=atlasDisplaySpeed(n,leg.units,settings,systemId);
       const unit=shown.unit==="mi/hour"?"mph":
-        shown.unit==="km/hour"?"km/h":shown.unit;
+        shown.unit==="km/hour"?"kph":shown.unit;
       return Number(shown.value).toFixed(2)+" "+unit;
     };
+    const fare=leg.convoy&&[2,3].includes(leg.convoy.schemaVersion)?
+      mixedTransportFareBreakdown(leg.convoy.methods,
+        systemId==="dnd5e"?globalThis.CONFIG?.DND5E?.currencies:undefined):null;
     const convoyLines=leg.convoy&&leg.completedMovingHours>0?(
       [2,3].includes(leg.convoy.schemaVersion)?[
         "The Group traveled together using mixed transportation at "+
@@ -308,14 +312,16 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         ...leg.convoy.methods.map(m=>{
           const assignment=describeConfirmedTravelers(leg.convoy)
             .find(item=>item.key===m.key);
-          const label=m.role==="walking"?
-            m.passengers+" traveler(s) walking":
-            m.role==="cargo"?m.units+" "+m.methodName+
-              " cargo-only unit(s)":m.passengers+" traveler(s) riding, "+
-              m.seatsUsed+" seat(s), "+m.units+" "+m.methodName+" unit(s)";
-          return label+(assignment?" — "+assignment.travelers:"")+
-            " (estimated "+m.estimatedCostCp+" CP; not charged).";
+          const riders=m.passengers+" "+(m.passengers===1?"traveler":"travelers");
+          const label=m.role==="walking"?"Walking: "+
+            (assignment?.travelers??riders):m.methodName+": "+
+            (m.role==="cargo"?"Cargo only":(assignment?.travelers??riders+" riding"))+
+            " · "+m.units+" "+(m.units===1?"unit":"units");
+          const cost=fare.rows.find(row=>row.key===m.key);
+          return label+(cost?" · "+cost.label:"");
         }),
+        "Estimated transportation cost: "+fare.total.label+
+          " (planned leg quote; no currency deducted).",
         ...(leg.convoy.gmWalkingPaceOverride?[
           "GM-approved walking pace exception: recommended "+
             convoySpeed(leg.convoy.suggestedSpeedPerHour)+
@@ -352,7 +358,8 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         (step.hours&&!isRestUnderway(step.action)&&step.endedTimeLabel===step.startedTimeLabel?
           " (World clock unchanged)":""))+"</li>":
       `<li class="atlas-journey-direction">${escapeHTML(step.instruction)} — ${escapeHTML(displayDistance(Number(step.distance)))}</li>`).join("");
-    const percent=Math.floor(leg.completedPercent);
+    // Use the same tolerance as the confirmed-arrival predicate.
+    const percent=leg.completedPercent>=99.999?100:Math.floor(leg.completedPercent);
     return `<section class="atlas-journey-leg" aria-label="Leg ${index+1}">`+
       `<div class="atlas-journey-leg-header"><h3>Leg ${index+1}: ${escapeHTML(leg.sceneName)}</h3>`+
       `<span class="atlas-journey-leg-progress-label">${percent}% confirmed</span></div>`+

@@ -58,7 +58,7 @@ import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure,
 import { readGroupTransportation,projectGroupTransportation,
   groupMethodCapacityStatus,groupMethodFareEstimate,groupMethodResourceInventory }
   from "./navigation-group-transport.js";
-import { dndCurrencyBreakdown } from "./navigation-currency.js";
+import { dndCurrencyBreakdown,mixedTransportFareBreakdown } from "./navigation-currency.js";
 import { resolveTransportationOperation,quoteTransportationService,
   assessHiredTransportAvailability }
   from "./navigation-transport-service.js";
@@ -511,7 +511,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** One planning step: a single method shows checkboxes; mixed methods show
    * drag/drop assignments. The submitted Journey still owns one Group token.
    */
-  renderTravelersAndPace(party,availability,{disabled=false}={}){
+  renderTravelersAndPace(party,availability,{disabled=false,mixedFare=null}={}){
     const root=el("div");
     root.style.cssText="display:grid;gap:.6rem;padding-top:.45rem;";
     const all=partyTravelerRoster(party.previewRoster);
@@ -551,7 +551,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const minimumUnits=hires?Math.max(1,Math.ceil(
         assignedSeats/Math.max(1,method.capacity))):null;
       const count=hires?this.mixedUnits[entry.key]??minimumUnits:null;
+      const fare=mixedFare?.rows.find(row=>row.key===entry.key);
+      const terms=hires?[{cost:method.hireCostCp,basis:method.hireBasis,applies:method.hireApplies}]:
+        (resources[entry.key]??[]).filter(r=>fare?.resourceIds.includes(r.actorId))
+          .map(r=>({cost:r.method.costCp,basis:r.method.costBasis,applies:r.method.costApplies}));
+      const rates=[...new Set(terms.filter(r=>r.cost>0&&r.basis!=="none")
+        .map(r=>r.cost+" CP/"+(r.applies==="passenger"?"passenger":"unit")+"/"+r.basis))];
       return {key:entry.key,name:method.name,arrangement:entry.arrangement,
+        ...(this.mixedKeys.length>1&&method.id!=="walking"?{
+          costLabel:fare?.label??"Estimate unavailable",
+          costDetail:fare?fare.units+" unit"+(fare.units===1?"":"s")+
+            (rates.length?" · "+rates.join(" + "):""):null}:{}),
         speed,speedLabel:shown.value.toFixed(2)+" "+speedUnit(shown.unit),
         capacity:method.id==="walking"?null:hires?
           count*method.capacity:total,
@@ -1091,6 +1101,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.pendingTransfer||!["owned","hire"].includes(value.split("|")[0]))
       return;
     const [arrangement,method]=value.split("|",2);
+    if(checked&&arrangement==="owned"&&method==="mounted")return;
     const primary=this.transportArrangement+"|"+this.travelMethod;
     const selected=this.mixedKeys.length?this.mixedKeys:
       this.convoyEnabled?["owned|walking",...Object.keys(
@@ -3802,12 +3813,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.transportJourneyOverrides=null;
       this.transportOperation="normal";
     }
+    let mixedFare=null;
+    if(game.user?.isGM&&this.mixedKeys.length>1&&!this.travelSession&&
+        !this.recoveryRecord&&!this.recoverableJourney){
+      try{mixedFare=mixedTransportFareBreakdown(this.mixedLandPlan().methods,
+        globalThis.CONFIG?.DND5E?.currencies);}
+      catch{/* Invalid allocations have no valid quote. */}
+    }
     const choices=approvedRecoveryLand?[{
       value:approvedRecoveryLand.arrangement+"|"+approvedRecoveryLand.id,
       label:approvedRecoveryLand.name,group:"Approved saved Journey"
     }]:[
-      ...methods.filter(item=>item.id==="walking"||availability.owned.has(item.id)||
-        approvedRecoveryTransport?.methodId===item.id)
+      ...methods.filter(item=>
+        (item.id!=="mounted"||this.travelSession||approvedRecoveryTransport?.methodId===item.id)&&
+        (item.id==="walking"||availability.owned.has(item.id)||
+        approvedRecoveryTransport?.methodId===item.id))
         .map(method=>approvedRecoveryTransport?.methodId===method.id?{
           value:approvedRecoveryTransport.arrangement+"|"+method.id,
           label:approvedRecoveryTransport.methodName,group:"Approved saved Journey"
@@ -3895,7 +3915,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!locked&&game.user?.isGM&&this.sourceMode==="party"&&
           partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
         section.append(this.renderTravelersAndPace(partySelection,
-          availability,{disabled:Boolean(this.journalStarting)}));
+          availability,{disabled:Boolean(this.journalStarting),mixedFare}));
       }
       if(this.convoyEnabled&&!locked&&this.sourceMode==="party"&&
           partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
@@ -4331,6 +4351,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           " The GM's rest or forced-travel choices update this estimate.";
         tripExplanation=explanation;
       }catch(error){metric("Travel Time","Unavailable");metric("Total Trip","Unavailable");}
+      if(this.mixedKeys.length>1&&!this.travelSession&&!this.recoveryRecord&&
+          !this.recoverableJourney&&game.user?.isGM){
+        metrics.push({label:"Estimated Cost",
+          value:!blockedEstimate&&mixedFare?mixedFare.total.label:"Unavailable",
+          tooltip:"Each method is rounded up separately. No currency is deducted.",
+          lines:!blockedEstimate&&mixedFare?mixedFare.rows.map(row=>({
+            label:row.name,value:row.label})):[]});
+      }
       const summary=renderNavigationSummaryMetrics({metrics,
         explanation:tripExplanation,
         progressPercent:this.travelSession||this.travelProgress>0?
