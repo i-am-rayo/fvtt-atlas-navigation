@@ -43,7 +43,7 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
     }
     root.append(grid);
   }else{
-    const board=css(el("div"),"display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.5rem;");
+    const board=css(el("div"),"display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,11rem),1fr));gap:.5rem;");
     const names=new Map(travelers.map(t=>[t.id,t]));
     const keys=methods.map(m=>m.key);
     const card=t=>{
@@ -69,7 +69,7 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
       for(const method of methods){
         const opt=el("option",method.name);opt.value=method.key;chooser.append(opt);
       }
-      const stay=el("option","Stay behind");stay.value="";chooser.append(stay);
+      const stay=el("option","Not traveling");stay.value="";chooser.append(stay);
       chooser.value=selected.has(t.id)?assignments[t.id]??keys[0]:"";
       chooser.disabled=disabled;
       chooser.addEventListener("change",()=>{
@@ -127,21 +127,33 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
       });
       column.append(landing);board.append(column);
     }
-    root.append(board);
+    // Always show the draft-only destination, including when nobody is left
+    // behind. Both drop and keyboard Move share the same include callback.
     const waiting=travelers.filter(t=>!selected.has(t.id));
-    if(waiting.length){
-      const stay=css(el("div"),"display:grid;gap:.3rem;");
-      stay.append(el("small","Staying behind"));
-      const chips=css(el("div"),"display:flex;flex-wrap:wrap;gap:.35rem;");
-      for(const t of waiting){
-        const button=el("button","+ "+t.name);
-        button.type="button";button.disabled=disabled;
-        button.title="Add "+t.name+" to the traveling party";
-        button.addEventListener("click",()=>onInclude?.(t.id,true));
-        chips.append(button);
-      }
-      stay.append(chips);root.append(stay);
-    }
+    const stay=css(el("div"),"display:grid;align-content:start;gap:.3rem;"+
+      "min-width:0;min-height:5.6rem;border:1px dashed var(--color-border-light-tertiary,#555);"+
+      "border-radius:8px;padding:.5rem;");
+    stay.className="atlas-navigation-travel-column atlas-navigation-not-traveling";
+    stay.setAttribute?.("aria-label","Not traveling");
+    stay.append(css(el("strong","Not traveling"),"font-size:.84em;"),
+      css(el("small",waiting.length+" staying"),"opacity:.8;font-size:.76em;"));
+    const waitingLanding=css(el("div"),"display:grid;gap:.25rem;min-height:1.9rem;");
+    waitingLanding.setAttribute?.("aria-label","Drop travelers to stay behind");
+    for(const t of waiting)waitingLanding.append(card(t));
+    if(!waiting.length)waitingLanding.append(css(el("small","Drop here"),
+      "opacity:.55;text-align:center;"));
+    stay.addEventListener("dragover",event=>{
+      if(disabled)return;
+      event.preventDefault();
+      if(event.dataTransfer)event.dataTransfer.dropEffect="move";
+    });
+    stay.addEventListener("drop",event=>{
+      event.preventDefault();
+      const id=event.dataTransfer?.getData("text/plain");
+      if(!disabled&&names.has(id)&&selected.has(id))onInclude?.(id,false);
+    });
+    stay.append(waitingLanding);board.append(stay);
+    root.append(board);
   }
   if(previewOnly){
     const hint=el("small","Subset preview only · Assign a separate Group explorer to travel.");

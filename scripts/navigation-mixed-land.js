@@ -12,6 +12,8 @@ const nonnegative=n=>Number.isFinite(n)&&n>=0&&n<=Number.MAX_SAFE_INTEGER;
 const unitsOf=(speed,units)=>convertGroupSpeed(speed,"mph",units);
 const sum=(xs,key)=>xs.reduce((n,x)=>n+x[key],0);
 const EPS=1e-7;
+const validName=name=>name===undefined||typeof name==="string"&&
+  name.trim().length>0&&name.length<=240&&!/[\u0000-\u001f]/.test(name);
 
 /** Authoritative approved snapshot; its stock and price are historical facts. */
 export function validateMixedLandConvoy(record){
@@ -33,6 +35,7 @@ export function validateMixedLandConvoy(record){
       !["walking","riding"].includes(t.role)||
       !Number.isInteger(t.seatsNeeded)||t.seatsNeeded<0||t.seatsNeeded>100||
       !Number.isInteger(t.passengers)||t.passengers<1||t.passengers>100||
+      !validName(t.name)||
       (t.role==="walking")!==(t.methodKey==="owned|walking"))
       throw Error("Invalid mixed Journey traveler assignment.");
     riders.add(t.actorId);
@@ -110,7 +113,8 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
   for(const t of travelers){
     if(!id(t.actorId)||members.has(t.actorId)||
       !Number.isInteger(t.seatsNeeded)||t.seatsNeeded<0||t.seatsNeeded>100||
-      !Number.isInteger(t.passengers)||t.passengers<1||t.passengers>100)
+      !Number.isInteger(t.passengers)||t.passengers<1||t.passengers>100||
+      !validName(t.name))
       throw Error("Invalid Group passenger roster.");
     members.add(t.actorId);
   }
@@ -130,7 +134,8 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
     if(!chosen.has(key))throw Error("Assign each Group traveler to a selected travel method.");
     return {actorId:t.actorId,methodKey:key,
       role:key==="owned|walking"?"walking":"riding",
-      seatsNeeded:t.seatsNeeded,passengers:t.passengers};
+      seatsNeeded:t.seatsNeeded,passengers:t.passengers,
+      ...(t.name!==undefined?{name:t.name}:{})};
   });
   const usedResources=new Set();
   const prepared=[];

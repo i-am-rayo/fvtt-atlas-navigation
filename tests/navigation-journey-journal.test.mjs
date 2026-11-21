@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {readFileSync} from "node:fs";
-import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
+import { createJourneyRecord,validateJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   eligibleJourneyRecord,formatJourneyJournalHTML,saveJourneyJournal,
   findRecoverableJourney,ensureJourneyLogFolder,JOURNEY_JOURNAL_FLAG,
   JOURNEY_JOURNAL_PAGE,JOURNEY_JOURNAL_FOLDER }
@@ -530,4 +530,41 @@ test("schema-v3 theater-of-mind seats recover without inventing named coach ride
   changed.legs[0].convoy.totalPassengers=40;
   assert.equal(eligibleJourneyRecord(changed,{
     sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
+});
+
+test("confirmed named riders appear in completed Journal; Actor names are escaped",()=>{
+  const group=[
+    {actorId:"cass",name:"Dr. Cassian <Voss>",passengers:1,seatsNeeded:1},
+    {actorId:"nyx",name:"Nyx",passengers:1,seatsNeeded:0},
+    {actorId:"luc",name:"Lucious",passengers:1,seatsNeeded:1}
+  ];
+  const walking={key:"owned|walking",arrangement:"owned",
+    method:{id:"walking",name:"Walking",kind:"foot",surface:"land"}};
+  const wagon={key:"hire|wagon",arrangement:"hire",
+    method:{id:"wagon",name:"Wagon",kind:"vehicle",surface:"land",
+      capacity:2,speedMph:4,hireEnabled:true,hireApplies:"unit",
+      hireBasis:"day",hireCostCp:200,hireUnlimited:false,hireQuantity:1},
+    checkpointId:"hearth"};
+  const convoy=planMixedLandConvoy({travelers:group,methods:[walking,wagon],
+    assignments:{cass:"hire|wagon",nyx:"owned|walking",luc:"hire|wagon"},
+    walkingSpeed:3,sceneUnits:"mi",routeDistance:24,weightedDistance:24,
+    distanceMi:24});
+  const scenario=itinerary();
+  scenario.scene.units="mi";
+  scenario.travel={speedPerHour:3,methodId:"walking",
+    methodName:"Mixed Group transportation",arrangement:"owned",operation:"normal"};
+  scenario.measurements={distance:24,travelHours:8,terrainAware:false};
+  scenario.convoy=convoy;
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:scenario});
+  const completed=checkpointJourneyRecord(saved,{
+    schedule:{...schedule,completedHours:8,events:[],restEvents:0},
+    progress:100,status:"completed"});
+  const html=formatJourneyJournalHTML(completed);
+  assert.match(html,/Dr\. Cassian &lt;Voss&gt;/);
+  assert.match(html,/Lucious/);
+  assert.match(html,/Nyx \(no seat\)/);
+  assert.doesNotMatch(html,/<Voss>/,
+    "Actor names must be escaped in persisted Journal HTML");
+  assert.deepEqual(validateJourneyRecord(completed).legs[0].convoy,convoy);
 });
