@@ -80,7 +80,7 @@ test("multiple methods are real drop columns with an accessible Move alternative
       onAssign:(id,key)=>moved.push([id,key])});
     const columns=all(view).filter(n=>
       String(n.className??"").includes("atlas-navigation-travel-column"));
-    assert.equal(columns.length,3,"only selected methods get columns");
+    assert.equal(columns.length,4,"selected methods plus a permanent Not traveling column");
     const cards=all(view).filter(n=>n.draggable===true);
     assert.equal(cards.length,5,"each traveler is present exactly once");
     const cart=columns[2];
@@ -128,5 +128,33 @@ test("metric pace labels round to kph but emit exact unrounded transport speed",
     assert.equal(picked,value,
       "6.44 kph label selects exactly 4 mph rather than exceeding cart speed");
     assert.ok(all(view).some(n=>String(n.textContent??"").includes("6.44 kph")));
+  }finally{restore();}
+});
+
+test("Not traveling is always shown, accepts drags, and allows a return to travel",()=>{
+  const restore=dom();
+  try{
+    const changes=[];
+    const assignments=Object.fromEntries(travelers.map(t=>[t.id,"owned|walking"]));
+    const view=renderNavigationTravelRoster({
+      travelers,selectedIds:travelers.map(t=>t.id).filter(id=>id!=="nyx"),
+      methods,assignments,onInclude:(id,active)=>changes.push([id,active])
+    });
+    const waiting=all(view).find(n=>String(n.className??"")
+      .includes("atlas-navigation-not-traveling"));
+    assert.ok(waiting,"dedicated column stays rendered even with no selected travelers");
+    const cards=all(waiting).filter(n=>n.draggable===true);
+    assert.equal(cards.length,1);
+    assert.equal(all(waiting).filter(n=>n.title==="Move Nyx").length,1,
+      "a non-traveler can be added to a selected method via keyboard Move");
+    waiting.listeners.drop({preventDefault(){},
+      dataTransfer:{getData:()=>"cass"}});
+    assert.deepEqual(changes,[["cass",false]]);
+    const empty=renderNavigationTravelRoster({travelers,
+      selectedIds:travelers.map(t=>t.id),methods,assignments});
+    const emptyColumn=all(empty).find(n=>String(n.className??"")
+      .includes("atlas-navigation-not-traveling"));
+    assert.ok(emptyColumn);
+    assert.ok(all(emptyColumn).some(n=>n.textContent==="0 staying"));
   }finally{restore();}
 });

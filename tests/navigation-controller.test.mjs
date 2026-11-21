@@ -2868,3 +2868,23 @@ test("single-method travel toggles subset preview without editing native Group",
     assert.equal(projected.travelerCount,4);
   }finally{Object.assign(globalThis,previous);}
 });
+
+test("Navigation retains the travel tab scroll position after a traveler drag rerender",()=>{
+  const nav=Object.create(AtlasNavigationController.prototype);
+  assert.equal(AtlasNavigationController.DEFAULT_OPTIONS.position.width,900);
+  const before=[
+    {id:"atlas-navigation-panel-travel",scrollTop:612,scrollLeft:4},
+    {id:"atlas-navigation-panel-playback",scrollTop:27,scrollLeft:0}
+  ];
+  const after=before.map(({id})=>({id,scrollTop:0,scrollLeft:0}));
+  const content={scrollTop:15,replaced:false,
+    querySelectorAll(){return this.replaced?after:before;},
+    querySelector(selector){return after.find(n=>selector==='[id="'+n.id+'"]');},
+    replaceChildren(node){this.replaced=true;this.child=node;this.scrollTop=0;}
+  };
+  const replacement={id:"new-navigation-stage"};
+  nav._replaceHTML(replacement,content);
+  assert.equal(content.child,replacement);
+  assert.equal(content.scrollTop,15);
+  assert.deepEqual(after.map(x=>[x.scrollTop,x.scrollLeft]),[[612,4],[27,0]]);
+});
