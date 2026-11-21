@@ -101,7 +101,9 @@ import {renderNavigationPlannerTabs,renderNavigationJourneyTabs}
 import {renderNavigationActivePlayback} from "./navigation-active-playback-view.js";
 import {liveJourneyPlayback,canAdjustLiveJourneyVisuals,expectedAdditionalTravelBreaks}
   from "./navigation-live-playback.js";
-import {renderNavigationPartySelection} from "./navigation-party-selection-view.js";
+import {renderNavigationTravelRoster,renderNavigationPaceChoice}
+  from "./navigation-traveler-deck-view.js";
+import {suggestedTravelAssignments} from "./navigation-travel-allocation.js";
 import {planWalkingCargoConvoy,validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import {renderWalkingCargoControls} from "./navigation-mixed-convoy-view.js";
 import {planMixedLandConvoy,validateMixedLandConvoy}
@@ -470,9 +472,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("Choose two compatible travel methods for the assigned Group.");
     const available=this.transportAvailability();
     const party=this.partyTravelSelection(available.all);
-    if(!party||party.partial||party.empty)
-      throw Error("A mixed Journey requires every Group traveler in the assigned explorer.");
-    const travelers=partyTravelerRoster(party.previewRoster).map(m=>{
+    if(!party||party.empty)
+      throw Error("Choose at least one traveler for this Journey preview.");
+    const active=new Set(party.selectedIds);
+    const travelers=partyTravelerRoster(party.previewRoster)
+      .filter(m=>active.has(m.id)).map(m=>{
       const original=party.previewRoster.members.find(item=>item.actorId===m.id);
       return {actorId:m.id,seatsNeeded:m.seats,
         passengers:Math.max(1,original?.quantity??1)};
@@ -487,8 +491,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const walking=walkingTravel??this.resolveTravel({excludeConvoy:true}).travel;
     const hours=this.resolveTravelRules(walking).dailyHours??8;
     const hasWalking=selected.some(x=>x.key==="owned|walking");
-    return planAggregateLandConvoy({travelers,
-      riderCounts:this.mixedRiderCounts,methods:hired,
+    const resources=Object.fromEntries(hired.filter(m=>m.resources)
+      .map(m=>[m.key,m.resources]));
+    const assignments=suggestedTravelAssignments(
+      travelers.map(t=>({id:t.actorId})),selected,
+      this.mixedAssignments,resources);
+    return planMixedLandConvoy({travelers,
+      assignments,methods:hired,
       walkingSpeed:walking.speed,sceneUnits,
       routeDistance:this.result.distance,
       weightedDistance:hasWalking&&this.result.terrainAware?
@@ -498,102 +507,106 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   /** GM edits aggregate counts only. Native personal mount assignments are read-only. */
-  renderMixedMethodAssignments(party,availability,{disabled=false}={}){
+  /** One planning step: a single method shows checkboxes; mixed methods show
+   * drag/drop assignments. The submitted Journey still owns one Group token.
+   */
+  renderTravelersAndPace(party,availability,{disabled=false}={}){
+    const root=el("div");
+    root.style.cssText="display:grid;gap:.6rem;padding-top:.45rem;";
+    const all=partyTravelerRoster(party.previewRoster);
+    const picked=new Set(party.selectedIds);
+    const members=all.filter(t=>picked.has(t.id));
     const sceneUnits=this.scene?.grid?.units?.trim()||"";
-    const showSpeed=speed=>atlasDisplaySpeed(speed,sceneUnits,
-      game.settings,game.system?.id);
-    const travelers=partyTravelerRoster(party.previewRoster).map(t=>{
-      const member=party.previewRoster.members.find(m=>m.actorId===t.id);
-      return {actorId:t.id,seatsNeeded:t.seats,
-        passengers:Math.max(1,member?.quantity??1)};
-    });
-    const names=new Map(party.previewRoster.members.map(m=>
-      [m.actorId,m.actorName]));
-    let selected=[],error=null,preview=null;
-    try{selected=this.mixedLandChoices(availability);}
-    catch(reason){error=reason.message??String(reason);}
-    const walker=this.resolveTravel({excludeConvoy:true}).travel.speed;
-    const hasWalking=selected.some(entry=>entry.key==="owned|walking");
-    const details=selected.map(entry=>{
+    const showSpeed=n=>atlasDisplaySpeed(n,sceneUnits,game.settings,game.system?.id);
+    const speedUnit=n=>n==="mi/hour"?"mph":n==="km/hour"?"kph":n;
+    const walkingSpeed=this.resolveTravel({excludeConvoy:true}).travel.speed;
+    let options=[],resources={};
+    try{
+      options=this.mixedKeys.length?this.mixedLandChoices(availability):
+        (()=>{const method=availability.methods.find(m=>m.id===this.travelMethod);
+          if(!method)return [];
+          const key=this.transportArrangement+"|"+this.travelMethod;
+          return [{key,method,arrangement:this.transportArrangement,
+            units:this.mixedUnits[key]??1}];})();
+      resources=Object.fromEntries(options.filter(o=>
+        o.arrangement==="owned"&&o.method.id!=="walking")
+        .map(o=>[o.key,groupMethodResourceInventory(
+          party.previewRoster,o.method)]));
+    }catch(error){
+      root.append(el("small",error.message??String(error)));return root;
+    }
+    const assignments=suggestedTravelAssignments(members,options,
+      this.mixedAssignments,resources);
+    const descriptions=options.map(entry=>{
       const method=entry.method;
-      const speed=method.id==="walking"?walker:
+      const speed=method.id==="walking"?walkingSpeed:
         convertGroupSpeed(method.speedMph,"mph",sceneUnits);
-      const owned=entry.arrangement==="owned"&&method.id!=="walking"?
-        groupMethodResourceInventory(party.previewRoster,method):[];
-      const personal=owned.filter(r=>r.assignedTo&&r.quantity===1&&
-        travelers.some(t=>t.actorId===r.assignedTo));
-      const freeSeats=owned.filter(r=>!r.assignedTo).reduce((n,r)=>
-        n+r.quantity*r.capacity,0);
-      const available=entry.arrangement==="hire"?
-        method.hireUnlimited===false?method.hireQuantity:null:
-        method.id==="walking"?null:
-          owned.reduce((n,r)=>n+r.quantity,0);
-      const suggestedRiders=entry.arrangement==="hire"?
-        method.hireApplies==="passenger"?1:hasWalking?0:
-          Math.min(travelers.reduce((n,t)=>n+t.passengers,0),
-            (entry.units??1)*method.capacity):
-        personal.length+Math.min(freeSeats,
-          travelers.reduce((n,t)=>n+t.passengers,0)-personal.length);
+      const shown=showSpeed(speed);
+      const total=resources[entry.key]?.reduce((n,r)=>
+        n+r.quantity*r.capacity,0)??0;
+      const hires=entry.arrangement==="hire";
+      const assignedSeats=members.filter(t=>assignments[t.id]===entry.key)
+        .reduce((n,t)=>n+t.seats,0);
+      const minimumUnits=hires?Math.max(1,Math.ceil(
+        assignedSeats/Math.max(1,method.capacity))):null;
+      const count=hires?this.mixedUnits[entry.key]??minimumUnits:null;
       return {key:entry.key,name:method.name,arrangement:entry.arrangement,
-        available,speedLabel:atlasFormatMeasure(showSpeed(speed)),speed,
-        canAdjustRiders:entry.arrangement==="hire"||freeSeats>0,
-        suggestedRiders,maximumRiders:entry.arrangement==="hire"?
-          (entry.units??1)*method.capacity:personal.length+freeSeats,
-        personalAssignments:personal.map(r=>
-          names.get(r.assignedTo)??"Assigned rider")};
+        speed,speedLabel:shown.value.toFixed(2)+" "+speedUnit(shown.unit),
+        capacity:method.id==="walking"?null:hires?
+          count*method.capacity:total,
+        minimumUnits,
+        available:hires?method.hireUnlimited===false?
+          method.hireQuantity:null:null};
     });
-    const minimum=details.length?Math.min(...details.map(m=>m.speed)):walker;
-    const vehicles=details.filter(m=>m.key!=="owned|walking");
-    const ceiling=vehicles.length?Math.min(...vehicles.map(m=>m.speed)):null;
-    try{if(!error)preview=this.mixedLandPlan();}
-    catch(reason){error=reason.message??String(reason);}
-    const shown=showSpeed(minimum);
-    const unit=shown.unit==="mi/hour"?"mph":
-      shown.unit==="km/hour"?"km/h":shown.unit;
-    const selectedPace=this.convoyPace===null?null:
-      showSpeed(this.convoyPace).value;
-    return renderNavigationMixedLandControls({
-      methods:details,riderCounts:this.mixedRiderCounts,units:this.mixedUnits,
-      recommended:shown.value.toFixed(2),
-      maximum:ceiling===null?null:showSpeed(ceiling).value.toFixed(2),
-      pace:selectedPace===null?null:Number(selectedPace.toFixed(4)),
-      unit,disabled,error,
-      preview:preview?{
-        speed:showSpeed(preview.speedPerHour).value.toFixed(2),
-        moving:formatNavigationDuration(preview.movingHours,24),
-        passengers:preview.methods.filter(m=>m.role==="riders")
-          .reduce((n,m)=>n+m.passengers,0),
-        walking:preview.methods.filter(m=>m.role==="walking")
-          .reduce((n,m)=>n+m.passengers,0),
-        seats:preview.methods.filter(m=>m.role==="riders")
-          .reduce((n,m)=>n+m.seatsUsed,0),
-        cost:preview.totalCp+" CP"
-      }:null,
-      onRiders:(key,count)=>{
-        if(!Number.isInteger(count)||count<0||count>150){
-          globalThis.ui?.notifications?.warn?.(
-            "Passengers must be a whole number between 0 and 150.");
-          void this.render(true);return;
-        }
-        this.mixedRiderCounts={...this.mixedRiderCounts,[key]:count};
-        this.convoyPace=null;void this.render(true);
+    const setIncluded=(id,include)=>{
+      if(disabled)return;
+      const next=new Set(party.selectedIds);
+      if(include)next.add(id);else next.delete(id);
+      this.partySelectionMode=next.size===all.length?"all":"selected";
+      this.partySelectedIds=next.size===all.length?[]:[...next];
+      this.convoyPace=null;
+      void this.render(true);
+    };
+    root.append(renderNavigationTravelRoster({
+      travelers:all,selectedIds:party.selectedIds,
+      methods:descriptions,assignments,
+      units:this.mixedUnits,disabled,previewOnly:party.partial,
+      onInclude:setIncluded,
+      onAssign:(id,key)=>{
+        if(disabled||!descriptions.some(m=>m.key===key))return;
+        this.mixedAssignments={...this.mixedAssignments,[id]:key};
+        if(!picked.has(id))setIncluded(id,true);
+        else {this.convoyPace=null;void this.render(true);}
       },
       onUnits:(key,count)=>{
-        if(!Number.isInteger(count)||count<1||count>100){
-          globalThis.ui?.notifications?.warn?.(
-            "Hired units must be a whole number between 1 and 100.");
+        const method=descriptions.find(m=>m.key===key);
+        if(!method||method.arrangement!=="hire"||
+            !Number.isInteger(count)||count<1||count>100||
+            method.available!==null&&count>method.available){
+          globalThis.ui?.notifications?.warn?.("Invalid hired vehicle quantity.");
           void this.render(true);return;
         }
         this.mixedUnits={...this.mixedUnits,[key]:count};
-        void this.render(true);
-      },
-      onPace:value=>{
-        this.convoyPace=value===null?null:
-          value==="custom"?minimum:atlasSceneSpeedFromDisplay(
-            value,sceneUnits,game.settings,game.system?.id,ceiling);
-        void this.render(true);
+        this.convoyPace=null;void this.render(true);
       }
-    });
+    }));
+    if(this.mixedKeys.length>1){
+      const speeds=descriptions.map(d=>({...d,speed:showSpeed(d.speed).value}));
+      const slowestVehicle=Math.min(...descriptions.filter(d=>
+        d.key!=="owned|walking").map(d=>d.speed));
+      const selected=this.convoyPace===null?null:showSpeed(this.convoyPace).value;
+      const choice=renderNavigationPaceChoice({
+        methods:speeds,selected,unit:speedUnit(showSpeed(walkingSpeed).unit),
+        maxSpeed:showSpeed(slowestVehicle).value,disabled,
+        onPace:value=>{
+          this.convoyPace=value===null?null:atlasSceneSpeedFromDisplay(
+            value,sceneUnits,game.settings,game.system?.id,slowestVehicle);
+          void this.render(true);
+        }
+      });
+      if(choice)root.append(choice);
+    }
+    return root;
   }
 
   /** Confirm an explicit per-rider manifest and then re-read every authority:
@@ -650,7 +663,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(JSON.stringify(updated)!==JSON.stringify(proposed))
       throw Error("Passenger assignments, vehicle stock, speeds, fares or "+
         "World/Scene rules changed during confirmation. Review the updated Journey.");
-    return validateAggregateLandConvoy(updated);
+    return validateMixedLandConvoy(updated);
   }
 
   /** Only an explicitly offered, per-unit, land vehicle can accompany walkers as cargo. */
@@ -1117,9 +1130,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
     }
     const party=this.partyTravelSelection(available.all);
-    if(!party||party.partial||party.empty){
+    if(!party||party.empty){
       globalThis.ui?.notifications?.warn?.(
-        "A mixed Journey must include the entire assigned Group explorer.");
+        "Select at least one traveler to preview mixed transport.");
       void this.render(true);return;
     }
     this.mixedKeys=next;
@@ -3036,6 +3049,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
     this.transportJourneyOverrides=null;
+    this.partySelectionMode="all";this.partySelectedIds=[];
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
     this.convoyPace=null;
@@ -3704,8 +3718,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     root.style.cssText="display:flex;flex-direction:column;height:100%;max-height:100%;min-height:0;overflow:hidden;";
     const body=el("div");
     const playbackTab=el("div"),directionsTab=el("div");
-    body.append(...renderNavigationStageIntro({title:"Choose destination",
-      description:"Select a Checkpoint or pick a map point to plan your Journey."}));
+    body.append(...renderNavigationStageIntro({title:"1 · Where are we going?",
+      description:"Choose a checkpoint or pick a point on the map."}));
     const partyMode=this.sourceMode==="party";
     const status=this.pendingTransfer?
       "Checkpoint reached at "+this.pendingTransfer.checkpoint.name+
@@ -3765,21 +3779,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const methods=availability.methods;
     const partySelection=this.partyTravelSelection(availability.all);
     const partySplitBlocked=Boolean(partySelection?.partial||partySelection?.empty);
-    if(this.result?.status==="ok"&&partySelection&&!this.travelSession&&
-        !this.recoveryRecord&&!this.recoverableJourney&&!this.pendingTransfer){
-      const selector=renderNavigationPartySelection({
-        roster:partySelection.roster,
-        mode:this.partySelectionMode,ids:this.partySelectedIds,
-        disabled:Boolean(this.journalStarting),
-        onChange:next=>{
-          if(this.journalStarting||this.travelSession)return;
-          this.partySelectionMode=next.mode;
-          this.partySelectedIds=next.ids;
-          void this.render(true);
-        }
-      });
-      if(selector)body.appendChild(selector);
-    }
     const approvedActiveTransport=this.travelSession?.transportLeg?
       (this.travelSession.journeyRecord?.legs.at(-1)?.transport??
         this.travelSession.transportLeg.transport):null;
@@ -3888,11 +3887,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       });
-      if(this.mixedKeys.length&&!locked&&game.user?.isGM&&
-          this.sourceMode==="party"&&partySelection&&
-          !this.recoveryRecord&&!this.recoverableJourney){
-        section.append(this.renderMixedMethodAssignments(partySelection,
-          availability,{disabled:Boolean(this.journalStarting||partySplitBlocked)}));
+      if(!locked&&game.user?.isGM&&this.sourceMode==="party"&&
+          partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
+        section.append(this.renderTravelersAndPace(partySelection,
+          availability,{disabled:Boolean(this.journalStarting)}));
       }
       if(this.convoyEnabled&&!locked&&this.sourceMode==="party"&&
           partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
@@ -3922,7 +3920,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         try{plan=this.mixedConvoyPlan();}
         catch(e){error=e.message??String(e);}
         const unit=walkDisplay.unit==="mi/hour"?"mph":
-          walkDisplay.unit==="km/hour"?"km/h":walkDisplay.unit;
+          walkDisplay.unit==="km/hour"?"kph":walkDisplay.unit;
         const current=this.convoyPace===null?null:
           displaySpeed(this.convoyPace).value;
         section.append(renderWalkingCargoControls({

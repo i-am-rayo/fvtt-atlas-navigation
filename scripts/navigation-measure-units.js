@@ -63,7 +63,7 @@ export function atlasDisplaySpeed(amount,sceneUnit,settings,systemId){
 /** Canonical transportation speed is mph regardless of display settings. */
 export function atlasDisplayPresetSpeed(speedMph,settings,systemId){
   const metric=resolveAtlasMeasuringUnits(settings,systemId)==="metric";
-  return {value:metric?speedMph*1.609344:speedMph,unit:metric?"km/h":"mph"};
+  return {value:metric?speedMph*1.609344:speedMph,unit:metric?"kph":"mph"};
 }
 export function atlasPresetSpeedFromDisplay(speed,settings,systemId){
   return resolveAtlasMeasuringUnits(settings,systemId)==="metric"?speed/1.609344:speed;
@@ -99,5 +99,8 @@ export function atlasCostPerMileFromDisplay(cpPerUnit,settings,systemId){
   return resolveAtlasMeasuringUnits(settings,systemId)==="metric"?cpPerUnit*1.609344:cpPerUnit;
 }
 export function atlasFormatMeasure({value,unit},digits=2){
-  return Number(value).toLocaleString(undefined,{maximumFractionDigits:digits})+" "+unit;
+  const displayedUnit=unit==="mi/hour"?"mph":
+    unit==="km/hour"||unit==="km/h"?"kph":unit;
+  return Number(value).toLocaleString(undefined,{maximumFractionDigits:digits})+
+    " "+displayedUnit;
 }

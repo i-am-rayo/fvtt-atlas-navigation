@@ -173,7 +173,6 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
     if(!Array.isArray(resources)||!resources.length)
       throw Error("The selected owned method has no assigned Group transport resources.");
     let need=seatsUsed,count=0,costResources=[],speed=nativeSpeed;
-    const reservedRiders=new Set();
     for(const resource of resources){
       if(!id(resource.actorId)||usedResources.has(resource.actorId))
         throw Error("An owned mount or vehicle cannot be selected twice.");
@@ -181,24 +180,17 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
         !Number.isInteger(resource.capacity)||resource.capacity<1||
         !positive(resource.speedMph))
         throw Error("Owned Group transportation has invalid capacity or speed.");
-      if(resource.assignedTo&&!people.some(t=>t.actorId===resource.assignedTo))
-        continue;
-      const required=resource.assignedTo&&!reservedRiders.has(resource.assignedTo)?
-        people.find(t=>t.actorId===resource.assignedTo)?.seatsNeeded??0:
-        resource.assignedTo?0:need;
-      const usable=resource.assignedTo?Math.min(1,resource.quantity):
-        resource.quantity;
-      const use=Math.min(usable,Math.ceil(Math.max(0,required)/resource.capacity));
+      // Party-owned personal rider is only the *default*. The GM can loan
+      // that mount to another Group traveler for this Journey without writing
+      // a new owner or mutating the Group's saved assignment.
+      const use=Math.min(resource.quantity,Math.ceil(Math.max(need,
+        count===0&&passengers>0?1:0)/resource.capacity));
       if(!use)continue;
       usedResources.add(resource.actorId);
       const covering=Math.min(need,use*resource.capacity);
       need-=covering;count+=use;
-      if(resource.assignedTo)reservedRiders.add(resource.assignedTo);
       speed=Math.min(speed,unitsOf(resource.speedMph,sceneUnits));
-      costResources.push({...resource,units:use,
-        billedPassengers:resource.assignedTo?
-          people.find(t=>t.actorId===resource.assignedTo)?.passengers??0:
-          0});
+      costResources.push({...resource,units:use});
     }
     if(need>0||!count||!passengers)
       throw Error("Insufficient assigned Group transport seats for "+method.name+".");
@@ -227,12 +219,11 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
         travelers:p.passengers,requestedUnits:p.units,movingHours,
         distanceMi,regularHours}).totalCp;
     }else if(p.role!=="walking"){
-      let remaining=p.passengers-p.costResources.reduce((n,r)=>
-        n+r.billedPassengers,0);
-      for(const r of p.costResources){
-        const billed=r.assignedTo?r.billedPassengers:
+      let remaining=p.passengers;
+      for(const [index,r] of p.costResources.entries()){
+        const billed=index===p.costResources.length-1?remaining:
           Math.min(remaining,r.units*r.capacity);
-        if(!r.assignedTo)remaining-=billed;
+        remaining-=billed;
         total+=projectedGroupFare(r.method,{quantity:r.units,
           passengers:billed,distanceMi,hours:movingHours,dayHours:regularHours});
         if(r.method.includeCrewWages){
