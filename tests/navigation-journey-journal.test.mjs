@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {readFileSync} from "node:fs";
-import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
+import { createJourneyRecord,validateJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   eligibleJourneyRecord,formatJourneyJournalHTML,saveJourneyJournal,
   findRecoverableJourney,ensureJourneyLogFolder,JOURNEY_JOURNAL_FLAG,
   JOURNEY_JOURNAL_PAGE,JOURNEY_JOURNAL_FOLDER }
