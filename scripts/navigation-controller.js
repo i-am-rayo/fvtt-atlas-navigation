@@ -1423,10 +1423,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The party token differs from its last committed position and " +
           "is not on the recorded road/checkpoint. The Journal is intact; " +
           "ask the GM to resolve the token position before resuming.");
-      if(automatic&&assessment.kind!=="coordinate")
+      if(assessment.kind!=="coordinate")
         throw Error("Native token movement advanced beyond the last confirmed " +
           "Journey anchor during Canvas teardown. Automatic continuation is " +
-          "withheld; the GM must review the saved anchor and Journal.");
+          "withheld; manual recovery is also blocked. The GM must review the " +
+          "Journal and return the TokenDocument to its last confirmed anchor " +
+          "before resuming; Atlas cannot skip unconfirmed distance or World time.");
       atlasDebug("journey","Native token recovery anchor checked",{
         sceneId:this.scene.id,kind:assessment.kind,
         driftPixels:Math.round(assessment.drift*100)/100

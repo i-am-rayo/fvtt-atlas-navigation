@@ -1119,8 +1119,12 @@ test("canvas automatic restart refuses same-road drift beyond the confirmed anch
     nav.scene=scene;nav.recoverableJourney=journal;
     assert.throws(()=>nav.recoverSavedJourney({automatic:true}),
       /Automatic continuation is withheld/);
-    assert.equal(calculated,0,"no new route or native token movement may start");
+    assert.throws(()=>nav.recoverSavedJourney(),
+      /manual recovery is also blocked/,
+      "a GM cannot accidentally reroute past uncredited native movement");
+    assert.equal(calculated,0,"neither automatic nor manual recovery may create a route");
     assert.equal(nav.recoveryRecord,null,"an unchecked anchor is not promoted into recovery");
+    assert.equal(nav.recoverableJourney,journal,"the recoverable Journal remains intact");
   }finally{globalThis.game=previous;}
 });
 
