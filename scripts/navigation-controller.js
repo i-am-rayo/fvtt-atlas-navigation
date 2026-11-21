@@ -101,7 +101,9 @@ import {renderNavigationPlannerTabs,renderNavigationJourneyTabs}
 import {renderNavigationActivePlayback} from "./navigation-active-playback-view.js";
 import {liveJourneyPlayback,canAdjustLiveJourneyVisuals,expectedAdditionalTravelBreaks}
   from "./navigation-live-playback.js";
-import {renderNavigationPartySelection} from "./navigation-party-selection-view.js";
+import {renderNavigationTravelRoster,renderNavigationPaceChoice}
+  from "./navigation-traveler-deck-view.js";
+import {suggestedTravelAssignments} from "./navigation-travel-allocation.js";
 import {planWalkingCargoConvoy,validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import {renderWalkingCargoControls} from "./navigation-mixed-convoy-view.js";
 import {planMixedLandConvoy,validateMixedLandConvoy}
@@ -470,9 +472,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("Choose two compatible travel methods for the assigned Group.");
     const available=this.transportAvailability();
     const party=this.partyTravelSelection(available.all);
-    if(!party||party.partial||party.empty)
-      throw Error("A mixed Journey requires every Group traveler in the assigned explorer.");
-    const travelers=partyTravelerRoster(party.previewRoster).map(m=>{
+    if(!party||party.empty)
+      throw Error("Choose at least one traveler for this Journey preview.");
+    const active=new Set(party.selectedIds);
+    const travelers=partyTravelerRoster(party.previewRoster)
+      .filter(m=>active.has(m.id)).map(m=>{
       const original=party.previewRoster.members.find(item=>item.actorId===m.id);
       return {actorId:m.id,seatsNeeded:m.seats,
         passengers:Math.max(1,original?.quantity??1)};
@@ -487,8 +491,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const walking=walkingTravel??this.resolveTravel({excludeConvoy:true}).travel;
     const hours=this.resolveTravelRules(walking).dailyHours??8;
     const hasWalking=selected.some(x=>x.key==="owned|walking");
-    return planAggregateLandConvoy({travelers,
-      riderCounts:this.mixedRiderCounts,methods:hired,
+    const resources=Object.fromEntries(hired.filter(m=>m.resources)
+      .map(m=>[m.key,m.resources]));
+    const assignments=suggestedTravelAssignments(
+      travelers.map(t=>({id:t.actorId})),selected,
+      this.mixedAssignments,resources);
+    return planMixedLandConvoy({travelers,
+      assignments,methods:hired,
       walkingSpeed:walking.speed,sceneUnits,
       routeDistance:this.result.distance,
       weightedDistance:hasWalking&&this.result.terrainAware?
@@ -650,7 +659,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(JSON.stringify(updated)!==JSON.stringify(proposed))
       throw Error("Passenger assignments, vehicle stock, speeds, fares or "+
         "World/Scene rules changed during confirmation. Review the updated Journey.");
-    return validateAggregateLandConvoy(updated);
+    return validateMixedLandConvoy(updated);
   }
 
   /** Only an explicitly offered, per-unit, land vehicle can accompany walkers as cargo. */
@@ -1117,9 +1126,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
     }
     const party=this.partyTravelSelection(available.all);
-    if(!party||party.partial||party.empty){
+    if(!party||party.empty){
       globalThis.ui?.notifications?.warn?.(
-        "A mixed Journey must include the entire assigned Group explorer.");
+        "Select at least one traveler to preview mixed transport.");
       void this.render(true);return;
     }
     this.mixedKeys=next;
