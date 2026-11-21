@@ -8,8 +8,7 @@ export function describeConfirmedTravelers(convoy){
     const people=convoy.travelers.filter(t=>t.methodKey===method.key);
     if(!people.length||people.some(t=>!t.name))return [];
     const travelers=people.map(t=>t.name+
-      (t.passengers>1?" ×"+t.passengers:"")+
-      (t.seatsNeeded===0?" (no seat)":"")).join(", ");
+      (t.passengers>1?" ×"+t.passengers:"")).join(", ");
     return [{key:method.key,travelers,
       label:method.methodName+": "+travelers}];
   });

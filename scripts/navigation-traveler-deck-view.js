@@ -4,9 +4,7 @@
 const el=(tag,text)=>{const n=document.createElement(tag);
   if(text!==undefined)n.textContent=String(text);return n;};
 const css=(node,style)=>{node.style.cssText=style;return node;};
-const icon=method=>method.key==="owned|walking"?"🚶":
-  /horse|pony|camel|mount/i.test(method.name)?"🐎":
-  /ship|boat|barge/i.test(method.name)?"⛵":"🛒";
+import {travelMethodIconClass} from "./navigation-selection-view.js";
 
 /** A single method uses checkboxes; multiple methods expose drag destinations
  * plus a compact per-person keyboard alternative. All names appear once.
@@ -21,12 +19,12 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
   const multiple=methods.length>1;
   const title=el("h3",multiple?"3 · Who goes where?":"3 · Who is going?");
   title.style.cssText="margin:.2rem 0 0;font-size:1em;";
-  root.append(title);
+  const heading=css(el("div"),"display:flex;align-items:baseline;justify-content:space-between;gap:.4rem;flex-wrap:wrap;");
   const status=el("small",active.length+"/"+travelers.length+
     " travelers · "+active.reduce((n,t)=>n+t.seats,0)+" seats"+
     (previewOnly?" · Preview only":""));
   status.style.cssText="opacity:.8;";
-  root.append(status);
+  heading.append(title,status);root.append(heading);
 
   if(!multiple){
     const grid=css(el("div"),"display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.35rem;");
@@ -93,13 +91,23 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
         "border-radius:8px;padding:.5rem;");
       column.className="atlas-navigation-travel-column";
       column.setAttribute?.("aria-label",method.name+" travelers");
-      const header=css(el("strong",icon(method)+" "+method.name),
-        "font-size:.84em;overflow-wrap:anywhere;");
+      const header=css(el("strong"),"font-size:.84em;overflow-wrap:anywhere;");
+      const symbol=el("i");
+      symbol.className=travelMethodIconClass(method.key,method.name);
+      symbol.setAttribute?.("aria-hidden","true");
+      header.append(symbol,el("span"," "+method.name));
       const info=el("small",(method.speedLabel??"")+
         (limit===null?"":" · "+used+"/"+limit+" seats"));
       info.style.cssText="opacity:.8;font-size:.76em;"+
         (limit!==null&&used>limit?"color:var(--color-text-warning,#d7a85a);":"");
       column.append(header,info);
+      if(method.key!=="owned|walking"&&method.costLabel!==undefined){
+        const price=css(el("strong",method.costLabel),"font-size:.84em;overflow-wrap:anywhere;");
+        price.title="Estimated cost; not charged";
+        column.append(price);
+        if(method.costDetail)column.append(css(el("small",method.costDetail),
+          "font-size:.76em;opacity:.8;overflow-wrap:anywhere;"));
+      }
       if(method.arrangement==="hire"){
         const quantity=css(el("label"),"display:flex;gap:.3rem;align-items:center;font-size:.75em;");
         quantity.append(el("span","Units"));

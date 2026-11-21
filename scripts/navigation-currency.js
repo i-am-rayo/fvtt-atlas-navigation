@@ -84,3 +84,13 @@ export function dndCurrencyBreakdown(copper,currencyConfig){
       "0 "+denominations.at(-1).id.toUpperCase()
   };
 }
+
+/** Display quotes only: round each method before summing payable coins. */
+export function mixedTransportFareBreakdown(methods,currencyConfig){
+  const rows=methods.filter(m=>m.role!=="walking").map(m=>({
+    key:m.key,name:m.methodName,units:m.units,passengers:m.passengers,
+    resourceIds:m.resourceIds??[],...dndCurrencyBreakdown(m.estimatedCostCp,currencyConfig)
+  }));
+  return {rows,total:dndCurrencyBreakdown(
+    rows.reduce((sum,row)=>sum+row.payableCopper,0),currencyConfig)};
+}

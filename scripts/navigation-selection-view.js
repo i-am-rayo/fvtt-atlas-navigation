@@ -77,6 +77,18 @@ export function renderNavigationTravelMethodSelector({choices,selectedValue,
  * The controller alone authorizes compatible combinations; presentation never
  * approves a multi-method journey or assigns passengers to vehicles.
  */
+export function travelMethodIconClass(value,label){
+    const key=value.split("|").at(-1)?.toLowerCase()??"";
+    const labelText=String(label??"").toLowerCase();
+    const symbol=key==="walking"?"fa-person-walking":
+      /caravan|wagon|coach|cart/.test(key+" "+labelText)?"fa-wagon-covered":
+      /horse|pony|mount/.test(key+" "+labelText)?"fa-horse":
+      /camel/.test(key+" "+labelText)?"fa-paw":
+      /ship|boat|barge|warship/.test(key+" "+labelText)?"fa-ship":
+      /fly|air/.test(key+" "+labelText)?"fa-dove":"fa-route";
+    return "fa-solid "+symbol;
+}
+
 export function renderNavigationTravelMethodButtons({choices,selectedValue,
   selectedValues=null,disabled=false,showEditor=false,onMethodChange,onMethodToggle,onEdit}){
   const section=el("fieldset");
@@ -125,15 +137,7 @@ export function renderNavigationTravelMethodButtons({choices,selectedValue,
     input.disabled=Boolean(disabled);
     input.style.cssText="margin:0;accent-color:#3eaf93;flex:0 0 auto;";
     const icon=el("i");
-    const key=choice.value.split("|").at(-1)?.toLowerCase()??"";
-    const labelText=String(choice.label??"").toLowerCase();
-    const symbol=key==="walking"?"fa-person-walking":
-      /caravan|wagon|coach|cart/.test(key+" "+labelText)?"fa-wagon-covered":
-      /horse|pony|mount/.test(key+" "+labelText)?"fa-horse":
-      /camel/.test(key+" "+labelText)?"fa-paw":
-      /ship|boat|barge|warship/.test(key+" "+labelText)?"fa-ship":
-      /fly|air/.test(key+" "+labelText)?"fa-dove":"fa-route";
-    icon.className="fa-solid "+symbol;
+    icon.className=travelMethodIconClass(choice.value,choice.label);
     icon.setAttribute?.("aria-hidden","true");
     const content=el("span");
     content.style.cssText="display:grid;gap:.1rem;min-width:0;overflow-wrap:anywhere;";
