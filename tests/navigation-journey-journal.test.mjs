@@ -561,7 +561,7 @@ test("confirmed named riders appear in completed Journal; Actor names are escape
     schedule:{...schedule,completedHours:8,events:[],restEvents:0},
     progress:100,status:"completed"});
   const html=formatJourneyJournalHTML(completed);
-  assert.match(html,/Dr\\. Cassian &lt;Voss&gt;/);
+  assert.match(html,/Dr\. Cassian &lt;Voss&gt;/);
   assert.match(html,/Lucious/);
   assert.match(html,/Nyx \(no seat\)/);
   assert.doesNotMatch(html,/<Voss>/,

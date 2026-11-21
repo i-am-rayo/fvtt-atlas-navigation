@@ -187,6 +187,6 @@ test("approved schema-2 records retain safe historical rider names without a mig
   assert.deepEqual(validateMixedLandConvoy(old),old,
     "old schema-2 records load without write-on-read name migration");
   const unsafe=structuredClone(record);
-  unsafe.travelers[0].name="Cassian\\nInjected";
+  unsafe.travelers[0].name="Cassian\nInjected";
   assert.throws(()=>validateMixedLandConvoy(unsafe),/Invalid mixed Journey traveler/);
 });
