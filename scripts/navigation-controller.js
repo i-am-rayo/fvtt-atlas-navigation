@@ -545,10 +545,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const total=resources[entry.key]?.reduce((n,r)=>
         n+r.quantity*r.capacity,0)??0;
       const hires=entry.arrangement==="hire";
+      const assignedSeats=members.filter(t=>assignments[t.id]===entry.key)
+        .reduce((n,t)=>n+t.seats,0);
+      const minimumUnits=hires?Math.max(1,Math.ceil(
+        assignedSeats/Math.max(1,method.capacity))):null;
+      const count=hires?this.mixedUnits[entry.key]??minimumUnits:null;
       return {key:entry.key,name:method.name,arrangement:entry.arrangement,
         speed,speedLabel:shown.value.toFixed(2)+" "+speedUnit(shown.unit),
         capacity:method.id==="walking"?null:hires?
-          (this.mixedUnits[entry.key]??entry.units??1)*method.capacity:total,
+          count*method.capacity:total,
+        minimumUnits,
         available:hires?method.hireUnlimited===false?
           method.hireQuantity:null:null};
     });
