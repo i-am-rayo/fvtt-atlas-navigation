@@ -45,7 +45,7 @@ test("navigation distances and speeds convert display but preserve source values
 test("transport preset editing stores canonical mph even when shown in km/h",()=>{
   const metric=settings("metric",false);
   const rendered=atlasDisplayPresetSpeed(3,metric,"dnd5e");
-  assert.equal(rendered.unit,"km/h");near(rendered.value,4.828032);
+  assert.equal(rendered.unit,"kph");near(rendered.value,4.828032);
   near(atlasPresetSpeedFromDisplay(rendered.value,metric,"dnd5e"),3);
   const imperial=settings("imperial",true);
   assert.deepEqual(atlasDisplayPresetSpeed(3,imperial,"dnd5e"),{value:3,unit:"mph"});
@@ -105,4 +105,9 @@ test("rounded metric cart ceiling 6.44 km/h maps to exactly 4 mph, not faster",(
   near(atlasSceneSpeedFromDisplay(6.44,"mi",metric,"dnd5e",4),4);
   assert.equal(atlasSceneSpeedFromDisplay(6.45,"mi",metric,"dnd5e",4)>4,true,
     "a genuinely faster pace remains above the vehicle ceiling");
+});
+
+test("Atlas shared speed display abbreviations are mph and kph",()=>{
+  assert.equal(atlasFormatMeasure({value:3,unit:"mi/hour"}),"3 mph");
+  assert.equal(atlasFormatMeasure({value:4.83,unit:"km/hour"}),"4.83 kph");
 });

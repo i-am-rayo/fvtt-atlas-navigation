@@ -156,3 +156,23 @@ test("two hired passenger methods travel together without selecting Walking",()=
     /Mixed Journey passenger coverage or fare does not balance/,
     "a seat count that no longer matches the assigned travelers fails closed");
 });
+
+test("GM may loan a personally assigned Warhorse to Jonathan for one Journey",()=>{
+  const warhorse={key:"owned|horse",arrangement:"owned",
+    method:{id:"horse",name:"Warhorse",kind:"mount",surface:"land",
+      speedMph:4,capacity:1},
+    resources:[{actorId:"horseActor",assignedTo:"pc2",quantity:1,
+      capacity:1,speedMph:4,
+      method:{costCp:0,costBasis:"none",costApplies:"unit"}}]};
+  const ownedBefore=structuredClone(warhorse);
+  const result=plan({
+    methods:[walking,warhorse,coachMethod],
+    assignments:{pc1:"owned|walking",pc2:"owned|walking",
+      pc3:"owned|horse",npc1:"hire|coach-hire",npc2:"hire|coach-hire"}
+  });
+  assert.deepEqual(result.methods.find(m=>m.key==="owned|horse").resourceIds,
+    ["horseActor"]);
+  assert.equal(result.travelers.find(t=>t.actorId==="pc3").methodKey,"owned|horse");
+  assert.deepEqual(warhorse,ownedBefore,
+    "temporary mount loan must not rewrite Group's personal mount assignment");
+});
