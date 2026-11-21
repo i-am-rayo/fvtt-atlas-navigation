@@ -7,6 +7,7 @@ import { GuidedTravelDayTracker,estimateNavigationTotalTrip }
   from "../scripts/navigation-travel-day.js";
 import {planNativeCheckpointPath}
   from "../scripts/navigation-native-movement-plan.js";
+import {projectPartyTravelSelection} from "../scripts/navigation-party-selection.js";
 import { defaultTransportationCatalog,findTransportationPreset,setTransportationPreset }
   from "../scripts/navigation-transport-catalog.js";
 
@@ -2818,5 +2819,48 @@ test("mixed passenger GM authorization rechecks fares and passengers before a Jo
     globalThis.game.user.isGM=false;
     await assert.rejects(()=>nav.confirmMixedLandJourney(view,token),
       /Only an authorized GM/);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("single-method travel toggles subset preview without editing native Group",()=>{
+  const previous={document:globalThis.document,game:globalThis.game};
+  try{
+    globalThis.document={createElement:tag=>({
+      tag,children:[],style:{},listeners:new Map(),hidden:false,
+      append(...items){this.children.push(...items);},
+      addEventListener(name,fn){this.listeners.set(name,fn);},
+      setAttribute(){},focus(){}
+    })};
+    globalThis.game={settings:{get:()=>undefined},system:{id:"dnd5e"},
+      user:{isGM:true}};
+    const nav=new AtlasNavigationController();
+    nav.scene={id:"scene",grid:{units:"mi",size:100}};
+    nav.sourceMode="party";nav.travelMethod="walking";
+    nav.transportArrangement="owned";
+    nav.render=()=>{};nav.resolveTravel=()=>({travel:{speed:3}});
+    const members=["Cassian","Lucious","Torrus","Jonathan","Nyx"]
+      .map((name,i)=>({actorId:"p"+i,actorName:name,
+        actorType:i===4?"npc":"character",role:"passenger",
+        needsSeat:i!==4,quantity:1}));
+    const roster={travelers:4,members};
+    const ids=members.map(m=>m.actorId);
+    const selection={previewRoster:roster,selectedIds:ids,partial:false};
+    const available={methods:[{id:"walking",name:"Walking",
+      surface:"land",kind:"foot"}]};
+    const before=structuredClone(roster);
+    const view=nav.renderTravelersAndPace(selection,available);
+    const flat=node=>[node,...node.children.flatMap(flat)];
+    const checks=flat(view).filter(n=>n.type==="checkbox");
+    assert.equal(checks.length,5);
+    assert.ok(checks.every(n=>n.checked));
+    checks.at(-1).checked=false;
+    checks.at(-1).listeners.get("change")();
+    assert.equal(nav.partySelectionMode,"selected");
+    assert.deepEqual(nav.partySelectedIds,ids.slice(0,-1));
+    assert.deepEqual(roster,before);
+    const projected=projectPartyTravelSelection(roster,{
+      mode:nav.partySelectionMode,ids:nav.partySelectedIds});
+    assert.equal(projected.partial,true);
+    assert.equal(projected.travelerCount,4);
   }finally{Object.assign(globalThis,previous);}
 });
