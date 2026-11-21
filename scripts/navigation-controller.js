@@ -3043,6 +3043,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
     this.transportJourneyOverrides=null;
+    this.partySelectionMode="all";this.partySelectedIds=[];
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
     this.convoyPace=null;
@@ -3913,7 +3914,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         try{plan=this.mixedConvoyPlan();}
         catch(e){error=e.message??String(e);}
         const unit=walkDisplay.unit==="mi/hour"?"mph":
-          walkDisplay.unit==="km/hour"?"km/h":walkDisplay.unit;
+          walkDisplay.unit==="km/hour"?"kph":walkDisplay.unit;
         const current=this.convoyPace===null?null:
           displaySpeed(this.convoyPace).value;
         section.append(renderWalkingCargoControls({
