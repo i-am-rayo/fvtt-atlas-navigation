@@ -159,9 +159,11 @@ export function renderNavigationPaceChoice({methods=[],selected=null,unit="mph",
   root.className="atlas-navigation-pace-choice";
   root.append(css(el("h3","4 · How fast?"),"margin:.25rem 0 0;font-size:1em;"));
   const speeds=methods.map(m=>m.speed),slowest=Math.min(...speeds);
-  const faster=[...new Set(speeds.filter(s=>s>slowest+1e-7)
-    .filter(s=>maxSpeed===null||s<=maxSpeed+1e-7).map(n=>n.toFixed(5)))]
-    .map(Number);
+  // Keep the exact converted value for the callback. Rounding kph to
+  // display precision can otherwise accidentally exceed a 4-mph vehicle.
+  const faster=speeds.filter(s=>s>slowest+1e-7)
+    .filter(s=>maxSpeed===null||s<=maxSpeed+1e-7)
+    .filter((s,i,all)=>all.findIndex(n=>Math.abs(n-s)<1e-7)===i);
   const choices=css(el("div"),"display:flex;flex-wrap:wrap;gap:.4rem;");
   const opt=(value,name,checked)=>{
     const label=css(el("label"),"display:flex;align-items:center;gap:.25rem;"+
