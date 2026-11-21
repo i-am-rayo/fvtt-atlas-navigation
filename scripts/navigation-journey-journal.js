@@ -1,6 +1,7 @@
 import { MODULE_ID } from "./atlas-storage.js";
 import {validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
+import {describeConfirmedTravelers} from "./navigation-journey-manifest.js";
 import {validateAggregateLandConvoy} from "./navigation-theater-convoy.js";
 const validateApprovedConvoy=value=>value?.schemaVersion===3?
   validateAggregateLandConvoy(value):value?.schemaVersion===2?
@@ -305,13 +306,15 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         "The Group traveled together using mixed transportation at "+
           convoySpeed(leg.convoy.speedPerHour)+".",
         ...leg.convoy.methods.map(m=>{
+          const assignment=describeConfirmedTravelers(leg.convoy)
+            .find(item=>item.key===m.key);
           const label=m.role==="walking"?
             m.passengers+" traveler(s) walking":
             m.role==="cargo"?m.units+" "+m.methodName+
               " cargo-only unit(s)":m.passengers+" traveler(s) riding, "+
               m.seatsUsed+" seat(s), "+m.units+" "+m.methodName+" unit(s)";
-          return label+" (estimated "+m.estimatedCostCp+
-            " CP; not charged).";
+          return label+(assignment?" — "+assignment.travelers:"")+
+            " (estimated "+m.estimatedCostCp+" CP; not charged).";
         }),
         ...(leg.convoy.gmWalkingPaceOverride?[
           "GM-approved walking pace exception: recommended "+

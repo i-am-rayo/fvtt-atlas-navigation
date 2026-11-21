@@ -104,6 +104,7 @@ import {liveJourneyPlayback,canAdjustLiveJourneyVisuals,expectedAdditionalTravel
 import {renderNavigationTravelRoster,renderNavigationPaceChoice}
   from "./navigation-traveler-deck-view.js";
 import {suggestedTravelAssignments} from "./navigation-travel-allocation.js";
+import {describeConfirmedTravelers} from "./navigation-journey-manifest.js";
 import {planWalkingCargoConvoy,validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import {renderWalkingCargoControls} from "./navigation-mixed-convoy-view.js";
 import {planMixedLandConvoy,validateMixedLandConvoy}
@@ -478,7 +479,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const travelers=partyTravelerRoster(party.previewRoster)
       .filter(m=>active.has(m.id)).map(m=>{
       const original=party.previewRoster.members.find(item=>item.actorId===m.id);
-      return {actorId:m.id,seatsNeeded:m.seats,
+      return {actorId:m.id,name:m.name,seatsNeeded:m.seats,
         passengers:Math.max(1,original?.quantity??1)};
     });
     const selected=this.mixedLandChoices(available);
@@ -3568,7 +3569,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             details:`${atlasFormatMeasure(atlasDisplayDistance(leg.distance,
               leg.units||this.scene?.grid?.units||""))} · `+
               `${showHours(leg.completedMovingHours)} moving · `+
-              `${leg.transport?.methodName??leg.travelMethod?.name??"On foot"}`
+              `${leg.convoy?"Mixed Group transportation":
+                leg.transport?.methodName??leg.travelMethod?.name??"On foot"}`,
+            manifest:describeConfirmedTravelers(leg.convoy).map(m=>m.label)
           }))}));
         const clock=el("p","Foundry World time recorded: "+
           formatGuidedWorldTime(clockMoving+clockRest)+" (moving "+
