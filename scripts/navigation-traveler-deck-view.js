@@ -150,3 +150,46 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
   }
   return root;
 }
+
+/** Show a pace choice only when selected travel methods actually differ. */
+export function renderNavigationPaceChoice({methods=[],selected=null,unit="mph",
+  disabled=false,maxSpeed=null,onPace}={}){
+  if(new Set(methods.map(m=>m.speed.toFixed(5))).size<2)return null;
+  const root=css(el("section"),"display:grid;gap:.35rem;");
+  root.className="atlas-navigation-pace-choice";
+  root.append(css(el("h3","4 · How fast?"),"margin:.25rem 0 0;font-size:1em;"));
+  const speeds=methods.map(m=>m.speed),slowest=Math.min(...speeds);
+  const faster=[...new Set(speeds.filter(s=>s>slowest+1e-7)
+    .filter(s=>maxSpeed===null||s<=maxSpeed+1e-7).map(n=>n.toFixed(5)))]
+    .map(Number);
+  const choices=css(el("div"),"display:flex;flex-wrap:wrap;gap:.4rem;");
+  const opt=(value,name,checked)=>{
+    const label=css(el("label"),"display:flex;align-items:center;gap:.25rem;"+
+      "border:1px solid var(--color-border-light-tertiary,#555);"+
+      "border-radius:6px;padding:.35rem .5rem;cursor:pointer;");
+    const radio=el("input");radio.type="radio";radio.name="atlas-travel-shared-pace";
+    radio.checked=checked;radio.disabled=disabled;
+    radio.addEventListener("change",()=>{if(radio.checked)onPace?.(value);});
+    label.append(radio,el("span",name));choices.append(label);
+  };
+  const display=n=>n.toFixed(2)+" "+unit;
+  opt(null,display(slowest)+" · Recommended",selected===null);
+  for(const fast of faster)opt(fast,display(fast)+" · GM",selected!==null&&
+    Math.abs(selected-fast)<1e-5);
+  const customSelected=selected!==null&&
+    !faster.some(fast=>Math.abs(selected-fast)<1e-5);
+  const custom=css(el("label"),"display:flex;gap:.3rem;align-items:center;");
+  const choose=el("input");choose.type="radio";choose.name="atlas-travel-shared-pace";
+  choose.checked=customSelected;choose.disabled=disabled;
+  const field=el("input");field.type="number";field.step="any";field.min="0.01";
+  field.value=customSelected?String(selected):"";
+  field.disabled=disabled;field.style.cssText="width:5.7rem;";
+  field.setAttribute?.("aria-label","Custom journey speed in "+unit);
+  field.addEventListener("change",()=>onPace?.(Number(field.value)));
+  choose.addEventListener("change",()=>{
+    if(choose.checked)onPace?.(Number(field.value)||slowest);
+  });
+  custom.append(choose,el("span","Custom"),field,el("span",unit));
+  choices.append(custom);root.append(choices);
+  return root;
+}
