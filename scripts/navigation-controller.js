@@ -3711,8 +3711,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     root.style.cssText="display:flex;flex-direction:column;height:100%;max-height:100%;min-height:0;overflow:hidden;";
     const body=el("div");
     const playbackTab=el("div"),directionsTab=el("div");
-    body.append(...renderNavigationStageIntro({title:"Choose destination",
-      description:"Select a Checkpoint or pick a map point to plan your Journey."}));
+    body.append(...renderNavigationStageIntro({title:"1 · Where are we going?",
+      description:"Choose a checkpoint or pick a point on the map."}));
     const partyMode=this.sourceMode==="party";
     const status=this.pendingTransfer?
       "Checkpoint reached at "+this.pendingTransfer.checkpoint.name+
@@ -3772,21 +3772,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const methods=availability.methods;
     const partySelection=this.partyTravelSelection(availability.all);
     const partySplitBlocked=Boolean(partySelection?.partial||partySelection?.empty);
-    if(this.result?.status==="ok"&&partySelection&&!this.travelSession&&
-        !this.recoveryRecord&&!this.recoverableJourney&&!this.pendingTransfer){
-      const selector=renderNavigationPartySelection({
-        roster:partySelection.roster,
-        mode:this.partySelectionMode,ids:this.partySelectedIds,
-        disabled:Boolean(this.journalStarting),
-        onChange:next=>{
-          if(this.journalStarting||this.travelSession)return;
-          this.partySelectionMode=next.mode;
-          this.partySelectedIds=next.ids;
-          void this.render(true);
-        }
-      });
-      if(selector)body.appendChild(selector);
-    }
     const approvedActiveTransport=this.travelSession?.transportLeg?
       (this.travelSession.journeyRecord?.legs.at(-1)?.transport??
         this.travelSession.transportLeg.transport):null;
@@ -3895,11 +3880,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       });
-      if(this.mixedKeys.length&&!locked&&game.user?.isGM&&
-          this.sourceMode==="party"&&partySelection&&
-          !this.recoveryRecord&&!this.recoverableJourney){
-        section.append(this.renderMixedMethodAssignments(partySelection,
-          availability,{disabled:Boolean(this.journalStarting||partySplitBlocked)}));
+      if(!locked&&game.user?.isGM&&this.sourceMode==="party"&&
+          partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
+        section.append(this.renderTravelersAndPace(partySelection,
+          availability,{disabled:Boolean(this.journalStarting)}));
       }
       if(this.convoyEnabled&&!locked&&this.sourceMode==="party"&&
           partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
