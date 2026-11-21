@@ -176,3 +176,17 @@ test("GM may loan a personally assigned Warhorse to Jonathan for one Journey",()
   assert.deepEqual(warhorse,ownedBefore,
     "temporary mount loan must not rewrite Group's personal mount assignment");
 });
+
+test("approved schema-2 records retain safe historical rider names without a migration",()=>{
+  const named=walkers.map((t,i)=>({...t,name:["Cassian","Lucious","Torrus","Nyx","Jonathan"][i]}));
+  const record=plan({travelers:named});
+  assert.deepEqual(record.travelers.map(t=>t.name),named.map(t=>t.name));
+  assert.deepEqual(validateMixedLandConvoy(record),record);
+  const old=structuredClone(record);
+  old.travelers.forEach(t=>{delete t.name;});
+  assert.deepEqual(validateMixedLandConvoy(old),old,
+    "old schema-2 records load without write-on-read name migration");
+  const unsafe=structuredClone(record);
+  unsafe.travelers[0].name="Cassian\\nInjected";
+  assert.throws(()=>validateMixedLandConvoy(unsafe),/Invalid mixed Journey traveler/);
+});
