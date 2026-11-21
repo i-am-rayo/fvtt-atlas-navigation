@@ -114,3 +114,19 @@ test("shared pace appears only if speeds differ; faster vehicle pace needs GM se
     assert.ok(all(view).some(n=>String(n.textContent).includes("4 · How fast?")));
   }finally{restore();}
 });
+
+test("metric pace labels round to kph but emit exact unrounded transport speed",()=>{
+  const restore=dom();
+  try{
+    let picked=null;
+    const value=4*1.609344;
+    const view=renderNavigationPaceChoice({unit:"kph",
+      methods:[{speed:3*1.609344},{speed:value}],
+      maxSpeed:value,onPace:next=>{picked=next;}});
+    const radio=all(view).filter(n=>n.type==="radio")[1];
+    radio.checked=true;radio.listeners.change();
+    assert.equal(picked,value,
+      "6.44 kph label selects exactly 4 mph rather than exceeding cart speed");
+    assert.ok(all(view).some(n=>String(n.textContent??"").includes("6.44 kph")));
+  }finally{restore();}
+});
