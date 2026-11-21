@@ -563,8 +563,19 @@ test("confirmed named riders appear in completed Journal; Actor names are escape
   const html=formatJourneyJournalHTML(completed);
   assert.match(html,/Dr\. Cassian &lt;Voss&gt;/);
   assert.match(html,/Lucious/);
-  assert.match(html,/Nyx \(no seat\)/);
+  assert.match(html,/Walking: Nyx/);
+  assert.doesNotMatch(html,/\(no seat\)/);
+  assert.match(html,/Estimated transportation cost: 2 GP/);
   assert.doesNotMatch(html,/<Voss>/,
     "Actor names must be escaped in persisted Journal HTML");
   assert.deepEqual(validateJourneyRecord(completed).legs[0].convoy,convoy);
+});
+
+test("confirmed-arrival precision displays 100%, while material partial progress stays 99%",()=>{
+  const complete=checkpointJourneyRecord(createRecord(),{
+    schedule:{...schedule,completedHours:18},progress:99.999999,status:"completed"});
+  assert.match(formatJourneyJournalHTML(complete),/Confirmed progress: 100%/);
+  const partial=checkpointJourneyRecord(createRecord(),{
+    schedule:{...schedule,completedHours:17},progress:99.9,status:"interrupted"});
+  assert.match(formatJourneyJournalHTML(partial),/Confirmed progress: 99%/);
 });
