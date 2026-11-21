@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   resolveAtlasMeasuringUnits,resolveCheckpointElevationUnits,
   atlasDisplayDistance,atlasDisplaySpeed,
-  atlasDisplayPresetSpeed,atlasPresetSpeedFromDisplay,
+  atlasDisplayPresetSpeed,atlasFormatMeasure,atlasPresetSpeedFromDisplay,
   atlasSceneDistanceFromDisplay,atlasSceneSpeedFromDisplay,atlasDisplayElevation,
   atlasDisplayCostPerDistance,atlasCostPerMileFromDisplay
 } from "../scripts/navigation-measure-units.js";
