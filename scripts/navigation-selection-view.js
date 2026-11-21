@@ -82,13 +82,11 @@ export function renderNavigationTravelMethodButtons({choices,selectedValue,
   const section=el("fieldset");
   section.className="atlas-navigation-methods";
   section.style.cssText="display:grid;gap:.55rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:9px;padding:.7rem;margin:0;min-width:0;";
-  const title=el("legend","Travel method");
+  const title=el("legend","2 · How are we traveling?");
   title.style.cssText="font-weight:700;padding:0 .35rem;";
   section.appendChild(title);
   if(Array.isArray(selectedValues)){
-    const help=el("small","Select compatible travel methods together. "+
-      "Personal mounts use Party-owned assignments; shared passengers and "+
-      "vehicle counts are organized in theater of the mind below.");
+    const help=el("small","Choose one or more methods.");
     help.style.cssText="opacity:.8;line-height:1.35;";
     section.appendChild(help);
   }
