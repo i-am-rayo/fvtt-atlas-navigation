@@ -133,7 +133,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   static DEFAULT_OPTIONS = {
     id: "fvtt-atlas-navigation-panel",
     window: { title: "Atlas — Navigation", resizable: true },
-    position: { width: 560, height: 665, left: 70, top: 50 }
+    position: { width: 900, height: 745, left: 70, top: 50 }
   };
 
   constructor({ canvasProvider = () => globalThis.canvas,
@@ -4502,7 +4502,22 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     return root;
   }
 
-  _replaceHTML(result,content) { content.replaceChildren(result); }
+  _replaceHTML(result,content) {
+    // ApplicationV2 may replace the entire planner after a drag/checkbox
+    // change. Restore its scrollable tab position without retaining stale DOM.
+    const before=[...(content.querySelectorAll?.("[role=tabpanel]")??[])].map(panel=>({
+      id:panel.id,top:panel.scrollTop,left:panel.scrollLeft
+    }));
+    const top=content.scrollTop;
+    content.replaceChildren(result);
+    for(const {id,top:scrollTop,left} of before){
+      if(!id)continue;
+      const panel=content.querySelector?.('[id="'+id+'"]');
+      if(panel&&Number.isFinite(scrollTop))panel.scrollTop=scrollTop;
+      if(panel&&Number.isFinite(left))panel.scrollLeft=left;
+    }
+    if(Number.isFinite(top))content.scrollTop=top;
+  }
 
   _onClose(options) {
     if(this.travelSession)atlasDebug("lifecycle","Navigation window closed during journey",{
