@@ -31,6 +31,9 @@ export function validatePendingNativeMove(raw){
       !raw.path.every(validPoint)||!near(raw.path[0],raw.from,0)||
       !near(raw.path.at(-1),raw.to,0)))
     throw Error("Invalid bounded native movement evidence.");
+  if(raw.arrivalEvidence!==undefined&&(!raw.bounded||
+      !matchesArrivalEvidence(raw,raw.arrivalEvidence)))
+    throw Error("Invalid durable native endpoint evidence.");
   return structuredClone(raw);
 }
 
@@ -102,11 +105,50 @@ export function matchesNativeIntervalPath(path,movement,tolerance=1){
   return next===path.length;
 }
 
+/** A compact, GM-written receipt of the settled document at the approved
+ * endpoint. A receipt is not a confirmed Journal segment or a clock write. */
+function matchesArrivalEvidence(intent,movement){
+  return validId(movement?.id)&&
+    (movement.id===intent.operationId||movement.chain?.includes(intent.operationId))&&
+    Array.isArray(movement.chain)&&movement.chain.length<=64&&movement.chain.every(validId)&&
+    movement.constrained===false&&Array.isArray(movement.pending?.waypoints)&&
+    movement.pending.waypoints.length===0&&Array.isArray(movement.passed?.waypoints)&&
+    movement.passed.waypoints.length>0&&movement.passed.waypoints.length<=4096&&
+    matchesNativeIntervalPath(intent.path,movement);
+}
+
+export function captureNativeArrivalEvidence(raw,{movement,tokenPoint}={}){
+  const intent=validatePendingNativeMove(raw);
+  if(!intent.bounded||!near(tokenPoint,intent.to,1))return null;
+  const copyPoint=p=>({x:p.x,y:p.y});
+  if(!validPoint(movement?.origin)||!validPoint(movement?.destination)||
+      !Array.isArray(movement.passed?.waypoints)||
+      movement.passed.waypoints.length>4096||
+      !movement.passed.waypoints.every(validPoint)||
+      !Array.isArray(movement.pending?.waypoints)||movement.pending.waypoints.length||
+      movement.constrained!==false)return null;
+  const evidence={id:movement.id,chain:movement.chain??[],
+    origin:copyPoint(movement.origin),destination:copyPoint(movement.destination),
+    constrained:false,passed:{waypoints:movement.passed.waypoints.map(p=>{
+      const copy=copyPoint(p);
+      for(const key of ["movementId","subpathId","intermediate","snapped","explicit","checkpoint"])
+        if(p[key]!==undefined)copy[key]=p[key];
+      return copy;
+    })},pending:{waypoints:[]}};
+  return matchesArrivalEvidence(intent,evidence)?structuredClone(evidence):null;
+}
+
 /** Exact endpoint of one separately authorized native interval. The route
  * corridor is not movement proof; matching native identity and path are. */
 export function assessBoundedNativeArrival(raw,{movement,...context}={}){
   const pending=validatePendingNativeMove(raw);
-  if(!pending.bounded||!["completed","stopped"].includes(movement?.state)||
+  // Foundry's current/last movement identity is transient across a browser
+  // reload. Use the verified durable receipt only when no conflicting live
+  // movement is present; a live foreign identity is never overridden.
+  const terminal=["completed","stopped"].includes(movement?.state);
+  if(terminal&&!movement.id&&!movement.chain?.length&&pending.arrivalEvidence)
+    movement=pending.arrivalEvidence;
+  if(!pending.bounded||!terminal||!near(context.tokenPoint,pending.to,1)||
       !(movement.id===pending.operationId||movement.chain?.includes(pending.operationId))||
       !near(movement.destination,pending.to,1))
     return {status:"review",reason:"Native interval identity or endpoint is unverified."};
