@@ -15,10 +15,10 @@ export async function persistJourneyState(journal,record){
   return journal;
 }
 
-/** Only confirmed leg arrival and deliberate terminal decisions are public
- * history milestones. Mid-leg rests, pauses, interrupts, and animations are
- * retained in the recovery flag without rewriting the managed Journal page. */
+/** Arrival, interruption and terminal decisions publish confirmed history.
+ * Ordinary mid-leg rests, pauses and animations update the recovery flag only. */
 export function journeySummaryDue({status,completedPercent=0,pendingNativeMove=null}={}){
+  if(status==="interrupted")return true;
   if(status==="completed"||status==="ended")return !pendingNativeMove;
   return status==="paused"&&!pendingNativeMove&&
     Number.isFinite(completedPercent)&&completedPercent>=99.999;
