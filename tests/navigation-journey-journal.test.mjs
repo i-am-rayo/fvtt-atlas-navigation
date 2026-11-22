@@ -236,7 +236,7 @@ test("Journal creation, metadata updates, and the managed summary all use one re
   }finally{globalThis.game=prev.game;globalThis.CONST=prev.CONST;}
 });
 
-test("backend checkpoints do not regenerate the readable Journal until a leg is confirmed",async()=>{
+test("backend checkpoints publish confirmed partial history at interruption, not during movement",async()=>{
   const previous=globalThis.game;
   globalThis.game={user:{isGM:true}};
   const writes=[];
@@ -255,14 +255,16 @@ test("backend checkpoints do not regenerate the readable Journal until a leg is 
     await saveJourneyJournal(interrupted,{journal,
       updatePage:journeySummaryDue({status:interrupted.status,
         completedPercent:interrupted.legs.at(-1).completedPercent})});
-    assert.deepEqual(writes.map(entry=>entry.kind),["state","state"],
-      "even an unexpected canvas interruption does not publish partial narrative history");
+    assert.deepEqual(writes.map(entry=>entry.kind),["state","state","page"],
+      "interruption publishes only confirmed partial history after the flag write");
+    assert.match(writes.at(-1).data[0]["text.content"],/Confirmed progress: 45%/);
+    assert.equal(journeySummaryDue({status:"interrupted",pendingNativeMove:{operationId:"pending"}}),true);
     const arrived=checkpointJourneyRecord(interrupted,{schedule:{...schedule,
       completedHours:18},progress:100,status:"paused"});
     await saveJourneyJournal(arrived,{journal,
       updatePage:journeySummaryDue({status:arrived.status,
         completedPercent:arrived.legs.at(-1).completedPercent})});
-    assert.deepEqual(writes.map(entry=>entry.kind),["state","state","state","page"]);
+    assert.deepEqual(writes.map(entry=>entry.kind),["state","state","page","state","page"]);
     assert.match(writes.at(-1).data[0]["text.content"],/Confirmed progress: 100%/);
     assert.equal(journeySummaryDue({status:"paused",completedPercent:50}),false);
     assert.equal(journeySummaryDue({status:"paused",completedPercent:100,
