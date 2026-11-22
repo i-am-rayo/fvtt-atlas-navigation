@@ -23,6 +23,14 @@ export function validatePendingNativeMove(raw){
       raw.worldAdvanceSeconds<0||
       !Number.isSafeInteger(raw.atlasRevision)||raw.atlasRevision<0)
     throw Error("Invalid pending Atlas native movement checkpoint.");
+  if(raw.bounded!==undefined&&(
+      raw.bounded!==true||
+      !(raw.previousMovementId===null||validId(raw.previousMovementId))||
+      !Number.isFinite(raw.completedPercent)||raw.completedPercent<=0||raw.completedPercent>100+1e-7||
+      !Array.isArray(raw.path)||raw.path.length<2||raw.path.length>4096||
+      !raw.path.every(validPoint)||!near(raw.path[0],raw.from,0)||
+      !near(raw.path.at(-1),raw.to,0)))
+    throw Error("Invalid bounded native movement evidence.");
   return structuredClone(raw);
 }
 
