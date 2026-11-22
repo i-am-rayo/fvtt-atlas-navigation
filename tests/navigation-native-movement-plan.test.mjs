@@ -285,6 +285,8 @@ test("partial native recovery proves a terminal ordered prefix, not coordinate p
   assert.equal(partial.fraction,.5);
   assert.equal(partial.worldAdvanceSeconds,7200);
   assert.equal(partial.worldClockAction,"advance");
+  assert.equal(assessBoundedNativePartial(intent,{...context,worldTime:7300}).status,"review",
+    "a partial target clock cannot be attributed to Atlas without a previously saved receipt");
   const saved=validatePendingNativeMove({...intent,partialEvidence:partial.evidence});
   assert.equal(assessBoundedNativePartial(saved,{...context,movement:{id:"",state:"completed"},
     worldTime:7300}).worldClockAction,"already-advanced");
@@ -300,4 +302,19 @@ test("partial native recovery proves a terminal ordered prefix, not coordinate p
   assert.equal(assessBoundedNativePartial(intent,{...context,tokenPoint:pt(21,30)}).status,"review");
   assert.equal(assessBoundedNativePartial(intent,{...context,movement:{id:"",state:"completed"}}).status,"review");
   assert.throws(()=>validatePendingNativeMove({...intent,partialEvidence:{...partial.evidence,destination:to}}),/Invalid/);
+});
+
+test("dev.24 checkpoint 6 matching movement ID and displaced endpoint alone are insufficient",async()=>{
+  const {assessBoundedNativePartial}=await import("../scripts/navigation-native-movement-reconciliation.js");
+  const from=pt(3967,2029),to=pt(3965,2104),
+    actual=pt(3965.049458110207,2051.431231732619),id="dX7qhx6Yl9nA5L5d";
+  // Only the screenshot facts are known. This straight path is a negative
+  // fixture, NOT a reconstruction of the missing authored/processed arrays.
+  const intent={schemaVersion:1,bounded:true,previousMovementId:null,operationId:id,
+    tokenId:"party",checkpointIndex:5,from,to,path:[from,to],nativePath:[from,to],
+    completedPercent:60,nativeDistance:75,movingHours:14430/3600,
+    worldTimeBefore:100,worldAdvanceSeconds:14430,atlasRevision:4};
+  assert.equal(assessBoundedNativePartial(intent,{tokenId:"party",tokenPoint:actual,
+    atlasRevision:4,worldTime:100,movement:{id,state:"completed",origin:from,
+      destination:actual,constrained:false,pending:{waypoints:[]}}}).status,"review");
 });
