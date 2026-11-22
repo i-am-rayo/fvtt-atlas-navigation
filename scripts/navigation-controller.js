@@ -4430,18 +4430,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         details.append(el("summary","Review Saved Journey"));
         const position=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y)?
           `${p.x}, ${p.y}`:"Unavailable";
-        const delta=Number.isFinite(game.time?.worldTime)?
+        const delta=Number.isFinite(game.time?.worldTime)&&Number.isFinite(intent.worldTimeBefore)?
           game.time.worldTime-intent.worldTimeBefore:null;
         details.append(
           el("p","Approved method: "+pendingReviewMethodName+
-            " · Native checkpoint "+(intent.checkpointIndex+1)),
+            " · Native checkpoint "+(Number.isSafeInteger(intent.checkpointIndex)?intent.checkpointIndex+1:"Unavailable")),
           el("p","Confirmed origin: "+position(intent.from)+
             " · Approved endpoint: "+position(intent.to)+
             " · TokenDocument: "+position(document)),
           el("p","Native state: "+(document?.movement?.state??"Unavailable")+
             " · Movement ID: "+(document?.movement?.id??"Unavailable")),
-          el("p","Saved interval time: "+intent.worldAdvanceSeconds+
-            " seconds · World-clock change since intent: "+(delta===null?"Unavailable":delta+" seconds")),
+          el("p",Saved interval time: "+(Number.isFinite(intent.worldAdvanceSeconds)?intent.worldAdvanceSeconds+" seconds":"Unavailable")+
+            " · World-clock change since intent: "+(delta===null?"Unavailable":delta+" seconds")),
           el("p",canReconcileNative?(nativeArrival?
             "Verified endpoint. Outstanding clock advancement: "+
               (nativeArrival.clockAction==="advance"?intent.worldAdvanceSeconds:0)+" seconds.":
