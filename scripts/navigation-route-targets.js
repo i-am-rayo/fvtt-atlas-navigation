@@ -76,7 +76,8 @@ export function validateJourneyTargets(value){
     if(target.approvedTransport!==undefined){
       const info=target.approvedTransport;
       if(!info||typeof info.methodId!=="string"||!validId(info.methodId)||
-          !["owned","hire"].includes(info.arrangement))
+          !(["owned","hire"].includes(info.arrangement)||
+            info.methodId==="mixed-land"&&info.arrangement==="mixed"))
         throw Error("Invalid approved transportation on an A/B/C target.");
     }
   }
@@ -94,7 +95,8 @@ export function confirmJourneyTarget(plan,{checkpointId,position,transport,
     return next;
   if(separation(target.point,position)>Math.max(.01,tolerancePixels))
     throw Error("The confirmed checkpoint is inconsistent with the saved route target.");
-  if(transport?.methodId&&["owned","hire"].includes(transport.arrangement)){
+  if(transport?.methodId&&(["owned","hire"].includes(transport.arrangement)||
+      transport.methodId==="mixed-land"&&transport.arrangement==="mixed")){
     target.approvedTransport={methodId:transport.methodId,arrangement:transport.arrangement};
   }
   next.nextTargetIndex++;
@@ -117,7 +119,9 @@ export function isCheckpointBoundContinuation({record,route,projected,gridSize}=
       !Number.isFinite(gridSize)||gridSize<=0||route?.status!=="ok"||
       projected?.legs?.length!==1||projected.hasTransitions)return false;
   const leg=projected.legs[0];
-  if(!["water","air"].includes(leg.surface)||!leg.transferValid||
+  const intermediateLand=leg.surface==="land"&&
+    record.routeTargets.nextTargetIndex<record.routeTargets.targets.length-1;
+  if(!(["water","air"].includes(leg.surface)||intermediateLand)||!leg.transferValid||
       !leg.arrivalCheckpoint?.id)return false;
   const next=nextJourneyTarget(record.routeTargets);
   return Boolean(next?.checkpointId===leg.arrivalCheckpoint.id&&
