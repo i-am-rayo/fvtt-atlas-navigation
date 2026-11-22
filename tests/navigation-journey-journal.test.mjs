@@ -485,6 +485,68 @@ test("mixed passenger assignments are saved, readable and recovered without new 
     sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
 });
 
+test("checkpoint-bound mixed convoy preserves original destination, fare and approved speed on recovery",()=>{
+  const coach={id:"coach-hire",name:"Coach",kind:"vehicle",surface:"land",
+    speedMph:4,capacity:4,hireEnabled:true,hireApplies:"passenger",
+    hireCostCp:100,hireBasis:"day",hireUnlimited:false,hireQuantity:1};
+  const mixed=planMixedLandConvoy({
+    travelers:[{actorId:"pc1",seatsNeeded:1,passengers:1},
+      {actorId:"pc2",seatsNeeded:1,passengers:1}],
+    assignments:{pc1:"owned|walking",pc2:"hire|coach-hire"},
+    methods:[{key:"owned|walking",arrangement:"owned",
+      method:{id:"walking",name:"Walking",kind:"foot",surface:"land"}},
+      {key:"hire|coach-hire",arrangement:"hire",method:coach,
+        checkpointId:"hearth"}],
+    walkingSpeed:3,sceneUnits:"mi",routeDistance:24,
+    weightedDistance:24,distanceMi:24
+  });
+  const scenario=itinerary();
+  scenario.scene.units="mi";
+  scenario.travel={speedPerHour:3,methodId:"walking",
+    methodName:"Mixed Group transportation",arrangement:"owned",
+    operation:"normal"};
+  scenario.measurements={distance:24,travelHours:8,terrainAware:false};
+  scenario.convoy=mixed;
+  scenario.transport={
+    methodId:"mixed-land",methodName:"Mixed Group transportation",
+    kind:"mixed",arrangement:"mixed",surface:"land",
+    departureCheckpointName:"Hearth",arrivalCheckpointId:"dock",
+    arrivalCheckpointName:"Dock",roadNames:["Road"],estimatedFareCp:null,
+    operation:"normal"
+  };
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:scenario,journeyDestination:{x:500,y:500}});
+  assert.deepEqual(saved.legs[0].convoy,mixed);
+  const stopped=checkpointJourneyRecord(saved,{
+    schedule:{...schedule,completedHours:4,events:[],restEvents:0},
+    progress:50,status:"interrupted"});
+  const html=formatJourneyJournalHTML(stopped);
+  assert.match(html,/Mixed party|mixed transportation/i);
+  assert.match(html,/Coach/);
+  assert.match(html,/riding/);
+  const resumed=resumeJourneyRecord(stopped,{
+    itinerary:{...scenario,convoy:undefined,
+      transport:{...scenario.transport,continuation:true}},atlasRevision:12});
+  assert.deepEqual(resumed.destination,{x:500,y:500});
+  assert.equal(resumed.legs[1].transport.arrivalCheckpointId,"dock");
+  assert.equal(resumed.legs[1].travelMethod,undefined);
+  const missing=structuredClone(saved);
+  delete missing.legs[0].convoy;
+  assert.throws(()=>validateJourneyRecord(missing),/invalid recovery metadata/i);
+  const wrong=structuredClone(saved);
+  wrong.legs[0].transport.surface="water";
+  assert.throws(()=>validateJourneyRecord(wrong),/invalid recovery metadata/i);
+  assert.throws(()=>resumeJourneyRecord(stopped,{
+    itinerary:{...scenario,transport:{...scenario.transport,arrivalCheckpointId:"other"}},
+    atlasRevision:12}),/checkpoint and terrain mode/);
+  assert.deepEqual(resumed.legs[1].convoy,mixed);
+  assert.equal(resumed.legs[1].speedPerHour,3);
+  const bad=structuredClone(stopped);
+  bad.legs[0].convoy.travelers[0].methodKey="hire|absent";
+  assert.equal(eligibleJourneyRecord(bad,{
+    sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
+});
+
 test("schema-v3 theater-of-mind seats recover without inventing named coach riders",()=>{
   const group=[
     {actorId:"pc1",passengers:1,seatsNeeded:1},
