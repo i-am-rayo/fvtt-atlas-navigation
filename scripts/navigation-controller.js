@@ -1565,7 +1565,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!route.safe||route.kind!=="ahead")return null;
       // Verify the pending origin is the same confirmed image-local anchor.
       const origin=this.atlasPoint(view,atlas,partyTokenCanvasCenter(
-        {...token,x:intent.from.x,y:intent.from.y,width:token.width,height:token.height},scene.grid.size));
+        {x:intent.from.x,y:intent.from.y,width:token.width,height:token.height},scene.grid.size));
       if(Math.hypot(origin.x-anchor.point.x,origin.y-anchor.point.y)>1)return null;
       const completedHours=leg.completedMovingHours+intent.movingHours;
       const progress=Math.min(100,intent.completedPercent);
@@ -1609,6 +1609,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   async recoverSavedJourneyWithNativeReview({automatic=false}={}){
+    if(this.journalStarting||this.travelSession)return false;
     const journal=this.recoverableJourney;
     const raw=journal?.getFlag?.(MODULE_ID,JOURNEY_JOURNAL_FLAG);
     if(!raw?.pendingNativeMove)return this.recoverSavedJourney({automatic});
