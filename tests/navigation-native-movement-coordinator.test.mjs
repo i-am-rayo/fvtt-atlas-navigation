@@ -497,3 +497,45 @@ test("canvas suspension leaves the submitted move alive and releases no successo
   assert.equal(token.x,10);
   assert.equal(listeners.size,0);
 });
+
+test("canvas suspension during intent persistence does not submit a native move",async()=>{
+  const from={x:0,y:0},to={x:10,y:0},id="SuspendVoyage002";
+  const suspension=new AbortController(),listeners=new Map();
+  let moves=0,stops=0;
+  const hooks={on(name,fn){listeners.set(name,fn);return fn;},
+    off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+  const token={...from,move(){moves++;return Promise.resolve(true);},
+    stopMovement(){stops++;return true;}};
+  const result=await coordinateNativeTokenMovement({token,hooks,operationId:id,movementSpeed:2,
+    suspensionSignal:suspension.signal,
+    plan:{path:[from,to],checkpoints:[{index:0,from,point:to,distance:10}]},
+    prepareCheckpoint:async()=>suspension.abort(),
+    confirmCheckpoint:async()=>assert.fail("unsubmitted movement must not be confirmed")});
+  assert.equal(result.completed,false);assert.equal(moves,0);assert.equal(stops,0);
+  assert.equal(listeners.size,0);
+});
+
+test("canvas suspension preserves a settled partial operation for review, not full confirmation",async()=>{
+  const from={x:0,y:0},to={x:10,y:0},actual={x:4,y:0},id="SuspendVoyage003";
+  const suspension=new AbortController(),listeners=new Map(),events=[];
+  let stops=0;
+  const hooks={on(name,fn){listeners.set(name,fn);return fn;},
+    off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+  const movement={id,state:"completed",chain:[],origin:from,destination:actual,
+    constrained:false,passed:{waypoints:[{...actual,movementId:id}]},pending:{waypoints:[]}};
+  const token={...from,stopMovement(){stops++;return true;},async move(){
+    suspension.abort();Object.assign(this,actual);this.movement=movement;
+    listeners.get("moveToken")(this,movement);listeners.get("updateToken")(this);
+    return false;
+  }};
+  const result=await coordinateNativeTokenMovement({token,hooks,operationId:id,movementSpeed:2,
+    suspensionSignal:suspension.signal,shouldStop:()=>suspension.signal.aborted,
+    plan:{path:[from,to],checkpoints:[{index:0,from,point:to,distance:10}]},
+    prepareCheckpoint:async()=>events.push("intent"),
+    recordSuspendedEvidence:async(_checkpoint,observed)=>{
+      assert.deepEqual(observed,movement);events.push("partial");
+    },
+    confirmCheckpoint:async()=>assert.fail("partial move is not a full checkpoint")});
+  assert.equal(result.completed,false);assert.deepEqual(events,["intent","partial"]);
+  assert.equal(stops,0);assert.equal(token.x,4);assert.equal(listeners.size,0);
+});
