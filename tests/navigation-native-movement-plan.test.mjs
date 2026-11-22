@@ -140,3 +140,39 @@ test("bounded arrival verifies native identity, ordered waypoints and exact cloc
   assert.equal(assessBoundedNativeArrival(pending,{...context,movement:{...movement,
     passed:{waypoints:[from,to,bend]}}}).status,"review");
 });
+
+test("live v14 checkpoint 10 uses separate origin and ordered destination waypoints",async()=>{
+  const {assessBoundedNativeArrival}=await import("../scripts/navigation-native-movement-reconciliation.js");
+  const path=[pt(3964,2178),pt(3959,2214),pt(3953,2225),pt(3942,2237),pt(3935,2243)];
+  const operationId="A4lYQ7BRk9Bg0mxJ";
+  const intent={schemaVersion:1,bounded:true,previousMovementId:"2HK8P3WTVosg7yHB",
+    operationId,tokenId:"party",checkpointIndex:9,from:path[0],to:path.at(-1),
+    path,completedPercent:83.89029316924135,nativeDistance:74.80603416676962,
+    movingHours:4.00516488699251,worldTimeBefore:28978478955,worldAdvanceSeconds:14419,
+    atlasRevision:587};
+  const passed=path.slice(1).map(p=>({...p,movementId:operationId,elevation:0}));
+  const movement={id:operationId,chain:[],state:"completed",constrained:false,
+    origin:path[0],destination:path.at(-1),passed:{waypoints:passed},pending:{waypoints:[]}};
+  const context={tokenId:"party",tokenPoint:path.at(-1),atlasRevision:587,
+    worldTime:28978478955,movement};
+  assert.deepEqual(assessBoundedNativeArrival(intent,context),
+    {status:"at-end",confirmed:true,worldClockAction:"advance"});
+  assert.equal(assessBoundedNativeArrival(intent,{...context,worldTime:28978493374}).worldClockAction,
+    "already-advanced");
+  for(const changed of [
+    {...movement,origin:pt(3968,2178)},
+    {...movement,id:"foreign"},
+    {...movement,passed:{waypoints:passed.slice(1)}},
+    {...movement,passed:{waypoints:[passed[1],passed[0],...passed.slice(2)]}},
+    {...movement,passed:{waypoints:[...passed,pt(4000,2300)]}},
+    {...movement,pending:{waypoints:[pt(4000,2300)]}},
+    {...movement,constrained:true}
+  ])assert.equal(assessBoundedNativeArrival(intent,{...context,movement:changed}).status,"review");
+  assert.equal(assessBoundedNativeArrival(intent,{...context,worldTime:28978478956}).status,"review");
+  assert.equal(assessBoundedNativeArrival(intent,{...context,tokenPoint:pt(3939,2243)}).status,"review");
+  // Existing mocks/versions may include the origin; require it to match as well.
+  assert.equal(assessBoundedNativeArrival(intent,{...context,movement:{...movement,
+    passed:{waypoints:path}}}).status,"at-end");
+  assert.equal(assessBoundedNativeArrival(intent,{...context,movement:{...movement,
+    origin:pt(3968,2178),passed:{waypoints:path}}}).status,"review");
+});
