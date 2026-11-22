@@ -69,14 +69,15 @@ test("continuous vessel submits one bounded move per durable checkpoint",async()
           let endAnimation;
           const animationEnded=new Promise(resolve=>{endAnimation=resolve;});
           this.hold=null;this.release=null;
-          listeners.get("moveToken")(this,{
-            id:options.id,chain:[],origin:from,
-            destination,animation:{ended:animationEnded}
-          });
+          const movement={id:options.id,chain:[],origin:from,destination,
+            constrained:false,passed:{waypoints:[destination]},pending:{waypoints:[]},
+            animation:{ended:animationEnded}};
+          listeners.get("moveToken")(this,movement);
           // The live v14 move hook may report an approved endpoint while the
           // authoritative document still contains the preceding checkpoint.
           assert.deepEqual({x:this.x,y:this.y},from);
           Object.assign(this,destination);
+          listeners.get("updateToken")?.(this,{x:this.x,y:this.y});
           endAnimation();
           if(this.hold)await this.hold;
           from={x:this.x,y:this.y};
@@ -93,7 +94,8 @@ test("continuous vessel submits one bounded move per durable checkpoint",async()
       pendingPassengerRest:null};
     nav.travelSession=session;
     nav.saveJourneyCheckpoint=async(record,status)=>{
-      events.push({kind:record.journeyRecord.pendingNativeMove?"intent":"confirmed",
+      const pending=record.journeyRecord.pendingNativeMove;
+      events.push({kind:pending?(pending.arrivalEvidence?"evidence":"intent"):"confirmed",
         status,progress:record.completedDistance});
     };
     nav.captureConfirmedJourneyAnchor=()=>({point:{x:token.x,y:token.y}});
@@ -108,7 +110,7 @@ test("continuous vessel submits one bounded move per durable checkpoint",async()
     assert.equal(session.completedDistance,30);
     assert.equal(session.journeyRecord.pendingNativeMove,null);
     assert.deepEqual(events.map(event=>event.kind),[
-      "intent","confirmed","intent","confirmed","intent","confirmed"]);
+      "intent","evidence","confirmed","intent","evidence","confirmed","intent","evidence","confirmed"]);
     assert.equal(events.at(-1).status,"paused",
       "the final dock must be durable before the native movement promise resolves");
     assert.equal(listeners.size,0);
@@ -1294,7 +1296,7 @@ test("bounded vessel recovery credits only its verified delta and retries a fail
       operationId:op,tokenId:token.id,checkpointIndex:0,from:point(0,0),to:point(50,0),
       path:[point(0,0),point(50,0)],completedPercent:50,nativeDistance:50,
       movingHours:2,worldTimeBefore:1000,worldAdvanceSeconds:7200,atlasRevision:4};
-    let advances=0,writes=0,restores=0,failWrite=true;
+    let advances=0,writes=0,restores=0,failWrite="receipt";
     globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}},
       settings:{get:()=>true},time:{worldTime:1000,async advance(delta){
         advances++;this.worldTime+=delta;
@@ -1304,7 +1306,10 @@ test("bounded vessel recovery credits only its verified delta and retries a fail
     const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
       atlasProvider:()=>atlas,partyTokenProvider:()=>token,atlasPoint:(_v,_a,p)=>p,
       journeyJournalStore:{save:async next=>{
-        writes++;if(failWrite)throw Error("Journal temporarily unavailable");
+        writes++;
+        if(failWrite==="receipt"&&next.pendingNativeMove?.arrivalEvidence||
+            failWrite==="confirmation"&&!next.pendingNativeMove)
+          throw Error("Journal temporarily unavailable");
         record=structuredClone(next);
       }}});
     nav.scene=scene;nav.recoverableJourney=journal;
@@ -1316,12 +1321,18 @@ test("bounded vessel recovery credits only its verified delta and retries a fail
     assert.match(reason,/ordered path/);
     token.movement.origin=point(0,0);
     await assert.rejects(nav.recoverSavedJourneyWithNativeReview(),/Journal temporarily unavailable/);
-    assert.equal(advances,1);assert.ok(record.pendingNativeMove);
+    assert.equal(advances,0,"a failed durable evidence write must not advance the clock");
+    assert.equal(game.time.worldTime,1000);
+    failWrite="confirmation";
+    await assert.rejects(nav.recoverSavedJourneyWithNativeReview(),/Journal temporarily unavailable/);
+    assert.equal(advances,1);assert.ok(record.pendingNativeMove?.arrivalEvidence);
     assert.equal(game.time.worldTime,8200);
+    // Simulate the browser reload that removes the public last-movement ID.
+    token.movement={id:"",state:"completed"};
     failWrite=false;
     assert.equal(nav.boundedNativeArrival(record)?.clockAction,"already-advanced");
     assert.equal(await nav.recoverSavedJourneyWithNativeReview(),true);
-    assert.equal(advances,1);assert.equal(writes,2);assert.equal(restores,1);
+    assert.equal(advances,1);assert.equal(writes,4);assert.equal(restores,1);
     assert.equal(record.pendingNativeMove,null);
     await nav.recoverSavedJourneyWithNativeReview();
     assert.equal(advances,1,"repeating recovery cannot credit the same interval");
