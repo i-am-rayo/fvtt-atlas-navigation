@@ -1,6 +1,6 @@
 /**
- * Foundry v14 adapter: a single TokenDocument.move through authored bends,
- * with native checkpoint pauses for durable Atlas Journal confirmation.
+ * Foundry v14 adapter: bounded native TokenDocument moves through authored bends.
+ * Each interval is submitted only after the preceding Journal confirmation.
  * No game rules, Journal writes, or World time are owned by this adapter.
  */
 const near=(a,b,tolerance)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
@@ -79,15 +79,14 @@ function checkpointDetails({token,movement,operationId,checkpoint,index,toleranc
 /**
  * A TokenMovementOptions.id is set before any Document update. Subsequent
  * native checkpoints may carry that ID in movement.chain instead of id.
- * Callbacks are serialized by the public pauseMovement() continuation.
+ * An interval contains exactly one terminal checkpoint.
  */
-export async function coordinateNativeTokenMovement({
+async function moveNativeInterval({
   token,plan,operationId,movementSpeed,hooks,
   prepareCheckpoint,confirmCheckpoint,shouldStop=()=>false,
   tolerancePixels=1,signal=null,onCheckpointDiagnostics=null
 }={}){
   if(typeof token?.move!=="function"||
-      typeof token?.pauseMovement!=="function"||
       typeof token?.stopMovement!=="function"||
       typeof hooks?.on!=="function"||typeof hooks?.off!=="function"||
       typeof prepareCheckpoint!=="function"||
@@ -154,10 +153,7 @@ export async function coordinateNativeTokenMovement({
       fail(Error("Foundry movement does not match the approved native checkpoint."));
       return;
     }
-    const resume=token.pauseMovement();
-    if(typeof resume!=="function"&&checkpointIndex<plan.checkpoints.length-1){
-      fail(Error("Foundry could not pause at the approved Journal checkpoint."));return;
-    }
+    // A bounded move has no unapproved successor to release.
     checkpointIndex++;
     inFlight=inFlight.then(async()=>{
       // The native animation signal alone is not proof of a persisted Token
@@ -175,18 +171,13 @@ export async function coordinateNativeTokenMovement({
       if(!settledDocumentMatches)
         throw Error("The native TokenDocument missed its approved checkpoint.");
       await confirmCheckpoint(checkpoint,movement);
-      if(checkpointIndex<plan.checkpoints.length){
-        if(shouldStop())throw Error("Native movement stopped at the confirmed checkpoint.");
-        await prepareCheckpoint(plan.checkpoints[checkpointIndex]);
-      }
       if(shouldStop())throw Error("Native movement interrupted after Journal confirmation.");
-      if(resume)await resume();
     }).catch(fail);
   };
   const hookId=hooks.on("moveToken",onMove);
   try{
     // A prepared, durable pending intent must exist before the first native
-    // TokenDocument update. The caller persists each successor before resume.
+    // TokenDocument update. The caller persists each successor before submission.
     await prepareCheckpoint(plan.checkpoints[0]);
     if(shouldStop()||signal?.aborted)
       return {completed:false,confirmed:0,error:null};
@@ -217,4 +208,34 @@ export async function coordinateNativeTokenMovement({
     if(abortListener)signal?.removeEventListener("abort",abortListener);
     hooks.off("moveToken",hookId);
   }
+}
+
+/** Never submit an uncommitted future interval to Foundry. A canvas replacement
+ * can invalidate native pause callbacks but cannot release an unsent path. */
+export async function coordinateNativeTokenMovement({plan,operationId,
+  prepareCheckpoint,confirmCheckpoint,shouldStop=()=>false,signal,...options}={}){
+  if(!Array.isArray(plan?.path)||!Array.isArray(plan?.checkpoints)||
+      !plan.checkpoints.length||typeof operationId!=="string"||!operationId||
+      typeof prepareCheckpoint!=="function"||typeof confirmCheckpoint!=="function")
+    throw Error("Native movement requires an approved checkpoint plan.");
+  let confirmed=0,start=0;
+  for(const checkpoint of plan.checkpoints){
+    if(signal?.aborted||shouldStop())return {completed:false,confirmed,error:null};
+    const end=checkpoint.pathEndIndex??plan.path.findIndex((p,i)=>
+      i>start&&near(p,checkpoint.point,1));
+    if(end<=start||end>=plan.path.length||
+        !near(plan.path[start],checkpoint.from,1)||
+        !near(plan.path[end],checkpoint.point,1))
+      throw Error("Invalid bounded native checkpoint path.");
+    const path=plan.path.slice(start,end+1);
+    const id=confirmed===0?operationId:operationId+"-"+confirmed;
+    const interval={path,checkpoints:[{...checkpoint,pathStartIndex:0,
+      pathEndIndex:path.length-1}]};
+    const result=await moveNativeInterval({...options,plan:interval,operationId:id,
+      shouldStop,signal,prepareCheckpoint:()=>prepareCheckpoint(checkpoint,id,path),
+      confirmCheckpoint:(_point,movement)=>confirmCheckpoint(checkpoint,movement,id)});
+    if(!result.completed)return {completed:false,confirmed,error:null};
+    confirmed++;start=end;
+  }
+  return {completed:true,confirmed,error:null};
 }
