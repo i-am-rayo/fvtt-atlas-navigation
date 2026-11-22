@@ -365,7 +365,9 @@ test("verified document arrival is saved before the visual animation finishes",a
   const {token,plan,hooks,listeners}=nativeHarness({destinationOnly:true,
     animationNeverEnds:true,documentUpdateTiming:"after-hook"});
   const controller=new AbortController(),events=[];
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
+  // Abort even on the unfixed implementation; the event assertion then fails.
+  const fallback=setImmediate(()=>controller.abort());
+  try{await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
     operationId:"AtlasTest0000015",createOperationId:()=>"NextMovement0001",movementSpeed:2,
     signal:controller.signal,
     prepareCheckpoint:async()=>events.push("intent"),
@@ -376,7 +378,7 @@ test("verified document arrival is saved before the visual animation finishes",a
       controller.abort();
     },
     confirmCheckpoint:async()=>events.push("clock/confirmation")
-  }),/cancelled|stopped|interrupted/);
+  }),/cancelled|stopped|interrupted/);}finally{clearImmediate(fallback);}
   assert.deepEqual(events,["intent","evidence"]);
   assert.equal(token.moves,1);
   assert.equal(listeners.size,0);
