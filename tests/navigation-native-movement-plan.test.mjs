@@ -121,3 +121,22 @@ test("native recovery cannot accept tampered, missing, or oversized intent",()=>
     tokenId:"party",atlasRevision:3,recordedMovementIds:["native-motion-1"],
     tokenPoint:pt(30,30),worldTime:1000}).worldClockAction,"none");
 });
+
+test("bounded arrival verifies native identity, ordered waypoints and exact clock before credit",async()=>{
+  const {assessBoundedNativeArrival}=await import("../scripts/navigation-native-movement-reconciliation.js");
+  const from={x:0,y:0},bend={x:10,y:4},to={x:20,y:0};
+  const pending={schemaVersion:1,bounded:true,previousMovementId:null,
+    operationId:"bounded-op",tokenId:"party",checkpointIndex:2,from,to,
+    path:[from,bend,to],completedPercent:50,nativeDistance:22,movingHours:1,
+    worldTimeBefore:100,worldAdvanceSeconds:3600,atlasRevision:4};
+  const movement={id:"bounded-op",state:"stopped",origin:from,destination:to,
+    passed:{waypoints:[from,bend,to]}};
+  const context={tokenId:"party",tokenPoint:to,atlasRevision:4,worldTime:100,movement};
+  assert.equal(assessBoundedNativeArrival(pending,context).worldClockAction,"advance");
+  assert.equal(assessBoundedNativeArrival(pending,{...context,worldTime:3700}).worldClockAction,"already-advanced");
+  assert.equal(assessBoundedNativeArrival(pending,{...context,worldTime:200}).status,"review");
+  assert.equal(assessBoundedNativeArrival(pending,{...context,tokenPoint:{x:430,y:0}}).status,"review");
+  assert.equal(assessBoundedNativeArrival(pending,{...context,movement:{...movement,id:"other"}}).status,"review");
+  assert.equal(assessBoundedNativeArrival(pending,{...context,movement:{...movement,
+    passed:{waypoints:[from,to,bend]}}}).status,"review");
+});
