@@ -67,6 +67,17 @@ export function assessPendingNativeMove(raw,{
   return {status:"review",reason:"World-time state does not match the pending checkpoint."};
 }
 
+/** Foundry v14 reports origin separately from passed destination waypoints.
+ * Origin-inclusive evidence remains valid only if every coordinate agrees. */
+export function matchesNativeIntervalPath(path,movement,tolerance=1){
+  if(!Array.isArray(path)||path.length<2||!near(movement?.origin,path[0],tolerance)||
+      !near(movement?.destination,path.at(-1),tolerance))return false;
+  const passed=movement.passed?.waypoints;
+  if(!Array.isArray(passed)||!passed.length)return path.length===2;
+  const expected=passed.length===path.length?path:path.slice(1);
+  return passed.length===expected.length&&passed.every((p,i)=>near(p,expected[i],tolerance));
+}
+
 /** Exact endpoint of one separately authorized native interval. The route
  * corridor is not movement proof; matching native identity and path are. */
 export function assessBoundedNativeArrival(raw,{movement,...context}={}){
@@ -75,14 +86,10 @@ export function assessBoundedNativeArrival(raw,{movement,...context}={}){
       !(movement.id===pending.operationId||movement.chain?.includes(pending.operationId))||
       !near(movement.destination,pending.to,1))
     return {status:"review",reason:"Native interval identity or endpoint is unverified."};
-  const passed=movement.passed?.waypoints;
-  // A straight single-interval submission needs exact origin and destination.
-  // For bends, require the actual ordered submitted waypoint coordinates.
-  const exact=Array.isArray(passed)&&passed.length===pending.path.length&&
-    passed.every((p,i)=>near(p,pending.path[i],1));
-  if(!exact&&!(pending.path.length===2&&near(movement.origin,pending.from,1)&&
-      (!Array.isArray(passed)||passed.length===0)))
-    return {status:"review",reason:"Native interval waypoint evidence is incomplete."};
+  if(movement.constrained===true||movement.pending?.waypoints?.length>0)
+    return {status:"review",reason:"Native movement was constrained or still has pending waypoints."};
+  if(!matchesNativeIntervalPath(pending.path,movement))
+    return {status:"review",reason:"Native interval waypoint evidence is incomplete or does not match the approved ordered path."};
   return assessPendingNativeMove(pending,{...context,
     recordedMovementIds:[pending.operationId],tolerancePixels:1});
 }
