@@ -5,7 +5,7 @@ import {coordinateNativeTokenMovement}
 
 function nativeHarness({alterDestination=false,alterOrigin=false,
   detour=false,animationNeverEnds=false,alterMovementId=false,
-  documentUpdateTiming="before-hook"}={}){
+  destinationOnly=false,omitHook=false,documentUpdateTiming="before-hook"}={}){
   const listeners=new Map();
   const calls=[];
   const hooks={
@@ -40,8 +40,10 @@ function nativeHarness({alterDestination=false,alterOrigin=false,
           passed:{waypoints:detour?[from,{x:from.x+5,y:8},destination]:
             [from,destination]},
           animation:{ended:animationEnded}};
+        if(destinationOnly)movement.passed.waypoints.shift();
+        this.movement={...movement,state:"completed",constrained:false,pending:{waypoints:[]}};
         calls.push(movement);
-        listeners.get("moveToken")(this,movement,{}, {isSelf:true});
+        if(!omitHook)listeners.get("moveToken")(this,movement,{}, {isSelf:true});
         // Live v14 may expose the old document position to moveToken even
         // though the native operation already reports the approved endpoint.
         if(documentUpdateTiming==="after-hook")Object.assign(this,destination);
@@ -307,4 +309,40 @@ test("malformed or repeated native IDs cannot persist an intent or submit its mo
     assert.deepEqual(intents,[[0,"STnppSz0mQzxlkL4"]]);
     assert.equal(token.moves,1);
   }
+});
+
+test("normal native confirmation accepts destination-only waypoints but rejects a detour with the correct origin",async()=>{
+  for(const detour of [false,true]){
+    const {token,plan,hooks}=nativeHarness({destinationOnly:true,detour});
+    let confirmed=0;
+    const result=coordinateNativeTokenMovement({token,plan,hooks,
+      operationId:"AtlasTest0000012",createOperationId:()=>"NextMovement0001",movementSpeed:2,
+      prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;}
+    });
+    if(detour){
+      await assert.rejects(result,/does not match the approved native checkpoint/);
+      assert.equal(confirmed,0);
+    }else{
+      assert.equal((await result).completed,true);
+      assert.equal(confirmed,2);
+    }
+  }
+});
+
+test("native completion can confirm a missed movement hook without an animation signal",async()=>{
+  const {token,plan,hooks,listeners}=nativeHarness({destinationOnly:true,
+    omitHook:true,animationNeverEnds:true});
+  const order=[];
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"AtlasTest0000013",createOperationId:()=>"NextMovement0001",movementSpeed:2,
+    prepareCheckpoint:async checkpoint=>order.push("intent:"+checkpoint.index),
+    confirmCheckpoint:async(checkpoint,movement)=>{
+      assert.equal(token.x,checkpoint.point.x);
+      assert.equal(movement.state,"completed");
+      order.push("confirmed:"+checkpoint.index);
+    }
+  });
+  assert.equal(result.completed,true);
+  assert.deepEqual(order,["intent:0","confirmed:0","intent:1","confirmed:1"]);
+  assert.equal(listeners.size,0);
 });
