@@ -74,8 +74,32 @@ export function matchesNativeIntervalPath(path,movement,tolerance=1){
       !near(movement?.destination,path.at(-1),tolerance))return false;
   const passed=movement.passed?.waypoints;
   if(!Array.isArray(passed)||!passed.length)return path.length===2;
-  const expected=passed.length===path.length?path:path.slice(1);
-  return passed.length===expected.length&&passed.every((p,i)=>near(p,expected[i],tolerance));
+  // The native list may include the origin or extra processed waypoints.
+  // Every authored bend must still occur in order. Only native-generated
+  // intermediate points can be inserted between them.
+  let next=1,previousProjection=0;
+  const start=near(passed[0],path[0],tolerance)?1:0;
+  for(const p of passed.slice(start)){
+    if(next>=path.length)return false;
+    if(p.movementId!==undefined&&p.movementId!==movement.id)return false;
+    if(near(p,path[next],tolerance)){
+      next++;previousProjection=0;continue;
+    }
+    if(!validPoint(p)||p.intermediate!==true||p.explicit!==false||
+        p.checkpoint!==false||p.movementId!==movement.id)return false;
+    const a=path[next-1],b=path[next],dx=b.x-a.x,dy=b.y-a.y;
+    const lengthSquared=dx*dx+dy*dy;
+    if(!lengthSquared)return false;
+    const projection=((p.x-a.x)*dx+(p.y-a.y)*dy)/lengthSquared;
+    // A conservative Atlas-only allowance for snapped intermediate points:
+    // five native pixels covers the captured v14 fixture, never endpoints
+    // or authored bends. Larger native transformations require review.
+    const allowance=p.snapped===true?5:tolerance;
+    if(projection<previousProjection||projection>1||
+        Math.hypot(p.x-a.x-projection*dx,p.y-a.y-projection*dy)>allowance)return false;
+    previousProjection=projection;
+  }
+  return next===path.length;
 }
 
 /** Exact endpoint of one separately authorized native interval. The route
