@@ -4440,7 +4440,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             " · TokenDocument: "+position(document)),
           el("p","Native state: "+(document?.movement?.state??"Unavailable")+
             " · Movement ID: "+(document?.movement?.id??"Unavailable")),
-          el("p",Saved interval time: "+(Number.isFinite(intent.worldAdvanceSeconds)?intent.worldAdvanceSeconds+" seconds":"Unavailable")+
+          el("p","Saved interval time: "+(Number.isFinite(intent.worldAdvanceSeconds)?intent.worldAdvanceSeconds+" seconds":"Unavailable")+
             " · World-clock change since intent: "+(delta===null?"Unavailable":delta+" seconds")),
           el("p",canReconcileNative?(nativeArrival?
             "Verified endpoint. Outstanding clock advancement: "+
