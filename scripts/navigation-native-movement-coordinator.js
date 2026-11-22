@@ -233,7 +233,7 @@ async function moveNativeInterval({
       if(suspended())return;
       if(signal?.aborted||shouldStop())throw Error("Native movement stopped before confirmation.");
       await confirmCheckpoint(checkpoint,movement);
-      if(shouldStop())throw Error("Native movement interrupted after Journal confirmation.");
+      if(!suspended()&&shouldStop())throw Error("Native movement interrupted after Journal confirmation.");
     }).catch(fail);
   };
   const hookId=hooks.on("moveToken",onMove);
@@ -243,6 +243,7 @@ async function moveNativeInterval({
     // A prepared, durable pending intent must exist before the first native
     // TokenDocument update. The caller persists each successor before submission.
     await prepareCheckpoint(plan.checkpoints[0]);
+    if(failure)throw failure;
     if(shouldStop()||signal?.aborted||suspended())
       return {completed:false,confirmed:0,error:null};
     abortPromise=new Promise((_,reject)=>{
@@ -269,7 +270,7 @@ async function moveNativeInterval({
       const checkpoint=plan.checkpoints[0];
       if(!evidenceWrite){
         const movement=token.movement;
-        if(completed&&movement?.state==="completed"&&movement.id===operationId&&
+        if(["completed","stopped"].includes(movement?.state)&&movement.id===operationId&&
             near(token,checkpoint.point,tolerancePixels)&&
             matchesNativeIntervalPath(plan.path,movement,tolerancePixels,plan.nativePath)){
           observedMovement=movement;
@@ -302,7 +303,7 @@ async function moveNativeInterval({
         if(failure)throw failure;
         if(signal?.aborted||shouldStop())throw Error("Native movement stopped before confirmation.");
         await confirmCheckpoint(checkpoint,movement);
-        if(shouldStop())throw Error("Native movement interrupted after Journal confirmation.");
+        if(!suspended()&&shouldStop())throw Error("Native movement interrupted after Journal confirmation.");
       }
     }
     if(!completed||checkpointIndex!==plan.checkpoints.length)
