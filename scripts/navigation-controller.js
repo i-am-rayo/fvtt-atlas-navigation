@@ -2331,6 +2331,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       approvedConvoy=await this.confirmMixedLandJourney(view,token,guidedLeg);
       if(!approvedConvoy)return false;
     }
+    if(guidedLeg&&isMixedLandTransport(guidedLeg.transport)&&!approvedConvoy)
+      throw Error("A checkpoint-bound convoy requires an approved rider manifest.");
     if(!approvedConvoy&&this.convoyEnabled){
       if(this.travelMethod!=="walking"||!this.assessTravelMethod().guided)
         throw Error(this.assessTravelMethod().reason??"Choose a valid walking cargo convoy.");
@@ -2974,6 +2976,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING)).presets)
         .legs[0]?.surface==="land";
       const keys=land?previous.methods.map(m=>m.key).filter(key=>allowed.has(key)):[];
+      if(keys.length===1&&keys[0]!=="owned|walking"&&allowed.has("owned|walking"))
+        keys.unshift("owned|walking");
       if(party&&!party.empty&&keys.length>1){
         this.mixedKeys=keys;
         const ids=new Set(party.selectedIds);
@@ -2997,11 +3001,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     if(duplicateArrival){
       this.end=null;
+      this.mixedKeys=[];this.mixedAssignments={};this.mixedUnits={};
       this.calculateRoute(view,atlas);
     }
     this.travelNotice=this.end?
       "Continuing from "+pending.checkpoint.name+" toward the saved destination. "+
-        "Select transportation for the next leg.":
+        (this.mixedKeys.length?"Compatible assignments retained as a draft. Review riders, available units and fares before approving this leg.":
+          "Select transportation for the next leg."):
       "Checkpoint confirmed at "+pending.checkpoint.name+". "+
         (duplicateArrival?"The saved Point B resolves back to this same checkpoint. ":"")+
         "Choose the next destination to continue this Journey without replaying past travel.";
@@ -3939,8 +3945,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     let mixedFare=null;
     if(game.user?.isGM&&this.mixedKeys.length>1&&this.canDraftTravelMethods()){
-      try{mixedFare=mixedTransportFareBreakdown(this.mixedLandPlan().methods,
-        globalThis.CONFIG?.DND5E?.currencies);}
+      try{if(!transferPlan?.hasTransitions||transferPlan.legs[0]?.selectedOption?.method?.kind==="mixed")
+        mixedFare=mixedTransportFareBreakdown(this.mixedLandPlan().methods,
+          globalThis.CONFIG?.DND5E?.currencies);}
       catch{/* Invalid allocations have no valid quote. */}
     }
     const choices=approvedRecoveryLand?[{
@@ -4390,7 +4397,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           estimateLabel:leg.hours!==null&&leg.costCp!==null?
             showDistance(leg.distance)+" · "+
             formatNavigationDuration(leg.hours,24)+" moving · "+
-            (leg.convoy&&mixedFare?mixedFare.total.label:formatMoney(leg.costCp))+" estimated cost":null,
+            (leg.recovered&&leg.convoy?"previously approved fare (no new quote)":
+              (leg.convoy&&mixedFare?mixedFare.total.label:formatMoney(leg.costCp))+" estimated cost"):null,
           narration:leg.narration,errors:leg.errors,
           arrivalCheckpointName:leg.arrivalCheckpoint?.name??null}));
         section.append(card);
@@ -4403,7 +4411,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "Choose a valid method and confirm the transfer before this leg can be estimated.":
         current?.hours!==null?
           "Current leg: "+formatNavigationDuration(current.hours,24)+" moving · "+
-            (current.convoy&&mixedFare?mixedFare.total.label:formatMoney(current.costCp))+" estimated. Later legs are undecided.":
+            (current.recovered&&current.convoy?"previously approved transportation":
+              (current.convoy&&mixedFare?mixedFare.total.label:formatMoney(current.costCp))+" estimated")+". Later legs are undecided.":
           "Current leg estimate pending."));
       body.append(section);
     }
