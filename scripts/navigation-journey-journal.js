@@ -417,6 +417,8 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       `${escapeHTML(record.updatedAt)}</p>`+
     `<section class="atlas-journey-overview" aria-label="Journey Overview">`+
       `<h2>Journey Overview</h2>`+pendingRestText+
+      (record.pendingNativeMove?`<p class="atlas-journey-notice"><strong>Unresolved native checkpoint ${record.pendingNativeMove.checkpointIndex+1}:</strong> `+
+        `Only durably confirmed travel is included below. Pending movement and time require GM review.</p>`:"")+
       `<div class="atlas-journey-metrics">`+
         `<div><span>Moving</span><strong>${movingText}</strong></div>`+
         `<div><span>Downtime</span><strong>${downtimeText}</strong></div>`+
