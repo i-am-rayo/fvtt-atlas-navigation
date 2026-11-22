@@ -283,7 +283,8 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
   systemId=globalThis.game?.system?.id}={}){
   const record=validateJourneyRecord(raw);
   const title=record.status==="completed"?"Completed":record.status==="ended"?"Ended":
-    record.status==="interrupted"?"Interrupted — may resume":
+    record.status==="interrupted"?(record.pendingNativeMove?
+      "Interrupted — native checkpoint review required":"Interrupted — may resume"):
     record.status==="paused"?"Paused — may resume":"In progress";
   const confirmedMoving=confirmedJourneyMovingHours(record);
   const underway=validatePassengerRestMetadata(record.passengerRest);
