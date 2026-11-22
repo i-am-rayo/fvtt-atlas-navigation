@@ -459,3 +459,41 @@ test("dev.23 recovery accepts only the independently expanded native path",async
     assert.equal(listeners.size,0);
   }
 });
+
+test("canvas suspension leaves the submitted move alive and releases no successor",async()=>{
+  const from={x:0,y:0},to={x:10,y:0},last={x:20,y:0},id="SuspendVoyage001";
+  const listeners=new Map(),events=[],suspension=new AbortController();
+  let submitted,settle,stopCalls=0;
+  const entered=new Promise(resolve=>{submitted=resolve;});
+  const release=new Promise(resolve=>{settle=resolve;});
+  const hooks={on(name,fn){listeners.set(name,fn);return fn;},
+    off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+  const token={...from,stopMovement(){stopCalls++;return true;},
+    async move(){
+      events.push("submitted");submitted();await release;
+      const movement={id,state:"completed",chain:[],origin:from,destination:to,
+        constrained:false,passed:{waypoints:[{...to,movementId:id}]},
+        pending:{waypoints:[]},animation:{ended:new Promise(()=>{})}};
+      Object.assign(this,to);this.movement=movement;
+      listeners.get("moveToken")(this,movement);listeners.get("updateToken")(this);
+      return true;
+    }};
+  const run=coordinateNativeTokenMovement({token,hooks,operationId:id,movementSpeed:2,
+    suspensionSignal:suspension.signal,
+    shouldStop:()=>suspension.signal.aborted,
+    plan:{path:[from,to,last],checkpoints:[
+      {index:0,from,point:to,distance:10},{index:1,from:to,point:last,distance:10}]},
+    prepareCheckpoint:async()=>events.push("intent"),
+    recordCheckpointEvidence:async()=>events.push("evidence"),
+    confirmCheckpoint:async()=>events.push("confirmed")});
+  // Give an unfixed implementation a deterministic termination route too.
+  const result=run.catch(error=>({error}));
+  await entered;suspension.abort();settle();
+  const timeout=await Promise.race([result,new Promise(resolve=>setImmediate(()=>resolve(null)))]);
+  assert.ok(timeout,"suspension must not depend on a lost visual animation");
+  assert.equal(timeout.completed,false);
+  assert.equal(stopCalls,0);
+  assert.deepEqual(events,["intent","submitted","evidence"]);
+  assert.equal(token.x,10);
+  assert.equal(listeners.size,0);
+});
