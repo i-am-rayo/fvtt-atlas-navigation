@@ -398,6 +398,7 @@ test("captured dev.22 native path passes preflight, move hook and endpoint persi
       {...bend,movementId:id},{...to,movementId:id}]},pending:{waypoints:[]},
     animation:{ended:Promise.resolve()}};
   const token={...from,stopMovement(){throw Error("Approved native movement must not stop");},
+    getCompleteMovementPath(){return [from,{x:3798,y:1697},bend,to];},
     async move(path,options){
       assert.deepEqual(path,[bend,to]);assert.equal(options.id,id);
       assert.notEqual(listeners.get("preMoveToken")(this,movement),false);
