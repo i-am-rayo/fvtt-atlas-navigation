@@ -268,3 +268,36 @@ test("normalized native path is durable recovery authority, not a wider pixel to
   assert.throws(()=>validatePendingNativeMove({...intent,nativePath:[from,extra]}),/Invalid/);
   assert.throws(()=>validatePendingNativeMove({...intent,path:[from,pt(3910,1754),to]}),/Invalid/);
 });
+
+test("partial native recovery proves a terminal ordered prefix, not coordinate proximity",async()=>{
+  const {assessBoundedNativePartial,validatePendingNativeMove}=await import("../scripts/navigation-native-movement-reconciliation.js");
+  const from=pt(0,0),bend=pt(20,0),to=pt(20,60),position=pt(20,20),id="PartialVoyage001";
+  const intent={schemaVersion:1,bounded:true,previousMovementId:null,operationId:id,
+    tokenId:"party",checkpointIndex:5,from,to,path:[from,bend,to],nativePath:[from,bend,to],
+    completedPercent:50,nativeDistance:80,movingHours:4,worldTimeBefore:100,
+    worldAdvanceSeconds:14400,atlasRevision:4};
+  const movement={id,state:"completed",chain:[],origin:from,destination:position,
+    constrained:false,passed:{waypoints:[{...bend,movementId:id},{...position,movementId:id}]},
+    pending:{waypoints:[]}};
+  const context={tokenId:"party",tokenPoint:position,atlasRevision:4,worldTime:100,movement};
+  const partial=assessBoundedNativePartial(intent,context);
+  assert.equal(partial.status,"partial");
+  assert.equal(partial.fraction,.5);
+  assert.equal(partial.worldAdvanceSeconds,7200);
+  assert.equal(partial.worldClockAction,"advance");
+  const saved=validatePendingNativeMove({...intent,partialEvidence:partial.evidence});
+  assert.equal(assessBoundedNativePartial(saved,{...context,movement:{id:"",state:"completed"},
+    worldTime:7300}).worldClockAction,"already-advanced");
+  for(const bad of [
+    {...movement,id:"foreign"},
+    {...movement,passed:{waypoints:[{...position,movementId:id}]}},
+    {...movement,passed:{waypoints:[{...bend,movementId:"foreign"},{...position,movementId:id}]}},
+    {...movement,destination:to},
+    {...movement,pending:{waypoints:[to]}},
+    {...movement,constrained:true}
+  ])assert.equal(assessBoundedNativePartial(intent,{...context,movement:bad}).status,"review");
+  assert.equal(assessBoundedNativePartial(intent,{...context,worldTime:101}).status,"review");
+  assert.equal(assessBoundedNativePartial(intent,{...context,tokenPoint:pt(21,30)}).status,"review");
+  assert.equal(assessBoundedNativePartial(intent,{...context,movement:{id:"",state:"completed"}}).status,"review");
+  assert.throws(()=>validatePendingNativeMove({...intent,partialEvidence:{...partial.evidence,destination:to}}),/Invalid/);
+});
