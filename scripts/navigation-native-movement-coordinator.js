@@ -11,12 +11,6 @@ const near=(a,b,tolerance)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
 const point=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y)?
   {x:p.x,y:p.y}:null;
 const separation=(a,b)=>point(a)&&point(b)?Math.hypot(a.x-b.x,a.y-b.y):null;
-const distanceToSegment=(p,a,b)=>{
-  const dx=b.x-a.x,dy=b.y-a.y,len=dx*dx+dy*dy;
-  const t=len?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/len)):0;
-  return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);
-};
-
 /**
  * A native continuation can report its full-path origin instead of the
  * previous Atlas interval's origin. Accept that form only if Foundry's
@@ -41,8 +35,11 @@ function verifiedPassedInterval(movement,plan,checkpoint,tolerance){
   if(!near(plan.path[start],checkpoint.from,tolerance)||
       !near(plan.path[finish],checkpoint.point,tolerance))return false;
   const approved=plan.path.slice(start,finish+1);
-  return passed.slice(first,last+1).every(p=>point(p)&&
-    approved.slice(1).some((b,i)=>distanceToSegment(p,approved[i],b)<=tolerance));
+  if(last!==passed.length-1)return false;
+  return matchesNativeIntervalPath(approved,{
+    id:movement.id,origin:passed[first],destination:movement.destination,
+    passed:{waypoints:passed.slice(first,last+1)}
+  },tolerance);
 }
 
 function checkpointDetails({token,movement,operationId,checkpoint,index,tolerance,
@@ -143,8 +140,8 @@ async function moveNativeInterval({
     const passed=movement.passed?.waypoints,pending=movement.pending?.waypoints;
     const valid=!signal?.aborted&&!shouldStop()&&movement.constrained!==true&&
       Array.isArray(passed)&&Array.isArray(pending)&&
-      matchesNativeIntervalPath(plan.path,{...movement,
-        passed:{waypoints:[...passed,...pending]}},tolerancePixels);
+      matchesNativeIntervalPath(plan.path,{id:movement.id,origin:movement.origin,
+        destination:movement.destination,passed:{waypoints:[...passed,...pending]}},tolerancePixels);
     if(valid)return;
     const error=Error("Foundry movement does not match the approved native checkpoint.");
     if(!failure)failure=error;
