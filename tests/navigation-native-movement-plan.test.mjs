@@ -176,3 +176,34 @@ test("live v14 checkpoint 10 uses separate origin and ordered destination waypoi
   assert.equal(assessBoundedNativeArrival(intent,{...context,movement:{...movement,
     origin:pt(3968,2178),passed:{waypoints:path}}}).status,"review");
 });
+
+test("dev.22 live snapped intermediate waypoint is native evidence, not an authored bend",async()=>{
+  const {assessBoundedNativeArrival}=await import("../scripts/navigation-native-movement-reconciliation.js");
+  const path=[pt(3763,1675),pt(3816,1716),pt(3823,1720)];
+  const operationId="AWT1ypT9qflk7VTs";
+  const intent={schemaVersion:1,bounded:true,previousMovementId:"gG8WwHMSOFHJLQXG",
+    operationId,tokenId:"party",checkpointIndex:0,from:path[0],to:path.at(-1),
+    path,completedPercent:8.389029316924134,nativeDistance:74.80603416676962,
+    movingHours:4.005164886992507,worldTimeBefore:28978493833,worldAdvanceSeconds:14419,
+    atlasRevision:587};
+  const intermediate={...pt(3798,1697),intermediate:true,snapped:true,
+    explicit:false,checkpoint:false,movementId:operationId,subpathId:operationId};
+  const passed=[intermediate,...path.slice(1).map(p=>({...p,movementId:operationId}))];
+  const movement={id:operationId,state:"completed",constrained:false,
+    origin:path[0],destination:path.at(-1),passed:{waypoints:passed},pending:{waypoints:[]}};
+  const context={movement,tokenId:"party",tokenPoint:path.at(-1),atlasRevision:587,
+    worldTime:28978493833};
+  assert.equal(assessBoundedNativeArrival(intent,context).worldClockAction,"advance");
+  assert.equal(assessBoundedNativeArrival(intent,{...context,worldTime:28978508252}).worldClockAction,"already-advanced");
+  for(const bad of [
+    [{...intermediate,y:1680},...passed.slice(1)],
+    [{...intermediate,movementId:"foreign"},...passed.slice(1)],
+    [{...intermediate,explicit:true},...passed.slice(1)],
+    [{...intermediate,checkpoint:true},...passed.slice(1)],
+    [{...intermediate,snapped:false},...passed.slice(1)],
+    [intermediate,passed[2]],
+    [passed[1],intermediate,passed[2]],
+    [intermediate,{...intermediate,x:3789,y:1692},...passed.slice(1)]
+  ])assert.equal(assessBoundedNativeArrival(intent,{...context,
+    movement:{...movement,passed:{waypoints:bad}}}).status,"review");
+});
