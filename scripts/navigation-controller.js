@@ -634,29 +634,52 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       game.settings,game.system?.id);
     const units=shown.unit==="mi/hour"?"mph":
       shown.unit==="km/hour"?"km/h":shown.unit;
-    const summary=proposed.methods.map(m=>m.methodName+": "+
-      (m.role==="walking"?m.passengers+" walkers":
-        m.role==="cargo"?m.units+" cargo-only unit(s)":
-        m.passengers+" passengers / "+m.seatsUsed+" seats / "+
-          m.units+" unit(s)")).join("; ");
-    const ordinary=proposed.gmWalkingPaceOverride?atlasDisplaySpeed(
-      proposed.suggestedSpeedPerHour,this.scene.grid.units,
-      game.settings,game.system?.id):null;
-    const exception=ordinary?
-      " GM walking pace exception: recommended "+ordinary.value.toFixed(2)+
-      " "+units+", approved "+shown.value.toFixed(2)+" "+units+
-      ". The GM confirms walkers can keep up; Actor movement and "+
-      "exhaustion statistics are not modified automatically.":"";
+    const fare=mixedTransportFareBreakdown(proposed.methods,
+      globalThis.CONFIG?.DND5E?.currencies);
+    const manifest=describeConfirmedTravelers(proposed);
+    const content=el("div");
+    content.append(el("strong","Transportation summary"));
+    const table=el("table");
+    const header=el("thead"),heading=el("tr");
+    for(const label of ["Method","Travelers","Units","Cost"]){
+      const cell=el("th",label);cell.scope="col";heading.append(cell);
+    }
+    header.append(heading);table.append(header);
+    const body=el("tbody");
+    for(const method of proposed.methods){
+      const row=el("tr"),name=el("td");
+      name.append(el("strong",method.methodName));
+      const assignment=manifest.find(entry=>entry.key===method.key);
+      if(assignment)name.append(el("div",assignment.travelers));
+      else if(method.role==="cargo")name.append(el("div","Cargo only"));
+      const walking=method.role==="walking";
+      row.append(name,el("td",String(method.passengers)),
+        el("td",walking?"—":String(method.units)),
+        el("td",walking?"—":fare.rows.find(entry=>entry.key===method.key).label));
+      body.append(row);
+    }
+    table.append(body);content.append(table);
+    const totals=el("dl");
+    for(const [label,value] of [
+      ["Total travelers",String(proposed.methods.reduce((n,m)=>n+m.passengers,0))],
+      ["Group travel speed",shown.value.toFixed(2)+" "+units],
+      ["Estimated moving time",formatNavigationDuration(proposed.movingHours,24)],
+      ["Estimated transportation cost",fare.total.label]
+    ])totals.append(el("dt",label),el("dd",value));
+    content.append(totals);
+    if(proposed.gmWalkingPaceOverride){
+      const ordinary=atlasDisplaySpeed(proposed.suggestedSpeedPerHour,
+        this.scene.grid.units,game.settings,game.system?.id);
+      content.append(el("p","Walking pace exception: recommended "+
+        ordinary.value.toFixed(2)+" "+units+", approved "+
+        shown.value.toFixed(2)+" "+units+
+        ". Actor movement and exhaustion statistics are not modified automatically."));
+    }
+    content.append(el("p","All travelers remain together as one Group. "+
+      "Transportation costs are estimates; no booking, boarding, payment or Actor changes occur automatically."));
     const confirmed=await foundry.applications.api.DialogV2.confirm({
       window:{title:"Confirm mixed-party transportation"},
-      content:el("div","GM confirmation: "+summary+
-        ". All Group members remain together at "+shown.value.toFixed(2)+
-        " "+units+" ("+proposed.movingHours.toFixed(2)+
-        " moving hours). Estimated transport cost: "+proposed.totalCp+
-        " CP."+exception+" Atlas will move the assigned explorer as one Group. "+
-        "The GM decides individual seating in theater of the mind; "+
-        "no booking, boarding, payment or Actor changes occur automatically. Continue?"),
-      rejectClose:false,modal:true
+      content,rejectClose:false,modal:true
     });
     if(!confirmed)return null;
     if(this.travelSession||this.journalStarting||this.pendingTransfer||
