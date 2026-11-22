@@ -138,6 +138,8 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
   }
   const mixed=isMixedLandTransport(t);
   const convoy=mixed?validateMixedLandConvoy(prior.convoy):null;
+  if(mixed&&!catalog.some(method=>method.id==="walking"&&method.surface==="land"))
+    throw Error("The saved convoy's land travel base is unavailable.");
   if(mixed&&Math.abs(convoy.speedPerHour-prior.speedPerHour)>1e-7)
     throw Error("The saved convoy speed differs from the approved leg.");
   const method=mixed?mixedLandTransportMethod:catalog.find(item=>item.id===t.methodId);
