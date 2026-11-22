@@ -181,7 +181,7 @@ export function assessBoundedNativeArrival(raw,{movement,...context}={}){
   if(terminal&&!movement.id&&!movement.chain?.length&&movement.constrained!==true&&
       !movement.pending?.waypoints?.length&&pending.arrivalEvidence)
     movement=pending.arrivalEvidence;
-  if(!pending.bounded||!terminal||!near(context.tokenPoint,pending.to,1)||
+  if(!pending.bounded||pending.partialEvidence||!terminal||!near(context.tokenPoint,pending.to,1)||
       !(movement.id===pending.operationId||movement.chain?.includes(pending.operationId))||
       !near(movement.destination,pending.to,1))
     return {status:"review",reason:"Native interval identity or endpoint is unverified."};
@@ -268,7 +268,8 @@ export function assessBoundedNativePartial(raw,{movement,tokenId,tokenPoint,
     return review("Live movement conflicts with the saved partial evidence.");
   const seconds=progress.worldAdvanceSeconds;
   const target=intent.worldTimeBefore+seconds;
-  if(!Number.isSafeInteger(target)||![intent.worldTimeBefore,target].includes(worldTime))
+  if(!Number.isSafeInteger(target)||![intent.worldTimeBefore,target].includes(worldTime)||
+      !intent.partialEvidence&&worldTime!==intent.worldTimeBefore)
     return review("World time does not match the verified partial interval.");
   const copy=p=>({x:p.x,y:p.y});
   const evidence={id:movement.id,state:movement.state,origin:copy(movement.origin),
