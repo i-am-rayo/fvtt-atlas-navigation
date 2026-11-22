@@ -2057,7 +2057,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const shouldStop=()=>this.travelSession!==session||session.phase==="ending"||
       this.scene?.id!==session.sceneId||
       this.atlasProvider(this.scene)?.revision!==atlas.revision;
-    const prepareCheckpoint=async(checkpoint,intervalId,path)=>{
+    const prepareCheckpoint=async(checkpoint,intervalId,path,nativePath)=>{
       if(shouldStop())throw Error("The approved native journey was interrupted.");
       await this.waitForGuidedTravelResume(session);
       if(shouldStop())throw Error("The approved native journey was stopped.");
@@ -2074,6 +2074,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         schemaVersion:1,operationId:intervalId,tokenId:session.token.id,
         bounded:true,previousMovementId:session.token.movement?.id||null,
         path:path.map(p=>({x:p.x,y:p.y})),
+        ...(nativePath!==undefined?{nativePath}:{}),
         completedPercent:100*checkpoint.completedDistance/plan.totalDistance,
         checkpointIndex:checkpoint.index,from:checkpoint.from,to:checkpoint.point,
         nativeDistance:checkpoint.distance,movingHours:
@@ -2093,7 +2094,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         roadId:checkpoint.roadId??null,segmentId:checkpoint.segmentId??null,
         nearestRoadId:checkpoint.nearestRoadId??null,
         routeSeparationPixels:checkpoint.routeSeparationPixels??null,
-        expectedFrom:checkpoint.from,expectedTo:checkpoint.point
+        expectedFrom:checkpoint.from,expectedTo:checkpoint.point,
+        normalizedNativePath:nativePath??null
       },{level:"verbose"});
     };
     const recordCheckpointEvidence=async(checkpoint,movement,intervalId)=>{
@@ -2103,7 +2105,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The Journey's pending native checkpoint was replaced.");
       if(pending.arrivalEvidence)return;
       const evidence=captureNativeArrivalEvidence(pending,{movement,tokenPoint:session.token});
-      if(!evidence)return; // Older native report shapes still require live proof.
+      if(!evidence){
+        if(pending.nativePath)throw Error("The normalized native endpoint evidence could not be verified.");
+        return; // Older native report shapes still require live proof.
+      }
       session.journeyRecord.pendingNativeMove=validatePendingNativeMove({...pending,arrivalEvidence:evidence});
       await this.saveJourneyCheckpoint(session,"moving",{updatePage:false});
     };
