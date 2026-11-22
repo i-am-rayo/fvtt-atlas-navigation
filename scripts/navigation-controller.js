@@ -6,7 +6,7 @@ import { calculateSceneRoadRoute } from "./navigation-foundry.js";
 import { roadStrokeSpans } from "./road-appearance.js";
 import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.js";
 import { navigationCanvasLegPaths } from "./navigation-render-path.js";
-import {captureApprovedJourneyPath} from "./navigation-approved-path.js";
+import {captureApprovedJourneyPath,assessApprovedRoutePosition} from "./navigation-approved-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
 import { planGuidedTravelChunks, waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS }
@@ -1519,7 +1519,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // A later checkpoint must be corroborated by the preceding native
       // submovement in the same chain. An empty movementHistory is normal
       // outside combat; the public current/last movement can still prove it.
-      if(intent.checkpointIndex>0&&
+      if(intent.bounded){
+        if(!(movement.id===intent.previousMovementId||
+            movement.id===intent.operationId||movement.chain?.includes(intent.operationId))||
+            !(Math.hypot(movement.destination?.x-intent.from.x,
+              movement.destination?.y-intent.from.y)<=1))return false;
+      }else if(intent.checkpointIndex>0&&
           (!(movement.id===intent.operationId||
             movement.chain?.includes(intent.operationId))||
           !(Math.hypot(movement.destination?.x-intent.from.x,
@@ -1919,8 +1924,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   /**
-   * Continuous transport uses one public v14 native movement, with each
-   * checkpoint held until its intent, clock, and confirmed Journal are durable.
+   * Continuous transport submits only one approved native interval at a time.
+   * No future interval is handed to Foundry until its predecessor is durable.
    * Land routes with GM rest/forced-march decisions retain their existing loop.
    */
   async runNativeContinuousLeg(session,{plan,playback,atlas,view,guidedLeg}){
@@ -1929,7 +1934,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const shouldStop=()=>this.travelSession!==session||session.phase==="ending"||
       this.scene?.id!==session.sceneId||
       this.atlasProvider(this.scene)?.revision!==atlas.revision;
-    const prepareCheckpoint=async checkpoint=>{
+    const prepareCheckpoint=async(checkpoint,intervalId,path)=>{
       if(shouldStop())throw Error("The approved native journey was interrupted.");
       await this.waitForGuidedTravelResume(session);
       if(shouldStop())throw Error("The approved native journey was stopped.");
@@ -1943,7 +1948,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         (checkpoint.index===plan.checkpoints.length-1||
           outstanding>=clock.minimumStep)?outstanding:0;
       session.journeyRecord.pendingNativeMove=validatePendingNativeMove({
-        schemaVersion:1,operationId,tokenId:session.token.id,
+        schemaVersion:1,operationId:intervalId,tokenId:session.token.id,
+        bounded:true,previousMovementId:session.token.movement?.id??null,
+        path:path.map(p=>({x:p.x,y:p.y})),
+        completedPercent:100*checkpoint.completedDistance/plan.totalDistance,
         checkpointIndex:checkpoint.index,from:checkpoint.from,to:checkpoint.point,
         nativeDistance:checkpoint.distance,movingHours:
           checkpoint.completedMovingHours-
@@ -1957,7 +1965,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // never falsely credited Journey progress.
       await this.saveJourneyCheckpoint(session,"moving",{updatePage:false});
       atlasDebug("movement","Native checkpoint intent saved",{
-        operationId,nativeCheckpointKey:`${operationId}:${checkpoint.index}`,
+        operationId:intervalId,nativeCheckpointKey:`${intervalId}:${checkpoint.index}`,
         atlasCheckpointId:checkpoint.atlasCheckpointId??null,
         roadId:checkpoint.roadId??null,segmentId:checkpoint.segmentId??null,
         nearestRoadId:checkpoint.nearestRoadId??null,
@@ -1965,10 +1973,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         expectedFrom:checkpoint.from,expectedTo:checkpoint.point
       },{level:"verbose"});
     };
-    const confirmCheckpoint=async(checkpoint,movement)=>{
+    const confirmCheckpoint=async(checkpoint,movement,intervalId)=>{
       if(shouldStop())throw Error("Native movement interrupted before confirmation.");
       const pending=session.journeyRecord.pendingNativeMove;
-      if(pending?.operationId!==operationId||
+      if(pending?.operationId!==intervalId||
           pending.checkpointIndex!==checkpoint.index)
         throw Error("The Journey's pending native checkpoint was replaced.");
       if(game.time.worldTime!==pending.worldTimeBefore)
@@ -2020,8 +2028,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         {updatePage:finalCheckpoint});
       this.setTravelProgress(Math.min(99,100*session.completedDistance/session.totalDistance));
       atlasDebug("movement","Native checkpoint durably confirmed",{
-        operationId,nativeMovementId:movement.id,
-        nativeCheckpointKey:`${operationId}:${checkpoint.index}`,
+        operationId:intervalId,nativeMovementId:movement.id,
+        nativeCheckpointKey:`${intervalId}:${checkpoint.index}`,
         atlasCheckpointId:checkpoint.atlasCheckpointId??null,
         roadId:checkpoint.roadId??null,segmentId:checkpoint.segmentId??null,
         nearestRoadId:checkpoint.nearestRoadId??null,
@@ -3996,6 +4004,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.canRecoverUnexecutedNativeMove(pendingNativeReview)&&
       this.recoverableJourney?.canUserModify?.(game.user,"update");
     const pendingReviewLeg=pendingNativeReview?.legs?.at(-1)??null;
+    let routeReview=null;
+    if(pendingNativeReview&&pendingReviewLeg?.approvedPath){
+      try{
+        routeReview=assessApprovedRoutePosition({
+          approvedPath:pendingReviewLeg.approvedPath,anchor:pendingNativeReview.lastConfirmedAnchor,
+          tokenPosition:this.atlasPoint(this.canvasProvider(),this.atlasProvider(this.scene),
+            partyTokenCanvasCenter(this.getPartyToken(),this.scene.grid.size)),
+          gridSize:this.scene.grid.size});
+      }catch{/* Missing geometry remains an unresolved native intent. */}
+    }
     const pendingReviewMethod=pendingReviewLeg?.transport??pendingReviewLeg?.travelMethod;
     const pendingReviewMethodName=pendingReviewMethod?.methodName??
       pendingReviewMethod?.name??"Previously approved travel method";
@@ -4244,8 +4262,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "The approved "+pendingReviewMethodName+" Journey is blocked at native " +
         "checkpoint "+checkpointLabel+" (operation "+
         (pending.operationId??"unverified")+"). " +
-        "The Journal has not confirmed that movement. Review the token position, " +
-        "World time and saved checkpoint before continuing; no new method, fare " +
+        "The Journal has not confirmed that movement. "+
+        (routeReview?.safe&&routeReview.kind==="ahead"?
+          "The token is "+Math.round(routeReview.forwardPixels)+
+            " route pixels ahead on the approved path. Geometric proximity alone cannot confirm the intervening time. ":
+          routeReview&&!routeReview.safe?"Route assessment: "+routeReview.reason+". ":"")+
+        "Review the token position, World time and saved checkpoint before continuing; no new method, fare " +
         "or travel is authorized."));
     }
     if(recoveredPlanError)body.appendChild(renderTransportAdvisory(
