@@ -2,10 +2,9 @@
  * Foundry v14 native waypoint planning. Pure geometry only: no TokenDocument,
  * Canvas, Journal, World-time, Actor, or permission access.
  *
- * One TokenDocument.move(path) can traverse all authored bends. Explicit
- * checkpoint waypoints are commit/decision boundaries, not separate calls to
- * TokenDocument.move. Callers must never start the movement until the matching
- * durable pending intent has been saved in the Journey Journal.
+ * Each interval contains authored bends and ends at a durable checkpoint.
+ * The coordinator submits that bounded interval alone to TokenDocument.move.
+ * No native move starts until its matching intent is saved in the Journal.
  */
 import {planGuidedTravelChunks,MAX_GUIDED_CHUNKS}
   from "./navigation-movement-lifecycle.js";
@@ -83,7 +82,7 @@ export function describeNativeCheckpointSources(plan,{legPaths,token,gridSize,
 
 /**
  * Convert the existing, bounded Atlas movement intervals into a single
- * Foundry move path. Keep every authored bend; only mark safe stops, never
+ * Foundry-compatible waypoint path. Keep every authored bend; mark safe stops, never
  * insert teleporting points or infer a new surface/action.
  */
 export function planNativeCheckpointPath(waypoints,{
