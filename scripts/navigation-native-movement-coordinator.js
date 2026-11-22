@@ -202,6 +202,9 @@ async function moveNativeInterval({
     return {completed:true,confirmed:checkpointIndex,error:null};
   }catch(error){
     if(nativeStarted)fail(error);
+    // Keep the old session alive until an already-started confirmation
+    // (especially a World-clock write) settles. Recovery must not race it.
+    await inFlight;
     throw error;
   }finally{
     ended=true;
@@ -237,5 +240,7 @@ export async function coordinateNativeTokenMovement({plan,operationId,
     if(!result.completed)return {completed:false,confirmed,error:null};
     confirmed++;start=end;
   }
+  if(start!==plan.path.length-1)
+    throw Error("The bounded native plan did not cover its approved destination.");
   return {completed:true,confirmed,error:null};
 }
