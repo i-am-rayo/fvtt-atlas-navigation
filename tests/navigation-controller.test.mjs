@@ -1177,6 +1177,90 @@ test("a recovered 100%-moved port with stale A/B/C target stops before any new r
   }finally{globalThis.game=previous;}
 });
 
+test("stopped vessel at pending origin reconciles once without replaying movement or advancing time",async()=>{
+  const previous={game:globalThis.game,window:globalThis.window,ui:globalThis.ui,
+    document:globalThis.document};
+  try{
+    const op="Av0z7n6VoN4tbjcC";
+    const scene={id:"recovery-scene",name:"Paedor",grid:{size:49,units:"km"},
+      canUserModify:()=>true,getFlag:()=>null};
+    const atlas={revision:587,roads:[],nodes:[],segments:[],checkpoints:[]};
+    const token={id:"party",x:3963,y:1769,width:1,height:1,elevation:0,
+      level:"defaultLevel0000",canUserModify:()=>true,
+      movement:{id:"previous-native-id",chain:[op],state:"stopped",
+        destination:point(3963,1769)},
+      move(){throw Error("Reconciliation cannot move native token");}};
+    const route={status:"ok",start:point(3856.5,1709.5),end:point(3918.41,2370.02),
+      distance:153.669,cost:153.669,terrainAware:false,legs:[{
+        kind:"road",roadId:"sea",segmentId:"s",
+        points:[point(3856.5,1709.5),point(3918.41,2370.02)],distance:153.669,cost:153.669}]};
+    const itinerary={...createNavigationItinerary({sceneId:scene.id,
+      sceneName:scene.name,sceneUnits:"km",route,travel:{speed:3.218688}}),
+      transport:{methodId:"ship-passage",methodName:"Ship passage (hired)",
+        arrangement:"hire",kind:"vehicle",surface:"water",departureCheckpointName:null,
+        arrivalCheckpointId:"port",arrivalCheckpointName:"Port Barthos",roadNames:["Sea"],
+        estimatedFareCp:3819.431055187695,operation:"continuous"}};
+    const anchor={point:point(4056.5,1803.5),roadId:"sea",segmentId:"s",
+      checkpointId:null,levelId:token.level,elevation:0};
+    let record=checkpointJourneyRecord(createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:587,itinerary,journeyDestination:point(5000,2500)}),{
+      schedule:{completedHours:12.01549466097752,todayHours:12,
+        permittedExtraUntil:0,restEvents:0,lastForcedCheck:null,events:[]},
+      status:"interrupted",progress:25.1670879507724,
+      worldTravelSeconds:43256,confirmedAnchor:anchor});
+    record.pendingNativeMove={schemaVersion:1,operationId:op,tokenId:token.id,
+      checkpointIndex:3,from:point(3963,1769),to:point(4015,1815),
+      nativeDistance:74.80603416676962,movingHours:4.005164886992505,
+      worldTimeBefore:28978218042,worldAdvanceSeconds:14418,atlasRevision:587};
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}},
+      time:{worldTime:28978218042,advance(){throw Error("Recovery cannot advance time");}},
+      system:{id:"test"},settings:{get:()=>undefined}};
+    const journal={id:"saved-vessel",canUserModify:()=>true,getFlag:()=>structuredClone(record)};
+    let writes=0,restores=0;
+    const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      atlasPoint:(_view,_atlas,p)=>point(p.x+69,p.y+10),
+      journeyJournalStore:{save:async(next,{updatePage})=>{
+        assert.equal(updatePage,false);writes++;record=structuredClone(next);}}});
+    nav.scene=scene;nav.recoverableJourney=journal;
+    const before=structuredClone(record);
+    assert.equal(nav.canRecoverUnexecutedNativeMove(record),true);
+    token.movement.state="pending";
+    assert.equal(nav.canRecoverUnexecutedNativeMove(record),false);
+    token.movement.state="stopped";
+    token.x=4015;token.y=1815;
+    assert.equal(nav.canRecoverUnexecutedNativeMove(record),false);
+    token.x=3963;token.y=1769;
+    game.time.worldTime+=14418;
+    assert.equal(nav.canRecoverUnexecutedNativeMove(record),false);
+    game.time.worldTime-=14418;
+    token.movement.chain=[];
+    assert.equal(nav.canRecoverUnexecutedNativeMove(record),false);
+    token.movement.chain=[op];
+    token.elevation=1;
+    assert.equal(nav.canRecoverUnexecutedNativeMove(record),false);
+    token.elevation=0;
+    game.users.activeGM.id="other";
+    assert.equal(nav.canRecoverUnexecutedNativeMove(record),false);
+    game.users.activeGM.id="gm";
+    assert.equal(writes,0);
+    nav.recoverSavedJourney=()=>{
+      restores++;
+      assert.equal(record.pendingNativeMove,null);
+      return true;
+    };
+    assert.equal(await nav.recoverSavedJourneyWithNativeReview(),true);
+    assert.equal(writes,1);
+    assert.equal(restores,1);
+    assert.deepEqual(record.legs,before.legs,"Do not credit pending travel");
+    assert.deepEqual(record.destination,before.destination);
+    assert.deepEqual(record.lastConfirmedAnchor,before.lastConfirmedAnchor);
+    assert.equal(game.time.worldTime,28978218042);
+    assert.equal(await nav.recoverSavedJourneyWithNativeReview(),true);
+    assert.equal(writes,1,"A repeated recovery cannot clear or credit the intent again");
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("an unconfirmed native ship checkpoint preserves transport and offers deliberate abandonment",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,ui:globalThis.ui,
     document:globalThis.document};
