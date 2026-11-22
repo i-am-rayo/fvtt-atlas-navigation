@@ -109,8 +109,8 @@ export function matchesNativeIntervalPath(path,movement,tolerance=1){
  * endpoint. A receipt is not a confirmed Journal segment or a clock write. */
 function matchesArrivalEvidence(intent,movement){
   return validId(movement?.id)&&
-    (movement.id===intent.operationId||movement.chain?.includes(intent.operationId))&&
     Array.isArray(movement.chain)&&movement.chain.length<=64&&movement.chain.every(validId)&&
+    (movement.id===intent.operationId||movement.chain.includes(intent.operationId))&&
     movement.constrained===false&&Array.isArray(movement.pending?.waypoints)&&
     movement.pending.waypoints.length===0&&Array.isArray(movement.passed?.waypoints)&&
     movement.passed.waypoints.length>0&&movement.passed.waypoints.length<=4096&&
@@ -146,7 +146,8 @@ export function assessBoundedNativeArrival(raw,{movement,...context}={}){
   // reload. Use the verified durable receipt only when no conflicting live
   // movement is present; a live foreign identity is never overridden.
   const terminal=["completed","stopped"].includes(movement?.state);
-  if(terminal&&!movement.id&&!movement.chain?.length&&pending.arrivalEvidence)
+  if(terminal&&!movement.id&&!movement.chain?.length&&movement.constrained!==true&&
+      !movement.pending?.waypoints?.length&&pending.arrivalEvidence)
     movement=pending.arrivalEvidence;
   if(!pending.bounded||!terminal||!near(context.tokenPoint,pending.to,1)||
       !(movement.id===pending.operationId||movement.chain?.includes(pending.operationId))||
