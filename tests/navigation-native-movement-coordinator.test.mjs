@@ -417,3 +417,44 @@ test("captured dev.22 native path passes preflight, move hook and endpoint persi
   assert.deepEqual(order,["intent","evidence","confirmation"]);
   assert.equal(listeners.size,0);
 });
+
+test("dev.23 recovery accepts only the independently expanded native path",async()=>{
+  const from={x:3891,y:1748},to={x:3963,y:1769};
+  const intermediate={x:3896,y:1782,intermediate:true,snapped:true,explicit:false,checkpoint:false};
+  const id="avS46ySeX8hYrImD";
+  for(const altered of [false,true]){
+    const listeners=new Map(),order=[];
+    const hooks={on(name,fn){listeners.set(name,fn);return fn;},
+      off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+    const movement={id,chain:[],origin:from,destination:to,constrained:false,
+      passed:{waypoints:[{...intermediate,y:altered?1794:1782,movementId:id},
+        {...to,movementId:id}]},pending:{waypoints:[]},animation:{ended:Promise.resolve()}};
+    const token={...from,stopMovement(){return true;},
+      getCompleteMovementPath(){return [from,intermediate,to];},
+      async move(path){
+        assert.deepEqual(path,[to],"submit the authored path, not the expanded one");
+        if(listeners.get("preMoveToken")(this,movement)===false)return false;
+        Object.assign(this,to);listeners.get("moveToken")(this,movement);
+        listeners.get("updateToken")(this);
+        return true;
+      }};
+    const run=coordinateNativeTokenMovement({token,hooks,operationId:id,movementSpeed:2,
+      plan:{path:[from,to],checkpoints:[{index:0,from,point:to,distance:75}]},
+      prepareCheckpoint:async(_checkpoint,_id,path,nativePath)=>{
+        assert.deepEqual(path,[from,to]);
+        assert.deepEqual(nativePath,[from,{x:3896,y:1782},to]);
+        order.push("intent");
+      },
+      recordCheckpointEvidence:async()=>order.push("evidence"),
+      confirmCheckpoint:async()=>order.push("confirmation")});
+    if(altered){
+      await assert.rejects(run,/does not match the approved native checkpoint/);
+      assert.deepEqual({x:token.x,y:token.y},from);
+      assert.deepEqual(order,["intent"]);
+    }else{
+      assert.equal((await run).completed,true);
+      assert.deepEqual(order,["intent","evidence","confirmation"]);
+    }
+    assert.equal(listeners.size,0);
+  }
+});
