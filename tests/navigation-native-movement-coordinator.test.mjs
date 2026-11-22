@@ -5,11 +5,11 @@ import {coordinateNativeTokenMovement}
 
 function nativeHarness({alterDestination=false,alterOrigin=false,
   detour=false,animationNeverEnds=false,alterMovementId=false,
-  destinationOnly=false,omitHook=false,documentUpdateTiming="before-hook"}={}){
+  destinationOnly=false,omitHook=false,enablePreflight=false,documentUpdateTiming="before-hook"}={}){
   const listeners=new Map();
   const calls=[];
   const hooks={
-    on(name,fn){assert.equal(name,"moveToken");listeners.set(name,fn);return fn;},
+    on(name,fn){listeners.set(name,fn);return fn;},
     off(name,id){assert.equal(id,listeners.get(name));listeners.delete(name);}
   };
   const token={id:"party",x:0,y:0,stopped:false,moves:0,
@@ -27,6 +27,7 @@ function nativeHarness({alterDestination=false,alterOrigin=false,
         if(this.stopped)return false;
         const from={x:this.x,y:this.y};
         const destination={x:to.x+(alterDestination?4:0),y:to.y};
+        if(enablePreflight&&listeners.get("preMoveToken")?.(this,{id:options.id,chain:[],origin:from,destination,constrained:false,passed:{waypoints:detour?[{x:from.x+5,y:8},destination]:[destination]},pending:{waypoints:[]}})===false)return false;
         if(documentUpdateTiming==="before-hook")Object.assign(this,destination);
         this.hold=null;this.release=null;
         let endAnimation;
@@ -36,7 +37,7 @@ function nativeHarness({alterDestination=false,alterOrigin=false,
           index?"second-native-id":options.id,
           chain:alterMovementId?[]:index?[options.id]:[],
           origin:alterOrigin?{x:from.x-5,y:from.y}:from,
-          destination,
+          destination,constrained:false,pending:{waypoints:[]},
           passed:{waypoints:detour?[from,{x:from.x+5,y:8},destination]:
             [from,destination]},
           animation:{ended:animationEnded}};
@@ -47,6 +48,7 @@ function nativeHarness({alterDestination=false,alterOrigin=false,
         // Live v14 may expose the old document position to moveToken even
         // though the native operation already reports the approved endpoint.
         if(documentUpdateTiming==="after-hook")Object.assign(this,destination);
+        if(documentUpdateTiming!=="never")listeners.get("updateToken")?.(this,{x:this.x,y:this.y});
         endAnimation?.();
         if(this.hold)await this.hold;
       }
@@ -344,5 +346,38 @@ test("native completion can confirm a missed movement hook without an animation 
   });
   assert.equal(result.completed,true);
   assert.deepEqual(order,["intent:0","confirmed:0","intent:1","confirmed:1"]);
+  assert.equal(listeners.size,0);
+});
+
+test("preMoveToken rejects unauthorized finalized native geometry before movement",async()=>{
+  const {token,plan,hooks,listeners}=nativeHarness({detour:true,enablePreflight:true});
+  let confirmed=0;
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"AtlasTest0000014",createOperationId:()=>"NextMovement0001",movementSpeed:2,
+    prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;}
+  }),/does not match the approved native checkpoint/);
+  assert.equal(confirmed,0);
+  assert.equal(token.x,0,"preflight must prevent the unauthorized document update");
+  assert.equal(listeners.size,0);
+});
+
+test("verified document arrival is saved before the visual animation finishes",async()=>{
+  const {token,plan,hooks,listeners}=nativeHarness({destinationOnly:true,
+    animationNeverEnds:true,documentUpdateTiming:"after-hook"});
+  const controller=new AbortController(),events=[];
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"AtlasTest0000015",createOperationId:()=>"NextMovement0001",movementSpeed:2,
+    signal:controller.signal,
+    prepareCheckpoint:async()=>events.push("intent"),
+    recordCheckpointEvidence:async(checkpoint,movement)=>{
+      assert.equal(token.x,checkpoint.point.x);
+      assert.equal(movement.id,"AtlasTest0000015");
+      events.push("evidence");
+      controller.abort();
+    },
+    confirmCheckpoint:async()=>events.push("clock/confirmation")
+  }),/cancelled|stopped|interrupted/);
+  assert.deepEqual(events,["intent","evidence"]);
+  assert.equal(token.moves,1);
   assert.equal(listeners.size,0);
 });
