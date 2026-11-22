@@ -66,3 +66,23 @@ export function assessPendingNativeMove(raw,{
     return {status:"at-end",confirmed:true,worldClockAction:"already-advanced"};
   return {status:"review",reason:"World-time state does not match the pending checkpoint."};
 }
+
+/** Exact endpoint of one separately authorized native interval. The route
+ * corridor is not movement proof; matching native identity and path are. */
+export function assessBoundedNativeArrival(raw,{movement,...context}={}){
+  const pending=validatePendingNativeMove(raw);
+  if(!pending.bounded||!["completed","stopped"].includes(movement?.state)||
+      !(movement.id===pending.operationId||movement.chain?.includes(pending.operationId))||
+      !near(movement.destination,pending.to,1))
+    return {status:"review",reason:"Native interval identity or endpoint is unverified."};
+  const passed=movement.passed?.waypoints;
+  // A straight single-interval submission needs exact origin and destination.
+  // For bends, require the actual ordered submitted waypoint coordinates.
+  const exact=Array.isArray(passed)&&passed.length===pending.path.length&&
+    passed.every((p,i)=>near(p,pending.path[i],1));
+  if(!exact&&!(pending.path.length===2&&near(movement.origin,pending.from,1)&&
+      (!Array.isArray(passed)||passed.length<=2)))
+    return {status:"review",reason:"Native interval waypoint evidence is incomplete."};
+  return assessPendingNativeMove(pending,{...context,
+    recordedMovementIds:[pending.operationId],tolerancePixels:1});
+}
