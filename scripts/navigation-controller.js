@@ -2376,6 +2376,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(this.travelSession||this.journalStarting)
       throw Error("Guided travel is already in progress or being prepared.");
     if(this.recoveryRecord?.pendingNativeMove||
+        this.recoverableJourney?.getFlag?.(MODULE_ID,JOURNEY_JOURNAL_FLAG)?.pendingNativeMove||
         this.recoverableJourney&&!this.recoveryRecord)
       throw Error("Recover or deliberately end the saved Journey before starting travel.");
     if(this.completedRoute)
