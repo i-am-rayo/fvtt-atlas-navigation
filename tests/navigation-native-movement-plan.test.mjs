@@ -235,3 +235,36 @@ test("durable endpoint evidence survives a reload but cannot override conflictin
   assert.equal(assessBoundedNativeArrival(saved,{...context,movement:{id:"",state:"moving"}}).status,"review");
   assert.throws(()=>validatePendingNativeMove({...saved,arrivalEvidence:{...evidence,id:"foreign"}}),/Invalid/);
 });
+
+test("normalized native path is durable recovery authority, not a wider pixel tolerance",async()=>{
+  const {assessBoundedNativeArrival,captureNativeArrivalEvidence,validatePendingNativeMove}=
+    await import("../scripts/navigation-native-movement-reconciliation.js");
+  const from=pt(3891,1748),to=pt(3963,1769),extra=pt(3896,1782),id="avS46ySeX8hYrImD";
+  const intent={schemaVersion:1,bounded:true,previousMovementId:null,operationId:id,
+    tokenId:"party",checkpointIndex:2,from,to,path:[from,to],nativePath:[from,extra,to],
+    completedPercent:25,nativeDistance:75,movingHours:4,worldTimeBefore:100,
+    worldAdvanceSeconds:14419,atlasRevision:4};
+  const waypoint={...extra,intermediate:true,snapped:true,explicit:false,checkpoint:false,movementId:id};
+  const movement={id,chain:[],state:"completed",origin:from,destination:to,constrained:false,
+    passed:{waypoints:[waypoint,{...to,movementId:id}]},pending:{waypoints:[]}};
+  const context={tokenId:"party",tokenPoint:to,atlasRevision:4,worldTime:100,movement};
+  assert.equal(assessBoundedNativeArrival(intent,context).worldClockAction,"advance");
+  const evidence=captureNativeArrivalEvidence(intent,{movement,tokenPoint:to});
+  assert.ok(evidence);
+  const saved=validatePendingNativeMove({...intent,arrivalEvidence:evidence});
+  assert.equal(assessBoundedNativeArrival(saved,{...context,movement:{id:"",state:"completed"}}).worldClockAction,"advance");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,worldTime:14519,movement:{id:"",state:"completed"}}).worldClockAction,"already-advanced");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,worldTime:101}).status,"review");
+  for(const bad of [
+    [{...waypoint,y:1794},to],
+    [{...waypoint,movementId:"foreign"},to],
+    [{...waypoint,explicit:true},to],
+    [{...waypoint,checkpoint:true},to],
+    [to],
+    [to,waypoint],
+    []
+  ])assert.equal(assessBoundedNativeArrival(intent,{...context,
+    movement:{...movement,passed:{waypoints:bad}}}).status,"review");
+  assert.throws(()=>validatePendingNativeMove({...intent,nativePath:[from,extra]}),/Invalid/);
+  assert.throws(()=>validatePendingNativeMove({...intent,path:[from,pt(3910,1754),to]}),/Invalid/);
+});
