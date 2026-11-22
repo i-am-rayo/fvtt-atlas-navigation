@@ -378,6 +378,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
            (!this.mixedKeys.length||this.mixedKeys.includes("owned|walking"))))?
            {}:{terrainAware:false});
       if(this.result?.status==="ok"){
+        if(this.mixedKeys.length&&this.canDraftTravelMethods()&&
+            Array.isArray(atlas.roads)&&Array.isArray(atlas.nodes)){
+          const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
+          const first=projectTransportationRouteLegs(this.result,atlas,presets.presets).legs[0];
+          if(first?.surface!=="land"){
+            this.mixedKeys=[];this.mixedAssignments={};this.mixedUnits={};
+            this.mixedRiderCounts={};this.convoyPace=null;
+          }
+        }
         this.itinerary=createNavigationItinerary({
           sceneId:this.scene.id,sceneName:this.scene.name??"",
           sceneUnits:this.scene.grid?.units??"",atlasRevision:atlas.revision,
