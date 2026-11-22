@@ -37,7 +37,7 @@ const pointer=(x,y,flags={})=>({button:0,clientX:x,clientY:y,
   prevented:0,stopped:0,...flags,
   preventDefault(){this.prevented++;},stopImmediatePropagation(){this.stopped++;}});
 
-test("continuous vessel uses one native move and saves each checkpoint intent before document updates",async()=>{
+test("continuous vessel submits one bounded move per durable checkpoint",async()=>{
   const previous={game:globalThis.game,foundry:globalThis.foundry,Hooks:globalThis.Hooks};
   try{
     const listeners=new Map(),events=[];
@@ -102,7 +102,7 @@ test("continuous vessel uses one native move and saves each checkpoint intent be
       guidedLeg:{checkpoint:{point:point(80,50)},
         transport:{methodName:"Warship"}}
     }),true);
-    assert.equal(token.moves,1);
+    assert.equal(token.moves,3);
     assert.equal(session.completedDistance,30);
     assert.equal(session.journeyRecord.pendingNativeMove,null);
     assert.deepEqual(events.map(event=>event.kind),[
