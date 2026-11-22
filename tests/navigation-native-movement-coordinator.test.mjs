@@ -21,7 +21,7 @@ function nativeHarness({alterDestination=false,alterOrigin=false,
     stopMovement(){this.stopped=true;this.release?.();return true;},
     async move(path,options){
       this.moves++;
-      assert.equal(path.length,2,"native move() receives destinations, not its origin");
+      assert.equal(path.length,1,"only the next approved destination is submitted");
       for(const [index,to] of path.entries()){
         if(this.stopped)return false;
         const from={x:this.x,y:this.y};
@@ -58,7 +58,7 @@ function nativeHarness({alterDestination=false,alterOrigin=false,
   return {token,plan,hooks,calls,listeners};
 }
 
-test("one native TokenDocument.move waits for a durable intent and each confirmed checkpoint",async()=>{
+test("each bounded native move waits for the previous durable checkpoint",async()=>{
   const {token,plan,hooks,calls,listeners}=nativeHarness();
   const order=[];
   let awaitingSave=false;
@@ -79,7 +79,8 @@ test("one native TokenDocument.move waits for a durable intent and each confirme
   });
   assert.deepEqual(order,["intent:0","confirmed:0","intent:1","confirmed:1"]);
   assert.deepEqual(result,{completed:true,confirmed:2,error:null});
-  assert.equal(token.moves,1);
+  assert.equal(token.moves,2);
+  assert.notEqual(calls[0].id,calls[1].id);
   assert.equal(calls.length,2);
   assert.equal(listeners.size,0);
 });
@@ -274,5 +275,21 @@ test("canvas abort stops a movement whose native animation promise never settles
   await assert.rejects(pending,/Canvas lifecycle cancelled native travel/);
   assert.equal(token.stopped,true);
   assert.equal(confirmed,0);
+  assert.equal(listeners.size,0);
+});
+
+test("redraw during the next intent cannot release an unsent native waypoint suffix",async()=>{
+  const {token,plan,hooks,listeners}=nativeHarness();
+  const abort=new AbortController();
+  const confirmed=[];
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"atlas-redraw",movementSpeed:2,signal:abort.signal,
+    prepareCheckpoint:async checkpoint=>{if(checkpoint.index===1)abort.abort();},
+    confirmCheckpoint:async checkpoint=>confirmed.push(checkpoint.index)
+  });
+  assert.equal(result.completed,false);
+  assert.deepEqual(confirmed,[0]);
+  assert.equal(token.moves,1);
+  assert.equal(token.x,10);
   assert.equal(listeners.size,0);
 });
