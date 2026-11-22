@@ -228,7 +228,9 @@ test("native checkpoint failures report Atlas checkpoint and road IDs with both 
   assert.deepEqual(observed[0].details.expectedFrom,{x:0,y:0});
   assert.deepEqual(observed[0].details.nativeOrigin,{x:0,y:0});
   assert.deepEqual(observed[0].details.tokenDocument,{x:14,y:0});
-  assert.equal(observed[0].details.pendingWaypointCount,null);
+  assert.equal(observed[0].details.pendingWaypointCount,0);
+  assert.deepEqual(observed[0].details.approvedPath,[{x:0,y:0},{x:10,y:0}]);
+  assert.deepEqual(observed[0].details.passedWaypoints,[{x:0,y:0},{x:14,y:0}]);
   assert.equal(observed[0].details.nativeSubpathId,null);
   const exported=JSON.parse(JSON.stringify(observed[0].details));
   assert.deepEqual(exported.failedChecks,["destination"],
@@ -381,5 +383,37 @@ test("verified document arrival is saved before the visual animation finishes",a
   }),/cancelled|stopped|interrupted/);}finally{clearImmediate(fallback);}
   assert.deepEqual(events,["intent","evidence"]);
   assert.equal(token.moves,1);
+  assert.equal(listeners.size,0);
+});
+
+test("captured dev.22 native path passes preflight, move hook and endpoint persistence",async()=>{
+  const from={x:3763,y:1675},bend={x:3816,y:1716},to={x:3823,y:1720};
+  const id="AWT1ypT9qflk7VTs";
+  const listeners=new Map(),order=[];
+  const hooks={on(name,fn){listeners.set(name,fn);return fn;},
+    off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+  const movement={id,chain:[],origin:from,destination:to,constrained:false,
+    passed:{waypoints:[{x:3798,y:1697,intermediate:true,snapped:true,
+      explicit:false,checkpoint:false,movementId:id,subpathId:id},
+      {...bend,movementId:id},{...to,movementId:id}]},pending:{waypoints:[]},
+    animation:{ended:Promise.resolve()}};
+  const token={...from,stopMovement(){throw Error("Approved native movement must not stop");},
+    async move(path,options){
+      assert.deepEqual(path,[bend,to]);assert.equal(options.id,id);
+      assert.notEqual(listeners.get("preMoveToken")(this,movement),false);
+      listeners.get("moveToken")(this,movement);
+      Object.assign(this,to);
+      listeners.get("updateToken")(this);
+      this.movement={...movement,state:"completed"};
+      return true;
+    }};
+  const result=await coordinateNativeTokenMovement({token,hooks,operationId:id,
+    movementSpeed:2,plan:{path:[from,bend,to],
+      checkpoints:[{index:0,from,point:to,distance:74.80603416676962}]},
+    prepareCheckpoint:async()=>order.push("intent"),
+    recordCheckpointEvidence:async()=>order.push("evidence"),
+    confirmCheckpoint:async()=>order.push("confirmation")});
+  assert.equal(result.completed,true);
+  assert.deepEqual(order,["intent","evidence","confirmation"]);
   assert.equal(listeners.size,0);
 });
