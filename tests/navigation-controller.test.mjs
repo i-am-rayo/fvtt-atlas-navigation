@@ -53,6 +53,10 @@ test("continuous vessel submits one bounded move per durable checkpoint",async()
     const view={ready:true,scene};
     const token={id:"party-token",x:0,y:0,width:1,height:1,
       hold:null,release:null,moves:0,
+      getCompleteMovementPath(path){
+        const [from,to]=path;
+        return [from,{x:from.x+5,y:8},to];
+      },
       pauseMovement(){
         this.hold=new Promise(resolve=>{this.release=resolve;});
         return async()=>{this.release();};
@@ -69,9 +73,14 @@ test("continuous vessel submits one bounded move per durable checkpoint",async()
           let endAnimation;
           const animationEnded=new Promise(resolve=>{endAnimation=resolve;});
           this.hold=null;this.release=null;
+          const intermediate={x:from.x+5,y:8,intermediate:true,snapped:true,
+            explicit:false,checkpoint:false,movementId:options.id};
           const movement={id:options.id,chain:[],origin:from,destination,
-            constrained:false,passed:{waypoints:[destination]},pending:{waypoints:[]},
-            animation:{ended:animationEnded}};
+            constrained:false,passed:{waypoints:[intermediate,{...destination,movementId:options.id}]},
+            pending:{waypoints:[]},animation:{ended:animationEnded}};
+          assert.deepEqual(events.at(-1).nativePath,[from,
+            {x:from.x+5,y:8},destination]);
+          assert.notEqual(listeners.get("preMoveToken")(this,movement),false);
           listeners.get("moveToken")(this,movement);
           // The live v14 move hook may report an approved endpoint while the
           // authoritative document still contains the preceding checkpoint.
@@ -96,7 +105,7 @@ test("continuous vessel submits one bounded move per durable checkpoint",async()
     nav.saveJourneyCheckpoint=async(record,status)=>{
       const pending=record.journeyRecord.pendingNativeMove;
       events.push({kind:pending?(pending.arrivalEvidence?"evidence":"intent"):"confirmed",
-        status,progress:record.completedDistance});
+        status,progress:record.completedDistance,nativePath:pending?.nativePath});
     };
     nav.captureConfirmedJourneyAnchor=()=>({point:{x:token.x,y:token.y}});
     assert.equal(await nav.runNativeContinuousLeg(session,{
