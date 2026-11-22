@@ -5,6 +5,8 @@
  */
 import {assessApprovedJourneyRecovery,MAX_APPROVED_ROUTE_MARGIN_CELLS}
   from "./navigation-approved-path.js";
+import {isMixedLandTransport,mixedLandTransportMethod} from "./navigation-transport-journal.js";
+import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 const near=(a,b,tolerance=.01)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
   Number.isFinite(b?.x)&&Number.isFinite(b?.y)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
@@ -93,7 +95,13 @@ export function approvedTransportRecoverySelection(record,catalog){
   if(!hasUnfinishedApprovedTransport(record))return null;
   if(!Array.isArray(catalog))
     throw Error("The saved voyage's transportation catalog is unavailable.");
-  const transport=record.legs.at(-1).transport;
+  const prior=record.legs.at(-1),transport=prior.transport;
+  if(isMixedLandTransport(transport)){
+    validateMixedLandConvoy(prior.convoy);
+    if(!catalog.some(method=>method.id==="walking"&&method.surface==="land"))
+      throw Error("The saved convoy's land travel base is unavailable.");
+    return {methodId:"walking",arrangement:"owned",operation:"normal"};
+  }
   const method=catalog.find(item=>item.id===transport.methodId);
   if(!method||method.kind!==transport.kind||method.surface!==transport.surface)
     throw Error("The saved voyage's transportation method is no longer compatible.");
@@ -128,7 +136,11 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
     throw Error("The saved voyage no longer ends at its approved checkpoint ("+
       reason+surfaces+"). Replan with the GM.");
   }
-  const method=catalog.find(item=>item.id===t.methodId);
+  const mixed=isMixedLandTransport(t);
+  const convoy=mixed?validateMixedLandConvoy(prior.convoy):null;
+  if(mixed&&Math.abs(convoy.speedPerHour-prior.speedPerHour)>1e-7)
+    throw Error("The saved convoy speed differs from the approved leg.");
+  const method=mixed?mixedLandTransportMethod:catalog.find(item=>item.id===t.methodId);
   if(!method||method.kind!==t.kind||method.surface!==t.surface)
     throw Error("The saved voyage's transportation method is no longer compatible.");
   if(operationOverride!==null&&
@@ -156,6 +168,7 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
   const leg={...verifiedProjection.legs[0],options:[option],selectedOption:option,
     selectedValue:option.value,methodName:t.methodName,errors:[],hours,costCp:0,
     operation,recovered:true,
+    ...(mixed?{convoy,terrainAware:prior.terrainAware}:{}),
     narration:["Continuing the previously approved "+t.methodName+" voyage toward "+
       t.arrivalCheckpointName+". No new booking or payment occurs."]};
   return {...verifiedProjection,hasTransitions:true,complete:true,legs:[leg],
