@@ -10,6 +10,18 @@ const near=(a,b,tolerance)=>validPoint(a)&&validPoint(b)&&
 const validId=id=>typeof id==="string"&&/^[a-zA-Z0-9_-]{1,128}$/.test(id);
 export const PENDING_NATIVE_MOVE_SCHEMA=1;
 
+// Native expansion is calculated before movement and retains every authored waypoint.
+export function preservesAuthoredNativePath(path,nativePath){
+  if(!Array.isArray(path)||path.length<2||!path.every(validPoint)||
+      !Array.isArray(nativePath)||nativePath.length<path.length||
+      nativePath.length>4096||!nativePath.every(validPoint)||
+      !near(nativePath[0],path[0],0)||!near(nativePath.at(-1),path.at(-1),0))
+    return false;
+  let next=0;
+  for(const p of nativePath)if(near(p,path[next],0))next++;
+  return next===path.length;
+}
+
 /** Validate a prospective durable pending-intent record on write and read. */
 export function validatePendingNativeMove(raw){
   if(!raw||raw.schemaVersion!==PENDING_NATIVE_MOVE_SCHEMA||
@@ -31,6 +43,9 @@ export function validatePendingNativeMove(raw){
       !raw.path.every(validPoint)||!near(raw.path[0],raw.from,0)||
       !near(raw.path.at(-1),raw.to,0)))
     throw Error("Invalid bounded native movement evidence.");
+  if(raw.nativePath!==undefined&&(!raw.bounded||
+      !preservesAuthoredNativePath(raw.path,raw.nativePath)))
+    throw Error("Invalid normalized native movement path.");
   if(raw.arrivalEvidence!==undefined&&(!raw.bounded||
       !matchesArrivalEvidence(raw,raw.arrivalEvidence)))
     throw Error("Invalid durable native endpoint evidence.");
@@ -72,10 +87,24 @@ export function assessPendingNativeMove(raw,{
 
 /** Foundry v14 reports origin separately from passed destination waypoints.
  * Origin-inclusive evidence remains valid only if every coordinate agrees. */
-export function matchesNativeIntervalPath(path,movement,tolerance=1){
+export function matchesNativeIntervalPath(path,movement,tolerance=1,nativePath){
   if(!Array.isArray(path)||path.length<2||!near(movement?.origin,path[0],tolerance)||
       !near(movement?.destination,path.at(-1),tolerance))return false;
   const passed=movement.passed?.waypoints;
+  if(nativePath!==undefined){
+    if(!preservesAuthoredNativePath(path,nativePath)||!Array.isArray(passed))return false;
+    const inclusive=passed.length===nativePath.length&&near(passed[0],path[0],tolerance);
+    const actual=inclusive?passed.slice(1):passed;
+    if(actual.length!==nativePath.length-1)return false;
+    let authored=1;
+    return actual.every((p,i)=>{
+      const expected=nativePath[i+1];
+      if(!near(p,expected,tolerance)||p.movementId!==movement.id)return false;
+      if(near(expected,path[authored],0)){authored++;return true;}
+      return p.intermediate===true&&p.explicit===false&&p.checkpoint===false;
+    })&&authored===path.length;
+  }
+  // Legacy pending intents have no independently normalized native path.
   if(!Array.isArray(passed)||!passed.length)return path.length===2;
   // The native list may include the origin or extra processed waypoints.
   // Every authored bend must still occur in order. Only native-generated
@@ -114,7 +143,7 @@ function matchesArrivalEvidence(intent,movement){
     movement.constrained===false&&Array.isArray(movement.pending?.waypoints)&&
     movement.pending.waypoints.length===0&&Array.isArray(movement.passed?.waypoints)&&
     movement.passed.waypoints.length>0&&movement.passed.waypoints.length<=4096&&
-    matchesNativeIntervalPath(intent.path,movement);
+    matchesNativeIntervalPath(intent.path,movement,1,intent.nativePath);
 }
 
 export function captureNativeArrivalEvidence(raw,{movement,tokenPoint}={}){
@@ -155,7 +184,7 @@ export function assessBoundedNativeArrival(raw,{movement,...context}={}){
     return {status:"review",reason:"Native interval identity or endpoint is unverified."};
   if(movement.constrained===true||movement.pending?.waypoints?.length>0)
     return {status:"review",reason:"Native movement was constrained or still has pending waypoints."};
-  if(!matchesNativeIntervalPath(pending.path,movement))
+  if(!matchesNativeIntervalPath(pending.path,movement,1,pending.nativePath))
     return {status:"review",reason:"Native interval waypoint evidence is incomplete or does not match the approved ordered path."};
   return assessPendingNativeMove(pending,{...context,
     recordedMovementIds:[pending.operationId],tolerancePixels:1});
