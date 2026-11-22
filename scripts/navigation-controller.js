@@ -1540,7 +1540,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
 
   /** Read-only recovery candidate. A bounded endpoint can be credited only
    * with its own durable interval and terminal native movement evidence. */
-  boundedNativeArrival(saved){
+  boundedNativeArrival(saved,onReject=()=>{}){
+    const reject=reason=>{onReject(reason);return null;};
     try{
       const leg=saved?.legs?.at(-1),intent=saved?.pendingNativeMove;
       const scene=this.scene,view=this.canvasProvider(),token=this.getPartyToken();
@@ -1549,28 +1550,33 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           !scene?.canUserModify?.(game.user,"update")||
           !token?.canUserModify?.(game.user,"update")||!view?.ready||
           view.scene?.id!==scene.id||this.travelSession||this.pendingTransfer||
-          saved.status!=="interrupted"||!isUnfinishedJourneyLeg(saved))return null;
+          saved.status!=="interrupted"||!isUnfinishedJourneyLeg(saved))
+        return reject("Recovery requires an interrupted, unfinished approved continuous leg, current Scene and active GM permissions.");
       const atlas=this.atlasProvider(scene),anchor=saved.lastConfirmedAnchor;
       if(!eligibleJourneyRecord(saved,{sceneId:scene.id,tokenId:token.id,
           atlasRevision:atlas.revision})||!anchor||
           (anchor.levelId??null)!==(token.level?.id??token.level??null)||
-          (anchor.elevation??null)!==(token.elevation??null))return null;
+          (anchor.elevation??null)!==(token.elevation??null))
+        return reject("Saved Scene revision, token identity, level, elevation or confirmed anchor differs.");
       const result=assessBoundedNativeArrival(intent,{
         tokenId:token.id,tokenPoint:token,movement:token.movement,
         worldTime:game.time?.worldTime,atlasRevision:atlas.revision});
-      if(result.status!=="at-end")return null;
+      if(result.status!=="at-end")return reject(result.reason??"The native interval has not reached its endpoint.");
       const position=this.atlasPoint(view,atlas,partyTokenCanvasCenter(token,scene.grid.size));
       const route=assessApprovedRoutePosition({approvedPath:leg.approvedPath,anchor,
         tokenPosition:position,gridSize:scene.grid.size});
-      if(!route.safe||route.kind!=="ahead")return null;
+      if(!route.safe||route.kind!=="ahead")
+        return reject("Approved route position is not unambiguous forward progress: "+(route.reason??route.kind??"unknown")+".");
       // Verify the pending origin is the same confirmed image-local anchor.
       const origin=this.atlasPoint(view,atlas,partyTokenCanvasCenter(
         {x:intent.from.x,y:intent.from.y,width:token.width,height:token.height},scene.grid.size));
-      if(Math.hypot(origin.x-anchor.point.x,origin.y-anchor.point.y)>1)return null;
+      if(Math.hypot(origin.x-anchor.point.x,origin.y-anchor.point.y)>1)
+        return reject("The pending origin does not match the last confirmed Atlas anchor.");
       const completedHours=leg.completedMovingHours+intent.movingHours;
       const progress=Math.min(100,intent.completedPercent);
       if(progress<=leg.completedPercent||completedHours>leg.movingHours+1e-4||
-          Math.abs(completedHours/leg.movingHours*100-progress)>1e-4)return null;
+          Math.abs(completedHours/leg.movingHours*100-progress)>1e-4)
+        return reject("The saved interval duration does not match the approved leg progress.");
       const final=progress>=99.999;
       let arrivedCheckpoint=null;
       if(final){
@@ -1580,7 +1586,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         if(!node||!target||target.checkpointId!==checkpoint.id||
             !confirmGuidedCheckpointArrival({token,gridSize:scene.grid.size,
               atlasPoint:position,expectedPoint:node})||
-            Math.hypot(node.x-leg.destination.x,node.y-leg.destination.y)>.01)return null;
+            Math.hypot(node.x-leg.destination.x,node.y-leg.destination.y)>.01)
+          return reject("The final native interval does not match the authored arrival checkpoint and saved target.");
         arrivedCheckpoint={id:checkpoint.id,name:checkpoint.name,point:{x:node.x,y:node.y}};
       }
       const schedule={completedHours:Math.min(leg.movingHours,completedHours),
@@ -1602,10 +1609,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         worldTravelSeconds:leg.worldTravelSeconds+intent.worldAdvanceSeconds,
         worldRestSeconds:leg.worldRestSeconds,confirmedAnchor,arrivedCheckpoint,
         checkpointTolerancePixels:scene.grid.size*.75});
-      if(final&&record.routeTargets.nextTargetIndex!==saved.routeTargets.nextTargetIndex+1)return null;
+      if(final&&record.routeTargets.nextTargetIndex!==saved.routeTargets.nextTargetIndex+1)
+        return reject("The final checkpoint did not advance the saved target exactly once.");
       return {record,clockAction:result.worldClockAction,
         worldTimeAfter:intent.worldTimeBefore+intent.worldAdvanceSeconds};
-    }catch{return null;}
+    }catch(error){return reject(error.message??String(error));}
   }
 
   async recoverSavedJourneyWithNativeReview({automatic=false}={}){
@@ -1615,11 +1623,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(!raw?.pendingNativeMove)return this.recoverSavedJourney({automatic});
     const saved=validateJourneyRecord(raw);
     const unexecuted=this.canRecoverUnexecutedNativeMove(saved);
-    const arrival=unexecuted?null:this.boundedNativeArrival(saved);
+    let rejection=null;
+    const arrival=unexecuted?null:this.boundedNativeArrival(saved,reason=>{rejection=reason;});
     if((!unexecuted&&!arrival)||!journal.canUserModify?.(game.user,"update")||
         (arrival?.clockAction==="advance"&&(!readNavigationWorldClockSetting(game.settings)||
-          typeof game.time?.advance!=="function")))
+          typeof game.time?.advance!=="function"))){
+      const reason=rejection??"Journal write permission or World-clock advancement is unavailable.";
+      atlasWarn("journey","Native checkpoint reconciliation withheld: "+reason,
+        {journalId:journal.id,operationId:saved.pendingNativeMove.operationId});
       return this.recoverSavedJourney({automatic}); // existing fail-closed guard
+    }
     const scene=this.scene, token=this.getPartyToken();
     let next=arrival?.record??validateJourneyRecord({...saved,pendingNativeMove:null,
       updatedAt:new Date().toISOString()});
@@ -1639,7 +1652,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           throw Error("Native checkpoint state changed during clock reconciliation. The original intent is retained.");
         next=verified.record;
       }
-      await this.journeyJournalStore.save(next,{journal,updatePage:next.status==="paused"});
+      await this.journeyJournalStore.save(next,{journal,updatePage:Boolean(arrival)||next.status==="paused"});
     }finally{this.journalStarting=false;}
     // A newly changed token, clock, scene or Journal must not auto-start.
     if(this.scene!==scene||this.getPartyToken()!==token||
@@ -4105,9 +4118,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
     }
     const nativeAtStart=pendingNativeReview&&this.canRecoverUnexecutedNativeMove(pendingNativeReview);
-    const nativeArrival=pendingNativeReview&&!nativeAtStart?this.boundedNativeArrival(pendingNativeReview):null;
+    let nativeRejection=null;
+    const nativeArrival=pendingNativeReview&&!nativeAtStart?
+      this.boundedNativeArrival(pendingNativeReview,reason=>{nativeRejection=reason;}):null;
     const canReconcileNative=(nativeAtStart||nativeArrival&&
-      (nativeArrival.clockAction!=="advance"||readNavigationWorldClockSetting(game.settings)))&&
+      (nativeArrival.clockAction!=="advance"||readNavigationWorldClockSetting(game.settings)&&
+        typeof game.time?.advance==="function"))&&
       this.recoverableJourney?.canUserModify?.(game.user,"update");
     const pendingReviewLeg=pendingNativeReview?.legs?.at(-1)??null;
     let routeReview=null;
@@ -4406,6 +4422,40 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       recover.addEventListener("click",()=>void this.recoverSavedJourneyWithNativeReview()
         .catch(error=>ui.notifications.warn(error.message||String(error))));
       recovery.append(description,recover);
+      if(pendingNativeReview&&game.user?.isGM){
+        const intent=pendingNativeReview.pendingNativeMove;
+        const document=this.getPartyToken();
+        const details=el("details");
+        details.style.cssText="flex-basis:100%;";
+        details.append(el("summary","Review Saved Journey"));
+        const position=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y)?
+          `${p.x}, ${p.y}`:"Unavailable";
+        const delta=Number.isFinite(game.time?.worldTime)?
+          game.time.worldTime-intent.worldTimeBefore:null;
+        details.append(
+          el("p","Approved method: "+pendingReviewMethodName+
+            " · Native checkpoint "+(intent.checkpointIndex+1)),
+          el("p","Confirmed origin: "+position(intent.from)+
+            " · Approved endpoint: "+position(intent.to)+
+            " · TokenDocument: "+position(document)),
+          el("p","Native state: "+(document?.movement?.state??"Unavailable")+
+            " · Movement ID: "+(document?.movement?.id??"Unavailable")),
+          el("p","Saved interval time: "+intent.worldAdvanceSeconds+
+            " seconds · World-clock change since intent: "+(delta===null?"Unavailable":delta+" seconds")),
+          el("p",canReconcileNative?(nativeArrival?
+            "Verified endpoint. Outstanding clock advancement: "+
+              (nativeArrival.clockAction==="advance"?intent.worldAdvanceSeconds:0)+" seconds.":
+            "Verified unexecuted interval. No movement or clock credit is required."):
+            "Recovery blocked: "+(nativeRejection??"Journal permission or World-clock advancement is unavailable."))
+        );
+        if(!canReconcileNative){
+          const inspect=el("button","Open Saved Journey Journal");
+          inspect.type="button";
+          inspect.addEventListener("click",()=>this.recoverableJourney?.sheet?.render(true));
+          details.append(inspect);
+        }
+        recovery.append(details);
+      }
       const forget=el("button","Forget Saved Journey");
       forget.type="button";
       forget.title="GM confirmation: end recovery for this Journey and retain its historical Journal";
