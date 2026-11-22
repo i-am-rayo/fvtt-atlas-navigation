@@ -259,6 +259,15 @@ test("backend checkpoints publish confirmed partial history at interruption, not
       "interruption publishes only confirmed partial history after the flag write");
     assert.match(writes.at(-1).data[0]["text.content"],/Confirmed progress: 45%/);
     assert.equal(journeySummaryDue({status:"interrupted",pendingNativeMove:{operationId:"pending"}}),true);
+    const pending={...interrupted,pendingNativeMove:{schemaVersion:1,
+      operationId:"STnppSz0mQzxlkL4-1",tokenId:interrupted.tokenId,
+      checkpointIndex:1,from:{x:0,y:0},to:{x:10,y:0},nativeDistance:10,
+      movingHours:1,worldTimeBefore:100,worldAdvanceSeconds:3600,
+      atlasRevision:interrupted.atlasRevision}};
+    const pendingHTML=formatJourneyJournalHTML(pending);
+    assert.match(pendingHTML,/Unresolved native checkpoint 2/);
+    assert.match(pendingHTML,/Confirmed progress: 45%/);
+    assert.match(pendingHTML,/Interrupted — native checkpoint review required/);
     const arrived=checkpointJourneyRecord(interrupted,{schedule:{...schedule,
       completedHours:18},progress:100,status:"paused"});
     await saveJourneyJournal(arrived,{journal,
