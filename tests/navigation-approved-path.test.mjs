@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {captureApprovedJourneyPath,assessApprovedJourneyRecovery,
-  validateApprovedJourneyPath,MAX_APPROVED_ROUTE_MARGIN_CELLS}
+  validateApprovedJourneyPath,MAX_APPROVED_ROUTE_MARGIN_CELLS,assessApprovedRoutePosition}
   from "../scripts/navigation-approved-path.js";
 
 const p=(x,y)=>({x,y});
@@ -86,4 +86,13 @@ test("an ambiguous return/crossing cannot infer which visit was confirmed",()=>{
     route:resumed(p(0,0),[leg("loop",[p(0,0),p(1000,0)])]),
     anchor:anchor(0),tokenPosition:p(0,0),gridSize:100});
   assert.equal(outcome.reason,"ambiguous-approved-position");
+});
+
+test("ordered approved path identifies an ahead token without authorizing time",()=>{
+  const assess=tokenPosition=>assessApprovedRoutePosition({approvedPath,
+    anchor:anchor(500),tokenPosition,gridSize:100});
+  assert.equal(assess(p(900,5)).kind,"ahead");
+  assert.equal(assess(p(900,5)).forwardPixels,400);
+  assert.equal(assess(p(400,0)).reason,"behind-confirmed-position");
+  assert.equal(assess(p(900,301)).reason,"off-approved-route");
 });
