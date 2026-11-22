@@ -49,6 +49,9 @@ export function validatePendingNativeMove(raw){
   if(raw.arrivalEvidence!==undefined&&(!raw.bounded||
       !matchesArrivalEvidence(raw,raw.arrivalEvidence)))
     throw Error("Invalid durable native endpoint evidence.");
+  if(raw.partialEvidence!==undefined&&(raw.arrivalEvidence!==undefined||
+      !partialNativeProgress(raw,raw.partialEvidence)))
+    throw Error("Invalid durable partial native movement evidence.");
   return structuredClone(raw);
 }
 
@@ -188,4 +191,90 @@ export function assessBoundedNativeArrival(raw,{movement,...context}={}){
     return {status:"review",reason:"Native interval waypoint evidence is incomplete or does not match the approved ordered path."};
   return assessPendingNativeMove(pending,{...context,
     recordedMovementIds:[pending.operationId],tolerancePixels:1});
+}
+
+/** Prove an actually passed native prefix, including a possible fractional
+ * last step. Spatial proximity alone is never authorization. */
+function segmentFraction(p,a,b){
+  const dx=b.x-a.x,dy=b.y-a.y,length=Math.hypot(dx,dy);
+  if(!length)return null;
+  const t=((p.x-a.x)*dx+(p.y-a.y)*dy)/(length*length);
+  return t>=0&&t<=1&&Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy)<=1?t:null;
+}
+
+function partialNativeProgress(intent,movement){
+  const path=intent.path,native=intent.nativePath;
+  if(!intent.bounded||!preservesAuthoredNativePath(path,native)||
+      !["completed","stopped"].includes(movement?.state)||
+      movement.id!==intent.operationId||movement.constrained!==false||
+      !Array.isArray(movement.pending?.waypoints)||movement.pending.waypoints.length||
+      !near(movement.origin,intent.from,1)||!validPoint(movement.destination)||
+      near(movement.destination,intent.from,1)||near(movement.destination,intent.to,1))
+    return null;
+  const passed=movement.passed?.waypoints;
+  if(!Array.isArray(passed)||!passed.length||passed.length>native.length||
+      !near(passed.at(-1),movement.destination,.25))return null;
+  const points=near(passed[0],native[0],.25)?passed.slice(1):passed;
+  if(!points.length)return null;
+  let index=1;
+  for(const [i,p] of points.entries()){
+    if(index>=native.length||!validPoint(p)||p.movementId!==intent.operationId)return null;
+    if(near(p,native[index],.25)){index++;continue;}
+    // Only the LAST passed point may be between predicted native vertices.
+    // In particular, do not accept a missing authored bend or skipped snap.
+    const t=segmentFraction(p,native[index-1],native[index]);
+    if(i!==points.length-1||t===null||t<=0||t>=1)return null;
+  }
+  // Credit authored travel, not the length of Foundry's snapped detours.
+  // Identify the authored segment from the verified ordered native prefix.
+  let authored=1;
+  for(let i=1;i<index;i++)
+    if(near(native[i],path[authored],0))authored++;
+  if(authored>=path.length)return null;
+  const t=segmentFraction(movement.destination,path[authored-1],path[authored]);
+  if(t===null)return null;
+  let total=0,covered=0;
+  for(let i=1;i<path.length;i++){
+    const length=Math.hypot(path[i].x-path[i-1].x,path[i].y-path[i-1].y);
+    total+=length;
+    covered+=length*(i<authored?1:i===authored?t:0);
+  }
+  const fraction=covered/total;
+  if(!(fraction>0&&fraction<1))return null;
+  // Older intents do not distinguish a batched zero clock write from a
+  // disabled clock. Controller checks the setting for the zero case.
+  // ponytail: do not prorate a coalesced outstanding clock debt; manual
+  // review is safer until per-interval accounting can prove that debt.
+  if(intent.worldAdvanceSeconds&&
+      Math.abs(intent.worldAdvanceSeconds-Math.round(intent.movingHours*3600))>1)
+    return null;
+  return {fraction,worldAdvanceSeconds:Math.round(intent.worldAdvanceSeconds*fraction)};
+}
+
+export function assessBoundedNativePartial(raw,{movement,tokenId,tokenPoint,
+  atlasRevision,worldTime}={}){
+  const intent=validatePendingNativeMove(raw);
+  const review=reason=>({status:"review",reason});
+  if(intent.arrivalEvidence||tokenId!==intent.tokenId||atlasRevision!==intent.atlasRevision||
+      !Number.isSafeInteger(worldTime))return review("Partial native identity or clock is unverified.");
+  if(intent.partialEvidence&&["completed","stopped"].includes(movement?.state)&&
+      !movement.id&&!movement.chain?.length&&movement.constrained!==true&&
+      !movement.pending?.waypoints?.length)movement=intent.partialEvidence;
+  const progress=partialNativeProgress(intent,movement);
+  if(!progress||!near(tokenPoint,movement.destination,.25))
+    return review("No verified terminal native prefix at the current TokenDocument position.");
+  if(intent.partialEvidence&&(!near(movement.destination,intent.partialEvidence.destination,.25)||
+      Math.abs(progress.fraction-partialNativeProgress(intent,intent.partialEvidence).fraction)>1e-8))
+    return review("Live movement conflicts with the saved partial evidence.");
+  const seconds=progress.worldAdvanceSeconds;
+  const target=intent.worldTimeBefore+seconds;
+  if(!Number.isSafeInteger(target)||![intent.worldTimeBefore,target].includes(worldTime))
+    return review("World time does not match the verified partial interval.");
+  const copy=p=>({x:p.x,y:p.y});
+  const evidence={id:movement.id,state:movement.state,origin:copy(movement.origin),
+    destination:copy(movement.destination),constrained:false,
+    passed:{waypoints:movement.passed.waypoints.map(p=>({...copy(p),movementId:p.movementId??null}))},
+    pending:{waypoints:[]}};
+  return {status:"partial",...progress,evidence,
+    worldClockAction:seconds===0?"none":worldTime===target?"already-advanced":"advance"};
 }
