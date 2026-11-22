@@ -105,6 +105,7 @@ import {renderNavigationTravelRoster,renderNavigationPaceChoice}
   from "./navigation-traveler-deck-view.js";
 import {suggestedTravelAssignments} from "./navigation-travel-allocation.js";
 import {describeConfirmedTravelers} from "./navigation-journey-manifest.js";
+import {isMixedLandTransport,mixedLandTransportMethod} from "./navigation-transport-journal.js";
 import {planWalkingCargoConvoy,validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import {renderWalkingCargoControls} from "./navigation-mixed-convoy-view.js";
 import {planMixedLandConvoy,validateMixedLandConvoy}
@@ -354,7 +355,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   /** Use one route calculation for both map-point and live party departures. */
-  calculateRoute(view,atlas) {
+  calculateRoute(view,atlas,{terrainAware=null}={}) {
     this.routeRevision=atlas.revision;
     this.transferSelections={};
     this.transferLegOverrides={};
@@ -373,9 +374,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // Transport speeds are independent of native Walk/Swim terrain-action
       // costs. Until transport costs exist, estimate physical distance only.
       this.result=this.routeCalculator(view,this.scene,atlas,this.start,this.end,
-        this.travelMethod==="walking"&&
-          (!this.mixedKeys.length||this.mixedKeys.includes("owned|walking"))?
-          {}:{terrainAware:false});
+        (terrainAware??(this.travelMethod==="walking"&&
+           (!this.mixedKeys.length||this.mixedKeys.includes("owned|walking"))))?
+           {}:{terrainAware:false});
       if(this.result?.status==="ok"){
         this.itinerary=createNavigationItinerary({
           sceneId:this.scene.id,sceneName:this.scene.name??"",
@@ -441,6 +442,25 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** A combined Group explorer travels as one unit. Selection and assignment
    * are drafts only; every resource is resolved again at GM confirmation.
    */
+  canDraftTravelMethods(){
+    return !this.travelSession&&!this.journalStarting&&!this.recoverableJourney&&
+      !this.pendingTransfer&&(!this.recoveryRecord||
+        this.recoveryRecord.status==="paused"&&!isUnfinishedJourneyLeg(this.recoveryRecord));
+  }
+
+  /** Current land stretch only; later surfaces are preview, not fare inputs. */
+  currentLandTransferLeg(){
+    if(this.result?.status!=="ok"||!Array.isArray(this.result.legs)||!this.scene)return null;
+    const atlas=this.atlasProvider(this.scene);
+    if(!Array.isArray(atlas?.roads)||!Array.isArray(atlas?.nodes))return null;
+    const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
+    const projected=projectTransportationRouteLegs(this.result,atlas,presets.presets);
+    const first=projected.legs[0];
+    return first?.surface==="land"&&(projected.hasTransitions||isCheckpointBoundContinuation({
+      record:this.recoveryRecord,route:this.result,projected,gridSize:this.scene.grid?.size}))?
+      first:null;
+  }
+
   mixedLandChoices(availability=this.transportAvailability()){
     return this.mixedKeys.map(key=>{
       const [arrangement,id]=key.split("|",2);
@@ -497,13 +517,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const assignments=suggestedTravelAssignments(
       travelers.map(t=>({id:t.actorId})),selected,
       this.mixedAssignments,resources);
+    const leg=this.currentLandTransferLeg();
+    const distance=leg?.distance??this.result.distance;
+    const weighted=leg?.weightedDistance??this.result.cost;
     return planMixedLandConvoy({travelers,
       assignments,methods:hired,
       walkingSpeed:walking.speed,sceneUnits,
-      routeDistance:this.result.distance,
-      weightedDistance:hasWalking&&this.result.terrainAware?
-        this.result.cost:this.result.distance,
-      distanceMi:convertGroupSpeed(this.result.distance,sceneUnits,"mi"),
+      routeDistance:distance,
+      weightedDistance:hasWalking&&this.result.terrainAware?weighted:distance,
+      distanceMi:convertGroupSpeed(distance,sceneUnits,"mi"),
       paceOverride:this.convoyPace,regularHours:hours});
   }
 
@@ -511,7 +533,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** One planning step: a single method shows checkboxes; mixed methods show
    * drag/drop assignments. The submitted Journey still owns one Group token.
    */
-  renderTravelersAndPace(party,availability,{disabled=false,mixedFare=null}={}){
+  renderTravelersAndPace(party,availability,{disabled=false,mixedFare=null,singleChoice=null}={}){
     const root=el("div");
     root.style.cssText="display:grid;gap:.6rem;padding-top:.45rem;";
     const all=partyTravelerRoster(party.previewRoster);
@@ -524,7 +546,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     let options=[],resources={};
     try{
       options=this.mixedKeys.length?this.mixedLandChoices(availability):
-        (()=>{const method=availability.methods.find(m=>m.id===this.travelMethod);
+        (()=>{if(singleChoice)return [{key:singleChoice.value,method:singleChoice.method,
+            arrangement:singleChoice.arrangement,units:1}];
+          const method=availability.methods.find(m=>m.id===this.travelMethod);
           if(!method)return [];
           const key=this.transportArrangement+"|"+this.travelMethod;
           return [{key,method,arrangement:this.transportArrangement,
@@ -623,12 +647,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** Confirm an explicit per-rider manifest and then re-read every authority:
    * roster, Scene, route, hire inventory, mounts, pricing and chosen pace.
    */
-  async confirmMixedLandJourney(view,token){
+  async confirmMixedLandJourney(view,token,guidedLeg=null){
     if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update"))
       throw Error("Only an authorized GM may approve mixed travel.");
     if(!this.assessTravelMethod().guided)
       throw Error(this.assessTravelMethod().reason??
         "Mixed transportation is not ready for GM confirmation.");
+    const routeBefore=this.result;
     const proposed=this.mixedLandPlan();
     const shown=atlasDisplaySpeed(proposed.speedPerHour,this.scene.grid.units,
       game.settings,game.system?.id);
@@ -639,6 +664,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const manifest=describeConfirmedTravelers(proposed);
     const content=el("div");
     content.append(el("strong","Transportation summary"));
+    if(guidedLeg)content.append(el("p","Current leg to "+guidedLeg.checkpoint.name));
     const table=el("table");
     const header=el("thead"),heading=el("tr");
     for(const label of ["Method","Travelers","Units","Cost"]){
@@ -686,7 +712,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         !game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
         this.scene.id!==view.scene?.id||
         this.atlasProvider(this.scene).revision!==this.routeRevision||
-        this.getPartyToken()?.id!==token.id||this.result?.status!=="ok")
+        this.getPartyToken()?.id!==token.id||this.result!==routeBefore||this.result?.status!=="ok")
       throw Error("Scene, party explorer or route changed during mixed travel confirmation.");
     const current=this.atlasPoint(view,this.atlasProvider(this.scene),
       partyTokenCanvasCenter(token,this.scene.grid.size));
@@ -694,6 +720,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         current.y-this.result.start.y)>Math.max(.01,this.scene.grid.size/50))
       throw Error("The party moved during mixed travel confirmation. Replan the route.");
     const updated=this.mixedLandPlan();
+    if(guidedLeg){
+      const party=this.partyTravelSelection(this.transportAvailability().all);
+      if(party?.partial||party?.empty)
+        throw Error("A subset preview cannot authorize movement of the entire Group.");
+      if(JSON.stringify(prepareGuidedTransportLeg(this.result,
+          this.transportationTransitionPlan()?.legs[0]))!==JSON.stringify(guidedLeg))
+        throw Error("The checkpoint leg changed during mixed travel confirmation.");
+    }
     if(JSON.stringify(updated)!==JSON.stringify(proposed))
       throw Error("Passenger assignments, vehicle stock, speeds, fares or "+
         "World/Scene rules changed during confirmation. Review the updated Journey.");
@@ -782,8 +816,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       try{
         const atlas=this.atlasProvider(this.scene);
         const catalog=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
+        const current=this.currentLandTransferLeg();
+        const route=current?{...this.result,legs:this.result.legs.slice(0,current.lastRouteLeg+1)}:
+          this.result;
         compatible=new Set(all.filter(method=>
-          assessNavigationMethodRoute(method.id,this.result,atlas,catalog.presets,
+          assessNavigationMethodRoute(method.id,route,atlas,catalog.presets,
             {settings:game.settings,systemId:game.system?.id}).compatible)
           .map(method=>method.id));
       }catch(error){
@@ -881,6 +918,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             });
           }catch(error){atlasWarn("navigation","Invalid transfer checkpoint offer",error);}
         }
+      }
+      if(index===0&&this.mixedKeys.length&&leg.surface==="land"&&
+          this.canDraftTravelMethods()&&(projected.hasTransitions||checkpointContinuation)){
+        let convoy=null;
+        if(!leg.transferValid||!leg.arrivalCheckpoint?.id)
+          errors.push("A mixed convoy needs an authored arrival checkpoint for this leg.");
+        try{convoy=this.mixedLandPlan();}
+        catch(error){errors.push(error.message??String(error));}
+        complete=false; // later legs are only previews
+        return {...leg,options,selectedOption:convoy&&!errors.length?{
+          value:"mixed-land",arrangement:"mixed",method:mixedLandTransportMethod}:null,
+          selectedValue:"mixed-land",methodName:mixedLandTransportMethod.name,operation:"normal",
+          convoy,errors,hours:errors.length?null:convoy?.movingHours??null,
+          costCp:errors.length?null:convoy?.totalCp??null,
+          narration:["The Group travels together to the next checkpoint."]};
       }
       let selected=null;
       try{selected=transportationLegSelection(leg,this.transferSelections[index]);}
@@ -985,7 +1037,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("Journey transportation can only be edited before travel begins.");
     const plan=this.transportationTransitionPlan();
     const leg=plan?.legs[index],option=leg?.selectedOption;
-    if(index!==0||!option||option.method?.id==="walking")
+    if(index!==0||!option||leg.recovered||option.method?.id==="walking"||option.method?.kind==="mixed")
       throw Error("Choose an available transportation method on the current leg.");
     const methodId=option.method.id,choice=option.value;
     const world=option.world;
@@ -1119,13 +1171,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
    * Mixed mode never infers seat assignments or writes Group/Token documents.
    */
   toggleTravelMethodChoice(value,checked){
-    if(!game.user?.isGM||!this.scene||this.travelSession||
-        this.journalStarting||this.recoverableJourney||this.recoveryRecord||
-        this.pendingTransfer||!["owned","hire"].includes(value.split("|")[0]))
-      return;
+    if(!game.user?.isGM||!this.scene||!this.canDraftTravelMethods()||
+        !["owned","hire"].includes(value.split("|")[0]))return;
     const [arrangement,method]=value.split("|",2);
     if(checked&&arrangement==="owned"&&method==="mounted")return;
-    const primary=this.transportArrangement+"|"+this.travelMethod;
+    const current=this.currentLandTransferLeg();
+    const primary=current?this.transferSelections[0]??"owned|walking":
+      this.transportArrangement+"|"+this.travelMethod;
     const selected=this.mixedKeys.length?this.mixedKeys:
       this.convoyEnabled?["owned|walking",...Object.keys(
         this.convoyCargoQuantities).map(id=>"hire|"+id)]:[primary];
@@ -1141,6 +1193,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mixedRiderCounts={};this.mixedUnits={};
       this.convoyEnabled=false;this.convoyCargoQuantities={};this.convoyPace=null;
       const [singleArrangement,singleMethod]=next[0].split("|",2);
+      if(current){
+        this.transferSelections[0]=next[0];
+        delete this.transferLegOverrides[0];
+        void this.render(true);return;
+      }
       if(this.travelMethod===singleMethod&&
           this.transportArrangement===singleArrangement){
         void this.render(true);
@@ -1180,8 +1237,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.travelMethod="walking";this.transportArrangement="owned";
     this.travelNotice="";
     const view=this.canvasProvider();
-    if(view?.ready&&view.scene?.id===this.scene.id)
+    if(!current&&view?.ready&&view.scene?.id===this.scene.id)
       this.calculateRoute(view,this.atlasProvider(this.scene));
+    if(current)delete this.transferLegOverrides[0];
     this.draw();void this.render(true);
   }
 
@@ -1194,6 +1252,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
         const projection=Array.isArray(atlas.roads)&&Array.isArray(atlas.nodes)?
           projectTransportationRouteLegs(this.result,atlas,presets.presets):null;
+        if(this.mixedKeys.length&&this.currentLandTransferLeg()){
+          const leg=this.transportationTransitionPlan()?.legs[0];
+          const guided=Boolean(leg?.convoy&&leg?.selectedOption&&!leg.errors.length);
+          return {compatible:guided,guided,reason:guided?null:
+            leg?.errors.join(" ")||"Choose a valid mixed land checkpoint leg."};
+        }
         if(projection&&(projection.hasTransitions||this.travelMethod==="walking"&&
             projection.legs.some(leg=>leg.surface!=="land")))
           return {compatible:false,guided:false,
@@ -1535,7 +1599,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // Restoring a multi-surface route directly to Point B would discard the
     // approved vessel selection and fail the checkpoint recovery guard.
     this.end=journeyRecoveryRouteDestination(saved);
-    this.calculateRoute(view,atlas);
+    this.calculateRoute(view,atlas,isMixedLandTransport(recent.transport)?
+      {terrainAware:recent.terrainAware}:{});
     if(this.result?.status!=="ok")
       throw Error("The remaining journey cannot be routed safely. Review the road network.");
     this.recoveryJournal=journal;
@@ -2149,7 +2214,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("Guided travel requires a route containing an Atlas road.");
     // A preview of fewer PCs cannot move the same complete Group token.
     // Never override recovery decisions for an already approved Journey.
-    if(!this.recoveryRecord&&!this.recoverableJourney){
+    if(!isUnfinishedJourneyLeg(this.recoveryRecord)&&!this.recoverableJourney){
       const preview=this.partyTravelSelection(
         availableNavigationTravelMethods(game.settings,game.system?.id));
       if(preview?.partial||preview?.empty)
@@ -2259,10 +2324,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       previousConvoy.schemaVersion===3?validateAggregateLandConvoy(previousConvoy):
         previousConvoy.schemaVersion===2?validateMixedLandConvoy(previousConvoy):
           validateWalkingCargoConvoy(previousConvoy):null;
-    if((this.convoyEnabled||this.mixedKeys.length)&&guidedLeg)
+    if(guidedLeg&&((this.convoyEnabled||this.mixedKeys.length||approvedConvoy)&&
+        !isMixedLandTransport(guidedLeg.transport)))
       throw Error("Mixed land convoys cannot cross an unresolved transport transfer.");
     if(!approvedConvoy&&this.mixedKeys.length){
-      approvedConvoy=await this.confirmMixedLandJourney(view,token);
+      approvedConvoy=await this.confirmMixedLandJourney(view,token,guidedLeg);
       if(!approvedConvoy)return false;
     }
     if(!approvedConvoy&&this.convoyEnabled){
@@ -2330,7 +2396,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       methodId:"walking",methodLabel:approvedConvoy.schemaVersion===2?
         "Mixed Group transportation":"Walking with hired cargo",
       source:"approved-convoy"};
-    if(guidedLeg){
+    if(guidedLeg&&approvedConvoy){
+      if(!isMixedLandTransport(guidedLeg.transport)||approvedConvoy.schemaVersion!==2)
+        throw Error("The approved mixed transportation does not match this checkpoint leg.");
+      const weighted=route.terrainAware?route.cost:route.distance;
+      const hours=this.transportationTransitionPlan()?.legs[0]?.hours;
+      if(!Number.isFinite(hours)||Math.abs(weighted/travel.speed-hours)>1e-7)
+        throw Error("The checkpoint leg duration differs from its approved convoy pace.");
+    }else if(guidedLeg){
       const option=this.transportationTransitionPlan()?.legs[0]?.selectedOption;
       guidedOption=option;
       const info=guidedLeg.transport;
@@ -2374,7 +2447,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       sceneUnits:this.scene.grid?.units??"",atlasRevision:atlas.revision,
       route,...this.roadNaming(atlas,route),travel
     });
-    const itinerary=guidedLeg?{...snapshot,transport:guidedLeg.transport}:{
+    const itinerary=guidedLeg?{...snapshot,transport:guidedLeg.transport,
+      ...(approvedConvoy?{convoy:approvedConvoy}:{})}:{
       ...snapshot,
       ...(approvedConvoy?{convoy:approvedConvoy}:{}),
       travel:{...snapshot.travel,
@@ -2877,9 +2951,36 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.end=atDestination?null:(selectedEnd?{...selectedEnd}:null);
     this.pendingTransfer=null;
     this.sourceMode="party";
+    const previous=this.recoveryRecord?.legs?.at(-1)?.convoy;
+    if(this.recoveryRecord){
+      this.travelMethod="walking";this.transportArrangement="owned";
+      this.transportOperation="normal";this.transportJourneyOverrides=null;
+      this.transportHireTerms=null;this.transportHireDenomination=null;
+      this.mixedKeys=[];this.mixedAssignments={};this.mixedUnits={};
+      this.mixedRiderCounts={};this.convoyEnabled=false;this.convoyCargoQuantities={};
+      this.convoyPace=null;this.partySelectionMode="all";this.partySelectedIds=[];
+    }
     const atlas=this.atlasProvider(this.scene);
     this.syncPartyDeparture(view,atlas);
     this.calculateRoute(view,atlas);
+    if(previous?.schemaVersion===2&&this.result?.status==="ok"){
+      // A prior hire is not a reservation at this new checkpoint.
+      const availability=this.transportAvailability();
+      const party=this.partyTravelSelection(availability.all);
+      const allowed=new Set(availability.methods.filter(m=>m.surface==="land")
+        .flatMap(m=>[...(m.id==="walking"||availability.owned.has(m.id)?
+          ["owned|"+m.id]:[]),...(availability.offers.has(m.id)?["hire|"+m.id]:[])]));
+      const land=projectTransportationRouteLegs(this.result,atlas,
+        validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING)).presets)
+        .legs[0]?.surface==="land";
+      const keys=land?previous.methods.map(m=>m.key).filter(key=>allowed.has(key)):[];
+      if(party&&!party.empty&&keys.length>1){
+        this.mixedKeys=keys;
+        const ids=new Set(party.selectedIds);
+        this.mixedAssignments=Object.fromEntries(previous.travelers.filter(t=>
+          ids.has(t.actorId)&&keys.includes(t.methodKey)).map(t=>[t.actorId,t.methodKey]));
+      }
+    }
     // Some map-click destinations near a dock resolve right back to that
     // same completed checkpoint. The safety guard must still forbid another
     // booking, but Continue should leave the GM free to choose a new Point B.
@@ -3837,8 +3938,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.transportOperation="normal";
     }
     let mixedFare=null;
-    if(game.user?.isGM&&this.mixedKeys.length>1&&!this.travelSession&&
-        !this.recoveryRecord&&!this.recoverableJourney){
+    if(game.user?.isGM&&this.mixedKeys.length>1&&this.canDraftTravelMethods()){
       try{mixedFare=mixedTransportFareBreakdown(this.mixedLandPlan().methods,
         globalThis.CONFIG?.DND5E?.currencies);}
       catch{/* Invalid allocations have no valid quote. */}
@@ -3936,7 +4036,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       });
       if(!locked&&game.user?.isGM&&this.sourceMode==="party"&&
-          partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
+          partySelection&&this.canDraftTravelMethods()){
         section.append(this.renderTravelersAndPace(partySelection,
           availability,{disabled:Boolean(this.journalStarting),mixedFare}));
       }
@@ -4256,7 +4356,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           }));
         }
         card.append(renderNavigationTransferRoadNames(leg.roadNames));
-        card.append(renderCurrentTransferMethodSelector({
+        if(leg.surface==="land"&&!leg.recovered&&game.user?.isGM&&
+            this.canDraftTravelMethods()&&partyMode&&partySelection){
+          const validKeys=new Set(leg.options.map(option=>option.value));
+          const choices=annotatedChoices.filter(choice=>validKeys.has(choice.value));
+          const selected=this.mixedKeys.length?this.mixedKeys:
+            [leg.selectedValue||"owned|walking"];
+          card.append(renderNavigationTravelMethodButtons({
+            choices,selectedValues:selected,
+            showEditor:!this.mixedKeys.length&&Boolean(leg.selectedOption&&
+              leg.selectedOption.method.id!=="walking"),
+            onMethodToggle:(value,checked)=>this.toggleTravelMethodChoice(value,checked),
+            onEdit:()=>void this.editTransportationLeg(0).catch(error=>
+              globalThis.ui?.notifications?.error?.(error.message??String(error)))
+          }));
+          card.append(this.renderTravelersAndPace(partySelection,availability,{
+            mixedFare,singleChoice:this.mixedKeys.length?null:leg.selectedOption}));
+        }else card.append(renderCurrentTransferMethodSelector({
           options:leg.options,selectedValue:leg.selectedValue,
           disabled:Boolean(this.travelSession||this.journalStarting||leg.recovered),
           editable:Boolean(!leg.recovered&&leg.selectedOption&&
@@ -4274,7 +4390,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           estimateLabel:leg.hours!==null&&leg.costCp!==null?
             showDistance(leg.distance)+" · "+
             formatNavigationDuration(leg.hours,24)+" moving · "+
-            formatMoney(leg.costCp)+" estimated cost":null,
+            (leg.convoy&&mixedFare?mixedFare.total.label:formatMoney(leg.costCp))+" estimated cost":null,
           narration:leg.narration,errors:leg.errors,
           arrivalCheckpointName:leg.arrivalCheckpoint?.name??null}));
         section.append(card);
@@ -4287,7 +4403,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "Choose a valid method and confirm the transfer before this leg can be estimated.":
         current?.hours!==null?
           "Current leg: "+formatNavigationDuration(current.hours,24)+" moving · "+
-            formatMoney(current.costCp)+" estimated. Later legs are undecided.":
+            (current.convoy&&mixedFare?mixedFare.total.label:formatMoney(current.costCp))+" estimated. Later legs are undecided.":
           "Current leg estimate pending."));
       body.append(section);
     }
@@ -4374,8 +4490,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           " The GM's rest or forced-travel choices update this estimate.";
         tripExplanation=explanation;
       }catch(error){metric("Travel Time","Unavailable");metric("Total Trip","Unavailable");}
-      if(this.mixedKeys.length>1&&!this.travelSession&&!this.recoveryRecord&&
-          !this.recoverableJourney&&game.user?.isGM){
+      if(this.mixedKeys.length>1&&this.canDraftTravelMethods()&&game.user?.isGM){
         metrics.push({label:"Estimated Cost",
           value:!blockedEstimate&&mixedFare?mixedFare.total.label:"Unavailable",
           tooltip:"Each method is rounded up separately. No currency is deducted.",
