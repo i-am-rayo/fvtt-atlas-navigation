@@ -41,7 +41,8 @@ test("continuous vessel submits one bounded move per durable checkpoint",async()
   const previous={game:globalThis.game,foundry:globalThis.foundry,Hooks:globalThis.Hooks};
   try{
     const listeners=new Map(),events=[];
-    globalThis.foundry={utils:{randomID:()=>"native-voyage-01"}};
+    let nativeId=0;
+    globalThis.foundry={utils:{randomID:()=>"NativeVoyage"+String(++nativeId).padStart(4,"0")}};
     globalThis.Hooks={
       on(name,callback){listeners.set(name,callback);return callback;},
       off(name,callback){assert.equal(listeners.get(name),callback);listeners.delete(name);}
@@ -58,6 +59,7 @@ test("continuous vessel submits one bounded move per durable checkpoint",async()
       },
       stopMovement(){this.release?.();return true;},
       async move(path,options){
+        assert.match(options.id,/^[A-Za-z0-9]{16}$/);
         this.moves++;
         let from={x:this.x,y:this.y};
         for(const target of path.filter(point=>point.checkpoint)){
@@ -120,7 +122,7 @@ test("native destination without committed token position preserves pending Jour
   const previous={game:globalThis.game,foundry:globalThis.foundry,Hooks:globalThis.Hooks};
   try{
     const listeners=new Map(),journalWrites=[];
-    globalThis.foundry={utils:{randomID:()=>"native-uncommitted-01"}};
+    globalThis.foundry={utils:{randomID:()=>"NativeUncommit01"}};
     globalThis.Hooks={
       on(name,callback){listeners.set(name,callback);return callback;},
       off(name,callback){assert.equal(listeners.get(name),callback);listeners.delete(name);}
@@ -1366,7 +1368,11 @@ test("an unconfirmed native ship checkpoint preserves transport and offers delib
       partyTokenProvider:()=>token});
     nav.scene=scene;nav.sourceMode="party";
     nav.travelMethod="walking";nav.start=point(0,0);nav.end=point(100,0);
-    nav.result=route;nav.recoverableJourney=journal;
+    nav.result=route;
+    nav.retainInterruptedJourney({sceneId:scene.id,journal,journeyRecord:record});
+    assert.equal(nav.recoverableJourney,journal);
+    assert.equal(nav.canDraftTravelMethods(),false);
+    await assert.rejects(nav.startGuidedTravel(),/Recover or deliberately end/);
     const panel=await nav._renderHTML();
     const find=(node,predicate)=>predicate(node)?node:
       node.children?.map(child=>find(child,predicate)).find(Boolean);
