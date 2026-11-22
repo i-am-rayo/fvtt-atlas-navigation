@@ -157,3 +157,23 @@ export function assessApprovedJourneyRecovery({approvedPath,route,anchor,
   return {safe:true,kind:"approved-route",lateralCells:anchorHit.distance/gridSize,
     routeDifferencePixels:difference};
 }
+
+/** Spatial evidence only. Ordered, unambiguous progress on the immutable
+ * route can explain a displaced token, but cannot credit movement/time. */
+export function assessApprovedRoutePosition({approvedPath,anchor,tokenPosition,
+  gridSize,marginCells=MAX_APPROVED_ROUTE_MARGIN_CELLS}={}){
+  if(!finite(anchor?.point)||!finite(tokenPosition)||
+      !Number.isFinite(gridSize)||gridSize<=0||
+      !Number.isFinite(marginCells)||marginCells<0||
+      marginCells>MAX_APPROVED_ROUTE_MARGIN_CELLS)
+    return {safe:false,reason:"unavailable"};
+  const parts=segments(validateApprovedJourneyPath(approvedPath));
+  const from=projection(anchor.point,parts),to=projection(tokenPosition,parts);
+  if(!from||!to||from.ambiguous||to.ambiguous)
+    return {safe:false,reason:"ambiguous-approved-position"};
+  if(Math.max(from.distance,to.distance)>gridSize*marginCells)
+    return {safe:false,reason:"off-approved-route"};
+  if(to.offset+1<from.offset)return {safe:false,reason:"behind-confirmed-position"};
+  return {safe:true,kind:to.offset>from.offset+1?"ahead":"at-anchor",
+    forwardPixels:Math.max(0,to.offset-from.offset),lateralCells:to.distance/gridSize};
+}
