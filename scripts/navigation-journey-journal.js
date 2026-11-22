@@ -333,8 +333,11 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
           const cost=fare.rows.find(row=>row.key===m.key);
           return label+(cost?" · "+cost.label:"");
         }),
-        "Estimated transportation cost: "+fare.total.label+
-          " (planned leg quote; no currency deducted).",
+        (isMixedLandTransport(leg.transport)&&leg.transport.continuation?
+          "Previously approved transportation cost: "+fare.total.label+
+            " (not an additional quote; no currency deducted).":
+          "Estimated transportation cost: "+fare.total.label+
+            " (planned leg quote; no currency deducted)."),
         ...(leg.convoy.gmWalkingPaceOverride?[
           "GM-approved walking pace exception: recommended "+
             convoySpeed(leg.convoy.suggestedSpeedPerHour)+
