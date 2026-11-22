@@ -13,7 +13,7 @@ import { atlasDisplayDistance,atlasDisplaySpeed } from "./navigation-measure-uni
 import { confirmedJourneyDirections } from "./navigation-journey-timeline.js";
 import {isRestUnderway,validatePassengerRestMetadata,confirmedJourneyMovingHours}
   from "./navigation-passenger-rest.js";
-import {validateTransportJourneyInfo,confirmedTransportJourneyLines} from "./navigation-transport-journal.js";
+import {validateTransportJourneyInfo,confirmedTransportJourneyLines,isMixedLandTransport} from "./navigation-transport-journal.js";
 import {validateJourneyTargets,validateJourneyAnchor,confirmJourneyTarget}
   from "./navigation-route-targets.js";
 import {validatePendingNativeMove}
@@ -142,8 +142,10 @@ export function validateJourneyRecord(value){
         (leg.approvedPath!==undefined&&
           !isApprovedJourneyPath(leg.approvedPath))||
         (leg.transport!==undefined&&!isTransportJourneyInfo(leg.transport))||
-        (leg.convoy!==undefined&&(!leg.travelMethod||
-          leg.travelMethod.id!=="walking"||leg.transport!==undefined))||
+        (leg.convoy!==undefined&&(leg.transport!==undefined?
+          !isMixedLandTransport(leg.transport)||leg.convoy?.schemaVersion!==2:
+          !leg.travelMethod||leg.travelMethod.id!=="walking"))||
+        (isMixedLandTransport(leg.transport)&&leg.convoy===undefined)||
         (leg.travelMethod!==undefined&&!validJourneyMethod(leg.travelMethod))||
         (leg.transport!==undefined&&leg.travelMethod!==undefined))||
       !Number.isFinite(value.day?.todayHours)||value.day.todayHours<0||
@@ -225,7 +227,18 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
     if(Math.abs(resumed.speedPerHour-old.speedPerHour)>1e-7)
       throw Error("The saved convoy speed must be retained before recovery.");
     resumed.convoy=validateApprovedConvoy(old.convoy);
-    resumed.travelMethod=structuredClone(old.travelMethod);
+    if(isMixedLandTransport(old.transport)){
+      if(!isMixedLandTransport(resumed.transport)||
+          resumed.transport.arrivalCheckpointId!==old.transport.arrivalCheckpointId||
+          resumed.destination.x!==old.destination.x||
+          resumed.destination.y!==old.destination.y||
+          resumed.terrainAware!==old.terrainAware)
+        throw Error("The approved convoy checkpoint and terrain mode must be retained before recovery.");
+    }else{
+      if(resumed.transport!==undefined)
+        throw Error("An ordinary approved convoy cannot change to checkpoint transport during recovery.");
+      resumed.travelMethod=structuredClone(old.travelMethod);
+    }
   }
   if(approvedPath)resumed.approvedPath=validateApprovedJourneyPath(approvedPath);
   next.legs.push(resumed);
