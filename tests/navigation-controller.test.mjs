@@ -3323,3 +3323,43 @@ test("canvas teardown suspends a submitted continuous operation instead of endin
     finish();
   }finally{globalThis.game=old;}
 });
+
+test("suspended Journal finalization waits for its writer and preserves the durable clock boundary",async()=>{
+  const old=globalThis.game;
+  try{
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}},time:{worldTime:3700}};
+    const scene={id:"sea",name:"Paedor",grid:{size:100,units:"mi"}};
+    const route={status:"ok",start:point(50,50),end:point(150,50),distance:8,cost:8,
+      terrainAware:false,legs:[{kind:"road",roadId:"sea",segmentId:"s",
+        points:[point(50,50),point(150,50)],distance:8,cost:8}]};
+    const itinerary=createNavigationItinerary({sceneId:scene.id,sceneName:scene.name,
+      sceneUnits:"mi",route,travel:{speed:2}});
+    let record=createJourneyRecord({sceneId:scene.id,tokenId:"party",atlasRevision:4,itinerary,
+      initialAnchor:{point:point(50,50),roadId:"sea",segmentId:"s",
+        checkpointId:null,levelId:"surface",elevation:0}});
+    record.pendingNativeMove={schemaVersion:1,bounded:true,previousMovementId:null,
+      operationId:"pending-op",tokenId:"party",checkpointIndex:0,from:point(0,0),to:point(25,0),
+      path:[point(0,0),point(25,0)],nativePath:[point(0,0),point(25,0)],
+      completedPercent:25,nativeDistance:25,movingHours:1,worldTimeBefore:100,
+      worldAdvanceSeconds:3600,atlasRevision:4};
+    let writes=0,release;
+    const session={canvasSuspended:true,journal:{id:"sea-journey",getFlag:()=>structuredClone(record),
+      canUserModify:()=>true},journalQueue:new Promise(resolve=>{release=resolve;}),
+      clock:{advancedSeconds:3600},completedDistance:25};
+    const nav=new AtlasNavigationController({journeyJournalStore:{save:async next=>{
+      writes++;record=structuredClone(next);
+    }}});
+    nav.suspendedNativeSession=session;
+    const settled=nav.settleSuspendedNativeJourney(session);
+    await Promise.resolve();
+    assert.equal(writes,0);assert.equal(nav.suspendedNativeSession,session);
+    release();await settled;
+    assert.equal(writes,1);
+    assert.equal(record.status,"interrupted");
+    assert.equal(record.legs[0].worldTravelSeconds,0,"do not duplicate outstanding clock credit in Journal");
+    assert.equal(record.legs[0].completedPercent,0);
+    assert.ok(record.pendingNativeMove);
+    assert.equal(nav.suspendedNativeSession,null);
+    assert.equal(game.time.worldTime,3700);
+  }finally{globalThis.game=old;}
+});
