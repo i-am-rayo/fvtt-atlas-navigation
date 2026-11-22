@@ -16,7 +16,7 @@ import {planNativeCheckpointPath,anchorNativeTokenWaypoints,
   from "./navigation-native-movement-plan.js";
 import {coordinateNativeTokenMovement}
   from "./navigation-native-movement-coordinator.js";
-import {validatePendingNativeMove,assessPendingNativeMove}
+import {validatePendingNativeMove,assessPendingNativeMove,assessBoundedNativeArrival}
   from "./navigation-native-movement-reconciliation.js";
 import { GuidedTravelDayTracker,estimateNavigationTotalTrip,
   splitGuidedChunkAtDistance,MAX_GUIDED_REST_EVENTS,MAX_GUIDED_TRAVEL_EVENTS }
@@ -1538,28 +1538,116 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }catch{return false;}
   }
 
+  /** Read-only recovery candidate. A bounded endpoint can be credited only
+   * with its own durable interval and terminal native movement evidence. */
+  boundedNativeArrival(saved){
+    try{
+      const leg=saved?.legs?.at(-1),intent=saved?.pendingNativeMove;
+      const scene=this.scene,view=this.canvasProvider(),token=this.getPartyToken();
+      if(!intent?.bounded||!leg?.approvedPath||leg.transport?.operation!=="continuous"||
+          !game.user?.isGM||game.users?.activeGM?.id!==game.user.id||
+          !scene?.canUserModify?.(game.user,"update")||
+          !token?.canUserModify?.(game.user,"update")||!view?.ready||
+          view.scene?.id!==scene.id||this.travelSession||this.pendingTransfer||
+          saved.status!=="interrupted"||!isUnfinishedJourneyLeg(saved))return null;
+      const atlas=this.atlasProvider(scene),anchor=saved.lastConfirmedAnchor;
+      if(!eligibleJourneyRecord(saved,{sceneId:scene.id,tokenId:token.id,
+          atlasRevision:atlas.revision})||!anchor||
+          (anchor.levelId??null)!==(token.level?.id??token.level??null)||
+          (anchor.elevation??null)!==(token.elevation??null))return null;
+      const result=assessBoundedNativeArrival(intent,{
+        tokenId:token.id,tokenPoint:token,movement:token.movement,
+        worldTime:game.time?.worldTime,atlasRevision:atlas.revision});
+      if(result.status!=="at-end")return null;
+      const position=this.atlasPoint(view,atlas,partyTokenCanvasCenter(token,scene.grid.size));
+      const route=assessApprovedRoutePosition({approvedPath:leg.approvedPath,anchor,
+        tokenPosition:position,gridSize:scene.grid.size});
+      if(!route.safe||route.kind!=="ahead")return null;
+      // Verify the pending origin is the same confirmed image-local anchor.
+      const origin=this.atlasPoint(view,atlas,partyTokenCanvasCenter(
+        {...token,x:intent.from.x,y:intent.from.y,width:token.width,height:token.height},scene.grid.size));
+      if(Math.hypot(origin.x-anchor.point.x,origin.y-anchor.point.y)>1)return null;
+      const completedHours=leg.completedMovingHours+intent.movingHours;
+      const progress=Math.min(100,intent.completedPercent);
+      if(progress<=leg.completedPercent||completedHours>leg.movingHours+1e-4||
+          Math.abs(completedHours/leg.movingHours*100-progress)>1e-4)return null;
+      const final=progress>=99.999;
+      let arrivedCheckpoint=null;
+      if(final){
+        const checkpoint=atlas.checkpoints?.find(cp=>cp.id===leg.transport.arrivalCheckpointId);
+        const node=atlas.nodes?.find(n=>n.id===checkpoint?.nodeId);
+        const target=saved.routeTargets?nextJourneyTarget(saved.routeTargets):null;
+        if(!node||!target||target.checkpointId!==checkpoint.id||
+            !confirmGuidedCheckpointArrival({token,gridSize:scene.grid.size,
+              atlasPoint:position,expectedPoint:node})||
+            Math.hypot(node.x-leg.destination.x,node.y-leg.destination.y)>.01)return null;
+        arrivedCheckpoint={id:checkpoint.id,name:checkpoint.name,point:{x:node.x,y:node.y}};
+      }
+      const schedule={completedHours:Math.min(leg.movingHours,completedHours),
+        todayHours:(saved.day.todayHours+intent.movingHours)%24,
+        permittedExtraUntil:saved.day.permittedExtraUntil,restEvents:saved.day.restEvents,
+        lastForcedCheck:saved.day.lastForcedCheck,events:structuredClone(leg.events)};
+      const next=structuredClone(saved);
+      if(next.passengerRest){
+        const priorHours=confirmedJourneyMovingHours({legs:saved.legs.slice(0,-1)});
+        const request={action:next.passengerRest.action,hours:next.passengerRest.hours,
+          startHours:next.passengerRest.startedAtMovingHours-priorHours};
+        if(confirmPassengerRest(schedule,request))next.passengerRest=null;
+      }
+      next.pendingNativeMove=null;
+      const confirmedAnchor=captureJourneyAnchor({point:position,atlas,gridSize:scene.grid.size,
+        levelId:anchor.levelId,elevation:anchor.elevation});
+      const record=checkpointJourneyRecord(next,{schedule,progress,
+        status:final?"paused":"interrupted",
+        worldTravelSeconds:leg.worldTravelSeconds+intent.worldAdvanceSeconds,
+        worldRestSeconds:leg.worldRestSeconds,confirmedAnchor,arrivedCheckpoint,
+        checkpointTolerancePixels:scene.grid.size*.75});
+      if(final&&record.routeTargets.nextTargetIndex!==saved.routeTargets.nextTargetIndex+1)return null;
+      return {record,clockAction:result.worldClockAction,
+        worldTimeAfter:intent.worldTimeBefore+intent.worldAdvanceSeconds};
+    }catch{return null;}
+  }
+
   async recoverSavedJourneyWithNativeReview({automatic=false}={}){
     const journal=this.recoverableJourney;
     const raw=journal?.getFlag?.(MODULE_ID,JOURNEY_JOURNAL_FLAG);
     if(!raw?.pendingNativeMove)return this.recoverSavedJourney({automatic});
     const saved=validateJourneyRecord(raw);
-    if(!this.canRecoverUnexecutedNativeMove(saved)||
-        !journal.canUserModify?.(game.user,"update"))
+    const unexecuted=this.canRecoverUnexecutedNativeMove(saved);
+    const arrival=unexecuted?null:this.boundedNativeArrival(saved);
+    if((!unexecuted&&!arrival)||!journal.canUserModify?.(game.user,"update")||
+        (arrival?.clockAction==="advance"&&(!readNavigationWorldClockSetting(game.settings)||
+          typeof game.time?.advance!=="function")))
       return this.recoverSavedJourney({automatic}); // existing fail-closed guard
     const scene=this.scene, token=this.getPartyToken();
-    const next=validateJourneyRecord({...saved,pendingNativeMove:null,
+    let next=arrival?.record??validateJourneyRecord({...saved,pendingNativeMove:null,
       updatedAt:new Date().toISOString()});
     this.journalStarting=true;
     try{
-      await this.journeyJournalStore.save(next,{journal,updatePage:false});
+      if(arrival){
+        // The original durable intent is retained across a failed clock or
+        // Journal write. On retry its target clock is recognized, not added.
+        if(arrival.clockAction==="advance")
+          await game.time.advance(saved.pendingNativeMove.worldAdvanceSeconds);
+        const verified=this.boundedNativeArrival(saved);
+        if(!verified||game.time.worldTime!==arrival.worldTimeAfter||
+            this.scene!==scene||this.getPartyToken()!==token||
+            this.recoverableJourney?.id!==journal.id||
+            !journal.canUserModify?.(game.user,"update")||
+            JSON.stringify(journal.getFlag(MODULE_ID,JOURNEY_JOURNAL_FLAG))!==JSON.stringify(raw))
+          throw Error("Native checkpoint state changed during clock reconciliation. The original intent is retained.");
+        next=verified.record;
+      }
+      await this.journeyJournalStore.save(next,{journal,updatePage:next.status==="paused"});
     }finally{this.journalStarting=false;}
     // A newly changed token, clock, scene or Journal must not auto-start.
     if(this.scene!==scene||this.getPartyToken()!==token||
         this.recoverableJourney?.id!==journal.id||
         JSON.stringify(journal.getFlag(MODULE_ID,JOURNEY_JOURNAL_FLAG))!==JSON.stringify(next)||
-        !this.canRecoverUnexecutedNativeMove(saved))
+        !(unexecuted?this.canRecoverUnexecutedNativeMove(saved):this.boundedNativeArrival(saved)))
       throw Error("The saved Journey changed during checkpoint reconciliation. Review it before continuing.");
-    atlasDebug("journey","Unexecuted native checkpoint reconciled without movement or time writes",
+    atlasDebug("journey",arrival?"Bounded native endpoint reconciled without replaying movement":
+      "Unexecuted native checkpoint reconciled without movement or time writes",
       {journalId:journal.id,operationId:saved.pendingNativeMove.operationId,
         checkpointIndex:saved.pendingNativeMove.checkpointIndex});
     return this.recoverSavedJourney({automatic});
@@ -4000,8 +4088,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
       }
     }
-    const canReconcileNative=pendingNativeReview&&
-      this.canRecoverUnexecutedNativeMove(pendingNativeReview)&&
+    const nativeAtStart=pendingNativeReview&&this.canRecoverUnexecutedNativeMove(pendingNativeReview);
+    const nativeArrival=pendingNativeReview&&!nativeAtStart?this.boundedNativeArrival(pendingNativeReview):null;
+    const canReconcileNative=(nativeAtStart||nativeArrival&&
+      (nativeArrival.clockAction!=="advance"||readNavigationWorldClockSetting(game.settings)))&&
       this.recoverableJourney?.canUserModify?.(game.user,"update");
     const pendingReviewLeg=pendingNativeReview?.legs?.at(-1)??null;
     let routeReview=null;
@@ -4255,7 +4345,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const pending=pendingNativeReview.pendingNativeMove;
       const checkpointLabel=Number.isSafeInteger(pending.checkpointIndex)?
         String(pending.checkpointIndex+1):"unknown";
-      body.appendChild(renderTransportAdvisory(canReconcileNative?
+      body.appendChild(renderTransportAdvisory(canReconcileNative&&nativeArrival?
+        "The approved "+pendingReviewMethodName+" reached its verified native checkpoint. Recover to reconcile outstanding confirmed time without replaying movement.":
+        canReconcileNative?
         "The approved "+pendingReviewMethodName+" Journey stopped before native checkpoint "+
         checkpointLabel+". The TokenDocument and World time match the last confirmed boundary. "+
         "Recover to restore the approved remaining leg without replaying confirmed movement.":
@@ -4285,7 +4377,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       recover.type="button";
       recover.title="Recalculate the remaining journey from the party token without moving it";
       if(canReconcileNative){
-        description.textContent="The unexecuted checkpoint can be reconciled without movement or World-time changes. Recover the approved remaining Journey.";
+        description.textContent=nativeArrival?
+          "The native endpoint is verified. Recover to record its progress and only outstanding World time.":
+          "The unexecuted checkpoint can be reconciled without movement or World-time changes. Recover the approved remaining Journey.";
       }else if(pendingNativeReview){
         description.textContent="Saved Journey requires GM checkpoint review. " +
           "Its approved transportation and Journal are preserved; " +
