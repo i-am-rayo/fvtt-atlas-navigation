@@ -168,7 +168,7 @@ test("native destination without committed token position preserves pending Jour
     assert.deepEqual(journalWrites,["moving"],
       "a pending intent is saved but no confirmation is committed");
     assert.equal(session.journeyRecord.pendingNativeMove?.operationId,
-      "native-uncommitted-01");
+      "NativeUncommit01");
     assert.equal(session.completedDistance,0);
     assert.equal(session.confirmedSegments,0);
     assert.equal(globalThis.game.time.worldTime,500);
@@ -2149,6 +2149,11 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     // Journey. A completed route may no longer be replayed as-is.
     const newRoute=()=>{
       const preview=nav.result;
+      // Independent test scenarios: discard the synthetic fixture Journal
+      // only here. Production New Route requires explicit GM abandonment.
+      nav.recoverableJourney=null;
+      nav.recoveryRecord=null;nav.recoveryJournal=null;
+      nav.journeyJournal=null;
       nav.routeCalculator=()=>preview;
       nav.calculateRoute(view,atlas);
     };
@@ -2217,6 +2222,9 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     assert.equal(moveCount,previousMoves+1,"time failure prevents further movement chunks");
     assert.equal(nav.worldTimeAdvancedSeconds,0);
     assert.match(nav.travelNotice,/World time could not advance: Clock is unavailable/);
+    assert.ok(nav.recoverableJourney,"same-canvas interruption retains the Journal");
+    await assert.rejects(nav.startGuidedTravel(),/Recover or deliberately end/);
+    assert.equal(moveCount,previousMoves+1,"unresolved Journey cannot start another move");
 
     // Unexpected errors inside an active movement should be visible in the
     // Navigation window rather than silently dropping the in-flight session.
@@ -2226,6 +2234,7 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     await assert.rejects(nav.startGuidedTravel(),/Native animation failed/);
     assert.match(nav.travelNotice,/Journey interrupted: Native animation failed/);
     assert.equal(nav.travelSession,null);
+    assert.ok(nav.recoverableJourney,"unexpected exception also retains the Journal");
 
     // A native operation reporting true but ending off the route is not
     // confirmed travel: neither progress nor World time may be credited.
