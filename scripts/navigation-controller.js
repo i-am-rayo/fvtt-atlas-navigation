@@ -2122,6 +2122,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       session.canvasSuspended&&this.suspendedNativeSession===session&&
       game.user?.isGM&&game.users?.activeGM?.id===game.user.id&&
       scene?.canUserModify?.(game.user,"update")&&
+      session.journal?.canUserModify?.(game.user,"update")&&
       session.token.canUserModify?.(game.user,"update")&&
       scene.tokens?.get(session.token.id)===session.token&&
       this.atlasProvider(scene).revision===atlas.revision);
@@ -2150,8 +2151,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         session.journeyRecord.pendingNativeMove=validatePendingNativeMove({
           ...pending,partialEvidence:partial.evidence});
         await this.saveJourneyCheckpoint(session,"moving",{updatePage:false});
-      }else atlasWarn("journey","Suspended native interval needs review",{
-        operationId:intervalId,reason:partial.reason??"World clock changed"});
+      }else atlasWarn("journey","Suspended native interval needs review",JSON.stringify({
+        operationId:intervalId,reason:partial.reason??"World clock changed",
+        path:pending.path,nativePath:pending.nativePath??null,
+        token:{x:session.token.x,y:session.token.y},worldTime:game.time.worldTime,
+        movement:{id:movement?.id,state:movement?.state,constrained:movement?.constrained,
+          origin:movement?.origin,destination:movement?.destination,
+          passed:movement?.passed?.waypoints?.slice(0,4096).map(p=>({x:p.x,y:p.y,movementId:p.movementId})),
+          pending:movement?.pending?.waypoints?.slice(0,4096).map(p=>({x:p.x,y:p.y,movementId:p.movementId}))}
+      }));
     };
     const confirmCheckpoint=async(checkpoint,movement,intervalId)=>{
       if(shouldStop())throw Error("Native movement interrupted before confirmation.");
@@ -3144,26 +3152,30 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.retainInterruptedJourney(session);
         if(this.active)void this.render(true);
       }
-      if(session.canvasSuspended){
-        try{
-          // The durable record, not the in-memory clock ledger, determines
-          // whether the interval still needs to be reconciled after a redraw.
-          await session.journalQueue?.catch(()=>{});
-          const saved=validateJourneyRecord(session.journal.getFlag(MODULE_ID,JOURNEY_JOURNAL_FLAG));
-          if(saved.status==="moving"&&game.user?.isGM&&
-              game.users?.activeGM?.id===game.user.id&&
-              session.journal.canUserModify?.(game.user,"update")){
-            const interrupted=validateJourneyRecord({...saved,status:"interrupted",
-              updatedAt:new Date().toISOString()});
-            await this.journeyJournalStore.save(interrupted,{journal:session.journal,updatePage:true});
-          }
-        }catch(error){
-          atlasWarn("journey","Suspended Journey could not publish its last durable checkpoint",error);
-        }finally{
-          if(this.suspendedNativeSession===session)this.suspendedNativeSession=null;
-        }
-      }
+      if(session.canvasSuspended)await this.settleSuspendedNativeJourney(session);
       session.resolveFinished?.();
+    }
+  }
+
+  /** Finish only after the submitted operation and prior Journal writer settle.
+   * Never copy an in-memory clock ledger into an unconfirmed durable intent. */
+  async settleSuspendedNativeJourney(session){
+    try{
+      // The durable record, not the in-memory clock ledger, determines
+      // whether the interval still needs to be reconciled after a redraw.
+      await session.journalQueue?.catch(()=>{});
+      const saved=validateJourneyRecord(session.journal.getFlag(MODULE_ID,JOURNEY_JOURNAL_FLAG));
+      if(saved.status==="moving"&&game.user?.isGM&&
+          game.users?.activeGM?.id===game.user.id&&
+          session.journal.canUserModify?.(game.user,"update")){
+        const interrupted=validateJourneyRecord({...saved,status:"interrupted",
+          updatedAt:new Date().toISOString()});
+        await this.journeyJournalStore.save(interrupted,{journal:session.journal,updatePage:true});
+      }
+    }catch(error){
+      atlasWarn("journey","Suspended Journey could not publish its last durable checkpoint",error);
+    }finally{
+      if(this.suspendedNativeSession===session)this.suspendedNativeSession=null;
     }
   }
 
