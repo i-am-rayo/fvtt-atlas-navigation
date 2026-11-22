@@ -216,12 +216,14 @@ async function moveNativeInterval({
 /** Never submit an uncommitted future interval to Foundry. A canvas replacement
  * can invalidate native pause callbacks but cannot release an unsent path. */
 export async function coordinateNativeTokenMovement({plan,operationId,
+  createOperationId=()=>globalThis.foundry.utils.randomID(),
   prepareCheckpoint,confirmCheckpoint,shouldStop=()=>false,signal,...options}={}){
   if(!Array.isArray(plan?.path)||!Array.isArray(plan?.checkpoints)||
       !plan.checkpoints.length||typeof operationId!=="string"||!operationId||
       typeof prepareCheckpoint!=="function"||typeof confirmCheckpoint!=="function")
     throw Error("Native movement requires an approved checkpoint plan.");
   let confirmed=0,start=0;
+  const usedIds=new Set();
   for(const checkpoint of plan.checkpoints){
     if(signal?.aborted||shouldStop())return {completed:false,confirmed,error:null};
     const end=checkpoint.pathEndIndex??plan.path.findIndex((p,i)=>
@@ -231,7 +233,12 @@ export async function coordinateNativeTokenMovement({plan,operationId,
         !near(plan.path[end],checkpoint.point,1))
       throw Error("Invalid bounded native checkpoint path.");
     const path=plan.path.slice(start,end+1);
-    const id=confirmed===0?operationId:operationId+"-"+confirmed;
+    // Foundry requires a unique native ID, not an Atlas checkpoint key.
+    const id=confirmed===0?operationId:createOperationId();
+    if(typeof id!=="string"||!/^[A-Za-z0-9]{16}$/.test(id)||usedIds.has(id)||
+        id===options.token?.movement?.id)
+      throw Error("Invalid or repeated native movement ID before checkpoint preparation.");
+    usedIds.add(id);
     const interval={path,checkpoints:[{...checkpoint,pathStartIndex:0,
       pathEndIndex:path.length-1}]};
     const result=await moveNativeInterval({...options,plan:interval,operationId:id,
