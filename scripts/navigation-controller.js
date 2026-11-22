@@ -1884,8 +1884,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       arrivedTimeLabel:arrival?.label??null
     });
     session.journeyRecord=saved;
-    // Persist each confirmed native movement/rest as recovery data, but publish
-    // readable history only on an arrived leg or deliberate finalization.
+    // Persist each confirmed native movement/rest as recovery data; publish
+    // readable history on arrival, interruption or deliberate finalization.
     const publish=updatePage??journeySummaryDue({status,
       completedPercent:saved.legs.at(-1).completedPercent,
       pendingNativeMove:saved.pendingNativeMove});
@@ -2375,6 +2375,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const view=this.canvasProvider();
     if(this.travelSession||this.journalStarting)
       throw Error("Guided travel is already in progress or being prepared.");
+    if(this.recoveryRecord?.pendingNativeMove||
+        this.recoverableJourney&&!this.recoveryRecord)
+      throw Error("Recover or deliberately end the saved Journey before starting travel.");
     if(this.completedRoute)
       throw Error("This Journey is completed. Choose New Route before traveling again.");
     if(this.pendingTransfer)
@@ -3040,10 +3043,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       session.restWaiter?.(null);
       if(this.travelSession===session){
         this.travelSession=null;
+        this.retainInterruptedJourney(session);
         if(this.active)void this.render(true);
       }
       session.resolveFinished?.();
     }
+  }
+
+  /** Same-canvas failures need the same saved-Journey lock as canvas reopen. */
+  retainInterruptedJourney(session){
+    if(!session?.journal||!session.journeyRecord||this.pendingTransfer||
+        this.completedRoute||this.scene?.id!==session.sceneId||
+        !["moving","interrupted","paused"].includes(session.journeyRecord.status))return;
+    this.recoverableJourney=session.journal;
+    this.recoveryRecord=null;this.recoveryJournal=null;
+    this.journeyJournal=session.journal;
   }
 
   /** The party must actually occupy its authored checkpoint before onward choice. */
