@@ -20,6 +20,7 @@ function nativeHarness({alterDestination=false,alterOrigin=false,
     },
     stopMovement(){this.stopped=true;this.release?.();return true;},
     async move(path,options){
+      assert.match(options.id,/^[A-Za-z0-9]{16}$/,"Foundry rejects malformed native IDs");
       this.moves++;
       assert.equal(path.length,1,"only the next approved destination is submitted");
       for(const [index,to] of path.entries()){
@@ -62,8 +63,8 @@ test("each bounded native move waits for the previous durable checkpoint",async(
   const {token,plan,hooks,calls,listeners}=nativeHarness();
   const order=[];
   let awaitingSave=false;
-  const result=await coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-42",movementSpeed:2,
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000000",movementSpeed:2,
     prepareCheckpoint:async point=>{
       order.push("intent:"+point.index);
       awaitingSave=true;
@@ -88,8 +89,8 @@ test("each bounded native move waits for the previous durable checkpoint",async(
 test("a failed Journal confirmation stops native movement and never credits another checkpoint",async()=>{
   const {token,plan,hooks,listeners}=nativeHarness();
   const confirmed=[];
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-43",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000001",movementSpeed:2,
     prepareCheckpoint:async()=>{},
     confirmCheckpoint:async(point)=>{
       confirmed.push(point.index);
@@ -105,8 +106,8 @@ test("native moveToken may precede the TokenDocument update without rejecting th
   const {token,plan,hooks,listeners}=nativeHarness({documentUpdateTiming:"after-hook"});
   const observed=[];
   const confirmed=[];
-  const result=await coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-delayed-document",movementSpeed:2,
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000002",movementSpeed:2,
     prepareCheckpoint:async()=>{},
     confirmCheckpoint:async checkpoint=>{
       assert.deepEqual({x:token.x,y:token.y},checkpoint.point,
@@ -134,8 +135,8 @@ test("native arrival that never updates TokenDocument remains unconfirmed after 
   plan.checkpoints[0].segmentId="water-segment";
   const observed=[];
   let confirmed=0;
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-missing-document",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000003",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;},
     onCheckpointDiagnostics:event=>observed.push(event)
   }),/TokenDocument missed its approved checkpoint/);
@@ -151,14 +152,14 @@ test("native arrival that never updates TokenDocument remains unconfirmed after 
   assert.deepEqual(blocked?.details.tokenDocument,{x:0,y:0});
   assert.equal(blocked?.details.roadId,"water-route");
   assert.equal(blocked?.details.segmentId,"water-segment");
-  assert.equal(blocked?.details.nativeCheckpointKey,"atlas-native-missing-document:0");
+  assert.equal(blocked?.details.nativeCheckpointKey,"AtlasTest0000003:0");
 });
 
 test("a redirected native checkpoint stops without accepting visually close-enough progress",async()=>{
   const {token,plan,hooks}=nativeHarness({alterDestination:true});
   let confirmed=0;
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-44",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000004",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;}
   }),/does not match the approved native checkpoint/);
   assert.equal(confirmed,0);
@@ -169,14 +170,14 @@ test("a reported full-path origin is reconciled only with an exact passed approv
   const {token,plan,hooks}=nativeHarness({alterOrigin:true,
     documentUpdateTiming:"after-hook"});
   const observed=[];
-  const result=await coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-verified",movementSpeed:2,
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000005",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{},
     onCheckpointDiagnostics:event=>observed.push(event)
   });
   assert.equal(result.confirmed,2);
   assert.ok(observed.every(event=>event.details.reconciledFromPassed));
-  assert.equal(observed[0].details.nativeCheckpointKey,"atlas-native-verified:0");
+  assert.equal(observed[0].details.nativeCheckpointKey,"AtlasTest0000005:0");
   assert.deepEqual(observed[0].details.expectedFrom,{x:0,y:0});
   assert.deepEqual(observed[0].details.nativeOrigin,{x:-5,y:0});
   assert.equal(observed[0].details.documentMatches,false);
@@ -186,8 +187,8 @@ test("a reported full-path origin is reconciled only with an exact passed approv
 test("a native passed-path detour is rejected even if its final endpoint matches",async()=>{
   const {token,plan,hooks}=nativeHarness({alterOrigin:true,detour:true});
   const observed=[];
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-detour",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000006",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{},
     onCheckpointDiagnostics:event=>observed.push(event)
   }),/does not match the approved native checkpoint/);
@@ -203,8 +204,8 @@ test("native checkpoint failures report Atlas checkpoint and road IDs with both 
   plan.checkpoints[0].segmentId="segment-ship";
   plan.checkpoints[0].atlasCheckpointId="checkpoint-harbor";
   const observed=[];
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-coordinates",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000007",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{},
     onCheckpointDiagnostics:event=>observed.push(event)
   }),/does not match the approved native checkpoint/);
@@ -218,8 +219,8 @@ test("native checkpoint failures report Atlas checkpoint and road IDs with both 
   assert.deepEqual(observed[0].details.failedChecks,["destination"],
     "only immutable native-path mismatches block at the movement hook");
   assert.equal(observed[0].details.observationPhase,"move-hook");
-  assert.equal(observed[0].details.nativeOperationId,"atlas-native-coordinates");
-  assert.equal(observed[0].details.nativeCheckpointKey,"atlas-native-coordinates:0");
+  assert.equal(observed[0].details.nativeOperationId,"AtlasTest0000007");
+  assert.equal(observed[0].details.nativeCheckpointKey,"AtlasTest0000007:0");
   assert.deepEqual(observed[0].details.expectedFrom,{x:0,y:0});
   assert.deepEqual(observed[0].details.nativeOrigin,{x:0,y:0});
   assert.deepEqual(observed[0].details.tokenDocument,{x:14,y:0});
@@ -235,8 +236,8 @@ test("a foreign native movement ID emits an actionable failure without Journal c
   const {token,plan,hooks}=nativeHarness({alterMovementId:true});
   const observed=[];
   let confirmed=0;
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-owned",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000008",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;},
     onCheckpointDiagnostics:event=>observed.push(event)
   }),/Another native movement displaced/);
@@ -245,14 +246,14 @@ test("a foreign native movement ID emits an actionable failure without Journal c
   assert.equal(observed[0].details.failureReason,"foreign-native-movement-id");
   assert.deepEqual(observed[0].details.failedChecks,["movement-id"]);
   assert.equal(observed[0].details.nativeMovementId,"foreign-token-move");
-  assert.equal(observed[0].details.nativeOperationId,"atlas-native-owned");
+  assert.equal(observed[0].details.nativeOperationId,"AtlasTest0000008");
   assert.deepEqual(observed[0].details.expectedTo,{x:10,y:0});
 });
 
 test("preparation fails before any native Document position changes",async()=>{
   const {token,plan,hooks,listeners}=nativeHarness();
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-45",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000009",movementSpeed:2,
     prepareCheckpoint:async()=>{throw Error("Journal unavailable");},
     confirmCheckpoint:async()=>{}
   }),/Journal unavailable/);
@@ -265,8 +266,8 @@ test("canvas abort stops a movement whose native animation promise never settles
   const {token,plan,hooks,listeners}=nativeHarness({animationNeverEnds:true});
   const abort=new AbortController();
   let confirmed=0;
-  const pending=coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-abort",movementSpeed:2,signal:abort.signal,
+  const pending=coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000010",movementSpeed:2,signal:abort.signal,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;}
   });
   for(let index=0;index<100&&token.x===0;index++)await Promise.resolve();
@@ -282,8 +283,8 @@ test("redraw during the next intent cannot release an unsent native waypoint suf
   const {token,plan,hooks,listeners}=nativeHarness();
   const abort=new AbortController();
   const confirmed=[];
-  const result=await coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-redraw",movementSpeed:2,signal:abort.signal,
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000011",movementSpeed:2,signal:abort.signal,
     prepareCheckpoint:async checkpoint=>{if(checkpoint.index===1)abort.abort();},
     confirmCheckpoint:async checkpoint=>confirmed.push(checkpoint.index)
   });
@@ -292,4 +293,18 @@ test("redraw during the next intent cannot release an unsent native waypoint suf
   assert.equal(token.moves,1);
   assert.equal(token.x,10);
   assert.equal(listeners.size,0);
+});
+
+test("malformed or repeated native IDs cannot persist an intent or submit its move",async()=>{
+  for(const invalid of ["STnppSz0mQzxlkL4-1","STnppSz0mQzxlkL4"]){
+    const {token,plan,hooks}=nativeHarness();
+    const intents=[];
+    await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
+      operationId:"STnppSz0mQzxlkL4",createOperationId:()=>invalid,movementSpeed:2,
+      prepareCheckpoint:async(checkpoint,id)=>intents.push([checkpoint.index,id]),
+      confirmCheckpoint:async()=>{}
+    }),/Invalid or repeated native movement ID/);
+    assert.deepEqual(intents,[[0,"STnppSz0mQzxlkL4"]]);
+    assert.equal(token.moves,1);
+  }
 });
