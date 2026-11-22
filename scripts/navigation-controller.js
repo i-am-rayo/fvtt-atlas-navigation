@@ -16,7 +16,8 @@ import {planNativeCheckpointPath,anchorNativeTokenWaypoints,
   from "./navigation-native-movement-plan.js";
 import {coordinateNativeTokenMovement}
   from "./navigation-native-movement-coordinator.js";
-import {validatePendingNativeMove,assessPendingNativeMove,assessBoundedNativeArrival}
+import {validatePendingNativeMove,assessPendingNativeMove,assessBoundedNativeArrival,
+  captureNativeArrivalEvidence}
   from "./navigation-native-movement-reconciliation.js";
 import { GuidedTravelDayTracker,estimateNavigationTotalTrip,
   splitGuidedChunkAtDistance,MAX_GUIDED_REST_EVENTS,MAX_GUIDED_TRAVEL_EVENTS }
@@ -1507,6 +1508,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const view=this.canvasProvider(),atlas=this.atlasProvider(this.scene);
       const token=this.getPartyToken(),movement=token?.movement;
       const intent=saved.pendingNativeMove;
+      if(intent.arrivalEvidence)return false;
       if(!view?.ready||view.scene?.id!==this.scene.id||
           !token?.canUserModify?.(game.user,"update")||
           !eligibleJourneyRecord(saved,{sceneId:this.scene.id,
@@ -1619,12 +1621,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   async recoverSavedJourneyWithNativeReview({automatic=false}={}){
     if(this.journalStarting||this.travelSession)return false;
     const journal=this.recoverableJourney;
-    const raw=journal?.getFlag?.(MODULE_ID,JOURNEY_JOURNAL_FLAG);
+    let raw=journal?.getFlag?.(MODULE_ID,JOURNEY_JOURNAL_FLAG);
     if(!raw?.pendingNativeMove)return this.recoverSavedJourney({automatic});
-    const saved=validateJourneyRecord(raw);
+    let saved=validateJourneyRecord(raw);
     const unexecuted=this.canRecoverUnexecutedNativeMove(saved);
     let rejection=null;
-    const arrival=unexecuted?null:this.boundedNativeArrival(saved,reason=>{rejection=reason;});
+    let arrival=unexecuted?null:this.boundedNativeArrival(saved,reason=>{rejection=reason;});
     if((!unexecuted&&!arrival)||!journal.canUserModify?.(game.user,"update")||
         (arrival?.clockAction==="advance"&&(!readNavigationWorldClockSetting(game.settings)||
           typeof game.time?.advance!=="function"))){
@@ -1639,6 +1641,25 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.journalStarting=true;
     try{
       if(arrival){
+        if(!saved.pendingNativeMove.arrivalEvidence){
+          const evidence=captureNativeArrivalEvidence(saved.pendingNativeMove,{
+            movement:token.movement,tokenPoint:token});
+          if(!evidence)throw Error("Native endpoint evidence cannot be durably verified. Review the saved Journey.");
+          const withEvidence=validateJourneyRecord({...saved,pendingNativeMove:{
+            ...saved.pendingNativeMove,arrivalEvidence:evidence}});
+          if(JSON.stringify(journal.getFlag(MODULE_ID,JOURNEY_JOURNAL_FLAG))!==JSON.stringify(raw))
+            throw Error("The saved Journey changed before native evidence persistence.");
+          await this.journeyJournalStore.save(withEvidence,{journal,updatePage:false});
+          raw=journal.getFlag(MODULE_ID,JOURNEY_JOURNAL_FLAG);
+          if(JSON.stringify(raw)!==JSON.stringify(withEvidence))
+            throw Error("Native endpoint evidence was not durably saved.");
+          saved=withEvidence;
+          arrival=this.boundedNativeArrival(saved);
+          if(!arrival||this.scene!==scene||this.getPartyToken()!==token||
+              this.recoverableJourney?.id!==journal.id||
+              !journal.canUserModify?.(game.user,"update"))
+            throw Error("Native checkpoint state changed after evidence persistence.");
+        }
         // The original durable intent is retained across a failed clock or
         // Journal write. On retry its target clock is recognized, not added.
         if(arrival.clockAction==="advance")
@@ -2051,7 +2072,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           outstanding>=clock.minimumStep)?outstanding:0;
       session.journeyRecord.pendingNativeMove=validatePendingNativeMove({
         schemaVersion:1,operationId:intervalId,tokenId:session.token.id,
-        bounded:true,previousMovementId:session.token.movement?.id??null,
+        bounded:true,previousMovementId:session.token.movement?.id||null,
         path:path.map(p=>({x:p.x,y:p.y})),
         completedPercent:100*checkpoint.completedDistance/plan.totalDistance,
         checkpointIndex:checkpoint.index,from:checkpoint.from,to:checkpoint.point,
@@ -2075,6 +2096,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         expectedFrom:checkpoint.from,expectedTo:checkpoint.point
       },{level:"verbose"});
     };
+    const recordCheckpointEvidence=async(checkpoint,movement,intervalId)=>{
+      if(shouldStop())throw Error("Native movement interrupted before evidence persistence.");
+      const pending=session.journeyRecord.pendingNativeMove;
+      if(pending?.operationId!==intervalId||pending.checkpointIndex!==checkpoint.index)
+        throw Error("The Journey's pending native checkpoint was replaced.");
+      if(pending.arrivalEvidence)return;
+      const evidence=captureNativeArrivalEvidence(pending,{movement,tokenPoint:session.token});
+      if(!evidence)return; // Older native report shapes still require live proof.
+      session.journeyRecord.pendingNativeMove=validatePendingNativeMove({...pending,arrivalEvidence:evidence});
+      await this.saveJourneyCheckpoint(session,"moving",{updatePage:false});
+    };
     const confirmCheckpoint=async(checkpoint,movement,intervalId)=>{
       if(shouldStop())throw Error("Native movement interrupted before confirmation.");
       const pending=session.journeyRecord.pendingNativeMove;
@@ -2086,6 +2118,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(Math.hypot(session.token.x-checkpoint.point.x,
           session.token.y-checkpoint.point.y)>1)
         throw Error("The native TokenDocument missed its approved checkpoint.");
+      await recordCheckpointEvidence(checkpoint,movement,intervalId);
+      if(shouldStop())throw Error("Native movement interrupted after evidence persistence.");
+      if(game.time.worldTime!==pending.worldTimeBefore||
+          Math.hypot(session.token.x-checkpoint.point.x,session.token.y-checkpoint.point.y)>1)
+        throw Error("Native position or World time changed after evidence persistence.");
       const finalCheckpoint=checkpoint.index===plan.checkpoints.length-1;
       if(finalCheckpoint){
         const actual=this.atlasPoint(view,atlas,
@@ -2145,7 +2182,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     try{
       const result=await coordinateNativeTokenMovement({
         token:session.token,plan,operationId,movementSpeed:playback.movementSpeed,
-        hooks:Hooks,prepareCheckpoint,confirmCheckpoint,shouldStop,
+        hooks:Hooks,prepareCheckpoint,confirmCheckpoint,recordCheckpointEvidence,shouldStop,
         signal:session.nativeAbort.signal,
         onCheckpointDiagnostics:({mismatch,details})=>{
           if(!game.user?.isGM)return;
@@ -4439,7 +4476,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             " · Approved endpoint: "+position(intent.to)+
             " · TokenDocument: "+position(document)),
           el("p","Native state: "+(document?.movement?.state??"Unavailable")+
-            " · Movement ID: "+(document?.movement?.id??"Unavailable")),
+            " · Movement ID: "+(document?.movement?.id||"Unavailable")+
+            " · Durable endpoint evidence: "+(intent.arrivalEvidence?"Saved":"Not recorded")),
           el("p","Saved interval time: "+(Number.isFinite(intent.worldAdvanceSeconds)?intent.worldAdvanceSeconds+" seconds":"Unavailable")+
             " · World-clock change since intent: "+(delta===null?"Unavailable":delta+" seconds")),
           el("p",canReconcileNative?(nativeArrival?
