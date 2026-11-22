@@ -1261,6 +1261,68 @@ test("stopped vessel at pending origin reconciles once without replaying movemen
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("bounded vessel recovery credits only its verified delta and retries a failed Journal write without duplicating time",async()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui};
+  try{
+    const op="bounded-voyage-01";
+    const scene={id:"bounded-scene",name:"Paedor",grid:{size:100,units:"mi"},
+      canUserModify:()=>true};
+    const atlas={revision:4,roads:[],nodes:[],segments:[],checkpoints:[]};
+    const token={id:"party",x:50,y:0,width:1,height:1,elevation:0,
+      level:"surface",canUserModify:()=>true,
+      movement:{id:op,state:"completed",origin:point(0,0),destination:point(50,0)},
+      move(){throw Error("Recovery must not move the token");}};
+    const route={status:"ok",start:point(50,50),end:point(150,50),
+      distance:8,cost:8,terrainAware:false,legs:[{kind:"road",
+        roadId:"sea",segmentId:"s",points:[point(50,50),point(150,50)],distance:8,cost:8}]};
+    const itinerary={...createNavigationItinerary({sceneId:scene.id,
+      sceneName:scene.name,sceneUnits:"mi",route,travel:{speed:2}}),
+      transport:{methodId:"ship-passage",methodName:"Ship passage (hired)",
+        arrangement:"hire",kind:"vehicle",surface:"water",departureCheckpointName:null,
+        arrivalCheckpointId:"port",arrivalCheckpointName:"Port",roadNames:["Sea"],
+        estimatedFareCp:10,operation:"continuous"}};
+    const anchor={point:point(50,50),roadId:"sea",segmentId:"s",
+      checkpointId:null,levelId:"surface",elevation:0};
+    let record=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:4,itinerary,journeyDestination:point(400,50),initialAnchor:anchor,
+      approvedPath:{schemaVersion:1,legs:route.legs}});
+    record.status="interrupted";
+    record.pendingNativeMove={schemaVersion:1,bounded:true,previousMovementId:null,
+      operationId:op,tokenId:token.id,checkpointIndex:0,from:point(0,0),to:point(50,0),
+      path:[point(0,0),point(50,0)],completedPercent:50,nativeDistance:50,
+      movingHours:2,worldTimeBefore:1000,worldAdvanceSeconds:7200,atlasRevision:4};
+    let advances=0,writes=0,restores=0,failWrite=true;
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}},
+      settings:{get:()=>true},time:{worldTime:1000,async advance(delta){
+        advances++;this.worldTime+=delta;
+      }}};
+    const journal={id:"bounded-journal",canUserModify:()=>true,
+      getFlag:()=>structuredClone(record)};
+    const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token,atlasPoint:(_v,_a,p)=>p,
+      journeyJournalStore:{save:async next=>{
+        writes++;if(failWrite)throw Error("Journal temporarily unavailable");
+        record=structuredClone(next);
+      }}});
+    nav.scene=scene;nav.recoverableJourney=journal;
+    nav.recoverSavedJourney=()=>{restores++;return true;};
+    assert.equal(nav.boundedNativeArrival(record)?.clockAction,"advance");
+    await assert.rejects(nav.recoverSavedJourneyWithNativeReview(),/Journal temporarily unavailable/);
+    assert.equal(advances,1);assert.ok(record.pendingNativeMove);
+    assert.equal(game.time.worldTime,8200);
+    failWrite=false;
+    assert.equal(nav.boundedNativeArrival(record)?.clockAction,"already-advanced");
+    assert.equal(await nav.recoverSavedJourneyWithNativeReview(),true);
+    assert.equal(advances,1);assert.equal(writes,2);assert.equal(restores,1);
+    assert.equal(record.pendingNativeMove,null);
+    assert.equal(record.legs[0].completedPercent,50);
+    assert.equal(record.legs[0].completedMovingHours,2);
+    assert.equal(record.legs[0].worldTravelSeconds,7200);
+    assert.deepEqual(record.destination,point(400,50));
+    assert.deepEqual(record.lastConfirmedAnchor.point,point(100,50));
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("an unconfirmed native ship checkpoint preserves transport and offers deliberate abandonment",async()=>{
   const previous={game:globalThis.game,window:globalThis.window,ui:globalThis.ui,
     document:globalThis.document};
