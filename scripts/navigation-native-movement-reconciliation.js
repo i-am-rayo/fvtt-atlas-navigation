@@ -81,7 +81,7 @@ export function assessBoundedNativeArrival(raw,{movement,...context}={}){
   const exact=Array.isArray(passed)&&passed.length===pending.path.length&&
     passed.every((p,i)=>near(p,pending.path[i],1));
   if(!exact&&!(pending.path.length===2&&near(movement.origin,pending.from,1)&&
-      (!Array.isArray(passed)||passed.length<=2)))
+      (!Array.isArray(passed)||passed.length===0)))
     return {status:"review",reason:"Native interval waypoint evidence is incomplete."};
   return assessPendingNativeMove(pending,{...context,
     recordedMovementIds:[pending.operationId],tolerancePixels:1});
