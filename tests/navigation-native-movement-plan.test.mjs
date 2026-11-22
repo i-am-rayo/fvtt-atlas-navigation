@@ -207,3 +207,31 @@ test("dev.22 live snapped intermediate waypoint is native evidence, not an autho
   ])assert.equal(assessBoundedNativeArrival(intent,{...context,
     movement:{...movement,passed:{waypoints:bad}}}).status,"review");
 });
+
+test("durable endpoint evidence survives a reload but cannot override conflicting native identity or clock",async()=>{
+  const {assessBoundedNativeArrival,captureNativeArrivalEvidence,validatePendingNativeMove}=
+    await import("../scripts/navigation-native-movement-reconciliation.js");
+  const from=pt(0,0),to=pt(20,0),operationId="receipt-op";
+  const intent={schemaVersion:1,bounded:true,previousMovementId:null,
+    operationId,tokenId:"party",checkpointIndex:0,from,to,path:[from,to],
+    completedPercent:50,nativeDistance:20,movingHours:1,
+    worldTimeBefore:100,worldAdvanceSeconds:3600,atlasRevision:4};
+  const movement={id:operationId,state:"completed",origin:from,destination:to,
+    constrained:false,passed:{waypoints:[{...to,movementId:operationId}]},pending:{waypoints:[]}};
+  const evidence=captureNativeArrivalEvidence(intent,{movement,tokenPoint:to});
+  assert.ok(evidence);
+  assert.equal(captureNativeArrivalEvidence(intent,{movement,tokenPoint:from}),null);
+  assert.equal(captureNativeArrivalEvidence(intent,{movement:{...movement,constrained:true},tokenPoint:to}),null);
+  assert.equal(captureNativeArrivalEvidence(intent,{movement:{...movement,passed:{waypoints:[]}},tokenPoint:to}),null);
+  const saved=validatePendingNativeMove({...intent,arrivalEvidence:evidence});
+  const context={tokenId:"party",tokenPoint:to,atlasRevision:4,worldTime:100,
+    movement:{id:"",state:"completed"}};
+  assert.equal(assessBoundedNativeArrival(intent,context).status,"review");
+  assert.equal(assessBoundedNativeArrival(saved,context).worldClockAction,"advance");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,worldTime:3700}).worldClockAction,"already-advanced");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,worldTime:101}).status,"review");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,tokenPoint:from}).status,"review");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,movement:{id:"foreign",state:"completed"}}).status,"review");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,movement:{id:"",state:"moving"}}).status,"review");
+  assert.throws(()=>validatePendingNativeMove({...saved,arrivalEvidence:{...evidence,id:"foreign"}}),/Invalid/);
+});
