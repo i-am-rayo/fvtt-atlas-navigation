@@ -3,7 +3,7 @@
  * Each interval is submitted only after the preceding Journal confirmation.
  * No game rules, Journal writes, or World time are owned by this adapter.
  */
-import {matchesNativeIntervalPath} from "./navigation-native-movement-reconciliation.js";
+import {matchesNativeIntervalPath,preservesAuthoredNativePath} from "./navigation-native-movement-reconciliation.js";
 
 const near=(a,b,tolerance)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
   Number.isFinite(b?.x)&&Number.isFinite(b?.y)&&
@@ -39,7 +39,7 @@ function verifiedPassedInterval(movement,plan,checkpoint,tolerance){
   return matchesNativeIntervalPath(approved,{
     id:movement.id,origin:passed[first],destination:movement.destination,
     passed:{waypoints:passed.slice(first,last+1)}
-  },tolerance);
+  },tolerance,plan.nativePath);
 }
 
 function checkpointDetails({token,movement,operationId,checkpoint,index,tolerance,
@@ -114,7 +114,7 @@ async function moveNativeInterval({
   };
   const report=(mismatch,details)=>{
     try{onCheckpointDiagnostics?.({mismatch,details:mismatch?{
-      ...details,approvedPath:plan.path.map(point)}:details});}
+      ...details,approvedPath:plan.path.map(point),normalizedNativePath:plan.nativePath??null}:details});}
     catch{/* Diagnostics cannot alter native movement or checkpoint authority. */}
   };
   // A post-movement hook can precede the public document update. Save
@@ -127,7 +127,7 @@ async function moveNativeInterval({
         movement.constrained!==false||!Array.isArray(movement.pending?.waypoints)||
         movement.pending.waypoints.length||!movement.passed?.waypoints?.length||
         !near(token,checkpoint.point,tolerancePixels)||
-        !matchesNativeIntervalPath(plan.path,movement,tolerancePixels))return;
+        !matchesNativeIntervalPath(plan.path,movement,tolerancePixels,plan.nativePath))return;
     evidenceWrite=Promise.resolve().then(()=>recordCheckpointEvidence(checkpoint,movement))
       .catch(fail);
     return evidenceWrite;
@@ -141,7 +141,7 @@ async function moveNativeInterval({
     const valid=!signal?.aborted&&!shouldStop()&&movement.constrained!==true&&
       Array.isArray(passed)&&Array.isArray(pending)&&
       matchesNativeIntervalPath(plan.path,{id:movement.id,origin:movement.origin,
-        destination:movement.destination,passed:{waypoints:[...passed,...pending]}},tolerancePixels);
+        destination:movement.destination,passed:{waypoints:[...passed,...pending]}},tolerancePixels,plan.nativePath);
     if(valid)return;
     const error=Error("Foundry movement does not match the approved native checkpoint.");
     if(!failure)failure=error;
@@ -176,8 +176,8 @@ async function moveNativeInterval({
     const reconciledFromPassed=!originMatches&&destinationMatches&&
       verifiedPassedInterval(movement,plan,checkpoint,tolerancePixels);
     const pathMismatch=originMatches&&destinationMatches&&
-      Array.isArray(movement.passed?.waypoints)&&
-      !matchesNativeIntervalPath(plan.path,movement,tolerancePixels);
+      (plan.nativePath!==undefined||Array.isArray(movement.passed?.waypoints))&&
+      !matchesNativeIntervalPath(plan.path,movement,tolerancePixels,plan.nativePath);
     const constrained=movement.constrained===true||Boolean(movement.pending?.waypoints?.length);
     const mismatch=!(originMatches||reconciledFromPassed)||!destinationMatches||pathMismatch||constrained;
     const failedChecks=[
@@ -256,7 +256,7 @@ async function moveNativeInterval({
         (movement.id===operationId||movement.chain?.includes(operationId))&&
         movement.constrained!==true&&!movement.pending?.waypoints?.length&&
         near(token,checkpoint.point,tolerancePixels)&&
-        matchesNativeIntervalPath(plan.path,movement,tolerancePixels);
+        matchesNativeIntervalPath(plan.path,movement,tolerancePixels,plan.nativePath);
       if(valid){
         checkpointIndex++;
         report(false,checkpointDetails({token,movement,operationId,checkpoint,
@@ -316,10 +316,25 @@ export async function coordinateNativeTokenMovement({plan,operationId,
         id===options.token?.movement?.id)
       throw Error("Invalid or repeated native movement ID before checkpoint preparation.");
     usedIds.add(id);
-    const interval={path,checkpoints:[{...checkpoint,pathStartIndex:0,
+    // Use the public native direct-path calculator, not a larger pixel
+    // corridor. Keep the original submitted waypoints unchanged.
+    const token=options.token;
+    let nativePath;
+    if(typeof token?.getCompleteMovementPath==="function"){
+      const defaults={};
+      for(const key of ["elevation","width","height","depth","shape","level"])
+        if(token[key]!==undefined)defaults[key]=token[key];
+      const expanded=token.getCompleteMovementPath(path.map((p,i)=>({
+        ...defaults,x:p.x,y:p.y,snapped:false,explicit:false,checkpoint:i===path.length-1
+      })));
+      nativePath=Array.isArray(expanded)?expanded.map(point):null;
+      if(!preservesAuthoredNativePath(path,nativePath))
+        throw Error("Foundry native direct-path preview does not preserve the approved Atlas waypoints.");
+    }
+    const interval={path,nativePath,checkpoints:[{...checkpoint,pathStartIndex:0,
       pathEndIndex:path.length-1}]};
     const result=await moveNativeInterval({...options,plan:interval,operationId:id,
-      shouldStop,signal,prepareCheckpoint:()=>prepareCheckpoint(checkpoint,id,path),
+      shouldStop,signal,prepareCheckpoint:()=>prepareCheckpoint(checkpoint,id,path,nativePath),
       recordCheckpointEvidence:(_point,movement)=>recordCheckpointEvidence?.(checkpoint,movement,id),
       confirmCheckpoint:(_point,movement)=>confirmCheckpoint(checkpoint,movement,id)});
     if(!result.completed)return {completed:false,confirmed,error:null};
