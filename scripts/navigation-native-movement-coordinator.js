@@ -3,6 +3,8 @@
  * Each interval is submitted only after the preceding Journal confirmation.
  * No game rules, Journal writes, or World time are owned by this adapter.
  */
+import {matchesNativeIntervalPath} from "./navigation-native-movement-reconciliation.js";
+
 const near=(a,b,tolerance)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
   Number.isFinite(b?.x)&&Number.isFinite(b?.y)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
@@ -140,10 +142,14 @@ async function moveNativeInterval({
     const documentMatches=near(token,checkpoint.point,tolerancePixels);
     const reconciledFromPassed=!originMatches&&destinationMatches&&
       verifiedPassedInterval(movement,plan,checkpoint,tolerancePixels);
-    const mismatch=!(originMatches||reconciledFromPassed)||!destinationMatches;
+    const pathMismatch=originMatches&&destinationMatches&&
+      Array.isArray(movement.passed?.waypoints)&&
+      !matchesNativeIntervalPath(plan.path,movement,tolerancePixels);
+    const mismatch=!(originMatches||reconciledFromPassed)||!destinationMatches||pathMismatch;
     const failedChecks=[
       ...(!(originMatches||reconciledFromPassed)?["origin-and-passed-path"]:[]),
-      ...(!destinationMatches?["destination"]:[])
+      ...(!destinationMatches?["destination"]:[]),
+      ...(pathMismatch?["ordered-passed-path"]:[])
     ];
     report(mismatch,checkpointDetails({token,movement,operationId,checkpoint,
       index:checkpointIndex,tolerance:tolerancePixels,originMatches,
@@ -197,6 +203,27 @@ async function moveNativeInterval({
     const completed=await Promise.race([nativePromise,abortPromise]);
     await inFlight;
     if(failure)throw failure;
+    // If the movement hook was missed, the public native completion result
+    // and current terminal TokenDocument evidence can prove this same bounded
+    // interval. Animation is not a requirement for durable confirmation.
+    if(completed&&checkpointIndex===0&&!signal?.aborted&&!shouldStop()){
+      const checkpoint=plan.checkpoints[0];
+      const movement=token.movement;
+      const valid=movement?.state==="completed"&&
+        (movement.id===operationId||movement.chain?.includes(operationId))&&
+        movement.constrained!==true&&!movement.pending?.waypoints?.length&&
+        near(token,checkpoint.point,tolerancePixels)&&
+        matchesNativeIntervalPath(plan.path,movement,tolerancePixels);
+      if(valid){
+        checkpointIndex++;
+        report(false,checkpointDetails({token,movement,operationId,checkpoint,
+          index:checkpoint.index,tolerance:tolerancePixels,originMatches:true,
+          destinationMatches:true,documentMatches:true,reconciledFromPassed:false,
+          observationPhase:"native-completed"}));
+        await confirmCheckpoint(checkpoint,movement);
+        if(shouldStop())throw Error("Native movement interrupted after Journal confirmation.");
+      }
+    }
     if(!completed||checkpointIndex!==plan.checkpoints.length)
       throw Error("Native movement stopped before every checkpoint was confirmed.");
     return {completed:true,confirmed:checkpointIndex,error:null};
