@@ -362,8 +362,13 @@ test("canvas teardown during an unconfirmed native move cannot invent progress o
       "World time is not advanced for an unconfirmed native move");
     assert.ok(notices.some(message=>message.includes("canvas redraw")),
       "the GM must be notified about the interrupted native movement");
-    assert.equal(f.journalWrites.some(write=>write.updatePage===true),false,
-      "interrupted movement must never be presented as a completed leg");
+    assert.equal(f.journalWrites.at(-1).updatePage,true,
+      "interruption publishes the confirmed partial summary");
+    const html=formatJourneyJournalHTML(f.journalStates.at(-1));
+    assert.match(html,/Interrupted — may resume/);
+    assert.match(html,/Confirmed progress: 0%/);
+    assert.doesNotMatch(html,/Arrived \(World time\)/,
+      "publication must never present unconfirmed movement as arrival");
   }finally{f.restore();}
 });
 
