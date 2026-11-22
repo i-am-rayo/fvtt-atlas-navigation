@@ -16,7 +16,7 @@ import {planNativeCheckpointPath,anchorNativeTokenWaypoints,
   from "./navigation-native-movement-plan.js";
 import {coordinateNativeTokenMovement}
   from "./navigation-native-movement-coordinator.js";
-import {validatePendingNativeMove}
+import {validatePendingNativeMove,assessPendingNativeMove}
   from "./navigation-native-movement-reconciliation.js";
 import { GuidedTravelDayTracker,estimateNavigationTotalTrip,
   splitGuidedChunkAtDistance,MAX_GUIDED_REST_EVENTS,MAX_GUIDED_TRAVEL_EVENTS }
@@ -1492,6 +1492,72 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.end:this.recoveryRecord.destination;
     return isJourneyDestinationCheckpoint({...this.recoveryRecord,destination},
       checkpoint,this.scene?.grid?.size);
+  }
+
+  /** Only an unexecuted, stopped native checkpoint can be discarded. The
+   * confirmed anchor, approved route, rest and time ledger remain unchanged.
+   * At-end/ambiguous intents deliberately still require review. */
+  canRecoverUnexecutedNativeMove(saved){
+    try{
+      if(!game.user?.isGM||game.users?.activeGM?.id!==game.user.id||
+          !this.scene?.canUserModify?.(game.user,"update")||
+          this.travelSession||this.journalStarting||this.pendingTransfer||
+          saved?.status!=="interrupted"||!isUnfinishedJourneyLeg(saved)||
+          !saved.lastConfirmedAnchor||!saved.pendingNativeMove)return false;
+      const view=this.canvasProvider(),atlas=this.atlasProvider(this.scene);
+      const token=this.getPartyToken(),movement=token?.movement;
+      const intent=saved.pendingNativeMove;
+      if(!view?.ready||view.scene?.id!==this.scene.id||
+          !token?.canUserModify?.(game.user,"update")||
+          !eligibleJourneyRecord(saved,{sceneId:this.scene.id,
+            tokenId:token.id,atlasRevision:atlas.revision})||
+          !["stopped","completed"].includes(movement?.state))return false;
+      const assessment=assessPendingNativeMove(intent,{
+        tokenId:token.id,tokenPoint:token,worldTime:game.time?.worldTime,
+        atlasRevision:atlas.revision});
+      if(assessment.status!=="at-start")return false;
+      // A later checkpoint must be corroborated by the preceding native
+      // submovement in the same chain. An empty movementHistory is normal
+      // outside combat; the public current/last movement can still prove it.
+      if(intent.checkpointIndex>0&&
+          (!(movement.id===intent.operationId||
+            movement.chain?.includes(intent.operationId))||
+          !(Math.hypot(movement.destination?.x-intent.from.x,
+            movement.destination?.y-intent.from.y)<=.25)))return false;
+      const anchor=saved.lastConfirmedAnchor;
+      const position=this.atlasPoint(view,atlas,
+        partyTokenCanvasCenter(token,this.scene.grid.size));
+      return Math.hypot(position.x-anchor.point.x,position.y-anchor.point.y)<=.25&&
+        (anchor.levelId??null)===(token.level?.id??token.level??null)&&
+        (anchor.elevation??null)===(token.elevation??null);
+    }catch{return false;}
+  }
+
+  async recoverSavedJourneyWithNativeReview({automatic=false}={}){
+    const journal=this.recoverableJourney;
+    const raw=journal?.getFlag?.(MODULE_ID,JOURNEY_JOURNAL_FLAG);
+    if(!raw?.pendingNativeMove)return this.recoverSavedJourney({automatic});
+    const saved=validateJourneyRecord(raw);
+    if(!this.canRecoverUnexecutedNativeMove(saved)||
+        !journal.canUserModify?.(game.user,"update"))
+      return this.recoverSavedJourney({automatic}); // existing fail-closed guard
+    const scene=this.scene, token=this.getPartyToken();
+    const next=validateJourneyRecord({...saved,pendingNativeMove:null,
+      updatedAt:new Date().toISOString()});
+    this.journalStarting=true;
+    try{
+      await this.journeyJournalStore.save(next,{journal,updatePage:false});
+    }finally{this.journalStarting=false;}
+    // A newly changed token, clock, scene or Journal must not auto-start.
+    if(this.scene!==scene||this.getPartyToken()!==token||
+        this.recoverableJourney?.id!==journal.id||
+        JSON.stringify(journal.getFlag(MODULE_ID,JOURNEY_JOURNAL_FLAG))!==JSON.stringify(next)||
+        !this.canRecoverUnexecutedNativeMove(saved))
+      throw Error("The saved Journey changed during checkpoint reconciliation. Review it before continuing.");
+    atlasDebug("journey","Unexecuted native checkpoint reconciled without movement or time writes",
+      {journalId:journal.id,operationId:saved.pendingNativeMove.operationId,
+        checkpointIndex:saved.pendingNativeMove.checkpointIndex});
+    return this.recoverSavedJourney({automatic});
   }
 
   /** Load a saved destination, but never start a token movement automatically. */
@@ -3422,7 +3488,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.activate();
       if(this.recoverableJourney?.id!==pending.journalId)
         throw Error("The saved journey is no longer eligible for recovery.");
-      if(!this.recoverSavedJourney({automatic:true}))
+      if(!await this.recoverSavedJourneyWithNativeReview({automatic:true}))
         throw Error("The saved Journey could not be restored after the canvas rebuild.");
       this.autoResumePending=null;
       // A native move may have durably reached an authored port immediately
@@ -3504,7 +3570,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(pending.confirmedPause&&settled&&
           this.recoverableJourney?.id===pending.journalId){
         try{
-          this.recoverSavedJourney({automatic:true});
+          await this.recoverSavedJourneyWithNativeReview({automatic:true});
           this.travelNotice="A canvas refresh ended the native movement. " +
             "The confirmed paused route is restored; select Travel Route to resume.";
           if(this.active)void this.render(true);
@@ -3926,6 +3992,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         }
       }
     }
+    const canReconcileNative=pendingNativeReview&&
+      this.canRecoverUnexecutedNativeMove(pendingNativeReview)&&
+      this.recoverableJourney?.canUserModify?.(game.user,"update");
     const pendingReviewLeg=pendingNativeReview?.legs?.at(-1)??null;
     const pendingReviewMethod=pendingReviewLeg?.transport??pendingReviewLeg?.travelMethod;
     const pendingReviewMethodName=pendingReviewMethod?.methodName??
@@ -4168,7 +4237,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const pending=pendingNativeReview.pendingNativeMove;
       const checkpointLabel=Number.isSafeInteger(pending.checkpointIndex)?
         String(pending.checkpointIndex+1):"unknown";
-      body.appendChild(renderTransportAdvisory(
+      body.appendChild(renderTransportAdvisory(canReconcileNative?
+        "The approved "+pendingReviewMethodName+" Journey stopped before native checkpoint "+
+        checkpointLabel+". The TokenDocument and World time match the last confirmed boundary. "+
+        "Recover to restore the approved remaining leg without replaying confirmed movement.":
         "The approved "+pendingReviewMethodName+" Journey is blocked at native " +
         "checkpoint "+checkpointLabel+" (operation "+
         (pending.operationId??"unverified")+"). " +
@@ -4190,17 +4262,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const recover=el("button","Recover Saved Journey");
       recover.type="button";
       recover.title="Recalculate the remaining journey from the party token without moving it";
-      if(pendingNativeReview){
+      if(canReconcileNative){
+        description.textContent="The unexecuted checkpoint can be reconciled without movement or World-time changes. Recover the approved remaining Journey.";
+      }else if(pendingNativeReview){
         description.textContent="Saved Journey requires GM checkpoint review. " +
           "Its approved transportation and Journal are preserved; " +
           "automatic recovery is not yet safe.";
         recover.disabled=true;
         recover.title="Native movement is unconfirmed; review the Journal before recovery";
       }
-      recover.addEventListener("click",()=>{
-        try{this.recoverSavedJourney();}
-        catch(error){ui.notifications.warn(error.message||String(error));}
-      });
+      recover.addEventListener("click",()=>void this.recoverSavedJourneyWithNativeReview()
+        .catch(error=>ui.notifications.warn(error.message||String(error))));
       recovery.append(description,recover);
       const forget=el("button","Forget Saved Journey");
       forget.type="button";
