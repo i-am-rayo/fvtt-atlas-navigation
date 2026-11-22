@@ -1272,7 +1272,8 @@ test("bounded vessel recovery credits only its verified delta and retries a fail
     const atlas={revision:4,roads:[],nodes:[],segments:[],checkpoints:[]};
     const token={id:"party",x:50,y:0,width:1,height:1,elevation:0,
       level:"surface",canUserModify:()=>true,
-      movement:{id:op,state:"completed",origin:point(0,0),destination:point(50,0)},
+      movement:{id:op,state:"completed",origin:point(0,0),destination:point(50,0),
+        constrained:false,passed:{waypoints:[point(50,0)]},pending:{waypoints:[]}},
       move(){throw Error("Recovery must not move the token");}};
     const route={status:"ok",start:point(50,50),end:point(150,50),
       distance:8,cost:8,terrainAware:false,legs:[{kind:"road",
@@ -1309,6 +1310,11 @@ test("bounded vessel recovery credits only its verified delta and retries a fail
     nav.scene=scene;nav.recoverableJourney=journal;
     nav.recoverSavedJourney=()=>{restores++;return true;};
     assert.equal(nav.boundedNativeArrival(record)?.clockAction,"advance");
+    token.movement.origin=point(4,0);
+    let reason;
+    assert.equal(nav.boundedNativeArrival(record,value=>{reason=value;}),null);
+    assert.match(reason,/ordered path/);
+    token.movement.origin=point(0,0);
     await assert.rejects(nav.recoverSavedJourneyWithNativeReview(),/Journal temporarily unavailable/);
     assert.equal(advances,1);assert.ok(record.pendingNativeMove);
     assert.equal(game.time.worldTime,8200);
@@ -1317,6 +1323,8 @@ test("bounded vessel recovery credits only its verified delta and retries a fail
     assert.equal(await nav.recoverSavedJourneyWithNativeReview(),true);
     assert.equal(advances,1);assert.equal(writes,2);assert.equal(restores,1);
     assert.equal(record.pendingNativeMove,null);
+    await nav.recoverSavedJourneyWithNativeReview();
+    assert.equal(advances,1,"repeating recovery cannot credit the same interval");
     assert.equal(record.legs[0].completedPercent,50);
     assert.equal(record.legs[0].completedMovingHours,2);
     assert.equal(record.legs[0].worldTravelSeconds,7200);
@@ -1388,6 +1396,11 @@ test("an unconfirmed native ship checkpoint preserves transport and offers delib
       "the active saved method must remain visible despite Walking preview state");
     const recover=find(panel,node=>node.textContent==="Recover Saved Journey");
     assert.equal(recover.disabled,true);
+    assert.ok(find(panel,node=>node.textContent==="Review Saved Journey"));
+    assert.ok(labels.some(label=>label.startsWith("Recovery blocked: ")));
+    const inspect=find(panel,node=>node.textContent==="Open Saved Journey Journal");
+    assert.ok(inspect);
+    // Review is read-only; the same Journal remains inspectable via the footer.
     const newRoute=find(panel,node=>node.ariaLabel==="New Route");
     assert.equal(newRoute.disabled,false,"New Route must allow GM-confirmed abandonment");
     const forget=find(panel,node=>node.textContent==="Forget Saved Journey");
