@@ -2780,13 +2780,26 @@ test("mixed checkbox selection stages owned, hired and walking methods without m
 test("mixed passenger GM authorization rechecks fares and passengers before a Journey write",async()=>{
   const previous={game:globalThis.game,foundry:globalThis.foundry,
     document:globalThis.document};
-  let price=300,dialog=0,moves=0,writes=0;
+  let price=300.1,dialog=0,moves=0,writes=0;
   try{
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
       settings:{get:()=>undefined}};
-    globalThis.document={createElement:tag=>({tag,textContent:""})};
-    globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>{
-      dialog++;price=400;return true;
+    globalThis.document={createElement:tag=>({tag,textContent:"",children:[],
+      append(...items){this.children.push(...items);}})};
+    const texts=node=>[node.textContent,...node.children.flatMap(texts)];
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async({content})=>{
+      const labels=texts(content);
+      assert.ok(labels.includes("Transportation summary"));
+      assert.ok(labels.includes("PC 1"));
+      assert.ok(labels.includes("Nyx"));
+      assert.ok(labels.includes("Cargo only"));
+      assert.ok(labels.includes("8h"));
+      assert.ok(labels.includes("3 GP · 1 CP"));
+      assert.ok(labels.includes("1 SP · 1 CP"));
+      assert.ok(labels.includes("3 GP · 1 SP · 2 CP"),
+        "round each method before summing; match planner and Journal");
+      assert.ok(!labels.some(label=>label.includes("310.2 CP")));
+      dialog++;price=400.1;return true;
     }}}}};
     const scene={id:"scene",name:"Paedor",
       grid:{size:100,units:"mi"},canUserModify:()=>true};
@@ -2806,11 +2819,17 @@ test("mixed passenger GM authorization rechecks fares and passengers before a Jo
     nav.assessTravelMethod=()=>({guided:true});
     nav.mixedLandPlan=()=>({
       schemaVersion:2,mode:"mixed-land",
-      travelers:[{actorId:"pc1",methodKey:"hire|coach-hire",
-        role:"riding",passengers:1,seatsNeeded:1}],
-      methods:[{methodName:"Coach",role:"riders",
-        passengers:1,seatsUsed:1,units:1}],
-      speedPerHour:3,movingHours:8,totalCp:price
+      travelers:[{actorId:"pc1",name:"PC 1",methodKey:"hire|coach-hire",
+        role:"riding",passengers:1,seatsNeeded:1},
+        {actorId:"npc1",name:"Nyx",methodKey:"owned|walking",
+          role:"walking",passengers:1,seatsNeeded:0}],
+      methods:[{key:"hire|coach-hire",methodName:"Coach",role:"riders",
+        passengers:1,seatsUsed:1,units:1,estimatedCostCp:price},
+        {key:"owned|walking",methodName:"Walking",role:"walking",
+          passengers:1,seatsUsed:0,units:0,estimatedCostCp:0},
+        {key:"hire|cart",methodName:"Cart",role:"cargo",
+          passengers:0,seatsUsed:0,units:1,estimatedCostCp:10.1}],
+      speedPerHour:3,movingHours:8,totalCp:price+10.1
     });
     await assert.rejects(()=>nav.confirmMixedLandJourney(view,token),
       /Passenger assignments, vehicle stock, speeds, fares/);
