@@ -63,7 +63,7 @@ import { readGroupTransportation,projectGroupTransportation,
   from "./navigation-group-transport.js";
 import { dndCurrencyBreakdown,mixedTransportFareBreakdown } from "./navigation-currency.js";
 import { resolveTransportationOperation,draftTransportationOperation,quoteTransportationService,
-  assessHiredTransportAvailability }
+  assessHiredTransportAvailability,readLivestockFarePercent }
   from "./navigation-transport-service.js";
 import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
 import { offersAtOrigin,checkpointOffers,saveCheckpointOffers,
@@ -1056,7 +1056,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               const quote=quoteTransportationService(option.method,{
                 arrangement:option.arrangement,operation,
                 movingHours:hours,distanceMi,travelers:activeRoster?.travelers??1,
-                livestockCount:count,ownedQuote,regularHours});
+                livestockCount:count,ownedQuote,regularHours,
+                livestockPercent:readLivestockFarePercent(game.settings)});
               if(mounts.length)livestock=planJourneyLivestock(roster,this.livestockDecisions,{
                 surface:leg.surface,methodId:option.method.id,
                 units:quote.units,capacityPerUnit:option.method.livestockCapacity,
@@ -1406,7 +1407,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const quote=quoteTransportationService(method,{
       arrangement,operation:this.plannedTravelOperation(method),
       movingHours,distanceMi,travelers:party.travelerCount,
-      livestockCount,regularHours});
+      livestockCount,regularHours,
+      livestockPercent:readLivestockFarePercent(game.settings)});
     const manifest=planJourneyLivestock(party.roster,this.livestockDecisions,{
       surface:"land",carried:true,methodId:method.id,
       units:quote.units,capacityPerUnit:method.livestockCapacity,
@@ -5075,7 +5077,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             const operation=this.plannedTravelOperation(method);
             const quoteArgs={arrangement:this.transportArrangement,
               operation,movingHours,distanceMi,
-              travelers:quoteRoster?.travelers??1,ownedQuote,regularHours:normalHours};
+              travelers:quoteRoster?.travelers??1,ownedQuote,regularHours:normalHours,
+              livestockPercent:readLivestockFarePercent(game.settings)};
             const quote=quoteTransportationService(method,{...quoteArgs,
               hireTerms:this.transportHireTerms});
             const worldOperation=operation!=="normal"&&
