@@ -63,13 +63,15 @@ async function journeyFixture({clockEnabled=true,hours=10,
   const atlas={revision:5,nodes:[{id:"a",x:100,y:100},{id:"b",x:300,y:200}],
     roads:[{id:"r",name:"Main Road"}],
     segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[]}]};
+  const durableJournal={id:"daily-journal",canUserModify:()=>true,
+    getFlag:()=>structuredClone(journalStates.at(-1))};
   const nav=new AtlasNavigationController({canvasProvider:()=>view,
     atlasProvider:()=>atlas,partyTokenProvider:()=>token,
     restHoldFactory,announcementPublisher,
     journeyJournalStore:{save:async(record,{journal,updatePage}={})=>{
       journalStates.push(structuredClone(record));
       journalWrites.push({status:record.status,updatePage});
-      return journal??{id:"daily-journal"};
+      return journal??durableJournal;
     },
       find:()=>null}});
   nav.scene=scene;nav.routeRevision=5;
