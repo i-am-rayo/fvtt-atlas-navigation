@@ -3824,8 +3824,13 @@ test("water transfer keeps three physical mounts separate from two passengers an
     assert.equal(plan.livestock.estimatedFareCp,750);
     assert.equal(plan.livestock.resources.find(m=>m.actorId==="horseB").aboard,2);
     animalCapacity=null;
-    const blocked=nav.transportationTransitionPlan().legs[0];
-    assert.ok(blocked.errors.some(error=>/livestock capacity|animal stalls/i.test(error)));
+    const defaultUnlimited=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(defaultUnlimited.errors,[]);
+    assert.equal(defaultUnlimited.livestock.capacityPerUnit,null);
+    assert.equal(defaultUnlimited.costCp,1250);
+    animalCapacity=0;
+    assert.ok(nav.transportationTransitionPlan().legs[0].errors.some(error=>
+      /does not allow/i.test(error)));
     animalCapacity=2;stock=1;
     assert.ok(nav.transportationTransitionPlan().legs[0].errors.some(error=>
       /Not enough hired transportation units/i.test(error)));
