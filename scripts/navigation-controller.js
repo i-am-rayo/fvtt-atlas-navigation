@@ -2171,9 +2171,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
    * No future interval is handed to Foundry until its predecessor is durable.
    * Land routes with GM rest/forced-march decisions retain their existing loop.
    */
-  async runNativeContinuousLeg(session,{plan,playback,atlas,view,guidedLeg}){
+  async runNativeContinuousLeg(session,{plan,playback,atlas,view,guidedLeg,
+    ordinary=false,visual=null}){
     const operationId=foundry.utils.randomID();
-    const pixelsPerSecond=playback.movementSpeed*session.gridSize;
+    const pixelsPerSecond=(visual?.movementSpeed??playback.movementSpeed)*session.gridSize;
     const scene=this.scene;
     const shouldStop=()=>this.travelSession!==session||session.phase==="ending"||
       this.scene?.id!==session.sceneId||
@@ -2188,9 +2189,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const clock=session.clock;
       const target=clock?.targetSeconds(checkpoint.completedDistance)??0;
       const outstanding=target-(clock?.advancedSeconds??0);
+      const lastInLeg=ordinary?
+        checkpoint.completedDistance/session.totalDistance>=.99999:
+        checkpoint.index===plan.checkpoints.length-1;
       const worldAdvanceSeconds=clock&&outstanding>0&&
-        (checkpoint.index===plan.checkpoints.length-1||
-          outstanding>=clock.minimumStep)?outstanding:0;
+        (lastInLeg||outstanding>=clock.minimumStep)?outstanding:0;
       session.journeyRecord.pendingNativeMove=validatePendingNativeMove({
         schemaVersion:1,operationId:intervalId,tokenId:session.token.id,
         bounded:true,previousMovementId:session.token.movement?.id||null,
@@ -2204,7 +2207,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         worldTimeBefore,worldAdvanceSeconds,atlasRevision:atlas.revision
       });
       session.currentChunk={distance:checkpoint.distance,startedAt:Date.now(),
-        durationMs:1000*checkpoint.distance/pixelsPerSecond};
+        durationMs:visual?.animate===false?1:
+          1000*checkpoint.distance/pixelsPerSecond};
       // A crash between here and native TokenDocument.update leaves a valid
       // at-start intent. A crash after update leaves an unresolved intent,
       // never falsely credited Journey progress.
@@ -2278,8 +2282,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(game.time.worldTime!==pending.worldTimeBefore||
           Math.hypot(session.token.x-checkpoint.point.x,session.token.y-checkpoint.point.y)>1)
         throw Error("Native position or World time changed after evidence persistence.");
-      const finalCheckpoint=checkpoint.index===plan.checkpoints.length-1;
-      if(finalCheckpoint){
+      const finalCheckpoint=ordinary?
+        checkpoint.completedDistance/session.totalDistance>=.99999:
+        checkpoint.index===plan.checkpoints.length-1;
+      if(finalCheckpoint&&guidedLeg){
         const actual=this.atlasPoint(view,atlas,
           partyTokenCanvasCenter(session.token,session.gridSize));
         if(!confirmGuidedCheckpointArrival({token:session.token,
@@ -2315,10 +2321,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // Predictable from the saved intent: no World time is advanced during
       // animation, and an unrelated GM clock change invalidates this step.
       session.journeyRecord.pendingNativeMove=null;
+      session.journeyRecord.playbackSecondsPerHour=
+        validatePlaybackSetting(session.playbackSecondsPerHour);
       // The last native checkpoint is already an approved dock arrival.
       // Commit transfer metadata *here* so a canvas redraw before the outer
       // move() promise resolves does not lose the durable C/D decision.
-      await this.saveJourneyCheckpoint(session,finalCheckpoint?"paused":"moving",
+      await this.saveJourneyCheckpoint(session,finalCheckpoint?
+        (guidedLeg?"paused":"completed"):"moving",
         {updatePage:finalCheckpoint});
       this.setTravelProgress(Math.min(99,100*session.completedDistance/session.totalDistance));
       atlasDebug("movement","Native checkpoint durably confirmed",{
@@ -2337,7 +2346,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     session.nativeActive=true;
     try{
       const result=await coordinateNativeTokenMovement({
-        token:session.token,plan,operationId,movementSpeed:playback.movementSpeed,
+        token:session.token,plan,operationId,
+        movementSpeed:visual?.movementSpeed??playback.movementSpeed,
+        animate:visual?.animate??true,
         hooks:Hooks,prepareCheckpoint,confirmCheckpoint,recordCheckpointEvidence,recordSuspendedEvidence,shouldStop,
         signal:session.nativeAbort.signal,suspensionSignal:session.nativeSuspension.signal,
         onCheckpointDiagnostics:({mismatch,details})=>{
