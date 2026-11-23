@@ -2392,6 +2392,10 @@ test("single hired Cart uses active Map Marker schedule for approval, not World 
       hireEnabled:true,continuousEnabled:true}};
     const availability={methods:[world],offers:new Map([["cart",offer]])};
     nav.transportAvailability=()=>availability;
+    const preview=nav.resolveTravelRules({methodId:"cart",hoursPerDay:8});
+    assert.equal(preview.dailyHours,null,
+      "read-only estimates must use the Map Marker schedule without downgrading it");
+    assert.equal(nav.transportOperation,"continuous");
     const approved=nav.resolveCurrentLegRules({methodId:"cart",hoursPerDay:8});
     assert.equal(approved.dailyHours,null,
       "the 24-hour schedule cannot silently become an 8-hour rest decision");
