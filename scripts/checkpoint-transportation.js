@@ -114,6 +114,12 @@ export function checkpointOfferMethod(offer,worldMethod){
     (checked.mode==="air"&&worldMethod.surface!=="air")||
     ((checked.mode==="water"||checked.mode==="sea")&&worldMethod.surface!=="water"))
     throw Error("Checkpoint offer surface differs from its World method.");
+  if((worldMethod.kind!=="vehicle"||!["water","air"].includes(worldMethod.surface))&&
+      (checked.overrides.livestockCapacity!=null||
+        checked.overrides.livestockFareCp!=null||
+        checked.overrides.livestockFareBasis!==undefined&&
+          checked.overrides.livestockFareBasis!=="trip"))
+    throw Error("Livestock boarding settings require a water or air vehicle.");
   if(checked.overrides.continuousEnabled&&worldMethod.kind!=="vehicle")
     throw Error("Continuous travel needs a vehicle.");
   return {...worldMethod,hireUnlimited:true,hireQuantity:1,...checked.overrides};
