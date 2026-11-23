@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {installNativeJourneyFixture} from "./support/native-journey-fixture.mjs";
 import { createNavigationItinerary } from "../scripts/navigation-itinerary.js";
 import { formatJourneyJournalHTML } from "../scripts/navigation-journey-journal.js";
 
@@ -9,6 +10,7 @@ globalThis.foundry={applications:{api:{ApplicationV2:class {
 }}}};
 const { AtlasNavigationController }=await import("../scripts/navigation-controller.js");
 globalThis.foundry=priorFoundry;
+installNativeJourneyFixture(AtlasNavigationController);
 
 const point=(x,y)=>({x,y});
 const tickUntil=async condition=>{
