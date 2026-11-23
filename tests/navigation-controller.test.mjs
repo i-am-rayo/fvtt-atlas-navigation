@@ -2210,6 +2210,11 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.equal(nav.travelSession,null);
     assert.ok(nav.travelProgress<100);
 
+    // An unconfirmed native interval still blocks replay. The next
+    // independent fixture scenario is a GM-simulated New Route choice.
+    await assert.rejects(nav.startGuidedTravel(),/Recover or deliberately end/);
+    nav.recoverableJourney=null;nav.recoveryRecord=null;
+    nav.recoveryJournal=null;nav.journeyJournal=null;
     // End Journey must also wake a travel loop waiting on the paused state.
     token.object={movementAnimationPromise:null};
     token.x=50;token.y=50;
@@ -2379,7 +2384,7 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     assert.equal(await nav.startGuidedTravel(),false);
     assert.equal(moveCount,previousMoves+1,"time failure prevents further movement chunks");
     assert.equal(nav.worldTimeAdvancedSeconds,0);
-    assert.match(nav.travelNotice,/World time could not advance: Clock is unavailable/);
+    assert.match(nav.travelNotice,/Native ordinary movement could not be reconciled: Clock is unavailable/);
     assert.ok(nav.recoverableJourney,"same-canvas interruption retains the Journal");
     await assert.rejects(nav.startGuidedTravel(),/Recover or deliberately end/);
     assert.equal(moveCount,previousMoves+1,"unresolved Journey cannot start another move");
