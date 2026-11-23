@@ -10,6 +10,7 @@ import {planNativeCheckpointPath}
   from "../scripts/navigation-native-movement-plan.js";
 import {projectPartyTravelSelection} from "../scripts/navigation-party-selection.js";
 import {defaultGroupTransportation,setGroupTransportationMember} from "../scripts/navigation-group-transport.js";
+import {suggestedLivestockBoarding} from "../scripts/navigation-journey-livestock.js";
 import { defaultTransportationCatalog,findTransportationPreset,setTransportationPreset }
   from "../scripts/navigation-transport-catalog.js";
 
@@ -3783,7 +3784,7 @@ test("water transfer keeps three physical mounts separate from two passengers an
     const config={version:7,groups:{groupA:{members:{
       horseA:{role:"mount",quantity:1,capacity:1,surface:"land",
         enabled:true,assignedTo:null,profileId:"warhorse"},
-      horseB:{role:"mount",quantity:2,capacity:1,surface:"land",
+      horseB:{role:"mount",quantity:3,capacity:1,surface:"land",
         enabled:true,assignedTo:null,profileId:"riding-horse"}
     }}}};
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
@@ -3841,6 +3842,23 @@ test("water transfer keeps three physical mounts separate from two passengers an
     nav.recoveryRecord={status:"paused",legs:[{completedPercent:100,
       livestock:prior}]};
     const journalBefore=structuredClone(nav.recoveryRecord);
+    nav.livestockDecisions=suggestedLivestockBoarding(
+      nav.recoveryRecord,nav.partyTravelSelection([]).roster);
+    assert.deepEqual(nav.livestockDecisions,{horseA:1,horseB:2},
+      "disembark carries exactly the 2/3 Riding Horses and 1 Warhorse actually boarded");
+    // Recomputing the continuation route must not erase this restored draft.
+    nav.start=from;nav.end=to;
+    nav.routeCalculator=()=>({status:"unreachable"});
+    nav.calculateRoute({},atlas);
+    assert.deepEqual(nav.livestockDecisions,{horseA:1,horseB:2},
+      "route recalculation must preserve the saved physical mount quantities");
+    const landed=nav.partyTravelSelection([]).previewRoster;
+    assert.equal(landed.members.find(m=>m.actorId==="horseB").quantity,2,
+      "only the two confirmed disembarking Riding Horses are available for land riding");
+    assert.equal(landed.members.find(m=>m.actorId==="horseA").quantity,1);
+    assert.deepEqual(nav.recoveryRecord,journalBefore,
+      "disembarking defaults never rewrite the confirmed vessel Journal");
+    nav.result=route;
     // A confirmed sea leg can precede a partially decided land draft.
     // The draft UI must remain available even though Play is prohibited.
     nav.livestockDecisions={horseA:1};
