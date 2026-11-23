@@ -2324,6 +2324,56 @@ test("mixed land method overrides are per-method and remain preview-only",()=>{
   }finally{globalThis.game=gameBefore;}
 });
 
+test("mixed carriage pencil opens the shared journey and Map Marker editor without saving",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,
+    document:globalThis.document};
+  const writes=[],dialogs=[];
+  class Node {
+    constructor(tag){this.tagName=tag.toUpperCase();this.children=[];
+      this.style={cssText:""};this.attributes=new Map();
+      this.value="";this.defaultValue="";this.checked=false;}
+    appendChild(item){this.children.push(item);return item;}
+    append(...items){this.children.push(...items);}
+    setAttribute(key,value){this.attributes.set(key,String(value));}
+    addEventListener(){}
+  }
+  try{
+    globalThis.document={createElement:tag=>new Node(tag)};
+    globalThis.foundry={applications:{api:{DialogV2:{
+      input:async data=>{dialogs.push(data);return null;}
+    }}}};
+    globalThis.game={system:{id:"dnd5e"},user:{id:"gm",isGM:true},
+      settings:{get:()=>undefined,set:async()=>writes.push("world")}};
+    const carriage=findTransportationPreset("carriage",game.settings,"dnd5e");
+    const offer={methodId:"carriage",mode:"land",
+      overrides:{hireEnabled:true,hireCostCp:400},
+      checkpointId:"port",checkpointName:"Dirwest"};
+    const nav=new AtlasNavigationController({
+      atlasProvider:()=>({revision:7})});
+    nav.scene={id:"scene",canUserModify:()=>true,getFlag:(_module,key)=>
+      key==="checkpointTransportOffers"?
+        {schemaVersion:1,entries:{port:[{
+          methodId:offer.methodId,mode:offer.mode,overrides:offer.overrides
+        }]}}:undefined,
+      setFlag:async()=>writes.push("scene")};
+    nav.mixedKeys=["owned|walking","hire|carriage"];
+    nav.transportAvailability=()=>({all:[carriage],methods:[carriage],
+      offers:new Map([["carriage",offer]]),owned:new Set()});
+    nav.canDraftTravelMethods=()=>true;
+    nav.render=async()=>{};
+    await nav.editMixedTravelMethod("hire|carriage");
+    assert.equal(dialogs.length,1);
+    assert.equal(dialogs[0].ok.label,"Save for this trip");
+    assert.ok(dialogs[0].buttons.some(button=>/Save to Dirwest/.test(button.label)));
+    assert.match(dialogs[0].window.title,/Edit Carriage/);
+    assert.deepEqual(writes,[],"opening or cancelling cannot write World or Map Marker");
+    assert.deepEqual(nav.mixedKeys,["owned|walking","hire|carriage"]);
+    globalThis.game.user.isGM=false;
+    await assert.rejects(nav.editMixedTravelMethod("hire|carriage"),/authorized GM/);
+    assert.equal(dialogs.length,1,"a non-GM cannot open the editing workflow");
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("mounts, wagons, and ships use explicit daily operating policies",()=>{
   const priorGame=globalThis.game;
   try{
