@@ -676,7 +676,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
           k,k==="trip"?"Once per trip":k==="day"?"Per operating day":
             "Per "+(resolveAtlasMeasuringUnits()==="metric"?"kilometer":"mile")
         ]),value.livestockFareBasis??"trip","livestockFareBasis")));
-      hireControls.append(livestock);
+      // Native/owned vessels still need animal accommodation even when hire
+      // is disabled. This must not inherit the hire-only pointer-events lock.
+      panels.services.append(heading("Animal accommodation",
+        "Separate from human passenger seats, for owned and hired vessels."));
+      panels.services.append(livestock);
     }
     const overtime=row("13rem");
     overtime.append(serviceToggle("overtimeEnabled",value.overtimeEnabled??false,
