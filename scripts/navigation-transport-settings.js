@@ -660,6 +660,24 @@ export class AtlasTransportationSettings extends ApplicationBase {
         ["passenger","Each passenger"]],value.hireApplies??"unit","hireApplies"),
       "Whole vehicle charges once per required vehicle; passenger charges each traveler."));
     hireControls.append(hireRow);
+    if(value.kind==="vehicle"&&["water","air"].includes(value.surface)){
+      const livestock=row("13rem");
+      livestock.append(field("Animal stalls per vessel",
+        numberInput("livestockCapacity",value.livestockCapacity??"",
+          {min:0,max:1000,step:1}),
+        "Blank = not verified; 0 = prohibited. Neither consumes human passenger seats."),
+        serviceToggle("livestockFareEnabled",value.livestockFareCp!=null,
+          "Custom animal fare","Otherwise each animal uses one passenger fare equivalent when charged per passenger."),
+        field("Fare per physical mount",priceInput("livestock",
+          value.livestockFareBasis==="mile"?
+            atlasDisplayCostPerDistance(value.livestockFareCp??0):
+            value.livestockFareCp??0)),
+        field("Animal fare basis",selected(TRANSPORT_HIRE_BASES.map(k=>[
+          k,k==="trip"?"Once per trip":k==="day"?"Per operating day":
+            "Per "+(resolveAtlasMeasuringUnits()==="metric"?"kilometer":"mile")
+        ]),value.livestockFareBasis??"trip","livestockFareBasis")));
+      hireControls.append(livestock);
+    }
     const overtime=row("13rem");
     overtime.append(serviceToggle("overtimeEnabled",value.overtimeEnabled??false,
       "Allow overtime travel","Requires GM choice in Navigation."),
@@ -887,6 +905,17 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const hireEntered=currencyFromResponse(response,"hire");
     const hireCostCp=String(response.hireBasis)==="mile"?
       atlasCostPerMileFromDisplay(hireEntered):hireEntered;
+    const vessel=value.kind==="vehicle"&&["water","air"].includes(value.surface);
+    const animalRaw=String(response.livestockCapacity??"");
+    const livestockCapacity=!vessel?undefined:animalRaw===""?null:Number(animalRaw);
+    if(vessel&&livestockCapacity!==null&&(!Number.isInteger(livestockCapacity)||
+      livestockCapacity<0||livestockCapacity>1000))
+      throw Error("Animal stalls must be a whole number from 0 to 1000.");
+    const livestockFareBasis=String(response.livestockFareBasis??"trip");
+    const livestockFareValue=vessel&&bool("livestockFareEnabled")?
+      currencyFromResponse(response,"livestock"):null;
+    const livestockFareCp=livestockFareValue!=null&&livestockFareBasis==="mile"?
+      atlasCostPerMileFromDisplay(livestockFareValue):livestockFareValue;
     const next={...value,id,
       name:preset&&(preset.builtIn||scope!=="world")?value.name:String(response.name??"").trim(),
       kind:preset&&(preset.builtIn||scope!=="world")?value.kind:String(response.kind??""),
@@ -901,6 +930,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       hireEnabled:bool("hireEnabled"),hireCostCp,
       hireBasis:String(response.hireBasis),hireApplies:String(response.hireApplies),
       hireCrewIncluded:bool("hireCrewIncluded"),
+      ...(vessel?{livestockCapacity,livestockFareCp,livestockFareBasis}:{}),
       ...(scope==="checkpoint"||scope==="journey"&&checkpointName?{
         hireUnlimited:bool("hireUnlimited"),
         hireQuantity:Number(response.hireQuantity??value.hireQuantity??1)
