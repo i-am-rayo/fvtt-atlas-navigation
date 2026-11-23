@@ -1808,6 +1808,19 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
     assert.equal(await nav.startGuidedTravel(),false,
       "declining the explicit GM hire leaves the Journey unchanged");
     assert.equal(token.moves,0);assert.equal(writes.length,0);
+    // Even after the GM clicks Confirm, the same full native Group must still
+    // be selected; a concurrent change to the draft must not launch movement.
+    const originalPartySelection=nav.partyTravelSelection;
+    nav.partyTravelSelection=()=>nav.partySelectionMode==="selected"?
+      {partial:true,empty:false}:null;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      nav.partySelectionMode="selected";return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/split party|selection changed/,
+      "late selection changes must fail before native move or Journal writes");
+    assert.equal(token.moves,0);assert.equal(writes.length,0);
+    nav.partySelectionMode="all";nav.partyTravelSelection=originalPartySelection;
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      dialogTitles.push(options.window.title);return true;};
     approve=true;
     assert.equal(await nav.startGuidedTravel(),true);
     assert.ok(token.moves>0,"a native TokenDocument move completes the Cart journey");
