@@ -1,4 +1,5 @@
 /** Physical mounts are Journey-only draft allocations; native Group inventory is never edited. */
+import {dndCurrencyBreakdown} from "./navigation-currency.js";
 export function renderJourneyLivestockBoarding({resources=[],decisions={},
   method=null,planned=null,surface="water",carried=false,disabled=false,onChange}={}){
   if(!resources.length)return null;
@@ -120,8 +121,12 @@ export function renderJourneyLivestockBoarding({resources=[],decisions={},
     root.append(note);
   }
   if(planned){
+    const price=globalThis.game?.system?.id==="dnd5e"?
+      dndCurrencyBreakdown(planned.estimatedFareCp,
+        globalThis.CONFIG?.DND5E?.currencies).label:
+      planned.estimatedFareCp+" CP";
     const note=el("small","Draft estimate: "+planned.units+" vehicle(s) · animal fare "+
-      planned.estimatedFareCp+" CP; no currency is deducted.");
+      price+"; no currency is deducted.");
     note.style.cssText="font-size:.75em;opacity:.8;";
     root.append(note);
   }
