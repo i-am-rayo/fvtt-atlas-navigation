@@ -556,7 +556,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** One planning step: a single method shows checkboxes; mixed methods show
    * drag/drop assignments. The submitted Journey still owns one Group token.
    */
-  renderTravelersAndPace(party,availability,{disabled=false,mixedFare=null,singleChoice=null}={}){
+  renderTravelersAndPace(party,availability,{disabled=false,mixedFare=null,
+    singleChoice=null,transferColumns=false}={}){
     const root=el("div");
     root.style.cssText="display:grid;gap:.6rem;padding-top:.45rem;";
     const all=partyTravelerRoster(party.previewRoster);
@@ -605,6 +606,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const rates=[...new Set(terms.filter(r=>r.cost>0&&r.basis!=="none")
         .map(r=>r.cost+" CP/"+(r.applies==="passenger"?"passenger":"unit")+"/"+r.basis))];
       return {key:entry.key,name:method.name,arrangement:entry.arrangement,
+        showUnits:!transferColumns,
         ...(this.mixedKeys.length>1&&method.id!=="walking"?{
           costLabel:fare?.label??"Estimate unavailable",
           costDetail:fare?fare.units+" unit"+(fare.units===1?"":"s")+
@@ -629,7 +631,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       travelers:all,selectedIds:party.selectedIds,
       methods:descriptions,assignments,
       units:this.mixedUnits,disabled,previewOnly:party.partial,
-      onInclude:setIncluded,
+      transferColumns,onInclude:setIncluded,
       onAssign:(id,key)=>{
         if(disabled||!descriptions.some(m=>m.key===key))return;
         this.mixedAssignments={...this.mixedAssignments,[id]:key};
@@ -910,6 +912,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       roster=projectGroupTransportation(actor,readGroupTransportation(game.settings),catalog);
     const owned=new Set(catalog.filter(method=>method.id!=="walking"&&roster&&
       groupMethodCapacityStatus(roster,method).matched>0).map(method=>method.id));
+    const currentParty=roster?projectPartyTravelSelection(roster,{
+      mode:this.partySelectionMode,ids:this.partySelectedIds}):null;
     const sceneUnit=this.scene?.grid?.units?.trim()||"";
     const configured=Number(game.settings.get(MODULE_ID,NAVIGATION_SPEED_SETTING)
       ??DEFAULT_NAVIGATION_SPEED);
@@ -927,6 +931,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const normalDowntime=worldRules.overnightHours??Math.max(0,24-regularHours);
     const legs=projected.legs.map((leg,index)=>{
       const errors=[];
+      const activeRoster=index===0?(currentParty?.previewRoster??roster):roster;
+      if(index===0&&currentParty?.empty)
+        errors.push("Choose at least one traveler for the current Journey leg.");
       const offers=offersAtOrigin(atlas,this.scene,leg.start);
       const allSurfaces=leg.surface==="unspecified";
       const options=[...((leg.surface==="land"||allSurfaces)?[{
@@ -1000,7 +1007,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         let speed=null;
         if(option.method?.id==="walking")speed=walking.speed;
         else if(option.arrangement==="owned"&&roster){
-          const capacity=groupMethodCapacityStatus(roster,option.method);
+          const capacity=groupMethodCapacityStatus(activeRoster,option.method);
           if(!capacity.sufficient)errors.push("Not enough party-owned seats for this leg.");
           const mph=capacity.effectiveSpeedMph??option.method.speedMph;
           speed=convertGroupSpeed(mph,"mph",sceneUnit);
@@ -1017,12 +1024,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               const distanceMi=convertGroupSpeed(leg.distance,sceneUnit,"mi");
               if(!Number.isFinite(distanceMi))
                 throw Error("Transport pricing requires a Scene in miles or kilometers.");
-              const ownedQuote=option.arrangement==="owned"&&roster?
-                groupMethodFareEstimate(roster,option.method,{
+              const ownedQuote=option.arrangement==="owned"&&activeRoster?
+                groupMethodFareEstimate(activeRoster,option.method,{
                   hours,distanceMi,dayHours:regularHours}):null;
               const quote=quoteTransportationService(option.method,{
                 arrangement:option.arrangement,operation,
-                movingHours:hours,distanceMi,travelers:roster?.travelers??1,
+                movingHours:hours,distanceMi,travelers:activeRoster?.travelers??1,
                 ownedQuote,regularHours});
               costCp=quote.totalCp;
             }catch(error){errors.push(error.message??String(error));}
@@ -4964,6 +4971,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                   globalThis.ui?.notifications?.error?.(error.message??String(error)));
               }:null
           }));
+          if(!locked&&partyMode&&partySelection&&
+              this.canDraftTravelMethods()&&leg.selectedOption&&
+              ["water","air"].includes(leg.surface))
+            card.append(this.renderTravelersAndPace(partySelection,availability,{
+              singleChoice:leg.selectedOption,transferColumns:true}));
         }
         card.append(...renderNavigationTransferLegOutcome({
           estimateLabel:leg.hours!==null&&leg.costCp!==null?
