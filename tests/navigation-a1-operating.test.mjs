@@ -69,6 +69,12 @@ test("continuous operations keep the route moving and do not create automatic re
   assert.equal(summary.knownMovingHours,56);
   assert.equal(summary.plannedDowntimeHours,0);
   assert.equal(summary.knownElapsedHours,56);
+  const withoutRest=summarizeTransportationOperatingSchedule([
+    leg(0,"land",5,100,"normal",8,16),
+    leg(1,"water",48,200,"continuous",24,0),
+    leg(2,"land",4,300,"normal",8,16)]);
+  assert.equal(withoutRest.plannedDowntimeHours,16,
+    "continuous travel does not grant an unapproved passenger rest");
 });
 
 test("a missing future ship choice blocks full-trip totals without discarding known legs",()=>{
