@@ -54,6 +54,24 @@ test("GM trip/day/mile animal rate overrides default equivalent only for animals
    "default livestock equivalence applies only to per-passenger hired fare");
  assert.equal(quoteTransportationService(ship,{...options,livestockCount:0}).totalCp,480);
 });
+test("land coaches carrying animals respect unlimited, zero, finite stalls and charged units",()=>{
+ const coach={...ship,id:"coach-hire",surface:"land",livestockCapacity:null,
+   hireCostCp:40,hireBasis:"trip",capacity:4,hireQuantity:1,hireUnlimited:false};
+ const base=quoteTransportationService(coach,{...options,travelers:2,
+   livestockCount:3});
+ assert.equal(base.units,1);
+ assert.equal(base.baseCp,80);
+ assert.equal(base.livestockFareCp,120);
+ assert.equal(base.totalCp,200);
+ assert.throws(()=>quoteTransportationService({...coach,livestockCapacity:0},
+   {...options,travelers:2,livestockCount:3}),/does not allow/);
+ assert.throws(()=>quoteTransportationService({...coach,livestockCapacity:2},
+   {...options,travelers:2,livestockCount:3}),/Not enough hired transportation units/);
+ assert.equal(quoteTransportationService({...coach,livestockCapacity:2,
+   hireQuantity:2},{...options,travelers:2,livestockCount:3}).units,2);
+ assert.equal(quoteTransportationService({...coach,livestockCapacity:1},
+   {...options,travelers:2,livestockCount:0}).units,1);
+});
 test("World and checkpoint overrides retain animal fields without rewriting previous methods",()=>{
  const raw=defaultTransportationCatalog();
  const preset=listTransportationPresets({get:(_m,k)=>k==="guidedTransportationCatalog"?raw:undefined},"dnd5e")
@@ -66,6 +84,18 @@ test("World and checkpoint overrides retain animal fields without rewriting prev
    mode:"sea",overrides:{livestockCapacity:2,livestockFareCp:0,
      livestockFareBasis:"mile"}}]);
  assert.equal(checkpointOfferMethod(checked[0],edited).livestockCapacity,2);
+ const coach=listTransportationPresets({get:(_m,k)=>k==="guidedTransportationCatalog"?raw:undefined},
+   "dnd5e").find(m=>m.id==="coach-hire");
+ assert.ok(coach,"builtin land vehicle exists");
+ const coachEdited={...coach,livestockCapacity:2,livestockFareCp:40,
+   livestockFareBasis:"trip"};
+ const coachCatalog=setTransportationPreset(raw,"dnd5e2024",coachEdited);
+ assert.equal(coachCatalog.overrides.dnd5e2024["coach-hire"].livestockCapacity,2);
+ const land=validateCheckpointTransportOffers([{methodId:"coach-hire",
+   mode:"land",overrides:{livestockCapacity:0}}])[0];
+ assert.equal(checkpointOfferMethod(land,coachEdited).livestockCapacity,0);
+ assert.equal(checkpointOfferMethod({...land,overrides:{livestockCapacity:null}},
+   {...coachEdited,livestockCapacity:null}).livestockCapacity,null);
  assert.throws(()=>validateCheckpointTransportOffers([{methodId:"ship-passage",
    mode:"sea",overrides:{livestockCapacity:-1}}]),/Invalid/);
 });
