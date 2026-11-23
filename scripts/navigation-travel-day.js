@@ -57,8 +57,9 @@ export class GuidedTravelDayTracker {
   get availableHours(){
     const daily=this.rules.dailyHours;
     if(daily===null)return Infinity;
-    if(this.todayHours<daily-EPSILON)return daily-this.todayHours;
-    return Math.max(0,this.permittedExtraUntil-this.todayHours);
+    // Explicit GM approval can extend the boundary before the exact day
+    // threshold when that position cannot be a distinct native pixel.
+    return Math.max(0,Math.max(daily,this.permittedExtraUntil)-this.todayHours);
   }
 
   get needsDecision(){return this.remainingHours>EPSILON&&this.availableHours<=EPSILON;}
