@@ -204,6 +204,10 @@ test("all transport methods show consistent capacity and native currency editor 
         "ownership upkeep has a consistent section layout");
       if(names.includes("continuousEnabled"))
         assert.ok(names.includes("hireEnabled"),"water vehicles may offer hire");
+      if(names.includes("livestockCapacity")){
+        assert.ok(names.includes("livestockFareMode"),"every vehicle has a fare policy");
+        assert.ok(names.includes("livestockFarePercent"),"every vehicle has a 0–200% slider");
+      }
       const tabs=nodes.filter(n=>n.attributes?.get("role")==="tab");
       assert.deepEqual(tabs.map(n=>n.textContent),["General","Services","Ownership"]);
       assert.equal(nodes.filter(n=>n.attributes?.get("role")==="tabpanel").length,3);
