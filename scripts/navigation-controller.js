@@ -919,7 +919,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const catalog=availableNavigationTravelMethods(game.settings,game.system?.id);
     const restored=restoreApprovedTransportPlan(this.result,projected,
       this.recoveryRecord,catalog,this.recoveryOperationOverride,{
-        atlas,gridSize:this.scene.grid.size,gridDistance:this.scene.grid.distance});
+        atlas,gridSize:this.scene.grid.size,gridDistance:this.scene.grid.distance,
+        onRecoveryDiagnostic:game.user?.isGM?details=>
+          atlasDebug("journey","Approved route mismatch (GM-only diagnostic)",
+            JSON.stringify(details),{level:"verbose"}):null});
     if(restored)return restored;
     const actor=this.getPartyToken()?.actor;
     let roster=null;
