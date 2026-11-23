@@ -2988,6 +2988,17 @@ test("saved B to C all-water route uses current-leg tiles rather than the old me
         {id:"D",point:{x:340,y:100}}
       ]}};
     nav.transferSelections[0]="hire|ship-passage";
+    const groupRoster={travelers:2,members:[
+      {actorId:"cass",actorName:"Cassian",actorType:"character",
+        role:"passenger",quantity:1,needsSeat:true},
+      {actorId:"luc",actorName:"Lucious",actorType:"character",
+        role:"passenger",quantity:1,needsSeat:true}
+    ]};
+    nav.partyTravelSelection=()=>({roster:groupRoster,
+      ...projectPartyTravelSelection(groupRoster,{
+        mode:nav.partySelectionMode,ids:nav.partySelectedIds})});
+    nav.render=async()=>{};
+
     const plan=nav.transportationTransitionPlan();
     assert.equal(plan.checkpointContinuation,true);
     assert.equal(plan.hasTransitions,true,"force checkpoint choice UI despite one surface");
@@ -3007,6 +3018,19 @@ test("saved B to C all-water route uses current-leg tiles rather than the old me
     const edit=find(tiles,node=>node.tag==="button"&&
       node.ariaLabel?.includes("Ship passage"));
     assert.ok(edit,"a selected water transfer has a method-specific pencil");
+    const deck=find(root,node=>node.className==="atlas-navigation-traveler-deck");
+    assert.ok(deck,"the current water checkpoint offers the same traveler choices as land");
+    const staying=find(deck,node=>String(node.className??"")
+      .includes("atlas-navigation-not-traveling"));
+    assert.ok(staying,"a ship should offer a drop target for members who stay behind");
+    const before=JSON.stringify(nav.recoveryRecord);
+    staying.listeners.get("drop")({preventDefault(){},
+      dataTransfer:{getData:()=>"luc"}});
+    assert.equal(nav.partySelectionMode,"selected");
+    assert.deepEqual(nav.partySelectedIds,["cass"]);
+    assert.equal(JSON.stringify(nav.recoveryRecord),before,
+      "changing who boards is strictly transient before GM approval");
+
     assert.equal(find(root,node=>node.ariaLabel==="Transportation method for current leg"),
       undefined,"the legacy dropdown is no longer used on a fresh transfer");
     assert.equal(find(root,node=>node.tag==="select"&&
