@@ -1387,6 +1387,32 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.draw();void this.render(true);
   }
 
+  /** Read-only animal carriage estimate for one selected land vehicle.
+   * An accompanying mount is not automatically treated as vehicle cargo. */
+  planLandVehicleBoarding(method,arrangement,party){
+    if(method?.kind!=="vehicle"||method.surface!=="land"||!party)return null;
+    const mounts=groupLivestockResources(party.roster);
+    if(!mounts.length)return null;
+    const livestockCount=countJourneyLivestock(party.roster,this.livestockDecisions);
+    const sceneUnits=this.scene?.grid?.units?.trim()||"";
+    const distanceMi=convertGroupSpeed(this.result.distance,sceneUnits,"mi");
+    const speed=this.resolveTravel().travel.speed;
+    if(!Number.isFinite(distanceMi)||!Number.isFinite(speed)||speed<=0)
+      throw Error("Cannot estimate land vehicle accommodation without valid route units.");
+    const movingHours=navigationHours(this.result.distance,speed);
+    const regularHours=resolveNavigationTravelRules({settings:game.settings,
+      systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8;
+    const quote=quoteTransportationService(method,{
+      arrangement,operation:this.plannedTravelOperation(method),
+      movingHours,distanceMi,travelers:party.travelerCount,
+      livestockCount,regularHours});
+    const manifest=planJourneyLivestock(party.roster,this.livestockDecisions,{
+      surface:"land",carried:true,methodId:method.id,
+      units:quote.units,capacityPerUnit:method.livestockCapacity,
+      fareCp:quote.livestockFareCp});
+    return {manifest,quote};
+  }
+
   assessTravelMethod(){
     // A global method cannot silently traverse several road surfaces.
     // Beta.6 validates each transfer independently; beta.7 owns movement.
@@ -1475,6 +1501,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         if(!groupMethodCapacityStatus(roster,method).sufficient)
           return {...result,guided:false,
             reason:"Not enough matching party-owned passenger seats for this land leg."};
+      }
+      if(!approvedLand&&method?.kind==="vehicle"&&method.surface==="land"){
+        try{
+          const party=this.partyTravelSelection(availability.all);
+          if(party)this.planLandVehicleBoarding(
+            this.effectiveTransportMethod(method,availability),
+            this.transportArrangement,party);
+        }catch(error){return {...result,guided:false,
+          reason:error.message??String(error)};}
       }
       return result;
     }catch{return {compatible:false,guided:false,
