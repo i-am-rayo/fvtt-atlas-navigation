@@ -45,6 +45,22 @@ test("legacy v1 World checkpoint catalog is projected without overwriting custom
   assert.ok(validateCheckpointPresets(previous).presets.some(p=>p.category==="air-dock"));
   assert.deepEqual(previous.presets,original.presets.filter(p=>p.category!=="air-dock"));
 });
+test("land Map Marker can enable continuous travel only for vehicle methods",()=>{
+  const offer={methodId:"carriage",mode:"land",
+    overrides:{hireEnabled:true,continuousEnabled:true}};
+  const stored=validateCheckpointTransportOffers([offer]);
+  assert.deepEqual(stored,[offer],
+    "Map Marker validation must accept GM-configured rotating carriage crews");
+  const carriage=checkpointOfferMethod(offer,world("carriage"));
+  assert.equal(carriage.continuousEnabled,true);
+  assert.equal(world("carriage").continuousEnabled,false,
+    "Map Marker never edits the World preset");
+  assert.throws(()=>checkpointOfferMethod({
+    methodId:"riding-horse",mode:"land",overrides:{continuousEnabled:true}
+  },world("riding-horse")) ,/vehicle/,
+  "the editor cannot grant continuous operation to ordinary mounts");
+});
+
 test("checkpoint offers reject duplicates, invalid fares, and surface mismatches",()=>{
   const offers=defaultCheckpointTransportOffers("dock");
   assert.deepEqual(validateCheckpointTransportOffers(offers),offers);
