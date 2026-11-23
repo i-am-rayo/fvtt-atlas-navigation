@@ -1046,10 +1046,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               const ownedQuote=option.arrangement==="owned"&&activeRoster?
                 groupMethodFareEstimate(activeRoster,option.method,{
                   hours,distanceMi,dayHours:regularHours}):null;
-              const vessel=index===0&&roster&&
-                ["water","air"].includes(leg.surface)&&
+              const vehicle=index===0&&roster&&
+                ["land","water","air"].includes(leg.surface)&&
                 option.method.kind==="vehicle";
-              const mounts=vessel?groupLivestockResources(roster):[];
+              const mounts=vehicle?groupLivestockResources(roster):[];
               const count=mounts.length?
                 countJourneyLivestock(roster,this.livestockDecisions):0;
               const quote=quoteTransportationService(option.method,{
@@ -1059,7 +1059,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               if(mounts.length)livestock=planJourneyLivestock(roster,this.livestockDecisions,{
                 surface:leg.surface,methodId:option.method.id,
                 units:quote.units,capacityPerUnit:option.method.livestockCapacity,
-                fareCp:quote.livestockFareCp});
+                fareCp:quote.livestockFareCp,
+                carried:leg.surface==="land"});
               costCp=quote.totalCp;
             }catch(error){errors.push(error.message??String(error));}
           }
@@ -2929,11 +2930,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const expectedLivestock=this.transportationTransitionPlan()?.legs[0]?.livestock??null;
       const mountNotice=expectedLivestock?
         " Physical mounts: "+expectedLivestock.resources.reduce((sum,m)=>sum+m.aboard,0)+
-        " embarking, "+expectedLivestock.resources.reduce((sum,m)=>sum+m.quantity-m.aboard,0)+
-        " staying. "+expectedLivestock.units+" vessel(s) with "+
+        (expectedLivestock.carried?" carried, ":" embarking, ")+
+        expectedLivestock.resources.reduce((sum,m)=>sum+m.quantity-m.aboard,0)+
+        " staying. "+expectedLivestock.units+" vehicle(s) with "+
         (expectedLivestock.capacityPerUnit===null?
           "unlimited animal accommodation":expectedLivestock.capacityPerUnit+
-          " animal stalls each")+
+          " animal spaces each")+
         ". Animal fare estimate: "+
         expectedLivestock.estimatedFareCp+" CP, already included in the service quote.":"";
       const approval=await foundry.applications.api.DialogV2.confirm({
@@ -5071,10 +5073,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 error.message??String(error)));
             }
           }));
-          const mountBoard=this.recoveryRecord?.legs?.at(-1)?.livestock?
+          const carrier=leg.selectedOption?.method?.kind==="vehicle"&&
+            leg.surface==="land";
+          const mountBoard=carrier||this.recoveryRecord?.legs?.at(-1)?.livestock?
             renderJourneyLivestockBoarding({
               resources:groupLivestockResources(partySelection.roster),
-              surface:"land",decisions:this.livestockDecisions,
+              surface:"land",carried:carrier,method:leg.selectedOption?.method,
+              planned:leg.livestock,decisions:this.livestockDecisions,
               disabled:Boolean(this.journalStarting),
               onChange:(id,amount)=>{
                 this.livestockDecisions={...this.livestockDecisions,[id]:amount};
@@ -5109,11 +5114,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           // onward vessel is being previewed. The handle must not hide the
           // non-committing traveler roster; approval remains separately guarded.
           if(!locked&&partyMode&&partySelection&&leg.selectedOption&&
-              ["water","air"].includes(leg.surface)){
+              (["water","air"].includes(leg.surface)||
+                leg.surface==="land"&&leg.selectedOption.method?.kind==="vehicle")){
             const mountBoard=renderJourneyLivestockBoarding({
               resources:groupLivestockResources(partySelection.roster),
               decisions:this.livestockDecisions,method:leg.selectedOption.method,
-              planned:leg.livestock,surface:leg.surface,disabled:locked,
+              planned:leg.livestock,surface:leg.surface,
+              carried:leg.surface==="land",disabled:locked,
               onChange:(id,quantity)=>{
                 this.livestockDecisions={...this.livestockDecisions,[id]:quantity};
                 void this.render(true);
