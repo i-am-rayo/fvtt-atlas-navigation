@@ -64,8 +64,8 @@ test("one method lists everyone checked; a left-behind traveler triggers subset 
     const partial=renderNavigationTravelRoster({travelers,
       selectedIds:["cass","luc","torrus","jon"],
       methods:methods.slice(0,1),previewOnly:true});
-    assert.ok(all(partial).some(n=>String(n.textContent).includes("Preview only")),
-      "the shared Group token must never move for a subset");
+    assert.ok(all(partial).some(n=>String(n.textContent).includes("native Group")),
+      "the native Group remains unchanged while the Journey tracks a subset");
   }finally{restore();}
 });
 
@@ -169,7 +169,7 @@ test("deck shares Font Awesome icons and omits walking fare",()=>{
       ["fa-solid fa-person-walking","fa-solid fa-horse","fa-solid fa-wagon-covered"]);
     assert.equal(nodes.filter(n=>n.textContent==="1 SP").length,2);
     assert.ok(nodes.some(n=>n.children?.some(c=>c.textContent==="3 · Who goes where?")&&
-      n.children?.some(c=>c.textContent==="5/5 travelers · 4 seats")));
+      n.children?.some(c=>c.textContent==="5/5 travelers · 4 seats · Unapproved draft")));
   }finally{restore();}
 });
 
