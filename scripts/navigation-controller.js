@@ -95,7 +95,8 @@ import {renderNavigationTravelMethodSelector,renderNavigationTravelMethodButtons
 import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
 import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote,
-  renderNavigationTransportApproval} from "./navigation-transport-summary-view.js";
+  renderNavigationTransportApproval,describeJourneyMountFare}
+  from "./navigation-transport-summary-view.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
@@ -1022,7 +1023,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         try{operationRules=resolveTransportationOperation(option.method,operation,regularHours);}
         catch(error){errors.push(error.message??String(error));}
       }
-      let hours=null,costCp=null,livestock=null;
+      let hours=null,costCp=null,livestock=null,serviceQuote=null;
       if(option){
         let speed=null;
         if(option.method?.id==="walking")speed=walking.speed;
@@ -1064,6 +1065,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 fareCp:quote.livestockFareCp,
                 carried:leg.surface==="land"});
               costCp=quote.totalCp;
+              serviceQuote=quote;
             }catch(error){errors.push(error.message??String(error));}
           }
         }
@@ -1073,7 +1075,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         overnightHours:operationRules?.overnightHours??null,
         selectedValue:option?.value??"",
         methodName:option?.method?.name??null,
-        livestock,
+        livestock,serviceQuote,
         narration:describeTransportationLeg(leg,option?{
           name:option.method.name,kind:option.method.kind,
           surface:leg.surface,arrangement:option.arrangement
@@ -3013,14 +3015,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         game.settings,game.system?.id);
       const speedUnits=displayedSpeed.unit==="mi/hour"?"mph":
         displayedSpeed.unit==="km/hour"?"km/h":displayedSpeed.unit;
-      const mounts=expectedLivestock?.resources
-        .filter(resource=>resource.aboard>0)
-        .map(resource=>resource.name+": "+resource.aboard+" accompanying")??[];
       const stayingMounts=expectedLivestock?.resources
         .filter(resource=>resource.quantity>resource.aboard)
         .map(resource=>resource.name+": "+(resource.quantity-resource.aboard)+" staying")??[];
+      const mountFare=expectedLivestock?.estimatedFareCp??0;
+      const aboardMounts=expectedLivestock?.resources.reduce((n,m)=>n+m.aboard,0)??0;
+      const approvalMoney=cp=>dndCurrencyBreakdown(cp,
+        globalThis.CONFIG?.DND5E?.currencies).label;
+      const mountDetails=aboardMounts?describeJourneyMountFare(expectedLivestock,{
+        method:option.method,worldPercent:readLivestockFarePercent(game.settings),
+        formatMoney:approvalMoney,approved:isUnfinishedJourneyLeg(this.recoveryRecord)}):null;
       const approvedSummary=renderNavigationTransportApproval({
         destination:"Current leg to "+guidedLeg.checkpoint.name,
+        fareRows:mountDetails&&Number.isFinite(info.estimatedFareCp)?[
+          ["Transport excluding mounts",approvalMoney(Math.max(0,
+            Math.round(info.estimatedFareCp)-Math.round(mountFare)))],
+          ["Physical mount boarding",approvalMoney(Math.round(mountFare))]
+        ]:[],
         rows:[{
           method:info.methodName+" ("+info.arrangement+")",
           travelers:traveling.join(", ")||"Assigned party explorer",
@@ -3035,11 +3046,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         ],
         notes:[
           absent.length?"Not traveling: "+absent.join(", "):null,
-          expectedLivestock?"Physical mounts: "+
-            [...mounts,...stayingMounts].join(" · ")+
-            ". Animal fare: "+dndCurrencyBreakdown(
-              expectedLivestock.estimatedFareCp,globalThis.CONFIG?.DND5E?.currencies).label+
-            " (included in quoted total; no deduction).":null,
+          mountDetails,
+          stayingMounts.length?"Staying behind: "+stayingMounts.join(" · "):null,
           isUnfinishedJourneyLeg(this.recoveryRecord)?
             "Resuming an approved Journey leg: the historical fare is not quoted or charged again.":null,
           "The Group explorer represents the selected Atlas travelers; native Group membership "+
@@ -5236,17 +5244,43 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 void this.render(true);
               }});
             card.append(this.renderTravelersAndPace(partySelection,availability,{
-              singleChoice:leg.selectedOption,transferColumns:true,mountBoard}));
+              singleChoice:leg.selectedOption,mountBoard}));
           }
         }
+        if(!leg.recovered&&leg.serviceQuote&&!leg.errors.length){
+          const fare=leg.serviceQuote;
+          const mountDetails=describeJourneyMountFare(leg.livestock,{
+            method:leg.selectedOption?.method,
+            worldPercent:readLivestockFarePercent(game.settings),
+            formatMoney
+          });
+          const otherTotal=Math.max(0,
+            Math.round(fare.totalCp)-Math.round(fare.livestockFareCp));
+          card.append(renderTransportQuote({
+            currentEstimate:"Current "+(fare.arrangement==="hire"?
+              "hired service":"party-owned transport")+" estimate: "+
+              formatMoney(fare.totalCp),
+            breakdown:[
+              "Transport excluding mounts: "+formatMoney(otherTotal),
+              "Base fare: "+formatMoney(fare.baseCp),
+              "Paid crew: "+formatMoney(fare.crewWagesCp),
+              "Overtime fare and labor: "+
+                formatMoney(fare.overtimeFareCp+fare.overtimeCrewCp),
+              ...(mountDetails?[mountDetails]:[])
+            ].join(" · "),
+            operatingSummary:"Operating schedule: "+leg.operation+
+              ". Estimates only; no booking, payment, rest, World time or "+
+              "Token movement is authorized by this preview."
+          }));
+        }
         card.append(...renderNavigationTransferLegOutcome({
-          estimateLabel:leg.hours!==null&&leg.costCp!==null?
+          estimateLabel:leg.serviceQuote?null:leg.hours!==null&&leg.costCp!==null?
             showDistance(leg.distance)+" · "+
             formatNavigationDuration(leg.hours,24)+" moving · "+
             (leg.recovered&&leg.convoy?"previously approved fare (no new quote)":
               (leg.convoy&&mixedFare?mixedFare.total.label:formatMoney(leg.costCp))+" estimated cost"):null,
-          narration:leg.narration,errors:leg.errors,
-          arrivalCheckpointName:leg.arrivalCheckpoint?.name??null}));
+          narration:[],errors:leg.errors,
+          arrivalCheckpointName:null}));
         section.append(card);
       }
       if(transferPlan.legs.length>1){
@@ -5266,19 +5300,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             formatNavigationDuration(overall.knownMovingHours,24)+" moving · "+
             formatNavigationDuration(overall.plannedDowntimeHours,24)+" estimated duty downtime · "+
             formatMoney(overall.knownFareCp)+" quoted so far.";
-        const projected=el("div",details+
-          " Future legs and breaks are previews only; no reservation, rest, World time, currency or next-leg movement is approved.");
-        projected.style.cssText="font-size:.88em;line-height:1.5;padding:.5rem;border-top:1px solid var(--color-border-light-tertiary,#555);";
+        const projected=el("details");
+        const summary=el("summary","Whole Journey outlook (provisional)");
+        projected.append(summary,el("div",details+
+          " Future legs and breaks are previews only; no reservation, rest, World time, currency or next-leg movement is approved."));
         section.append(projected);
       }
-      const current=transferPlan.legs[0];
-      section.append(el("strong",current?.errors.length?
-        "Choose a valid method and confirm the transfer before this leg can be estimated.":
-        current?.hours!==null?
-          "Current leg: "+formatNavigationDuration(current.hours,24)+" moving · "+
-            (current.recovered&&current.convoy?"previously approved transportation":
-              (current.convoy&&mixedFare?mixedFare.total.label:formatMoney(current.costCp))+" estimated")+". Later legs are undecided.":
-          "Current leg estimate pending."));
       body.append(section);
     }
     if (this.result?.status === "ok") {
