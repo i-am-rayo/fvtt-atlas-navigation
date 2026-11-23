@@ -81,3 +81,23 @@ test("interrupted approved land overtime survives recovery without rebooking",()
   assert.equal(recovered.legs[0].costCp,0,"recovery cannot charge a fare twice");
   assert.equal(recovered.legs[0].recovered,true);
 });
+
+test("an interrupted voyage retains its road mismatch refusal and attaches read-only diagnostic",()=>{
+  const p=x=>({x,y:0});
+  const saved={status:"interrupted",lastConfirmedAnchor:{point:p(50)},
+    legs:[{completedPercent:50,distance:100,approvedPath:{schemaVersion:1,legs:[{
+      kind:"road",roadId:"road",segmentId:"saved",points:[p(0),p(100)]}]},
+      transport:{methodId:"ship",kind:"vehicle",surface:"water",
+        arrangement:"hire",arrivalCheckpointId:"dock"}}]};
+  const route={status:"ok",start:p(50),end:p(100),distance:50,legs:[{
+    kind:"road",roadId:"road",segmentId:"new",points:[p(50),p(100)]}]};
+  const before=JSON.stringify(saved);
+  assert.throws(()=>restoreApprovedTransportPlan(route,{legs:[]},saved,[],null,
+    {gridSize:100,gridDistance:5}),error=>{
+    assert.match(error.message,/road-sequence-changed/);
+    assert.deepEqual(error.recoveryDiagnostic?.approvedSegmentIds,["saved"]);
+    assert.deepEqual(error.recoveryDiagnostic?.proposedSegmentIds,["new"]);
+    return true;
+  });
+  assert.equal(JSON.stringify(saved),before,"diagnostics cannot mutate saved Journey state");
+});
