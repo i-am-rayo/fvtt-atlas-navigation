@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {hasUnfinishedApprovedTransport,approvedTransportRecoverySelection}
+import {hasUnfinishedApprovedTransport,approvedTransportRecoverySelection,
+  restoreApprovedTransportPlan}
   from "../scripts/navigation-transport-recovery.js";
 
 test("a completed checkpoint does not make the next land route an approved ship leg",()=>{
@@ -49,4 +50,34 @@ test("approved Journey recovery is surface- and method-neutral",()=>{
       methodId:transport.methodId,arrangement:transport.arrangement,
       operation:transport.operation},transport.methodId);
   }
+});
+
+test("interrupted approved land overtime survives recovery without rebooking",()=>{
+  const end={x:30,y:0};
+  const route={status:"ok",start:{x:10,y:0},end,distance:20,cost:20,
+    legs:[{kind:"road",points:[{x:10,y:0},end],distance:20,cost:20}]};
+  const projected={hasTransitions:false,validTransfers:true,legs:[{
+    index:0,firstRouteLeg:0,lastRouteLeg:0,surface:"land",start:route.start,end,
+    distance:20,weightedDistance:20,roadIds:["road"],roadNames:["Coast road"],
+    departureCheckpoint:null,arrivalCheckpoint:{id:"arrival",name:"Dirwest"},
+    transferValid:true
+  }]};
+  const approved={status:"interrupted",legs:[{
+    completedPercent:40,destination:end,distance:50,speedPerHour:3,
+    terrainAware:false,transport:{
+      methodId:"carriage",methodName:"Carriage",kind:"vehicle",
+      surface:"land",arrangement:"hire",operation:"overtime",
+      arrivalCheckpointId:"arrival",arrivalCheckpointName:"Dirwest"
+    }
+  }]};
+  const catalog=[{id:"carriage",name:"Carriage",kind:"vehicle",surface:"land",
+    speedMph:3,capacity:4,hireEnabled:true,hireCostCp:400,hireBasis:"day",
+    hireApplies:"unit",overtimeEnabled:false,continuousEnabled:false}];
+  const recovered=restoreApprovedTransportPlan(route,projected,approved,catalog,
+    null,{gridSize:100,gridDistance:5});
+  assert.equal(recovered.legs[0].operation,"overtime");
+  assert.equal(recovered.legs[0].selectedOption.method.overtimeEnabled,true,
+    "a saved approved shift cannot silently downgrade after World preset edits");
+  assert.equal(recovered.legs[0].costCp,0,"recovery cannot charge a fare twice");
+  assert.equal(recovered.legs[0].recovered,true);
 });
