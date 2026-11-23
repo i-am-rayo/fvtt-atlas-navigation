@@ -39,7 +39,7 @@ export function projectAccompanyingLivestock(roster,decisions){
     decisions[member.actorId]>0?[{...member,quantity:decisions[member.actorId]}]:[])};
 }
 
-/** Separate passenger seats from animal accommodation; unknown == no boarding. */
+/** Separate passenger seats from animal stalls; null == no configured limit. */
 export function planJourneyLivestock(roster,decisions,{surface,methodId,
   units,capacityPerUnit,fareCp=0}={}){
   if(!["land","water","air"].includes(surface)||!id(methodId)||
@@ -58,9 +58,10 @@ export function planJourneyLivestock(roster,decisions,{surface,methodId,
   const aboard=resources.reduce((n,m)=>n+m.aboard,0);
   if(surface==="land"&&(units!==1||capacityPerUnit!==null||fareCp!==0))
     throw Error("Land livestock accompaniment cannot invent a vessel or fare.");
-  if(surface!=="land"&&aboard>0&&(!Number.isInteger(capacityPerUnit)||capacityPerUnit<1||
-    capacityPerUnit>1000||aboard>capacityPerUnit*units))
-    throw Error("The vessel has insufficient verified animal accommodation.");
+  if(surface!=="land"&&aboard>0&&capacityPerUnit!=null&&
+    (!Number.isInteger(capacityPerUnit)||capacityPerUnit<1||
+      capacityPerUnit>1000||aboard>capacityPerUnit*units))
+    throw Error("The vessel has insufficient animal accommodation.");
   return validateJourneyLivestock({schemaVersion:1,methodId,surface,units,
     capacityPerUnit:capacityPerUnit??null,resources,estimatedFareCp:fareCp});
 }
@@ -88,8 +89,8 @@ export function validateJourneyLivestock(raw){
   if(raw.surface==="land"&&(raw.units!==1||raw.capacityPerUnit!==null||
     raw.estimatedFareCp!==0))
     throw Error("Land livestock has no separate vessel price or stalls.");
-  if(raw.surface!=="land"&&aboard>0&&(!Number.isInteger(raw.capacityPerUnit)||
-    raw.capacityPerUnit<1||aboard>raw.units*raw.capacityPerUnit))
+  if(raw.surface!=="land"&&aboard>0&&raw.capacityPerUnit!==null&&
+    (raw.capacityPerUnit<1||aboard>raw.units*raw.capacityPerUnit))
     throw Error("Approved livestock exceeds available vessel stalls.");
   return structuredClone(raw);
 }
