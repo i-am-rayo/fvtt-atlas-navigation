@@ -94,8 +94,8 @@ import {renderNavigationTravelMethodSelector,renderNavigationTravelMethodButtons
   from "./navigation-selection-view.js";
 import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
-import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote}
-  from "./navigation-transport-summary-view.js";
+import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote,
+  renderNavigationTransportApproval} from "./navigation-transport-summary-view.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
 import {renderNavigationDirections} from "./navigation-directions-view.js";
@@ -709,37 +709,28 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const fare=mixedTransportFareBreakdown(proposed.methods,
       globalThis.CONFIG?.DND5E?.currencies);
     const manifest=describeConfirmedTravelers(proposed);
-    const content=el("div");
-    content.append(el("strong","Transportation summary"));
-    if(guidedLeg)content.append(el("p","Current leg to "+guidedLeg.checkpoint.name));
-    const table=el("table");
-    const header=el("thead"),heading=el("tr");
-    for(const label of ["Method","Travelers","Units","Cost"]){
-      const cell=el("th",label);cell.scope="col";heading.append(cell);
-    }
-    header.append(heading);table.append(header);
-    const body=el("tbody");
-    for(const method of proposed.methods){
-      const row=el("tr"),name=el("td");
-      name.append(el("strong",method.methodName));
-      const assignment=manifest.find(entry=>entry.key===method.key);
-      if(assignment)name.append(el("div",assignment.travelers));
-      else if(method.role==="cargo")name.append(el("div","Cargo only"));
-      const walking=method.role==="walking";
-      row.append(name,el("td",String(method.passengers)),
-        el("td",walking?"—":String(method.units)),
-        el("td",walking?"—":fare.rows.find(entry=>entry.key===method.key).label));
-      body.append(row);
-    }
-    table.append(body);content.append(table);
-    const totals=el("dl");
-    for(const [label,value] of [
-      ["Total travelers",String(proposed.methods.reduce((n,m)=>n+m.passengers,0))],
-      ["Group travel speed",shown.value.toFixed(2)+" "+units],
-      ["Estimated moving time",formatNavigationDuration(proposed.movingHours,24)],
-      ["Estimated transportation cost",fare.total.label]
-    ])totals.append(el("dt",label),el("dd",value));
-    content.append(totals);
+    const selectedIds=new Set(proposed.travelers.map(t=>t.actorId));
+    const roster=this.partyTravelSelection(this.transportAvailability().all);
+    const notTraveling=roster?.members?.filter(m=>!selectedIds.has(m.id))
+      .map(m=>m.name).join(", ");
+    const content=renderNavigationTransportApproval({
+      destination:guidedLeg?"Current leg to "+guidedLeg.checkpoint.name:null,
+      rows:proposed.methods.map(method=>({
+        method:method.methodName,
+        travelers:manifest.find(entry=>entry.key===method.key)?.travelers??
+          (method.role==="cargo"?"Cargo only":"—"),
+        units:method.role==="walking"?"—":String(method.units),
+        cost:method.role==="walking"?"—":
+          (fare.rows.find(entry=>entry.key===method.key)?.label??"—")
+      })),
+      metrics:[
+        ["Total travelers",String(proposed.methods.reduce((n,m)=>n+m.passengers,0))],
+        ["Group travel speed",shown.value.toFixed(2)+" "+units],
+        ["Estimated moving time",formatNavigationDuration(proposed.movingHours,24)],
+        ["Estimated transportation cost",fare.total.label]
+      ],
+      notes:[notTraveling?"Not traveling: "+notTraveling:null]
+    });
     if(proposed.gmWalkingPaceOverride){
       const ordinary=atlasDisplaySpeed(proposed.suggestedSpeedPerHour,
         this.scene.grid.units,game.settings,game.system?.id);
@@ -748,8 +739,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         shown.value.toFixed(2)+" "+units+
         ". Actor movement and exhaustion statistics are not modified automatically."));
     }
-    content.append(el("p","All travelers remain together as one Group. "+
-      "Transportation costs are estimates; no booking, boarding, payment or Actor changes occur automatically."));
+    content.append(el("p","The Group explorer represents only selected travelers; "+
+      "native Group membership remains unchanged. Transportation costs are estimates; "+
+      "no booking, boarding, payment or Actor changes occur automatically."));
     const confirmed=await foundry.applications.api.DialogV2.confirm({
       window:{title:"Confirm mixed-party transportation"},
       content,rejectClose:false,modal:true
