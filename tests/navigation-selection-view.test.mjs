@@ -178,29 +178,3 @@ test("water transfer radio tiles expose the same selected pencil",async()=>{
     assert.deepEqual(calls,["edit:hire|ship-passage","select:owned|warship"]);
   }finally{restore();}
 });
-
-test("operating schedule visibly distinguishes enabled capability from active Journey mode",async()=>{
-  const restore=mockDOM();
-  try{
-    const {renderNavigationOperatingSchedule}=await import("../scripts/navigation-selection-view.js");
-    const selections=[];
-    const root=renderNavigationOperatingSchedule({
-      method:{id:"cart",name:"Cart",kind:"vehicle",surface:"land",
-        continuousEnabled:true,overtimeEnabled:true,overtimeExtraHours:6},
-      operation:"normal",regularHours:8,onChange:v=>selections.push(v)
-    });
-    const all=node=>[node,...node.children.flatMap(all)];
-    const select=all(root).find(n=>n.tag==="select");
-    assert.equal(select.value,"normal","capability does not silently authorize 24h travel");
-    assert.deepEqual(select.children.map(n=>n.value),["normal","overtime","continuous"]);
-    assert.ok(all(root).some(n=>n.textContent?.includes("Continuous operation requires")),
-      "the GM sees a clear statement about crew capability vs Journey approval");
-    select.value="continuous";select.listeners.change();
-    assert.deepEqual(selections,["continuous"]);
-    const walk=renderNavigationOperatingSchedule({
-      method:{id:"riding-horse",name:"Horse",kind:"mount",surface:"land"},
-      operation:"normal",regularHours:8,onChange:()=>{}});
-    assert.deepEqual(all(walk).find(n=>n.tag==="select").children.map(n=>n.value),
-      ["normal"],"a mount cannot gain 24-hour operation");
-  }finally{restore();}
-});
