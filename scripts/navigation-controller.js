@@ -9,7 +9,8 @@ import { navigationCanvasLegPaths } from "./navigation-render-path.js";
 import {captureApprovedJourneyPath,assessApprovedRoutePosition} from "./navigation-approved-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
-import { planGuidedTravelChunks, waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS }
+import { planGuidedTravelChunks,waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS,
+  coalesceSubpixelTravelChunks,hasNativePixelDisplacement }
   from "./navigation-movement-lifecycle.js";
 import {planNativeCheckpointPath,anchorNativeTokenWaypoints,
   describeNativeCheckpointSources,NATIVE_CONTINUOUS_CHECKPOINT_SECONDS}
@@ -2187,7 +2188,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   updateJourneyTiming(){
     const ui=this.journeyTimeUI;
     if(!ui)return;
-    const schedule=this.journeySchedule;
+    // An interrupted leg's old schedule cannot time the new route preview.
+    const live=this.travelSession?.schedule;
+    const schedule=live&&Math.abs(live.travelHours-ui.travelHours)<1e-5?live:null;
     const plan=schedule?.estimate??ui.plan;
     const timing=projectJourneyTiming({travelHours:ui.travelHours,
       percent:this.travelProgress,totalHours:plan.totalHours,
@@ -2591,8 +2594,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       typeof status==="function"?status():status);
   }
 
-  async waitForDailyTravelChoice(session){
-    if(!session.schedule.needsDecision)return true;
+  async waitForDailyTravelChoice(session,{allowEarly=false}={}){
+    if(!session.schedule.needsDecision&&!allowEarly)return true;
     session.phase="rest-checkpointing";
     // A daily-limit decision is durable even when no new native movement
     // occurred after the most recent verified checkpoint.
@@ -2605,14 +2608,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const past=session.schedule.lastForcedCheck;
     const forced=past?` Resolve the hour-${past.extraHour} forced-march DC ${past.dc} `+
       "Constitution saves with your players; Atlas never applies exhaustion.":"";
-    this.travelNotice=`Daily travel limit (${session.schedule.rules.dailyHours}h) reached. `+
+    this.travelNotice=allowEarly&&!session.schedule.needsDecision?
+      "This native movement cannot be safely split at the exact travel-hour boundary. "+
+      "Choose an early rest or approve the next forced-march hour before moving. "+
+      "No Token movement or World time has been committed."+forced:
+      `Daily travel limit (${session.schedule.rules.dailyHours}h) reached. `+
       "Choose an overnight camp, a long or short rest, or continued travel."+forced;
     const choicePromise=new Promise(resolve=>{session.restWaiter=resolve;});
     if(this.active)await this.render(true);
     const action=await choicePromise;
     session.restWaiter=null;
     if(session.phase==="ending"||this.travelSession!==session||!action)return false;
-    const choice=session.schedule.breakChoice(action);
+    const choice=session.schedule.breakChoice(action,{allowEarly});
     // A break's start is after confirmed travel time and before downtime.
     await this.commitGuidedTravelBreak(session,choice,()=>session.phase==="ending"?
       "interrupted":"moving");
@@ -3035,9 +3042,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       secondsPerHour:this.recoveryRecord?.playbackSecondsPerHour??
         this.playbackSecondsPerHourOverride??readGuidedPlaybackSetting(game.settings)
     });
-    const chunks=planGuidedTravelChunks(waypoints,{
+    // A zero-pixel native fragment cannot independently prove movement/time.
+    const chunks=coalesceSubpixelTravelChunks(planGuidedTravelChunks(waypoints,{
       movementSpeed:playback.movementSpeed,gridSize:this.scene.grid.size
-    });
+    }));
+    if(!chunks)throw Error("The approved route has no distinct native pixel movement.");
     const totalDistance=chunks.reduce((sum,chunk)=>sum+chunk.distance,0);
     const schedule=new GuidedTravelDayTracker({travelHours:playback.travelHours,
       rules:this.resolveCurrentLegRules(travel,guidedOption,guidedLeg)});
@@ -3209,7 +3218,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           if(chunks.length>=MAX_GUIDED_CHUNKS+MAX_GUIDED_REST_EVENTS)
             throw Error("The journey needs too many movement-day boundaries.");
           const halves=splitGuidedChunkAtDistance(chunk,availableDistance);
-          chunks.splice(index,1,...halves);
+          // Fold subpixel fragments forward into unexecuted movement, never
+          // backwards across a previously confirmed day checkpoint.
+          const suffix=coalesceSubpixelTravelChunks(
+            [halves[1],...chunks.slice(index+1)],{allowTailMerge:false});
+          if(!hasNativePixelDisplacement(halves[0].waypoints)||!suffix){
+            // Obtain explicit GM authority BEFORE submitting a movement whose
+            // day boundary has no separately provable native pixel position.
+            const approved=await this.waitForDailyTravelChoice(session,
+              {allowEarly:true});
+            if(!approved){reachedEnd=false;break;}
+            index--;continue;
+          }
+          chunks.splice(index,chunks.length-index,halves[0],...suffix);
           chunk=halves[0];
         }
         // Normal and overtime movement use the same durable native interval
