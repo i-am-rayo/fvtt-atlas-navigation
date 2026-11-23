@@ -2396,6 +2396,13 @@ test("single hired Cart uses active Map Marker schedule for approval, not World 
     assert.equal(approved.dailyHours,null,
       "the 24-hour schedule cannot silently become an 8-hour rest decision");
     assert.equal(approved.overnightHours,0);
+    const tracker=new GuidedTravelDayTracker({travelHours:12,rules:approved});
+    tracker.recordMovement(8);
+    assert.equal(tracker.needsDecision,false,
+      "a genuinely approved continuous Cart must not ask for a Long Rest at 8h");
+    tracker.recordMovement(4);
+    assert.equal(tracker.completedHours,12);
+    assert.equal(tracker.breakHours,0);
     nav.transportOperation="normal";
     assert.equal(nav.resolveCurrentLegRules({methodId:"cart",hoursPerDay:8})
       .dailyHours,8);
