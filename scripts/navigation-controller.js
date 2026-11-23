@@ -1090,7 +1090,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         await this.render(true);
       },
       onSave:async (edited,{operation}={})=>{
-        if(this.transferSelections[index]!==choice)
+        if(this.transportationTransitionPlan()?.legs[index]?.selectedValue!==choice)
           throw Error("The transportation choice changed. Reopen its editor.");
         this.transferLegOverrides[index]={selection:choice,
           overrides:transportationMethodOverrideDelta(origin,edited)};
@@ -1099,7 +1099,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         globalThis.ui?.notifications?.info?.("Transportation saved for this trip only.");
       },
       onSaveCheckpoint:checkpointId?async (edited,{operation}={})=>{
-        if(this.transferSelections[index]!==choice)
+        if(this.transportationTransitionPlan()?.legs[index]?.selectedValue!==choice)
           throw Error("The transportation choice changed. Reopen its editor.");
         await this.saveNavigationCheckpointOffer({checkpointId,methodId,world,
           originalOffers:initialOffers,edited});
@@ -2689,11 +2689,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         method:this.effectiveTransportMethod(method,availability)}):null;
       if(this.transportArrangement==="hire"&&!resumingApprovedLand&&!hiredOffer)
         throw Error("The hired land service is not offered at this checkpoint.");
+      const selectedOperation=this.transportOperation;
+      // Validate the current Map Marker and operation before GM confirmation.
+      this.resolveCurrentLegRules({methodId:this.travelMethod,hoursPerDay:8});
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:resumingApprovedLand?"Resume approved land travel":"Confirm land travel"},
         content:el("div","GM confirmation: "+(resumingApprovedLand?
           "resume the approved journey":"follow the authored land route")+" using "+
           method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+"). "+
+          "Operating schedule: "+selectedOperation+". "+
           "The party token will move using Foundry's native movement and optional "+
           "World-time advancement. Costs are estimates; no automatic boarding, "+
           "resource changes or currency deductions occur. Continue?"),
@@ -2702,7 +2706,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!approval)return false;
       if(this.travelSession||this.pendingTransfer||this.scene?.id!==view.scene?.id||
           this.atlasProvider(this.scene).revision!==this.routeRevision||
-          this.getPartyToken()?.id!==token.id)
+          this.getPartyToken()?.id!==token.id||
+          this.transportOperation!==selectedOperation)
         throw Error("The Scene, token or route changed during confirmation.");
       const current=this.atlasPoint(view,atlas,
         partyTokenCanvasCenter(token,this.scene.grid.size));
@@ -2841,8 +2846,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The party token moved during confirmation. Refresh its location.");
       const after=this.transportationTransitionPlan()?.legs[0];
       if(!after||JSON.stringify(after.selectedOption?.method)!==JSON.stringify(option?.method)||
-          after.selectedValue!==option?.value||after.errors.length)
-        throw Error("The selected transportation changed. Review the updated checkpoint offer.");
+          after.selectedValue!==option?.value||
+          after.operation!==guidedLeg.transport.operation||after.errors.length)
+        throw Error("The selected transportation or operating schedule changed. Review the updated checkpoint offer.");
     }
     const approvedPath=captureApprovedJourneyPath(route);
     const paths=navigationCanvasLegPaths(view,atlas,route);
