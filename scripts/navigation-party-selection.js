@@ -1,7 +1,4 @@
-/**
- * D&D5e Group preview only. Native Group Actor and its assigned explorer Token
- * own the full party; a subset cannot authorize that Token to move.
- */
+/** Native Group membership is read-only; traveler participation belongs to a Journey. */
 const validId=value=>typeof value==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(value);
 
 /** NPC companions remain listed even when they share a seat with a traveler. */
@@ -29,8 +26,9 @@ export function projectPartyTravelSelection(roster,{mode="all",ids=[]}={}){
       new Set(ids).size!==ids.length)
     throw Error("Invalid GM party-member selection.");
   const members=partyTravelerRoster(roster),known=new Set(members.map(x=>x.id));
-  const selected=mode==="all"?members.map(x=>x.id):
-    ids.filter(id=>known.has(id));
+  if(mode==="selected"&&ids.some(id=>!known.has(id)))
+    throw Error("The Group roster changed. Review the traveler selection.");
+  const selected=mode==="all"?members.map(x=>x.id):ids;
   const chosen=new Set(selected);
   const count=members.reduce((sum,m)=>sum+(chosen.has(m.id)?m.seats:0),0);
   const pcCount=members.filter(m=>m.type==="character").length;
@@ -41,7 +39,7 @@ export function projectPartyTravelSelection(roster,{mode="all",ids=[]}={}){
     selectedPcCount:members.filter(m=>m.type==="character"&&chosen.has(m.id)).length,
     selectedNpcCount:members.filter(m=>m.type==="npc"&&chosen.has(m.id)).length,
     partial,empty:selected.length===0,
-    // Only previews change. Native Group/Token movement cannot split a party.
+    // Only the Journey decides participation; native Group membership is unchanged.
     previewRoster:{...roster,travelers:count,selectedTravelerIds:selected}
   };
 }
