@@ -3840,12 +3840,36 @@ test("water transfer keeps three physical mounts separate from two passengers an
     const prior=plan.livestock;
     nav.recoveryRecord={status:"paused",legs:[{completedPercent:100,
       livestock:prior}]};
+    const journalBefore=structuredClone(nav.recoveryRecord);
+    // A confirmed sea leg can precede a partially decided land draft.
+    // The draft UI must remain available even though Play is prohibited.
+    nav.livestockDecisions={horseA:1};
+    const partialLand=nav.partyTravelSelection([]);
+    assert.ok(partialLand,"incomplete mount decisions cannot hide the traveler deck");
+    assert.equal(partialLand.previewRoster.members.find(m=>
+      m.actorId==="horseA").quantity,1);
+    assert.equal(partialLand.previewRoster.members.some(m=>
+      m.actorId==="horseB"),false,"undecided horses provide no inferred seats");
+    assert.deepEqual(nav.livestockDecisions,{horseA:1},
+      "the preview must not invent a zero boarding decision");
+    assert.match(nav.assessTravelMethod().reason,/Decide Embark or Stay behind/,
+      "a missing mount decision blocks the next leg before approval");
+    atlas.roads[0].travelPresetId="land-dirt";
+    nav.transferSelections[0]="owned|riding-horse";
+    const missing=nav.transportationTransitionPlan().legs[0];
+    assert.ok(missing.errors.some(error=>/Decide Embark or Stay behind/.test(error)),
+      "the checkpoint land planner also rejects incomplete mount participation");
     nav.livestockDecisions={horseA:0,horseB:1};
+    const land=nav.transportationTransitionPlan().legs[0];
+    assert.ok(!land.errors.some(error=>/Decide Embark or Stay behind/.test(error)),
+      "complete decisions clear the spurious capacity-preflight failure");
     const newLandDraft=nav.partyTravelSelection([]).previewRoster;
     assert.equal(newLandDraft.members.some(m=>m.actorId==="horseA"),false);
     assert.equal(newLandDraft.members.find(m=>m.actorId==="horseB").quantity,1);
     assert.deepEqual(actor.system.members.map(m=>m.actor.id),before,
       "Boarding and rejoining never change the native Group");
+    assert.deepEqual(nav.recoveryRecord,journalBefore,
+      "draft edits and status checks cannot mutate confirmed Journey history");
   }finally{globalThis.game=previous;}
 });
 
