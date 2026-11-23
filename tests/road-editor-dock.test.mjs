@@ -403,3 +403,46 @@ test("canvas authoring startup guidance is in docks, not duplicate notification 
   assert.match(main,/notifications\.info\("Atlas road settings saved\."\)/,
     "success feedback must not be removed with redundant instructions");
 });
+
+test("Road dock displays current authored draft distance in native Scene units without saving",async()=>{
+  const previous={foundry:globalThis.foundry,document:globalThis.document,
+    game:globalThis.game,window:globalThis.window,canvas:globalThis.canvas};
+  const calls=[];
+  try{
+    globalThis.foundry={applications:{api:{ApplicationV2:class {}}}};
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.window={innerWidth:1280,innerHeight:800};
+    globalThis.game={user:{isGM:true}};
+    globalThis.canvas={ready:true,scene:{id:"dock-scene"},
+      dimensions:{sceneX:100,sceneY:50},
+      grid:{measurePath:points=>{
+        calls.push(points);
+        return {distance:points.slice(1).reduce((sum,p,i)=>
+          sum+Math.hypot(p.x-points[i].x,p.y-points[i].y),0)};
+      }}};
+    const {AtlasRoadEditorDock}=await import("../scripts/road-editor-dock.js");
+    const scene={id:"dock-scene",grid:{units:"mi"},canUserModify:()=>true};
+    let saves=0;
+    const controller={getDraft:()=>({mode:"new",points:3}),
+      getNewRoadOptions:()=>({name:"Trade Route"}),
+      getEditingRoadFocus:()=>({roadId:null,atlas:{schemaVersion:10},
+        points:[{x:0,y:0},{x:3,y:4},{x:6,y:4}]})};
+    const dock=new AtlasRoadEditorDock({scene,controller,
+      onFinish:()=>{saves++;},onCancel(){},onClosed(){}});
+    const root=await dock._renderHTML();
+    assert.ok(descendants(root).some(n=>n.textContent==="Draft Road distance: 8.00 mi"));
+    assert.deepEqual(calls[0],[{x:100,y:50},{x:103,y:54},{x:106,y:54}],
+      "measurement uses image-relative draft converted to padded canvas coordinates");
+    assert.equal(saves,0,"read-only measurement never saves the draft");
+    globalThis.canvas.scene.id="other-scene";
+    const another=await dock._renderHTML();
+    assert.ok(!descendants(another).some(n=>
+      n.textContent.startsWith("Draft Road distance:")),
+      "a different canvas Scene cannot supply measurements");
+  }finally{
+    for(const [key,value] of Object.entries(previous)){
+      if(value===undefined)delete globalThis[key];
+      else globalThis[key]=value;
+    }
+  }
+});
