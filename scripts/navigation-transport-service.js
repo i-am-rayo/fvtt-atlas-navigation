@@ -112,14 +112,16 @@ export function quoteTransportationService(method,{
   let livestockBaseCp=0,livestockOvertimeCp=0;
   if(arrangement==="hire"){
     const animalSlots=method.livestockCapacity;
+    // Blank means unlimited by GM policy; zero explicitly prohibits animals.
     if(livestockCount>0&&(!["water","air"].includes(method.surface)||
-      method.kind!=="vehicle"||!Number.isInteger(animalSlots)||
-      animalSlots<1||animalSlots>1000))
-      throw Error("Animal boarding requires verified vessel livestock capacity.");
+      method.kind!=="vehicle"||animalSlots===0||
+      animalSlots!=null&&(!Number.isInteger(animalSlots)||
+        animalSlots<0||animalSlots>1000)))
+      throw Error("This vessel does not allow the selected animal boarding.");
     const passengerUnits=assessHiredTransportAvailability(method,{travelers});
     if(passengerUnits.unknown)
       throw Error("Set passenger capacity before pricing a hired transport.");
-    const minimumUnits=livestockCount>0?
+    const minimumUnits=livestockCount>0&&animalSlots!=null?
       Math.max(passengerUnits.requiredUnits,Math.ceil(livestockCount/animalSlots)):
       passengerUnits.requiredUnits;
     const requiredUnits=requestedUnits??minimumUnits;
