@@ -48,7 +48,7 @@ test("GM trip/day/mile animal rate overrides default equivalent only for animals
 });
 test("World and checkpoint overrides retain animal fields without rewriting previous methods",()=>{
  const raw=defaultTransportationCatalog();
- const preset=listTransportationPresets({get:()=>raw},"dnd5e")
+ const preset=listTransportationPresets({get:(_m,k)=>k==="guidedTransportationCatalog"?raw:undefined},"dnd5e")
    .find(m=>m.id==="ship-passage");
  const edited={...preset,livestockCapacity:3,livestockFareCp:25,
    livestockFareBasis:"trip"};
