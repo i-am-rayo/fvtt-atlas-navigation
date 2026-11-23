@@ -32,7 +32,8 @@ test("three physical mounts require a decision each; never mutate Group inventor
 });
 test("next leg suggests prior mount boarding but reapproval and roster checks remain required",()=>{
   const convoy={methods:[{resourceIds:["a","b"]}]};
-  assert.deepEqual(suggestedLivestockBoarding({legs:[{convoy}]},roster),{a:1,b:2});
+  assert.deepEqual(suggestedLivestockBoarding({legs:[{convoy}]},roster),{a:1},
+    "plural Actor quantities cannot be inferred from one resource ID");
   const boarded=planJourneyLivestock(roster,{a:1,b:0},{surface:"water",
     methodId:"ship-passage",units:1,capacityPerUnit:1});
   const journal={legs:[{livestock:boarded}]};
