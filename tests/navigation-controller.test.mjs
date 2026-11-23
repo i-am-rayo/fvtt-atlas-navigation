@@ -1908,14 +1908,22 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
     // Even after the GM clicks Confirm, the same full native Group must still
     // be selected; a concurrent change to the draft must not launch movement.
     const originalPartySelection=nav.partyTravelSelection;
-    nav.partyTravelSelection=()=>nav.partySelectionMode==="selected"?
-      {partial:true,empty:false}:null;
+    token.actor={type:"group"};
+    const demoRoster={travelers:2,members:[
+      {actorId:"a",actorName:"Alba",actorType:"character",role:"passenger"},
+      {actorId:"b",actorName:"Kori",actorType:"character",role:"passenger"}]};
+    nav.partyTravelSelection=()=>({roster:demoRoster,members:[
+      {id:"a",name:"Alba",type:"character",seats:1},
+      {id:"b",name:"Kori",type:"character",seats:1}],
+      selectedIds:nav.partySelectionMode==="selected"?["a"]:["a","b"],
+      empty:false,partial:nav.partySelectionMode==="selected"});
     globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
       nav.partySelectionMode="selected";return true;};
-    await assert.rejects(()=>nav.startGuidedTravel(),/split party|selection changed/,
+    await assert.rejects(()=>nav.startGuidedTravel(),/participation changed|selection changed/,
       "late selection changes must fail before native move or Journal writes");
     assert.equal(token.moves,0);assert.equal(writes.length,0);
     nav.partySelectionMode="all";nav.partyTravelSelection=originalPartySelection;
+    token.actor=null;
     globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
       dialogTitles.push(options.window.title);return true;};
     approve=true;
