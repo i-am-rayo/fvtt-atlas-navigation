@@ -117,6 +117,8 @@ import {planAggregateLandConvoy,validateAggregateLandConvoy}
 import {renderNavigationMixedLandControls} from "./navigation-mixed-land-view.js";
 import {projectPartyTravelSelection,describeTravelMethodCapacity,partyTravelerRoster}
   from "./navigation-party-selection.js";
+import {createJourneyParticipation,priorJourneySelection}
+  from "./navigation-journey-participation.js";
 import {navigationRouteMarkers,navigationDestinationCheckpoint} from "./navigation-direction-summary.js";
 import {renderNavigationPlaybackControls} from "./navigation-playback-controls-view.js";
 import {renderJourneyTargets} from "./navigation-targets-view.js";
@@ -2647,15 +2649,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("A GM must calculate a route on the active Scene before guided travel.");
     if(!this.result.legs?.some(leg=>leg.kind==="road"))
       throw Error("Guided travel requires a route containing an Atlas road.");
-    // A preview of fewer PCs cannot move the same complete Group token.
-    // Never override recovery decisions for an already approved Journey.
-    if(!isUnfinishedJourneyLeg(this.recoveryRecord)&&!this.recoverableJourney){
-      const preview=this.partyTravelSelection(
-        availableNavigationTravelMethods(game.settings,game.system?.id));
-      if(preview?.partial||preview?.empty)
-        throw Error("A split party requires a separate assigned Group/explorer "+
-          "token before Travel can be approved. This preview cannot move the full party.");
-    }
+    // An assigned explorer token represents the selected travelers narratively.
+    // An unfinished approved leg may not change its saved participant manifest.
+    const partyAtStart=this.sourceMode==="party"&&!isUnfinishedJourneyLeg(this.recoveryRecord)?
+      this.partyTravelSelection(availableNavigationTravelMethods(game.settings,game.system?.id)):null;
+    if(this.sourceMode==="party"&&this.getPartyToken()?.actor?.type==="group"&&
+        game.system?.id==="dnd5e"&&!isUnfinishedJourneyLeg(this.recoveryRecord)&&
+        (!partyAtStart||partyAtStart.empty))
+      throw Error("Select at least one valid Group traveler before approving movement.");
+    const partySignature=partyAtStart?JSON.stringify({
+      members:partyAtStart.members,selectedIds:partyAtStart.selectedIds}):null;
     if(this.travelMethod!=="walking"&&this.sourceMode!=="party")
       throw Error("Guided mounted/sailing journeys require checkpoint transfers from the assigned party token.");
     const token=this.getPartyToken();
@@ -2887,14 +2890,30 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           after.errors.length)
         throw Error("The selected transportation or operating schedule changed. Review the updated checkpoint offer.");
     }
-    // A GM dialog can remain open while the Group or draft selection changes.
-    // Recheck immediately before creating any authoritative Journey record.
-    if(!isUnfinishedJourneyLeg(this.recoveryRecord)&&!this.recoverableJourney){
-      const party=this.partyTravelSelection(
-        availableNavigationTravelMethods(game.settings,game.system?.id));
-      if(party?.partial||party?.empty)
-        throw Error("The party selection changed during confirmation. A split party "+
-          "requires a separate assigned Group explorer before native movement.");
+    // Re-read the native roster after GM approval. No partial selection can
+    // move before its approved, versioned manifest is persisted to the Journal.
+    const unfinished=isUnfinishedJourneyLeg(this.recoveryRecord);
+    const partyNow=this.sourceMode==="party"?this.partyTravelSelection(
+      availableNavigationTravelMethods(game.settings,game.system?.id)):null;
+    if(partySignature!==null&&JSON.stringify({members:partyNow?.members,
+      selectedIds:partyNow?.selectedIds})!==partySignature)
+      throw Error("The Group roster or participation changed during confirmation. Review and approve again.");
+    if(this.sourceMode==="party"&&this.getPartyToken()?.actor?.type==="group"&&
+        game.system?.id==="dnd5e"&&!partyNow)
+      throw Error("The Group roster cannot be validated. No movement was approved.");
+    const approvedParticipation=unfinished?
+      this.recoveryRecord?.legs.at(-1)?.participation??null:
+      partyNow?createJourneyParticipation(partyNow.roster,partyNow.selectedIds,{
+        checkpointId:guidedLeg?.transport?.departureCheckpointId??null,
+        methodKey:(guidedLeg?.transport?.arrangement??this.transportArrangement)+"|"+
+          (guidedLeg?.transport?.methodId??this.travelMethod),
+        assignments:approvedConvoy?.schemaVersion===2?
+          Object.fromEntries(approvedConvoy.travelers.map(t=>[t.actorId,t.methodKey])):{}
+      }):null;
+    if(approvedConvoy?.schemaVersion===2&&approvedParticipation){
+      const convoyIds=new Set(approvedConvoy.travelers.map(t=>t.actorId));
+      if(approvedParticipation.people.some(p=>p.traveling!==convoyIds.has(p.actorId)))
+        throw Error("Approved convoy passengers differ from the selected Journey travelers.");
     }
     const approvedPath=captureApprovedJourneyPath(route);
     const paths=navigationCanvasLegPaths(view,atlas,route);
@@ -2908,8 +2927,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       route,...this.roadNaming(atlas,route),travel
     });
     const itinerary=guidedLeg?{...snapshot,transport:guidedLeg.transport,
+      ...(approvedParticipation?{participation:approvedParticipation}:{}),
       ...(approvedConvoy?{convoy:approvedConvoy}:{})}:{
       ...snapshot,
+      ...(approvedParticipation?{participation:approvedParticipation}:{}),
       ...(approvedConvoy?{convoy:approvedConvoy}:{}),
       travel:{...snapshot.travel,
         methodId:travel.methodId??this.travelMethod,
@@ -3381,7 +3402,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.transportHireTerms=null;this.transportHireDenomination=null;
       this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};this.mixedUnits={};
       this.mixedRiderCounts={};this.convoyEnabled=false;this.convoyCargoQuantities={};
-      this.convoyPace=null;this.partySelectionMode="all";this.partySelectedIds=[];
+      this.convoyPace=null;
+      // A new leg starts from the last approved cohort as an editable draft;
+      // it is never automatically approved, and does not edit native Groups.
+      const live=this.partyTravelSelection(
+        availableNavigationTravelMethods(game.settings,game.system?.id));
+      const retained=live?priorJourneySelection(this.recoveryRecord,live.roster):null;
+      this.partySelectionMode=retained&&retained.length!==live.members.length?
+        "selected":"all";
+      this.partySelectedIds=this.partySelectionMode==="selected"?retained:[];
     }
     const atlas=this.atlasProvider(this.scene);
     this.syncPartyDeparture(view,atlas);
@@ -4376,7 +4405,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const availability=this.transportAvailability();
     const methods=availability.methods;
     const partySelection=this.partyTravelSelection(availability.all);
-    const partySplitBlocked=Boolean(partySelection?.partial||partySelection?.empty);
+    const partySplitBlocked=Boolean(partySelection?.empty||
+      this.sourceMode==="party"&&this.getPartyToken()?.actor?.type==="group"&&
+      game.system?.id==="dnd5e"&&!partySelection);
     const approvedActiveTransport=this.travelSession?.transportLeg?
       (this.travelSession.journeyRecord?.legs.at(-1)?.transport??
         this.travelSession.transportLeg.transport):null;
