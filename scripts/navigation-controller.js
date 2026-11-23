@@ -2651,10 +2651,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("Guided travel requires a route containing an Atlas road.");
     // An assigned explorer token represents the selected travelers narratively.
     // An unfinished approved leg may not change its saved participant manifest.
-    const partyAtStart=this.sourceMode==="party"&&!isUnfinishedJourneyLeg(this.recoveryRecord)?
+    const nativeGroup=this.sourceMode==="party"&&game.system?.id==="dnd5e"&&
+      this.getPartyToken()?.actor?.type==="group";
+    const partyAtStart=nativeGroup&&!isUnfinishedJourneyLeg(this.recoveryRecord)?
       this.partyTravelSelection(availableNavigationTravelMethods(game.settings,game.system?.id)):null;
-    if(this.sourceMode==="party"&&this.getPartyToken()?.actor?.type==="group"&&
-        game.system?.id==="dnd5e"&&!isUnfinishedJourneyLeg(this.recoveryRecord)&&
+    if(nativeGroup&&!isUnfinishedJourneyLeg(this.recoveryRecord)&&
         (!partyAtStart||partyAtStart.empty))
       throw Error("Select at least one valid Group traveler before approving movement.");
     const partySignature=partyAtStart?JSON.stringify({
@@ -2893,13 +2894,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // Re-read the native roster after GM approval. No partial selection can
     // move before its approved, versioned manifest is persisted to the Journal.
     const unfinished=isUnfinishedJourneyLeg(this.recoveryRecord);
-    const partyNow=this.sourceMode==="party"?this.partyTravelSelection(
+    const partyNow=nativeGroup?this.partyTravelSelection(
       availableNavigationTravelMethods(game.settings,game.system?.id)):null;
     if(partySignature!==null&&JSON.stringify({members:partyNow?.members,
       selectedIds:partyNow?.selectedIds})!==partySignature)
       throw Error("The Group roster or participation changed during confirmation. Review and approve again.");
-    if(this.sourceMode==="party"&&this.getPartyToken()?.actor?.type==="group"&&
-        game.system?.id==="dnd5e"&&!partyNow)
+    if(nativeGroup&&!partyNow)
       throw Error("The Group roster cannot be validated. No movement was approved.");
     const approvedParticipation=unfinished?
       this.recoveryRecord?.legs.at(-1)?.participation??null:
@@ -3405,8 +3405,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.convoyPace=null;
       // A new leg starts from the last approved cohort as an editable draft;
       // it is never automatically approved, and does not edit native Groups.
-      const live=this.partyTravelSelection(
-        availableNavigationTravelMethods(game.settings,game.system?.id));
+      const savedParticipation=this.recoveryRecord.legs.at(-1)?.participation;
+      const live=savedParticipation?this.partyTravelSelection(
+        availableNavigationTravelMethods(game.settings,game.system?.id)):null;
+      if(savedParticipation&&!live)
+        throw Error("Cannot reconcile saved travelers with the live Group roster.");
       const retained=live?priorJourneySelection(this.recoveryRecord,live.roster):null;
       this.partySelectionMode=retained&&retained.length!==live.members.length?
         "selected":"all";
