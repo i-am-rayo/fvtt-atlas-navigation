@@ -3773,3 +3773,71 @@ test("current water-leg per-person estimate follows selected Group IDs without b
       "preview never changes the native Group roster");
   }finally{globalThis.game=previous;}
 });
+
+
+test("water transfer keeps three physical mounts separate from two passengers and land rejoining is draft-only",()=>{
+  const previous=globalThis.game;
+  try{
+    const config={version:7,groups:{groupA:{members:{
+      horseA:{role:"mount",quantity:1,capacity:1,surface:"land",
+        enabled:true,assignedTo:null,profileId:"warhorse"},
+      horseB:{role:"mount",quantity:2,capacity:1,surface:"land",
+        enabled:true,assignedTo:null,profileId:"riding-horse"}
+    }}}};
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
+      settings:{get:(_module,key)=>key==="guidedGroupTransportation"?config:undefined}};
+    const actor={id:"groupA",type:"group",name:"Party",system:{members:[
+      {actor:{id:"pcA",name:"Alba",type:"character"}},
+      {actor:{id:"pcB",name:"Brent",type:"character"}},
+      {actor:{id:"horseA",name:"Warhorse",type:"npc"}},
+      {actor:{id:"horseB",name:"Riding Horse",type:"npc"}}
+    ]}};
+    const before=structuredClone(actor.system.members.map(m=>m.actor.id));
+    const token={id:"group-token",actor};
+    const from=point(0,0),to=point(300,0);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to}],
+      roads:[{id:"sea",name:"Sea passage",travelPresetId:"water-sea"}],
+      segments:[{id:"segment",roadId:"sea",from:"start",to:"end",via:[]}],
+      checkpoints:[{id:"dock",name:"Dock",nodeId:"start",roadId:"sea"},
+        {id:"port",name:"Port",nodeId:"end",roadId:"sea"}]};
+    let animalCapacity=3,stock=2;
+    const scene={id:"sea-scene",grid:{size:100,units:"mi"},getFlag:(_ns,key)=>
+      key==="checkpointTransportOffers"?{schemaVersion:1,entries:{dock:[
+        {methodId:"ship-passage",mode:"sea",overrides:{
+          hireEnabled:true,hireCostCp:250,hireBasis:"trip",
+          hireApplies:"passenger",capacity:6,livestockCapacity:animalCapacity,
+          hireUnlimited:false,hireQuantity:stock}}
+      ]}}:undefined};
+    const route={status:"ok",start:from,end:to,distance:10,cost:10,
+      legs:[{kind:"road",roadId:"sea",segmentId:"segment",points:[from,to],
+        distance:10,cost:10}]};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,
+      partyTokenProvider:()=>token});
+    nav.scene=scene;nav.result=route;nav.sourceMode="party";
+    nav.transferSelections[0]="hire|ship-passage";
+    nav.livestockDecisions={horseA:1,horseB:2};
+    const plan=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(plan.errors,[]);
+    assert.equal(plan.costCp,1250,"2 human fares + 3 physical animal equivalents");
+    assert.equal(plan.livestock.estimatedFareCp,750);
+    assert.equal(plan.livestock.resources.find(m=>m.actorId==="horseB").aboard,2);
+    animalCapacity=null;
+    const blocked=nav.transportationTransitionPlan().legs[0];
+    assert.ok(blocked.errors.some(error=>/livestock capacity|animal stalls/i.test(error)));
+    animalCapacity=2;stock=1;
+    assert.ok(nav.transportationTransitionPlan().legs[0].errors.some(error=>
+      /Not enough hired transportation units/i.test(error)));
+    animalCapacity=3;stock=2;
+    nav.livestockDecisions={horseA:0,horseB:0};
+    assert.equal(nav.transportationTransitionPlan().legs[0].costCp,500);
+    const prior=plan.livestock;
+    nav.recoveryRecord={status:"paused",legs:[{completedPercent:100,
+      livestock:prior}]};
+    nav.livestockDecisions={horseA:0,horseB:1};
+    const newLandDraft=nav.partyTravelSelection([]).previewRoster;
+    assert.equal(newLandDraft.members.some(m=>m.actorId==="horseA"),false);
+    assert.equal(newLandDraft.members.find(m=>m.actorId==="horseB").quantity,1);
+    assert.deepEqual(actor.system.members.map(m=>m.actor.id),before,
+      "Boarding and rejoining never change the native Group");
+  }finally{globalThis.game=previous;}
+});
