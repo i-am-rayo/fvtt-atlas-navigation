@@ -24,6 +24,7 @@ test("shared transportation approval shows four semantic metric tiles, method ta
         ["Estimated moving time","9h 39m"],["Estimated transportation cost","3 SP"]],
       notes:["One Group explorer represents only these travelers.",
         "Estimates only; no boarding, payment or Actor modification."]});
+    assert.equal(content.tag,"div","Foundry v14 DialogV2.content requires HTMLDivElement");
     assert.equal(content.className,"atlas-transport-approval");
     const headings=walk(content,node=>node.tag==="th");
     assert.deepEqual(headings.map(node=>node.textContent),["Method","Travelers","Units","Cost"]);
