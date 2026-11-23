@@ -3764,6 +3764,8 @@ test("current water-leg per-person estimate follows selected Group IDs without b
     nav.transferSelections[0]="hire|ship-passage";
     const full=nav.transportationTransitionPlan().legs[0];
     assert.equal(full.costCp,500,"2 human travelers cost 2 × 250 CP");
+    assert.equal(full.livestock,null,
+      "Groups without mounts never gain phantom animal boarding Journal metadata");
     nav.partySelectionMode="selected";nav.partySelectedIds=["pcA"];
     const partial=nav.transportationTransitionPlan().legs[0];
     assert.equal(partial.costCp,250,
