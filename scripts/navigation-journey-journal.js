@@ -3,6 +3,7 @@ import {validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 import {describeConfirmedTravelers} from "./navigation-journey-manifest.js";
 import {validateJourneyParticipation} from "./navigation-journey-participation.js";
+import {validateJourneyLivestock} from "./navigation-journey-livestock.js";
 import {mixedTransportFareBreakdown} from "./navigation-currency.js";
 import {validateAggregateLandConvoy} from "./navigation-theater-convoy.js";
 const validateApprovedConvoy=value=>value?.schemaVersion===3?
@@ -72,6 +73,7 @@ export function journeyLegFromItinerary(itinerary){
     completedMovingHours:0,completedPercent:0,events:[],
     worldTravelSeconds:0,worldRestSeconds:0,
     ...(itinerary.participation?{participation:validateJourneyParticipation(itinerary.participation)}:{}),
+    ...(itinerary.livestock?{livestock:validateJourneyLivestock(itinerary.livestock)}:{}),
     ...(itinerary.convoy?{convoy:validateApprovedConvoy(itinerary.convoy)}:{}),
     ...(itinerary.transport?{transport:validateTransportJourneyInfo(itinerary.transport)}
       :itinerary.travel?.methodId&&
@@ -143,6 +145,8 @@ export function validateJourneyRecord(value){
         !Array.isArray(leg.directions)||leg.directions.length>4096||
         (leg.participation!==undefined&&
           !(()=>{try{validateJourneyParticipation(leg.participation);return true;}catch{return false;}})())||
+        (leg.livestock!==undefined&&
+          !(()=>{try{validateJourneyLivestock(leg.livestock);return true;}catch{return false;}})())||
         (leg.approvedPath!==undefined&&
           !isApprovedJourneyPath(leg.approvedPath))||
         (leg.transport!==undefined&&!isTransportJourneyInfo(leg.transport))||
@@ -253,6 +257,14 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
       resumed.participation=validateJourneyParticipation(old.participation);
     }else if(resumed.participation!==undefined){
       throw Error("An older unfinished Journey cannot gain an unapproved traveler manifest.");
+    }
+    if(old.livestock!==undefined){
+      if(resumed.livestock!==undefined&&
+          JSON.stringify(resumed.livestock)!==JSON.stringify(old.livestock))
+        throw Error("Recovery cannot change the approved livestock boarding manifest.");
+      resumed.livestock=validateJourneyLivestock(old.livestock);
+    }else if(resumed.livestock!==undefined){
+      throw Error("An unfinished Journey cannot add an unapproved livestock manifest.");
     }
   }
   if(approvedPath)resumed.approvedPath=validateApprovedJourneyPath(approvedPath);
@@ -382,6 +394,17 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         p.people.map(person=>`<li>${escapeHTML(person.name)} — `+
           (person.traveling?"Traveling ("+escapeHTML(person.methodKey)+")":"Not traveling")+
           `</li>`).join("")+`</ul></div>`)(validateJourneyParticipation(leg.participation)):"";
+    const livestock=leg.livestock&&leg.completedMovingHours>0?
+      (manifest=>`<div class="atlas-journey-leg-group"><h4>Confirmed Mount Boarding</h4>`+
+        `<p>Animal accommodation and passenger seats are separate. Mounts `+
+        `are Atlas Journey metadata; the native Group is unchanged.</p><ul>`+
+        manifest.resources.map(m=>`<li>${escapeHTML(m.name)}: `+
+          (m.aboard?m.aboard+" of "+m.quantity+" embarked":
+            "Stayed behind ("+m.quantity+")")+`</li>`).join("")+`</ul>`+
+        `<p>Animal accommodation: ${manifest.capacityPerUnit??"unverified"} stalls/vessel `+
+        `· ${manifest.units} vessel(s). Estimated animal fare: `+
+        `${escapeHTML(manifest.estimatedFareCp)} CP (included in total; no deduction).</p>`+
+        `</div>`)(validateJourneyLivestock(leg.livestock)):"";
     const rows=timeline.map(step=>step.kind==="journey-event"?
       `<li class="atlas-journey-rest-event"><strong>${escapeHTML(step.label)}</strong> after `+
       `${escapeHTML(formatNavigationDuration(step.atHours,24))} on this leg`+
@@ -409,7 +432,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       `Moving time: ${escapeHTML(formatNavigationDuration(leg.movingHours,24))}; `+
       `Confirmed progress: ${percent}% `+
       `(${escapeHTML(formatNavigationDuration(leg.completedMovingHours,24))} moving).</p>`+
-      participants+
+      participants+livestock+
       (transportLines||landMethod||convoyLines?
         `<div class="atlas-journey-leg-group"><h4>Confirmed Transportation and Transfers</h4>`+
         `<ul>${transportLines}${landMethod}${convoyLines}</ul></div>`:"")+
