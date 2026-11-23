@@ -11,7 +11,7 @@ import {travelMethodIconClass} from "./navigation-selection-view.js";
  */
 export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
   methods=[],assignments={},units={},disabled=false,previewOnly=false,
-  transferColumns=false,onInclude,onAssign,onUnits}={}){
+  transferColumns=false,mountBoard=null,onInclude,onAssign,onUnits}={}){
   const root=css(el("section"),"display:grid;gap:.55rem;min-width:0;");
   root.className="atlas-navigation-traveler-deck";
   const selected=new Set(selectedIds);
@@ -162,6 +162,9 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
     stay.append(waitingLanding);board.append(stay);
     root.append(board);
   }
+  // Mount boarding shares section 3's draft and Save/approval lifecycle, but
+  // animal capacity stays independent from traveler seats.
+  if(mountBoard)root.append(mountBoard);
   if(previewOnly){
     const hint=el("small","Atlas records who is traveling for this leg. The native Group "+
       "explorer token represents this traveling subset; Group membership is unchanged.");
