@@ -2026,11 +2026,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // verified move. During an in-flight move the Document may be ahead of
     // credited progress, and canvas teardown makes live sampling impossible.
     const confirmedAnchor=session.lastConfirmedAnchor??null;
+    // World time may settle before a pending TokenDocument move is credited.
+    // Preserve the last CONFIRMED leg ledger until the native operation and
+    // its exact approved clock delta are reconciled, including across redraw.
+    const pending=Boolean(previous.pendingNativeMove);
     const saved=checkpointJourneyRecord(session.journeyRecord,{
       schedule:session.schedule,status,
       progress:Math.max(0,Math.min(100,100*session.completedDistance/session.totalDistance)),
-      worldTravelSeconds:session.clock?.advancedSeconds??0,
-      worldRestSeconds:session.clock?.restSeconds??0,
+      worldTravelSeconds:pending?previous.legs.at(-1).worldTravelSeconds:
+        (session.clock?.advancedSeconds??0),
+      worldRestSeconds:pending?previous.legs.at(-1).worldRestSeconds:
+        (session.clock?.restSeconds??0),
       confirmedAnchor,
       arrivedCheckpoint:session.transportLeg&&
         status==="paused"&&session.completedDistance/session.totalDistance>=.99999?
