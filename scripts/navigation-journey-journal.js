@@ -4,7 +4,7 @@ import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 import {describeConfirmedTravelers} from "./navigation-journey-manifest.js";
 import {validateJourneyParticipation} from "./navigation-journey-participation.js";
 import {validateJourneyLivestock} from "./navigation-journey-livestock.js";
-import {mixedTransportFareBreakdown} from "./navigation-currency.js";
+import {mixedTransportFareBreakdown,dndCurrencyBreakdown} from "./navigation-currency.js";
 import {validateAggregateLandConvoy} from "./navigation-theater-convoy.js";
 const validateApprovedConvoy=value=>value?.schemaVersion===3?
   validateAggregateLandConvoy(value):value?.schemaVersion===2?
@@ -412,7 +412,10 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
           `<p>Animal accommodation: ${manifest.capacityPerUnit===null?
             "unlimited by default":manifest.capacityPerUnit+" spaces/vehicle"} `+
           `· ${manifest.units} vehicle(s). Estimated animal fare: `+
-          `${escapeHTML(manifest.estimatedFareCp)} CP `+
+          `${escapeHTML(systemId==="dnd5e"?
+            dndCurrencyBreakdown(manifest.estimatedFareCp,
+              globalThis.CONFIG?.DND5E?.currencies).label:
+            manifest.estimatedFareCp+" CP")} `+
           (leg.transport?.continuation?"(previously approved, not quoted again).":
             "(included in total; no deduction).")+`</p>`)+
         `</div>`)(validateJourneyLivestock(leg.livestock)):"";
