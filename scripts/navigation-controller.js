@@ -2653,7 +2653,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // An unfinished approved leg may not change its saved participant manifest.
     const nativeGroup=this.sourceMode==="party"&&game.system?.id==="dnd5e"&&
       this.getPartyToken()?.actor?.type==="group";
-    const partyAtStart=nativeGroup&&!isUnfinishedJourneyLeg(this.recoveryRecord)?
+    const partyAtStart=this.sourceMode==="party"&&!isUnfinishedJourneyLeg(this.recoveryRecord)?
       this.partyTravelSelection(availableNavigationTravelMethods(game.settings,game.system?.id)):null;
     if(nativeGroup&&!isUnfinishedJourneyLeg(this.recoveryRecord)&&
         (!partyAtStart||partyAtStart.empty))
@@ -2894,7 +2894,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // Re-read the native roster after GM approval. No partial selection can
     // move before its approved, versioned manifest is persisted to the Journal.
     const unfinished=isUnfinishedJourneyLeg(this.recoveryRecord);
-    const partyNow=nativeGroup?this.partyTravelSelection(
+    const partyNow=this.sourceMode==="party"?this.partyTravelSelection(
       availableNavigationTravelMethods(game.settings,game.system?.id)):null;
     if(partySignature!==null&&JSON.stringify({members:partyNow?.members,
       selectedIds:partyNow?.selectedIds})!==partySignature)
@@ -2903,7 +2903,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("The Group roster cannot be validated. No movement was approved.");
     const approvedParticipation=unfinished?
       this.recoveryRecord?.legs.at(-1)?.participation??null:
-      partyNow?createJourneyParticipation(partyNow.roster,partyNow.selectedIds,{
+      nativeGroup&&partyNow?createJourneyParticipation(partyNow.roster,partyNow.selectedIds,{
         checkpointId:guidedLeg?.transport?.departureCheckpointId??null,
         methodKey:(guidedLeg?.transport?.arrangement??this.transportArrangement)+"|"+
           (guidedLeg?.transport?.methodId??this.travelMethod),
