@@ -1,4 +1,6 @@
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
+import {toCanvasPoint} from "./road-coordinates.js";
+import {measureAuthoredRoadDistance} from "./road-measured-distance.js";
 import { createSettingsIconButton } from "./settings-controls.js";
 import { atlasSettingsTitle } from "./atlas-settings-title.js";
 import { readWorldRoadAppearance, resolveRoadAppearance,
@@ -145,6 +147,28 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
     root.appendChild(progress);
     if(draft.mode==="points"&&draft.roadName)
       root.appendChild(element("p","Road: "+draft.roadName));
+
+    const view=globalThis.canvas;
+    if((draft.mode==="points"||draft.mode==="new")&&view?.ready&&
+        view.scene?.id===this.scene.id&&typeof view.grid?.measurePath==="function"){
+      const focus=this.controller.getEditingRoadFocus?.(this.scene);
+      if(focus){
+        let distance=null;
+        try{
+          distance=measureAuthoredRoadDistance(focus,points=>view.grid.measurePath(
+            points.map(point=>toCanvasPoint(view,focus.atlas,point))));
+        }catch{/* No fallback to non-native measurements on a changing canvas. */}
+        if(distance!==null){
+          const unit=this.scene.grid?.units||"units";
+          const label=element("small",(draft.mode==="new"?"Draft":"Authored")+
+            " Road distance: "+distance.toFixed(2)+" "+unit);
+          label.className="atlas-road-editor-status";
+          label.title="Measured by the native Scene Grid along authored Road points; "+
+            "excludes visual curve smoothing and terrain-weighted travel.";
+          root.appendChild(label);
+        }
+      }
+    }
 
     const guidance = element("p");
     guidance.style.cssText="font-size:.9em;line-height:1.35;opacity:.8;margin:.1rem 0 .5rem;";
