@@ -375,10 +375,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** Use one route calculation for both map-point and live party departures. */
   calculateRoute(view,atlas,{terrainAware=null}={}) {
     this.routeRevision=atlas.revision;
-    // A replan may depart from another Map Marker. Never carry a local hire
-    // quote from the prior route into a different departure's preview.
+    // Recalculate path/quotes without discarding a confirmed disembark
+    // manifest or a GM-edited mount draft. Deliberate clear() resets it.
     this.mixedMethodOverrides={};
-    this.livestockDecisions={};
     this.transferSelections={};
     this.transferLegOverrides={};
     this.transferLegOperations={};
@@ -3857,6 +3856,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
+    this.livestockDecisions={};
     this.recoveryJournal=null;
     this.recoveryRecord=null;
     this.recoveryOperationOverride=null;
