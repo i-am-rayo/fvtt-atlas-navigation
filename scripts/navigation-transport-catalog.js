@@ -208,7 +208,7 @@ const validServiceFields=(p,kind,surface)=>
     (Number.isInteger(p.overtimeExtraHours)&&p.overtimeExtraHours>=1&&p.overtimeExtraHours<=8))&&
   (p.continuousEnabled===undefined||typeof p.continuousEnabled==="boolean")&&
   (!p.hireEnabled||kind==="vehicle"||kind==="mount")&&
-  (!p.continuousEnabled||(kind==="vehicle"&&["water","air"].includes(surface)));
+  (!p.continuousEnabled||kind==="vehicle");
 const serviceFields=p=>Object.fromEntries([
   "hireEnabled","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
   "overtimeEnabled","overtimeMultiplier","overtimeExtraHours","continuousEnabled"
