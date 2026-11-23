@@ -96,11 +96,13 @@ export class GuidedTravelDayTracker {
     if(!this.needsDecision&&!allowEarly)
       throw Error("No daily travel break is due.");
     if(action==="continue"){
-      if(!this.needsDecision)
+      if(!this.needsDecision&&(!allowEarly||this.availableHours>1+EPSILON||
+          this.rules.dailyHours===null))
         throw Error("Forced marching is only available at the daily travel limit.");
       if(this.todayHours>=24-EPSILON)
         throw Error("A journey cannot travel more than 24 hours without a break.");
-      return {action,hours:0,resetsDay:false};
+      return {action,hours:0,resetsDay:false,
+        ...(!this.needsDecision?{early:true}:{})};
     }
     const hours={short:this.rules.shortRestHours,long:this.rules.longRestHours,
       overnight:this.rules.overnightHours}[action];
@@ -134,7 +136,11 @@ export class GuidedTravelDayTracker {
       ...(startedTimeLabel?{startedTimeLabel}:{}),
       ...(endedTimeLabel?{endedTimeLabel}:{})}));
     if(choice.action==="continue"){
-      this.permittedExtraUntil=Math.min(24,this.todayHours+1);
+      // A rounded-pixel day boundary may require the GM to approve the
+      // upcoming hour before a native move can be split safely. Never let
+      // such early approval shorten the previously authorized limit.
+      this.permittedExtraUntil=Math.min(24,Math.max(this.todayHours,
+        this.permittedExtraUntil,this.rules.dailyHours??0)+1);
       return;
     }
     this.restEvents++;
