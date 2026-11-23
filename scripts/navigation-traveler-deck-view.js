@@ -11,12 +11,12 @@ import {travelMethodIconClass} from "./navigation-selection-view.js";
  */
 export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
   methods=[],assignments={},units={},disabled=false,previewOnly=false,
-  onInclude,onAssign,onUnits}={}){
+  transferColumns=false,onInclude,onAssign,onUnits}={}){
   const root=css(el("section"),"display:grid;gap:.55rem;min-width:0;");
   root.className="atlas-navigation-traveler-deck";
   const selected=new Set(selectedIds);
   const active=travelers.filter(t=>selected.has(t.id));
-  const multiple=methods.length>1;
+  const multiple=methods.length>1||transferColumns;
   const title=el("h3",multiple?"3 · Who goes where?":"3 · Who is going?");
   title.style.cssText="margin:.2rem 0 0;font-size:1em;";
   const heading=css(el("div"),"display:flex;align-items:baseline;justify-content:space-between;gap:.4rem;flex-wrap:wrap;");
@@ -108,7 +108,7 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
         if(method.costDetail)column.append(css(el("small",method.costDetail),
           "font-size:.76em;opacity:.8;overflow-wrap:anywhere;"));
       }
-      if(method.arrangement==="hire"){
+      if(method.arrangement==="hire"&&method.showUnits!==false){
         const quantity=css(el("label"),"display:flex;gap:.3rem;align-items:center;font-size:.75em;");
         quantity.append(el("span","Units"));
         const input=el("input");input.type="number";input.step="1";input.min="1";
