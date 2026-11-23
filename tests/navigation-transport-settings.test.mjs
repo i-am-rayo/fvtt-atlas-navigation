@@ -563,3 +563,34 @@ test("Journey Carriage continuous toggle determines operation without a second s
     assert.deepEqual(ctx.changes,[],"trip editing does not persist World changes");
   }finally{globalThis.foundry=old;ctx.restore();}
 });
+
+
+test("owned water vessel animal stalls remain editable even when hire is disabled",async()=>{
+  const ctx=setup(),previous=globalThis.foundry;
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{
+      input:async({content})=>{
+        const nodes=flatten(content);
+        const stalls=nodes.find(node=>node.name==="livestockCapacity");
+        const animalRate=nodes.find(node=>node.name==="livestockFareBasis");
+        const hire=nodes.find(node=>node.name==="hireEnabled");
+        const hireOnly=nodes.find(node=>node.attributes?.has("data-atlas-hire-controls"));
+        assert.ok(stalls,"vessel animal capacity is configurable independently");
+        assert.ok(animalRate);
+        assert.equal(hire.checked,false,"owned ship is not automatically hired");
+        assert.ok(hireOnly);
+        assert.equal(flatten(hireOnly).includes(stalls),false,
+          "animal accommodation must not inherit the disabled hire-only controls");
+        return null;
+      }
+    }}}};
+    await new AtlasTransportationSettings()._edit({
+      id:"sailing",name:"Sailing Ship",kind:"vehicle",surface:"water",
+      speedMph:2,capacity:20,costCp:0,costBasis:"none",costApplies:"unit",
+      purchaseGp:10000,hireEnabled:false,hireCostCp:0,hireBasis:"day",
+      hireApplies:"unit",livestockCapacity:null,livestockFareCp:null,
+      livestockFareBasis:"trip"
+    },"water");
+    assert.deepEqual(ctx.changes,[],"opening accommodation editor never writes");
+  }finally{globalThis.foundry=previous;ctx.restore();}
+});
