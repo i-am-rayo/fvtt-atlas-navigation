@@ -536,3 +536,30 @@ test("trip-only transportation edits cannot bypass a checkpoint's finite hire in
     assert.deepEqual(ctx.changes,[]);
   }finally{globalThis.foundry=old;ctx.restore();}
 });
+
+test("Journey Carriage continuous toggle determines operation without a second selector",async()=>{
+  const ctx=setup(),old=globalThis.foundry;
+  const base={id:"cart",name:"Cart",kind:"vehicle",surface:"land",
+    speedMph:3,capacity:6,costCp:0,costBasis:"none",costApplies:"unit",
+    purchaseGp:15,hireEnabled:true,hireCostCp:400,hireBasis:"day",
+    hireApplies:"unit",hireCrewIncluded:true,continuousEnabled:false};
+  let enabled=true;const saves=[];
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{input:async()=>({
+      name:"Cart",kind:"vehicle",speedDisplay:3,capacity:6,
+      hireEnabled:true,hireBasis:"day",hireApplies:"unit",
+      hireCrewIncluded:true,costBasis:"none",costApplies:"unit",
+      crewWageBasis:"day",overtimeExtraHours:8,overtimeMultiplier:1.5,
+      continuousEnabled:enabled,atlasJourneyOperation:enabled?"normal":"continuous"
+    })}}}};
+    await openTransportationMethodEditor({method:base,scope:"journey",
+      journeyOperation:"normal",onSave:(_edited,details)=>saves.push(details.operation)});
+    enabled=false;
+    await openTransportationMethodEditor({method:{...base,continuousEnabled:true},
+      scope:"journey",journeyOperation:"continuous",
+      onSave:(_edited,details)=>saves.push(details.operation)});
+    assert.deepEqual(saves,["continuous","normal"],
+      "turning continuous on or off is the effective Journey schedule");
+    assert.deepEqual(ctx.changes,[],"trip editing does not persist World changes");
+  }finally{globalThis.foundry=old;ctx.restore();}
+});
