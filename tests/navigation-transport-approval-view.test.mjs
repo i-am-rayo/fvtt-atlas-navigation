@@ -5,6 +5,7 @@ import {renderNavigationTransportApproval} from "../scripts/navigation-transport
 
 const fakeDocument=()=>({
   createElement(tag){return {tag,children:[],className:"",textContent:"",
+    get attributes(){return this.className?[{name:"class"}]:[];},
     append(...nodes){this.children.push(...nodes);},
     appendChild(node){this.children.push(node);return node;}};}
 });
@@ -25,7 +26,11 @@ test("shared transportation approval shows four semantic metric tiles, method ta
       notes:["One Group explorer represents only these travelers.",
         "Estimates only; no boarding, payment or Actor modification."]});
     assert.equal(content.tag,"div","Foundry v14 DialogV2.content requires HTMLDivElement");
-    assert.equal(content.className,"atlas-transport-approval");
+    assert.equal(content.attributes.length,0,
+      "Foundry v14 DialogV2.content outer div must have NO attributes");
+    assert.equal(content.children.length,1);
+    assert.equal(content.children[0].className,"atlas-transport-approval",
+      "layout styling belongs on the nested element, not the DialogV2 root");
     const headings=walk(content,node=>node.tag==="th");
     assert.deepEqual(headings.map(node=>node.textContent),["Method","Travelers","Units","Cost"]);
     assert.ok(headings.every(node=>node.scope==="col"));
@@ -51,6 +56,7 @@ test("the same approval view supports single-vessel passenger and physical mount
         ["Estimated moving time","1d 23h 45m"],["Estimated transportation cost","28 GP · 65 CP"]],
       notes:["Not traveling: Jonathan Reid","Physical mounts: 2 Riding Horses and 1 Warhorse embarked",
         "Animal fare is included; no payment is deducted."]});
+    assert.equal(content.attributes.length,0,"the vessel approval also uses a plain outer div");
     assert.equal(walk(content,node=>node.tag==="tbody")[0].children.length,1);
     assert.match(text(content),/Not traveling: Jonathan Reid/);
     assert.match(text(content),/2 Riding Horses and 1 Warhorse embarked/);
