@@ -567,12 +567,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const showSpeed=n=>atlasDisplaySpeed(n,sceneUnits,game.settings,game.system?.id);
     const speedUnit=n=>n==="mi/hour"?"mph":n==="km/hour"?"kph":n;
     const walkingSpeed=this.resolveTravel({excludeConvoy:true}).travel.speed;
+    const mixed=!singleChoice&&this.mixedKeys.length>1;
     let options=[],resources={};
     try{
-      options=this.mixedKeys.length?this.mixedLandChoices(availability):
-        (()=>{if(singleChoice)return [{key:singleChoice.value,method:singleChoice.method,
-            arrangement:singleChoice.arrangement,units:1}];
-          const method=availability.methods.find(m=>m.id===this.travelMethod);
+      options=singleChoice?[{key:singleChoice.value,method:singleChoice.method,
+        arrangement:singleChoice.arrangement,units:1}]:
+        this.mixedKeys.length?this.mixedLandChoices(availability):
+        (()=>{const method=availability.methods.find(m=>m.id===this.travelMethod);
           if(!method)return [];
           const key=this.transportArrangement+"|"+this.travelMethod;
           return [{key,method,arrangement:this.transportArrangement,
@@ -607,7 +608,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         .map(r=>r.cost+" CP/"+(r.applies==="passenger"?"passenger":"unit")+"/"+r.basis))];
       return {key:entry.key,name:method.name,arrangement:entry.arrangement,
         showUnits:!transferColumns,
-        ...(this.mixedKeys.length>1&&method.id!=="walking"?{
+        ...(mixed&&method.id!=="walking"?{
           costLabel:fare?.label??"Estimate unavailable",
           costDetail:fare?fare.units+" unit"+(fare.units===1?"":"s")+
             (rates.length?" · "+rates.join(" + "):""):null}:{}),
@@ -650,7 +651,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.convoyPace=null;void this.render(true);
       }
     }));
-    if(this.mixedKeys.length>1){
+    if(mixed){
       const speeds=descriptions.map(d=>({...d,speed:showSpeed(d.speed).value}));
       const slowestVehicle=Math.min(...descriptions.filter(d=>
         d.key!=="owned|walking").map(d=>d.speed));
