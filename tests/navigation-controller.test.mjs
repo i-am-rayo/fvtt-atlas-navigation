@@ -2254,9 +2254,9 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
       settings:{get:(_module,key)=>key==="guidedTransportationCatalog"?undefined:
         key==="guidedTravelAdvanceWorldTime"?worldEnabled:
         key==="guidedTravelSecondsPerHour"?2:5},
-      time:{advance:async amount=>{
+      time:{worldTime:0,async advance(amount){
         if(failClock)throw Error("Clock is unavailable");
-        seconds.push(amount);return seconds.reduce((a,b)=>a+b,0);
+        seconds.push(amount);this.worldTime+=amount;return this.worldTime;
       }}};
     globalThis.window={innerWidth:1200,innerHeight:800};
     globalThis.PIXI=undefined;
@@ -2350,7 +2350,7 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     autoResolve=false;
     newRoute();
     const interrupted=nav.startGuidedTravel();
-    for(let i=0;i<5;i++)await Promise.resolve();
+    await tickUntil(()=>typeof completeMovement==="function");
     nav.pauseGuidedTravel();
     completeMovement(true);
     await tickUntil(()=>nav.travelSession?.phase==="paused");
