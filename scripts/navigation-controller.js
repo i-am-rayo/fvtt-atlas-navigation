@@ -4778,6 +4778,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           }));
         }
         card.append(renderNavigationTransferRoadNames(leg.roadNames));
+        if(leg.selectedOption&&!leg.recovered&&leg.selectedOption.method?.kind!=="mixed"){
+          const schedule=el("small","Operating schedule: "+leg.operation+
+            ". Use the transportation editor to choose supported standard, overtime or continuous operation for this leg.");
+          schedule.style.cssText="opacity:.78;";
+          card.append(schedule);
+        }
         if(leg.surface==="land"&&!leg.recovered&&game.user?.isGM&&
             this.canDraftTravelMethods()&&partyMode&&partySelection){
           const validKeys=new Set(leg.options.map(option=>option.value));
@@ -4820,7 +4826,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         section.append(card);
       }
       if(transferPlan.legs.length>1){
-        section.append(renderNavigationLaterLegsPreview(transferPlan.legs.slice(1)));
+        section.append(renderNavigationLaterLegsPreview(transferPlan.legs.slice(1),
+          transferPlan.globalSchedule));
+      }
+      if(transferPlan.globalSchedule){
+        const overall=transferPlan.globalSchedule;
+        const details=overall.complete?
+          "Whole Journey (provisional): "+
+            formatNavigationDuration(overall.totalMovingHours,24)+" moving · "+
+            formatNavigationDuration(overall.plannedDowntimeHours,24)+" estimated duty downtime · "+
+            formatNavigationDuration(overall.totalElapsedHours,24)+" elapsed · "+
+            formatMoney(overall.totalFareCp)+" estimated transportation costs.":
+          "Whole Journey estimate is incomplete: "+overall.pendingLegIndices.length+
+            " leg(s) not planned. Known consecutive stretch: "+
+            formatNavigationDuration(overall.knownMovingHours,24)+" moving · "+
+            formatNavigationDuration(overall.plannedDowntimeHours,24)+" estimated duty downtime · "+
+            formatMoney(overall.knownFareCp)+" quoted so far.";
+        const projected=el("div",details+
+          " Future legs and breaks are previews only; no reservation, rest, World time, currency or next-leg movement is approved.");
+        projected.style.cssText="font-size:.88em;line-height:1.5;padding:.5rem;border-top:1px solid var(--color-border-light-tertiary,#555);";
+        section.append(projected);
       }
       const current=transferPlan.legs[0];
       section.append(el("strong",current?.errors.length?
