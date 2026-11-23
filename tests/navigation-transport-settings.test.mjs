@@ -598,3 +598,25 @@ test("owned water vessel animal stalls remain editable even when hire is disable
     assert.deepEqual(ctx.changes,[],"opening accommodation editor never writes");
   }finally{globalThis.foundry=previous;ctx.restore();}
 });
+
+test("World-inherited mount fare is visible in preset and Map Marker editors without saving",async()=>{
+  const ctx=setup(),previous=globalThis.foundry;
+  try{
+    const get=globalThis.game.settings.get;
+    globalThis.game.settings.get=(module,key)=>key==="guidedLivestockFarePercent"?50:
+      get(module,key);
+    let dialogs=0;
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      dialogs++;
+      const label=flatten(content).map(node=>node.textContent??"").join(" ");
+      assert.match(label,/Inherit World default \(50%\)/);
+      assert.match(label,/without copying it to this preset or Map Marker/);
+      return null;
+    }}}}};
+    const editor=new AtlasTransportationSettings();
+    await editor._edit(null,"water");
+    await editor._edit(null,"air");
+    assert.equal(dialogs,2);
+    assert.deepEqual(ctx.changes,[],"preview and Cancel do not change World catalogs");
+  }finally{globalThis.foundry=previous;ctx.restore();}
+});
