@@ -173,7 +173,9 @@ export function splitGuidedChunkAtDistance(chunk,cut){
     const split={x:a.x+(b.x-a.x)*fraction,y:a.y+(b.y-a.y)*fraction};
     if(Math.hypot(split.x-first.at(-1).x,split.y-first.at(-1).y)>EPSILON)
       first.push(split);
-    const remainder=fraction>=1-EPSILON?points.slice(i+1):points.slice(i);
+    // A near-1 fraction is still short of the authored bend. Keep that
+    // final fraction for the next native move; never drop the route endpoint.
+    const remainder=fraction>=1?points.slice(i+1):points.slice(i);
     return [
       {waypoints:first,distance:cut},
       {waypoints:[split,...remainder],distance:chunk.distance-cut}
