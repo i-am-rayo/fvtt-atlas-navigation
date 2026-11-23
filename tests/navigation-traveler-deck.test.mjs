@@ -172,3 +172,34 @@ test("deck shares Font Awesome icons and omits walking fare",()=>{
       n.children?.some(c=>c.textContent==="5/5 travelers · 4 seats")));
   }finally{restore();}
 });
+
+test("onward ship with one method offers Traveling and Not traveling drop columns",()=>{
+  const restore=dom();
+  try{
+    const changes=[];
+    const ship={key:"hire|ship-passage",name:"Ship passage",speed:2,
+      speedLabel:"2 mph",capacity:8,arrangement:"hire",available:1,minimumUnits:1};
+    const selected=travelers.map(t=>t.id);
+    const view=renderNavigationTravelRoster({travelers,selectedIds:selected,
+      methods:[ship],transferColumns:true,
+      assignments:Object.fromEntries(selected.map(id=>[id,ship.key])),
+      onInclude:(id,include)=>changes.push([id,include]),
+      onAssign:(id,key)=>changes.push([id,key])});
+    const columns=all(view).filter(n=>String(n.className??"")
+      .includes("atlas-navigation-travel-column"));
+    assert.equal(columns.length,2,
+      "a single hired ship still has a distinct Not traveling column");
+    const waiting=columns[1];
+    assert.match(waiting.className,/atlas-navigation-not-traveling/);
+    waiting.listeners.drop({preventDefault(){},
+      dataTransfer:{getData:()=>"luc"}});
+    assert.deepEqual(changes,[["luc",false]]);
+    const move=all(view).find(n=>n.title==="Move Nyx");
+    move.listeners.click();
+    const chooser=all(view).find(n=>n["aria-label"]===
+      "Destination method for Nyx");
+    chooser.value="";chooser.listeners.change();
+    assert.deepEqual(changes,[["luc",false],["nyx",false]],
+      "keyboard Move supports choosing Not traveling");
+  }finally{restore();}
+});
