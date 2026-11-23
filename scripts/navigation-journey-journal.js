@@ -411,7 +411,9 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         (manifest.surface==="land"?"":
           `<p>Animal accommodation: ${manifest.capacityPerUnit??"unverified"} stalls/vessel `+
           `· ${manifest.units} vessel(s). Estimated animal fare: `+
-          `${escapeHTML(manifest.estimatedFareCp)} CP (included in total; no deduction).</p>`)+
+          `${escapeHTML(manifest.estimatedFareCp)} CP `+
+          (leg.transport?.continuation?"(previously approved, not quoted again).":
+            "(included in total; no deduction).")+`</p>`)+
         `</div>`)(validateJourneyLivestock(leg.livestock)):"";
     const rows=timeline.map(step=>step.kind==="journey-event"?
       `<li class="atlas-journey-rest-event"><strong>${escapeHTML(step.label)}</strong> after `+
