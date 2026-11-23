@@ -2847,7 +2847,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const after=this.transportationTransitionPlan()?.legs[0];
       if(!after||JSON.stringify(after.selectedOption?.method)!==JSON.stringify(option?.method)||
           after.selectedValue!==option?.value||
-          after.operation!==guidedLeg.transport.operation||after.errors.length)
+          (after.operation??"normal")!==(guidedLeg.transport.operation??"normal")||
+          after.errors.length)
         throw Error("The selected transportation or operating schedule changed. Review the updated checkpoint offer.");
     }
     const approvedPath=captureApprovedJourneyPath(route);
