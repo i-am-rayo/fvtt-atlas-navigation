@@ -1383,6 +1383,10 @@ test("bounded vessel recovery credits only its verified delta and retries a fail
       }}});
     nav.scene=scene;nav.recoverableJourney=journal;
     nav.recoverSavedJourney=()=>{restores++;return true;};
+    record.legs[0].transport.operation="normal";
+    assert.equal(nav.boundedNativeArrival(record)?.clockAction,"advance",
+      "normal operated transport with a verified bounded ID and path is recoverable");
+    record.legs[0].transport.operation="continuous";
     assert.equal(nav.boundedNativeArrival(record)?.clockAction,"advance");
     token.movement.origin=point(4,0);
     let reason;
