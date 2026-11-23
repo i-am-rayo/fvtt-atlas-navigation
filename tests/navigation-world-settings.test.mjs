@@ -39,7 +39,7 @@ test("navigation World Settings register once in a reusable module with bounded 
   assert.equal(animalFare.restricted,true);
   assert.equal(animalFare.config,true);
   assert.equal(animalFare.default,50);
-  assert.deepEqual(animalFare.range,{min:0,max:200,step:5});
+  assert.deepEqual(animalFare.range,{min:0,max:200,step:1});
   const groupConfig=catalog.get(GROUP_TRANSPORT_SETTING);
   assert.equal(groupConfig.scope,"world");
   assert.equal(groupConfig.config,false);
