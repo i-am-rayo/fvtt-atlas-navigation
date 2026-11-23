@@ -3090,113 +3090,40 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           chunks.splice(index,1,...halves);
           chunk=halves[0];
         }
-        // Retiming is sampled once per native chunk. The in-flight
-        // TokenDocument.move is never modified and native constraints remain.
-        const visual=liveJourneyPlayback(playback,
-          session.playbackSecondsPerHour,{skip:session.skipVisualPlayback});
-        session.currentChunk={distance:chunk.distance,startedAt:Date.now(),
-          durationMs:visual.animate?
-            1000*chunk.distance/(visual.movementSpeed*session.gridSize):1};
-        atlasDebug("movement","Native token move requested",{
-          sceneId:session.sceneId,chunk:index+1,chunkCount:chunks.length,
-          plannedDurationMs:Math.round(session.currentChunk.durationMs)
-        },{level:"verbose"});
-        const completed=await token.move(chunk.waypoints,{
-          animate:visual.animate,autoRotate:false,showRuler:false,pan:false,
-          animation:{movementSpeed:visual.movementSpeed}
-        });
-        // Native document updates can finish long before the visible movement.
-        // Never submit the next stretch until this Canvas animation is finished.
-        await waitForTokenTravelAnimation(token);
-        if(this.travelSession!==session)return false;
-        session.currentChunk=null;
-        if(!completed){
-          interruptedReason="Foundry stopped or blocked the current travel stretch.";
-          reachedEnd=false;break;
-        }
-        const target=chunk.waypoints.at(-1);
-        if(Math.hypot(token.x-target.x,token.y-target.y)>
-            Math.max(1,session.gridSize/20)){
-          interruptedReason="The token left the planned road path. Recalculate before traveling again.";
-          reachedEnd=false;break;
-        }
-        // Retain the verified native endpoint, but do not claim progress in
-        // the recoverable record until the corresponding World-clock write
-        // settles. An in-flight teardown must not confirm one side alone.
-        const verifiedAnchor=this.captureConfirmedJourneyAnchor(session,
-          this.canvasProvider(),this.atlasProvider(this.scene));
-        const verifiedDistance=session.completedDistance+chunk.distance;
-        atlasDebug("movement","Native movement confirmed",{
-          sceneId:session.sceneId,chunk:index+1,
-          completedPercent:Math.round(100*verifiedDistance/totalDistance)
-        },{level:"verbose"});
-        try{await this.commitGuidedWorldTime(session,{
-          completedDistance:verifiedDistance});}
-        catch(error){
-          reachedEnd=false;clockFailed=true;
-          interruptedReason="World time could not advance: "+(error.message||String(error));
-          break;
-        }
-        if(this.travelSession!==session)return false;
-        session.lastConfirmedAnchor=verifiedAnchor;
-        session.completedDistance=verifiedDistance;
-        schedule.recordMovement(chunk.distance/totalDistance*playback.travelHours);
-        let passengerRestFinished=false;
-        if(session.pendingPassengerRest&&
-            confirmPassengerRest(schedule,session.pendingPassengerRest)){
-          atlasDebug("journey","Passenger rest completed while voyage continued",{
-            sceneId:session.sceneId,action:session.pendingPassengerRest.action,
-            hours:session.pendingPassengerRest.hours});
-          this.travelNotice="Passenger rest completed aboard "+
-            guidedLeg.transport.methodName+" while the vessel kept moving.";
-          session.pendingPassengerRest=null;
-          session.journeyRecord.passengerRest=null;
-          passengerRestFinished=true;
-        }
-        session.confirmedSegments++;
-        this.setTravelProgress(Math.min(99,100*session.completedDistance/session.totalDistance));
-        // Never start another native chunk with an earlier TokenDocument
-        // position as the last durable Journal anchor. In particular, rest
-        // and canvas rebuilds must find the most recently verified position.
-        // A redraw can land precisely between the last native move and the
-        // outer journey finalizer. Do not persist a 100%-complete "moving"
-        // stretch without its matching checkpoint/terminal decision. Confirm
-        // the native arrival and final World-clock rounding at this boundary,
-        // then atomically save the status, anchor, and next A/B/C target in the
-        // SAME Journal flag update. This mirrors continuous-voyage handling.
+        // Normal and overtime movement use the same durable native interval
+        // contract as continuous voyage. The day tracker still decides when
+        // to offer rests or forced-march choices BETWEEN these intervals.
         let checkpointStatus="moving";
-        const finalChunk=index===chunks.length-1&&
-          session.completedDistance/session.totalDistance>=.99999;
-        if(finalChunk){
-          const actual=guidedLeg?this.atlasPoint(view,atlas,
-            partyTokenCanvasCenter(token,session.gridSize)):null;
-          if(!guidedLeg||confirmGuidedCheckpointArrival({token,
-            gridSize:session.gridSize,atlasPoint:actual,
-            expectedPoint:guidedLeg.checkpoint.point})){
-            try{
-              await this.commitGuidedWorldTime(session,{force:true});
-              checkpointStatus=guidedLeg?"paused":"completed";
-            }catch(error){
-              clockFailed=true;reachedEnd=false;
-              interruptedReason="Final World-time checkpoint could not settle: "+
-                (error.message||String(error));
-            }
-          }else{
-            reachedEnd=false;
-            interruptedReason="The native token did not reach its authored transfer checkpoint.";
-          }
-        }
         try{
-          // Persist the chosen visual speed only at a verified checkpoint
-          // alongside its native anchor/clock record, never from a slider tick.
-          session.journeyRecord.playbackSecondsPerHour=
-            validatePlaybackSetting(session.playbackSecondsPerHour);
-          await this.saveJourneyCheckpoint(session,checkpointStatus,
-            {updatePage:checkpointStatus!=="moving"});
-        }
-        catch(error){
-          reachedEnd=false;
-          interruptedReason="The Journey recovery state could not save confirmed progress: "+
+          const visual=liveJourneyPlayback(playback,
+            session.playbackSecondsPerHour,{skip:session.skipVisualPlayback});
+          const chunkMovingHours=playback.travelHours*chunk.distance/totalDistance;
+          const one=planNativeCheckpointPath(chunk.waypoints,{
+            movementSpeed:playback.movementSpeed,gridSize:session.gridSize,
+            secondsPerCheckpoint:10,totalMovingHours:chunkMovingHours
+          });
+          if(one.checkpoints.length!==1)
+            throw Error("Ordinary travel chunk is not one bounded native interval.");
+          const checkpoint=one.checkpoints[0];
+          // Authoritative progress uses the originally approved travel length,
+          // not a rounded native waypoint's potentially different length.
+          checkpoint.distance=chunk.distance;
+          checkpoint.completedDistance=session.completedDistance+chunk.distance;
+          checkpoint.completedMovingHours=chunkMovingHours;
+          const completed=await this.runNativeContinuousLeg(session,{
+            plan:{...one,totalDistance},playback,atlas,view,guidedLeg,
+            ordinary:true,visual
+          });
+          if(!completed){
+            reachedEnd=false;
+            interruptedReason="Native movement stopped before the current stretch was confirmed.";
+            break;
+          }
+          checkpointStatus=session.completedDistance/totalDistance>=.99999?
+            (guidedLeg?"paused":"completed"):"moving";
+        }catch(error){
+          reachedEnd=false;clockFailed=true;
+          interruptedReason="Native ordinary movement could not be reconciled: "+
             (error.message||String(error));
           break;
         }
