@@ -5083,10 +5083,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
             const normalHours=method.surface==="land"?(normalRules.dailyHours??8):8;
             const operation=this.plannedTravelOperation(method);
+            const resourceRoster=partySelection?.roster??quoteRoster;
+            const mountResources=resourceRoster&&method.kind==="vehicle"&&
+              method.surface==="land"?groupLivestockResources(resourceRoster):[];
+            const livestockCount=mountResources.length?
+              countJourneyLivestock(resourceRoster,this.livestockDecisions):0;
             const quoteArgs={arrangement:this.transportArrangement,
               operation,movingHours,distanceMi,
               travelers:quoteRoster?.travelers??1,ownedQuote,regularHours:normalHours,
-              livestockPercent:readLivestockFarePercent(game.settings)};
+              livestockCount,livestockPercent:readLivestockFarePercent(game.settings)};
             const quote=quoteTransportationService(method,{...quoteArgs,
               hireTerms:this.transportHireTerms});
             const worldOperation=operation!=="normal"&&
@@ -5096,6 +5101,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 operation:worldOperation,hireTerms:null}):null;
             const formatMoney=cp=>dndCurrencyBreakdown(cp,
               globalThis.CONFIG?.DND5E?.currencies).label;
+            const mountDetails=livestockCount?describeJourneyMountFare({
+              resources:mountResources.map(item=>({...item,
+                aboard:this.livestockDecisions[item.actorId]})),
+              estimatedFareCp:quote.livestockFareCp
+            },{method,worldPercent:readLivestockFarePercent(game.settings),
+              formatMoney}):null;
             const disabled=Boolean(this.travelSession||this.journalStarting);
             body.append(renderTransportQuote({
               worldEstimate:original?"World preset estimate: "+
@@ -5104,11 +5115,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 "hired service":"party-owned transport")+" estimate: "+
                 formatMoney(quote.totalCp),
               breakdown:[
+                "Transport excluding mounts: "+formatMoney(Math.max(0,
+                  Math.round(quote.totalCp)-Math.round(quote.livestockFareCp))),
                 quote.baseLabel+": "+formatMoney(quote.baseCp),
                 "Paid crew: "+formatMoney(quote.crewWagesCp),
                 "Overtime fare: "+formatMoney(quote.overtimeFareCp),
-                "Overtime labor: "+formatMoney(quote.overtimeCrewCp)
-              ].filter(Boolean).join(" · "),
+                "Overtime labor: "+formatMoney(quote.overtimeCrewCp),
+                ...(mountDetails?[mountDetails]:[])
+              ].join(" · "),
               operatingSummary:(operation==="continuous"&&
                 quote.hireTerms?.hireBasis==="day"?
                 quote.billableDayUnits.toFixed(2).replace(/\\.?0+$/,"")+
