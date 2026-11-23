@@ -76,3 +76,26 @@ test("onward land leg retains GM-selected physical quantities with no animal far
  assert.match(formatJourneyJournalHTML(seen),/Riding Horse: 1 of 2 accompanied/);
  assert.doesNotMatch(formatJourneyJournalHTML(seen),/stalls\/vessel/);
 });
+
+
+test("approved land vehicle carriage is readable, immutable, and separate from land accompaniment",()=>{
+ const cargo=planJourneyLivestock(group,{a:1,b:1},{surface:"land",
+   carried:true,methodId:"coach-hire",units:1,capacityPerUnit:null,fareCp:50});
+ const itinerary=route(cargo,null);
+ itinerary.travel={...itinerary.travel,methodId:"coach-hire",
+   methodName:"Coach (hired)",arrangement:"hire"};
+ const rec=create(itinerary);
+ assert.deepEqual(validateJourneyRecord(rec).legs[0].livestock,cargo);
+ const confirmed=structuredClone(rec);
+ confirmed.legs[0].completedMovingHours=1;
+ const html=formatJourneyJournalHTML(confirmed);
+ assert.match(html,/Warhorse: 1 of 1 carried/);
+ assert.match(html,/Riding Horse: 1 of 2 carried/);
+ assert.match(html,/Animal accommodation: unlimited by default/);
+ assert.match(html,/Estimated animal fare: 50 CP/);
+ assert.deepEqual(rec.legs[0].livestock,cargo,
+   "rendering must not mutate the previously authorized animal count");
+ const tampered=structuredClone(rec);
+ tampered.legs[0].livestock.capacityPerUnit=0;
+ assert.throws(()=>validateJourneyRecord(tampered),/invalid recovery metadata/);
+});
