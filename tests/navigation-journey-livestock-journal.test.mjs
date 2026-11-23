@@ -55,7 +55,7 @@ test("D&D5e Journal formats fractional animal fare in payable coins without repr
   saved.legs[0].completedPercent=10;
   const exact=saved.legs[0].livestock.estimatedFareCp;
   const html=formatJourneyJournalHTML(saved,{systemId:"dnd5e"});
-  assert.match(html,/Estimated animal fare: 28 GP · 6 SP · 5 CP/);
+  assert.match(html,/Estimated animal fare: 28 GP · 1 EP · 1 SP · 5 CP/);
   assert.equal(saved.legs[0].livestock.estimatedFareCp,exact,
     "formatting only; confirmed saved quote remains exact");
   assert.equal(snapshot.legs[0].livestock.estimatedFareCp,exact);
