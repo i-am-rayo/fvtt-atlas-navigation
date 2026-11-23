@@ -2335,6 +2335,16 @@ test("mounts, wagons, and ships use explicit daily operating policies",()=>{
     assert.equal(sailing.dailyHours,null,
       "a verified continuously crewed vessel never triggers the party travel-day limit");
     assert.equal(estimateNavigationTotalTrip(31+34/60,sailing).overnights,0);
+    const carriage=findTransportationPreset("carriage",globalThis.game.settings,"dnd5e");
+    catalog=setTransportationPreset(catalog,"dnd5e2024",
+      {...carriage,continuousEnabled:true});
+    const rolling=nav.resolveTravelRules({methodId:"carriage"},null,"continuous");
+    assert.equal(rolling.dailyHours,null,
+      "a GM-enabled carriage may rotate drivers under the same rules as a ship");
+    assert.equal(rolling.overnightHours,0);
+    assert.throws(()=>nav.resolveTravelRules({methodId:"carriage"},
+      {...carriage,continuousEnabled:false},"continuous"),/Continuous/,
+    "an approved operating schedule cannot silently revert to standard");
     profile="custom";
     assert.equal(nav.resolveTravelRules({methodId:"camel"}).dailyHours,6,
       "custom World travel-day hours also apply to overland mount estimates");
