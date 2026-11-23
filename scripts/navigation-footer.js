@@ -99,7 +99,7 @@ export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
         phase==="ending"||phase==="pausing"||phase==="rest-applying"||
         phase==="rest-holding"||phase==="rest-error";
       move.title=partySplitBlocked&&!nav.travelSession?
-        "Subset planning does not authorize moving the entire assigned party token":
+        "Select at least one valid traveler before approving native movement":
         phase==="paused"?"Resume the paused journey":phase==="moving"?
         "Pause after the current short road stretch":moveLabel;
       move.addEventListener("click",()=>{
