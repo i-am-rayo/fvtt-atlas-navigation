@@ -681,12 +681,14 @@ export class AtlasTransportationSettings extends ApplicationBase {
           {min:0,max:1000,step:1}),
         "Blank = unlimited (default); 0 = prohibited; positive = animal spaces per vehicle. Passenger seats stay separate."),
         field("Mount boarding fare policy",
-          selected([["global","Inherit World default (%)"],
+          selected([["global","Inherit World default ("+
+            readLivestockFarePercent(game.settings)+"%)"],
             ["percent","Custom percentage of passenger fare"],
             ["fixed","Custom fixed fare per mount"]],
           value.livestockFareCp!=null?"fixed":
             value.livestockFarePercent!=null?"percent":"global","livestockFareMode"),
-          "Applies to passenger-priced hired transport; flat fares replace the percentage."),
+          "Inherit applies the live World percentage without copying it to this preset or "+
+          "Map Marker. Disabled fixed-fare inputs are intentional, not a zero fare."),
         field("Mount fare (% of passenger)",
           slider("livestockFarePercent",value.livestockFarePercent??
             current(LIVESTOCK_FARE_PERCENT_SETTING,LIVESTOCK_FARE_PERCENT_DEFAULT),
