@@ -1742,7 +1742,8 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
   let nav;
   try{
     let offers=[{methodId:"cart",mode:"land",overrides:{hireEnabled:true,
-      hireCostCp:250,hireBasis:"day",hireApplies:"unit"}}];
+      hireCostCp:250,hireBasis:"day",hireApplies:"unit",
+      continuousEnabled:true}}];
     const writes=[],dialogTitles=[];
     let approve=false;
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
@@ -1800,6 +1801,10 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
     assert.equal(nav.transportAvailability().offers.get("cart").checkpointId,"port");
     assert.equal(nav.assessTravelMethod().guided,true,
       "a checkpoint-offered Cart is eligible even without a party-owned Cart");
+    assert.equal(nav.transportOperation,"normal",
+      "the unapproved default contains no separate continuous choice");
+    assert.equal(nav.resolveTravelRules({methodId:"cart"}).dailyHours,null,
+      "the effective offered Cart automatically determines the continuous plan");
     assert.equal(await nav.startGuidedTravel(),false,
       "declining the explicit GM hire leaves the Journey unchanged");
     assert.equal(token.moves,0);assert.equal(writes.length,0);
@@ -1815,7 +1820,7 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
     "every newly approved continuation leg persists its exact Road identity");
     assert.equal(writes.at(-1).legs[0].transport.methodId,"ship-passage");
     assert.deepEqual(writes.at(-1).legs[1].travelMethod,{
-      id:"cart",name:"Cart",arrangement:"hire",operation:"normal"});
+      id:"cart",name:"Cart",arrangement:"hire",operation:"continuous"});
     assert.equal(writes.at(-1).legs[1].speedPerHour,3);
     assert.equal(writes.at(-1).legs[1].worldTravelSeconds,0,
       "without the World-clock setting the Cart cannot advance time");
