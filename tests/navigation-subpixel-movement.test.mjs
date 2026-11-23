@@ -52,6 +52,12 @@ test("day-limit split never grants subpixel movement or overtime implicitly",()=
    "explicit early GM decision authorizes the full ninth hour, not only 1h from 7:59");
  assert.ok(schedule.availableHours<1.02);
  assert.ok(schedule.events.some(e=>e.action==="continue"));
+ const fullDay=new GuidedTravelDayTracker({travelHours:24.9,rules:{
+   dailyHours:8,overnightHours:16,longRestHours:8,shortRestHours:1,
+   forcedMarch:"dnd5e"}});
+ fullDay.todayHours=23.9;fullDay.permittedExtraUntil=24;
+ assert.throws(()=>fullDay.breakChoice("continue",{allowEarly:true}),/24 hours/,
+   "early approval must not promise travel beyond the 24h ceiling");
 });
 
 test("travel-day split near the final authored bend keeps the endpoint",()=>{
