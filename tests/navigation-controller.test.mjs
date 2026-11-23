@@ -3843,3 +3843,46 @@ test("water transfer keeps three physical mounts separate from two passengers an
       "Boarding and rejoining never change the native Group");
   }finally{globalThis.game=previous;}
 });
+
+
+test("interrupted Journey timing ignores the old leg schedule instead of crashing the Navigation window",()=>{
+  const nav=new AtlasNavigationController();
+  nav.journeySchedule={travelHours:9,breakHours:16,estimate:{totalHours:8}};
+  nav.travelProgress=88;
+  const moving={textContent:""},elapsed={textContent:""},eta={textContent:""};
+  nav.journeyTimeUI={travelHours:1,plan:{totalHours:1},moving,elapsed,eta};
+  nav.updateJourneyTiming();
+  assert.ok(moving.textContent);
+  assert.ok(elapsed.textContent);
+  assert.ok(eta.textContent,"the recovered preview stays renderable");
+  nav.travelSession={schedule:{travelHours:1,breakHours:1,
+    estimate:{totalHours:2}}};
+  nav.updateJourneyTiming();
+  assert.notEqual(elapsed.textContent,moving.textContent,
+    "the matching live schedule still contributes confirmed downtime");
+});
+
+test("unmovable day-boundary requests explicit early GM consent without native movement",async()=>{
+  const nav=new AtlasNavigationController();
+  const schedule=new GuidedTravelDayTracker({travelHours:9.2,rules:{
+    dailyHours:8,overnightHours:16,longRestHours:8,shortRestHours:1,
+    forcedMarch:"dnd5e"}});
+  schedule.recordMovement(7.99);
+  const session={sceneId:"scene",phase:"moving",schedule};
+  nav.travelSession=session;
+  let durable=0,commits=0;
+  nav.saveJourneyCheckpoint=async()=>{durable++;};
+  nav.commitGuidedTravelBreak=async(_session,choice)=>{
+    commits++;schedule.applyBreak(choice);
+  };
+  const decision=nav.waitForDailyTravelChoice(session,{allowEarly:true});
+  await tickUntil(()=>typeof session.restWaiter==="function");
+  assert.equal(schedule.permittedExtraUntil,0,
+    "the pending GM choice cannot grant forced-march hours");
+  assert.equal(durable,1,"the Journal is paused before the early choice");
+  session.restWaiter("continue");
+  assert.equal(await decision,true);
+  assert.equal(commits,1);
+  assert.equal(schedule.permittedExtraUntil,9);
+  assert.equal(session.phase,"moving");
+});
