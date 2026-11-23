@@ -2321,8 +2321,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // Predictable from the saved intent: no World time is advanced during
       // animation, and an unrelated GM clock change invalidates this step.
       session.journeyRecord.pendingNativeMove=null;
-      session.journeyRecord.playbackSecondsPerHour=
-        validatePlaybackSetting(session.playbackSecondsPerHour);
+      if(session.playbackSecondsPerHour!==undefined)
+        session.journeyRecord.playbackSecondsPerHour=
+          validatePlaybackSetting(session.playbackSecondsPerHour);
       // The last native checkpoint is already an approved dock arrival.
       // Commit transfer metadata *here* so a canvas redraw before the outer
       // move() promise resolves does not lose the durable C/D decision.
