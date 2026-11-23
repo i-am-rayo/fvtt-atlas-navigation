@@ -3151,12 +3151,16 @@ test("saved B to C all-water route uses current-leg tiles rather than the old me
     assert.ok(edit,"a selected water transfer has a method-specific pencil");
     const deck=find(root,node=>node.className==="atlas-navigation-traveler-deck");
     assert.ok(deck,"the current water checkpoint offers the same traveler choices as land");
-    const staying=find(deck,node=>String(node.className??"")
-      .includes("atlas-navigation-not-traveling"));
-    assert.ok(staying,"a ship should offer a drop target for members who stay behind");
+    const staying=find(deck,node=>node.tag==="input"&&
+      node.ariaLabel==="Travel with Lucious");
+    assert.equal(staying?.type,"checkbox",
+      "onward ship uses first-leg single-method checkboxes for including travelers");
+    assert.equal(staying.checked,true);
     const before=JSON.stringify(nav.recoveryRecord);
-    staying.listeners.get("drop")({preventDefault(){},
-      dataTransfer:{getData:()=>"luc"}});
+    const nativeRoster=JSON.stringify(groupRoster);
+    staying.checked=false;staying.listeners.get("change")();
+    assert.equal(JSON.stringify(groupRoster),nativeRoster,
+      "unchecking a later-leg traveler never changes native Group membership");
     assert.equal(nav.partySelectionMode,"selected");
     assert.deepEqual(nav.partySelectedIds,["cass"]);
     assert.equal(JSON.stringify(nav.recoveryRecord),before,
