@@ -3,8 +3,8 @@
  * The validated Journey Journal is authority for the voyage already approved;
  * the current Atlas graph and token position remain authority for movement.
  */
-import {assessApprovedJourneyRecovery,MAX_APPROVED_ROUTE_MARGIN_CELLS}
-  from "./navigation-approved-path.js";
+import {assessApprovedJourneyRecovery,describeApprovedJourneyRouteMismatch,
+  MAX_APPROVED_ROUTE_MARGIN_CELLS} from "./navigation-approved-path.js";
 import {isMixedLandTransport,mixedLandTransportMethod} from "./navigation-transport-journal.js";
 import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 const near=(a,b,tolerance=.01)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
@@ -50,17 +50,26 @@ function approvedTerminalAttachment(route,projected,prior,{atlas,gridSize,gridDi
 /** A native token can already be ahead of the last *confirmed* Journal chunk
  * when Canvas tears down. Never credit the difference or infer completed
  * travel merely because it occupies the destination's hex. */
-function checkConfirmedRemainingDistance(route,record,prior,{gridDistance,gridSize}={}){
+function checkConfirmedRemainingDistance(route,record,prior,{
+  gridDistance,gridSize,onRecoveryDiagnostic}={}){
   if(prior?.approvedPath){
     const assessment=assessApprovedJourneyRecovery({
       approvedPath:prior.approvedPath,route,anchor:record?.lastConfirmedAnchor,
       tokenPosition:route?.start,gridSize,
       marginCells:MAX_APPROVED_ROUTE_MARGIN_CELLS
     });
-    if(!assessment.safe)
+    if(!assessment.safe){
+      if(assessment.reason==="road-sequence-changed"&&
+          typeof onRecoveryDiagnostic==="function"){
+        try{onRecoveryDiagnostic(describeApprovedJourneyRouteMismatch({
+          approvedPath:prior.approvedPath,route,anchor:record.lastConfirmedAnchor,
+          tokenPosition:route.start}));}
+        catch{/* Diagnostic failures must never change the safety refusal. */}
+      }
       throw Error("The saved voyage cannot be safely recovered against its approved " +
         "route ("+assessment.reason+"). Keep the Journal intact and ask the GM " +
         "to review the confirmed position before continuing.");
+    }
     return;
   }
   if(!record?.lastConfirmedAnchor||!Number.isFinite(gridDistance)||gridDistance<=0||
