@@ -67,7 +67,7 @@ export function renderNavigationTransferLegOutcome({estimateLabel=null,narration
   return nodes;
 }
 
-export function renderNavigationLaterLegsPreview(laterLegs=[]){
+export function renderNavigationLaterLegsPreview(laterLegs=[],globalSchedule=null){
   if(!laterLegs.length)return null;
   const future=el("details");
   const title=el("summary","GM preview · "+laterLegs.length+
@@ -77,12 +77,25 @@ export function renderNavigationLaterLegsPreview(laterLegs=[]){
   const help=el("small","These are tentative road segments, not a fixed party itinerary. Move or refresh the party token at the actual checkpoint to choose the next method.");
   help.style.cssText="display:block;margin:.4rem 0;opacity:.8;";
   future.append(help);
+  if(globalSchedule){
+    const summary=el("small",globalSchedule.complete?
+      "All legs estimated; these future methods are hypothetical, not approved.":
+      "The whole-route duration and fare remain unavailable until future transfers are planned.");
+    summary.style.cssText="display:block;opacity:.75;margin-bottom:.35rem;";
+    future.append(summary);
+  }
   for(const next of laterLegs){
+    const forecast=globalSchedule?.legSummaries?.find(item=>item.index===next.index);
+    const operating=forecast?.status==="estimated"?
+      " · "+next.selectedOption?.method?.name+" · "+next.operation+
+        " ("+Math.round(forecast.movingHours*100)/100+"h moving, "+
+        Math.round(forecast.plannedDowntimeHours*100)/100+"h estimated downtime)":
+      " · transportation not yet chosen";
     const text=el("div","Leg "+(next.index+1)+" · "+
       (next.surface==="unspecified"?"Unclassified":next.surface)+
       " · "+(next.departureCheckpoint?.name??"Unconfirmed transfer")+
       " → "+(next.arrivalCheckpoint?.name??"Destination or unknown")+
-      " · "+(next.roadNames.join(", ")||"Unclassified approach"));
+      " · "+(next.roadNames.join(", ")||"Unclassified approach")+operating);
     text.style.cssText="padding:.45rem 0;border-top:1px solid var(--color-border-light-tertiary,#555);font-size:.85em;";
     future.append(text);
   }
