@@ -1424,6 +1424,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   assessTravelMethod(){
+    // Continuation mounts may be undecided in the UI, but never at approval.
+    // Gate even Walking: no method may bypass the saved cohort review.
+    if(!this.travelSession&&this.recoveryRecord?.legs?.at(-1)?.livestock&&
+        !isUnfinishedJourneyLeg(this.recoveryRecord)){
+      const party=this.partyTravelSelection(availableNavigationTravelMethods(
+        game.settings,game.system?.id));
+      if(!party)return {compatible:false,guided:false,
+        reason:"The Group traveler or mount draft cannot be validated."};
+      try{countJourneyLivestock(party.roster,this.livestockDecisions);}
+      catch(error){return {compatible:false,guided:false,
+        reason:error.message??String(error)};}
+    }
     // A global method cannot silently traverse several road surfaces.
     // Beta.6 validates each transfer independently; beta.7 owns movement.
     if(this.result?.status==="ok"){
@@ -1495,12 +1507,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(game.system?.id==="dnd5e"&&group?.type==="group"&&!party)
         return {...result,guided:false,
           reason:"The Group traveler or mount draft cannot be validated."};
-      if(!approvedLand&&party&&this.recoveryRecord?.legs?.at(-1)?.livestock&&
-          !isUnfinishedJourneyLeg(this.recoveryRecord)){
-        try{countJourneyLivestock(party.roster,this.livestockDecisions);}
-        catch(error){return {...result,guided:false,
-          reason:error.message??String(error)};}
-      }
       if(!approvedLand&&this.transportArrangement==="hire"){
         if(!method)return {...result,guided:false,
           reason:"The hired method is no longer available."};
@@ -1517,8 +1523,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
       if(!approvedLand&&this.transportArrangement==="owned"&&method&&
           game.system?.id==="dnd5e"&&group?.type==="group"){
-        const roster=projectGroupTransportation(group,
-          readGroupTransportation(game.settings),availability.all);
         if(!groupMethodCapacityStatus(party.previewRoster,method).sufficient)
           return {...result,guided:false,
             reason:"Not enough matching party-owned passenger seats for this land leg."};
