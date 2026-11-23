@@ -1861,6 +1861,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       });
     }
     const recent=saved.legs.at(-1),arrival=recent.transport;
+    if(recent.participation){
+      // Restore the approved cohort on reload before computing passenger fares
+      // or eligibility. This updates only an in-memory draft, never the Group.
+      const actor=token?.actor;
+      if(game.system?.id!=="dnd5e"||actor?.type!=="group")
+        throw Error("The saved traveler manifest requires its original Group explorer.");
+      const catalog=availableNavigationTravelMethods(game.settings,game.system?.id);
+      const roster=projectGroupTransportation(actor,
+        readGroupTransportation(game.settings),catalog);
+      const retained=priorJourneySelection(saved,roster);
+      const total=partyTravelerRoster(roster).length;
+      this.partySelectionMode=retained.length===total?"all":"selected";
+      this.partySelectedIds=this.partySelectionMode==="selected"?retained:[];
+    }
     // Both checkpoint-bound transport and ordinary land travel must restore
     // their approved method BEFORE calculating the remaining road route.
     // A default Walking calculation may choose a different terrain-aware
