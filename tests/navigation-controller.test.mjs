@@ -2160,7 +2160,13 @@ test("GM guided travel pauses and ends at native chunk boundaries with honest pr
     assert.ok(nav.travelProgress>0&&nav.travelProgress<100);
     assert.equal(nav.completedRoute,false,"ending early must not lock future travel");
 
-    // A complete journey progresses through its chunks and reaches 100%.
+    // A stopped native operation must NOT be silently discarded. Only a
+    // separate, explicitly planned test Journey may clear this synthetic
+    // fixture's pending record; production requires GM New Route approval.
+    await assert.rejects(nav.startGuidedTravel(),/Recover or deliberately end/);
+    nav.recoverableJourney=null;nav.recoveryRecord=null;
+    nav.recoveryJournal=null;nav.journeyJournal=null;
+    // A complete new Journey progresses through its chunks and reaches 100%.
     autoResolve=true;
     token.x=50;token.y=50;
     const again=nav.startGuidedTravel();
