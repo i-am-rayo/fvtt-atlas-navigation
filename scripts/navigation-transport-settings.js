@@ -690,7 +690,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
         field("Mount fare (% of passenger)",
           slider("livestockFarePercent",value.livestockFarePercent??
             current(LIVESTOCK_FARE_PERCENT_SETTING,LIVESTOCK_FARE_PERCENT_DEFAULT),
-            {min:0,max:200,step:5,numericStep:5,label:"Mount fare as passenger percentage"}),
+            {min:0,max:200,step:1,numericStep:1,label:"Mount fare as passenger percentage"}),
           "0–200%; used only when Custom percentage is selected."),
         field("Fare per physical mount",priceInput("livestock",
           value.livestockFareBasis==="mile"?
