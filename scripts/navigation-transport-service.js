@@ -4,6 +4,12 @@
  */
 export const TRANSPORT_HIRE_BASES=Object.freeze(["trip","mile","day"]);
 export const TRANSPORT_OPERATIONS=Object.freeze(["normal","overtime","continuous"]);
+
+/** Fresh vehicle plans follow the method's enabled 24h capability unless
+ * the GM expressly chose overtime. Approved Journey snapshots are separate. */
+export const draftTransportationOperation=(method,operation="normal")=>
+  operation==="normal"&&method?.kind==="vehicle"&&method?.continuousEnabled?
+    "continuous":operation;
 const EPS=1e-7;
 const wagePeriods=(method,days,distanceMi,movingHours)=>
   method.crewWageBasis==="trip"?(movingHours>EPS?1:0):
@@ -91,6 +97,9 @@ export function quoteTransportationService(method,{
   const fare=arrangement==="hire"?resolveTransportationHireFare(method,hireTerms):null;
   const schedule=resolveTransportationOperation(method,operation,regularHours);
   const days=movingHours<=EPS?0:Math.ceil(Math.max(0,movingHours-EPS)/schedule.dailyHours);
+  // Crewed continuous operation affects *movement*, not the World-defined
+  // length of a standard chargeable operating day.
+  const billableDayUnits=operation==="continuous"?movingHours/regularHours:days;
   let extraHours=0;
   if(operation==="overtime"){
     const fullDays=Math.floor((movingHours+EPS)/schedule.dailyHours);
@@ -106,14 +115,14 @@ export function quoteTransportationService(method,{
       throw Error("Not enough hired transportation units available at this checkpoint.");
     units=supply.requiredUnits;
     const count=fare.hireApplies==="passenger"?travelers:units;
-    const basis=fare.hireBasis==="day"?days:
+    const basis=fare.hireBasis==="day"?billableDayUnits:
       fare.hireBasis==="mile"?distanceMi: (movingHours>EPS?1:0);
     baseCp=fare.hireCostCp*basis*count;
     baseLabel="Hired "+fare.hireBasis+" fare ("+count+" "+
       (fare.hireApplies==="passenger"?"passenger(s)":"unit(s)")+")";
     if(method.includeCrewWages&&!method.hireCrewIncluded)
       crewWagesCp=(method.crewCount??0)*(method.crewWageCpPerDay??200)*
-        wagePeriods(method,days,distanceMi,movingHours)*units;
+        wagePeriods(method,billableDayUnits,distanceMi,movingHours)*units;
   }else{
     if(!ownedQuote||!nonnegative(ownedQuote.amount)||
       !Array.isArray(ownedQuote.breakdown))
@@ -149,7 +158,7 @@ export function quoteTransportationService(method,{
   if(!nonnegative(totalCp)||totalCp>Number.MAX_SAFE_INTEGER)
     throw Error("Transportation estimate exceeds the supported range.");
   return Object.freeze({arrangement,operation,units,travelers,
-    movingHours,distanceMi,travelDays:days,extraHours,
+    movingHours,distanceMi,travelDays:days,billableDayUnits,extraHours,
     dailyHours:schedule.dailyHours,overnightHours:schedule.overnightHours,
     baseLabel,baseCp,crewWagesCp,overtimeFareCp,overtimeCrewCp,adjustmentCp,
     totalCp,hireTerms:fare,driverIncluded:arrangement==="hire"&&Boolean(method.hireCrewIncluded),
