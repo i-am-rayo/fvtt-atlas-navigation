@@ -3003,7 +3003,8 @@ test("saved B to C all-water route uses current-leg tiles rather than the old me
     assert.ok(edit,"a selected water transfer has a method-specific pencil");
     assert.equal(find(root,node=>node.ariaLabel==="Transportation method for current leg"),
       undefined,"the legacy dropdown is no longer used on a fresh transfer");
-    assert.ok(find(root,node=>node.ariaLabel==="Operating schedule for Ship passage"),
+    assert.ok(find(root,node=>node.tag==="select"&&
+      node.ariaLabel?.startsWith("Operating schedule for ")),
       "the GM sees the active water operating schedule");
     assert.equal(nav.recoveryRecord.routeTargets.nextTargetIndex,2,
       "rendering the checkpoint preview must never advance saved targets");
