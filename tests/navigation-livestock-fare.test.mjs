@@ -29,10 +29,18 @@ test("animal accommodation can require a second vessel without double passenger 
  assert.throws(()=>quoteTransportationService({...ship,livestockCapacity:2,
    hireUnlimited:false,hireQuantity:1},{...options,livestockCount:3}),
    /Not enough hired transportation units/);
- assert.throws(()=>quoteTransportationService({...ship,livestockCapacity:null},
-   {...options,livestockCount:3}),/verified vessel livestock capacity/);
+ const unlimited=quoteTransportationService({...ship,livestockCapacity:null},
+   {...options,livestockCount:3});
+ assert.equal(unlimited.units,1,"blank means unlimited animal accommodation");
+ assert.equal(unlimited.livestockFareCp,360,"unlimited does not waive animal fare");
+ assert.equal(quoteTransportationService({...ship,livestockCapacity:undefined},
+   {...options,livestockCount:3}).units,1);
  assert.throws(()=>quoteTransportationService({...ship,livestockCapacity:0},
-   {...options,livestockCount:3}),/verified vessel livestock capacity/);
+   {...options,livestockCount:3}),/does not allow/);
+ assert.throws(()=>quoteTransportationService({...ship,livestockCapacity:null,
+   hireUnlimited:false,hireQuantity:0},{...options,livestockCount:3}),
+   /Not enough hired transportation units/,
+   "unlimited animal stalls do not create extra hired vessels");
 });
 test("GM trip/day/mile animal rate overrides default equivalent only for animals",()=>{
  const custom={...ship,livestockFareCp:25,livestockFareBasis:"trip"};
