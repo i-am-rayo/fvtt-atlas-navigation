@@ -2410,7 +2410,7 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     assert.equal(await nav.startGuidedTravel(),false);
     assert.equal(nav.worldTimeAdvancedSeconds,0);
     assert.equal(nav.travelProgress,0);
-    assert.match(nav.travelNotice,/left the planned road path/);
+    assert.match(nav.travelNotice,/native TokenDocument missed its approved checkpoint/);
     assert.equal(seconds.reduce((a,b)=>a+b,0),beforeMismatch);
 
     // Eight-hour travel-day estimates must never be mistaken for 24-hour
