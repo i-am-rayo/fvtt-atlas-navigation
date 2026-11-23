@@ -101,6 +101,15 @@ test("World and checkpoint overrides retain animal fields without rewriting prev
    mode:"sea",overrides:{livestockCapacity:-1}}]),/Invalid/);
 });
 
+test("10 GP passenger boarding charges 5 GP per physical mount by World default",()=>{
+  const passengerTrip={...ship,hireCostCp:1000,hireBasis:"trip"};
+  const quote=quoteTransportationService(passengerTrip,{
+    ...options,livestockCount:2});
+  assert.equal(quote.baseCp,4000,"four travelers each at 10 GP");
+  assert.equal(quote.livestockFareCp,1000,"two mounts each at 5 GP");
+  assert.equal(quote.totalCp,5000,"no automatic currency deducted");
+});
+
 test("World defaults, method override, and trip-specific percentage use the same quote",()=>{
   const defaultFare=quoteTransportationService(ship,{...options,livestockCount:2});
   assert.equal(defaultFare.livestockFareCp,120,"two mounts cost 50% of passenger price");
