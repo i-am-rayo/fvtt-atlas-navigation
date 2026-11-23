@@ -102,7 +102,11 @@ export function suggestedLivestockBoarding(record,roster){
   const boarded=new Map(last?.resources.map(m=>[m.actorId,m.aboard])??[]);
   if(!last){
     const used=new Set(prior?.convoy?.methods?.flatMap(m=>m.resourceIds??[])??[]);
-    for(const m of resources)if(used.has(m.actorId))boarded.set(m.actorId,m.quantity);
+    // A resource Actor can represent multiple physical animals. A legacy
+    // convoy resource ID alone does not prove how many were used; require GM
+    // input for plural resources instead of guessing an approved quantity.
+    for(const m of resources)if(used.has(m.actorId)&&m.quantity===1)
+      boarded.set(m.actorId,1);
   }
   if([...boarded.keys()].some(key=>!resources.some(m=>m.actorId===key)))
     throw Error("The saved livestock roster no longer matches the Group.");
