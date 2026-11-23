@@ -369,7 +369,8 @@ test("canvas teardown during an unconfirmed native move cannot invent progress o
     assert.equal(f.journalWrites.at(-1).updatePage,true,
       "interruption publishes the confirmed partial summary");
     const html=formatJourneyJournalHTML(f.journalStates.at(-1));
-    assert.match(html,/Interrupted — may resume/);
+    assert.match(html,/Interrupted — native checkpoint review required/);
+    assert.match(html,/Pending movement and time require GM review/);
     assert.match(html,/Confirmed progress: 0%/);
     assert.doesNotMatch(html,/Arrived \(World time\)/,
       "publication must never present unconfirmed movement as arrival");
