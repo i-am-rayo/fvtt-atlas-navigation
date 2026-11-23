@@ -23,6 +23,9 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   NAVIGATION_MOUNTED_SPEED_DEFAULT,NAVIGATION_SAILING_SPEED_DEFAULT }
   from "./navigation-travel-method.js";
 import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
+import {LIVESTOCK_FARE_PERCENT_SETTING,LIVESTOCK_FARE_PERCENT_DEFAULT,
+  readLivestockFarePercent,validLivestockFarePercent}
+  from "./navigation-transport-service.js";
 import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
 import { createAtlasIconButton } from "./ui-action-button.js";
 import {createTransportNumberSlider,createTransportCurrencyPool,transportCurrencyAmount}
@@ -165,6 +168,13 @@ const wirePresetDialog=container=>{
   const update=()=>{
     try{
       const hireOn=Boolean(fieldValue("hireEnabled")?.checked);
+      const animalMode=fieldValue("livestockFareMode")?.value??"global";
+      for(const input of root.querySelectorAll(
+        '[name="livestockFarePercent"],[data-atlas-range-for="livestockFarePercent"]'))
+        input.disabled=animalMode!=="percent";
+      for(const input of root.querySelectorAll(
+        '[name="livestockAmount"],[name="livestockDenom"],[data-atlas-range-for="livestockAmount"]'))
+        input.disabled=animalMode!=="fixed";
       const crewOption=root.querySelector("[data-atlas-hire-crew-option]");
       if(crewOption){crewOption.style.opacity=hireOn?"1":".42";
         crewOption.style.pointerEvents=hireOn?"auto":"none";}
@@ -341,6 +351,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
 
   _renderMethods(root){
     const profile=selectedTransportationProfile(game.settings,game.system?.id);
+    root.appendChild(element("p","World mount boarding fare: "+
+      readLivestockFarePercent(game.settings)+"% of each passenger fare by default. "+
+      "Change the World slider in Foundry Module Settings (Atlas — Mount Boarding Fare); "+
+      "override per vehicle in Services or for this Journey. Explicit fixed animal fares remain valid."));
     root.appendChild(element("p","Reference: "+(
       profile==="dnd5e2024"?"D&D 2024 / 5.5e":
       profile==="dnd5e2014"?"D&D 2014 / 5e":
@@ -666,8 +680,18 @@ export class AtlasTransportationSettings extends ApplicationBase {
         numberInput("livestockCapacity",value.livestockCapacity??"",
           {min:0,max:1000,step:1}),
         "Blank = unlimited (default); 0 = prohibited; positive = animal spaces per vehicle. Passenger seats stay separate."),
-        serviceToggle("livestockFareEnabled",value.livestockFareCp!=null,
-          "Custom animal fare","Otherwise each animal uses one passenger fare equivalent when charged per passenger."),
+        field("Mount boarding fare policy",
+          selected([["global","Inherit World default (%)"],
+            ["percent","Custom percentage of passenger fare"],
+            ["fixed","Custom fixed fare per mount"]],
+          value.livestockFareCp!=null?"fixed":
+            value.livestockFarePercent!=null?"percent":"global","livestockFareMode"),
+          "Applies to passenger-priced hired transport; flat fares replace the percentage."), 
+        field("Mount fare (% of passenger)",
+          slider("livestockFarePercent",value.livestockFarePercent??
+            current(LIVESTOCK_FARE_PERCENT_SETTING,LIVESTOCK_FARE_PERCENT_DEFAULT),
+            {min:0,max:200,step:5,numericStep:5,label:"Mount fare as passenger percentage"}),
+          "0–200%; used only when Custom percentage is selected."),
         field("Fare per physical mount",priceInput("livestock",
           value.livestockFareBasis==="mile"?
             atlasDisplayCostPerDistance(value.livestockFareCp??0):
@@ -915,8 +939,15 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(vessel&&livestockCapacity!==null&&(!Number.isInteger(livestockCapacity)||
       livestockCapacity<0||livestockCapacity>1000))
       throw Error("Animal spaces must be a whole number from 0 to 1000.");
+    const livestockMode=String(response.livestockFareMode??"global");
+    if(vessel&&!["global","percent","fixed"].includes(livestockMode))
+      throw Error("Choose a valid mount fare policy.");
+    const livestockFarePercent=vessel&&livestockMode==="percent"?
+      Number(response.livestockFarePercent):null;
+    if(livestockFarePercent!==null&&!validLivestockFarePercent(livestockFarePercent))
+      throw Error("Mount fare percentage must be a whole number from 0 to 200.");
     const livestockFareBasis=String(response.livestockFareBasis??"trip");
-    const livestockFareValue=vessel&&bool("livestockFareEnabled")?
+    const livestockFareValue=vessel&&livestockMode==="fixed"?
       currencyFromResponse(response,"livestock"):null;
     const livestockFareCp=livestockFareValue!=null&&livestockFareBasis==="mile"?
       atlasCostPerMileFromDisplay(livestockFareValue):livestockFareValue;
@@ -934,7 +965,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
       hireEnabled:bool("hireEnabled"),hireCostCp,
       hireBasis:String(response.hireBasis),hireApplies:String(response.hireApplies),
       hireCrewIncluded:bool("hireCrewIncluded"),
-      ...(vessel?{livestockCapacity,livestockFareCp,livestockFareBasis}:{}),
+      ...(vessel?{livestockCapacity,livestockFareCp,livestockFareBasis,
+        livestockFarePercent}:{}),
       ...(scope==="checkpoint"||scope==="journey"&&checkpointName?{
         hireUnlimited:bool("hireUnlimited"),
         hireQuantity:Number(response.hireQuantity??value.hireQuantity??1)
