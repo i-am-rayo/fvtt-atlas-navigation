@@ -150,7 +150,9 @@ export function validateJourneyRecord(value){
             !(leg.transport?.methodId===leg.livestock.methodId&&
               leg.transport?.surface===leg.livestock.surface||
               leg.livestock.surface==="land"&&
-              leg.travelMethod?.id===leg.livestock.methodId)))||
+                (leg.travelMethod?.id===leg.livestock.methodId||
+                  !leg.travelMethod&&!leg.transport&&
+                  leg.livestock.methodId==="walking"))))||
         (leg.approvedPath!==undefined&&
           !isApprovedJourneyPath(leg.approvedPath))||
         (leg.transport!==undefined&&!isTransportJourneyInfo(leg.transport))||
