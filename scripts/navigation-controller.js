@@ -171,6 +171,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyCargoQuantities={};
     this.convoyPace=null;
     this.mixedKeys=[];
+    this.mixedMethodOverrides={};
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
@@ -261,6 +262,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyCargoQuantities={};
     this.convoyPace=null;
     this.mixedKeys=[];
+    this.mixedMethodOverrides={};
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
@@ -391,7 +393,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
           const first=projectTransportationRouteLegs(this.result,atlas,presets.presets).legs[0];
           if(first?.surface!=="land"){
-            this.mixedKeys=[];this.mixedAssignments={};this.mixedUnits={};
+            this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};this.mixedUnits={};
             this.mixedRiderCounts={};this.convoyPace=null;
           }
         }
@@ -488,7 +490,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(arrangement==="owned"){
         if(id!=="walking"&&!availability.owned.has(id))
           throw Error("The Group no longer owns the selected travel method.");
-        return {key,arrangement,method:world};
+        return {key,arrangement,method:{...world,...this.mixedMethodOverrides?.[key]}};
       }
       const offer=availability.offers.get(id);
       if(!offer)throw Error("Selected hired service is no longer offered at departure.");
@@ -496,8 +498,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         mode:offer.mode,overrides:offer.overrides},world);
       if(!method.hireEnabled)
         throw Error("Selected hired service is no longer available.");
-      return {key,arrangement,method,checkpointId:offer.checkpointId,
-        units:this.mixedUnits[key]??undefined};
+      return {key,arrangement,
+        method:{...method,...this.mixedMethodOverrides?.[key]},
+        checkpointId:offer.checkpointId,units:this.mixedUnits[key]??undefined};
     });
   }
 
@@ -1103,6 +1106,77 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     });
   }
 
+
+  /** Edit one selected mixed-party method. Trip drafts are keyed by method and
+   * arrangement. Only a separate Map Marker Save writes to the Scene. */
+  async editMixedTravelMethod(key){
+    if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
+        this.travelSession||this.journalStarting||!this.canDraftTravelMethods())
+      throw Error("Only an authorized GM may edit planned transportation.");
+    if(!this.mixedKeys.includes(key)||this.mixedKeys.length<2)
+      throw Error("Choose this method in the current mixed Journey first.");
+    const [arrangement,id]=key.split("|",2);
+    if(id==="walking"||!["owned","hire"].includes(arrangement))
+      throw Error("Walking has no transportation editor.");
+    const availability=this.transportAvailability();
+    const world=availability.methods.find(method=>method.id===id);
+    const offer=arrangement==="hire"?availability.offers.get(id):null;
+    if(!world||world.surface!=="land"||
+        arrangement==="hire"&&!offer||
+        arrangement==="owned"&&!availability.owned.has(id))
+      throw Error("The transportation method is no longer available.");
+    const baseline=offer?checkpointOfferMethod({methodId:id,mode:offer.mode,
+      overrides:offer.overrides},world):world;
+    const initialOffers=offer?checkpointOffers(this.scene,offer.checkpointId):null;
+    const sceneId=this.scene.id,revision=this.atlasProvider(this.scene).revision;
+    const verify=()=>{
+      if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
+          this.scene.id!==sceneId||
+          this.atlasProvider(this.scene).revision!==revision||
+          this.travelSession||this.journalStarting||!this.mixedKeys.includes(key))
+        throw Error("The Journey, Scene or party selection changed. Reopen.");
+      const current=this.transportAvailability();
+      if(JSON.stringify(current.all.find(method=>method.id===id)??null)!==
+          JSON.stringify(world)||
+          arrangement==="hire"&&JSON.stringify(current.offers.get(id)??null)!==
+            JSON.stringify(offer))
+        throw Error("Transportation settings changed. Reopen without overwriting.");
+    };
+    const {openTransportationMethodEditor}=await import("./navigation-transport-settings.js");
+    await openTransportationMethodEditor({
+      method:{...baseline,...this.mixedMethodOverrides[key]},scope:"journey",
+      checkpointName:offer?.checkpointName??null,
+      // A mixed convoy's one operating schedule is not decided by one vehicle.
+      onSave:async edited=>{
+        verify();
+        this.mixedMethodOverrides[key]=transportationMethodOverrideDelta(baseline,edited);
+        await this.render(true);
+      },
+      onReset:async()=>{
+        verify();
+        delete this.mixedMethodOverrides[key];
+        await this.render(true);
+      },
+      onSaveCheckpoint:offer?async edited=>{
+        verify();
+        await this.saveNavigationCheckpointOffer({checkpointId:offer.checkpointId,
+          methodId:id,world,originalOffers:initialOffers,edited});
+        delete this.mixedMethodOverrides[key];
+        await this.render(true);
+      }:null
+    });
+  }
+
+  /** Every selected tile has a pencil; single methods use existing editors. */
+  editSelectedTravelMethod(key,checkpointBound=false){
+    if(this.mixedKeys.length)return this.editMixedTravelMethod(key);
+    const selected=checkpointBound?
+      (this.transferSelections[0]??"owned|walking"):
+      this.transportArrangement+"|"+this.travelMethod;
+    if(key!==selected)throw Error("Choose this method before editing.");
+    return checkpointBound?this.editTransportationLeg(0):this.editJourneyTravelMethod();
+  }
+
   /** One shared preset editor, with changes scoped to the current Journey. */
   async editJourneyTravelMethod(){
     if(!globalThis.game?.user?.isGM||this.travelSession||this.journalStarting)
@@ -1181,7 +1255,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       ownsSelected?"owned":offer?"hire":"owned";
     if(preferred==="hire"&&!offer||preferred==="owned"&&method!=="walking"&&!ownsSelected)return;
     this.travelMethod=method;
-    this.mixedKeys=[];this.mixedAssignments={};
+    this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};
     this.mixedRiderCounts={};this.mixedUnits={};
     if(method!=="walking"){
       this.convoyEnabled=false;this.convoyCargoQuantities={};this.convoyPace=null;
@@ -1219,7 +1293,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       void this.render(true);return;
     }
     if(next.length===1){
-      this.mixedKeys=[];this.mixedAssignments={};
+      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};
     this.mixedRiderCounts={};this.mixedUnits={};
       this.convoyEnabled=false;this.convoyCargoQuantities={};this.convoyPace=null;
       const [singleArrangement,singleMethod]=next[0].split("|",2);
@@ -1259,6 +1333,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       void this.render(true);return;
     }
     this.mixedKeys=next;
+    this.mixedMethodOverrides=Object.fromEntries(
+      Object.entries(this.mixedMethodOverrides).filter(([key])=>next.includes(key)));
     this.mixedRiderCounts=Object.fromEntries(
       Object.entries(this.mixedRiderCounts).filter(([key])=>next.includes(key)));
     this.mixedUnits=Object.fromEntries(Object.entries(this.mixedUnits)
@@ -3299,7 +3375,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.travelMethod="walking";this.transportArrangement="owned";
       this.transportOperation="normal";this.transportJourneyOverrides=null;
       this.transportHireTerms=null;this.transportHireDenomination=null;
-      this.mixedKeys=[];this.mixedAssignments={};this.mixedUnits={};
+      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};this.mixedUnits={};
       this.mixedRiderCounts={};this.convoyEnabled=false;this.convoyCargoQuantities={};
       this.convoyPace=null;this.partySelectionMode="all";this.partySelectedIds=[];
     }
@@ -3342,7 +3418,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     if(duplicateArrival){
       this.end=null;
-      this.mixedKeys=[];this.mixedAssignments={};this.mixedUnits={};
+      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};this.mixedUnits={};
       this.calculateRoute(view,atlas);
     }
     this.travelNotice=this.end?
@@ -3540,6 +3616,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyCargoQuantities={};
     this.convoyPace=null;
     this.mixedKeys=[];
+    this.mixedMethodOverrides={};
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
