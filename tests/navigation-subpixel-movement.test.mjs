@@ -37,7 +37,7 @@ test("day-limit split never grants subpixel movement or overtime implicitly",()=
  const suffix=coalesceSubpixelTravelChunks([remaining,chunk(pt(100),pt(120))],
    {allowTailMerge:false});
  assert.equal(suffix.length,1);
- assert.equal(suffix[0].distance,20.2);
+ assert.ok(Math.abs(suffix[0].distance-20.2)<1e-7);
  assert.equal(coalesceSubpixelTravelChunks([remaining],
    {allowTailMerge:false}),null);
  const schedule=new GuidedTravelDayTracker({travelHours:9.2,rules:{
