@@ -575,7 +575,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
    * drag/drop assignments. The submitted Journey still owns one Group token.
    */
   renderTravelersAndPace(party,availability,{disabled=false,mixedFare=null,
-    singleChoice=null,transferColumns=false}={}){
+    singleChoice=null,transferColumns=false,mountBoard=null}={}){
     const root=el("div");
     root.style.cssText="display:grid;gap:.6rem;padding-top:.45rem;";
     const all=partyTravelerRoster(party.previewRoster);
@@ -650,7 +650,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       travelers:all,selectedIds:party.selectedIds,
       methods:descriptions,assignments,
       units:this.mixedUnits,disabled,previewOnly:party.partial,
-      transferColumns,onInclude:setIncluded,
+      transferColumns,mountBoard,onInclude:setIncluded,
       onAssign:(id,key)=>{
         if(disabled||!descriptions.some(m=>m.key===key))return;
         this.mixedAssignments={...this.mixedAssignments,[id]:key};
@@ -4649,18 +4649,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       });
       if(!locked&&game.user?.isGM&&this.sourceMode==="party"&&
           partySelection&&this.canDraftTravelMethods()){
-        section.append(this.renderTravelersAndPace(partySelection,
-          availability,{disabled:Boolean(this.journalStarting),mixedFare}));
-        if(this.recoveryRecord?.legs?.at(-1)?.livestock){
-          const mounts=groupLivestockResources(partySelection.roster);
-          const boarding=renderJourneyLivestockBoarding({resources:mounts,
+        const mountBoard=this.recoveryRecord?.legs?.at(-1)?.livestock?
+          renderJourneyLivestockBoarding({
+            resources:groupLivestockResources(partySelection.roster),
             surface:"land",decisions:this.livestockDecisions,
             disabled:Boolean(this.journalStarting),onChange:(id,amount)=>{
               this.livestockDecisions={...this.livestockDecisions,[id]:amount};
               void this.render(true);
-            }});
-          if(boarding)section.append(boarding);
-        }
+            }}):null;
+        section.append(this.renderTravelersAndPace(partySelection,
+          availability,{disabled:Boolean(this.journalStarting),mixedFare,mountBoard}));
       }
       if(this.convoyEnabled&&!locked&&this.sourceMode==="party"&&
           partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
@@ -5064,19 +5062,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 error.message??String(error)));
             }
           }));
-          card.append(this.renderTravelersAndPace(partySelection,availability,{
-            mixedFare,singleChoice:this.mixedKeys.length?null:leg.selectedOption}));
-          if(this.recoveryRecord?.legs?.at(-1)?.livestock){
-            const boarding=renderJourneyLivestockBoarding({
+          const mountBoard=this.recoveryRecord?.legs?.at(-1)?.livestock?
+            renderJourneyLivestockBoarding({
               resources:groupLivestockResources(partySelection.roster),
               surface:"land",decisions:this.livestockDecisions,
               disabled:Boolean(this.journalStarting),
               onChange:(id,amount)=>{
                 this.livestockDecisions={...this.livestockDecisions,[id]:amount};
                 void this.render(true);
-              }});
-            if(boarding)card.append(boarding);
-          }
+              }}):null;
+          card.append(this.renderTravelersAndPace(partySelection,availability,{
+            mixedFare,singleChoice:this.mixedKeys.length?null:leg.selectedOption,
+            mountBoard}));
         }else if(leg.recovered)card.append(renderCurrentTransferMethodSelector({
           options:leg.options,selectedValue:leg.selectedValue,disabled:true,
           editable:false,onChange:()=>{}
@@ -5104,16 +5101,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           // non-committing traveler roster; approval remains separately guarded.
           if(!locked&&partyMode&&partySelection&&leg.selectedOption&&
               ["water","air"].includes(leg.surface)){
-            card.append(this.renderTravelersAndPace(partySelection,availability,{
-              singleChoice:leg.selectedOption,transferColumns:true}));
-            const mounts=groupLivestockResources(partySelection.roster);
-            const boarding=renderJourneyLivestockBoarding({resources:mounts,
+            const mountBoard=renderJourneyLivestockBoarding({
+              resources:groupLivestockResources(partySelection.roster),
               decisions:this.livestockDecisions,method:leg.selectedOption.method,
-              planned:leg.livestock,disabled:locked,onChange:(id,quantity)=>{
+              planned:leg.livestock,surface:leg.surface,disabled:locked,
+              onChange:(id,quantity)=>{
                 this.livestockDecisions={...this.livestockDecisions,[id]:quantity};
                 void this.render(true);
               }});
-            if(boarding)card.append(boarding);
+            card.append(this.renderTravelersAndPace(partySelection,availability,{
+              singleChoice:leg.selectedOption,transferColumns:true,mountBoard}));
           }
         }
         card.append(...renderNavigationTransferLegOutcome({
