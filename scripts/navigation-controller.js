@@ -469,8 +469,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(saved&&!isUnfinishedJourneyLeg(this.recoveryRecord)){
         // A new land leg must never use a mount that was left at the last port.
         // Explicit rejoining only changes this transient preview inventory.
+        // Missing draft choices are excluded from seat previews, not approved
+        // as "staying". Show the mount deck so the GM can resolve them.
+        const draft=Object.fromEntries(groupLivestockResources(
+          selected.previewRoster).map(m=>[m.actorId,0]));
         selected.previewRoster=projectAccompanyingLivestock(
-          selected.previewRoster,this.livestockDecisions);
+          selected.previewRoster,{...draft,...this.livestockDecisions});
       }
       return {roster,...selected};
     }catch(error){
@@ -931,8 +935,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       roster=projectGroupTransportation(actor,readGroupTransportation(game.settings),catalog);
     const owned=new Set(catalog.filter(method=>method.id!=="walking"&&roster&&
       groupMethodCapacityStatus(roster,method).matched>0).map(method=>method.id));
-    const currentParty=roster?projectPartyTravelSelection(roster,{
-      mode:this.partySelectionMode,ids:this.partySelectedIds}):null;
+    const currentParty=roster?this.partyTravelSelection(catalog):null;
     const sceneUnit=this.scene?.grid?.units?.trim()||"";
     const configured=Number(game.settings.get(MODULE_ID,NAVIGATION_SPEED_SETTING)
       ??DEFAULT_NAVIGATION_SPEED);
@@ -951,8 +954,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const legs=projected.legs.map((leg,index)=>{
       const errors=[];
       const activeRoster=index===0?(currentParty?.previewRoster??roster):roster;
+      if(index===0&&roster&&!currentParty)
+        errors.push("The Group traveler or mount draft cannot be validated.");
       if(index===0&&currentParty?.empty)
         errors.push("Choose at least one traveler for the current Journey leg.");
+      if(index===0&&roster&&this.recoveryRecord?.legs?.at(-1)?.livestock&&
+          !isUnfinishedJourneyLeg(this.recoveryRecord)){
+        try{countJourneyLivestock(roster,this.livestockDecisions);}
+        catch(error){errors.push(error.message??String(error));}
+      }
       const offers=offersAtOrigin(atlas,this.scene,leg.start);
       const allSurfaces=leg.surface==="unspecified";
       const options=[...((leg.surface==="land"||allSurfaces)?[{
@@ -1480,6 +1490,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         reason:"Choose a valid party-owned or checkpoint-hired transportation arrangement."};
       const method=availability.methods.find(item=>item.id===this.travelMethod);
       const group=this.getPartyToken()?.actor;
+      const party=game.system?.id==="dnd5e"&&group?.type==="group"?
+        this.partyTravelSelection(availability.all):null;
+      if(game.system?.id==="dnd5e"&&group?.type==="group"&&!party)
+        return {...result,guided:false,
+          reason:"The Group traveler or mount draft cannot be validated."};
+      if(!approvedLand&&party&&this.recoveryRecord?.legs?.at(-1)?.livestock&&
+          !isUnfinishedJourneyLeg(this.recoveryRecord)){
+        try{countJourneyLivestock(party.roster,this.livestockDecisions);}
+        catch(error){return {...result,guided:false,
+          reason:error.message??String(error)};}
+      }
       if(!approvedLand&&this.transportArrangement==="hire"){
         if(!method)return {...result,guided:false,
           reason:"The hired method is no longer available."};
@@ -1498,13 +1519,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           game.system?.id==="dnd5e"&&group?.type==="group"){
         const roster=projectGroupTransportation(group,
           readGroupTransportation(game.settings),availability.all);
-        if(!groupMethodCapacityStatus(roster,method).sufficient)
+        if(!groupMethodCapacityStatus(party.previewRoster,method).sufficient)
           return {...result,guided:false,
             reason:"Not enough matching party-owned passenger seats for this land leg."};
       }
       if(!approvedLand&&method?.kind==="vehicle"&&method.surface==="land"){
         try{
-          const party=this.partyTravelSelection(availability.all);
           if(party)this.planLandVehicleBoarding(
             this.effectiveTransportMethod(method,availability),
             this.transportArrangement,party);
