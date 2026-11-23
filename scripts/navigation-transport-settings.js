@@ -665,7 +665,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       livestock.append(field("Animal stalls per vessel",
         numberInput("livestockCapacity",value.livestockCapacity??"",
           {min:0,max:1000,step:1}),
-        "Blank = not verified; 0 = prohibited. Neither consumes human passenger seats."),
+        "Blank = unlimited (default); 0 = prohibited; positive = stalls per vessel. Passenger seats stay separate."),
         serviceToggle("livestockFareEnabled",value.livestockFareCp!=null,
           "Custom animal fare","Otherwise each animal uses one passenger fare equivalent when charged per passenger."),
         field("Fare per physical mount",priceInput("livestock",
