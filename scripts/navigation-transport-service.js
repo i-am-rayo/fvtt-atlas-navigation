@@ -87,11 +87,13 @@ export function assessHiredTransportAvailability(method,{travelers,requestedUnit
  */
 export function quoteTransportationService(method,{
   arrangement="owned",operation="normal",movingHours,distanceMi,
-  travelers=1,requestedUnits=null,ownedQuote=null,hireTerms=null,adjustmentCp=0,regularHours=8
+  travelers=1,requestedUnits=null,livestockCount=0,ownedQuote=null,
+  hireTerms=null,adjustmentCp=0,regularHours=8
 }={}){
   if(!method||!["owned","hire"].includes(arrangement)||
     !nonnegative(movingHours)||!nonnegative(distanceMi)||
     !Number.isInteger(travelers)||travelers<0||travelers>1000||
+    !Number.isInteger(livestockCount)||livestockCount<0||livestockCount>15000||
     !Number.isFinite(adjustmentCp)||Math.abs(adjustmentCp)>1e8)
     throw Error("Invalid transportation service estimate.");
   const fare=arrangement==="hire"?resolveTransportationHireFare(method,hireTerms):null;
@@ -107,8 +109,21 @@ export function quoteTransportationService(method,{
     extraHours=fullDays*(schedule.dailyHours-8)+Math.max(0,remaining-8);
   }
   let units=1,baseCp=0,crewWagesCp=0,baseLabel="Owned Group resources";
+  let livestockBaseCp=0,livestockOvertimeCp=0;
   if(arrangement==="hire"){
-    const supply=assessHiredTransportAvailability(method,{travelers,requestedUnits});
+    const animalSlots=method.livestockCapacity;
+    if(livestockCount>0&&(!["water","air"].includes(method.surface)||
+      method.kind!=="vehicle"||!Number.isInteger(animalSlots)||
+      animalSlots<1||animalSlots>1000))
+      throw Error("Animal boarding requires verified vessel livestock capacity.");
+    const passengerUnits=assessHiredTransportAvailability(method,{travelers});
+    const minimumUnits=livestockCount>0?
+      Math.max(passengerUnits.requiredUnits,Math.ceil(livestockCount/animalSlots)):
+      passengerUnits.requiredUnits;
+    const requiredUnits=requestedUnits??minimumUnits;
+    if(requiredUnits<minimumUnits)
+      throw Error("Insufficient animal stalls or passenger seats for the hired service.");
+    const supply=assessHiredTransportAvailability(method,{travelers,requestedUnits:requiredUnits});
     if(supply.unknown)
       throw Error("Set passenger capacity before pricing a hired transport.");
     if(!supply.sufficient)
@@ -118,6 +133,17 @@ export function quoteTransportationService(method,{
     const basis=fare.hireBasis==="day"?billableDayUnits:
       fare.hireBasis==="mile"?distanceMi: (movingHours>EPS?1:0);
     baseCp=fare.hireCostCp*basis*count;
+    if(livestockCount){
+      const custom=method.livestockFareCp;
+      if(custom!==null&&custom!==undefined&&(!nonnegative(custom)||custom>1e8||
+        !TRANSPORT_HIRE_BASES.includes(method.livestockFareBasis)))
+        throw Error("Invalid livestock fare configuration.");
+      const animalBasis=custom==null?fare.hireBasis:method.livestockFareBasis;
+      const animalRate=custom==null?(fare.hireApplies==="passenger"?fare.hireCostCp:0):custom;
+      const periods=animalBasis==="day"?billableDayUnits:
+        animalBasis==="mile"?distanceMi:(movingHours>EPS?1:0);
+      livestockBaseCp=animalRate*periods*livestockCount;
+    }
     baseLabel="Hired "+fare.hireBasis+" fare ("+count+" "+
       (fare.hireApplies==="passenger"?"passenger(s)":"unit(s)")+")";
     if(method.includeCrewWages&&!method.hireCrewIncluded)
@@ -141,6 +167,12 @@ export function quoteTransportationService(method,{
       overtimeFareCp=fare.hireBasis==="day"?
         fare.hireCostCp*count*(extraHours/8)*multiplier:
         baseCp*(extraHours/Math.max(EPS,movingHours))*(multiplier-1);
+      if(livestockBaseCp>0){
+        const basis=method.livestockFareCp==null?fare.hireBasis:method.livestockFareBasis;
+        livestockOvertimeCp=basis==="day"?
+          (livestockBaseCp/Math.max(EPS,billableDayUnits))*(extraHours/8)*multiplier:
+          livestockBaseCp*(extraHours/Math.max(EPS,movingHours))*(multiplier-1);
+      }
       if(crewWagesCp>0&&(method.crewWageBasis??"day")==="day")
         overtimeCrewCp=(method.crewCount??0)*(method.crewWageCpPerDay??200)*
           units*(extraHours/8)*multiplier;
@@ -153,7 +185,8 @@ export function quoteTransportationService(method,{
       }
     }
   }
-  const grossCp=baseCp+crewWagesCp+overtimeFareCp+overtimeCrewCp;
+  const grossCp=baseCp+crewWagesCp+overtimeFareCp+overtimeCrewCp+
+    livestockBaseCp+livestockOvertimeCp;
   const totalCp=Math.max(0,grossCp+adjustmentCp);
   if(!nonnegative(totalCp)||totalCp>Number.MAX_SAFE_INTEGER)
     throw Error("Transportation estimate exceeds the supported range.");
@@ -161,6 +194,8 @@ export function quoteTransportationService(method,{
     movingHours,distanceMi,travelDays:days,billableDayUnits,extraHours,
     dailyHours:schedule.dailyHours,overnightHours:schedule.overnightHours,
     baseLabel,baseCp,crewWagesCp,overtimeFareCp,overtimeCrewCp,adjustmentCp,
+    livestockCount,livestockBaseCp,livestockOvertimeCp,
+    livestockFareCp:livestockBaseCp+livestockOvertimeCp,
     totalCp,hireTerms:fare,driverIncluded:arrangement==="hire"&&Boolean(method.hireCrewIncluded),
     provisionalAvailability:arrangement==="hire"});
 }
