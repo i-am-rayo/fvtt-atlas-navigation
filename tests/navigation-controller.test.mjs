@@ -2345,6 +2345,15 @@ test("mounts, wagons, and ships use explicit daily operating policies",()=>{
     assert.throws(()=>nav.resolveTravelRules({methodId:"carriage"},
       {...carriage,continuousEnabled:false},"continuous"),/Continuous/,
     "an approved operating schedule cannot silently revert to standard");
+    catalog=setTransportationPreset(catalog,"dnd5e2024",
+      {...carriage,continuousEnabled:false});
+    nav.recoveryRecord={status:"interrupted",legs:[{
+      completedPercent:25,travelMethod:{id:"carriage",operation:"continuous"}
+    }]};
+    nav.transportOperation="continuous";
+    assert.throws(()=>nav.resolveTravelRules({methodId:"carriage"}),
+      /Continuous/,"a resumed land Journey cannot downgrade an approved operation");
+    nav.recoveryRecord=null;
     profile="custom";
     assert.equal(nav.resolveTravelRules({methodId:"camel"}).dailyHours,6,
       "custom World travel-day hours also apply to overland mount estimates");
