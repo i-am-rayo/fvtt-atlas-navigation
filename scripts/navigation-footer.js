@@ -128,7 +128,7 @@ export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
         info.textContent="Play unavailable: "+blockReason;
         info.style.cssText="flex-basis:100%;opacity:.85;line-height:1.35;"+
           "font-size:.78em;overflow-wrap:anywhere;";
-        move.setAttribute("aria-describedby",info.id);
+        move.setAttribute?.("aria-describedby",info.id);
         row.appendChild(info);
       }
     }
