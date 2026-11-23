@@ -37,6 +37,25 @@ test("three physical mounts require a decision each; never mutate Group inventor
     methodId:"ship-passage",units:1,capacityPerUnit:null});
   assert.equal(stayed.resources.reduce((n,m)=>n+m.aboard,0),0);
 });
+test("land-carried animals use animal spaces; self-powered mounts remain separate",()=>{
+ const carried=planJourneyLivestock(roster,{a:1,b:2},{surface:"land",
+   carried:true,methodId:"coach-hire",units:1,capacityPerUnit:null,fareCp:120});
+ assert.equal(carried.carried,true);
+ assert.deepEqual(validateJourneyLivestock(carried),carried);
+ assert.equal(carried.estimatedFareCp,120);
+ assert.throws(()=>planJourneyLivestock(roster,{a:1,b:2},{surface:"land",
+   carried:true,methodId:"coach-hire",units:1,capacityPerUnit:2}),/insufficient/);
+ assert.throws(()=>planJourneyLivestock(roster,{a:1,b:2},{surface:"land",
+   carried:true,methodId:"coach-hire",units:1,capacityPerUnit:0}),/insufficient/);
+ const legacy=planJourneyLivestock(roster,{a:1,b:2},{surface:"land",
+   methodId:"walking",units:1,capacityPerUnit:null,fareCp:0});
+ assert.equal(legacy.carried,undefined,"old land Journals are not silently reclassified");
+ assert.deepEqual(validateJourneyLivestock(legacy),legacy);
+ assert.throws(()=>validateJourneyLivestock({...legacy,capacityPerUnit:2}),
+   /Land livestock has no separate vessel price or stalls/);
+ assert.throws(()=>validateJourneyLivestock({...carried,carried:undefined}),
+   /Land livestock has no separate vessel price or stalls/);
+});
 test("next leg suggests prior mount boarding but reapproval and roster checks remain required",()=>{
   const convoy={methods:[{resourceIds:["a","b"]}]};
   assert.deepEqual(suggestedLivestockBoarding({legs:[{convoy}]},roster),{a:1},
