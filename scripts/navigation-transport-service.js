@@ -14,9 +14,8 @@ export function resolveTransportationOperation(method,operation="normal",regular
   if(!TRANSPORT_OPERATIONS.includes(operation))throw Error("Unknown transportation operation.");
   if(operation==="overtime"&&!method?.overtimeEnabled)
     throw Error("Overtime is not enabled for this transportation method.");
-  if(operation==="continuous"&&(!method?.continuousEnabled||
-      !["water","air"].includes(method.surface)||method.kind!=="vehicle"))
-    throw Error("Continuous operation is not enabled for this vessel or aircraft.");
+  if(operation==="continuous"&&(!method?.continuousEnabled||method.kind!=="vehicle"))
+    throw Error("Continuous operation is not enabled for this transportation method.");
   if(!Number.isFinite(regularHours)||regularHours<=0||regularHours>24)
     throw Error("Invalid regular travel hours.");
   const dailyHours=operation==="continuous"?24:operation==="overtime"?
