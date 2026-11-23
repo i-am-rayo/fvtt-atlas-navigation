@@ -35,6 +35,10 @@ test("effective method/fixed mount fare and approved historical fares are not mi
     approved:true,worldPercent:0,formatMoney:money});
   assert.match(recovered,/Previously approved fare/);
   assert.doesNotMatch(recovered,/World default/);
+  assert.match(describeJourneyMountFare(livestock,{
+    arrangement:"owned",method:{livestockFareCp:300},
+    formatMoney:money}),/No boarding fee on party-owned transport/,
+    "an owned cart does not charge the World/hired mount passenger percentage");
   assert.equal(describeJourneyMountFare({...livestock,resources:[
     {name:"Horse",aboard:0}]},{formatMoney:money}),null);
 });
