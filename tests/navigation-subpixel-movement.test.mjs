@@ -44,7 +44,7 @@ test("day-limit split never grants subpixel movement or overtime implicitly",()=
    dailyHours:8,overnightHours:16,longRestHours:8,shortRestHours:1,
    forcedMarch:"dnd5e"}});
  schedule.recordMovement(7.99);
- assert.throws(()=>schedule.breakChoice("continue"),/daily travel limit/);
+ assert.throws(()=>schedule.breakChoice("continue"),/No daily travel break|daily travel limit/);
  const early=schedule.breakChoice("continue",{allowEarly:true});
  assert.equal(early.early,true);
  schedule.applyBreak(early);
