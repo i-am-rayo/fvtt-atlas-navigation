@@ -406,12 +406,12 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         `and Actor quantities are unchanged.</p><ul>`+
         manifest.resources.map(m=>`<li>${escapeHTML(m.name)}: `+
           (m.aboard?m.aboard+" of "+m.quantity+
-            (manifest.surface==="land"?" accompanied":" embarked"):
+            (manifest.carried?" carried":manifest.surface==="land"?" accompanied":" embarked"):
             "Stayed behind ("+m.quantity+")")+`</li>`).join("")+`</ul>`+
-        (manifest.surface==="land"?"":
+        (manifest.surface==="land"&&!manifest.carried?"":
           `<p>Animal accommodation: ${manifest.capacityPerUnit===null?
-            "unlimited by default":manifest.capacityPerUnit+" stalls/vessel"} `+
-          `· ${manifest.units} vessel(s). Estimated animal fare: `+
+            "unlimited by default":manifest.capacityPerUnit+" spaces/vehicle"} `+
+          `· ${manifest.units} vehicle(s). Estimated animal fare: `+
           `${escapeHTML(manifest.estimatedFareCp)} CP `+
           (leg.transport?.continuation?"(previously approved, not quoted again).":
             "(included in total; no deduction).")+`</p>`)+
