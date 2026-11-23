@@ -120,7 +120,7 @@ import {projectPartyTravelSelection,describeTravelMethodCapacity,partyTravelerRo
 import {createJourneyParticipation,priorJourneySelection}
   from "./navigation-journey-participation.js";
 import {groupLivestockResources,countJourneyLivestock,planJourneyLivestock,
-  suggestedLivestockBoarding,assertRecoveredLivestock}
+  suggestedLivestockBoarding,assertRecoveredLivestock,projectAccompanyingLivestock}
   from "./navigation-journey-livestock.js";
 import {renderJourneyLivestockBoarding} from "./navigation-livestock-view.js";
 import {navigationRouteMarkers,navigationDestinationCheckpoint} from "./navigation-direction-summary.js";
@@ -461,9 +461,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     try{
       const roster=projectGroupTransportation(actor,
         readGroupTransportation(game.settings),methods);
-      return {roster,...projectPartyTravelSelection(roster,{
+      const selected=projectPartyTravelSelection(roster,{
         mode:this.partySelectionMode,ids:this.partySelectedIds
-      })};
+      });
+      const saved=this.recoveryRecord?.legs?.at(-1)?.livestock;
+      if(saved&&!isUnfinishedJourneyLeg(this.recoveryRecord)){
+        // A new land leg must never use a mount that was left at the last port.
+        // Explicit rejoining only changes this transient preview inventory.
+        selected.previewRoster=projectAccompanyingLivestock(
+          selected.previewRoster,this.livestockDecisions);
+      }
+      return {roster,...selected};
     }catch(error){
       atlasWarn("navigation","Party selection preview unavailable",error);
       return null;
@@ -2699,7 +2707,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         (!partyAtStart||partyAtStart.empty))
       throw Error("Select at least one valid Group traveler before approving movement.");
     const partySignature=partyAtStart?JSON.stringify({
-      members:partyAtStart.members,selectedIds:partyAtStart.selectedIds}):null;
+      members:partyAtStart.roster?.members,selectedIds:partyAtStart.selectedIds,
+      livestockDecisions:this.livestockDecisions}):null;
     if(this.travelMethod!=="walking"&&this.sourceMode!=="party")
       throw Error("Guided mounted/sailing journeys require checkpoint transfers from the assigned party token.");
     const token=this.getPartyToken();
@@ -2947,11 +2956,29 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const partyNow=this.sourceMode==="party"?this.partyTravelSelection(
       availableNavigationTravelMethods(game.settings,game.system?.id)):null;
-    if(partySignature!==null&&JSON.stringify({members:partyNow?.members,
-      selectedIds:partyNow?.selectedIds})!==partySignature)
+    if(partySignature!==null&&JSON.stringify({members:partyNow?.roster?.members,
+      selectedIds:partyNow?.selectedIds,
+      livestockDecisions:this.livestockDecisions})!==partySignature)
       throw Error("The Group roster or participation changed during confirmation. Review and approve again.");
     if(nativeGroup&&!partyNow)
       throw Error("The Group roster cannot be validated. No movement was approved.");
+    if(!unfinished&&!approvedLivestock&&
+        this.recoveryRecord?.legs.at(-1)?.livestock&&partyNow){
+      const landMethod=guidedLeg?.transport?.methodId??this.travelMethod;
+      const surface=guidedLeg?.transport?.surface??"land";
+      if(surface!=="land")
+        throw Error("The prior livestock allocation must be reapproved for this vessel.");
+      approvedLivestock=planJourneyLivestock(partyNow.roster,
+        this.livestockDecisions,{surface:"land",methodId:landMethod,
+          units:1,capacityPerUnit:null,fareCp:0});
+      if(approvedConvoy?.schemaVersion===2){
+        const accompanying=new Set(approvedLivestock.resources.filter(m=>m.aboard>0)
+          .map(m=>m.actorId));
+        if(approvedConvoy.methods.flatMap(m=>m.resourceIds??[])
+          .some(id=>!accompanying.has(id)))
+          throw Error("A left-behind mount cannot be assigned to a land convoy.");
+      }
+    }
     const approvedParticipation=unfinished?
       this.recoveryRecord?.legs.at(-1)?.participation??null:
       nativeGroup&&partyNow?createJourneyParticipation(partyNow.roster,partyNow.selectedIds,{
@@ -2982,6 +3009,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       ...(approvedParticipation?{participation:approvedParticipation}:{}),
       ...(approvedConvoy?{convoy:approvedConvoy}:{})}:{
       ...snapshot,
+      ...(approvedLivestock?{livestock:approvedLivestock}:{}),
       ...(approvedParticipation?{participation:approvedParticipation}:{}),
       ...(approvedConvoy?{convoy:approvedConvoy}:{}),
       travel:{...snapshot.travel,
@@ -4592,6 +4620,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           partySelection&&this.canDraftTravelMethods()){
         section.append(this.renderTravelersAndPace(partySelection,
           availability,{disabled:Boolean(this.journalStarting),mixedFare}));
+        if(this.recoveryRecord?.legs?.at(-1)?.livestock){
+          const mounts=groupLivestockResources(partySelection.roster);
+          const boarding=renderJourneyLivestockBoarding({resources:mounts,
+            surface:"land",decisions:this.livestockDecisions,
+            disabled:Boolean(this.journalStarting),onChange:(id,amount)=>{
+              this.livestockDecisions={...this.livestockDecisions,[id]:amount};
+              void this.render(true);
+            }});
+          if(boarding)section.append(boarding);
+        }
       }
       if(this.convoyEnabled&&!locked&&this.sourceMode==="party"&&
           partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
@@ -4997,6 +5035,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           }));
           card.append(this.renderTravelersAndPace(partySelection,availability,{
             mixedFare,singleChoice:this.mixedKeys.length?null:leg.selectedOption}));
+          if(this.recoveryRecord?.legs?.at(-1)?.livestock){
+            const boarding=renderJourneyLivestockBoarding({
+              resources:groupLivestockResources(partySelection.roster),
+              surface:"land",decisions:this.livestockDecisions,
+              disabled:Boolean(this.journalStarting),
+              onChange:(id,amount)=>{
+                this.livestockDecisions={...this.livestockDecisions,[id]:amount};
+                void this.render(true);
+              }});
+            if(boarding)card.append(boarding);
+          }
         }else if(leg.recovered)card.append(renderCurrentTransferMethodSelector({
           options:leg.options,selectedValue:leg.selectedValue,disabled:true,
           editable:false,onChange:()=>{}
