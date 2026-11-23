@@ -61,7 +61,8 @@ test("unassigned mounts remain unapproved until explicit drag or quantity input"
     });
     const nodes=all(board);
     assert.ok(nodes.some(n=>n.textContent==="0/4 embarking · 2 undecided"));
-    assert.ok(nodes.some(n=>String(n.textContent).includes("Decide each mount before Play")));
+    assert.ok(nodes.some(n=>String(n.textContent).includes(
+      "Animal accommodation is unlimited by default")));
     assert.deepEqual(changes,[],"render never interprets undecided as staying");
     const column=nodes.find(n=>n["aria-label"]==="Embarking mounts");
     column.listeners.drop({preventDefault(){},
@@ -104,13 +105,13 @@ test("a locked boarding preview cannot modify the draft",()=>{
   }finally{restore();}
 });
 
-test("unverified stalls are not a blocker if every mount explicitly stays behind",()=>{
+test("blank stalls mean unlimited for both embarking and staying mounts",()=>{
   const restore=dom();
   try{
     const board=renderJourneyLivestockBoarding({
       resources,decisions:{warhorse:0,riding:0},
       method:{livestockCapacity:null}});
     assert.ok(all(board).some(n=>String(n.textContent).includes(
-      "No stalls needed while all mounts stay behind.")));
+      "Animal accommodation is unlimited by default")));
   }finally{restore();}
 });
