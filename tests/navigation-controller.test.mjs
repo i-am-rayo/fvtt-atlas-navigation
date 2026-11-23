@@ -3411,6 +3411,49 @@ test("single-method travel toggles subset preview without editing native Group",
   }finally{Object.assign(globalThis,previous);}
 });
 
+test("onward vessel roster ignores obsolete mixed-land methods from the previous leg",()=>{
+  const previous={document:globalThis.document,game:globalThis.game};
+  try{
+    globalThis.document={createElement:tag=>({
+      tag,children:[],style:{},listeners:new Map(),hidden:false,textContent:"",
+      append(...items){this.children.push(...items);},
+      addEventListener(name,fn){this.listeners.set(name,fn);},
+      setAttribute(name,value){this[name==="aria-label"?"ariaLabel":name]=value;}
+    })};
+    globalThis.game={settings:{get:()=>undefined},system:{id:"dnd5e"},
+      user:{id:"gm",isGM:true}};
+    const nav=new AtlasNavigationController();
+    nav.scene={id:"scene",grid:{units:"mi",size:100}};
+    nav.sourceMode="party";nav.render=()=>{};
+    nav.resolveTravel=()=>({travel:{speed:3}});
+    // These allocations belong to the completed land leg, not the new ship.
+    nav.mixedKeys=["owned|walking","owned|warhorse","owned|riding-horse"];
+    nav.mixedAssignments={cass:"owned|riding-horse",luc:"owned|warhorse"};
+    const roster={travelers:2,members:[
+      {actorId:"cass",actorName:"Cassian",actorType:"character",role:"passenger",
+        needsSeat:true,quantity:1},
+      {actorId:"luc",actorName:"Lucious",actorType:"character",role:"passenger",
+        needsSeat:true,quantity:1}
+    ]};
+    const ship={id:"ship-passage",name:"Ship passage (hired)",surface:"water",
+      kind:"vehicle",capacity:8,speedMph:2,hireCostCp:250,
+      hireBasis:"trip",hireApplies:"passenger",hireUnlimited:true};
+    const view=nav.renderTravelersAndPace({
+      previewRoster:roster,selectedIds:["cass","luc"],partial:false
+    },{methods:[ship]},{singleChoice:{
+      value:"hire|ship-passage",method:ship,arrangement:"hire"
+    },transferColumns:true});
+    const flat=node=>[node,...node.children.flatMap(flat)];
+    const nodes=flat(view);
+    assert.ok(nodes.some(node=>node.className==="atlas-navigation-traveler-deck"),
+      "the selected ship must render its own traveler deck");
+    assert.ok(nodes.some(node=>String(node.textContent??"").includes("Ship passage")),
+      "the current ship must replace the obsolete land methods");
+    assert.equal(nodes.some(node=>String(node.textContent??"").includes("Mixed method")),
+      false,"an old land-only method error must not erase the water roster");
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("Navigation retains the travel tab scroll position after a traveler drag rerender",()=>{
   const nav=Object.create(AtlasNavigationController.prototype);
   assert.equal(AtlasNavigationController.DEFAULT_OPTIONS.position.width,900);
