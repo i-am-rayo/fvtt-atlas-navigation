@@ -38,7 +38,7 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
       "An explicitly configured fixed animal fare remains in effect. "+
       "Unit-priced hired vehicles have no per-passenger rate to discount.",
     scope:"world",config:true,restricted:true,type:Number,
-    default:LIVESTOCK_FARE_PERCENT_DEFAULT,range:{min:0,max:200,step:5}
+    default:LIVESTOCK_FARE_PERCENT_DEFAULT,range:{min:0,max:200,step:1}
   });
   settings.register(MODULE_ID,TRANSPORT_CATALOG_SETTING,{
     name:"Atlas Transportation Catalog",
