@@ -13,7 +13,8 @@ const KEYS=["speedMph","capacity","costCp","costBasis","costApplies",
   "purchaseGp","crewCount","crewWageCpPerDay","crewWageBasis","includeCrewWages",
   "hireEnabled","hireUnlimited","hireQuantity","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
   "overtimeEnabled","overtimeExtraHours","overtimeMultiplier",
-  "continuousEnabled","livestockCapacity","livestockFareCp","livestockFareBasis","note"];
+  "continuousEnabled","livestockCapacity","livestockFareCp","livestockFareBasis",
+  "livestockFarePercent","note"];
 const ENUM={
   costBasis:["none","day","mile"],costApplies:["unit","passenger"],
   hireBasis:["trip","mile","day"],hireApplies:["unit","passenger"],
@@ -41,12 +42,13 @@ export function validateCheckpointTransportOffers(value){
       if(ENUM[key]){if(!ENUM[key].includes(value))throw Error("Invalid "+key+" override.");}
       else if(BOOL.has(key)){if(typeof value!=="boolean")throw Error("Invalid "+key+" toggle.");}
       else if(key==="note"){if(typeof value!=="string"||value.length>240)throw Error("Invalid transport note.");}
-      else if(["purchaseGp","livestockCapacity","livestockFareCp"].includes(key)&&value===null){}
+      else if(["purchaseGp","livestockCapacity","livestockFareCp","livestockFarePercent"].includes(key)&&value===null){}
       else if(typeof value!=="number"||!Number.isFinite(value)||
         (NONNEG.has(key)&& (value<0||value>1e8))||
         (INTEGER.has(key)&&!Number.isInteger(value))||
         (key==="capacity"&&(value<1||value>1000))||
         (key==="livestockCapacity"&&(value<0||value>1000))||
+        (key==="livestockFarePercent"&&(!Number.isInteger(value)||value<0||value>200))||
         (key==="crewCount"&&(value<0||value>1000))||
          (key==="hireQuantity"&&(value<0||value>100))||
         (key==="overtimeExtraHours"&&(value<1||value>8))||
@@ -117,12 +119,16 @@ export function checkpointOfferMethod(offer,worldMethod){
   if((worldMethod.kind!=="vehicle"||!["land","water","air"].includes(worldMethod.surface))&&
       (checked.overrides.livestockCapacity!=null||
         checked.overrides.livestockFareCp!=null||
+        checked.overrides.livestockFarePercent!=null||
         checked.overrides.livestockFareBasis!==undefined&&
           checked.overrides.livestockFareBasis!=="trip"))
     throw Error("Livestock accommodation settings require a vehicle.");
   if(checked.overrides.continuousEnabled&&worldMethod.kind!=="vehicle")
     throw Error("Continuous travel needs a vehicle.");
-  return {...worldMethod,hireUnlimited:true,hireQuantity:1,...checked.overrides};
+  const effective={...worldMethod,hireUnlimited:true,hireQuantity:1,...checked.overrides};
+  if(effective.livestockFareCp!=null&&effective.livestockFarePercent!=null)
+    throw Error("Select either a fixed livestock fare or a passenger percentage.");
+  return effective;
 }
 export function validateCheckpointTransportStore(value){
   if(value==null)return {schemaVersion:CHECKPOINT_TRANSPORT_VERSION,entries:{}};
