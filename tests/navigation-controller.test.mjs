@@ -3777,7 +3777,7 @@ test("current water-leg per-person estimate follows selected Group IDs without b
 });
 
 
-test("water transfer keeps three physical mounts separate from two passengers and land rejoining is draft-only",async()=>{
+test("water-to-land handoff preserves the partial embarked mount inventory as an editable draft",async()=>{
   const previous=globalThis.game;
   try{
     const config={version:7,groups:{groupA:{members:{
@@ -3852,9 +3852,7 @@ test("water transfer keeps three physical mounts separate from two passengers an
     nav.end=to;
     assert.equal(await nav.continueFromCheckpoint(),true);
     assert.deepEqual(nav.livestockDecisions,{horseA:1,horseB:2},
-      "checkpoint continuation retains exactly the 2/3 Riding Horses and 1 Warhorse actually boarded");
-    assert.deepEqual(nav.livestockDecisions,{horseA:1,horseB:2},
-      "route recalculation must preserve the saved physical mount quantities");
+      "Continue and its route recalculation retain the exact embarked quantities");
     const landed=nav.partyTravelSelection([]).previewRoster;
     assert.equal(landed.members.find(m=>m.actorId==="horseB").quantity,2,
       "only the two confirmed disembarking Riding Horses are available for land riding");
