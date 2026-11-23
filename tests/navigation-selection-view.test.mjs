@@ -137,3 +137,44 @@ test("multi-method cards use controlled checkboxes and forward deliberate select
     assert.deepEqual(events,[["hire|cart",false]]);
   }finally{restore();}
 });
+
+test("single method tile keeps its own pencil instead of a separate footer edit",async()=>{
+  const restore=mockDOM();
+  try{
+    const {renderNavigationTravelMethodButtons}=await import("../scripts/navigation-selection-view.js");
+    const calls=[];
+    const tree=renderNavigationTravelMethodButtons({
+      choices:[{value:"hire|cart",label:"Cart",group:"Port Barthos"},
+        {value:"owned|walking",label:"Walking",group:"Party"}],
+      selectedValues:["hire|cart"],onMethodToggle:(value,checked)=>
+        calls.push("toggle:"+value),onEditMethod:value=>calls.push("edit:"+value)
+    });
+    const all=node=>[node,...node.children.flatMap(all)];
+    const buttons=all(tree).filter(node=>node.tag==="button");
+    assert.equal(buttons.length,1,"no obsolete 'Edit selected method' footer");
+    assert.match(buttons[0].ariaLabel,/Edit Cart/);
+    buttons[0].listeners.click();
+    assert.deepEqual(calls,["edit:hire|cart"]);
+  }finally{restore();}
+});
+test("water transfer radio tiles expose the same selected pencil",async()=>{
+  const restore=mockDOM();
+  try{
+    const {renderNavigationTravelMethodButtons}=await import("../scripts/navigation-selection-view.js");
+    const calls=[];
+    const tree=renderNavigationTravelMethodButtons({
+      choices:[{value:"hire|ship-passage",label:"Ship passage",group:"Port Barthos"},
+        {value:"owned|warship",label:"Warship",group:"Party"}],
+      selectedValue:"hire|ship-passage",onMethodChange:value=>calls.push("select:"+value),
+      onEditMethod:value=>calls.push("edit:"+value)
+    });
+    const all=node=>[node,...node.children.flatMap(all)];
+    assert.equal(all(tree).filter(node=>node.tag==="input").every(n=>n.type==="radio"),true);
+    const edit=all(tree).find(node=>node.tag==="button");
+    assert.match(edit.ariaLabel,/Ship passage/);
+    edit.listeners.click();
+    const other=all(tree).find(n=>n.tag==="input"&&n.value==="owned|warship");
+    other.checked=true;other.listeners.change();
+    assert.deepEqual(calls,["edit:hire|ship-passage","select:owned|warship"]);
+  }finally{restore();}
+});
