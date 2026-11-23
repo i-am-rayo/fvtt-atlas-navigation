@@ -3023,7 +3023,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const approvalMoney=cp=>dndCurrencyBreakdown(cp,
         globalThis.CONFIG?.DND5E?.currencies).label;
       const mountDetails=aboardMounts?describeJourneyMountFare(expectedLivestock,{
-        method:option.method,worldPercent:readLivestockFarePercent(game.settings),
+        method:option.method,arrangement:info.arrangement,
+        worldPercent:readLivestockFarePercent(game.settings),
         formatMoney:approvalMoney,approved:isUnfinishedJourneyLeg(this.recoveryRecord)}):null;
       const approvedSummary=renderNavigationTransportApproval({
         destination:"Current leg to "+guidedLeg.checkpoint.name,
@@ -5105,7 +5106,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               resources:mountResources.map(item=>({...item,
                 aboard:this.livestockDecisions[item.actorId]})),
               estimatedFareCp:quote.livestockFareCp
-            },{method,worldPercent:readLivestockFarePercent(game.settings),
+            },{method,arrangement:this.transportArrangement,
+              worldPercent:readLivestockFarePercent(game.settings),
               formatMoney}):null;
             const disabled=Boolean(this.travelSession||this.journalStarting);
             body.append(renderTransportQuote({
@@ -5264,7 +5266,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         if(!leg.recovered&&leg.serviceQuote&&!leg.errors.length){
           const fare=leg.serviceQuote;
           const mountDetails=describeJourneyMountFare(leg.livestock,{
-            method:leg.selectedOption?.method,
+            method:leg.selectedOption?.method,arrangement:fare.arrangement,
             worldPercent:readLivestockFarePercent(game.settings),
             formatMoney
           });
