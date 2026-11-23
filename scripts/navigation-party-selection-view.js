@@ -66,9 +66,9 @@ export function renderNavigationPartySelection({roster,mode="all",ids=[],
       " NPCs selected · "+preview.travelerCount+" seats needed");
     root.appendChild(count);
     if(preview.partial){
-      const warning=el("small","Subset capacity is preview-only. Atlas moves "+
-        "the complete assigned explorer token: select All party or configure "+
-        "a separate Group/explorer token before starting this trip.");
+      const warning=el("small","This unapproved Journey selection changes "+
+        "only Atlas traveler participation; the assigned Group explorer token "+
+        "represents the selected cohort without changing native Group membership.");
       warning.style.cssText="color:var(--color-text-warning,#d7a85a);line-height:1.45;";
       root.appendChild(warning);
     }
