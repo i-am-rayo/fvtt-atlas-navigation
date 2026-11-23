@@ -879,6 +879,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       {...baseline,...this.transportJourneyOverrides}:baseline;
   }
 
+  /** Completed/suspended Journeys retain their approved operation. A fresh
+   * route follows the effective edited vehicle's continuous setting. */
+  plannedTravelOperation(method){
+    return isUnfinishedJourneyLeg(this.recoveryRecord)?this.transportOperation:
+      draftTransportationOperation(method,this.transportOperation);
+  }
+
   /**
    * Read-only multi-surface journey plan. Authored road surfaces and checkpoint
    * offers are authoritative; assignments are transient Navigation choices.
@@ -2391,9 +2398,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const world=availability.methods.find(method=>method.id===travel.methodId);
     if(!world)throw Error("The selected transportation method is unavailable.");
     const effective=this.effectiveTransportMethod(world,availability);
-    const operation=isUnfinishedJourneyLeg(this.recoveryRecord)?
-      this.transportOperation:draftTransportationOperation(effective,this.transportOperation);
-    return this.resolveTravelRules(travel,effective,operation);
+    return this.resolveTravelRules(travel,effective,
+      this.plannedTravelOperation(effective));
   }
 
   /** A passenger can rest aboard a continuously operating vessel without
@@ -2685,8 +2691,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(this.transportArrangement==="hire"&&!resumingApprovedLand&&!hiredOffer)
         throw Error("The hired land service is not offered at this checkpoint.");
       const effective=this.effectiveTransportMethod(method,availability);
-      const selectedOperation=isUnfinishedJourneyLeg(this.recoveryRecord)?
-        this.transportOperation:draftTransportationOperation(effective,this.transportOperation);
+      const selectedOperation=this.plannedTravelOperation(effective);
       // Validate the current Map Marker and inferred schedule before GM approval.
       this.resolveTravelRules({methodId:this.travelMethod,hoursPerDay:8},
         effective,selectedOperation);
@@ -2702,11 +2707,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         rejectClose:false,modal:true
       });
       if(!approval)return false;
+      const liveAvailability=this.transportAvailability();
+      const liveWorld=liveAvailability.methods.find(m=>m.id===this.travelMethod);
+      const liveMethod=liveWorld&&this.effectiveTransportMethod(liveWorld,liveAvailability);
       if(this.travelSession||this.pendingTransfer||this.scene?.id!==view.scene?.id||
           this.atlasProvider(this.scene).revision!==this.routeRevision||
-          this.getPartyToken()?.id!==token.id||
-          this.transportOperation!==selectedOperation)
-        throw Error("The Scene, token or route changed during confirmation.");
+          this.getPartyToken()?.id!==token.id||!liveMethod||
+          this.plannedTravelOperation(liveMethod)!==selectedOperation)
+        throw Error("The Scene, token or operating schedule changed during confirmation.");
       const current=this.atlasPoint(view,atlas,
         partyTokenCanvasCenter(token,this.scene.grid.size));
       if(Math.hypot(current.x-this.result.start.x,current.y-this.result.start.y)>
@@ -2868,10 +2876,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         methodId:travel.methodId??this.travelMethod,
         methodName:travel.methodLabel??this.travelMethod,
         arrangement:this.transportArrangement,operation:
-          isUnfinishedJourneyLeg(this.recoveryRecord)?this.transportOperation:
-            draftTransportationOperation(this.effectiveTransportMethod(
-              this.transportAvailability().methods.find(m=>m.id===this.travelMethod)),
-              this.transportOperation)}
+          this.plannedTravelOperation(this.effectiveTransportMethod(
+            this.transportAvailability().methods.find(m=>m.id===this.travelMethod)))}
     };
     const playback=calculateGuidedPlayback({
       route,travel,paths,
@@ -4826,7 +4832,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             const normalRules=resolveNavigationTravelRules({settings:game.settings,
               systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
             const normalHours=method.surface==="land"?(normalRules.dailyHours??8):8;
-            const operation=draftTransportationOperation(method,this.transportOperation);
+            const operation=this.plannedTravelOperation(method);
             const quoteArgs={arrangement:this.transportArrangement,
               operation,movingHours,distanceMi,
               travelers:quoteRoster?.travelers??1,ownedQuote,regularHours:normalHours};
