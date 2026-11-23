@@ -11,6 +11,7 @@ import { NAVIGATION_WORLD_CLOCK_SETTING } from "../scripts/navigation-world-cloc
 import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING }
   from "../scripts/navigation-travel-method.js";
 import {ATLAS_LEVEL_PLANNER_SETTING} from "../scripts/navigation-native-level-model.js";
+import {LIVESTOCK_FARE_PERCENT_SETTING} from "../scripts/navigation-transport-service.js";
 
 test("navigation World Settings register once in a reusable module with bounded slider",()=>{
   const catalog=new Map(),menus=new Map();
@@ -23,7 +24,7 @@ test("navigation World Settings register once in a reusable module with bounded 
   }};
   let updates=0;
   registerNavigationWorldSettings({settings,onPlaybackChange:()=>updates++});
-  assert.equal(catalog.size,13,"includes the new opt-in native Level planner");
+  assert.equal(catalog.size,14,"includes Level planner and World mount fare percentage");
   const levels=catalog.get(ATLAS_LEVEL_PLANNER_SETTING);
   assert.equal(levels.config,true);
   assert.equal(levels.default,true);
@@ -33,6 +34,12 @@ test("navigation World Settings register once in a reusable module with bounded 
     "Configure Transportation Presets");
   assert.match(menus.get("atlasTransportationPresetsMenu").hint,/does not initiate travel/);
   assert.equal(catalog.get("guidedTransportationCatalog").config,false);
+  const animalFare=catalog.get(LIVESTOCK_FARE_PERCENT_SETTING);
+  assert.equal(animalFare.scope,"world");
+  assert.equal(animalFare.restricted,true);
+  assert.equal(animalFare.config,true);
+  assert.equal(animalFare.default,50);
+  assert.deepEqual(animalFare.range,{min:0,max:200,step:5});
   const groupConfig=catalog.get(GROUP_TRANSPORT_SETTING);
   assert.equal(groupConfig.scope,"world");
   assert.equal(groupConfig.config,false);
