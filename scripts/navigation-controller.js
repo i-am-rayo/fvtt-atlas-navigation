@@ -2821,6 +2821,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The hired land service is not offered at this checkpoint.");
       const effective=this.effectiveTransportMethod(method,availability);
       const selectedOperation=this.plannedTravelOperation(effective);
+      const landLivestock=resumingApprovedLand?null:
+        this.planLandVehicleBoarding(effective,this.transportArrangement,partyAtStart);
       // Validate the current Map Marker and inferred schedule before GM approval.
       this.resolveTravelRules({methodId:this.travelMethod,hoursPerDay:8},
         effective,selectedOperation);
@@ -2832,7 +2834,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Operating schedule: "+selectedOperation+". "+
           "The party token will move using Foundry's native movement and optional "+
           "World-time advancement. Costs are estimates; no automatic boarding, "+
-          "resource changes or currency deductions occur. Continue?"),
+          "resource changes or currency deductions occur."+
+          (landLivestock?" Carrying "+
+            landLivestock.manifest.resources.reduce((n,m)=>n+m.aboard,0)+
+            " physical mounts in "+
+            (landLivestock.manifest.capacityPerUnit===null?
+              "unlimited default animal accommodation":
+              landLivestock.manifest.capacityPerUnit+" animal spaces per vehicle")+
+            "; estimated animal fare "+landLivestock.manifest.estimatedFareCp+
+            " CP (not deducted).":"")+" Continue?"),
         rejectClose:false,modal:true
       });
       if(!approval)return false;
@@ -2851,6 +2861,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The party token moved during confirmation. Refresh its location.");
       if(!this.assessTravelMethod().guided)
         throw Error("The selected land transportation is no longer eligible.");
+      if(landLivestock){
+        const verified=this.planLandVehicleBoarding(liveMethod,
+          this.transportArrangement,partyAtStart);
+        if(JSON.stringify(verified)!==JSON.stringify(landLivestock))
+          throw Error("Land vehicle animal boarding, availability or fare changed during approval.");
+        approvedLivestock=verified.manifest;
+      }
       if(hireSnapshot){
         const updated=this.transportAvailability();
         const revised=updated.methods.find(item=>item.id===this.travelMethod);
@@ -4695,10 +4712,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       });
       if(!locked&&game.user?.isGM&&this.sourceMode==="party"&&
           partySelection&&this.canDraftTravelMethods()){
-        const mountBoard=this.recoveryRecord?.legs?.at(-1)?.livestock?
+        const selected=availability.methods.find(m=>m.id===this.travelMethod);
+        const carrier=!this.mixedKeys.length&&selected?.kind==="vehicle"&&
+          selected.surface==="land";
+        const method=carrier?this.effectiveTransportMethod(selected,availability):null;
+        const mountBoard=carrier||this.recoveryRecord?.legs?.at(-1)?.livestock?
           renderJourneyLivestockBoarding({
             resources:groupLivestockResources(partySelection.roster),
-            surface:"land",decisions:this.livestockDecisions,
+            surface:"land",carried:carrier,method,decisions:this.livestockDecisions,
             disabled:Boolean(this.journalStarting),onChange:(id,amount)=>{
               this.livestockDecisions={...this.livestockDecisions,[id]:amount};
               void this.render(true);
