@@ -918,15 +918,16 @@ export class AtlasTransportationSettings extends ApplicationBase {
          next.hireQuantity!==undefined&&next.hireQuantity!==(value.hireQuantity??1)))
       throw Error("Checkpoint inventory must be saved to the Map Marker, not this trip.");
     if(onSave){
-      const operation=journeyOperation===null?null:
+      const requested=journeyOperation===null?null:
         String(response.atlasJourneyOperation??journeyOperation);
-      if(operation!==null){
-        const supported=["normal",
-          ...(next.overtimeEnabled?["overtime"]:[]),
-          ...(next.continuousEnabled&&next.kind==="vehicle"?["continuous"]:[])];
-        if(!supported.includes(operation))
-          throw Error("Choose an operating schedule permitted by this travel method.");
-      }
+      if(requested!==null&&!["normal","overtime","continuous"].includes(requested))
+        throw Error("Unknown Journey operating schedule.");
+      // This editor is the authority: its continuous toggle takes effect
+      // without a second Navigation schedule picker. Eligible explicit
+      // overtime remains available when continuous is not chosen.
+      const operation=requested===null?null:
+        requested==="overtime"&&next.overtimeEnabled?"overtime":
+        next.kind==="vehicle"&&next.continuousEnabled?"continuous":"normal";
       const journey={operation};
       if(response.__atlasSaveScope==="checkpoint"){
         if(typeof onSaveCheckpoint!=="function")
