@@ -2394,8 +2394,9 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
     failClock=false;failMovement=true;
     token.x=50;token.y=50;
     newRoute();
-    await assert.rejects(nav.startGuidedTravel(),/Native animation failed/);
-    assert.match(nav.travelNotice,/Journey interrupted: Native animation failed/);
+    assert.equal(await nav.startGuidedTravel(),false,
+      "a failed native move cannot report a completed Journey");
+    assert.match(nav.travelNotice,/Native ordinary movement could not be reconciled: Native animation failed/);
     assert.equal(nav.travelSession,null);
     assert.ok(nav.recoverableJourney,"unexpected exception also retains the Journal");
 
