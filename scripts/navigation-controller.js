@@ -1048,12 +1048,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               const vessel=index===0&&roster&&
                 ["water","air"].includes(leg.surface)&&
                 option.method.kind==="vehicle";
-              const count=vessel?countJourneyLivestock(roster,this.livestockDecisions):0;
+              const mounts=vessel?groupLivestockResources(roster):[];
+              const count=mounts.length?
+                countJourneyLivestock(roster,this.livestockDecisions):0;
               const quote=quoteTransportationService(option.method,{
                 arrangement:option.arrangement,operation,
                 movingHours:hours,distanceMi,travelers:activeRoster?.travelers??1,
                 livestockCount:count,ownedQuote,regularHours});
-              if(vessel)livestock=planJourneyLivestock(roster,this.livestockDecisions,{
+              if(mounts.length)livestock=planJourneyLivestock(roster,this.livestockDecisions,{
                 surface:leg.surface,methodId:option.method.id,
                 units:quote.units,capacityPerUnit:option.method.livestockCapacity,
                 fareCp:quote.livestockFareCp});
