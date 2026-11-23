@@ -2918,13 +2918,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             resolveNavigationTravelRules({settings:game.settings,
               systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8};
       const expectedLivestock=this.transportationTransitionPlan()?.legs[0]?.livestock??null;
+      const mountNotice=expectedLivestock?
+        " Physical mounts: "+expectedLivestock.resources.reduce((sum,m)=>sum+m.aboard,0)+
+        " embarking, "+expectedLivestock.resources.reduce((sum,m)=>sum+m.quantity-m.aboard,0)+
+        " staying. "+expectedLivestock.units+" vessel(s) with "+
+        (expectedLivestock.capacityPerUnit??"unverified")+
+        " animal stalls each. Animal fare estimate: "+
+        expectedLivestock.estimatedFareCp+" CP, already included in the service quote.":"";
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm travel to "+guidedLeg.checkpoint.name},
         content:el("div","GM confirmation: travel to "+guidedLeg.checkpoint.name+
           " using "+info.methodName+" ("+info.arrangement+"). "+
           "Native token movement and optional confirmed World-time advancement will occur. "+
           "Estimated fare is for reference only: no booking, currency deduction, "+
-          "Actor mutation or forced terrain bypass occurs. Stop at the checkpoint?"),
+          "Actor mutation or forced terrain bypass occurs."+mountNotice+
+          " Stop at the checkpoint?"),
         rejectClose:false,modal:true
       });
       if(!approval)return false;
