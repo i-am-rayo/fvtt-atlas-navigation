@@ -409,7 +409,8 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
             (manifest.surface==="land"?" accompanied":" embarked"):
             "Stayed behind ("+m.quantity+")")+`</li>`).join("")+`</ul>`+
         (manifest.surface==="land"?"":
-          `<p>Animal accommodation: ${manifest.capacityPerUnit??"unverified"} stalls/vessel `+
+          `<p>Animal accommodation: ${manifest.capacityPerUnit===null?
+            "unlimited by default":manifest.capacityPerUnit+" stalls/vessel"} `+
           `· ${manifest.units} vessel(s). Estimated animal fare: `+
           `${escapeHTML(manifest.estimatedFareCp)} CP `+
           (leg.transport?.continuation?"(previously approved, not quoted again).":
