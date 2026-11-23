@@ -2931,8 +2931,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         " Physical mounts: "+expectedLivestock.resources.reduce((sum,m)=>sum+m.aboard,0)+
         " embarking, "+expectedLivestock.resources.reduce((sum,m)=>sum+m.quantity-m.aboard,0)+
         " staying. "+expectedLivestock.units+" vessel(s) with "+
-        (expectedLivestock.capacityPerUnit??"unverified")+
-        " animal stalls each. Animal fare estimate: "+
+        (expectedLivestock.capacityPerUnit===null?
+          "unlimited animal accommodation":expectedLivestock.capacityPerUnit+
+          " animal stalls each")+
+        ". Animal fare estimate: "+
         expectedLivestock.estimatedFareCp+" CP, already included in the service quote.":"";
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm travel to "+guidedLeg.checkpoint.name},
