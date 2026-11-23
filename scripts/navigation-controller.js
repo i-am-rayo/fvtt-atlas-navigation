@@ -1171,6 +1171,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     });
   }
 
+  /** A schedule is a trip-local GM choice, never a Map Marker toggle or
+   * an implicit extension of approved travel. Invalid choices fail closed. */
+  selectJourneyOperatingSchedule(method,operation,index=null){
+    if(!game.user?.isGM||this.travelSession||this.journalStarting||
+        this.pendingTransfer||isUnfinishedJourneyLeg(this.recoveryRecord))
+      return false;
+    const rules=resolveNavigationTravelRules({settings:game.settings,
+      systemId:game.system?.id,actorHoursPerDay:null});
+    resolveTransportationOperation(method,operation,rules.dailyHours??8);
+    if(index===null)this.transportOperation=operation;
+    else this.transferLegOperations[index]=operation;
+    void this.render(true);
+    return true;
+  }
+
   /** One shared preset editor, with changes scoped to the current Journey. */
   async editJourneyTravelMethod(){
     if(!globalThis.game?.user?.isGM||this.travelSession||this.journalStarting)
@@ -4487,19 +4502,38 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             ["owned|walking",...Object.keys(this.convoyCargoQuantities).map(id=>"hire|"+id)]:
             [this.transportArrangement+"|"+this.travelMethod]}:{}),
         disabled:Boolean(this.travelSession||this.journalStarting||locked),
-        showEditor:this.travelMethod!=="walking"&&!locked&&
-          !this.convoyEnabled&&!this.mixedKeys.length,
+        showEditor:false,
         onMethodChange:value=>{
           const [arrangement,method]=value.split("|",2);
           this.setTravelMethod(method,arrangement);
         },
         onMethodToggle:(value,checked)=>this.toggleTravelMethodChoice(value,checked),
-        onEditMethod:this.mixedKeys.length?key=>
-          void this.editMixedTravelMethod(key).catch(error=>
-            globalThis.ui?.notifications?.error?.(error.message??String(error))):null,
-        onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
-          globalThis.ui?.notifications?.error?.(error?.message??String(error)))
+        onEditMethod:!locked&&game.user?.isGM?key=>{
+          const selected=this.mixedKeys.length?this.mixedKeys:
+            [this.transportArrangement+"|"+this.travelMethod];
+          if(!selected.includes(key))return;
+          const action=this.mixedKeys.length?
+            this.editMixedTravelMethod(key):this.editJourneyTravelMethod();
+          void action.catch(error=>globalThis.ui?.notifications?.error?.(
+            error.message??String(error)));
+        }:null
       });
+      if(!locked&&this.travelMethod!=="walking"&&
+          !this.mixedKeys.length&&!this.convoyEnabled){
+        const world=availability.methods.find(m=>m.id===this.travelMethod);
+        if(world)section.append(renderNavigationOperatingSchedule({
+          method:this.effectiveTransportMethod(world,availability),
+          operation:this.transportOperation,
+          regularHours:resolveNavigationTravelRules({settings:game.settings,
+            systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8,
+          disabled:Boolean(this.journalStarting||!game.user?.isGM),
+          onChange:value=>{
+            try{this.selectJourneyOperatingSchedule(
+              this.effectiveTransportMethod(world,availability),value);}
+            catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
+          }
+        }));
+      }
       if(!locked&&game.user?.isGM&&this.sourceMode==="party"&&
           partySelection&&this.canDraftTravelMethods()){
         section.append(this.renderTravelersAndPace(partySelection,
@@ -4886,32 +4920,63 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             [leg.selectedValue||"owned|walking"];
           card.append(renderNavigationTravelMethodButtons({
             choices,selectedValues:selected,
-            showEditor:!this.mixedKeys.length&&Boolean(leg.selectedOption&&
-              leg.selectedOption.method.id!=="walking"),
+            showEditor:false,
             onMethodToggle:(value,checked)=>this.toggleTravelMethodChoice(value,checked),
-            onEditMethod:this.mixedKeys.length?key=>
-              void this.editMixedTravelMethod(key).catch(error=>
-                globalThis.ui?.notifications?.error?.(error.message??String(error))):null,
-            onEdit:()=>void this.editTransportationLeg(0).catch(error=>
-              globalThis.ui?.notifications?.error?.(error.message??String(error)))
+            onEditMethod:key=>{
+              if(this.mixedKeys.length&&!this.mixedKeys.includes(key))return;
+              if(!this.mixedKeys.length&&leg.selectedValue!==key)return;
+              const action=this.mixedKeys.length?
+                this.editMixedTravelMethod(key):this.editTransportationLeg(0);
+              void action.catch(error=>globalThis.ui?.notifications?.error?.(
+                error.message??String(error)));
+            }
           }));
+          if(!this.mixedKeys.length&&leg.selectedOption?.method?.id!=="walking")
+            card.append(renderNavigationOperatingSchedule({
+              method:leg.selectedOption.method,operation:leg.operation,
+              regularHours:resolveNavigationTravelRules({settings:game.settings,
+                systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8,
+              onChange:value=>{
+                try{this.selectJourneyOperatingSchedule(leg.selectedOption.method,value,0);}
+                catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
+              }
+            }));
           card.append(this.renderTravelersAndPace(partySelection,availability,{
             mixedFare,singleChoice:this.mixedKeys.length?null:leg.selectedOption}));
-        }else card.append(renderCurrentTransferMethodSelector({
-          options:leg.options,selectedValue:leg.selectedValue,
-          disabled:Boolean(this.travelSession||this.journalStarting||leg.recovered),
-          editable:Boolean(!leg.recovered&&leg.selectedOption&&
-            leg.selectedOption.method?.id!=="walking"),
-          onChange:value=>{
-            if(this.travelSession||this.journalStarting)return;
-            this.transferSelections[0]=value;
-            delete this.transferLegOverrides[0];
-            delete this.transferLegOperations[0];
-            void this.render(true);
-          },
-          onEdit:()=>void this.editTransportationLeg(0)
-            .catch(error=>globalThis.ui?.notifications?.error?.(error.message??String(error)))
+        }else if(leg.recovered)card.append(renderCurrentTransferMethodSelector({
+          options:leg.options,selectedValue:leg.selectedValue,disabled:true,
+          editable:false,onChange:()=>{}
         }));
+        else{
+          const locked=Boolean(this.travelSession||this.journalStarting||!game.user?.isGM);
+          card.append(renderNavigationTravelMethodButtons({
+            choices:leg.options,selectedValue:leg.selectedValue,disabled:locked,
+            onMethodChange:value=>{
+              if(locked)return;
+              this.transferSelections[0]=value;
+              delete this.transferLegOverrides[0];
+              delete this.transferLegOperations[0];
+              void this.render(true);
+            },
+            onEditMethod:!locked&&leg.selectedOption?.method?.id!=="walking"?
+              key=>{
+                if(key!==leg.selectedValue)return;
+                void this.editTransportationLeg(0).catch(error=>
+                  globalThis.ui?.notifications?.error?.(error.message??String(error)));
+              }:null
+          }));
+          if(leg.selectedOption?.method?.id!=="walking")
+            card.append(renderNavigationOperatingSchedule({
+              method:leg.selectedOption.method,operation:leg.operation,
+              regularHours:resolveNavigationTravelRules({settings:game.settings,
+                systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8,
+              disabled:locked,
+              onChange:value=>{
+                try{this.selectJourneyOperatingSchedule(leg.selectedOption.method,value,0);}
+                catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
+              }
+            }));
+        }
         card.append(...renderNavigationTransferLegOutcome({
           estimateLabel:leg.hours!==null&&leg.costCp!==null?
             showDistance(leg.distance)+" · "+
