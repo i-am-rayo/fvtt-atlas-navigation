@@ -2347,6 +2347,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     session.nativeAbort=new AbortController();
     session.nativeSuspension=new AbortController();
     session.nativeActive=true;
+    session.nativeOperationKind=ordinary?"ordinary":"continuous";
     try{
       const result=await coordinateNativeTokenMovement({
         token:session.token,plan,operationId,
@@ -2366,7 +2367,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       });
       return result.completed;
     }finally{
-      session.nativeActive=false;session.nativeAbort=null;session.nativeSuspension=null;session.currentChunk=null;
+      session.nativeActive=false;session.nativeOperationKind=null;
+      session.nativeAbort=null;session.nativeSuspension=null;session.currentChunk=null;
     }
   }
 
@@ -3134,8 +3136,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         // The pending rest was released after its confirmed sailing hours.
         // Refresh the footer once the completed event is durable in the Journal,
         // so its disabled controls are not left stale until the next checkpoint.
-        if(passengerRestFinished&&this.travelSession===session&&this.active)
-          void this.render(true);
       }
       if(this.travelSession===session){
         if(!clockFailed){
