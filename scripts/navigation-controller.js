@@ -1167,16 +1167,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     });
   }
 
-  /** Every selected tile has a pencil; single methods use existing editors. */
-  editSelectedTravelMethod(key,checkpointBound=false){
-    if(this.mixedKeys.length)return this.editMixedTravelMethod(key);
-    const selected=checkpointBound?
-      (this.transferSelections[0]??"owned|walking"):
-      this.transportArrangement+"|"+this.travelMethod;
-    if(key!==selected)throw Error("Choose this method before editing.");
-    return checkpointBound?this.editTransportationLeg(0):this.editJourneyTravelMethod();
-  }
-
   /** One shared preset editor, with changes scoped to the current Journey. */
   async editJourneyTravelMethod(){
     if(!globalThis.game?.user?.isGM||this.travelSession||this.journalStarting)
@@ -4487,6 +4477,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           this.setTravelMethod(method,arrangement);
         },
         onMethodToggle:(value,checked)=>this.toggleTravelMethodChoice(value,checked),
+        onEditMethod:this.mixedKeys.length?key=>
+          void this.editMixedTravelMethod(key).catch(error=>
+            globalThis.ui?.notifications?.error?.(error.message??String(error))):null,
         onEdit:()=>void this.editJourneyTravelMethod().catch(error=>
           globalThis.ui?.notifications?.error?.(error?.message??String(error)))
       });
@@ -4879,6 +4872,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             showEditor:!this.mixedKeys.length&&Boolean(leg.selectedOption&&
               leg.selectedOption.method.id!=="walking"),
             onMethodToggle:(value,checked)=>this.toggleTravelMethodChoice(value,checked),
+            onEditMethod:this.mixedKeys.length?key=>
+              void this.editMixedTravelMethod(key).catch(error=>
+                globalThis.ui?.notifications?.error?.(error.message??String(error))):null,
             onEdit:()=>void this.editTransportationLeg(0).catch(error=>
               globalThis.ui?.notifications?.error?.(error.message??String(error)))
           }));
