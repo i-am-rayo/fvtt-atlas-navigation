@@ -61,7 +61,7 @@ import { readGroupTransportation,projectGroupTransportation,
   groupMethodCapacityStatus,groupMethodFareEstimate,groupMethodResourceInventory }
   from "./navigation-group-transport.js";
 import { dndCurrencyBreakdown,mixedTransportFareBreakdown } from "./navigation-currency.js";
-import { resolveTransportationOperation,quoteTransportationService,
+import { resolveTransportationOperation,draftTransportationOperation,quoteTransportationService,
   assessHiredTransportAvailability }
   from "./navigation-transport-service.js";
 import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
@@ -89,8 +89,7 @@ import {renderNavigationFooter} from "./navigation-footer.js";
 import {NAVIGATION_STAGES,resolveNavigationStage} from "./navigation-stage-model.js";
 import {createNavigationStageShell,renderNavigationStageIntro,
   renderNavigationCompletedOverview} from "./navigation-stage-view.js";
-import {renderNavigationTravelMethodSelector,renderNavigationTravelMethodButtons,
-  renderNavigationOperatingSchedule}
+import {renderNavigationTravelMethodSelector,renderNavigationTravelMethodButtons}
   from "./navigation-selection-view.js";
 import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
@@ -977,11 +976,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "Choose an available method for this route leg.":
         allSurfaces?"Select a method after confirming the unclassified terrain and landing.":
         "Select an available "+leg.surface+" method at the departure checkpoint.");
-      // Older continuous water/air defaults remain unchanged. Land vehicles
-      // require an explicit GM Journey schedule even when enabled globally.
-      const inheritedOperation=option?.method?.continuousEnabled&&
-        ["water","air"].includes(option.method.surface)&&
-        option.method.kind==="vehicle"?"continuous":"normal";
+      // An enabled 24h vehicle runs continuously unless the Journey editor
+      // explicitly chose eligible overtime. Never infer this for mixed walkers.
+      const inheritedOperation=draftTransportationOperation(option?.method);
       const operation=this.transferLegOperations[index]??inheritedOperation;
       let operationRules=null;
       if(option?.method?.id==="walking"){
@@ -1169,21 +1166,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         await this.render(true);
       }:null
     });
-  }
-
-  /** A schedule is a trip-local GM choice, never a Map Marker toggle or
-   * an implicit extension of approved travel. Invalid choices fail closed. */
-  selectJourneyOperatingSchedule(method,operation,index=null){
-    if(!game.user?.isGM||this.travelSession||this.journalStarting||
-        this.pendingTransfer||isUnfinishedJourneyLeg(this.recoveryRecord))
-      return false;
-    const rules=resolveNavigationTravelRules({settings:game.settings,
-      systemId:game.system?.id,actorHoursPerDay:null});
-    resolveTransportationOperation(method,operation,rules.dailyHours??8);
-    if(index===null)this.transportOperation=operation;
-    else this.transferLegOperations[index]=operation;
-    void this.render(true);
-    return true;
   }
 
   /** One shared preset editor, with changes scoped to the current Journey. */
@@ -2376,7 +2358,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       return rules;
     }
     const normalHours=rules.dailyHours??8;
-    let operation=approvedOperation??this.transportOperation??"normal";
+    const storedOperation=this.transportOperation??"normal";
+    let operation=approvedOperation??(
+      approvedMethod&&isUnfinishedJourneyLeg(this.recoveryRecord)?
+        storedOperation:draftTransportationOperation(preset,storedOperation));
     let selected;
     try{selected=resolveTransportationOperation(preset,operation,normalHours);}
     catch(error){
@@ -2405,8 +2390,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const availability=this.transportAvailability();
     const world=availability.methods.find(method=>method.id===travel.methodId);
     if(!world)throw Error("The selected transportation method is unavailable.");
-    return this.resolveTravelRules(travel,
-      this.effectiveTransportMethod(world,availability),this.transportOperation);
+    const effective=this.effectiveTransportMethod(world,availability);
+    const operation=isUnfinishedJourneyLeg(this.recoveryRecord)?
+      this.transportOperation:draftTransportationOperation(effective,this.transportOperation);
+    return this.resolveTravelRules(travel,effective,operation);
   }
 
   /** A passenger can rest aboard a continuously operating vessel without
@@ -2697,9 +2684,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         method:this.effectiveTransportMethod(method,availability)}):null;
       if(this.transportArrangement==="hire"&&!resumingApprovedLand&&!hiredOffer)
         throw Error("The hired land service is not offered at this checkpoint.");
-      const selectedOperation=this.transportOperation;
-      // Validate the current Map Marker and operation before GM confirmation.
-      this.resolveCurrentLegRules({methodId:this.travelMethod,hoursPerDay:8});
+      const effective=this.effectiveTransportMethod(method,availability);
+      const selectedOperation=isUnfinishedJourneyLeg(this.recoveryRecord)?
+        this.transportOperation:draftTransportationOperation(effective,this.transportOperation);
+      // Validate the current Map Marker and inferred schedule before GM approval.
+      this.resolveTravelRules({methodId:this.travelMethod,hoursPerDay:8},
+        effective,selectedOperation);
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:resumingApprovedLand?"Resume approved land travel":"Confirm land travel"},
         content:el("div","GM confirmation: "+(resumingApprovedLand?
@@ -2877,7 +2867,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       travel:{...snapshot.travel,
         methodId:travel.methodId??this.travelMethod,
         methodName:travel.methodLabel??this.travelMethod,
-        arrangement:this.transportArrangement,operation:this.transportOperation}
+        arrangement:this.transportArrangement,operation:
+          isUnfinishedJourneyLeg(this.recoveryRecord)?this.transportOperation:
+            draftTransportationOperation(this.effectiveTransportMethod(
+              this.transportAvailability().methods.find(m=>m.id===this.travelMethod)),
+              this.transportOperation)}
     };
     const playback=calculateGuidedPlayback({
       route,travel,paths,
@@ -4533,22 +4527,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             error.message??String(error)));
         }:null
       });
-      if(!locked&&this.travelMethod!=="walking"&&
-          !this.mixedKeys.length&&!this.convoyEnabled){
-        const world=availability.methods.find(m=>m.id===this.travelMethod);
-        if(world)section.append(renderNavigationOperatingSchedule({
-          method:this.effectiveTransportMethod(world,availability),
-          operation:this.transportOperation,
-          regularHours:resolveNavigationTravelRules({settings:game.settings,
-            systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8,
-          disabled:Boolean(this.journalStarting||!game.user?.isGM),
-          onChange:value=>{
-            try{this.selectJourneyOperatingSchedule(
-              this.effectiveTransportMethod(world,availability),value);}
-            catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
-          }
-        }));
-      }
       if(!locked&&game.user?.isGM&&this.sourceMode==="party"&&
           partySelection&&this.canDraftTravelMethods()){
         section.append(this.renderTravelersAndPace(partySelection,
@@ -4848,13 +4826,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             const normalRules=resolveNavigationTravelRules({settings:game.settings,
               systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
             const normalHours=method.surface==="land"?(normalRules.dailyHours??8):8;
+            const operation=draftTransportationOperation(method,this.transportOperation);
             const quoteArgs={arrangement:this.transportArrangement,
-              operation:this.transportOperation,movingHours,distanceMi,
+              operation,movingHours,distanceMi,
               travelers:quoteRoster?.travelers??1,ownedQuote,regularHours:normalHours};
             const quote=quoteTransportationService(method,{...quoteArgs,
               hireTerms:this.transportHireTerms});
+            const worldOperation=operation!=="normal"&&
+              !baseMethod?.[operation+"Enabled"]?"normal":operation;
             const original=this.transportArrangement==="hire"&&baseMethod?.hireEnabled?
-              quoteTransportationService(baseMethod,{...quoteArgs,hireTerms:null}):null;
+              quoteTransportationService(baseMethod,{...quoteArgs,
+                operation:worldOperation,hireTerms:null}):null;
             const formatMoney=cp=>dndCurrencyBreakdown(cp,
               globalThis.CONFIG?.DND5E?.currencies).label;
             const disabled=Boolean(this.travelSession||this.journalStarting);
@@ -4870,8 +4852,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 "Overtime fare: "+formatMoney(quote.overtimeFareCp),
                 "Overtime labor: "+formatMoney(quote.overtimeCrewCp)
               ].filter(Boolean).join(" · "),
-              operatingSummary:quote.travelDays+" operating day(s) at "+
-                quote.dailyHours+"h/day, "+quote.extraHours.toFixed(1)+
+              operatingSummary:(operation==="continuous"&&
+                quote.hireTerms?.hireBasis==="day"?
+                quote.billableDayUnits.toFixed(2).replace(/\\.?0+$/,"")+
+                  " normal-day fare unit(s) at "+normalHours+"h/day; "+
+                  quote.travelDays+" continuous 24h period(s). ":
+                quote.travelDays+" operating day(s) at "+
+                  quote.dailyHours+"h/day. ")+
+                quote.extraHours.toFixed(1)+
                 " overtime hour(s), "+quote.units+" transport unit(s). "+
                 (this.transportArrangement==="hire"?
                   "Checkpoint availability listed; booking not confirmed. ":"")+
@@ -4946,16 +4934,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 error.message??String(error)));
             }
           }));
-          if(!this.mixedKeys.length&&leg.selectedOption?.method?.id!=="walking")
-            card.append(renderNavigationOperatingSchedule({
-              method:leg.selectedOption.method,operation:leg.operation,
-              regularHours:resolveNavigationTravelRules({settings:game.settings,
-                systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8,
-              onChange:value=>{
-                try{this.selectJourneyOperatingSchedule(leg.selectedOption.method,value,0);}
-                catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
-              }
-            }));
           card.append(this.renderTravelersAndPace(partySelection,availability,{
             mixedFare,singleChoice:this.mixedKeys.length?null:leg.selectedOption}));
         }else if(leg.recovered)card.append(renderCurrentTransferMethodSelector({
@@ -4980,17 +4958,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                   globalThis.ui?.notifications?.error?.(error.message??String(error)));
               }:null
           }));
-          if(leg.selectedOption?.method?.id!=="walking")
-            card.append(renderNavigationOperatingSchedule({
-              method:leg.selectedOption.method,operation:leg.operation,
-              regularHours:resolveNavigationTravelRules({settings:game.settings,
-                systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8,
-              disabled:locked,
-              onChange:value=>{
-                try{this.selectJourneyOperatingSchedule(leg.selectedOption.method,value,0);}
-                catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}
-              }
-            }));
         }
         card.append(...renderNavigationTransferLegOutcome({
           estimateLabel:leg.hours!==null&&leg.costCp!==null?
