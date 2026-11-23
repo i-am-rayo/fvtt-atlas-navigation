@@ -111,12 +111,11 @@ export function renderJourneyLivestockBoarding({resources=[],decisions={},
   root.append(board);
   if(!land){
     const capacity=method?.livestockCapacity;
-    const note=el("small",Number.isInteger(capacity)?
-      capacity+" verified animal stalls per vessel; passenger seats are separate.":
-      "Animal stalls are not configured. Set animal capacity in the transportation "+
-      "editor before embarking mounts. "+(aboard>0?
-        "Play remains blocked for unverified animal boarding.":
-        undecided?"Decide each mount before Play.":"No stalls needed while all mounts stay behind."));
+    const note=el("small",capacity==null?
+      "Animal accommodation is unlimited by default (no stall limit configured). "+
+      "Passenger seating and available vessel quantities remain separate.":
+      capacity===0?"Mount boarding is prohibited: this vessel has 0 animal stalls.":
+      capacity+" animal stalls per vessel; passenger seats are separate.");
     note.style.cssText="font-size:.76em;opacity:.85;";
     root.append(note);
   }
