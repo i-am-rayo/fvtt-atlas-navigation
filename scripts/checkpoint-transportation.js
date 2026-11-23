@@ -54,8 +54,6 @@ export function validateCheckpointTransportOffers(value){
         throw Error("Invalid "+key+" transport override.");
       overrides[key]=value;
     }
-    if(overrides.continuousEnabled&&offer.mode==="land")
-      throw Error("Continuous travel needs a water, sea or air transport.");
     return {methodId:offer.methodId,mode:offer.mode,overrides};
   });
 }
