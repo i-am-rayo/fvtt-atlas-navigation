@@ -62,3 +62,52 @@ export function planGuidedTravelChunks(waypoints,{movementSpeed,gridSize,
     throw Error("The journey cannot be divided into safe movement stretches.");
   return chunks;
 }
+
+/** A positive-distance Atlas fragment can vanish when Foundry rounds Token
+ * coordinates to integer pixels. It cannot receive a separate native receipt. */
+export function hasNativePixelDisplacement(waypoints){
+  if(!Array.isArray(waypoints)||waypoints.length<2||
+    waypoints.some(p=>!Number.isFinite(p?.x)||!Number.isFinite(p?.y)))
+    throw Error("Invalid native pixel interval.");
+  const start=waypoints[0];
+  return waypoints.some(point=>Math.round(point.x)!==Math.round(start.x)||
+    Math.round(point.y)!==Math.round(start.y));
+}
+
+/** Fold unmovable fragments into a future native move, so their elapsed time
+ * is credited only when the complete merged movement is confirmed. An initial
+ * preflight may also absorb a final subpixel tail into its preceding move.
+ * Never merge backwards after a day boundary has already been committed. */
+export function coalesceSubpixelTravelChunks(chunks,{allowTailMerge=true}={}){
+  if(!Array.isArray(chunks)||!chunks.length||chunks.length>MAX_GUIDED_CHUNKS||
+    typeof allowTailMerge!=="boolean")
+    throw Error("Invalid native pixel chunk collection.");
+  const result=chunks.map(chunk=>{
+    if(!Array.isArray(chunk?.waypoints)||chunk.waypoints.length<2||
+      !Number.isFinite(chunk.distance)||chunk.distance<=0)
+      throw Error("Invalid native pixel chunk.");
+    hasNativePixelDisplacement(chunk.waypoints);
+    return {waypoints:chunk.waypoints.map(p=>({...p})),distance:chunk.distance};
+  });
+  const join=(left,right)=>{
+    const a=left.waypoints.at(-1),b=right.waypoints[0];
+    if(Math.hypot(a.x-b.x,a.y-b.y)>1e-6)
+      throw Error("Native movement chunks no longer share a verified boundary.");
+    return {waypoints:[...left.waypoints,...right.waypoints.slice(1)],
+      distance:left.distance+right.distance};
+  };
+  for(let i=0;i<result.length;){
+    if(hasNativePixelDisplacement(result[i].waypoints)){i++;continue;}
+    if(i+1<result.length){
+      result.splice(i,2,join(result[i],result[i+1]));
+      continue;
+    }
+    if(allowTailMerge&&i>0){
+      result.splice(i-1,2,join(result[i-1],result[i]));
+      i--;
+      continue;
+    }
+    return null;
+  }
+  return result;
+}
