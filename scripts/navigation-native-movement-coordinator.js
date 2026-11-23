@@ -83,7 +83,7 @@ function checkpointDetails({token,movement,operationId,checkpoint,index,toleranc
  * An interval contains exactly one terminal checkpoint.
  */
 async function moveNativeInterval({
-  token,plan,operationId,movementSpeed,hooks,
+  token,plan,operationId,movementSpeed,animate=true,hooks,
   prepareCheckpoint,confirmCheckpoint,recordCheckpointEvidence=async()=>{},shouldStop=()=>false,
   tolerancePixels=1,signal=null,suspensionSignal=null,
   recordSuspendedEvidence=async()=>{},onCheckpointDiagnostics=null
@@ -256,7 +256,7 @@ async function moveNativeInterval({
     // The first path element is our authoritative TokenDocument origin, not a
     // destination to send to Foundry's public move(waypoints) operation.
     const nativePromise=token.move(plan.path.slice(1),{
-      id:operationId,animate:true,autoRotate:false,showRuler:false,pan:false,
+      id:operationId,animate,autoRotate:false,showRuler:false,pan:false,
       animation:{movementSpeed}
     });
     const completed=await Promise.race([nativePromise,abortPromise]);
