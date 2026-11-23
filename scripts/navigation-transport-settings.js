@@ -923,8 +923,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       if(operation!==null){
         const supported=["normal",
           ...(next.overtimeEnabled?["overtime"]:[]),
-          ...(next.continuousEnabled&&next.kind==="vehicle"&&
-            ["water","air"].includes(next.surface)?["continuous"]:[])];
+          ...(next.continuousEnabled&&next.kind==="vehicle"?["continuous"]:[])];
         if(!supported.includes(operation))
           throw Error("Choose an operating schedule permitted by this travel method.");
       }
