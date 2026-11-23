@@ -104,7 +104,10 @@ export function matchesNativeIntervalPath(path,movement,tolerance=1,nativePath){
       const expected=nativePath[i+1];
       if(!near(p,expected,tolerance)||p.movementId!==movement.id)return false;
       if(near(expected,path[authored],0)){authored++;return true;}
-      return p.intermediate===true&&p.explicit===false&&p.checkpoint===false;
+      // Region-boundary waypoints may be marked explicit by Foundry.
+      // Their authority is the independently predicted native coordinate,
+      // ordered movement ID and intermediate/checkpoint classification.
+      return p.intermediate===true&&p.checkpoint===false;
     })&&authored===path.length;
   }
   // Legacy pending intents have no independently normalized native path.
