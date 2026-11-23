@@ -89,7 +89,8 @@ import {renderNavigationFooter} from "./navigation-footer.js";
 import {NAVIGATION_STAGES,resolveNavigationStage} from "./navigation-stage-model.js";
 import {createNavigationStageShell,renderNavigationStageIntro,
   renderNavigationCompletedOverview} from "./navigation-stage-view.js";
-import {renderNavigationTravelMethodSelector,renderNavigationTravelMethodButtons}
+import {renderNavigationTravelMethodSelector,renderNavigationTravelMethodButtons,
+  renderNavigationOperatingSchedule}
   from "./navigation-selection-view.js";
 import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
@@ -2371,6 +2372,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       forcedMarch:"custom"};
   }
 
+  /** Resolve the exact edited method and approved operation before travel.
+   * In particular a hired land vehicle may gain continuous capability at the
+   * departure Map Marker while its inherited World preset remains standard. */
+  resolveCurrentLegRules(travel,guidedOption=null,guidedLeg=null){
+    if(guidedLeg||!travel?.methodId||travel.methodId==="walking")
+      return this.resolveTravelRules(travel,guidedOption?.method,
+        guidedLeg?.transport?.operation??null);
+    const availability=this.transportAvailability();
+    const world=availability.methods.find(method=>method.id===travel.methodId);
+    if(!world)throw Error("The selected transportation method is unavailable.");
+    return this.resolveTravelRules(travel,
+      this.effectiveTransportMethod(world,availability),this.transportOperation);
+  }
+
   /** A passenger can rest aboard a continuously operating vessel without
    * stopping its native movement or adding duplicate World-clock hours. */
   async choosePassengerRest(action){
@@ -2845,8 +2860,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     });
     const totalDistance=chunks.reduce((sum,chunk)=>sum+chunk.distance,0);
     const schedule=new GuidedTravelDayTracker({travelHours:playback.travelHours,
-      rules:this.resolveTravelRules(travel,guidedOption?.method,
-        guidedLeg?.transport?.operation)});
+      rules:this.resolveCurrentLegRules(travel,guidedOption,guidedLeg)});
     if(nativeContinuous&&(
       typeof token.pauseMovement!=="function"||
       typeof token.stopMovement!=="function"||
