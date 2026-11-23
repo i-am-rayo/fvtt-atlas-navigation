@@ -1,4 +1,6 @@
-# 0.3.12-dev.27 — Current-leg traveler roster parity (B1 first slice)
+# 0.3.12-dev.27.1 — Current-leg traveler roster parity (B1 first slice)
+
+> **Owner live feedback 2026-11-23 — partial failure, not accepted.** On checkpoint water continuation the traveler deck did not appear even after choosing a vessel. This was traced to `canDraftTravelMethods()` remaining false while a saved Journey handle exists. Reproduction RED [CI #790](https://github.com/i-am-rayo/fvtt-atlas-navigation/actions/runs/45125793528); minimal view-only gate change GREEN [CI #791](https://github.com/i-am-rayo/fvtt-atlas-navigation/actions/runs/45125896774). **Version 0.3.12-dev.27.1** is for targeted UI retest only. The same owner report includes a release-blocking **ordinary guided movement/World-time canvas rebuild recovery failure** in [P0 Issue #189](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/189). This is NOT fixed by this PR and must be resolved before live journey acceptance/integration. Other UI improvements in [Issue #493](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/493), livestock in [#492](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/492).
 
 **Status:** Implemented on stacked draft PR #491 based on PO-accepted (not yet integrated) PR #490. Awaiting PO GM/non-GM Foundry v14 live verification. Not merged, tagged, or released.
 
