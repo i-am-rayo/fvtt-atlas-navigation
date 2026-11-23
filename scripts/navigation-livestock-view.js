@@ -1,11 +1,11 @@
 /** Physical mounts are Journey-only draft allocations; native Group inventory is never edited. */
 export function renderJourneyLivestockBoarding({resources=[],decisions={},
-  method=null,planned=null,surface="water",disabled=false,onChange}={}){
+  method=null,planned=null,surface="water",carried=false,disabled=false,onChange}={}){
   if(!resources.length)return null;
   const el=(tag,text)=>{const n=document.createElement(tag);
     if(text!==undefined)n.textContent=String(text);return n;};
   const land=surface==="land";
-  const action=land?"accompanying":"embarking";
+  const action=land?(carried?"being carried":"accompanying"):"embarking";
   const root=el("div");
   root.className="atlas-journey-livestock";
   root.style.cssText="display:grid;gap:.4rem;min-width:0;margin-top:.25rem;";
@@ -106,21 +106,21 @@ export function renderJourneyLivestockBoarding({resources=[],decisions={},
     });
     return zone;
   };
-  board.append(column(land?"Accompanying":"Embarking",true),
+  board.append(column(land?(carried?"Carried aboard":"Accompanying"):"Embarking",true),
     column("Staying behind / undecided",false));
   root.append(board);
-  if(!land){
+  if(!land||carried){
     const capacity=method?.livestockCapacity;
     const note=el("small",capacity==null?
       "Animal accommodation is unlimited by default (no stall limit configured). "+
-      "Passenger seating and available vessel quantities remain separate.":
-      capacity===0?"Mount boarding is prohibited: this vessel has 0 animal stalls.":
-      capacity+" animal stalls per vessel; passenger seats are separate.");
+      "Passenger seating and vehicle availability remain separate.":
+      capacity===0?"Animal carriage is prohibited: this vehicle has 0 animal spaces.":
+      capacity+" animal spaces per vehicle; passenger seats are separate.");
     note.style.cssText="font-size:.76em;opacity:.85;";
     root.append(note);
   }
   if(planned){
-    const note=el("small","Draft estimate: "+planned.units+" vessel(s) · animal fare "+
+    const note=el("small","Draft estimate: "+planned.units+" vehicle(s) · animal fare "+
       planned.estimatedFareCp+" CP; no currency is deducted.");
     note.style.cssText="font-size:.75em;opacity:.8;";
     root.append(note);
