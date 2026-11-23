@@ -318,3 +318,24 @@ test("dev.24 checkpoint 6 matching movement ID and displaced endpoint alone are 
     atlasRevision:4,worldTime:100,movement:{id,state:"completed",origin:from,
       destination:actual,constrained:false,pending:{waypoints:[]}}}).status,"review");
 });
+
+
+test("fractional native checkpoints defer their World-time credit to verified movement",()=>{
+  const plan=planNativeCheckpointPath([pt(0,0),pt(.3,0),pt(20.1,0)],{
+    movementSpeed:1,gridSize:10,secondsPerCheckpoint:2,
+    totalMovingHours:1});
+  assert.equal(plan.checkpoints.length,1);
+  assert.equal(plan.checkpoints[0].index,0);
+  assert.equal(plan.checkpoints[0].completedMovingHours,1);
+  assert.ok(Math.abs(plan.checkpoints[0].completedDistance-plan.totalDistance)<1e-6);
+  assert.deepEqual(plan.checkpoints[0].point,pt(20,0));
+  const tail=planNativeCheckpointPath([pt(0,0),pt(20,0),pt(20.3,0)],{
+    movementSpeed:1,gridSize:10,secondsPerCheckpoint:2,
+    totalMovingHours:1});
+  assert.equal(tail.checkpoints.length,1);
+  assert.equal(tail.checkpoints[0].completedMovingHours,1);
+  assert.deepEqual(tail.checkpoints[0].point,pt(20,0));
+  assert.throws(()=>planNativeCheckpointPath([pt(0,0),pt(.3,0)],{
+    movementSpeed:1,gridSize:10,secondsPerCheckpoint:2,
+    totalMovingHours:1}),/no distinct pixel|unmovable/);
+});
