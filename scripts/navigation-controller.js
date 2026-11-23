@@ -2995,25 +2995,59 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             resolveNavigationTravelRules({settings:game.settings,
               systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8};
       const expectedLivestock=this.transportationTransitionPlan()?.legs[0]?.livestock??null;
-      const mountNotice=expectedLivestock?
-        " Physical mounts: "+expectedLivestock.resources.reduce((sum,m)=>sum+m.aboard,0)+
-        (expectedLivestock.carried?" carried, ":" embarking, ")+
-        expectedLivestock.resources.reduce((sum,m)=>sum+m.quantity-m.aboard,0)+
-        " staying. "+expectedLivestock.units+" vehicle(s) with "+
-        (expectedLivestock.capacityPerUnit===null?
-          "unlimited animal accommodation":expectedLivestock.capacityPerUnit+
-          " animal spaces each")+
-        ". Animal fare estimate: "+
-        expectedLivestock.estimatedFareCp+" CP, already included in the service quote.":"";
+      const people=partyAtStart?.members?.map(member=>({
+        name:member.name,traveling:partyAtStart.selectedIds.includes(member.id)
+      }))??this.recoveryRecord?.legs?.at(-1)?.participation?.people??[];
+      const traveling=people.filter(member=>member.traveling).map(member=>member.name);
+      const absent=people.filter(member=>!member.traveling).map(member=>member.name);
+      const travelerSeats=partyAtStart?.travelerCount??null;
+      const neededUnits=expectedLivestock?.units??(
+        info.arrangement==="hire"&&travelerSeats!==null?
+          assessHiredTransportAvailability(option.method,{travelers:travelerSeats}).requiredUnits:null);
+      const quotedCost=Number.isFinite(info.estimatedFareCp)?
+        dndCurrencyBreakdown(info.estimatedFareCp,globalThis.CONFIG?.DND5E?.currencies).label:
+        "Not quoted";
+      const displayedSpeed=atlasDisplaySpeed(travel.speed,this.scene.grid.units,
+        game.settings,game.system?.id);
+      const speedUnits=displayedSpeed.unit==="mi/hour"?"mph":
+        displayedSpeed.unit==="km/hour"?"km/h":displayedSpeed.unit;
+      const mounts=expectedLivestock?.resources
+        .filter(resource=>resource.aboard>0)
+        .map(resource=>resource.actorName+": "+resource.aboard+" accompanying")??[];
+      const stayingMounts=expectedLivestock?.resources
+        .filter(resource=>resource.quantity>resource.aboard)
+        .map(resource=>resource.actorName+": "+(resource.quantity-resource.aboard)+" staying")??[];
+      const approvedSummary=renderNavigationTransportApproval({
+        destination:"Current leg to "+guidedLeg.checkpoint.name,
+        rows:[{
+          method:info.methodName+" ("+info.arrangement+")",
+          travelers:traveling.join(", ")||"Assigned party explorer",
+          units:neededUnits===null?"—":String(neededUnits),
+          cost:quotedCost
+        }],
+        metrics:[
+          ["Total travelers",people.length?String(traveling.length):"Party explorer"],
+          ["Group travel speed",displayedSpeed.value.toFixed(2)+" "+speedUnits],
+          ["Estimated moving time",formatNavigationDuration(hours,24)],
+          ["Estimated transportation cost",quotedCost]
+        ],
+        notes:[
+          absent.length?"Not traveling: "+absent.join(", "):null,
+          expectedLivestock?"Physical mounts: "+
+            [...mounts,...stayingMounts].join(" · ")+
+            ". Animal fare: "+dndCurrencyBreakdown(
+              expectedLivestock.estimatedFareCp,globalThis.CONFIG?.DND5E?.currencies).label+
+            " (included in quoted total; no deduction).":null,
+          isUnfinishedJourneyLeg(this.recoveryRecord)?
+            "Resuming an approved Journey leg: the historical fare is not quoted or charged again.":null,
+          "The Group explorer represents the selected Atlas travelers; native Group membership "+
+            "is unchanged. Foundry validates movement and optionally advances confirmed World time. "+
+            "Estimates only: no booking, currency deduction, Actor change or terrain bypass."
+        ]
+      });
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm travel to "+guidedLeg.checkpoint.name},
-        content:el("div","GM confirmation: travel to "+guidedLeg.checkpoint.name+
-          " using "+info.methodName+" ("+info.arrangement+"). "+
-          "Native token movement and optional confirmed World-time advancement will occur. "+
-          "Estimated fare is for reference only: no booking, currency deduction, "+
-          "Actor mutation or forced terrain bypass occurs."+mountNotice+
-          " Stop at the checkpoint?"),
-        rejectClose:false,modal:true
+        content:approvedSummary,rejectClose:false,modal:true
       });
       if(!approval)return false;
       if(this.travelSession||this.pendingTransfer||this.scene?.id!==view.scene?.id||
