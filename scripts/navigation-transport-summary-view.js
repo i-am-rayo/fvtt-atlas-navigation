@@ -71,3 +71,46 @@ export function renderTransportQuote({worldEstimate=null,currentEstimate,
   }
   return block;
 }
+
+/** Shared read-only GM confirmation. All rows and metrics come from a
+ * previously validated current-leg plan; this view never approves travel. */
+export function renderNavigationTransportApproval({
+  heading="Transportation summary",destination=null,rows=[],metrics=[],notes=[]
+}={}){
+  if(!rows.length||metrics.length!==4)
+    throw Error("A transportation approval needs a complete leg summary.");
+  const root=el("section");
+  root.className="atlas-transport-approval";
+  root.append(el("h3",heading));
+  if(destination)root.append(el("p",destination));
+  const table=el("table");
+  table.className="atlas-transport-approval-table";
+  const head=el("thead"),labels=el("tr");
+  for(const label of ["Method","Travelers","Units","Cost"]){
+    const cell=el("th",label);
+    cell.scope="col";
+    labels.append(cell);
+  }
+  head.append(labels);table.append(head);
+  const body=el("tbody");
+  for(const data of rows){
+    const row=el("tr");
+    for(const value of [data.method,data.travelers,data.units,data.cost])
+      row.append(el("td",String(value??"—")));
+    body.append(row);
+  }
+  table.append(body);root.append(table);
+  const totals=el("dl");
+  totals.className="atlas-transport-approval-metrics";
+  for(const [label,value] of metrics){
+    const tile=el("div");
+    tile.className="atlas-transport-approval-metric";
+    tile.append(el("dt",label),el("dd",String(value)));
+    totals.append(tile);
+  }
+  root.append(totals);
+  for(const note of notes){
+    if(note)root.append(el("p",note));
+  }
+  return root;
+}
