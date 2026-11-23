@@ -18,6 +18,19 @@ export function groupLivestockResources(roster){
   return resources;
 }
 
+/** Verify a complete decision before quoting; partial drafts have no fare authority. */
+export function countJourneyLivestock(roster,decisions){
+  const mounts=groupLivestockResources(roster),ids=new Set(mounts.map(m=>m.actorId));
+  if(!decisions||typeof decisions!=="object"||Array.isArray(decisions)||
+    Object.keys(decisions).some(key=>!ids.has(key)))
+    throw Error("The livestock boarding draft no longer matches the Group.");
+  if(mounts.some(m=>!Object.hasOwn(decisions,m.actorId)))
+    throw Error("Decide Embark or Stay behind for every mount before approval.");
+  for(const m of mounts)if(!count(decisions[m.actorId])||decisions[m.actorId]>m.quantity)
+    throw Error("Mount boarding cannot exceed its native Group quantity.");
+  return mounts.reduce((sum,m)=>sum+decisions[m.actorId],0);
+}
+
 /** Separate passenger seats from animal accommodation; unknown == no boarding. */
 export function planJourneyLivestock(roster,decisions,{surface,methodId,
   units,capacityPerUnit,fareCp=0}={}){
@@ -26,12 +39,8 @@ export function planJourneyLivestock(roster,decisions,{surface,methodId,
     !Number.isFinite(fareCp)||fareCp<0||fareCp>Number.MAX_SAFE_INTEGER||
     !decisions||typeof decisions!=="object"||Array.isArray(decisions))
     throw Error("Invalid vessel boarding plan.");
+  countJourneyLivestock(roster,decisions);
   const mounts=groupLivestockResources(roster);
-  const ids=new Set(mounts.map(m=>m.actorId));
-  if(Object.keys(decisions).some(key=>!ids.has(key)))
-    throw Error("A saved mount is no longer in the Group. Review the Journey.");
-  if(mounts.some(m=>!Object.hasOwn(decisions,m.actorId)))
-    throw Error("Decide Embark or Stay behind for every mount before approval.");
   const resources=mounts.map(m=>{
     const aboard=decisions[m.actorId];
     if(!count(aboard)||aboard>m.quantity)
@@ -48,8 +57,8 @@ export function planJourneyLivestock(roster,decisions,{surface,methodId,
 
 export function validateJourneyLivestock(raw){
   if(!raw||raw.schemaVersion!==1||!id(raw.methodId)||
-    !["water","air"].includes(raw.surface)||!count(raw.units)&&
-      !(Number.isInteger(raw.units)&&raw.units>100&&raw.units<=1000)||
+    !["water","air"].includes(raw.surface)||
+    !Number.isInteger(raw.units)||raw.units<1||raw.units>1000||
     !(raw.capacityPerUnit===null||
       Number.isInteger(raw.capacityPerUnit)&&raw.capacityPerUnit>=0&&
         raw.capacityPerUnit<=1000)||
