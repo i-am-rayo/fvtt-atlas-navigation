@@ -10,7 +10,6 @@ import {planNativeCheckpointPath}
   from "../scripts/navigation-native-movement-plan.js";
 import {projectPartyTravelSelection} from "../scripts/navigation-party-selection.js";
 import {defaultGroupTransportation,setGroupTransportationMember} from "../scripts/navigation-group-transport.js";
-import {suggestedLivestockBoarding} from "../scripts/navigation-journey-livestock.js";
 import { defaultTransportationCatalog,findTransportationPreset,setTransportationPreset }
   from "../scripts/navigation-transport-catalog.js";
 
@@ -3778,7 +3777,7 @@ test("current water-leg per-person estimate follows selected Group IDs without b
 });
 
 
-test("water transfer keeps three physical mounts separate from two passengers and land rejoining is draft-only",()=>{
+test("water transfer keeps three physical mounts separate from two passengers and land rejoining is draft-only",async()=>{
   const previous=globalThis.game;
   try{
     const config={version:7,groups:{groupA:{members:{
@@ -3842,14 +3841,18 @@ test("water transfer keeps three physical mounts separate from two passengers an
     nav.recoveryRecord={status:"paused",legs:[{completedPercent:100,
       livestock:prior}]};
     const journalBefore=structuredClone(nav.recoveryRecord);
-    nav.livestockDecisions=suggestedLivestockBoarding(
-      nav.recoveryRecord,nav.partyTravelSelection([]).roster);
-    assert.deepEqual(nav.livestockDecisions,{horseA:1,horseB:2},
-      "disembark carries exactly the 2/3 Riding Horses and 1 Warhorse actually boarded");
-    // Recomputing the continuation route must not erase this restored draft.
-    nav.start=from;nav.end=to;
+    // The real checkpoint-continuation workflow restores the manifest and
+    // immediately recalculates the next route. Neither step commits the draft.
+    nav.pendingTransfer={checkpoint:{id:"dock",name:"Dock",point:from}};
+    nav.verifyPendingTransfer=()=>({pending:nav.pendingTransfer,view:{}});
+    nav.isAtJourneyDestination=()=>false;
+    nav.syncPartyDeparture=()=>{nav.start=from;};
+    nav.draw=()=>{};nav.render=async()=>{};
     nav.routeCalculator=()=>({status:"unreachable"});
-    nav.calculateRoute({},atlas);
+    nav.end=to;
+    assert.equal(await nav.continueFromCheckpoint(),true);
+    assert.deepEqual(nav.livestockDecisions,{horseA:1,horseB:2},
+      "checkpoint continuation retains exactly the 2/3 Riding Horses and 1 Warhorse actually boarded");
     assert.deepEqual(nav.livestockDecisions,{horseA:1,horseB:2},
       "route recalculation must preserve the saved physical mount quantities");
     const landed=nav.partyTravelSelection([]).previewRoster;
@@ -3888,6 +3891,12 @@ test("water transfer keeps three physical mounts separate from two passengers an
       "Boarding and rejoining never change the native Group");
     assert.deepEqual(nav.recoveryRecord,journalBefore,
       "draft edits and status checks cannot mutate confirmed Journey history");
+    nav.calculateRoute({},atlas);
+    assert.deepEqual(nav.livestockDecisions,{horseA:0,horseB:1},
+      "a GM's next-leg corrections survive subsequent route recalculation");
+    nav.clear();
+    assert.deepEqual(nav.livestockDecisions,{},
+      "a deliberate new route never inherits old Journey mount choices");
   }finally{globalThis.game=previous;}
 });
 
