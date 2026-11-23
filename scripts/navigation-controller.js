@@ -42,7 +42,8 @@ import { resolveNavigationTravelSpeed,convertGroupSpeed } from "./navigation-par
 import { availableNavigationTravelMethods,resolveNavigationMethodTravel,
   assessNavigationMethodRoute } from "./navigation-travel-method.js";
 import { projectTransportationRouteLegs,transportationLegSelection,
-  describeTransportationLeg } from "./navigation-transport-transitions.js";
+  describeTransportationLeg,summarizeTransportationOperatingSchedule }
+  from "./navigation-transport-transitions.js";
 import {prepareGuidedTransportLeg,confirmGuidedCheckpointArrival}
   from "./navigation-guided-transport-leg.js";
 import {isJourneyDestinationCheckpoint,isRepeatedArrivalCheckpoint}
@@ -175,6 +176,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mixedUnits={};
     this.transferSelections={};
     this.transferLegOverrides={};
+    this.transferLegOperations={};
     this.pendingTransfer=null;
     this.start = null;
     this.end = null;
@@ -264,6 +266,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mixedUnits={};
     this.transferSelections={};
     this.transferLegOverrides={};
+    this.transferLegOperations={};
     this.pendingTransfer=null;
     // Favor the manually assigned Atlas party explorer when it can actually
     // provide a valid Scene-to-Atlas origin. Otherwise retain map-point mode.
@@ -363,6 +366,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.routeRevision=atlas.revision;
     this.transferSelections={};
     this.transferLegOverrides={};
+    this.transferLegOperations={};
     this.result=null;
     this.itinerary=null;
     this.travelProgress=0;
@@ -904,7 +908,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       walking=resolveNavigationTravelSpeed({token:null,sceneUnits:sceneUnit,
         systemId:null,worldSpeed:DEFAULT_NAVIGATION_SPEED});
     }
-    let totalHours=0,totalElapsedHours=0,totalCp=0,complete=true;
+    const worldRules=resolveNavigationTravelRules({settings:game.settings,
+      systemId:game.system?.id,actorHoursPerDay:null});
+    const regularHours=worldRules.dailyHours??8;
+    const normalDowntime=worldRules.overnightHours??Math.max(0,24-regularHours);
     const legs=projected.legs.map((leg,index)=>{
       const errors=[];
       const offers=offersAtOrigin(atlas,this.scene,leg.start);
@@ -939,10 +946,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           errors.push("A mixed convoy needs an authored arrival checkpoint for this leg.");
         try{convoy=this.mixedLandPlan();}
         catch(error){errors.push(error.message??String(error));}
-        complete=false; // later legs are only previews
         return {...leg,options,selectedOption:convoy&&!errors.length?{
           value:"mixed-land",arrangement:"mixed",method:mixedLandTransportMethod}:null,
           selectedValue:"mixed-land",methodName:mixedLandTransportMethod.name,operation:"normal",
+          dailyHours:regularHours,overnightHours:normalDowntime,
           convoy,errors,hours:errors.length?null:convoy?.movingHours??null,
           costCp:errors.length?null:convoy?.totalCp??null,
           narration:["The Group travels together to the next checkpoint."]};
@@ -963,9 +970,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         "Choose an available method for this route leg.":
         allSurfaces?"Select a method after confirming the unclassified terrain and landing.":
         "Select an available "+leg.surface+" method at the departure checkpoint.");
-      const operation=option?.method?.continuousEnabled&&
+      // Older continuous water/air defaults remain unchanged. Land vehicles
+      // require an explicit GM Journey schedule even when enabled globally.
+      const inheritedOperation=option?.method?.continuousEnabled&&
         ["water","air"].includes(option.method.surface)&&
         option.method.kind==="vehicle"?"continuous":"normal";
+      const operation=this.transferLegOperations[index]??inheritedOperation;
+      let operationRules=null;
+      if(option?.method?.id==="walking"){
+        if(operation!=="normal")errors.push("Walking has no crew operating schedule.");
+        operationRules={dailyHours:regularHours,overnightHours:normalDowntime};
+      }else if(option){
+        try{operationRules=resolveTransportationOperation(option.method,operation,regularHours);}
+        catch(error){errors.push(error.message??String(error));}
+      }
       let hours=null,costCp=null;
       if(option){
         let speed=null;
@@ -990,26 +1008,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 throw Error("Transport pricing requires a Scene in miles or kilometers.");
               const ownedQuote=option.arrangement==="owned"&&roster?
                 groupMethodFareEstimate(roster,option.method,{
-                  hours,distanceMi,dayHours:8}):null;
+                  hours,distanceMi,dayHours:regularHours}):null;
               const quote=quoteTransportationService(option.method,{
                 arrangement:option.arrangement,operation,
                 movingHours:hours,distanceMi,travelers:roster?.travelers??1,
-                ownedQuote,regularHours:8});
+                ownedQuote,regularHours});
               costCp=quote.totalCp;
             }catch(error){errors.push(error.message??String(error));}
           }
         }
       }
-      if(errors.length)complete=false;
-      if(!errors.length){
-        totalHours+=hours??0;
-        const days=hours>0?Math.ceil(Math.max(0,hours-1e-7)/
-          (operation==="continuous"?24:8)):0;
-        totalElapsedHours+=(hours??0)+(operation==="continuous"?0:
-          Math.max(0,days-1)*16);
-        totalCp+=costCp??0;
-      }
       return {...leg,options,selectedOption:option??null,operation,
+        dailyHours:operationRules?.dailyHours??null,
+        overnightHours:operationRules?.overnightHours??null,
         selectedValue:option?.value??"",
         methodName:option?.method?.name??null,
         narration:describeTransportationLeg(leg,option?{
@@ -1017,10 +1028,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           surface:leg.surface,arrangement:option.arrangement
         }:{}),errors,hours,costCp};
     });
+    const globalSchedule=summarizeTransportationOperatingSchedule(legs);
     return {...projected,hasTransitions:projected.hasTransitions||checkpointContinuation,
-      checkpointContinuation,legs,complete,totalHours:complete?totalHours:null,
-      totalElapsedHours:complete?totalElapsedHours:null,
-      totalCp:complete?totalCp:null};
+      checkpointContinuation,legs,complete:globalSchedule.complete,
+      globalSchedule,totalHours:globalSchedule.totalMovingHours,
+      totalElapsedHours:globalSchedule.totalElapsedHours,
+      totalCp:globalSchedule.totalFareCp};
   }
 
   /** Persist a local offer only with an explicit GM save and an unchanged source snapshot. */
