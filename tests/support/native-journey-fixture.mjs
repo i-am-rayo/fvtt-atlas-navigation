@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 // Test-only Foundry v14 operation/Hook adapter for historical controller
 // fixtures that test travel-day decisions with simpler token simulators.
 export function installNativeJourneyFixture(AtlasNavigationController){
+let nativeSerial=0;
 // Older controller fixtures supplied a simple move() that changed x/y, but
 // no v14 movement IDs/hooks. Give those fakes public native movement evidence
 // without changing runtime code or loosening the production recovery guard.
@@ -18,14 +19,13 @@ AtlasNavigationController.prototype.startGuidedTravel=async function(...args){
   const old={hooks:globalThis.Hooks,utils:globalThis.foundry?.utils,
     movementPath:token.getCompleteMovementPath,move:token.move,
     stop:token.stopMovement,time:globalThis.game?.time};
-  let serial=0;
   const listeners=new Map();
   globalThis.Hooks={...old.hooks,
     on(name,fn){listeners.set(name,fn);return fn;},
     off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
   globalThis.foundry??={};
   globalThis.foundry.utils={...(old.utils??{}),
-    randomID:()=>"MockNative"+String(++serial).padStart(6,"0")};
+    randomID:()=>"MockNative"+String(++nativeSerial).padStart(6,"0")};
   token.getCompleteMovementPath=path=>path;
   token.stopMovement??=()=>true;
   globalThis.game??={};
