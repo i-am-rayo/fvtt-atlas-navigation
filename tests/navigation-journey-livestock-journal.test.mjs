@@ -46,6 +46,21 @@ test("approved voyage persists and renders separate physical mounts but not on u
  wrong.legs[0].livestock.methodId="other";
  assert.throws(()=>validateJourneyRecord(wrong),/invalid recovery metadata/);
 });
+test("D&D5e Journal formats fractional animal fare in payable coins without repricing history",()=>{
+  const livestock=planJourneyLivestock(group,{a:1,b:2},{surface:"water",
+    methodId:"ship-passage",units:1,capacityPerUnit:3,fareCp:2864.41987927043});
+  const saved=create(route(livestock));
+  const snapshot=structuredClone(saved);
+  saved.legs[0].completedMovingHours=1;
+  saved.legs[0].completedPercent=10;
+  const exact=saved.legs[0].livestock.estimatedFareCp;
+  const html=formatJourneyJournalHTML(saved,{systemId:"dnd5e"});
+  assert.match(html,/Estimated animal fare: 28 GP · 6 SP · 5 CP/);
+  assert.equal(saved.legs[0].livestock.estimatedFareCp,exact,
+    "formatting only; confirmed saved quote remains exact");
+  assert.equal(snapshot.legs[0].livestock.estimatedFareCp,exact);
+});
+
 test("unfinished saved voyage forbids replacement of approved mount allocations",()=>{
  const livestock=planJourneyLivestock(group,{a:1,b:0},{surface:"water",
    methodId:"ship-passage",units:1,capacityPerUnit:3});
