@@ -2,6 +2,7 @@ import { MODULE_ID } from "./atlas-storage.js";
 import {validateWalkingCargoConvoy} from "./navigation-mixed-convoy.js";
 import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 import {describeConfirmedTravelers} from "./navigation-journey-manifest.js";
+import {validateJourneyParticipation} from "./navigation-journey-participation.js";
 import {mixedTransportFareBreakdown} from "./navigation-currency.js";
 import {validateAggregateLandConvoy} from "./navigation-theater-convoy.js";
 const validateApprovedConvoy=value=>value?.schemaVersion===3?
@@ -70,6 +71,7 @@ export function journeyLegFromItinerary(itinerary){
     })),
     completedMovingHours:0,completedPercent:0,events:[],
     worldTravelSeconds:0,worldRestSeconds:0,
+    ...(itinerary.participation?{participation:validateJourneyParticipation(itinerary.participation)}:{}),
     ...(itinerary.convoy?{convoy:validateApprovedConvoy(itinerary.convoy)}:{}),
     ...(itinerary.transport?{transport:validateTransportJourneyInfo(itinerary.transport)}
       :itinerary.travel?.methodId&&
@@ -139,6 +141,8 @@ export function validateJourneyRecord(value){
             event[key]!==undefined&&(typeof event[key]!=="string"||
               event[key].length>100)))||
         !Array.isArray(leg.directions)||leg.directions.length>4096||
+        (leg.participation!==undefined&&
+          !(()=>{try{validateJourneyParticipation(leg.participation);return true;}catch{return false;}})())||
         (leg.approvedPath!==undefined&&
           !isApprovedJourneyPath(leg.approvedPath))||
         (leg.transport!==undefined&&!isTransportJourneyInfo(leg.transport))||
@@ -238,6 +242,17 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
       if(resumed.transport!==undefined)
         throw Error("An ordinary approved convoy cannot change to checkpoint transport during recovery.");
       resumed.travelMethod=structuredClone(old.travelMethod);
+    }
+  }
+  if(isUnfinishedJourneyLeg(next)){
+    // Interruption never authorizes changing a previously approved roster.
+    if(old.participation!==undefined){
+      if(resumed.participation!==undefined&&
+          JSON.stringify(resumed.participation)!==JSON.stringify(old.participation))
+        throw Error("Recovery cannot change approved Journey participation.");
+      resumed.participation=validateJourneyParticipation(old.participation);
+    }else if(resumed.participation!==undefined){
+      throw Error("An older unfinished Journey cannot gain an unapproved traveler manifest.");
     }
   }
   if(approvedPath)resumed.approvedPath=validateApprovedJourneyPath(approvedPath);
@@ -360,6 +375,13 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       `<li class="atlas-journey-transport-event">The party traveled using ${escapeHTML(leg.travelMethod.name)} (`+
         `${escapeHTML(leg.travelMethod.arrangement==="hire"?"hired":"party-owned")}).`+
         ` No automatic purchase, booking or currency deduction occurred.</li>`:"";
+    const participants=leg.participation&&leg.completedMovingHours>0?
+      (p=>`<div class="atlas-journey-leg-group"><h4>Confirmed Travelers</h4>`+
+        `<p>The Group explorer token represents only the travelers listed as traveling `+
+        `for this Atlas leg; native Group membership is unchanged.</p><ul>`+
+        p.people.map(person=>`<li>${escapeHTML(person.name)} — `+
+          (person.traveling?"Traveling ("+escapeHTML(person.methodKey)+")":"Not traveling")+
+          `</li>`).join("")+`</ul></div>`)(validateJourneyParticipation(leg.participation)):"";
     const rows=timeline.map(step=>step.kind==="journey-event"?
       `<li class="atlas-journey-rest-event"><strong>${escapeHTML(step.label)}</strong> after `+
       `${escapeHTML(formatNavigationDuration(step.atHours,24))} on this leg`+
@@ -387,6 +409,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       `Moving time: ${escapeHTML(formatNavigationDuration(leg.movingHours,24))}; `+
       `Confirmed progress: ${percent}% `+
       `(${escapeHTML(formatNavigationDuration(leg.completedMovingHours,24))} moving).</p>`+
+      participants+
       (transportLines||landMethod||convoyLines?
         `<div class="atlas-journey-leg-group"><h4>Confirmed Transportation and Transfers</h4>`+
         `<ul>${transportLines}${landMethod}${convoyLines}</ul></div>`:"")+
