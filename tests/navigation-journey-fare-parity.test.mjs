@@ -68,3 +68,15 @@ test("onward single-method legs reuse first-leg roster and quoted fare component
   assert.match(onward,/card\.append\(renderTransportQuote\(/,
     "a transfer quote should use the same read-only breakdown component");
 });
+
+test("a first-leg land quote uses explicit boarded animals like a later water leg",()=>{
+  const controller=readFileSync(new URL("../scripts/navigation-controller.js",import.meta.url),"utf8");
+  const firstQuote=controller.slice(controller.indexOf("const quoteArgs={arrangement:this.transportArrangement"),
+    controller.indexOf("const quote=quoteTransportationService(method,{...quoteArgs"));
+  assert.match(firstQuote,/livestockCount/,
+    "the initial hired-land preview must price committed mount draft counts");
+  const firstBreakdown=controller.slice(controller.indexOf("const quote=quoteTransportationService(method,{...quoteArgs"),
+    controller.indexOf("body.append(renderTransportQuote({",controller.indexOf("const quote=quoteTransportationService(method,{...quoteArgs")));
+  assert.match(firstBreakdown,/describeJourneyMountFare/,
+    "the first leg and onward legs must use one visible mount-fare description");
+});
