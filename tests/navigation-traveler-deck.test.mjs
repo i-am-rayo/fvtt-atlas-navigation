@@ -203,3 +203,24 @@ test("onward ship with one method offers Traveling and Not traveling drop column
       "keyboard Move supports choosing Not traveling");
   }finally{restore();}
 });
+
+
+test("mount allocations appear within section 3 rather than a separate planner section",async()=>{
+  const {renderJourneyLivestockBoarding}=await import("../scripts/navigation-livestock-view.js");
+  const restore=dom();
+  try{
+    const mountBoard=renderJourneyLivestockBoarding({resources:[
+      {actorId:"horse",name:"Riding Horse",quantity:3}
+    ],decisions:{horse:2},method:{livestockCapacity:3}});
+    const ship={key:"hire|passage",name:"Ship passage (hired)",speed:2,
+      speedLabel:"2 mph",capacity:20,arrangement:"hire"};
+    const view=renderNavigationTravelRoster({travelers,
+      selectedIds:travelers.slice(0,4).map(t=>t.id),
+      assignments:Object.fromEntries(travelers.slice(0,4).map(t=>[t.id,ship.key])),
+      methods:[ship],transferColumns:true,mountBoard});
+    assert.equal(all(view).filter(n=>n===mountBoard).length,1);
+    assert.ok(all(view).some(n=>n.textContent==="Riding Horse ×3"));
+    assert.ok(all(view).some(n=>n.textContent==="3 · Who goes where?"));
+    assert.equal(all(view).filter(n=>n.className==="atlas-journey-livestock").length,1);
+  }finally{restore();}
+});
