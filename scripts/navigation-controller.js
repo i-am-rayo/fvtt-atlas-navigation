@@ -2282,13 +2282,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const preset=approvedMethod??availableNavigationTravelMethods(game.settings,game.system?.id)
       .find(method=>method.id===travel.methodId);
     if(!preset)return rules;
-    const normalHours=preset.surface==="land"?
-      (rules.dailyHours??8):8;
-    let operation=approvedOperation??this.transportOperation??"normal";
-    let selected;
-    try{selected=resolveTransportationOperation(preset,operation,normalHours);}
-    catch{operation="normal";this.transportOperation="normal";
-      selected=resolveTransportationOperation(preset,"normal",normalHours);}
+    const normalHours=rules.dailyHours??8;
+    const operation=approvedOperation??this.transportOperation??"normal";
+    // Never replace an approved continuous/overtime operation silently.
+    const selected=resolveTransportationOperation(preset,operation,normalHours);
     return {...rules,profile:"transport-service",label:"Transport service",
       // Crewed vessels may operate 24h by shifts; passengers choose their own
       // rest times without stopping the ship or triggering forced march.
@@ -2310,7 +2307,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     session.journeyRecord={...previous,passengerRest:
       beginPassengerRestMetadata(previous,session.schedule,request)};
     this.travelNotice=(action==="long"?"Long":"Short")+" rest underway aboard "+
-      session.transportLeg.transport.methodName+". The vessel keeps moving; "+
+      session.transportLeg.transport.methodName+". The transport keeps moving; "+
       "the rest is confirmed only after the required travel time elapses.";
     if(this.active)void this.render(true);
     try{await this.saveJourneyCheckpoint(session,"moving");}
@@ -2715,7 +2712,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!Number.isFinite(hours)||hours<=0)throw Error("This leg has no valid operating speed.");
       travel={...travel,methodId:info.methodId,
         speed:speedDistance/hours,source:info.arrangement==="hire"?
-          "checkpoint-service":"group-transport",hoursPerDay:8};
+          "checkpoint-service":"group-transport",hoursPerDay:
+            resolveNavigationTravelRules({settings:game.settings,
+              systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8};
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm travel to "+guidedLeg.checkpoint.name},
         content:el("div","GM confirmation: travel to "+guidedLeg.checkpoint.name+
@@ -4918,7 +4917,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           transferPlan?.hasTransitions?
           "Only the current stretch is estimated. Later transport decisions are made at checkpoints. "+
           (activeLeg?.operation==="continuous"?
-            "This vessel operates continuously. Passenger rests may overlap sailing time without stopping the vessel or adding duplicate World time.":
+            "This transport operates continuously. Passenger rests may overlap moving time without stopping it or adding duplicate World time.":
             "Standard travel estimates allow 8 hours/day with 16 hours overnight downtime; actual stops remain GM decisions."):
           transportPreview?
           "Transport service preview ("+this.transportOperation+"): "+
