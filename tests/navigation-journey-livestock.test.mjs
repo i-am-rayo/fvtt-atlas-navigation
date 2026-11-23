@@ -42,3 +42,21 @@ test("next leg suggests prior mount boarding but reapproval and roster checks re
   const edited=structuredClone(roster);edited.members[2].quantity=3;
   assert.throws(()=>assertRecoveredLivestock(journal,edited),/differs/);
 });
+
+
+test("multiple mounts retain the exact embarked quantity from leg one on the onward draft",()=>{
+  const expanded=structuredClone(roster);
+  expanded.members[2].quantity=3;
+  const approved=planJourneyLivestock(expanded,{a:1,b:2},{surface:"water",
+    methodId:"ship-passage",units:1,capacityPerUnit:4,fareCp:300});
+  const record={legs:[{livestock:approved}]};
+  const before=structuredClone(record);
+  assert.deepEqual(suggestedLivestockBoarding(record,expanded),{a:1,b:2},
+    "a three-animal Group resource must not silently turn into three boarding animals");
+  assert.deepEqual(record,before,"suggesting a new leg is read-only");
+  const altered=planJourneyLivestock(expanded,{a:0,b:1},{surface:"land",
+    methodId:"walking",units:1,capacityPerUnit:null});
+  assert.equal(altered.resources.find(item=>item.actorId==="b").aboard,1,
+    "the new leg can be reapproved with a different quantity without changing history");
+  assert.deepEqual(record,before);
+});
