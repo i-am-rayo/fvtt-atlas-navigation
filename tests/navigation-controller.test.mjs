@@ -3011,6 +3011,9 @@ test("saved B to C all-water route uses current-leg tiles rather than the old me
       ...projectPartyTravelSelection(groupRoster,{
         mode:nav.partySelectionMode,ids:nav.partySelectedIds})});
     nav.render=async()=>{};
+    // A saved checkpoint can retain a live Journal handle while the next
+    // departure is previewed. This must not hide the water traveler deck.
+    nav.canDraftTravelMethods=()=>false;
 
     const plan=nav.transportationTransitionPlan();
     assert.equal(plan.checkpointContinuation,true);
