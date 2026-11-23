@@ -366,6 +366,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** Use one route calculation for both map-point and live party departures. */
   calculateRoute(view,atlas,{terrainAware=null}={}) {
     this.routeRevision=atlas.revision;
+    // A replan may depart from another Map Marker. Never carry a local hire
+    // quote from the prior route into a different departure's preview.
+    this.mixedMethodOverrides={};
     this.transferSelections={};
     this.transferLegOverrides={};
     this.transferLegOperations={};
