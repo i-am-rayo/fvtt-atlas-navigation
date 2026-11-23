@@ -2941,9 +2941,17 @@ test("ABC checkpoint continuation targets the next saved coordinate without repl
     "Continue never commits progress or advances the plan");
 });
 
-test("saved B to C all-water route exposes a checkpoint ship transfer, not preview-only travel",()=>{
-  const previous={game:globalThis.game};
+test("saved B to C all-water route uses current-leg tiles rather than the old menu",async()=>{
+  const previous={game:globalThis.game,document:globalThis.document,
+    window:globalThis.window,ui:globalThis.ui};
   try{
+    globalThis.window={innerWidth:1300,innerHeight:900};
+    globalThis.ui={notifications:{error(){},warn(){}}};
+    globalThis.document={createElement:tag=>({tag,style:{},children:[],textContent:"",
+      listeners:new Map(),append(...nodes){this.children.push(...nodes);},
+      appendChild(node){this.children.push(node);},
+      addEventListener(name,handler){this.listeners.set(name,handler);},
+      setAttribute(name,value){if(name==="aria-label")this.ariaLabel=value;}})};
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"unknown"},
       settings:{get:()=>undefined}};
     const port={x:100,y:100},dock={x:300,y:100};
@@ -2978,9 +2986,24 @@ test("saved B to C all-water route exposes a checkpoint ship transfer, not previ
     assert.equal(plan.legs[0].selectedOption.value,"hire|ship-passage");
     assert.deepEqual(plan.legs[0].errors,[]);
     assert.ok(plan.legs[0].hours>0);
+    const root=await nav._renderHTML();
+    const find=(node,predicate)=>predicate(node)?node:
+      node.children?.map(child=>find(child,predicate)).find(Boolean);
+    const tiles=find(root,node=>node.className==="atlas-navigation-methods");
+    assert.ok(tiles,"the onward water leg uses the same method cards as land");
+    const ship=find(tiles,node=>node.tag==="input"&&node.value==="hire|ship-passage");
+    assert.equal(ship.type,"radio");
+    assert.equal(ship.checked,true);
+    const edit=find(tiles,node=>node.tag==="button"&&
+      node.ariaLabel?.includes("Ship passage"));
+    assert.ok(edit,"a selected water transfer has a method-specific pencil");
+    assert.equal(find(root,node=>node.ariaLabel==="Transportation method for current leg"),
+      undefined,"the legacy dropdown is no longer used on a fresh transfer");
+    assert.ok(find(root,node=>node.ariaLabel==="Operating schedule for Ship passage"),
+      "the GM sees the active water operating schedule");
     assert.equal(nav.recoveryRecord.routeTargets.nextTargetIndex,2,
-      "planning must not confirm C or change the Journal");
-  }finally{globalThis.game=previous.game;}
+      "rendering the checkpoint preview must never advance saved targets");
+  }finally{Object.assign(globalThis,previous);}
 });
 
 test("Continue from a completed port never previews another voyage to that same port",async()=>{
