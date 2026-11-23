@@ -101,9 +101,9 @@ export function planNativeCheckpointPath(waypoints,{
   // Record the actual submitted endpoints, not unrounded Atlas curve points.
   const nativePoint=p=>({x:Math.round(p.x),y:Math.round(p.y)});
   const path=[nativePoint(waypoints[0])];
-  let completedDistance=0;
+  let completedDistance=0,unconfirmedDistance=0;
   const checkpoints=[];
-  for(const [index,interval] of intervals.entries()){
+  for(const interval of intervals){
     const from=path.at(-1);
     const pathStartIndex=path.length-1;
     for(const next of interval.waypoints.slice(1)){
@@ -115,18 +115,32 @@ export function planNativeCheckpointPath(waypoints,{
       path.push(target);
     }
     const end=path.at(-1);
-    if(distance(from,end)<=EPS)
-      throw Error("A native movement checkpoint collapses to one pixel. Use a longer interval.");
-    completedDistance+=interval.distance;
-    // Foundry's final waypoint is inherently a checkpoint; marking it
-    // explicitly keeps the same uniform contract for the host adapter.
+    unconfirmedDistance+=interval.distance;
+    if(distance(from,end)<=EPS)continue;
+    // Every deferred fractional-pixel interval belongs to this *future*
+    // native move, never to an unconfirmed synthetic checkpoint.
+    completedDistance+=unconfirmedDistance;
     end.checkpoint=true;
-    checkpoints.push({index,pathStartIndex,pathEndIndex:path.length-1,
-      point:{x:end.x,y:end.y},
-      from:{x:from.x,y:from.y},distance:interval.distance,
+    checkpoints.push({index:checkpoints.length,pathStartIndex,
+      pathEndIndex:path.length-1,point:{x:end.x,y:end.y},
+      from:{x:from.x,y:from.y},distance:unconfirmedDistance,
       completedDistance,
       completedMovingHours:totalMovingHours*completedDistance/totalDistance});
+    unconfirmedDistance=0;
   }
+  if(unconfirmedDistance>EPS){
+    // The already-rounded terminal point is indistinguishable from the
+    // final confirmed pixel. Only a strictly subpixel tail may be included
+    // in that last *future* native receipt; never invent an entire movement.
+    if(!checkpoints.length||unconfirmedDistance>1)
+      throw Error("The approved native path has unmovable terminal geometry.");
+    const last=checkpoints.at(-1);
+    last.distance+=unconfirmedDistance;
+    last.completedDistance+=unconfirmedDistance;
+    last.completedMovingHours=totalMovingHours;
+  }
+  if(!checkpoints.length)
+    throw Error("The approved native path has no distinct pixel movement.");
   if(path.length>4096)
     throw Error("Too many native TokenDocument movement waypoints.");
   return {schemaVersion:NATIVE_CHECKPOINT_PATH_SCHEMA,path,checkpoints,
