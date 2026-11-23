@@ -121,7 +121,12 @@ test("GM route mismatch diagnostic identifies the exact saved and proposed segme
 test("near-pixel road junction remains a refusal while diagnostic explains the missing segment",async()=>{
   const module=await import("../scripts/navigation-approved-path.js");
   assert.equal(typeof module.describeApprovedJourneyRouteMismatch,"function");
-  const route=resumed(p(499.9,0),[leg("east",[p(499.9,0),p(1000,0)])]);
+  const intact=resumed(p(499.9,0),[leg("east",[p(499.9,0),p(1000,0)])]);
+  assert.equal(assessApprovedJourneyRecovery({
+    approvedPath,route:intact,anchor:{point:p(499.9,0)},
+    tokenPosition:intact.start,gridSize:100}).safe,true,
+    "a verified same-road near-end continuation remains recoverable");
+  const route=resumed(p(499.9,0),[leg("changed",[p(499.9,0),p(1000,0)])]);
   const record={point:p(499.9,0)};
   const outcome=assessApprovedJourneyRecovery({
     approvedPath,route,anchor:record,tokenPosition:route.start,gridSize:100});
@@ -129,7 +134,7 @@ test("near-pixel road junction remains a refusal while diagnostic explains the m
   const diagnostic=module.describeApprovedJourneyRouteMismatch({
     approvedPath,route,anchor:record,tokenPosition:route.start});
   assert.deepEqual(diagnostic.approvedSegmentIds,["west","east"]);
-  assert.deepEqual(diagnostic.proposedSegmentIds,["east"]);
+  assert.deepEqual(diagnostic.proposedSegmentIds,["changed"]);
   assert.equal(diagnostic.firstDifferenceIndex,0);
   assert.equal(diagnostic.anchorProjection.legIndex,0);
 });
