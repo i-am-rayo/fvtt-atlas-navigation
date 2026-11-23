@@ -921,8 +921,10 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     const hired=await nav._renderHTML();
     assert.ok(find(hired,item=>item.textContent?.startsWith?.("World preset estimate:")));
     const pencil=find(hired,item=>item.tag==="button"&&
-      item.textContent==="Edit selected method");
-    assert.ok(pencil,"Journey retains the per-trip method editor behind a clear action");
+      item.ariaLabel==="Edit Carriage transportation");
+    assert.ok(pencil,"one selected method has an accessible pencil on its tile");
+    assert.equal(find(hired,item=>item.tag==="button"&&
+      item.textContent==="Edit selected method"),undefined);
     assert.equal(find(hired,item=>item.textContent==="Arrangement"),undefined,
       "the method's radio group already selects owned versus hired");
     assert.equal(find(hired,item=>item.textContent==="Operating schedule"),undefined,
@@ -2372,6 +2374,36 @@ test("mixed carriage pencil opens the shared journey and Map Marker editor witho
     await assert.rejects(nav.editMixedTravelMethod("hire|carriage"),/authorized GM/);
     assert.equal(dialogs.length,1,"a non-GM cannot open the editing workflow");
   }finally{Object.assign(globalThis,previous);}
+});
+
+
+test("single hired Cart uses active Map Marker schedule for approval, not World defaults",()=>{
+  const previous=globalThis.game;
+  try{
+    globalThis.game={user:{isGM:true},system:{id:"dnd5e"},
+      settings:{get:()=>undefined}};
+    const nav=new AtlasNavigationController();
+    nav.travelMethod="cart";nav.transportArrangement="hire";
+    nav.transportOperation="continuous";
+    const world=findTransportationPreset("cart",game.settings,"dnd5e");
+    assert.notEqual(world.continuousEnabled,true);
+    const offer={methodId:"cart",mode:"land",checkpointId:"port",overrides:{
+      hireEnabled:true,continuousEnabled:true}};
+    const availability={methods:[world],offers:new Map([["cart",offer]])};
+    nav.transportAvailability=()=>availability;
+    const approved=nav.resolveCurrentLegRules({methodId:"cart",hoursPerDay:8});
+    assert.equal(approved.dailyHours,null,
+      "the 24-hour schedule cannot silently become an 8-hour rest decision");
+    assert.equal(approved.overnightHours,0);
+    nav.transportOperation="normal";
+    assert.equal(nav.resolveCurrentLegRules({methodId:"cart",hoursPerDay:8})
+      .dailyHours,8);
+    nav.transportOperation="continuous";
+    offer.overrides.continuousEnabled=false;
+    assert.throws(()=>nav.resolveCurrentLegRules({methodId:"cart",hoursPerDay:8}),
+      /Continuous operation/,
+      "if a saved or selected capability disappears, fail closed before movement");
+  }finally{globalThis.game=previous;}
 });
 
 test("mounts, wagons, and ships use explicit daily operating policies",()=>{
