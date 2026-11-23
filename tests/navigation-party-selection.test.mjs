@@ -37,11 +37,12 @@ test("all-party and partial PC preview use stable Actor IDs without mutating Gro
   assert.equal(subset.previewRoster.travelers,1);
   assert.deepEqual(subset.previewRoster.selectedTravelerIds,["c1"]);
   assert.deepEqual(original,before);
+  assert.throws(()=>projectPartyTravelSelection(original,{mode:"selected",ids:["missing"]}),/roster changed/);
   assert.throws(()=>projectPartyTravelSelection(original,
     {mode:"selected",ids:["c1","c1"]}),/Invalid/);
 });
 
-test("selection UI lists actual PCs with checkboxes and warns when party is split",()=>{
+test("selection UI lists actual PCs without requiring native Group splitting",()=>{
   const restore=dom();
   try{
     const changes=[];
@@ -51,7 +52,7 @@ test("selection UI lists actual PCs with checkboxes and warns when party is spli
     assert.ok(text.includes("Traveling party"));
     assert.ok(text.includes("Alba"));
     assert.ok(text.includes("Brent"));
-    assert.ok(text.some(x=>x.includes("Subset capacity is preview-only")));
+    assert.ok(text.some(x=>x.includes("native Group membership")));
     const checks=flat(root).filter(x=>x.type==="checkbox");
     assert.equal(checks.length,4,"NPCs are individually selectable alongside PCs");
     checks[1].checked=true;checks[1].listeners.change();
