@@ -1651,7 +1651,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     try{
       const leg=saved?.legs?.at(-1),intent=saved?.pendingNativeMove;
       const scene=this.scene,view=this.canvasProvider(),token=this.getPartyToken();
-      if(!intent?.bounded||!leg?.approvedPath||leg.transport?.operation!=="continuous"||
+      if(!intent?.bounded||!leg?.approvedPath||
+          !["normal","overtime","continuous"].includes(
+            leg.transport?.operation??leg.travelMethod?.operation??"normal")||
           !game.user?.isGM||game.users?.activeGM?.id!==game.user.id||
           !scene?.canUserModify?.(game.user,"update")||
           !token?.canUserModify?.(game.user,"update")||!view?.ready||
