@@ -133,7 +133,7 @@ test("ordinary scheduled native chunk preserves a durable intent and does not cl
   const prior={game:globalThis.game,foundry:globalThis.foundry,Hooks:globalThis.Hooks};
   try{
     const listeners=new Map(),writes=[];
-    globalThis.foundry={utils:{randomID:()=>"OrdinaryChunk0001"}};
+    globalThis.foundry={utils:{randomID:()=>"OrdinaryMove0001"}};
     globalThis.Hooks={on(key,fn){listeners.set(key,fn);return fn;},
       off(key,fn){assert.equal(listeners.get(key),fn);listeners.delete(key);}};
     globalThis.game={time:{worldTime:500}};
