@@ -20,8 +20,15 @@ test("three physical mounts require a decision each; never mutate Group inventor
     methodId:"ship-passage",units:1,capacityPerUnit:3}),/Decide/);
   assert.throws(()=>planJourneyLivestock(roster,{a:1,b:2},{surface:"water",
     methodId:"ship-passage",units:1,capacityPerUnit:2}),/insufficient/);
+  const unlimited=planJourneyLivestock(roster,{a:1,b:2},{surface:"water",
+    methodId:"ship-passage",units:1,capacityPerUnit:null});
+  assert.equal(unlimited.capacityPerUnit,null);
+  assert.deepEqual(validateJourneyLivestock(unlimited),unlimited);
   assert.throws(()=>planJourneyLivestock(roster,{a:1,b:2},{surface:"water",
-    methodId:"ship-passage",units:1,capacityPerUnit:null}),/insufficient/);
+    methodId:"ship-passage",units:1,capacityPerUnit:0}),/insufficient/);
+  assert.throws(()=>validateJourneyLivestock({...unlimited,capacityPerUnit:0}),
+    /exceeds available vessel stalls/,
+    "saved Journeys must still reject an explicitly forbidden animal capacity");
   assert.throws(()=>planJourneyLivestock(roster,{a:1,b:3},{surface:"water",
     methodId:"ship-passage",units:1,capacityPerUnit:3}),/quantity/);
   assert.throws(()=>planJourneyLivestock(roster,{a:0,b:0,ghost:1},{surface:"water",
