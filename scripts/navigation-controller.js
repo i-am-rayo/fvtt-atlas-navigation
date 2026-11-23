@@ -3576,7 +3576,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const savedLivestock=this.recoveryRecord.legs.at(-1)?.livestock;
       // Derive the next draft from native Group data BEFORE applying prior
       // mount exclusions. An empty draft cannot yet pass the all-mount validator.
-      const actor=this.getPartyToken()?.actor;
+      const actor=savedParticipation||savedLivestock?
+        this.getPartyToken()?.actor:null;
       if((savedParticipation||savedLivestock)&&
         (game.system?.id!=="dnd5e"||actor?.type!=="group"))
         throw Error("Cannot reconcile saved travelers or mounts with the native Group.");
