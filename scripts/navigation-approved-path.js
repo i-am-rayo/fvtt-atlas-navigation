@@ -92,6 +92,36 @@ const roadSequence=legs=>legs.filter(leg=>leg.kind==="road")
   .map(leg=>leg.segmentId).filter((id,i,a)=>i===0||id!==a[i-1]);
 
 /**
+ * Read-only, bounded route-identity evidence for GM diagnostics on a refused
+ * recovery. No complete private graph, Actor, or token movement history dump.
+ * The caller decides whether this may be disclosed to the active GM.
+ */
+export function describeApprovedJourneyRouteMismatch({approvedPath,route,anchor,
+  tokenPosition}={}){
+  const saved=validateApprovedJourneyPath(approvedPath);
+  const proposed=validateApprovedJourneyPath({schemaVersion:1,legs:route?.legs});
+  if(!finite(anchor?.point)||!finite(tokenPosition))
+    throw Error("Recovery diagnostics need the confirmed and native positions.");
+  const hit=projection(anchor.point,segments(saved));
+  if(!hit)throw Error("The confirmed anchor has no approved path projection.");
+  const approvedSegmentIds=roadSequence(saved.legs.slice(hit.legIndex));
+  const proposedSegmentIds=roadSequence(proposed.legs);
+  let firstDifferenceIndex=0;
+  while(firstDifferenceIndex<approvedSegmentIds.length&&
+      approvedSegmentIds[firstDifferenceIndex]===proposedSegmentIds[firstDifferenceIndex])
+    firstDifferenceIndex++;
+  return {reason:"road-sequence-changed",
+    approvedSegmentIds,proposedSegmentIds,firstDifferenceIndex,
+    confirmedAnchor:copy(anchor.point),nativePosition:copy(tokenPosition),
+    approvedDestination:copy(saved.legs.at(-1).points.at(-1)),
+    proposedDestination:copy(proposed.legs.at(-1).points.at(-1)),
+    anchorProjection:{legIndex:hit.legIndex,
+      offsetPixels:Math.round(hit.offset*100)/100,
+      lateralPixels:Math.round(hit.distance*100)/100,
+      ambiguous:hit.ambiguous}};
+}
+
+/**
  * Evaluate a *freshly calculated* route against the confirmed original path.
  * A GM may tolerate at most three cells of sideways road/hex discrepancy, but
  * that tolerance NEVER confirms movement, time, rest, or transportation.
