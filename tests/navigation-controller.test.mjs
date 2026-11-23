@@ -928,8 +928,9 @@ test("navigation locks the completed route until deliberate endpoint gestures or
       item.textContent==="Edit selected method"),undefined);
     assert.equal(find(hired,item=>item.textContent==="Arrangement"),undefined,
       "the method's radio group already selects owned versus hired");
-    assert.equal(find(hired,item=>item.textContent==="Operating schedule"),undefined,
-      "the operating schedule belongs in the method editor");
+    assert.equal(find(hired,item=>item.tag==="select"&&
+      item.ariaLabel?.startsWith("Operating schedule for ")),undefined,
+      "the Navigation panel has no redundant operating-schedule selector");
     assert.equal(find(hired,item=>item.textContent==="GM pricing for this journey only"),undefined,
       "the duplicate inline pricing form was removed");
     assert.equal(nav.transportJourneyOverrides,null);
@@ -2385,7 +2386,7 @@ test("single hired Cart uses active Map Marker schedule for approval, not World 
       settings:{get:()=>undefined}};
     const nav=new AtlasNavigationController();
     nav.travelMethod="cart";nav.transportArrangement="hire";
-    nav.transportOperation="continuous";
+    nav.transportOperation="normal";
     const world=findTransportationPreset("cart",game.settings,"dnd5e");
     assert.notEqual(world.continuousEnabled,true);
     const offer={methodId:"cart",mode:"land",checkpointId:"port",overrides:{
@@ -2395,7 +2396,8 @@ test("single hired Cart uses active Map Marker schedule for approval, not World 
     const preview=nav.resolveTravelRules({methodId:"cart",hoursPerDay:8});
     assert.equal(preview.dailyHours,null,
       "read-only estimates must use the Map Marker schedule without downgrading it");
-    assert.equal(nav.transportOperation,"continuous");
+    assert.equal(nav.transportOperation,"normal",
+      "read-only preview must not mutate an implicit mode into a new trip decision");
     const approved=nav.resolveCurrentLegRules({methodId:"cart",hoursPerDay:8});
     assert.equal(approved.dailyHours,null,
       "the 24-hour schedule cannot silently become an 8-hour rest decision");
@@ -2407,11 +2409,10 @@ test("single hired Cart uses active Map Marker schedule for approval, not World 
     tracker.recordMovement(4);
     assert.equal(tracker.completedHours,12);
     assert.equal(tracker.breakHours,0);
-    nav.transportOperation="normal";
-    assert.equal(nav.resolveCurrentLegRules({methodId:"cart",hoursPerDay:8})
-      .dailyHours,8);
-    nav.transportOperation="continuous";
     offer.overrides.continuousEnabled=false;
+    assert.equal(nav.resolveCurrentLegRules({methodId:"cart",hoursPerDay:8})
+      .dailyHours,8,"removing an unapproved capability returns to standard planning");
+    nav.transportOperation="continuous";
     assert.throws(()=>nav.resolveCurrentLegRules({methodId:"cart",hoursPerDay:8}),
       /Continuous operation/,
       "if a saved or selected capability disappears, fail closed before movement");
@@ -3003,9 +3004,9 @@ test("saved B to C all-water route uses current-leg tiles rather than the old me
     assert.ok(edit,"a selected water transfer has a method-specific pencil");
     assert.equal(find(root,node=>node.ariaLabel==="Transportation method for current leg"),
       undefined,"the legacy dropdown is no longer used on a fresh transfer");
-    assert.ok(find(root,node=>node.tag==="select"&&
-      node.ariaLabel?.startsWith("Operating schedule for ")),
-      "the GM sees the active water operating schedule");
+    assert.equal(find(root,node=>node.tag==="select"&&
+      node.ariaLabel?.startsWith("Operating schedule for ")),undefined,
+      "water transfers also omit the redundant Journey schedule selector");
     assert.equal(nav.recoveryRecord.routeTargets.nextTargetIndex,2,
       "rendering the checkpoint preview must never advance saved targets");
   }finally{Object.assign(globalThis,previous);}
