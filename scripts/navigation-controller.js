@@ -1076,24 +1076,28 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     await openTransportationMethodEditor({
       method:option.method,scope:"journey",
       checkpointName:option.offer?.checkpointName??null,
+      journeyOperation:leg.operation,
       onReset:async()=>{
         delete this.transferLegOverrides[index];
+        delete this.transferLegOperations[index];
         await this.render(true);
       },
-      onSave:async edited=>{
+      onSave:async (edited,{operation}={})=>{
         if(this.transferSelections[index]!==choice)
           throw Error("The transportation choice changed. Reopen its editor.");
         this.transferLegOverrides[index]={selection:choice,
           overrides:transportationMethodOverrideDelta(origin,edited)};
+        if(operation)this.transferLegOperations[index]=operation;
         await this.render(true);
         globalThis.ui?.notifications?.info?.("Transportation saved for this trip only.");
       },
-      onSaveCheckpoint:checkpointId?async edited=>{
+      onSaveCheckpoint:checkpointId?async (edited,{operation}={})=>{
         if(this.transferSelections[index]!==choice)
           throw Error("The transportation choice changed. Reopen its editor.");
         await this.saveNavigationCheckpointOffer({checkpointId,methodId,world,
           originalOffers:initialOffers,edited});
         delete this.transferLegOverrides[index];
+        if(operation)this.transferLegOperations[index]=operation;
         await this.render(true);
       }:null
     });
@@ -1222,6 +1226,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(current){
         this.transferSelections[0]=next[0];
         delete this.transferLegOverrides[0];
+        delete this.transferLegOperations[0];
         void this.render(true);return;
       }
       if(this.travelMethod===singleMethod&&
@@ -1265,7 +1270,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const view=this.canvasProvider();
     if(!current&&view?.ready&&view.scene?.id===this.scene.id)
       this.calculateRoute(view,this.atlasProvider(this.scene));
-    if(current)delete this.transferLegOverrides[0];
+    if(current){delete this.transferLegOverrides[0];
+      delete this.transferLegOperations[0];}
     this.draw();void this.render(true);
   }
 
@@ -3521,6 +3527,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
     this.transportJourneyOverrides=null;
+    this.transferLegOperations={};
     this.partySelectionMode="all";this.partySelectedIds=[];
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
@@ -4796,6 +4803,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             if(this.travelSession||this.journalStarting)return;
             this.transferSelections[0]=value;
             delete this.transferLegOverrides[0];
+            delete this.transferLegOperations[0];
             void this.render(true);
           },
           onEdit:()=>void this.editTransportationLeg(0)
