@@ -3558,3 +3558,44 @@ test("suspended Journal finalization waits for its writer and preserves the dura
     assert.equal(game.time.worldTime,3700);
   }finally{globalThis.game=old;}
 });
+
+test("current water-leg per-person estimate follows selected Group IDs without booking",()=>{
+  const previous=globalThis.game;
+  try{
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
+      settings:{get:()=>undefined}};
+    const from=point(0,0),to=point(300,0);
+    const actor={id:"groupA",type:"group",name:"Party",system:{members:[
+      {actor:{id:"pcA",name:"Alba",type:"character"}},
+      {actor:{id:"pcB",name:"Brent",type:"character"}}
+    ]}};
+    const token={id:"group-token",actor};
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to}],
+      roads:[{id:"sea",name:"Sea passage",travelPresetId:"water-sea"}],
+      segments:[{id:"segment",roadId:"sea",from:"start",to:"end",via:[]}],
+      checkpoints:[{id:"dock",name:"Dock",nodeId:"start",roadId:"sea"},
+        {id:"port",name:"Port",nodeId:"end",roadId:"sea"}]};
+    const scene={id:"sea-scene",grid:{size:100,units:"mi"},getFlag:(_ns,key)=>
+      key==="checkpointTransportOffers"?{schemaVersion:1,entries:{dock:[
+        {methodId:"ship-passage",mode:"sea",overrides:{
+          hireEnabled:true,hireCostCp:250,hireBasis:"trip",hireApplies:"passenger",
+          capacity:6}}
+      ]}}:undefined};
+    const route={status:"ok",start:from,end:to,distance:10,cost:10,
+      legs:[{kind:"road",roadId:"sea",segmentId:"segment",points:[from,to],
+        distance:10,cost:10}]};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,
+      partyTokenProvider:()=>token});
+    nav.scene=scene;nav.result=route;nav.sourceMode="party";
+    nav.transferSelections[0]="hire|ship-passage";
+    const full=nav.transportationTransitionPlan().legs[0];
+    assert.equal(full.costCp,500,"2 human travelers cost 2 × 250 CP");
+    nav.partySelectionMode="selected";nav.partySelectedIds=["pcA"];
+    const partial=nav.transportationTransitionPlan().legs[0];
+    assert.equal(partial.costCp,250,
+      "a prospective single passenger quote does not bill the excluded Group member");
+    assert.deepEqual(partial.errors,[]);
+    assert.deepEqual(actor.system.members.map(m=>m.actor.id),["pcA","pcB"],
+      "preview never changes the native Group roster");
+  }finally{globalThis.game=previous;}
+});
