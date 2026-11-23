@@ -53,3 +53,14 @@ test("day-limit split never grants subpixel movement or overtime implicitly",()=
  assert.ok(schedule.availableHours<1.02);
  assert.ok(schedule.events.some(e=>e.action==="continue"));
 });
+
+test("travel-day split near the final authored bend keeps the endpoint",()=>{
+ const authored=chunk(pt(0),pt(1000));
+ const [first,second]=splitGuidedChunkAtDistance(authored,999.99998);
+ assert.deepEqual(first.waypoints.at(-1),second.waypoints[0]);
+ assert.deepEqual(second.waypoints.at(-1),pt(1000),
+   "a near-one fractional split cannot delete the final approved road point");
+ assert.equal(second.waypoints.length,2);
+ assert.ok(Math.abs(first.distance+second.distance-authored.distance)<1e-8);
+ assert.equal(coalesceSubpixelTravelChunks([second],{allowTailMerge:false}),null);
+});
