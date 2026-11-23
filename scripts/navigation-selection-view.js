@@ -90,7 +90,8 @@ export function travelMethodIconClass(value,label){
 }
 
 export function renderNavigationTravelMethodButtons({choices,selectedValue,
-  selectedValues=null,disabled=false,showEditor=false,onMethodChange,onMethodToggle,onEdit}){
+  selectedValues=null,disabled=false,showEditor=false,onMethodChange,onMethodToggle,onEdit,
+  onEditMethod}){
   const section=el("fieldset");
   section.className="atlas-navigation-methods";
   section.style.cssText="display:grid;gap:.55rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:9px;padding:.7rem;margin:0;min-width:0;";
@@ -125,8 +126,10 @@ export function renderNavigationTravelMethodButtons({choices,selectedValue,
     const label=el("label");
     label.htmlFor=id;
     const active=selected.has(choice.value);
+    const canEdit=Boolean(onEditMethod&&active&&choice.value!=="owned|walking");
     label.style.cssText="display:flex;align-items:center;gap:.35rem;"+
-      "padding:.4rem .5rem;border-radius:7px;min-width:0;cursor:pointer;"+
+      "padding:.4rem "+(canEdit?"2.6rem":".5rem")+" .4rem .5rem;"+
+      "border-radius:7px;min-width:0;cursor:pointer;"+
       "border:1px solid "+(active?"#3eaf93":
         "var(--color-border-light-tertiary,#555)")+";"+
       (active?"background:rgba(22,169,101,.12);":"");
@@ -159,7 +162,24 @@ export function renderNavigationTravelMethodButtons({choices,selectedValue,
       if(multiple)onMethodToggle?.(input.value,input.checked);
       else if(input.checked)onMethodChange?.(input.value);
     });
-    group.appendChild(label);
+    if(canEdit){
+      // A sibling button, never nested in a label: editing must not toggle
+      // the checkbox or change the staged mixed-party assignment.
+      const tile=el("div");
+      tile.style.cssText="position:relative;min-width:0;";
+      const edit=el("button");
+      edit.type="button";edit.disabled=Boolean(disabled);
+      edit.title="Edit "+choice.label+" for this journey or its Map Marker";
+      edit.setAttribute?.("aria-label","Edit "+choice.label+" transportation");
+      edit.innerHTML='<i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>';
+      edit.style.cssText="position:absolute;right:.3rem;top:50%;transform:translateY(-50%);"+
+        "min-width:2rem;min-height:2rem;";
+      edit.addEventListener("click",()=>{
+        if(!disabled)onEditMethod(choice.value);
+      });
+      tile.append(label,edit);
+      group.appendChild(tile);
+    }else group.appendChild(label);
   }
   if(showEditor){
     const edit=el("button","Edit selected method");
