@@ -2364,9 +2364,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const rules=resolveNavigationTravelRules({settings:game.settings,
       systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
     if(!travel?.methodId||travel.methodId==="walking")return rules;
-    const preset=approvedMethod??availableNavigationTravelMethods(game.settings,game.system?.id)
+    const world=approvedMethod??availableNavigationTravelMethods(game.settings,game.system?.id)
       .find(method=>method.id===travel.methodId);
-    if(!preset)return rules;
+    // No approved snapshot was passed: use this trip's actual local method,
+    // not the older World template when a Map Marker enables 24h operation.
+    const preset=!approvedMethod&&world&&travel.methodId===this.travelMethod?
+      this.effectiveTransportMethod(world):world;
+    if(!preset){
+      if(travel.methodId===this.travelMethod&&this.transportOperation!=="normal")
+        throw Error("The selected transportation method is unavailable.");
+      return rules;
+    }
     const normalHours=rules.dailyHours??8;
     let operation=approvedOperation??this.transportOperation??"normal";
     let selected;
