@@ -3820,14 +3820,14 @@ test("water-to-land handoff preserves the partial embarked mount inventory as an
     nav.livestockDecisions={horseA:1,horseB:2};
     const plan=nav.transportationTransitionPlan().legs[0];
     assert.deepEqual(plan.errors,[]);
-    assert.equal(plan.costCp,1250,"2 human fares + 3 physical animal equivalents");
-    assert.equal(plan.livestock.estimatedFareCp,750);
+    assert.equal(plan.costCp,875,"2 human fares + 3 physical mounts at 50%");
+    assert.equal(plan.livestock.estimatedFareCp,375);
     assert.equal(plan.livestock.resources.find(m=>m.actorId==="horseB").aboard,2);
     animalCapacity=null;
     const defaultUnlimited=nav.transportationTransitionPlan().legs[0];
     assert.deepEqual(defaultUnlimited.errors,[]);
     assert.equal(defaultUnlimited.livestock.capacityPerUnit,null);
-    assert.equal(defaultUnlimited.costCp,1250);
+    assert.equal(defaultUnlimited.costCp,875);
     animalCapacity=0;
     assert.ok(nav.transportationTransitionPlan().legs[0].errors.some(error=>
       /does not allow/i.test(error)));
@@ -3966,7 +3966,7 @@ test("land vehicle boarding prices physical animals without changing passenger s
     const planned=nav.planLandVehicleBoarding(wagon,"hire",party);
     assert.equal(planned.quote.units,1);
     assert.equal(planned.quote.baseCp,80);
-    assert.equal(planned.quote.livestockFareCp,120);
+    assert.equal(planned.quote.livestockFareCp,60);
     assert.equal(planned.manifest.carried,true);
     assert.equal(planned.manifest.capacityPerUnit,null);
     assert.deepEqual(planned.manifest.resources.map(m=>m.aboard),[1,2]);
