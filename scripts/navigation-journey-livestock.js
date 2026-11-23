@@ -41,10 +41,11 @@ export function projectAccompanyingLivestock(roster,decisions){
 
 /** Separate passenger seats from animal stalls; null == no configured limit. */
 export function planJourneyLivestock(roster,decisions,{surface,methodId,
-  units,capacityPerUnit,fareCp=0}={}){
+  units,capacityPerUnit,fareCp=0,carried=false}={}){
   if(!["land","water","air"].includes(surface)||!id(methodId)||
     !Number.isInteger(units)||units<1||units>1000||
     !Number.isFinite(fareCp)||fareCp<0||fareCp>Number.MAX_SAFE_INTEGER||
+    typeof carried!=="boolean"||carried&&surface!=="land"||
     !decisions||typeof decisions!=="object"||Array.isArray(decisions))
     throw Error("Invalid vessel boarding plan.");
   countJourneyLivestock(roster,decisions);
@@ -56,19 +57,23 @@ export function planJourneyLivestock(roster,decisions,{surface,methodId,
     return {...m,aboard};
   });
   const aboard=resources.reduce((n,m)=>n+m.aboard,0);
-  if(surface==="land"&&(units!==1||capacityPerUnit!==null||fareCp!==0))
+  if(surface==="land"&&!carried&&
+    (units!==1||capacityPerUnit!=null||fareCp!==0))
     throw Error("Land livestock accompaniment cannot invent a vessel or fare.");
-  if(surface!=="land"&&aboard>0&&capacityPerUnit!=null&&
+  if((surface!=="land"||carried)&&aboard>0&&capacityPerUnit!=null&&
     (!Number.isInteger(capacityPerUnit)||capacityPerUnit<1||
       capacityPerUnit>1000||aboard>capacityPerUnit*units))
     throw Error("The vessel has insufficient animal accommodation.");
   return validateJourneyLivestock({schemaVersion:1,methodId,surface,units,
-    capacityPerUnit:capacityPerUnit??null,resources,estimatedFareCp:fareCp});
+    capacityPerUnit:capacityPerUnit??null,resources,estimatedFareCp:fareCp,
+    ...(carried?{carried:true}:{})});
 }
 
 export function validateJourneyLivestock(raw){
   if(!raw||raw.schemaVersion!==1||!id(raw.methodId)||
     !["land","water","air"].includes(raw.surface)||
+    (raw.carried!==undefined&&raw.carried!==true)||
+    (raw.carried===true&&raw.surface!=="land")||
     !Number.isInteger(raw.units)||raw.units<1||raw.units>1000||
     !(raw.capacityPerUnit===null||
       Number.isInteger(raw.capacityPerUnit)&&raw.capacityPerUnit>=0&&
@@ -86,10 +91,12 @@ export function validateJourneyLivestock(raw){
       throw Error("Invalid saved livestock resource.");
     seen.add(m.actorId);aboard+=m.aboard;
   }
-  if(raw.surface==="land"&&(raw.units!==1||raw.capacityPerUnit!==null||
+  if(raw.surface==="land"&&!raw.carried&&
+    (raw.units!==1||raw.capacityPerUnit!==null||
     raw.estimatedFareCp!==0))
     throw Error("Land livestock has no separate vessel price or stalls.");
-  if(raw.surface!=="land"&&aboard>0&&raw.capacityPerUnit!==null&&
+  if((raw.surface!=="land"||raw.carried)&&aboard>0&&
+    raw.capacityPerUnit!==null&&
     (raw.capacityPerUnit<1||aboard>raw.units*raw.capacityPerUnit))
     throw Error("Approved livestock exceeds available vessel stalls.");
   return structuredClone(raw);
