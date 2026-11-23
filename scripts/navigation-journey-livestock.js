@@ -34,7 +34,7 @@ export function countJourneyLivestock(roster,decisions){
 /** Separate passenger seats from animal accommodation; unknown == no boarding. */
 export function planJourneyLivestock(roster,decisions,{surface,methodId,
   units,capacityPerUnit,fareCp=0}={}){
-  if(!["water","air"].includes(surface)||!id(methodId)||
+  if(!["land","water","air"].includes(surface)||!id(methodId)||
     !Number.isInteger(units)||units<1||units>1000||
     !Number.isFinite(fareCp)||fareCp<0||fareCp>Number.MAX_SAFE_INTEGER||
     !decisions||typeof decisions!=="object"||Array.isArray(decisions))
@@ -48,7 +48,9 @@ export function planJourneyLivestock(roster,decisions,{surface,methodId,
     return {...m,aboard};
   });
   const aboard=resources.reduce((n,m)=>n+m.aboard,0);
-  if(aboard>0&&(!Number.isInteger(capacityPerUnit)||capacityPerUnit<1||
+  if(surface==="land"&&(units!==1||capacityPerUnit!==null||fareCp!==0))
+    throw Error("Land livestock accompaniment cannot invent a vessel or fare.");
+  if(surface!=="land"&&aboard>0&&(!Number.isInteger(capacityPerUnit)||capacityPerUnit<1||
     capacityPerUnit>1000||aboard>capacityPerUnit*units))
     throw Error("The vessel has insufficient verified animal accommodation.");
   return validateJourneyLivestock({schemaVersion:1,methodId,surface,units,
@@ -57,7 +59,7 @@ export function planJourneyLivestock(roster,decisions,{surface,methodId,
 
 export function validateJourneyLivestock(raw){
   if(!raw||raw.schemaVersion!==1||!id(raw.methodId)||
-    !["water","air"].includes(raw.surface)||
+    !["land","water","air"].includes(raw.surface)||
     !Number.isInteger(raw.units)||raw.units<1||raw.units>1000||
     !(raw.capacityPerUnit===null||
       Number.isInteger(raw.capacityPerUnit)&&raw.capacityPerUnit>=0&&
@@ -75,7 +77,10 @@ export function validateJourneyLivestock(raw){
       throw Error("Invalid saved livestock resource.");
     seen.add(m.actorId);aboard+=m.aboard;
   }
-  if(aboard>0&&(!Number.isInteger(raw.capacityPerUnit)||
+  if(raw.surface==="land"&&(raw.units!==1||raw.capacityPerUnit!==null||
+    raw.estimatedFareCp!==0))
+    throw Error("Land livestock has no separate vessel price or stalls.");
+  if(raw.surface!=="land"&&aboard>0&&(!Number.isInteger(raw.capacityPerUnit)||
     raw.capacityPerUnit<1||aboard>raw.units*raw.capacityPerUnit))
     throw Error("Approved livestock exceeds available vessel stalls.");
   return structuredClone(raw);
