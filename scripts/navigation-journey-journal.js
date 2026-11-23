@@ -146,7 +146,9 @@ export function validateJourneyRecord(value){
         (leg.participation!==undefined&&
           !(()=>{try{validateJourneyParticipation(leg.participation);return true;}catch{return false;}})())||
         (leg.livestock!==undefined&&
-          !(()=>{try{validateJourneyLivestock(leg.livestock);return true;}catch{return false;}})())||
+          (!(()=>{try{validateJourneyLivestock(leg.livestock);return true;}catch{return false;}})()||
+            leg.transport?.methodId!==leg.livestock.methodId||
+            leg.transport?.surface!==leg.livestock.surface))||
         (leg.approvedPath!==undefined&&
           !isApprovedJourneyPath(leg.approvedPath))||
         (leg.transport!==undefined&&!isTransportJourneyInfo(leg.transport))||
