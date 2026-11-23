@@ -1,53 +1,128 @@
-/** Native DOM-only mount boarding draft; never commits Group or Token state. */
+/** Physical mounts are Journey-only draft allocations; native Group inventory is never edited. */
 export function renderJourneyLivestockBoarding({resources=[],decisions={},
   method=null,planned=null,surface="water",disabled=false,onChange}={}){
   if(!resources.length)return null;
-  const node=(tag,text)=>{const el=document.createElement(tag);
-    if(text!==undefined)el.textContent=text;return el;};
-  const root=node("section");
-  root.className="atlas-journey-livestock";
-  root.style.cssText="display:grid;gap:.45rem;border:1px solid var(--color-border-light-tertiary,#555);"+
-    "border-radius:.45rem;padding:.65rem;min-width:0;";
+  const el=(tag,text)=>{const n=document.createElement(tag);
+    if(text!==undefined)n.textContent=String(text);return n;};
   const land=surface==="land";
-  root.append(node("h3",land?"Physical mounts — Accompany or Stay behind":
-    "Physical mounts — Embark or Stay behind"));
-  const capacity=method?.livestockCapacity;
-  root.append(node("small",land?
-    "Only accompanying mounts are available as transport resources for this land leg. "+
-      "Rejoining a previously left-behind mount is a new GM decision. No native Group writes.":
-    "Every physical animal requires a separate boarding decision. "+
-    "Animal accommodation is independent of passenger seats. "+
-    (Number.isInteger(capacity)?
-      capacity+" animal stalls per vessel.":"Animal stalls unverified — boarding is blocked until configured.")+
-    " No Group, Actor or currency changes."));
-  const grid=node("div");grid.style.cssText="display:grid;gap:.35rem;";
-  for(const animal of resources){
-    const row=node("label");row.style.cssText="display:flex;align-items:center;"+
-      "justify-content:space-between;flex-wrap:wrap;gap:.5rem;min-width:0;";
-    const title=node("span",animal.name+" · "+animal.quantity+
-      " physical "+(animal.quantity===1?"mount":"mounts"));
-    const choice=node("select");choice.setAttribute?.("aria-label",
-      "Number of "+animal.name+(land?" accompanying":" to embark"));
-    for(const [value,label] of [["","Choose boarding"],...Array.from(
-      {length:animal.quantity+1},(_,n)=>[String(n),n===0?"Stay behind":
-        (land?"Accompany ":"Embark ")+n+" of "+animal.quantity])]){
-      const option=node("option",label);option.value=value;choice.append(option);
-    }
-    choice.value=Object.hasOwn(decisions,animal.actorId)?
-      String(decisions[animal.actorId]):"";
-    choice.disabled=disabled;
-    choice.addEventListener("change",()=>{
-      if(choice.value!=="")onChange?.(animal.actorId,Number(choice.value));
+  const action=land?"accompanying":"embarking";
+  const root=el("div");
+  root.className="atlas-journey-livestock";
+  root.style.cssText="display:grid;gap:.4rem;min-width:0;margin-top:.25rem;";
+  const count=resources.reduce((sum,r)=>sum+r.quantity,0);
+  const aboard=resources.reduce((sum,r)=>sum+(decisions[r.actorId]??0),0);
+  const undecided=resources.filter(r=>!Object.hasOwn(decisions,r.actorId)).length;
+  const heading=el("div");
+  heading.style.cssText="display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap;justify-content:space-between;";
+  const title=el("strong","Physical mounts");
+  title.style.cssText="font-size:.87em;";
+  const summary=el("small",aboard+"/"+count+" "+action+
+    (undecided?" · "+undecided+" undecided":" · all decided"));
+  summary.style.cssText="opacity:.85;font-size:.77em;";
+  heading.append(title,summary);root.append(heading);
+
+  const names=new Map(resources.map(r=>[r.actorId,r]));
+  const setCount=(id,n)=>{
+    const animal=names.get(id);
+    if(!disabled&&animal&&Number.isInteger(n)&&n>=0&&n<=animal.quantity)
+      onChange?.(id,n);
+  };
+  const card=animal=>{
+    const has=Object.hasOwn(decisions,animal.actorId);
+    const number=has?decisions[animal.actorId]:null;
+    const item=el("div");
+    item.className="atlas-journey-mount-card";
+    item.style.cssText="display:flex;gap:.4rem;align-items:center;padding:.4rem .5rem;"+
+      "min-width:0;border:1px solid var(--color-border-light-tertiary,#555);"+
+      "border-radius:5px;background:var(--color-bg-option,#23212b);";
+    item.draggable=!disabled;
+    item.setAttribute("aria-label",animal.name+", "+animal.quantity+" physical mounts");
+    item.addEventListener("dragstart",event=>{
+      if(disabled){event.preventDefault();return;}
+      event.dataTransfer?.setData("text/plain","atlas-mount:"+animal.actorId);
+      if(event.dataTransfer)event.dataTransfer.effectAllowed="move";
     });
-    row.append(title,choice);grid.append(row);
+    const details=el("div");
+    details.style.cssText="min-width:0;flex:1;display:grid;gap:.05rem;";
+    const name=el("span",animal.name+" ×"+animal.quantity);
+    name.style.cssText="font-size:.83em;overflow-wrap:anywhere;";
+    const state=el("small",!has?"Boarding undecided":number===0?
+      "Staying behind":number+" "+action);
+    state.style.cssText="font-size:.73em;opacity:.8;";
+    details.append(name,state);
+    const quantity=el("input");
+    quantity.type="number";quantity.step="1";quantity.min="0";
+    quantity.max=String(animal.quantity);
+    quantity.placeholder="—";quantity.value=has?String(number):"";
+    quantity.disabled=disabled;
+    quantity.style.cssText="width:3.6rem;min-width:0;";
+    quantity.setAttribute("aria-label","Number of "+animal.name+" "+action+
+      " (0 to "+animal.quantity+")");
+    quantity.title="Set a partial quantity; zero means staying behind";
+    quantity.addEventListener("change",()=>{
+      const value=Number(quantity.value);
+      if(quantity.value!==""&&Number.isInteger(value)&&value>=0&&
+        value<=animal.quantity)setCount(animal.actorId,value);
+      else quantity.value=has?String(number):"";
+    });
+    const move=el("button","↔");move.type="button";move.disabled=disabled;
+    move.title="Move "+animal.name+(number>0?" to stay behind":" to "+action);
+    move.setAttribute("aria-label",move.title);
+    move.style.cssText="min-width:1.6rem;padding:.1rem .25rem;";
+    move.addEventListener("click",()=>setCount(animal.actorId,
+      number>0?0:animal.quantity));
+    item.append(details,quantity,move);
+    return item;
+  };
+  const board=el("div");
+  board.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,"+
+    "minmax(min(100%,11rem),1fr));gap:.5rem;min-width:0;";
+  const column=(label,boarding)=>{
+    const zone=el("div");
+    zone.className="atlas-navigation-travel-column atlas-journey-mount-column";
+    zone.style.cssText="display:grid;align-content:start;gap:.3rem;min-width:0;"+
+      "min-height:3.6rem;border:1px dashed var(--color-border-light-tertiary,#555);"+
+      "border-radius:8px;padding:.5rem;";
+    zone.setAttribute("aria-label",label+" mounts");
+    const available=resources.filter(m=>boarding?decisions[m.actorId]>0:
+      !(decisions[m.actorId]>0));
+    const header=el("strong",label);
+    header.style.cssText="font-size:.83em;";
+    zone.append(header);
+    for(const m of available)zone.append(card(m));
+    if(!available.length)zone.append(el("small","Drop mounts here"));
+    zone.addEventListener("dragover",event=>{
+      if(disabled)return;
+      event.preventDefault();
+      if(event.dataTransfer)event.dataTransfer.dropEffect="move";
+    });
+    zone.addEventListener("drop",event=>{
+      event.preventDefault();
+      const raw=event.dataTransfer?.getData("text/plain")??"";
+      const id=raw.startsWith("atlas-mount:")?raw.slice(12):null;
+      const animal=names.get(id);
+      if(animal)setCount(id,boarding?(decisions[id]>0?
+        decisions[id]:animal.quantity):0);
+    });
+    return zone;
+  };
+  board.append(column(land?"Accompanying":"Embarking",true),
+    column("Staying behind / undecided",false));
+  root.append(board);
+  if(!land){
+    const capacity=method?.livestockCapacity;
+    const note=el("small",Number.isInteger(capacity)?
+      capacity+" verified animal stalls per vessel; passenger seats are separate.":
+      "Animal stalls are not configured. To embark mounts, set animal capacity "+
+      "in the transportation editor. Play remains disabled until verified.");
+    note.style.cssText="font-size:.76em;opacity:.85;";
+    root.append(note);
   }
-  root.append(grid);
   if(planned){
-    root.append(node("small","Planned: "+planned.resources.reduce(
-      (n,m)=>n+m.aboard,0)+(land?" mounts accompanying.":
-      " mounts embarking · "+planned.units+
-      " vessel(s) · animal fare "+planned.estimatedFareCp+
-      " CP (included in total estimate, never deducted).")));
+    const note=el("small","Draft estimate: "+planned.units+" vessel(s) · animal fare "+
+      planned.estimatedFareCp+" CP; no currency is deducted.");
+    note.style.cssText="font-size:.75em;opacity:.8;";
+    root.append(note);
   }
   return root;
 }
