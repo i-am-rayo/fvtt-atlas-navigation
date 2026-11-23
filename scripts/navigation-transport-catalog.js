@@ -202,7 +202,7 @@ const validLivestock=p=>
   (p.livestockFareBasis===undefined||TRANSPORT_HIRE_BASES.includes(p.livestockFareBasis));
 const validServiceFields=(p,kind,surface)=>
   validLivestock(p)&&
-  (kind==="vehicle"&&["water","air"].includes(surface)||
+  (kind==="vehicle"&&["land","water","air"].includes(surface)||
     p.livestockCapacity==null&&p.livestockFareCp==null&&
     (p.livestockFareBasis===undefined||p.livestockFareBasis==="trip"))&&
   (p.hireEnabled===undefined||typeof p.hireEnabled==="boolean")&&
@@ -233,7 +233,7 @@ const projectedServices=p=>({
   overtimeMultiplier:p.overtimeMultiplier??1.5,
   overtimeExtraHours:p.overtimeExtraHours??8,
   continuousEnabled:p.continuousEnabled??false,
-  ...(p.kind==="vehicle"&&["water","air"].includes(p.surface)?{
+  ...(p.kind==="vehicle"&&["land","water","air"].includes(p.surface)?{
     livestockCapacity:p.livestockCapacity??null,
     livestockFareCp:p.livestockFareCp??null,
     livestockFareBasis:p.livestockFareBasis??"trip"
