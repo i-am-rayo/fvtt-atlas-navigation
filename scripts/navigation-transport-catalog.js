@@ -195,7 +195,15 @@ const projectedCrew=p=>({
   crewWageBasis:p.crewWageBasis??"day",
   includeCrewWages:p.includeCrewWages??false
 });
+const validLivestock=p=>
+  (p.livestockCapacity===undefined||p.livestockCapacity===null||
+    Number.isInteger(p.livestockCapacity)&&p.livestockCapacity>=0&&p.livestockCapacity<=1000)&&
+  (p.livestockFareCp===undefined||p.livestockFareCp===null||money(p.livestockFareCp))&&
+  (p.livestockFareBasis===undefined||TRANSPORT_HIRE_BASES.includes(p.livestockFareBasis));
 const validServiceFields=(p,kind,surface)=>
+  validLivestock(p)&&
+  (kind==="vehicle"&&["water","air"].includes(surface)||
+    [p.livestockCapacity,p.livestockFareCp,p.livestockFareBasis].every(v=>v===undefined))&&
   (p.hireEnabled===undefined||typeof p.hireEnabled==="boolean")&&
   (p.hireCostCp===undefined||money(p.hireCostCp))&&
   (p.hireBasis===undefined||TRANSPORT_HIRE_BASES.includes(p.hireBasis))&&
@@ -211,7 +219,8 @@ const validServiceFields=(p,kind,surface)=>
   (!p.continuousEnabled||kind==="vehicle");
 const serviceFields=p=>Object.fromEntries([
   "hireEnabled","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
-  "overtimeEnabled","overtimeMultiplier","overtimeExtraHours","continuousEnabled"
+  "overtimeEnabled","overtimeMultiplier","overtimeExtraHours","continuousEnabled",
+  "livestockCapacity","livestockFareCp","livestockFareBasis"
 ].filter(key=>p[key]!==undefined).map(key=>[key,p[key]]));
 const projectedServices=p=>({
   hireEnabled:p.hireEnabled??referenceHire[p.id]?.hireEnabled??false,
@@ -222,7 +231,10 @@ const projectedServices=p=>({
   overtimeEnabled:p.overtimeEnabled??false,
   overtimeMultiplier:p.overtimeMultiplier??1.5,
   overtimeExtraHours:p.overtimeExtraHours??8,
-  continuousEnabled:p.continuousEnabled??false
+  continuousEnabled:p.continuousEnabled??false,
+  livestockCapacity:p.livestockCapacity??null,
+  livestockFareCp:p.livestockFareCp??null,
+  livestockFareBasis:p.livestockFareBasis??"trip"
 });
 const defaultCapacity=kind=>kind==="mount"?1:null;
 const defaultCostApplies=id=>id==="coach-hire"||id==="ship-passage"?"passenger":"unit";
