@@ -74,12 +74,13 @@ export function renderTransportQuote({worldEstimate=null,currentEstimate,
 
 /** Report the *effective* current-leg mount fare without changing the World catalog. */
 export function describeJourneyMountFare(manifest,{method=null,worldPercent=50,
-  formatMoney=value=>value+" CP",approved=false}={}){
+  arrangement=null,formatMoney=value=>value+" CP",approved=false}={}){
   const aboard=manifest?.resources?.filter(item=>item.aboard>0)??[];
   if(!aboard.length)return null;
   const quantity=aboard.reduce((sum,item)=>sum+item.aboard,0);
   const names=aboard.map(item=>item.name+" ×"+item.aboard).join(", ");
   const policy=approved?"Previously approved fare":
+    arrangement==="owned"?"No boarding fee on party-owned transport":
     method?.livestockFareCp!=null?"Fixed mount fare override":
     method?.livestockFarePercent!=null?
       "Method override "+method.livestockFarePercent+"% of passenger fare":
