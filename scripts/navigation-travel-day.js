@@ -100,7 +100,8 @@ export class GuidedTravelDayTracker {
       if(!this.needsDecision&&(!allowEarly||this.availableHours>1+EPSILON||
           this.rules.dailyHours===null))
         throw Error("Forced marching is only available at the daily travel limit.");
-      if(this.todayHours>=24-EPSILON)
+      if(Math.max(this.todayHours,this.permittedExtraUntil,
+          this.rules.dailyHours??0)>=24-EPSILON)
         throw Error("A journey cannot travel more than 24 hours without a break.");
       return {action,hours:0,resetsDay:false,
         ...(!this.needsDecision?{early:true}:{})};
