@@ -2289,7 +2289,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     catch(error){
       // A fresh unapproved method change may discard a stale UI selection.
       // An approved Journal operation must NEVER be silently downgraded.
-      if(approvedMethod||approvedOperation!==null)throw error;
+      if(approvedMethod||approvedOperation!==null||
+          isUnfinishedJourneyLeg(this.recoveryRecord))throw error;
       operation="normal";this.transportOperation="normal";
       selected=resolveTransportationOperation(preset,operation,normalHours);
     }
