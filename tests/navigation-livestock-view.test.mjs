@@ -47,7 +47,7 @@ test("mount boarding is drag/drop and keyboard accessible within one Journey dra
     move.listeners.click();
     assert.deepEqual(changes,[["riding",1],["riding",0],["riding",0]]);
     assert.deepEqual(resources,before,"rendering and decisions never mutate native Group resources");
-    assert.ok(nodes.some(n=>String(n.textContent).includes("verified animal stalls")));
+    assert.ok(nodes.some(n=>String(n.textContent).includes("animal spaces per vehicle")));
   }finally{restore();}
 });
 
@@ -86,6 +86,23 @@ test("unassigned mounts remain unapproved until explicit drag or quantity input"
   }finally{restore();}
 });
 
+test("land vehicle carriage shares drag/drop but land accompaniment does not use cargo capacity",()=>{
+ const restore=dom();
+ try{
+  const cargo=renderJourneyLivestockBoarding({resources,
+    decisions:{warhorse:1,riding:2},surface:"land",carried:true,
+    method:{livestockCapacity:2}});
+  const nodes=all(cargo);
+  assert.ok(nodes.some(n=>n.textContent==="3/4 being carried · all decided"));
+  assert.ok(nodes.some(n=>n["aria-label"]==="Carried aboard mounts"));
+  assert.ok(nodes.some(n=>String(n.textContent).includes("2 animal spaces per vehicle")));
+  const onFoot=renderJourneyLivestockBoarding({resources,
+    decisions:{warhorse:1,riding:2},surface:"land"});
+  const walk=all(onFoot);
+  assert.ok(walk.some(n=>n["aria-label"]==="Accompanying mounts"));
+  assert.equal(walk.some(n=>String(n.textContent).includes("animal spaces")),false);
+ }finally{restore();}
+});
 test("a locked boarding preview cannot modify the draft",()=>{
   const restore=dom();
   try{
