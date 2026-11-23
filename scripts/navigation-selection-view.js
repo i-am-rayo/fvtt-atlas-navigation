@@ -192,34 +192,3 @@ export function renderNavigationTravelMethodButtons({choices,selectedValue,
   }
   return section;
 }
-
-/** Trip operation is an explicit GM decision, distinct from the transport's
- * World or Map Marker capability. Rendering and selecting never commits travel. */
-export function renderNavigationOperatingSchedule({method,operation="normal",
-  regularHours=8,disabled=false,onChange}){
-  const label=el("label");
-  label.style.cssText="display:grid;gap:.3rem;min-width:0;padding-top:.35rem;";
-  const heading=el("strong","Operating schedule for this leg");
-  heading.style.cssText="font-size:.87em;";
-  const select=el("select");
-  select.setAttribute?.("aria-label","Operating schedule for "+method.name);
-  select.disabled=disabled;
-  const modes=[["normal","Standard — "+regularHours+"h/day"]];
-  if(method.overtimeEnabled)modes.push(["overtime",
-    "Overtime — up to "+(8+(method.overtimeExtraHours??8))+"h/day"]);
-  if(method.kind==="vehicle"&&method.continuousEnabled)
-    modes.push(["continuous","Continuous — 24h/day (rotating crew)"]);
-  for(const [value,text] of modes){
-    const option=el("option",text);option.value=value;select.append(option);
-  }
-  select.value=operation;
-  select.addEventListener("change",()=>{
-    if(!disabled)onChange?.(select.value);
-  });
-  const help=el("small","Continuous operation requires a capable vehicle and an "+
-    "explicit Journey selection. Enabling the method alone does not "+
-    "authorize 24-hour travel or give passengers a rest.");
-  help.style.cssText="font-size:.8em;opacity:.8;line-height:1.4;";
-  label.append(heading,select,help);
-  return label;
-}
