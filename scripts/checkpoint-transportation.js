@@ -13,16 +13,16 @@ const KEYS=["speedMph","capacity","costCp","costBasis","costApplies",
   "purchaseGp","crewCount","crewWageCpPerDay","crewWageBasis","includeCrewWages",
   "hireEnabled","hireUnlimited","hireQuantity","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
   "overtimeEnabled","overtimeExtraHours","overtimeMultiplier",
-  "continuousEnabled","note"];
+  "continuousEnabled","livestockCapacity","livestockFareCp","livestockFareBasis","note"];
 const ENUM={
   costBasis:["none","day","mile"],costApplies:["unit","passenger"],
   hireBasis:["trip","mile","day"],hireApplies:["unit","passenger"],
-  crewWageBasis:["day","trip","mile"]
+  crewWageBasis:["day","trip","mile"],livestockFareBasis:["trip","day","mile"]
 };
 const BOOL=new Set(["includeCrewWages","hireEnabled","hireUnlimited","hireCrewIncluded",
   "overtimeEnabled","continuousEnabled"]);
-const NONNEG=new Set(["costCp","purchaseGp","crewWageCpPerDay","hireCostCp"]);
-const INTEGER=new Set(["capacity","crewCount","hireQuantity","overtimeExtraHours"]);
+const NONNEG=new Set(["costCp","purchaseGp","crewWageCpPerDay","hireCostCp","livestockFareCp"]);
+const INTEGER=new Set(["capacity","crewCount","hireQuantity","overtimeExtraHours","livestockCapacity"]);
 export function validateCheckpointTransportOffers(value){
   if(value==null)return [];
   if(!Array.isArray(value)||value.length>40)throw Error("Too many checkpoint transportation offers.");
@@ -41,11 +41,12 @@ export function validateCheckpointTransportOffers(value){
       if(ENUM[key]){if(!ENUM[key].includes(value))throw Error("Invalid "+key+" override.");}
       else if(BOOL.has(key)){if(typeof value!=="boolean")throw Error("Invalid "+key+" toggle.");}
       else if(key==="note"){if(typeof value!=="string"||value.length>240)throw Error("Invalid transport note.");}
-      else if(key==="purchaseGp"&&value===null){}
+      else if(["purchaseGp","livestockCapacity","livestockFareCp"].includes(key)&&value===null){}
       else if(typeof value!=="number"||!Number.isFinite(value)||
         (NONNEG.has(key)&& (value<0||value>1e8))||
         (INTEGER.has(key)&&!Number.isInteger(value))||
         (key==="capacity"&&(value<1||value>1000))||
+        (key==="livestockCapacity"&&(value<0||value>1000))||
         (key==="crewCount"&&(value<0||value>1000))||
          (key==="hireQuantity"&&(value<0||value>100))||
         (key==="overtimeExtraHours"&&(value<1||value>8))||
