@@ -79,7 +79,8 @@ export function renderNavigationTransportApproval({
 }={}){
   if(!rows.length||metrics.length!==4)
     throw Error("A transportation approval needs a complete leg summary.");
-  const root=el("section");
+  // Foundry v14 DialogV2.content accepts HTMLDivElement, not HTMLElement.
+  const root=el("div");
   root.className="atlas-transport-approval";
   root.append(el("h3",heading));
   if(destination)root.append(el("p",destination));
