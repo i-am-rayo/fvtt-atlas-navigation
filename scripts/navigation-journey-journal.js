@@ -147,8 +147,10 @@ export function validateJourneyRecord(value){
           !(()=>{try{validateJourneyParticipation(leg.participation);return true;}catch{return false;}})())||
         (leg.livestock!==undefined&&
           (!(()=>{try{validateJourneyLivestock(leg.livestock);return true;}catch{return false;}})()||
-            leg.transport?.methodId!==leg.livestock.methodId||
-            leg.transport?.surface!==leg.livestock.surface))||
+            !(leg.transport?.methodId===leg.livestock.methodId&&
+              leg.transport?.surface===leg.livestock.surface||
+              leg.livestock.surface==="land"&&
+              leg.travelMethod?.id===leg.livestock.methodId)))||
         (leg.approvedPath!==undefined&&
           !isApprovedJourneyPath(leg.approvedPath))||
         (leg.transport!==undefined&&!isTransportJourneyInfo(leg.transport))||
@@ -397,15 +399,17 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
           (person.traveling?"Traveling ("+escapeHTML(person.methodKey)+")":"Not traveling")+
           `</li>`).join("")+`</ul></div>`)(validateJourneyParticipation(leg.participation)):"";
     const livestock=leg.livestock&&leg.completedMovingHours>0?
-      (manifest=>`<div class="atlas-journey-leg-group"><h4>Confirmed Mount Boarding</h4>`+
-        `<p>Animal accommodation and passenger seats are separate. Mounts `+
-        `are Atlas Journey metadata; the native Group is unchanged.</p><ul>`+
+      (manifest=>`<div class="atlas-journey-leg-group"><h4>Confirmed Mount Movement</h4>`+
+        `<p>Physical mount participation is Atlas Journey metadata; the native Group `+
+        `and Actor quantities are unchanged.</p><ul>`+
         manifest.resources.map(m=>`<li>${escapeHTML(m.name)}: `+
-          (m.aboard?m.aboard+" of "+m.quantity+" embarked":
+          (m.aboard?m.aboard+" of "+m.quantity+
+            (manifest.surface==="land"?" accompanied":" embarked"):
             "Stayed behind ("+m.quantity+")")+`</li>`).join("")+`</ul>`+
-        `<p>Animal accommodation: ${manifest.capacityPerUnit??"unverified"} stalls/vessel `+
-        `· ${manifest.units} vessel(s). Estimated animal fare: `+
-        `${escapeHTML(manifest.estimatedFareCp)} CP (included in total; no deduction).</p>`+
+        (manifest.surface==="land"?"":
+          `<p>Animal accommodation: ${manifest.capacityPerUnit??"unverified"} stalls/vessel `+
+          `· ${manifest.units} vessel(s). Estimated animal fare: `+
+          `${escapeHTML(manifest.estimatedFareCp)} CP (included in total; no deduction).</p>`)+
         `</div>`)(validateJourneyLivestock(leg.livestock)):"";
     const rows=timeline.map(step=>step.kind==="journey-event"?
       `<li class="atlas-journey-rest-event"><strong>${escapeHTML(step.label)}</strong> after `+
