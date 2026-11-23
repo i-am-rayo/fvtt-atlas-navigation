@@ -686,7 +686,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
             ["fixed","Custom fixed fare per mount"]],
           value.livestockFareCp!=null?"fixed":
             value.livestockFarePercent!=null?"percent":"global","livestockFareMode"),
-          "Applies to passenger-priced hired transport; flat fares replace the percentage."), 
+          "Applies to passenger-priced hired transport; flat fares replace the percentage."),
         field("Mount fare (% of passenger)",
           slider("livestockFarePercent",value.livestockFarePercent??
             current(LIVESTOCK_FARE_PERCENT_SETTING,LIVESTOCK_FARE_PERCENT_DEFAULT),
