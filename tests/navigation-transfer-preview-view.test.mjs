@@ -73,3 +73,27 @@ test("future legs remain tentative, ordered and never committed by their preview
     assert.equal(later[0].roadNames[0],"Dirwest-Port Barthos");
   }finally{dom.restore();}
 });
+
+test("global timetable annotates hypothetical future legs without adding booking controls",()=>{
+  const dom=mockDOM();
+  try{
+    const later=[
+      {index:1,surface:"water",departureCheckpoint:{name:"Port Barthos"},
+        arrivalCheckpoint:{name:"Hearth's Heart Dock"},
+        roadNames:["Barthos Strait"],
+        selectedOption:{method:{name:"Steamship"}},operation:"continuous"},
+      {index:2,surface:"land",departureCheckpoint:{name:"Hearth's Heart Dock"},
+        arrivalCheckpoint:{name:"Dirwest"},roadNames:["Dirwest Road"],
+        selectedOption:null,operation:"normal"}
+    ];
+    const forecast={complete:false,legSummaries:[
+      {index:1,status:"estimated",movingHours:26,plannedDowntimeHours:0},
+      {index:2,status:"pending"}]};
+    const preview=renderNavigationLaterLegsPreview(later,forecast);
+    assert.match(preview.children[2].textContent,/whole-route duration and fare remain unavailable/i);
+    assert.match(preview.children[3].textContent,/Steamship · continuous.*26h moving/);
+    assert.match(preview.children[4].textContent,/transportation not yet chosen/);
+    assert.equal(dom.handlers,0,
+      "a read-only future preview cannot install a booking or movement handler");
+  }finally{dom.restore();}
+});
