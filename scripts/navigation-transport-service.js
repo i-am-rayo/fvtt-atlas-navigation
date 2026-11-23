@@ -117,6 +117,8 @@ export function quoteTransportationService(method,{
       animalSlots<1||animalSlots>1000))
       throw Error("Animal boarding requires verified vessel livestock capacity.");
     const passengerUnits=assessHiredTransportAvailability(method,{travelers});
+    if(passengerUnits.unknown)
+      throw Error("Set passenger capacity before pricing a hired transport.");
     const minimumUnits=livestockCount>0?
       Math.max(passengerUnits.requiredUnits,Math.ceil(livestockCount/animalSlots)):
       passengerUnits.requiredUnits;
