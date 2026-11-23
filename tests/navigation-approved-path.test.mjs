@@ -96,3 +96,40 @@ test("ordered approved path identifies an ahead token without authorizing time",
   assert.equal(assess(p(400,0)).reason,"behind-confirmed-position");
   assert.equal(assess(p(900,301)).reason,"off-approved-route");
 });
+
+test("GM route mismatch diagnostic identifies the exact saved and proposed segment sequences",async()=>{
+  const module=await import("../scripts/navigation-approved-path.js");
+  assert.equal(typeof module.describeApprovedJourneyRouteMismatch,"function");
+  const route=resumed(p(900,0),[leg("new-branch",[p(900,0),p(1000,0)])]);
+  const result=module.describeApprovedJourneyRouteMismatch({
+    approvedPath,route,anchor:anchor(900),tokenPosition:route.start});
+  assert.equal(result.reason,"road-sequence-changed");
+  assert.deepEqual(result.approvedSegmentIds,["east"]);
+  assert.deepEqual(result.proposedSegmentIds,["new-branch"]);
+  assert.equal(result.firstDifferenceIndex,0);
+  assert.deepEqual(result.confirmedAnchor,p(900,0));
+  assert.deepEqual(result.nativePosition,p(900,0));
+  assert.deepEqual(result.approvedDestination,p(1000,0));
+  assert.deepEqual(result.proposedDestination,p(1000,0));
+  assert.equal(result.anchorProjection.legIndex,1);
+  assert.equal(result.anchorProjection.ambiguous,false);
+  assert.equal(result.anchorProjection.lateralPixels,0);
+  assert.ok(!JSON.stringify(result).includes("points"),
+    "diagnostic must not dump complete private road geometry");
+});
+
+test("near-pixel road junction remains a refusal while diagnostic explains the missing segment",async()=>{
+  const module=await import("../scripts/navigation-approved-path.js");
+  assert.equal(typeof module.describeApprovedJourneyRouteMismatch,"function");
+  const route=resumed(p(499.9,0),[leg("east",[p(499.9,0),p(1000,0)])]);
+  const record={point:p(499.9,0)};
+  const outcome=assessApprovedJourneyRecovery({
+    approvedPath,route,anchor:record,tokenPosition:route.start,gridSize:100});
+  assert.equal(outcome.reason,"road-sequence-changed");
+  const diagnostic=module.describeApprovedJourneyRouteMismatch({
+    approvedPath,route,anchor:record,tokenPosition:route.start});
+  assert.deepEqual(diagnostic.approvedSegmentIds,["west","east"]);
+  assert.deepEqual(diagnostic.proposedSegmentIds,["east"]);
+  assert.equal(diagnostic.firstDifferenceIndex,0);
+  assert.equal(diagnostic.anchorProjection.legIndex,0);
+});
