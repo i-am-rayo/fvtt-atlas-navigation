@@ -203,7 +203,8 @@ const validLivestock=p=>
 const validServiceFields=(p,kind,surface)=>
   validLivestock(p)&&
   (kind==="vehicle"&&["water","air"].includes(surface)||
-    [p.livestockCapacity,p.livestockFareCp,p.livestockFareBasis].every(v=>v===undefined))&&
+    p.livestockCapacity==null&&p.livestockFareCp==null&&
+    (p.livestockFareBasis===undefined||p.livestockFareBasis==="trip"))&&
   (p.hireEnabled===undefined||typeof p.hireEnabled==="boolean")&&
   (p.hireCostCp===undefined||money(p.hireCostCp))&&
   (p.hireBasis===undefined||TRANSPORT_HIRE_BASES.includes(p.hireBasis))&&
