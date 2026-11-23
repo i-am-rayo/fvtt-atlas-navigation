@@ -233,9 +233,11 @@ const projectedServices=p=>({
   overtimeMultiplier:p.overtimeMultiplier??1.5,
   overtimeExtraHours:p.overtimeExtraHours??8,
   continuousEnabled:p.continuousEnabled??false,
-  livestockCapacity:p.livestockCapacity??null,
-  livestockFareCp:p.livestockFareCp??null,
-  livestockFareBasis:p.livestockFareBasis??"trip"
+  ...(p.kind==="vehicle"&&["water","air"].includes(p.surface)?{
+    livestockCapacity:p.livestockCapacity??null,
+    livestockFareCp:p.livestockFareCp??null,
+    livestockFareBasis:p.livestockFareBasis??"trip"
+  }:{})
 });
 const defaultCapacity=kind=>kind==="mount"?1:null;
 const defaultCostApplies=id=>id==="coach-hire"||id==="ship-passage"?"passenger":"unit";
