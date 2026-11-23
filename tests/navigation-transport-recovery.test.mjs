@@ -91,13 +91,12 @@ test("an interrupted voyage retains its road mismatch refusal and attaches read-
         arrangement:"hire",arrivalCheckpointId:"dock"}}]};
   const route={status:"ok",start:p(50),end:p(100),distance:50,legs:[{
     kind:"road",roadId:"road",segmentId:"new",points:[p(50),p(100)]}]};
-  const before=JSON.stringify(saved);
+  const before=JSON.stringify(saved),diagnostics=[];
   assert.throws(()=>restoreApprovedTransportPlan(route,{legs:[]},saved,[],null,
-    {gridSize:100,gridDistance:5}),error=>{
-    assert.match(error.message,/road-sequence-changed/);
-    assert.deepEqual(error.recoveryDiagnostic?.approvedSegmentIds,["saved"]);
-    assert.deepEqual(error.recoveryDiagnostic?.proposedSegmentIds,["new"]);
-    return true;
-  });
+    {gridSize:100,gridDistance:5,
+      onRecoveryDiagnostic:value=>diagnostics.push(value)}),
+    /road-sequence-changed/);
+  assert.deepEqual(diagnostics[0]?.approvedSegmentIds,["saved"]);
+  assert.deepEqual(diagnostics[0]?.proposedSegmentIds,["new"]);
   assert.equal(JSON.stringify(saved),before,"diagnostics cannot mutate saved Journey state");
 });
