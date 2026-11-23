@@ -4,6 +4,19 @@
  */
 export const TRANSPORT_HIRE_BASES=Object.freeze(["trip","mile","day"]);
 export const TRANSPORT_OPERATIONS=Object.freeze(["normal","overtime","continuous"]);
+export const LIVESTOCK_FARE_PERCENT_SETTING="guidedLivestockFarePercent";
+export const LIVESTOCK_FARE_PERCENT_DEFAULT=50;
+export const validLivestockFarePercent=value=>
+  Number.isInteger(value)&&value>=0&&value<=200;
+export function readLivestockFarePercent(settings){
+  let value;
+  try{value=settings?.get?.("fvtt-atlas-navigation",LIVESTOCK_FARE_PERCENT_SETTING);}
+  catch{return LIVESTOCK_FARE_PERCENT_DEFAULT;}
+  if(value==null)return LIVESTOCK_FARE_PERCENT_DEFAULT;
+  if(!validLivestockFarePercent(value))
+    throw Error("World mount fare must be a percentage from 0 to 200.");
+  return value;
+}
 
 /** Fresh vehicle plans follow the method's enabled 24h capability unless
  * the GM expressly chose overtime. Approved Journey snapshots are separate. */
@@ -88,12 +101,14 @@ export function assessHiredTransportAvailability(method,{travelers,requestedUnit
 export function quoteTransportationService(method,{
   arrangement="owned",operation="normal",movingHours,distanceMi,
   travelers=1,requestedUnits=null,livestockCount=0,ownedQuote=null,
-  hireTerms=null,adjustmentCp=0,regularHours=8
+  hireTerms=null,adjustmentCp=0,regularHours=8,
+  livestockPercent=LIVESTOCK_FARE_PERCENT_DEFAULT
 }={}){
   if(!method||!["owned","hire"].includes(arrangement)||
     !nonnegative(movingHours)||!nonnegative(distanceMi)||
     !Number.isInteger(travelers)||travelers<0||travelers>1000||
     !Number.isInteger(livestockCount)||livestockCount<0||livestockCount>15000||
+    !validLivestockFarePercent(livestockPercent)||
     !Number.isFinite(adjustmentCp)||Math.abs(adjustmentCp)>1e8)
     throw Error("Invalid transportation service estimate.");
   const fare=arrangement==="hire"?resolveTransportationHireFare(method,hireTerms):null;
@@ -139,11 +154,16 @@ export function quoteTransportationService(method,{
     baseCp=fare.hireCostCp*basis*count;
     if(livestockCount){
       const custom=method.livestockFareCp;
-      if(custom!==null&&custom!==undefined&&(!nonnegative(custom)||custom>1e8||
-        !TRANSPORT_HIRE_BASES.includes(method.livestockFareBasis)))
+      const override=method.livestockFarePercent;
+      if(override!=null&&!validLivestockFarePercent(override)||
+        custom!=null&&override!=null||
+        custom!=null&&(!nonnegative(custom)||custom>1e8||
+          !TRANSPORT_HIRE_BASES.includes(method.livestockFareBasis)))
         throw Error("Invalid livestock fare configuration.");
       const animalBasis=custom==null?fare.hireBasis:method.livestockFareBasis;
-      const animalRate=custom==null?(fare.hireApplies==="passenger"?fare.hireCostCp:0):custom;
+      const percent=override??livestockPercent;
+      const animalRate=custom==null?
+        (fare.hireApplies==="passenger"?fare.hireCostCp*percent/100:0):custom;
       const periods=animalBasis==="day"?billableDayUnits:
         animalBasis==="mile"?distanceMi:(movingHours>EPS?1:0);
       livestockBaseCp=animalRate*periods*livestockCount;
