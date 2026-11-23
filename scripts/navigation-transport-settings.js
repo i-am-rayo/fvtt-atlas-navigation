@@ -173,7 +173,7 @@ const wirePresetDialog=container=>{
         '[name="livestockFarePercent"],[data-atlas-range-for="livestockFarePercent"]'))
         input.disabled=animalMode!=="percent";
       for(const input of root.querySelectorAll(
-        '[name="livestockAmount"],[name="livestockDenom"],[data-atlas-range-for="livestockAmount"]'))
+        '[name^="livestock_"]'))
         input.disabled=animalMode!=="fixed";
       const crewOption=root.querySelector("[data-atlas-hire-crew-option]");
       if(crewOption){crewOption.style.opacity=hireOn?"1":".42";
