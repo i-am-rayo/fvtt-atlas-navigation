@@ -3134,8 +3134,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             (guidedLeg?"paused":"completed"):"moving";
         }catch(error){
           reachedEnd=false;clockFailed=true;
-          interruptedReason="Native ordinary movement could not be reconciled: "+
-            (error.message||String(error));
+          interruptedReason=session.phase==="ending"?
+            "Journey ended at the last confirmed road stretch. Any unconfirmed "+
+              "native movement must be reviewed before another route begins.":
+            "Native ordinary movement could not be reconciled: "+
+              (error.message||String(error));
           break;
         }
         if(checkpointStatus==="paused")session.phase="checkpoint-arrival";
