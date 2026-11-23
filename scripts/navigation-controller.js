@@ -2864,6 +2864,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           after.errors.length)
         throw Error("The selected transportation or operating schedule changed. Review the updated checkpoint offer.");
     }
+    // A GM dialog can remain open while the Group or draft selection changes.
+    // Recheck immediately before creating any authoritative Journey record.
+    if(!isUnfinishedJourneyLeg(this.recoveryRecord)&&!this.recoverableJourney){
+      const party=this.partyTravelSelection(
+        availableNavigationTravelMethods(game.settings,game.system?.id));
+      if(party?.partial||party?.empty)
+        throw Error("The party selection changed during confirmation. A split party "+
+          "requires a separate assigned Group explorer before native movement.");
+    }
     const approvedPath=captureApprovedJourneyPath(route);
     const paths=navigationCanvasLegPaths(view,atlas,route);
     const routeWaypoints=createGuidedTokenWaypoints(paths,token,this.scene.grid?.size);
