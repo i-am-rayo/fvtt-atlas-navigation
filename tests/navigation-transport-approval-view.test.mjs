@@ -60,7 +60,7 @@ test("the same approval view supports single-vessel passenger and physical mount
 
 test("transport approval tiles use a two-column narrow container and four equal wide columns",()=>{
   const css=readFileSync(new URL("../styles/atlas-ui.css",import.meta.url),"utf8");
-  assert.match(css,/\\.atlas-transport-approval-metrics\\s*\\{[^}]*grid-template-columns:\\s*repeat\\(2,\\s*minmax\\(0,\\s*1fr\\)\\)/s);
-  assert.match(css,/@container[^}]*min-width:\\s*40rem[^}]*\\.atlas-transport-approval-metrics\\s*\\{[^}]*grid-template-columns:\\s*repeat\\(4,\\s*minmax\\(0,\\s*1fr\\)\\)/s);
-  assert.match(css,/\\.atlas-transport-approval\\s*\\{[^}]*container-type:\\s*inline-size/s);
+  assert.match(css,/\.atlas-transport-approval-metrics\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css,/@container[^}]*min-width:\s*40rem[^}]*\.atlas-transport-approval-metrics\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css,/\.atlas-transport-approval\s*\{[^}]*container-type:\s*inline-size/s);
 });
