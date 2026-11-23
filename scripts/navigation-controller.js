@@ -2283,9 +2283,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       .find(method=>method.id===travel.methodId);
     if(!preset)return rules;
     const normalHours=rules.dailyHours??8;
-    const operation=approvedOperation??this.transportOperation??"normal";
-    // Never replace an approved continuous/overtime operation silently.
-    const selected=resolveTransportationOperation(preset,operation,normalHours);
+    let operation=approvedOperation??this.transportOperation??"normal";
+    let selected;
+    try{selected=resolveTransportationOperation(preset,operation,normalHours);}
+    catch(error){
+      // A fresh unapproved method change may discard a stale UI selection.
+      // An approved Journal operation must NEVER be silently downgraded.
+      if(approvedMethod||approvedOperation!==null)throw error;
+      operation="normal";this.transportOperation="normal";
+      selected=resolveTransportationOperation(preset,operation,normalHours);
+    }
     return {...rules,profile:"transport-service",label:"Transport service",
       // Crewed vessels may operate 24h by shifts; passengers choose their own
       // rest times without stopping the ship or triggering forced march.
@@ -4918,7 +4925,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "Only the current stretch is estimated. Later transport decisions are made at checkpoints. "+
           (activeLeg?.operation==="continuous"?
             "This transport operates continuously. Passenger rests may overlap moving time without stopping it or adding duplicate World time.":
-            "Standard travel estimates allow 8 hours/day with 16 hours overnight downtime; actual stops remain GM decisions."):
+            "Standard travel uses the configured World hours and downtime; actual stops remain GM decisions."):
           transportPreview?
           "Transport service preview ("+this.transportOperation+"): "+
           rules.dailyHours+"h travel/day, "+rules.overnightHours+
