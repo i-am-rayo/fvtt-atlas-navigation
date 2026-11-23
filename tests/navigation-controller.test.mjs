@@ -2300,6 +2300,30 @@ test("World setting alone advances Foundry time only for confirmed active-GM jou
   }finally{nav?.stop();Object.assign(globalThis,previous);}
 });
 
+test("mixed land method overrides are per-method and remain preview-only",()=>{
+  const gameBefore=globalThis.game;
+  try{
+    globalThis.game={user:{isGM:true}};
+    const nav=new AtlasNavigationController();
+    const worldMethod={id:"carriage",name:"Carriage",surface:"land",kind:"vehicle",
+      hireEnabled:true,hireCostCp:400,continuousEnabled:false};
+    const walking={id:"walking",name:"Walking",surface:"land",kind:"foot"};
+    nav.mixedKeys=["owned|walking","hire|carriage"];
+    nav.mixedMethodOverrides={"hire|carriage":{hireCostCp:900,continuousEnabled:true}};
+    const offer={methodId:"carriage",mode:"land",checkpointId:"port",
+      overrides:{hireEnabled:true,hireCostCp:400}};
+    const availability={methods:[walking,worldMethod],
+      offers:new Map([["carriage",offer]]),owned:new Set()};
+    const choices=nav.mixedLandChoices(availability);
+    assert.equal(choices[1].method.hireCostCp,900);
+    assert.equal(choices[1].method.continuousEnabled,true);
+    assert.equal(choices[0].method.id,"walking");
+    assert.equal(worldMethod.hireCostCp,400);
+    assert.equal(offer.overrides.hireCostCp,400,
+      "previewing an edited trip must not change Map Marker stock or rates");
+  }finally{globalThis.game=gameBefore;}
+});
+
 test("mounts, wagons, and ships use explicit daily operating policies",()=>{
   const priorGame=globalThis.game;
   try{
