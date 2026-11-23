@@ -7,11 +7,9 @@ import {resolveTransportationOperation,quoteTransportationService}
 import {summarizeTransportationOperatingSchedule}
   from "../scripts/navigation-transport-transitions.js";
 
-const world=(catalog,key)=>({get:(_module,name)=>
-  name==="guidedTransportationCatalog"?catalog:
-  name==="guidedTravelRulesProfile"?"dnd5e2024":undefined});
 const carriage={id:"carriage",name:"Carriage",kind:"vehicle",surface:"land",
-  speedMph:3,capacity:4,hireEnabled:true,hireCostCp:400,hireBasis:"day",
+  speedMph:3,costCp:0,costBasis:"none",purchaseGp:100,
+  capacity:4,hireEnabled:true,hireCostCp:400,hireBasis:"day",
   hireApplies:"unit",hireUnlimited:true,hireCrewIncluded:true,
   overtimeEnabled:true,overtimeExtraHours:8,overtimeMultiplier:1.5,
   continuousEnabled:true};
