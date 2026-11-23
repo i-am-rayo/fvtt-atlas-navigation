@@ -364,7 +364,12 @@ export async function coordinateNativeTokenMovement({plan,operationId,
       const expanded=token.getCompleteMovementPath(path.map((p,i)=>({
         ...defaults,x:p.x,y:p.y,snapped:false,explicit:false,checkpoint:i===path.length-1
       })));
-      nativePath=Array.isArray(expanded)?expanded.map(point):null;
+      // Region Behaviors insert their own native terrain-boundary waypoints.
+      // Expand through Foundry's public terrain API before persisting the
+      // independently predicted path; never trust a new point from the hook.
+      const terrain=Array.isArray(expanded)&&typeof token.object?.createTerrainMovementPath==="function"?
+        token.object.createTerrainMovementPath(expanded):expanded;
+      nativePath=Array.isArray(terrain)?terrain.map(point):null;
       if(!preservesAuthoredNativePath(path,nativePath))
         throw Error("Foundry native direct-path preview does not preserve the approved Atlas waypoints.");
     }
