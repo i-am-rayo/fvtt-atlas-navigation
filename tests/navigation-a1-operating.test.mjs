@@ -26,6 +26,8 @@ test("land vehicles opt into the same continuous schedule as water and air",()=>
   assert.equal(resolveTransportationOperation({...carriage,surface:"air"},"continuous").dailyHours,24);
   assert.throws(()=>resolveTransportationOperation({...carriage,kind:"mount"},"continuous"),
     /Continuous/);
+  assert.throws(()=>resolveTransportationOperation({...carriage,surface:"void"},"continuous"),
+    /Continuous/);
   assert.throws(()=>resolveTransportationOperation({...carriage,continuousEnabled:false},"continuous"),
     /Continuous/);
 });
