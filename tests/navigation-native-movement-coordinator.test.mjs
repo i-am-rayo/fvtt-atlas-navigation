@@ -90,6 +90,19 @@ test("each bounded native move waits for the previous durable checkpoint",async(
   assert.equal(listeners.size,0);
 });
 
+test("bounded native playback preserves the GM's skip-animation preference",async()=>{
+  const {token,plan,hooks}=nativeHarness();
+  let seen=null;
+  const move=token.move.bind(token);
+  token.move=(waypoints,options)=>{seen=options.animate;return move(waypoints,options);};
+  const one={path:plan.path.slice(0,2),checkpoints:[plan.checkpoints[0]]};
+  const result=await coordinateNativeTokenMovement({token,plan:one,hooks,
+    operationId:"SkipAnimation001",movementSpeed:1,animate:false,
+    prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{}});
+  assert.equal(result.completed,true);
+  assert.equal(seen,false,"only playback animation is skipped, never native movement");
+});
+
 test("a failed Journal confirmation stops native movement and never credits another checkpoint",async()=>{
   const {token,plan,hooks,listeners}=nativeHarness();
   const confirmed=[];
