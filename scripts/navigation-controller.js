@@ -3519,16 +3519,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // A new leg starts from the last approved cohort as an editable draft;
       // it is never automatically approved, and does not edit native Groups.
       const savedParticipation=this.recoveryRecord.legs.at(-1)?.participation;
-      const live=savedParticipation?this.partyTravelSelection(
-        availableNavigationTravelMethods(game.settings,game.system?.id)):null;
-      if(savedParticipation&&!live)
-        throw Error("Cannot reconcile saved travelers with the live Group roster.");
-      const retained=live?priorJourneySelection(this.recoveryRecord,live.roster):null;
+      const savedLivestock=this.recoveryRecord.legs.at(-1)?.livestock;
+      // Derive the next draft from native Group data BEFORE applying prior
+      // mount exclusions. An empty draft cannot yet pass the all-mount validator.
+      const actor=this.getPartyToken()?.actor;
+      if((savedParticipation||savedLivestock)&&
+        (game.system?.id!=="dnd5e"||actor?.type!=="group"))
+        throw Error("Cannot reconcile saved travelers or mounts with the native Group.");
+      const roster=savedParticipation||savedLivestock?
+        projectGroupTransportation(actor,readGroupTransportation(game.settings),
+          availableNavigationTravelMethods(game.settings,game.system?.id)):null;
+      const live=roster?projectPartyTravelSelection(roster,{mode:"all"}):null;
+      const retained=savedParticipation?priorJourneySelection(this.recoveryRecord,roster):null;
       this.partySelectionMode=retained&&retained.length!==live.members.length?
         "selected":"all";
       this.partySelectedIds=this.partySelectionMode==="selected"?retained:[];
-      this.livestockDecisions=live?suggestedLivestockBoarding(
-        this.recoveryRecord,live.roster):{};
+      this.livestockDecisions=roster?suggestedLivestockBoarding(
+        this.recoveryRecord,roster):{};
     }
     const atlas=this.atlasProvider(this.scene);
     this.syncPartyDeparture(view,atlas);
