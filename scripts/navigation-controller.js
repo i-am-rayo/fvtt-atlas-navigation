@@ -119,6 +119,10 @@ import {projectPartyTravelSelection,describeTravelMethodCapacity,partyTravelerRo
   from "./navigation-party-selection.js";
 import {createJourneyParticipation,priorJourneySelection}
   from "./navigation-journey-participation.js";
+import {groupLivestockResources,countJourneyLivestock,planJourneyLivestock,
+  suggestedLivestockBoarding,assertRecoveredLivestock}
+  from "./navigation-journey-livestock.js";
+import {renderJourneyLivestockBoarding} from "./navigation-livestock-view.js";
 import {navigationRouteMarkers,navigationDestinationCheckpoint} from "./navigation-direction-summary.js";
 import {renderNavigationPlaybackControls} from "./navigation-playback-controls-view.js";
 import {renderJourneyTargets} from "./navigation-targets-view.js";
@@ -177,6 +181,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
+    this.livestockDecisions={};
     this.transferSelections={};
     this.transferLegOverrides={};
     this.transferLegOperations={};
@@ -268,6 +273,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
+    this.livestockDecisions={};
     this.transferSelections={};
     this.transferLegOverrides={};
     this.transferLegOperations={};
@@ -371,6 +377,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // A replan may depart from another Map Marker. Never carry a local hire
     // quote from the prior route into a different departure's preview.
     this.mixedMethodOverrides={};
+    this.livestockDecisions={};
     this.transferSelections={};
     this.transferLegOverrides={};
     this.transferLegOperations={};
@@ -1005,7 +1012,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         try{operationRules=resolveTransportationOperation(option.method,operation,regularHours);}
         catch(error){errors.push(error.message??String(error));}
       }
-      let hours=null,costCp=null;
+      let hours=null,costCp=null,livestock=null;
       if(option){
         let speed=null;
         if(option.method?.id==="walking")speed=walking.speed;
@@ -1030,10 +1037,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               const ownedQuote=option.arrangement==="owned"&&activeRoster?
                 groupMethodFareEstimate(activeRoster,option.method,{
                   hours,distanceMi,dayHours:regularHours}):null;
+              const vessel=index===0&&roster&&
+                ["water","air"].includes(leg.surface)&&
+                option.method.kind==="vehicle";
+              const count=vessel?countJourneyLivestock(roster,this.livestockDecisions):0;
               const quote=quoteTransportationService(option.method,{
                 arrangement:option.arrangement,operation,
                 movingHours:hours,distanceMi,travelers:activeRoster?.travelers??1,
-                ownedQuote,regularHours});
+                livestockCount:count,ownedQuote,regularHours});
+              if(vessel)livestock=planJourneyLivestock(roster,this.livestockDecisions,{
+                surface:leg.surface,methodId:option.method.id,
+                units:quote.units,capacityPerUnit:option.method.livestockCapacity,
+                fareCp:quote.livestockFareCp});
               costCp=quote.totalCp;
             }catch(error){errors.push(error.message??String(error));}
           }
@@ -1044,6 +1059,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         overnightHours:operationRules?.overnightHours??null,
         selectedValue:option?.value??"",
         methodName:option?.method?.name??null,
+        livestock,
         narration:describeTransportationLeg(leg,option?{
           name:option.method.name,kind:option.method.kind,
           surface:leg.surface,arrangement:option.arrangement
@@ -1861,6 +1877,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       });
     }
     const recent=saved.legs.at(-1),arrival=recent.transport;
+    if(recent.livestock){
+      const group=token?.actor;
+      if(group?.type!=="group")
+        throw Error("The approved livestock requires its original Group explorer.");
+      const roster=projectGroupTransportation(group,readGroupTransportation(game.settings),
+        availableNavigationTravelMethods(game.settings,game.system?.id));
+      const approved=assertRecoveredLivestock(saved,roster);
+      this.livestockDecisions=Object.fromEntries(approved.resources.map(m=>
+        [m.actorId,m.aboard]));
+    }
     if(recent.participation){
       // Restore the approved cohort on reload before computing passenger fares
       // or eligibility. This updates only an in-memory draft, never the Group.
@@ -2696,6 +2722,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("The party moved since the preview. Select transportation on the refreshed route.");
     }
     let guidedLeg=null,guidedOption=null;
+    let approvedLivestock=null;
     // Preserve the proven walking lifecycle. Other movement is permitted ONLY
     // to the next authored checkpoint, never across a guessed surface change.
     if(Array.isArray(atlas.roads)&&Array.isArray(atlas.nodes)&&
@@ -2881,6 +2908,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "checkpoint-service":"group-transport",hoursPerDay:
             resolveNavigationTravelRules({settings:game.settings,
               systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8};
+      const expectedLivestock=this.transportationTransitionPlan()?.legs[0]?.livestock??null;
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm travel to "+guidedLeg.checkpoint.name},
         content:el("div","GM confirmation: travel to "+guidedLeg.checkpoint.name+
@@ -2902,12 +2930,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!after||JSON.stringify(after.selectedOption?.method)!==JSON.stringify(option?.method)||
           after.selectedValue!==option?.value||
           (after.operation??"normal")!==(guidedLeg.transport.operation??"normal")||
-          after.errors.length)
-        throw Error("The selected transportation or operating schedule changed. Review the updated checkpoint offer.");
+          after.errors.length||
+          JSON.stringify(after.livestock??null)!==JSON.stringify(expectedLivestock))
+        throw Error("The selected transportation, livestock or fare changed during confirmation. Review the updated checkpoint offer.");
+      approvedLivestock=after.livestock??null;
     }
     // Re-read the native roster after GM approval. No partial selection can
     // move before its approved, versioned manifest is persisted to the Journal.
     const unfinished=isUnfinishedJourneyLeg(this.recoveryRecord);
+    if(unfinished&&this.recoveryRecord?.legs.at(-1)?.livestock){
+      const group=this.getPartyToken()?.actor;
+      if(group?.type!=="group")throw Error("The approved livestock Group is unavailable.");
+      const roster=projectGroupTransportation(group,readGroupTransportation(game.settings),
+        availableNavigationTravelMethods(game.settings,game.system?.id));
+      approvedLivestock=assertRecoveredLivestock(this.recoveryRecord,roster);
+    }
     const partyNow=this.sourceMode==="party"?this.partyTravelSelection(
       availableNavigationTravelMethods(game.settings,game.system?.id)):null;
     if(partySignature!==null&&JSON.stringify({members:partyNow?.members,
@@ -2941,6 +2978,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       route,...this.roadNaming(atlas,route),travel
     });
     const itinerary=guidedLeg?{...snapshot,transport:guidedLeg.transport,
+      ...(approvedLivestock?{livestock:approvedLivestock}:{}),
       ...(approvedParticipation?{participation:approvedParticipation}:{}),
       ...(approvedConvoy?{convoy:approvedConvoy}:{})}:{
       ...snapshot,
@@ -3428,6 +3466,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.partySelectionMode=retained&&retained.length!==live.members.length?
         "selected":"all";
       this.partySelectedIds=this.partySelectionMode==="selected"?retained:[];
+      this.livestockDecisions=live?suggestedLivestockBoarding(
+        this.recoveryRecord,live.roster):{};
     }
     const atlas=this.atlasProvider(this.scene);
     this.syncPartyDeparture(view,atlas);
@@ -4983,9 +5023,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           // onward vessel is being previewed. The handle must not hide the
           // non-committing traveler roster; approval remains separately guarded.
           if(!locked&&partyMode&&partySelection&&leg.selectedOption&&
-              ["water","air"].includes(leg.surface))
+              ["water","air"].includes(leg.surface)){
             card.append(this.renderTravelersAndPace(partySelection,availability,{
               singleChoice:leg.selectedOption,transferColumns:true}));
+            const mounts=groupLivestockResources(partySelection.roster);
+            const boarding=renderJourneyLivestockBoarding({resources:mounts,
+              decisions:this.livestockDecisions,method:leg.selectedOption.method,
+              planned:leg.livestock,disabled:locked,onChange:(id,quantity)=>{
+                this.livestockDecisions={...this.livestockDecisions,[id]:quantity};
+                void this.render(true);
+              }});
+            if(boarding)card.append(boarding);
+          }
         }
         card.append(...renderNavigationTransferLegOutcome({
           estimateLabel:leg.hours!==null&&leg.costCp!==null?
