@@ -251,6 +251,40 @@ test("native destination without committed token position preserves pending Jour
   }
 });
 
+test("pending native checkpoint cannot publish uncredited World time after canvas teardown",async()=>{
+  const previous=globalThis.game;
+  try{
+    globalThis.game={user:{id:"gm",isGM:true},time:{worldTime:4600}};
+    const sceneId="clock-scene",tokenId="party";
+    const route={status:"ok",start:point(0,0),end:point(100,0),
+      distance:2,cost:2,legs:[{kind:"road",roadId:"r",segmentId:"s",
+        points:[point(0,0),point(100,0)],distance:2,cost:2}]};
+    const itinerary=createNavigationItinerary({sceneId,sceneUnits:"mi",route,
+      travel:{speed:2}});
+    const record=createJourneyRecord({sceneId,tokenId,atlasRevision:3,itinerary});
+    record.pendingNativeMove={schemaVersion:1,bounded:true,operationId:"PendingMove00001",
+      tokenId,checkpointIndex:0,from:point(0,0),to:point(50,0),
+      previousMovementId:null,path:[point(0,0),point(50,0)],
+      completedPercent:50,nativeDistance:50,movingHours:1,
+      worldTimeBefore:1000,worldAdvanceSeconds:3600,atlasRevision:3};
+    let saved=null;
+    const nav=new AtlasNavigationController({journeyJournalStore:{
+      save:async value=>{saved=structuredClone(value);return {id:"journal"};}
+    }});
+    const session={journal:{id:"journal"},journeyRecord:record,journalQueue:Promise.resolve(),
+      completedDistance:0,totalDistance:100,gridSize:100,clock:{
+        advancedSeconds:3600,restSeconds:0
+      },schedule:{completedHours:0,todayHours:0,permittedExtraUntil:0,
+        restEvents:0,lastForcedCheck:null,events:[]}};
+    await nav.saveJourneyCheckpoint(session,"interrupted");
+    assert.equal(saved.pendingNativeMove.operationId,"PendingMove00001");
+    assert.equal(saved.legs[0].completedMovingHours,0,
+      "native movement has not yet become credited Journey progress");
+    assert.equal(saved.legs[0].worldTravelSeconds,0,
+      "World time may already be advanced but must not enter the confirmed ledger until recovery");
+  }finally{globalThis.game=previous;}
+});
+
 test("changing Navigation stages releases detached progress and World-clock DOM refs",async()=>{
   const nav=new AtlasNavigationController();
   nav.completedRoute=true;
