@@ -612,12 +612,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(scope==="journey"&&journeyOperation!==null){
       const daily=resolveNavigationTravelRules({
         settings:game.settings,systemId:game.system?.id,actorHoursPerDay:null});
-      const regularHours=value.surface==="land"?(daily.dailyHours??8):8;
+      const regularHours=daily.dailyHours??8;
       const choices=[["normal","Standard — "+regularHours+"h/day"]];
       if(value.overtimeEnabled)choices.push(["overtime",
         "Overtime — up to "+(8+(value.overtimeExtraHours??8))+"h/day"]);
-      if(value.continuousEnabled&&value.kind==="vehicle"&&
-          ["water","air"].includes(value.surface))
+      if(value.continuousEnabled&&value.kind==="vehicle")
         choices.push(["continuous","Continuous — 24h/day"]);
       panels.general.append(field("Operating schedule for this journey",
         selected(choices,journeyOperation,"atlasJourneyOperation"),
@@ -672,10 +671,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
           {min:1,max:5,step:.1,numericStep:.1,label:"Overtime multiplier"}),
         "Premium for extra travel hours."));
     hireControls.append(overtime);
-    if(value.kind==="vehicle"&&["water","air"].includes(value.surface))
+    if(value.kind==="vehicle")
       hireControls.append(serviceToggle("continuousEnabled",value.continuousEnabled??false,
         "Allow continuous travel",
-        "Ships or aircraft with suitable shifts or magic; not standard overland travel."));
+        "Vehicles with rotating drivers, crew, magic or equivalent; never assumed for a normal trip."));
     const hireExplanation=element("small",travelers.source+
       ". Preview assumes an 8-hour operating day; route-length fare follows that day's travel distance.");
     hireControls.append(hireExplanation);
