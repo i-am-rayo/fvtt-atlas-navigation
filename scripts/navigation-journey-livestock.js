@@ -31,6 +31,14 @@ export function countJourneyLivestock(roster,decisions){
   return mounts.reduce((sum,m)=>sum+decisions[m.actorId],0);
 }
 
+/** Restrict only the transient transport inventory; never modify native Group data. */
+export function projectAccompanyingLivestock(roster,decisions){
+  countJourneyLivestock(roster,decisions);
+  return {...roster,members:roster.members.flatMap(member=>
+    member.role!=="mount"||member.enabled===false?[member]:
+    decisions[member.actorId]>0?[{...member,quantity:decisions[member.actorId]}]:[])};
+}
+
 /** Separate passenger seats from animal accommodation; unknown == no boarding. */
 export function planJourneyLivestock(roster,decisions,{surface,methodId,
   units,capacityPerUnit,fareCp=0}={}){
