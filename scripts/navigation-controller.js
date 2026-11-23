@@ -3013,10 +3013,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         displayedSpeed.unit==="km/hour"?"km/h":displayedSpeed.unit;
       const mounts=expectedLivestock?.resources
         .filter(resource=>resource.aboard>0)
-        .map(resource=>resource.actorName+": "+resource.aboard+" accompanying")??[];
+        .map(resource=>resource.name+": "+resource.aboard+" accompanying")??[];
       const stayingMounts=expectedLivestock?.resources
         .filter(resource=>resource.quantity>resource.aboard)
-        .map(resource=>resource.actorName+": "+(resource.quantity-resource.aboard)+" staying")??[];
+        .map(resource=>resource.name+": "+(resource.quantity-resource.aboard)+" staying")??[];
       const approvedSummary=renderNavigationTransportApproval({
         destination:"Current leg to "+guidedLeg.checkpoint.name,
         rows:[{
