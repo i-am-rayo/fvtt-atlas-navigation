@@ -2354,6 +2354,10 @@ test("mounts, wagons, and ships use explicit daily operating policies",()=>{
     assert.throws(()=>nav.resolveTravelRules({methodId:"carriage"}),
       /Continuous/,"a resumed land Journey cannot downgrade an approved operation");
     nav.recoveryRecord=null;
+    nav.transportOperation="continuous";
+    assert.equal(nav.resolveTravelRules({methodId:"carriage"},undefined,undefined).dailyHours,8,
+      "an unapproved stale UI choice may safely return to normal");
+    assert.equal(nav.transportOperation,"normal");
     profile="custom";
     assert.equal(nav.resolveTravelRules({methodId:"camel"}).dailyHours,6,
       "custom World travel-day hours also apply to overland mount estimates");
