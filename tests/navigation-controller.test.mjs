@@ -129,6 +129,62 @@ test("continuous vessel submits one bounded move per durable checkpoint",async()
   }
 });
 
+test("ordinary scheduled native chunk preserves a durable intent and does not claim early dock arrival",async()=>{
+  const prior={game:globalThis.game,foundry:globalThis.foundry,Hooks:globalThis.Hooks};
+  try{
+    const listeners=new Map(),writes=[];
+    globalThis.foundry={utils:{randomID:()=>"OrdinaryChunk0001"}};
+    globalThis.Hooks={on(key,fn){listeners.set(key,fn);return fn;},
+      off(key,fn){assert.equal(listeners.get(key),fn);listeners.delete(key);}};
+    globalThis.game={time:{worldTime:500}};
+    const scene={id:"normal-scene",grid:{size:100}};
+    const atlas={revision:4},view={ready:true,scene};
+    const token={id:"group-token",x:0,y:0,width:1,height:1,
+      stopMovement(){return true;},
+      getCompleteMovementPath(path){return path;},
+      async move(waypoints,options){
+        assert.equal(writes.at(-1)?.type,"intent",
+          "native TokenDocument.move must never precede the durable intent");
+        const from={x:this.x,y:this.y},to=waypoints.at(-1);
+        const movement={id:options.id,chain:[],origin:from,
+          destination:{x:to.x,y:to.y},constrained:false,
+          passed:{waypoints:[{...to,movementId:options.id}]},
+          pending:{waypoints:[]},animation:{ended:Promise.resolve()},state:"completed"};
+        assert.notEqual(listeners.get("preMoveToken")?.(this,movement),false);
+        listeners.get("moveToken")(this,movement);
+        this.x=to.x;this.y=to.y;this.movement=movement;
+        listeners.get("updateToken")(this,{x:this.x,y:this.y});
+        return true;
+      }
+    };
+    const nav=new AtlasNavigationController({canvasProvider:()=>view,
+      atlasProvider:()=>atlas,atlasPoint:(_view,_atlas,p)=>p});
+    nav.scene=scene;
+    const session={token,sceneId:scene.id,gridSize:100,phase:"moving",
+      totalDistance:20,completedDistance:0,clock:null,journeyRecord:{},
+      schedule:{recordMovement(){}},confirmedSegments:0,pendingPassengerRest:null};
+    nav.travelSession=session;
+    nav.captureConfirmedJourneyAnchor=()=>({point:{x:token.x,y:token.y}});
+    nav.saveJourneyCheckpoint=async(record,status)=>{
+      writes.push({type:record.journeyRecord.pendingNativeMove?"intent":"confirmed",status,
+        completedDistance:record.completedDistance});
+    };
+    assert.equal(await nav.runNativeContinuousLeg(session,{
+      plan:{path:[{x:0,y:0},{x:10,y:0,checkpoint:true}],
+        checkpoints:[{index:0,from:{x:0,y:0},point:{x:10,y:0},
+          distance:10,completedDistance:10,completedMovingHours:1,
+          pathStartIndex:0,pathEndIndex:1}],totalDistance:20},
+      playback:{movementSpeed:1,travelHours:2},atlas,view,
+      guidedLeg:{checkpoint:{point:{x:100,y:100}},transport:{methodName:"Cart"}},
+      ordinary:true
+    }),true);
+    assert.deepEqual(writes.map(w=>w.status),["moving","moving","moving"]);
+    assert.equal(session.completedDistance,10,"exactly one approved chunk was credited");
+    assert.equal(session.journeyRecord.pendingNativeMove,null);
+    assert.equal(listeners.size,0);
+  }finally{Object.assign(globalThis,prior);}
+});
+
 test("native destination without committed token position preserves pending Journal intent and clock",async()=>{
   const previous={game:globalThis.game,foundry:globalThis.foundry,Hooks:globalThis.Hooks};
   try{
