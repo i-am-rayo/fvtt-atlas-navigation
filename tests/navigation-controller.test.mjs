@@ -3891,3 +3891,47 @@ test("unmovable day-boundary requests explicit early GM consent without native m
   assert.equal(schedule.permittedExtraUntil,9);
   assert.equal(session.phase,"moving");
 });
+
+
+test("land vehicle boarding prices physical animals without changing passenger seats or native roster",()=>{
+  const previous=globalThis.game;
+  try{
+    globalThis.game={system:{id:"dnd5e"},settings:{get:()=>undefined}};
+    const nav=new AtlasNavigationController();
+    nav.scene={id:"land-scene",grid:{size:100,units:"mi"}};
+    nav.result={status:"ok",distance:12,cost:12};
+    nav.resolveTravel=()=>({travel:{speed:3}});
+    nav.plannedTravelOperation=()=> "normal";
+    nav.livestockDecisions={horseA:1,horseB:2};
+    const roster={members:[
+      {actorId:"horseA",actorName:"Warhorse",quantity:1,assignedTo:null,
+        enabled:true,role:"mount"},
+      {actorId:"horseB",actorName:"Riding Horse",quantity:3,assignedTo:null,
+        enabled:true,role:"mount"}]};
+    const saved=structuredClone(roster);
+    const party={roster,travelerCount:2};
+    const wagon={id:"coach-hire",name:"Coach",kind:"vehicle",surface:"land",
+      capacity:4,hireEnabled:true,hireCostCp:40,hireBasis:"trip",
+      hireApplies:"passenger",livestockCapacity:null,
+      hireUnlimited:false,hireQuantity:1};
+    const planned=nav.planLandVehicleBoarding(wagon,"hire",party);
+    assert.equal(planned.quote.units,1);
+    assert.equal(planned.quote.baseCp,80);
+    assert.equal(planned.quote.livestockFareCp,120);
+    assert.equal(planned.manifest.carried,true);
+    assert.equal(planned.manifest.capacityPerUnit,null);
+    assert.deepEqual(planned.manifest.resources.map(m=>m.aboard),[1,2]);
+    assert.deepEqual(roster,saved,"draft boarding never mutates native Group");
+    assert.throws(()=>nav.planLandVehicleBoarding({...wagon,livestockCapacity:0},
+      "hire",party),/does not allow/);
+    assert.throws(()=>nav.planLandVehicleBoarding({...wagon,livestockCapacity:2},
+      "hire",party),/Not enough hired transportation units/);
+    assert.equal(nav.planLandVehicleBoarding({...wagon,livestockCapacity:2,
+      hireQuantity:2},"hire",party).quote.units,2);
+    nav.livestockDecisions={horseA:0,horseB:0};
+    assert.equal(nav.planLandVehicleBoarding({...wagon,livestockCapacity:0},
+      "hire",party).quote.totalCp,80,
+      "zero animal spaces do not prevent vehicle travel with no animals");
+    assert.deepEqual(roster,saved);
+  }finally{globalThis.game=previous;}
+});
