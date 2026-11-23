@@ -13,7 +13,7 @@ const ship={id:"ship-passage",name:"Passage",kind:"vehicle",surface:"water",
   hireCrewIncluded:true,includeCrewWages:false};
 const options={arrangement:"hire",operation:"normal",movingHours:5,
   distanceMi:12,travelers:4};
-test("three physical mounts pay three additional fare equivalents, not human seats",()=>{
+test("three physical mounts pay half-price passenger equivalents, not human seats",()=>{
  const quote=quoteTransportationService(ship,{...options,livestockCount:3});
  assert.equal(quote.baseCp,480,"four human passengers at 1 SP/mile");
  assert.equal(quote.livestockFareCp,180,"three physical mounts each pay half a passenger fare");
@@ -26,7 +26,7 @@ test("animal accommodation can require a second vessel without double passenger 
    ...options,livestockCount:3});
  assert.equal(quote.units,2);
  assert.equal(quote.baseCp,480);
- assert.equal(quote.totalCp,840);
+ assert.equal(quote.totalCp,660);
  assert.throws(()=>quoteTransportationService({...ship,livestockCapacity:2,
    hireUnlimited:false,hireQuantity:1},{...options,livestockCount:3}),
    /Not enough hired transportation units/);
