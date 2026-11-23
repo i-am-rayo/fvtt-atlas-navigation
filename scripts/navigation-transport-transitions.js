@@ -169,8 +169,8 @@ export function summarizeTransportationOperatingSchedule(legs){
     }
     let remaining=leg.hours,legDowntime=0;
     if(leg.operation==="continuous"){
-      // Only a hypothetical scheduling boundary: no actual rest is conferred.
-      dutyUsed=0;
+      // Operators may rotate; passengers are NOT automatically rested.
+      // Keep pre-voyage duty until an actual GM-approved rest is recorded.
     }else{
       while(remaining>EPS_HOURS){
         const available=Math.max(0,leg.dailyHours-dutyUsed);
