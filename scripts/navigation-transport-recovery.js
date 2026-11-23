@@ -153,7 +153,7 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
   const operation=t.operation??operationOverride??(method.continuousEnabled&&
     ["water","air"].includes(t.surface)&&method.kind==="vehicle"?
     "continuous":"normal");
-  if(!["normal","continuous"].includes(operation))
+  if(!["normal","overtime","continuous"].includes(operation))
     throw Error("The saved voyage's operating schedule is unsupported.");
   const originalDistance=prior.terrainAware?
     verifiedProjection.legs[0].weightedDistance:verifiedProjection.legs[0].distance;
@@ -164,7 +164,8 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
   const option={
     value:t.arrangement+"|"+t.methodId,label:t.methodName,group:"Current voyage",
     method:{...method,name:t.methodName,
-      ...(operation==="continuous"?{continuousEnabled:true}:{})},
+      ...(operation==="continuous"?{continuousEnabled:true}:{}),
+      ...(operation==="overtime"?{overtimeEnabled:true}:{})},
     arrangement:t.arrangement,recovered:true
   };
   const leg={...verifiedProjection.legs[0],options:[option],selectedOption:option,
@@ -173,7 +174,10 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
     ...(mixed?{convoy,terrainAware:prior.terrainAware}:{}),
     narration:["Continuing the previously approved "+t.methodName+" voyage toward "+
       t.arrivalCheckpointName+". No new booking or payment occurs."]};
+  const dailyHours=operation==="continuous"?24:
+    operation==="overtime"?8+(method.overtimeExtraHours??8):8;
   return {...verifiedProjection,hasTransitions:true,complete:true,legs:[leg],
-    totalHours:hours,totalElapsedHours:operation==="continuous"?hours:
-      hours+Math.max(0,Math.ceil(hours/8)-1)*16,totalCp:0};
+    totalHours:hours,totalElapsedHours:hours+
+      Math.max(0,Math.ceil(Math.max(0,hours-1e-7)/dailyHours)-1)*
+      (operation==="continuous"?0:24-dailyHours),totalCp:0};
 }
