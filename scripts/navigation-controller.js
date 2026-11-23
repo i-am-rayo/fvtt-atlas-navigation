@@ -4980,8 +4980,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                   globalThis.ui?.notifications?.error?.(error.message??String(error)));
               }:null
           }));
-          if(!locked&&partyMode&&partySelection&&
-              this.canDraftTravelMethods()&&leg.selectedOption&&
+          // A checkpoint continuation keeps a saved Journey handle while the
+          // onward vessel is being previewed. The handle must not hide the
+          // non-committing traveler roster; approval remains separately guarded.
+          if(!locked&&partyMode&&partySelection&&leg.selectedOption&&
               ["water","air"].includes(leg.surface))
             card.append(this.renderTravelersAndPace(partySelection,availability,{
               singleChoice:leg.selectedOption,transferColumns:true}));
