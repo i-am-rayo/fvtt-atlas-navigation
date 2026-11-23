@@ -21,8 +21,7 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
   title.style.cssText="margin:.2rem 0 0;font-size:1em;";
   const heading=css(el("div"),"display:flex;align-items:baseline;justify-content:space-between;gap:.4rem;flex-wrap:wrap;");
   const status=el("small",active.length+"/"+travelers.length+
-    " travelers · "+active.reduce((n,t)=>n+t.seats,0)+" seats"+
-    (previewOnly?" · Preview only":""));
+    " travelers · "+active.reduce((n,t)=>n+t.seats,0)+" seats · Unapproved draft");
   status.style.cssText="opacity:.8;";
   heading.append(title,status);root.append(heading);
 
@@ -164,8 +163,9 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
     root.append(board);
   }
   if(previewOnly){
-    const hint=el("small","Subset preview only · Assign a separate Group explorer to travel.");
-    hint.style.cssText="color:var(--color-text-warning,#d7a85a);";
+    const hint=el("small","Atlas records who is traveling for this leg. The native Group "+
+      "explorer token represents this traveling subset; Group membership is unchanged.");
+    hint.style.cssText="opacity:.85;line-height:1.4;";
     root.append(hint);
   }
   return root;
