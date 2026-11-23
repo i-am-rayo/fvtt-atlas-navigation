@@ -776,7 +776,8 @@ test("navigation locks the completed route until deliberate endpoint gestures or
     globalThis.document={createElement:tag=>({tag,style:{},children:[],textContent:"",
       listeners:new Map(),append(...nodes){this.children.push(...nodes);},
       appendChild(node){this.children.push(node);},
-      addEventListener(name,handler){this.listeners.set(name,handler);}})};
+      addEventListener(name,handler){this.listeners.set(name,handler);},
+      setAttribute(name,value){if(name==="aria-label")this.ariaLabel=value;}})};
     const scene={id:"scene-1",name:"Paedor",grid:{units:"km",size:100},
       getFlag:(_module,key)=>key==="checkpointTransportOffers"?
         {schemaVersion:1,entries:{"stop-a":[
