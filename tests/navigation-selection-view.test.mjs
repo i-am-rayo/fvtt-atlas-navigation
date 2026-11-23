@@ -78,6 +78,41 @@ test("travel method selector displays grouped choices without approving transpor
   }finally{restore();}
 });
 
+test("selected mixed transportation tiles have an independent accessible editor",async()=>{
+  const restore=mockDOM();
+  try{
+    const {renderNavigationTravelMethodButtons}=await import("../scripts/navigation-selection-view.js");
+    const calls=[];
+    const section=renderNavigationTravelMethodButtons({
+      choices:[{value:"owned|walking",label:"Walking",group:"Party"},
+        {value:"hire|carriage",label:"Carriage",group:"Dirwest"},
+        {value:"hire|wagon",label:"Wagon",group:"Dirwest"}],
+      selectedValues:["owned|walking","hire|carriage"],
+      onMethodToggle:(value,checked)=>calls.push("toggle:"+value),
+      onEditMethod:value=>calls.push("edit:"+value)
+    });
+    const all=node=>[node,...node.children.flatMap(all)];
+    const edits=all(section).filter(node=>node.tag==="button"&&
+      node.ariaLabel?.startsWith("Edit "));
+    assert.equal(edits.length,1,"only selected non-walking methods are editable");
+    assert.match(edits[0].ariaLabel,/Carriage/);
+    edits[0].listeners.click();
+    assert.deepEqual(calls,["edit:hire|carriage"],
+      "clicking the pencil never toggles its associated checkbox");
+    const disabled=renderNavigationTravelMethodButtons({
+      choices:[{value:"hire|carriage",label:"Carriage",group:"Dirwest"}],
+      selectedValues:["hire|carriage"],disabled:true,
+      onEditMethod:value=>calls.push("unexpected:"+value)
+    });
+    const disabledEdit=all(disabled).find(node=>node.tag==="button"&&
+      node.ariaLabel?.includes("Carriage"));
+    assert.equal(disabledEdit.disabled,true);
+    disabledEdit.listeners.click();
+    assert.deepEqual(calls,["edit:hire|carriage"],
+      "a disabled control cannot open the transportation editor");
+  }finally{restore();}
+});
+
 test("multi-method cards use controlled checkboxes and forward deliberate selections",async()=>{
   const restore=mockDOM();
   try{
