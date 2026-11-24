@@ -255,6 +255,14 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
     }
   }
   if(isUnfinishedJourneyLeg(next)){
+    const approvedService=old.transport?.serviceApproval;
+    const resumedService=resumed.transport?.serviceApproval;
+    if(approvedService!==undefined||resumedService!==undefined){
+      if(JSON.stringify(approvedService)!==JSON.stringify(resumedService)||
+          old.transport?.methodId!==resumed.transport?.methodId||
+          old.transport?.arrivalCheckpointId!==resumed.transport?.arrivalCheckpointId)
+        throw Error("Recovery cannot change the approved hired service.");
+    }
     // Interruption never authorizes changing a previously approved roster.
     if(old.participation!==undefined){
       if(resumed.participation!==undefined&&
