@@ -694,7 +694,8 @@ test("one existing Preview & Save includes a fresh shared-cell review, not anoth
     editor.session.draft.offsets.push({i:1,j:0});
     allow=true;
     await save.listeners.get("click")();
-    assert.deepEqual(reviews,[1,2],"a fresh draft review follows edits after Cancel");
+    assert.deepEqual(reviews,[1,2,2],
+      "a fresh draft review follows Cancel and native ownership is rechecked after approval");
     assert.ok(dialogTexts[1].some(line=>/Native cells: 1 → 2/.test(line)));
     assert.equal(writes,1);
     assert.equal(await pending,true);
