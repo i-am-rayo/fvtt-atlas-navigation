@@ -3,7 +3,7 @@
   "type": "module",
   "title": "FVTT Atlas Navigation",
   "description": "Foundry v14 Scene Atlas with roads, checkpoints, terrain Regions and Atlas terrain-aware Navigation.",
-  "version": "0.3.12-dev.33",
+  "version": "0.3.12-dev.33.1",
   "authors": [
     {
       "name": "i-am-rayo",
