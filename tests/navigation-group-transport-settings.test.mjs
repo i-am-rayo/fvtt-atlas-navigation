@@ -485,6 +485,32 @@ test("Need Setup role edits keep the active row until explicit tab change; seat 
   }finally{ctx.restore();}
 });
 
+test("Cancel Party transportation preserves the draft when declined and never persists",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    let closed=0,allow=false;
+    app.close=async()=>{closed++;};
+    globalThis.foundry={applications:{api:{DialogV2:{
+      confirm:async()=>allow
+    }}}};
+    const nodes=flatten(await app._renderHTML());
+    const role=nodes.find(e=>e.name==="role-camel1");
+    role.value="passenger";role.events.change.forEach(fn=>fn());
+    const cancel=nodes.find(e=>e.tagName==="BUTTON"&&e.textContent==="Cancel");
+    assert.ok(cancel,"explicit Cancel is discoverable");
+    await cancel.events.click[0]();
+    assert.equal(closed,0);
+    assert.equal(app.dirty,true);
+    assert.equal(role.value,"passenger");
+    allow=true;
+    await cancel.events.click[0]();
+    assert.equal(closed,1);
+    assert.equal(ctx.changes.length,0);
+    assert.equal(ctx.saved.groups.group1.members.camel1.role,"mount");
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
 test("NPC roles and tab switches never write; Save, Refresh and Settings use standard footer actions",async()=>{
   const ctx=setup();try{
     const app=new AtlasGroupTransportationSettings(ctx.group.id);
