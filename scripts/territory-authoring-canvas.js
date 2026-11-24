@@ -1,5 +1,6 @@
 /** Modeless GM canvas authoring surface. Only Save commits a RegionDocument;
  * pointer input, keyboard Undo, brush strokes and previews are transient. */
+import {compareAtlasLabels} from "./settings-select.js";
 import {paintGridCells,MAX_TERRITORY_NODES} from "./territory-authoring-model.js";
 import {smoothClosedBoundary} from "./region-boundary-model.js";
 import {acquireAtlasCanvasEditorFocus} from "./atlas-canvas-editor-focus.js";
@@ -289,7 +290,8 @@ export class TerritoryAuthoringCanvas{
           "Select a neighboring Territory for seam-only painting");
         const regular=el("option","Free paint — all cells");
         regular.value="";select.appendChild(regular);
-        for(const peer of seamGuide.peers){
+        for(const peer of [...seamGuide.peers].sort((a,b)=>
+          compareAtlasLabels(a.name,b.name)||compareAtlasLabels(a.id,b.id))){
           const option=el("option",`${peer.name} — ${peer.offsets.length} edge cells`+
             (peer.tooLarge?" (use smaller free-paint strokes)":""));
           option.value=peer.id;option.disabled=!!peer.tooLarge;
@@ -372,7 +374,8 @@ export class TerritoryAuthoringCanvas{
         select.setAttribute("aria-label","Switch to selected batch Territory");
         const prompt=el("option","Choose another Territory…");
         prompt.value="";select.appendChild(prompt);
-        const otherTargets=batchContext.targets.filter(target=>target.id!==batchContext.regionId);
+        const otherTargets=batchContext.targets.filter(target=>target.id!==batchContext.regionId)
+          .sort((a,b)=>compareAtlasLabels(a.name,b.name)||compareAtlasLabels(a.id,b.id));
         for(const target of otherTargets){
           const option=el("option",`${target.name} — ${target.staged?"Staged":"Not staged"}`);
           option.value=target.id;select.appendChild(option);

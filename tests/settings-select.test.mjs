@@ -81,3 +81,33 @@ test("disabled locations stay visible but cannot be selected through the seriali
     assert.equal(available.value,"open");
   }finally{globalThis.document=previous;}
 });
+
+test("named Atlas dropdown choices sort A–Z without changing IDs, groups or saved values",()=>{
+  const previous=globalThis.document;
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    const input=[["","Choose a method"],["z","Zulu"],["b","Alpha"],
+      ["a","Alpha"],["e","Éclair"]];
+    const select=createSettingsSelect(input,{selectedId:"z"});
+    assert.deepEqual(select.children.map(option=>option.value),["","a","b","e","z"]);
+    assert.equal(select.value,"z");
+    assert.deepEqual(serializedSelected(select).map(option=>option.value),["z"]);
+    assert.deepEqual(input.map(option=>option[0]),["","z","b","a","e"],
+      "sorting is presentation-only and never mutates stored data");
+    const grouped=createSettingsGroupedSelect([
+      {label:"Land",options:[["z","Zebra"],["a","Antelope"]]},
+      {label:"Air",options:[["p","Pegasus"],["g","Griffon"]]}
+    ],{selectedId:"p"});
+    assert.deepEqual(grouped.children.map(group=>group.label),["Land","Air"]);
+    assert.deepEqual(grouped.children[0].children.map(option=>option.value),["a","z"]);
+    assert.deepEqual(grouped.children[1].children.map(option=>option.value),["g","p"]);
+    assert.deepEqual(serializedSelected(grouped).map(option=>option.value),["p"]);
+    const ordered=createSettingsSelect([["last","Third"],["first","First"]],
+      {selectedId:"last",alphabetize:false});
+    assert.deepEqual(ordered.children.map(option=>option.value),["last","first"],
+      "purposefully ordered action lists may opt out");
+    const missing=createSettingsSelect([["z","Zebra"],["a","Antelope"]],
+      {selectedId:"retired"});
+    assert.equal(missing.value,"z","an invalid saved ID keeps the prior fallback");
+  }finally{globalThis.document=previous;}
+});

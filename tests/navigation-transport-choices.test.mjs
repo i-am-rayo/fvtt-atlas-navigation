@@ -20,6 +20,7 @@ test("navigation and leg method choices group by source and preserve option IDs"
   assert.equal(groups.get("Party").children.length,2);
   assert.deepEqual(groups.get("Port Barthos").children.map(node=>node.value),
     ["hire|sailing","hire|ship-passage"]);
+  assert.equal(groups.get("Party").children[0].textContent,"Camel");
   assert.equal(groups.get("Port Barthos").children[0].textContent,"Sailing Ship");
   assert.equal(select.children[2].children[0].value,"hire|rowboat");
 });

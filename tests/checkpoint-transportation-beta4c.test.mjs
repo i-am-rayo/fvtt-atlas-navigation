@@ -260,6 +260,10 @@ test("Map Marker can add an inherited Cart without automatically opening local o
     await add.listeners.get("click")();
     const selector=flatten(editor.element).find(item=>item.tag==="select");
     assert.ok(selector,"GM chooses a World method");
+    const names=selector.children.map(item=>item.textContent);
+    assert.deepEqual(names,[...names].sort((a,b)=>a.localeCompare(b,undefined,
+      {sensitivity:"base",numeric:true})),
+      "Map Marker World transportation choices are alphabetized in the land picker");
     selector.value="cart";
     const confirm=flatten(editor.element).find(item=>item.textContent==="Add selected method");
     assert.ok(confirm);

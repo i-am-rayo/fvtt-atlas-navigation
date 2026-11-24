@@ -5,7 +5,7 @@ import { readPlayerTerritorySharing } from "./player-territory-sharing.js";
 import { readPendingTerritoryCellTransfer } from "./territory-grid-transfer.js";
 import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
 import { CHECKPOINT_TYPE_GROUPS, CHECKPOINT_TYPES, CHECKPOINT_TYPE_FLAG, validateCheckpointCategories } from "./checkpoint-types.js";
-import { createSettingsGroupedSelect } from "./settings-select.js";
+import { createSettingsGroupedSelect,alphabetizeSettingsOptions } from "./settings-select.js";
 import { MODULE_ID } from "./atlas-storage.js";
 import {roadAppearanceMode,readWorldRoadAppearance,resolveRoadAppearance} from "./road-appearance.js";
 import {nativeRegionColorHex} from "./native-region-color.js";
@@ -97,7 +97,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   }
   function select(label, key, options) {
     const control = element("select");
-    for (const [id, name] of [["","All"], ...options]) {
+    for (const [id, name] of alphabetizeSettingsOptions([["","All"], ...options])) {
       const option = element("option", name);
       option.value = id;
       control.appendChild(option);

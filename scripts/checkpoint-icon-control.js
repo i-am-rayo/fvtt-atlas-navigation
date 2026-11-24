@@ -1,7 +1,7 @@
 /** Reusable, render-only Foundry v14 icon picker for checkpoint and World preset forms. */
 import { CHECKPOINT_ICONS, CHECKPOINT_ICON_ROOT, CHECKPOINT_FREE_ICONS,
   findCheckpointIcons, checkpointFontIcon } from "./checkpoint-appearance.js";
-import { createSettingsSelect } from "./settings-select.js";
+import { createSettingsSelect,alphabetizeSettingsOptions } from "./settings-select.js";
 
 const node=(tag,text)=>{
   const item=document.createElement(tag);
@@ -73,12 +73,15 @@ export function createCheckpointIconPicker({selectedId="location-dot",onChange=(
   const search=node("input");search.type="search";
   search.placeholder="Search fantasy icons: bridge, ship, castle, cave…";
   search.setAttribute("aria-label","Filter checkpoint icons");
-  const select=(items,value)=>createSettingsSelect(items,{selectedId:value});
+  const select=(items,value,{alphabetize=true}={})=>
+    createSettingsSelect(items,{selectedId:value,alphabetize});
   const category=select([["rpg","RPG & fantasy (recommended)"],
-    ["settlements","Settlements & structures"],["travel","Roads & travel"],
-    ["nature","Nature & terrain"],["danger","Combat & danger"],
-    ["magic","Magic & mystery"],["creatures","Characters & creatures"],
-    ["all","Advanced — all icons, including modern brands"]],"rpg");
+    ...alphabetizeSettingsOptions([
+      ["settlements","Settlements & structures"],["travel","Roads & travel"],
+      ["nature","Nature & terrain"],["danger","Combat & danger"],
+      ["magic","Magic & mystery"],["creatures","Characters & creatures"],
+      ["all","Advanced — all icons, including modern brands"]
+    ])],"rpg",{alphabetize:false});
   category.setAttribute("aria-label","RPG icon category");
   const style=select([["all","All Free icon styles"],["solid","Solid"],
     ["regular","Regular"],["brands","Brands"]],"all");

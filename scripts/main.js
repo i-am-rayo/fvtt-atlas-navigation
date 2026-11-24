@@ -1936,7 +1936,7 @@ function actions() {
       methodLabel.appendChild(createSettingsSelect(methods,{
         selectedId:preferredTerritoryCreationMethod({nativeGridShape,
           gridless:globalThis.canvas?.grid?.isGridless===true}),
-        name:"method",ariaLabel:"Territory creation method"}));
+        name:"method",ariaLabel:"Territory creation method",alphabetize:false}));
       if(!nativeGridShape){const hint=document.createElement("p");
         hint.textContent="Native grid painting requires Foundry v14.370+ and a square/hex Scene. " +
           "Polygon and Blank Wall authoring remain supported.";
@@ -2117,7 +2117,7 @@ function actions() {
         return;
       }
       container.appendChild(createSettingsSelect(choices,
-        {name:"mode",ariaLabel:"Native transfer recovery decision"}));
+        {name:"mode",ariaLabel:"Native transfer recovery decision",alphabetize:false}));
       const decision=await DialogV2.input({window:{title:"Recover Native Territory Transfer"},
         content:container,ok:{label:"Review Recovery"},rejectClose:false,modal:true});
       if(!decision?.mode||!choices.some(([value])=>value===decision.mode))return;
