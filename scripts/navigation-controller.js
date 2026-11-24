@@ -63,7 +63,7 @@ import { readGroupTransportation,projectGroupTransportation,
   from "./navigation-group-transport.js";
 import { dndCurrencyBreakdown,mixedTransportFareBreakdown } from "./navigation-currency.js";
 import { resolveTransportationOperation,draftTransportationOperation,quoteTransportationService,
-  assessHiredTransportAvailability,readLivestockFarePercent }
+  assessHiredTransportAvailability,readLivestockFarePercent,resolveHiredServiceLevel,validateHiredServiceApproval }
   from "./navigation-transport-service.js";
 import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
 import { offersAtOrigin,checkpointOffers,saveCheckpointOffers,
@@ -1000,10 +1000,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       catch(error){errors.push(error.message);}
       const option=selected&&options.find(item=>
         item.value===selected.arrangement+"|"+selected.methodId);
+      let serviceLevel=null;
       if(option){
         const local=this.transferLegOverrides[index];
-        if(local?.selection===option.value)
+        if(local?.selection===option.value){
           option.method=applyTransportationMethodOverrides(option.method,local.overrides);
+          serviceLevel=local.serviceLevel??null;
+        }
       }
       if(index>0&&!projected.legs[index-1].transferValid)
         errors.push("A transfer needs an authored checkpoint or landing at the connecting road node.");
@@ -1014,7 +1017,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // An enabled 24h vehicle runs continuously unless the Journey editor
       // explicitly chose eligible overtime. Never infer this for mixed walkers.
       const inheritedOperation=draftTransportationOperation(option?.method);
-      const operation=this.transferLegOperations[index]??inheritedOperation;
+      let operation=this.transferLegOperations[index]??inheritedOperation;
+      if(serviceLevel!==null){
+        try{
+          if(option?.arrangement!=="hire")throw Error("Choose a hired vehicle for this service level.");
+          operation=resolveHiredServiceLevel(option.method,serviceLevel,regularHours).operation;
+        }catch(error){errors.push(error.message??String(error));}
+      }
       let operationRules=null;
       if(option?.method?.id==="walking"){
         if(operation!=="normal")errors.push("Walking has no crew operating schedule.");
@@ -1055,7 +1064,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               const count=mounts.length?
                 countJourneyLivestock(roster,this.livestockDecisions):0;
               const quote=quoteTransportationService(option.method,{
-                arrangement:option.arrangement,operation,
+                arrangement:option.arrangement,operation,serviceLevel,
                 movingHours:hours,distanceMi,travelers:activeRoster?.travelers??1,
                 livestockCount:count,ownedQuote,regularHours,
                 livestockPercent:readLivestockFarePercent(game.settings)});
@@ -1130,26 +1139,30 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       method:option.method,scope:"journey",inheritedMethod:origin,
       checkpointName:option.offer?.checkpointName??null,
       journeyOperation:leg.operation,
+      journeyServiceLevel:option.arrangement==="hire"&&option.method.kind==="vehicle"?
+        (this.transferLegOverrides[index]?.serviceLevel??""):null,
       onReset:async()=>{
         delete this.transferLegOverrides[index];
         delete this.transferLegOperations[index];
         await this.render(true);
       },
-      onSave:async (edited,{operation}={})=>{
+      onSave:async (edited,{operation,serviceLevel}={})=>{
         if(this.transportationTransitionPlan()?.legs[index]?.selectedValue!==choice)
           throw Error("The transportation choice changed. Reopen its editor.");
         this.transferLegOverrides[index]={selection:choice,
-          overrides:transportationMethodOverrideDelta(origin,edited)};
+          overrides:transportationMethodOverrideDelta(origin,edited),
+          ...(serviceLevel?{serviceLevel}:{})};
         if(operation)this.transferLegOperations[index]=operation;
         await this.render(true);
         globalThis.ui?.notifications?.info?.("Transportation saved for this trip only.");
       },
-      onSaveCheckpoint:checkpointId?async (edited,{operation}={})=>{
+      onSaveCheckpoint:checkpointId?async (edited,{operation,serviceLevel}={})=>{
         if(this.transportationTransitionPlan()?.legs[index]?.selectedValue!==choice)
           throw Error("The transportation choice changed. Reopen its editor.");
         await this.saveNavigationCheckpointOffer({checkpointId,methodId,world,
           originalOffers:initialOffers,edited});
         delete this.transferLegOverrides[index];
+        if(serviceLevel)this.transferLegOverrides[index]={selection:choice,overrides:{},serviceLevel};
         if(operation)this.transferLegOperations[index]=operation;
         await this.render(true);
       }:null
@@ -3010,7 +3023,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const traveling=people.filter(member=>member.traveling).map(member=>member.name);
       const absent=people.filter(member=>!member.traveling).map(member=>member.name);
       const travelerSeats=partyAtStart?.travelerCount??null;
-      const neededUnits=expectedLivestock?.units??(
+      const approvedService=info.serviceApproval;
+      const neededUnits=approvedService?.units??expectedLivestock?.units??(
         info.arrangement==="hire"&&travelerSeats!==null?
           assessHiredTransportAvailability(option.method,{travelers:travelerSeats}).requiredUnits:null);
       const quotedCost=Number.isFinite(info.estimatedFareCp)?
@@ -3052,6 +3066,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         ],
         notes:[
           absent.length?"Not traveling: "+absent.join(", "):null,
+          approvedService?"Hired service: "+approvedService.serviceLevel+" · "+approvedService.advertisedCrew+
+            " advertised crew per unit · "+approvedService.dailyHours+"h/day"+(guidedLeg.transport.continuation?
+              " (previously approved; no new fare)":""):null,
           mountDetails,
           stayingMounts.length?"Staying behind: "+stayingMounts.join(" · "):null,
           isUnfinishedJourneyLeg(this.recoveryRecord)?
@@ -3078,6 +3095,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           after.selectedValue!==option?.value||
           (after.operation??"normal")!==(guidedLeg.transport.operation??"normal")||
           after.errors.length||
+          (approvedService&&JSON.stringify(after.recovered?after.approvedService:
+            after.serviceQuote?.serviceLevel?validateHiredServiceApproval(after.serviceQuote):null)!==JSON.stringify(approvedService))||
           JSON.stringify(after.livestock??null)!==JSON.stringify(expectedLivestock))
         throw Error("The selected transportation, livestock or fare changed during confirmation. Review the updated checkpoint offer.");
       approvedLivestock=after.livestock??null;
@@ -5289,7 +5308,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 formatMoney(fare.overtimeFareCp+fare.overtimeCrewCp),
               ...(mountDetails?[mountDetails]:[])
             ].join(" · "),
-            operatingSummary:"Operating schedule: "+leg.operation+
+            operatingSummary:(fare.serviceLevel?"Hired service: "+fare.serviceLevel+" · "+fare.advertisedCrew+
+                " advertised crew per unit. ":"")+"Operating schedule: "+leg.operation+
               ". Estimates only; no booking, payment, rest, World time or "+
               "Token movement is authorized by this preview."
           }));
