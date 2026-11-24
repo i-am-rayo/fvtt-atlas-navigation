@@ -122,6 +122,12 @@ export function territoryGridReviewLines(review){
       `${review.peerOwnedAddedCells} claimed by same-tier peers; `+
       `${review.contestedAddedCells} claimed by multiple peers.`
   ];
+  if(review.otherLevelAddedCells)lines.push(`${review.otherLevelAddedCells} added `+
+    "cell(s) also exist at the same X/Y on separate native Levels. "+
+    "Those Regions remain unchanged; this is not an ownership transfer.");
+  if(review.unsafeScopePeers?.length)lines.push("Native Level/elevation scopes "+
+    "partially overlap with "+review.unsafeScopePeers.join(", ")+
+    ". Automatic cell transfer is unsafe and will be blocked.");
   if(review.peers?.length)lines.push("Cell owners affected: "+review.peers
     .map(peer=>`${peer.name} (${peer.cells})`).join("; ")+".");
   if(review.peers?.length)lines.push("Proposed native ownership transfer: "+review.peers
@@ -323,7 +329,7 @@ export class TerritoryAuthoringCanvas{
           if(seamGuide.otherElevationCells)warnings.push(
             `${seamGuide.otherElevationCells} directly adjacent cell`+
             `${seamGuide.otherElevationCells===1?"":"s"} at different native `+
-            "elevation ranges excluded from shared-boundary selection.");
+            "Levels/elevation scopes excluded from shared-boundary selection.");
         }
         if(warnings.length){
           const note=el("p",`Shared boundary assistance: ${warnings.join(" ")}`);
