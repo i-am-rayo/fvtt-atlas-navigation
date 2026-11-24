@@ -64,3 +64,15 @@ test("explicit service levels quote advertised crew once and preserve legacy quo
   assert.equal(edited.operation,"overtime");assert.equal(edited.baseCp,0);
   assert.throws(()=>service.quoteTransportationService(method,{...args,arrangement:"owned",serviceLevel:"full"}),/hire/i);
 });
+
+test("stale inherited staffing remains readable for correction and cannot produce a service quote",()=>{
+  const world={...ship(),crewThresholds:{minimum:15,optimal:30,excellent:45}};
+  const local=offer({crewCount:20});
+  const effective=checkpointOfferMethod(local,world);
+  assert.equal(effective.crewCount,20);
+  assert.deepEqual(effective.crewThresholds,world.crewThresholds);
+  assert.throws(()=>service.resolveHiredServiceLevel(effective,"full"),/threshold/i);
+  const corrected=checkpointOfferMethod(offer({crewCount:20,crewThresholds:{minimum:5,optimal:10,excellent:15}}),world);
+  assert.equal(service.resolveHiredServiceLevel(corrected,"optimal").crewCount,10);
+  assert.deepEqual(local,offer({crewCount:20}),"read does not repair or rewrite an offer");
+});
