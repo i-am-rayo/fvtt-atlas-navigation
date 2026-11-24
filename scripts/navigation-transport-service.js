@@ -119,7 +119,7 @@ export function assessHiredTransportAvailability(method,{travelers,requestedUnit
 export function quoteTransportationService(method,{
   arrangement="owned",operation="normal",movingHours,distanceMi,
   travelers=1,requestedUnits=null,livestockCount=0,ownedQuote=null,
-  hireTerms=null,adjustmentCp=0,regularHours=8,serviceLevel=null,
+  hireTerms=null,adjustmentCp=0,regularHours=8,serviceLevel=null,sharedTravelDay=false,
   livestockPercent=LIVESTOCK_FARE_PERCENT_DEFAULT
 }={}){
   if(!method||!["owned","hire"].includes(arrangement)||
@@ -129,12 +129,21 @@ export function quoteTransportationService(method,{
     !validLivestockFarePercent(livestockPercent)||
     !Number.isFinite(adjustmentCp)||Math.abs(adjustmentCp)>1e8)
     throw Error("Invalid transportation service estimate.");
-  let level=null;
+  let level=null,advertisedDailyHours=null;
+  if(typeof sharedTravelDay!=="boolean"||sharedTravelDay&&serviceLevel===null)
+    throw Error("A shared service schedule requires an explicit hired tier.");
   if(serviceLevel!==null){
     if(arrangement!=="hire")throw Error("Service levels apply to hired transportation only.");
     level=resolveHiredServiceLevel(method,serviceLevel,regularHours);
     method={...method,crewCount:level.crewCount,hireCostCp:level.hireCostCp};
     operation=level.operation;
+    if(sharedTravelDay){
+      advertisedDailyHours=resolveTransportationOperation(method,operation,regularHours).dailyHours;
+      if(regularHours>advertisedDailyHours)throw Error("The convoy schedule exceeds the selected service capability.");
+      // A shared land convoy follows its approved common travel day; a tier
+      // buys staffing and service terms, not independent movement or overtime.
+      operation="normal";
+    }
   }
   const fare=arrangement==="hire"?resolveTransportationHireFare(method,hireTerms):null;
   const schedule=resolveTransportationOperation(method,operation,regularHours);
@@ -247,7 +256,8 @@ export function quoteTransportationService(method,{
     livestockFareCp:livestockBaseCp+livestockOvertimeCp,
     totalCp,hireTerms:fare,driverIncluded:arrangement==="hire"&&Boolean(method.hireCrewIncluded),
     provisionalAvailability:arrangement==="hire",
-    ...(level?{serviceLevel:level.serviceLevel,advertisedCrew:level.crewCount}:{})});
+    ...(level?{serviceLevel:level.serviceLevel,advertisedCrew:level.crewCount}:{}),
+    ...(sharedTravelDay?{advertisedDailyHours}:{})});
 }
 
 /** Bounded copy of an explicitly reviewed hired tier quote. This is historical
@@ -265,6 +275,8 @@ export function validateHiredServiceApproval(raw){
       !Number.isFinite(raw.adjustmentCp)||Math.abs(raw.adjustmentCp)>1e8||
       !Number.isFinite(raw.dailyHours)||raw.dailyHours<=0||raw.dailyHours>24||
       raw.overnightHours!==24-raw.dailyHours||
+      (raw.advertisedDailyHours!==undefined&&(!Number.isFinite(raw.advertisedDailyHours)||
+        raw.advertisedDailyHours<raw.dailyHours||raw.advertisedDailyHours>24||raw.operation!=="normal"))||
       raw.operation==="continuous"&&raw.dailyHours!==24||
       raw.operation==="overtime"&&(raw.dailyHours<9||raw.dailyHours>16)||
       raw.extraHours>raw.movingHours||raw.operation!=="overtime"&&raw.extraHours!==0||
@@ -279,5 +291,6 @@ export function validateHiredServiceApproval(raw){
     operation:raw.operation,dailyHours:raw.dailyHours,overnightHours:raw.overnightHours,
     units:raw.units,travelers:raw.travelers,travelDays:raw.travelDays,livestockCount:raw.livestockCount,
     ...Object.fromEntries(numeric.map(key=>[key,raw[key]])),adjustmentCp:raw.adjustmentCp,
-    hireTerms:{...hireTerms},driverIncluded:raw.driverIncluded};
+    hireTerms:{...hireTerms},driverIncluded:raw.driverIncluded,
+    ...(raw.advertisedDailyHours!==undefined?{advertisedDailyHours:raw.advertisedDailyHours}:{})};
 }
