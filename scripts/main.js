@@ -390,9 +390,12 @@ async function previewAndSaveRegion(scene, settings, { regenerate = false } = {}
   try {
     const approved = await foundry.applications.api.DialogV2.confirm({
       window: { title: regenerate ? "Regenerate native road Region" : "Create native road Region" },
+      // Keep the authoritative transient Scene preview visible beside the review.
+      position: { left: Math.max(24,(globalThis.window?.innerWidth??1200)-490),
+        top:90,width:450 },
       content: summary,
       yes: { label: regenerate ? "Regenerate Region" : "Create Region" },
-      rejectClose: false, modal: true
+      rejectClose: false, modal: false
     });
     if (!approved) return;
     if (!roadCanvas.isRegionPreviewActive(scene, plan)) {
