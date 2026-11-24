@@ -1,43 +1,43 @@
 {
-  "id": "fvtt-atlas-navigation",
-  "type": "module",
-  "title": "FVTT Atlas Navigation",
-  "description": "Foundry v14 Scene Atlas with roads, checkpoints, terrain Regions and Atlas terrain-aware Navigation.",
-  "version": "0.3.12-dev.33.1",
-  "authors": [
-    {
-      "name": "i-am-rayo",
-      "url": "https://github.com/i-am-rayo"
-    }
-  ],
-  "compatibility": {
-    "minimum": "14"
-  },
-  "esmodules": [
-    "scripts/main.js",
-    "scripts/atlas-announcement-settings.js"
-  ],
-  "styles": [
-    "styles/atlas-ui.css",
-    "styles/atlas-scene-workspace.css",
-    "styles/atlas-territory-settings.css",
-    "styles/atlas-journey-journal.css",
-    "styles/atlas-announcements.css",
-    "styles/checkpoint-icons.css",
-    "styles/atlas-manual-fog.css",
-    "styles/road-settings-dialog.css",
-    "styles/atlas-transport-currency.css"
-  ],
-  "languages": [
-    {
-      "lang": "en",
-      "name": "English",
-      "path": "lang/en.json"
-    }
-  ],
-  "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
-  "readme": "README.md",
-  "media": [],
-  "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/feat/0.3.12-dev33-road-measured-distance/module.json",
-  "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/feat/0.3.12-dev33-road-measured-distance.zip"
+    "id": "fvtt-atlas-navigation",
+    "type": "module",
+    "title": "FVTT Atlas Navigation",
+    "description": "Foundry v14 Scene Atlas with roads, checkpoints, terrain Regions and Atlas terrain-aware Navigation.",
+    "version": "0.3.12",
+    "authors": [
+        {
+            "name": "i-am-rayo",
+            "url": "https://github.com/i-am-rayo"
+        }
+    ],
+    "compatibility": {
+        "minimum": "14"
+    },
+    "esmodules": [
+        "scripts/main.js",
+        "scripts/atlas-announcement-settings.js"
+    ],
+    "styles": [
+        "styles/atlas-ui.css",
+        "styles/atlas-scene-workspace.css",
+        "styles/atlas-territory-settings.css",
+        "styles/atlas-journey-journal.css",
+        "styles/atlas-announcements.css",
+        "styles/checkpoint-icons.css",
+        "styles/atlas-manual-fog.css",
+        "styles/road-settings-dialog.css",
+        "styles/atlas-transport-currency.css"
+    ],
+    "languages": [
+        {
+            "lang": "en",
+            "name": "English",
+            "path": "lang/en.json"
+        }
+    ],
+    "url": "https://github.com/i-am-rayo/fvtt-atlas-navigation",
+    "readme": "README.md",
+    "media": [],
+    "manifest": "https://raw.githubusercontent.com/i-am-rayo/fvtt-atlas-navigation/refs/heads/main/module.json",
+    "download": "https://github.com/i-am-rayo/fvtt-atlas-navigation/archive/refs/heads/main.zip"
 }
