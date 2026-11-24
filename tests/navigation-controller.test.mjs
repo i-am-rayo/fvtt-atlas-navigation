@@ -3988,3 +3988,48 @@ test("land vehicle boarding prices physical animals without changing passenger s
     assert.deepEqual(roster,saved);
   }finally{globalThis.game=previous;}
 });
+
+test("checkpoint Journey explicitly selected hired tier drives schedule and quote without changing local offer",()=>{
+  const previous=globalThis.game;
+  try{
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},settings:{get:()=>undefined}};
+    const from=point(0,0),to=point(300,0);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to}],
+      roads:[{id:"sea",name:"Sea passage",travelPresetId:"water-sea"}],
+      segments:[{id:"segment",roadId:"sea",from:"start",to:"end",via:[]}],
+      checkpoints:[{id:"dock",name:"Dock",nodeId:"start",roadId:"sea"},
+        {id:"port",name:"Port",nodeId:"end",roadId:"sea"}]};
+    const stock={schemaVersion:1,entries:{dock:[{methodId:"warship",mode:"sea",overrides:{
+      hireEnabled:true,hireCostCp:1000,hireBasis:"day",hireApplies:"unit",
+      overtimeEnabled:true,overtimeExtraHours:8,continuousEnabled:true,
+      hireServiceLevels:{minimum:{hireCostCp:500},optimal:{hireCostCp:800}}}}]}};
+    const scene={id:"sea-scene",grid:{size:100,units:"mi"},getFlag:(_ns,key)=>
+      key==="checkpointTransportOffers"?stock:undefined};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>null});
+    nav.scene=scene;nav.result={status:"ok",start:from,end:to,distance:60,cost:60,
+      legs:[{kind:"road",roadId:"sea",segmentId:"segment",points:[from,to],distance:60,cost:60}]};
+    nav.transferSelections[0]="hire|warship";
+    const before=JSON.stringify(stock);
+    nav.transferLegOverrides[0]={selection:"hire|warship",overrides:{},serviceLevel:"minimum"};
+    const minimum=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(minimum.errors,[]);
+    assert.equal(minimum.operation,"normal");
+    assert.equal(minimum.dailyHours,8);
+    assert.equal(minimum.serviceQuote.serviceLevel,"minimum");
+    assert.equal(minimum.serviceQuote.advertisedCrew,15);
+    assert.equal(minimum.serviceQuote.hireTerms.hireCostCp,500);
+    nav.transferLegOverrides[0].serviceLevel="optimal";
+    const optimal=nav.transportationTransitionPlan().legs[0];
+    assert.equal(optimal.operation,"overtime");
+    assert.equal(optimal.dailyHours,16);
+    assert.equal(optimal.serviceQuote.advertisedCrew,30);
+    nav.transferLegOverrides[0].serviceLevel="full";
+    const full=nav.transportationTransitionPlan().legs[0];
+    assert.equal(full.operation,"continuous");
+    assert.equal(full.dailyHours,24);
+    assert.equal(full.serviceQuote.advertisedCrew,60);
+    delete nav.transferLegOverrides[0];
+    assert.equal(nav.transportationTransitionPlan().legs[0].serviceQuote.serviceLevel,undefined);
+    assert.equal(JSON.stringify(stock),before);
+  }finally{globalThis.game=previous;}
+});
