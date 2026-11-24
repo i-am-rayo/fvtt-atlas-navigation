@@ -235,7 +235,7 @@ function syncRoadDock(scene, refresh) {
 }
 
 /** Keep the full Scene sheet out of the map while transient point tools run. */
-function openRoadDock(scene, refresh) {
+function openRoadDock(scene, refresh, takeSavedRoadId = null) {
   const previous = roadDock;
   if (previous) {
     previous.finished = true;
@@ -263,6 +263,18 @@ function openRoadDock(scene, refresh) {
       restoreEditorWindows?.();
       if (roadDock === dock) roadDock = null;
       refresh();
+      const savedId=takeSavedRoadId?.();
+      if(!savedId)return;
+      // Never reopen a canvas-scoped editor on a different Scene or player client.
+      const current=readAtlas(scene);
+      const road=current.roads?.find(item=>item.id===savedId);
+      if(!road||!game.user?.isGM||!scene.canUserModify?.(game.user,"update")||
+          !canvas?.ready||canvas.scene?.id!==scene.id){
+        ui.notifications.warn("Road saved. Reopen this Scene and use Road Settings from the directory.");
+        return;
+      }
+      void roadActions.editRoadAppearance(scene,road,refresh).catch(error=>
+        ui.notifications.error(error.message??String(error)));
     }
   });
   const restoreEditorWindows=acquireAtlasCanvasEditorFocus({exclude:[dock]});
@@ -277,8 +289,13 @@ function openRoadDock(scene, refresh) {
 
 function beginRoadDock(scene, refresh, start) {
   navigation.tearDown();
-  start(() => syncRoadDock(scene, refresh));
-  openRoadDock(scene, refresh);
+  let savedRoadId=null;
+  start(() => syncRoadDock(scene, refresh),id=>{savedRoadId=id;});
+  openRoadDock(scene, refresh,()=>{
+    const id=savedRoadId;
+    savedRoadId=null;
+    return id;
+  });
 }
 
 async function centerAtlasOn(scene, roadId, checkpointId=null,
@@ -419,124 +436,6 @@ async function promptTravelPreset(title, currentId = null) {
   return presetId || null;
 }
 
-/** Stage all new-road settings before installing any canvas draw listeners. */
-async function promptNewRoadSettings(scene) {
-  const atlas = readAtlas(scene);
-  const presets = readWorldTravelPresets().presets;
-  const initial = resolveRoadAppearance(null, readWorldRoadAppearance(), "land");
-  const content = document.createElement("div"); // DialogV2.input content must have no attributes
-  const root = document.createElement("div");
-  root.dataset.atlasNewRoadDialog = "";
-  root.style.cssText = "max-height:"+Math.max(240,Math.min(590,window.innerHeight-225))+
-    "px;overflow-y:auto;padding:.4rem;min-width:0;";
-  const tabs = document.createElement("nav");
-  tabs.style.cssText = "display:flex;gap:.4rem;border-bottom:1px solid #655;padding-bottom:.65rem;margin-bottom:.7rem;";
-  const pages = {};
-  for (const [key, label] of [["general","General"],["style","Customization"],
-      ["checkpoints","Map Markers"],["regions","Terrain Regions"]]) {
-    const button = document.createElement("button");
-    button.type = "button"; button.textContent = label;
-    button.dataset.atlasNewRoadTab = key;
-    button.style.cssText = "flex:1;border:1px solid #655;background:"+
-      (key === "general" ? "rgba(156,123,240,.22)" : "transparent")+";";
-    tabs.appendChild(button);
-    const panel = document.createElement("section");
-    panel.dataset.atlasNewRoadPage = key;
-    panel.hidden = key !== "general";
-    pages[key] = panel;
-  }
-  const field = (parent,label,control) => appendSettingsField(parent,label,control);
-  const name = document.createElement("input");
-  name.type = "text";name.name = "draftRoadName";name.maxLength=120;
-  name.required = true;name.value=suggestRoadName(atlas);name.defaultValue=name.value;
-  field(pages.general,"Road name",name);
-  const visible = document.createElement("input");
-  visible.type="checkbox";visible.name="draftRoadVisible";visible.value="true";
-  field(pages.general,"Show to players",visible);
-  const travel=createTravelPresetSelect({name:"draftRoadPreset",noneLabel:"None (Land fallback)"});
-  field(pages.general,"Travel preset",travel);
-  const journal = document.createElement("input");
-  journal.type="text";journal.name="draftRoadJournal";journal.placeholder="JournalEntry… or JournalEntryPage… UUID";
-  field(pages.general,"Linked Journal / Page UUID",journal);
-  const override = document.createElement("input");
-  override.type="checkbox";override.name="draftRoadOverride";override.value="true";
-  field(pages.style,"Override world road appearance",override);
-  pages.style.appendChild(roadAppearanceForm(initial));
-  const note = key => {
-    const p=document.createElement("p");
-    p.textContent = key === "checkpoints"
-      ? "After drawing the road, add Map Markers using the Map Markers tab in Road Settings."
-      : "After drawing the road, generate terrain regions using the Terrain Regions tab.";
-    pages[key].appendChild(p);
-  };
-  note("checkpoints");note("regions");
-  root.append(tabs,...Object.values(pages));content.appendChild(root);
-  const onTab = event => {
-    const button=event.target?.closest?.("[data-atlas-new-road-tab]");
-    if (!button?.closest?.(".application")?.querySelector?.("[data-atlas-new-road-dialog]")) return;
-    event.preventDefault();event.stopImmediatePropagation();
-    const form=button.closest(".application");
-    for(const panel of form.querySelectorAll("[data-atlas-new-road-page]"))
-      panel.hidden=panel.dataset.atlasNewRoadPage!==button.dataset.atlasNewRoadTab;
-    for(const tab of form.querySelectorAll("[data-atlas-new-road-tab]"))
-      tab.style.background=tab===button?"rgba(156,123,240,.22)":"transparent";
-  };
-  document.addEventListener("click",onTab,true);
-  // DialogV2 clones creation form nodes; delegate paired numeric input events.
-  const onNumberRange=event=>{
-    const creation=event.target?.closest?.("[data-atlas-new-road-dialog]");
-    if(!creation)return;
-    const pair=event.target.closest(".atlas-number-range");
-    if(pair){
-      const slider=pair.querySelector('input[type="range"]');
-      const number=pair.querySelector('input[type="number"]');
-      if(slider&&number){
-        if(event.target===slider){
-          number.value=slider.value;number.defaultValue=number.value;
-        }else if(event.target===number){
-          const n=Number(number.value);
-          if(number.value!==""&&Number.isFinite(n)&&
-              n>=Number(slider.min)&&n<=Number(slider.max)){
-            slider.value=String(n);
-            number.defaultValue=number.value;
-          }
-        }
-      }
-    }
-    const appearance=creation.querySelector(".atlas-road-customization");
-    if(appearance)refreshRoadAppearancePreview(appearance);
-  };
-  document.addEventListener("input",onNumberRange,true);
-  document.addEventListener("change",onNumberRange,true);
-  let result;
-  try {
-    result=await foundry.applications.api.DialogV2.input({
-      window:{title:atlasSettingsTitle("Road",null,{creating:true}),resizable:true},
-      position:{left:24,width:Math.min(620,window.innerWidth-50),
-        height:Math.min(720,Math.max(440,window.innerHeight-70))},
-      content,ok:{label:"Draw Road"},rejectClose:false,modal:false
-    });
-  } finally {
-    document.removeEventListener("click",onTab,true);
-    document.removeEventListener("input",onNumberRange,true);
-    document.removeEventListener("change",onNumberRange,true);
-  }
-  if (!result) return null;
-  const roadName=String(result.draftRoadName??"").trim();
-  if (!roadName||roadName.length>120)throw Error("Enter a road name (1–120 characters).");
-  const presetId=String(result.draftRoadPreset??"")||null;
-  if(presetId&&!presets.some(p=>p.id===presetId))throw Error("Choose an existing travel preset.");
-  const journalUuid=journalUuidFromForm(result.draftRoadJournal);
-  if(journalUuid&&!validJournalUuid(journalUuid))throw Error("Use a valid Journal Entry or Page UUID.");
-  return {
-    name:roadName,presetId,
-    appearance:result.draftRoadOverride===true||result.draftRoadOverride==="true"
-      ? roadAppearanceFromForm(result) : null,
-    playerVisible:result.draftRoadVisible===true||result.draftRoadVisible==="true",
-    journalUuid
-  };
-}
-
 function actions() {
   const DialogV2 = foundry.applications.api.DialogV2;
   return {
@@ -673,11 +572,11 @@ function actions() {
         return true;
       }finally{panel.remove();}
     },
-    async begin(scene, refresh) {
+    begin(scene, refresh) {
       ensureIdle(scene);
-      const settings=await promptNewRoadSettings(scene);
-      if (!settings) return;
-      beginRoadDock(scene, refresh, onChange => roadCanvas.start(scene, onChange, settings));
+      // Map-first authoring: all Road configuration follows persisted graph Save.
+      beginRoadDock(scene, refresh, (onChange,onCreated) =>
+        roadCanvas.start(scene,onChange,null,onCreated));
     },
     draft: scene => roadCanvas.getDraft(scene),
     async generateRegion(scene, settings, refresh) {
