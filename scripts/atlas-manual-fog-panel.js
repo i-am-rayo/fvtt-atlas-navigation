@@ -70,7 +70,7 @@ export class AtlasManualFogPalette {
     const enabled=scene?readManualFog(scene).enabled:false;
     root.append(el("p",enabled?
       "Only the current Scene is affected. Clicking while a brush is active saves "+
-        "manual cell overrides immediately; it does not edit native Fog or Region shapes.":
+        "manual cell overrides immediately when you paint; it does not edit native Fog or Region shapes.":
       "Enable Atlas Manual Fog in the Scene Atlas settings before painting.","atlas-brush-help"));
     const active=this.controller.brush?.mode;
     const status=el("p",enabled&&active?
