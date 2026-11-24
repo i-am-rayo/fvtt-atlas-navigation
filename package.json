@@ -1,6 +1,6 @@
 {
   "name": "fvtt-atlas-navigation",
-  "version": "0.3.13-dev.10",
+  "version": "0.3.13-dev.11",
   "private": true,
   "type": "module",
   "scripts": {
