@@ -303,6 +303,8 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
     const crewDays=hours===0?0:Math.ceil(Math.max(0,hours-1e-7)/dayHours);
     const wagePeriods=effective.crewWageBasis==="trip"?(hours>0?1:0):
       effective.crewWageBasis==="mile"?distanceMi:crewDays;
+    const requiredCrew=(effective.crewCount??0)*member.quantity;
+    const paidCrew=effective.includeCrewWages?requiredCrew:0;
     const wages=effective.includeCrewWages?
       wagePeriods*(effective.crewCount??0)*(effective.crewWageCpPerDay??200)*member.quantity:0;
     if(!Number.isFinite(wages)||wages<0||!Number.isSafeInteger(Math.ceil(amount+cost+wages)))
@@ -311,7 +313,8 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
     breakdown.push({actorId:member.actorId,name:member.actorName,
       quantity:member.quantity,passengers,costCp:effective.costCp,
       costBasis:effective.costBasis,costApplies:effective.costApplies,
-      recurringCp:cost,crewWagesCp:wages,crewDays,crewWageBasis:effective.crewWageBasis??"day",amount:cost+wages});
+      recurringCp:cost,requiredCrew,paidCrew,crewWagesCp:wages,crewDays,
+      crewWageBasis:effective.crewWageBasis??"day",amount:cost+wages});
   }
   return {amount,breakdown,unseated:remaining,
     quantity:breakdown.reduce((sum,item)=>sum+item.quantity,0)};
