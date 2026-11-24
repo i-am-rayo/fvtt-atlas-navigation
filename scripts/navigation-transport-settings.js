@@ -24,7 +24,7 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   from "./navigation-travel-method.js";
 import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
 import {LIVESTOCK_FARE_PERCENT_SETTING,LIVESTOCK_FARE_PERCENT_DEFAULT,
-  readLivestockFarePercent,validLivestockFarePercent,resolveTransportationOperation}
+  readLivestockFarePercent,validLivestockFarePercent,resolveTransportationOperation,resolveHiredServiceLevel}
   from "./navigation-transport-service.js";
 import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
 import { createAtlasIconButton } from "./ui-action-button.js";
@@ -418,7 +418,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
   }
 
   async _edit(preset,surface="land",{scope="world",onSave=null,onReset=null,
-    onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,inheritedMethod=null,
+    onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,inheritedMethod=null,journeyServiceLevel=null,
     groupAssignment=null,profiles=[],groupActorName="",groupKind="vehicle",
     groupRiders=[]}={}){
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
@@ -639,6 +639,12 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "Optional setting and world-building details."));
     // Per-Journey schedule is a trip decision, not a World transport preset.
     // Keep it in the shared editor to avoid a second, contradictory selector.
+    if(scope==="journey"&&journeyServiceLevel!==null){
+      panels.general.append(field("Hired service level",selected([["","Reference service (legacy schedule)"],
+        ...HIRE_SERVICE_LEVELS.map(tier=>[tier,tier[0].toUpperCase()+tier.slice(1)])],
+        journeyServiceLevel,"atlasJourneyServiceLevel"),
+        "The selected tier determines this leg’s operating schedule and advertised crew. It overrides the reference schedule below; choosing Reference restores manual scheduling."));
+    }
     if(scope==="journey"&&journeyOperation!==null){
       const daily=resolveNavigationTravelRules({
         settings:game.settings,systemId:game.system?.id,actorHoursPerDay:null});
@@ -1086,10 +1092,17 @@ export class AtlasTransportationSettings extends ApplicationBase {
       // This editor is the authority: its continuous toggle takes effect
       // without a second Navigation schedule picker. Eligible explicit
       // overtime remains available when continuous is not chosen.
-      const operation=requested===null?null:
+      let operation=requested===null?null:
         requested==="overtime"&&next.overtimeEnabled?"overtime":
         next.kind==="vehicle"&&next.continuousEnabled?"continuous":"normal";
-      const journey={operation};
+      const serviceLevel=journeyServiceLevel===null?null:
+        String(response.atlasJourneyServiceLevel??journeyServiceLevel);
+      if(serviceLevel){
+        const regular=resolveNavigationTravelRules({settings:game.settings,
+          systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8;
+        operation=resolveHiredServiceLevel(next,serviceLevel,regular).operation;
+      }
+      const journey={operation,...(journeyServiceLevel===null?{}:{serviceLevel:serviceLevel||null})};
       if(response.__atlasSaveScope==="checkpoint"){
         if(typeof onSaveCheckpoint!=="function")
           throw Error("Checkpoint saving is not available for this method.");
@@ -1165,7 +1178,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
  * Callers own the Save callback; this helper never changes World settings.
  */
 export async function openTransportationMethodEditor({method,scope,onSave,onReset=null,
-  onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,inheritedMethod=null,
+  onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,inheritedMethod=null,journeyServiceLevel=null,
   groupAssignment=null,profiles=[],groupActorName="",groupKind="vehicle",
   groupRiders=[]}={}){
   if((!method&&scope!=="group")||!["checkpoint","journey","group"].includes(scope)||
@@ -1174,7 +1187,7 @@ export async function openTransportationMethodEditor({method,scope,onSave,onRese
     throw Error("Invalid transportation editor context.");
   const app=new AtlasTransportationSettings();
   return app._edit(method,method?.surface??"land",{scope,onSave,onReset,
-    onSaveCheckpoint,checkpointName,journeyOperation,inheritedMethod,groupAssignment,profiles,
+    onSaveCheckpoint,checkpointName,journeyOperation,inheritedMethod,journeyServiceLevel,groupAssignment,profiles,
     groupActorName,groupKind,groupRiders});
 }
 
