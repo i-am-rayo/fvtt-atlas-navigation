@@ -174,7 +174,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportOperation="normal";
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
-    this.transportJourneyOverrides=null;
+    this.transportJourneyOverrides=null;this.transportServiceLevel=null;
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
     this.convoyPace=null;
@@ -266,7 +266,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportOperation="normal";
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
-    this.transportJourneyOverrides=null;
+    this.transportJourneyOverrides=null;this.transportServiceLevel=null;
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
     this.convoyPace=null;
@@ -899,8 +899,31 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** Completed/suspended Journeys retain their approved operation. A fresh
    * route follows the effective edited vehicle's continuous setting. */
   plannedTravelOperation(method){
-    return isUnfinishedJourneyLeg(this.recoveryRecord)?this.transportOperation:
-      draftTransportationOperation(method,this.transportOperation);
+    if(isUnfinishedJourneyLeg(this.recoveryRecord))return this.transportOperation;
+    if(this.transportArrangement==="hire"&&this.transportServiceLevel)
+      return resolveHiredServiceLevel(method,this.transportServiceLevel).operation;
+    return draftTransportationOperation(method,this.transportOperation);
+  }
+
+  /** One selected-tier land estimate used by preview, approval and boarding.
+   * Legacy reference estimates retain their established paths. */
+  planLandHiredService(method,party=null){
+    if(this.transportArrangement!=="hire"||!this.transportServiceLevel)return null;
+    if(method?.kind!=="vehicle"||method.surface!=="land"||this.result?.status!=="ok")
+      throw Error("Choose a hired land vehicle and a calculated route for this service.");
+    const {sceneUnit,travel}=this.resolveTravel();
+    const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
+    if(!Number.isFinite(distanceMi)||!Number.isFinite(travel.speed)||travel.speed<=0)
+      throw Error("Cannot estimate hired service without valid route units and speed.");
+    const regularHours=resolveNavigationTravelRules({settings:game.settings,
+      systemId:game.system?.id,actorHoursPerDay:travel.hoursPerDay}).dailyHours??8;
+    const mounts=party?.roster?groupLivestockResources(party.roster):[];
+    const livestockCount=mounts.length?countJourneyLivestock(party.roster,this.livestockDecisions):0;
+    const movingHours=navigationHours(this.result.terrainAware?this.result.cost:this.result.distance,travel.speed);
+    const quote=quoteTransportationService(method,{arrangement:"hire",serviceLevel:this.transportServiceLevel,
+      movingHours,distanceMi,travelers:party?.travelerCount??1,livestockCount,regularHours,
+      hireTerms:this.transportHireTerms,livestockPercent:readLivestockFarePercent(game.settings)});
+    return {quote,approval:validateHiredServiceApproval(quote)};
   }
 
   /**
@@ -1249,27 +1272,29 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     await openTransportationMethodEditor({
       method:baseline,scope:"journey",inheritedMethod:original,checkpointName:offer?.checkpointName??null,
       journeyOperation:this.transportOperation,
-      onSaveCheckpoint:offer?async (edited,{operation}={})=>{
+      journeyServiceLevel:arrangement==="hire"&&baseline.kind==="vehicle"?(this.transportServiceLevel??""):null,
+      onSaveCheckpoint:offer?async (edited,{operation,serviceLevel}={})=>{
         if(this.travelMethod!==id||this.transportArrangement!=="hire")
           throw Error("The selected travel method changed. Reopen its settings.");
         await this.saveNavigationCheckpointOffer({
           checkpointId:offer.checkpointId,methodId:id,world,
           originalOffers:initialOffers,edited});
-        this.transportJourneyOverrides=null;
+        this.transportJourneyOverrides=null;this.transportServiceLevel=serviceLevel??null;
         if(operation)this.transportOperation=operation;
         this.transportHireTerms=null;this.transportHireDenomination=null;
         this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
         this.draw();await this.render(true);
       }:null,
       onReset:async()=>{
-        this.transportJourneyOverrides=null;
+        this.transportJourneyOverrides=null;this.transportServiceLevel=null;
         this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
         this.draw();await this.render(true);
       },
-      onSave:async (edited,{operation}={})=>{
+      onSave:async (edited,{operation,serviceLevel}={})=>{
         if(this.travelMethod!==id||this.transportArrangement!==arrangement)
           throw Error("The selected travel method changed. Reopen its settings.");
         this.transportJourneyOverrides=transportationMethodOverrideDelta(original,edited);
+        this.transportServiceLevel=serviceLevel??null;
         if(operation)this.transportOperation=operation;
         this.transportHireTerms=null;this.transportHireDenomination=null;
         this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
@@ -1318,7 +1343,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportOperation="normal";
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
-    this.transportJourneyOverrides=null;
+    this.transportJourneyOverrides=null;this.transportServiceLevel=null;
     this.travelNotice="";
     this.calculateRoute(view,this.atlasProvider(this.scene));
     this.draw();
@@ -1395,7 +1420,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       .filter(([key])=>next.includes(key)));
     this.convoyEnabled=false;this.convoyCargoQuantities={};
     this.convoyPace=null;
-    this.travelMethod="walking";this.transportArrangement="owned";
+    this.travelMethod="walking";this.transportArrangement="owned";this.transportServiceLevel=null;
     this.travelNotice="";
     const view=this.canvasProvider();
     if(!current&&view?.ready&&view.scene?.id===this.scene.id)
@@ -1420,7 +1445,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const movingHours=navigationHours(this.result.distance,speed);
     const regularHours=resolveNavigationTravelRules({settings:game.settings,
       systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8;
-    const quote=quoteTransportationService(method,{
+    const quote=(arrangement==="hire"?this.planLandHiredService(method,party)?.quote:null)??quoteTransportationService(method,{
       arrangement,operation:this.plannedTravelOperation(method),
       movingHours,distanceMi,travelers:party.travelerCount,
       livestockCount,regularHours,
@@ -1538,9 +1563,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
       if(!approvedLand&&method?.kind==="vehicle"&&method.surface==="land"){
         try{
-          if(party)this.planLandVehicleBoarding(
-            this.effectiveTransportMethod(method,availability),
-            this.transportArrangement,party);
+          const effective=this.effectiveTransportMethod(method,availability);
+          if(this.transportArrangement==="hire"&&this.transportServiceLevel)this.planLandHiredService(effective,party);
+          if(party)this.planLandVehicleBoarding(effective,this.transportArrangement,party);
         }catch(error){return {...result,guided:false,
           reason:error.message??String(error)};}
       }
@@ -2507,6 +2532,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const rules=resolveNavigationTravelRules({settings:game.settings,
       systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
     if(!travel?.methodId||travel.methodId==="walking")return rules;
+    const saved=isUnfinishedJourneyLeg(this.recoveryRecord)?this.recoveryRecord?.legs.at(-1)?.travelMethod:null;
+    if(saved?.serviceApproval&&saved.id===travel.methodId){
+      const approved=validateHiredServiceApproval(saved.serviceApproval);
+      return {...rules,profile:"transport-service",label:"Transport service",
+        dailyHours:approved.operation==="continuous"?null:approved.dailyHours,
+        overnightHours:approved.overnightHours,forcedMarch:"custom"};
+    }
     const world=approvedMethod??availableNavigationTravelMethods(game.settings,game.system?.id)
       .find(method=>method.id===travel.methodId);
     // No approved snapshot was passed: use this trip's actual local method,
@@ -2521,6 +2553,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const normalHours=rules.dailyHours??8;
     const storedOperation=this.transportOperation??"normal";
     let operation=approvedOperation??(
+      !isUnfinishedJourneyLeg(this.recoveryRecord)&&this.transportArrangement==="hire"&&
+        travel.methodId===this.travelMethod&&this.transportServiceLevel?
+          resolveHiredServiceLevel(preset,this.transportServiceLevel,normalHours).operation:
       approvedMethod&&isUnfinishedJourneyLeg(this.recoveryRecord)?
         storedOperation:draftTransportationOperation(preset,storedOperation));
     let selected;
@@ -2813,7 +2848,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error("The party moved since the preview. Select transportation on the refreshed route.");
     }
     let guidedLeg=null,guidedOption=null;
-    let approvedLivestock=null;
+    let approvedLivestock=null,approvedLandService=null;
     // Preserve the proven walking lifecycle. Other movement is permitted ONLY
     // to the next authored checkpoint, never across a guessed surface change.
     if(Array.isArray(atlas.roads)&&Array.isArray(atlas.nodes)&&
@@ -2858,6 +2893,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The hired land service is not offered at this checkpoint.");
       const effective=this.effectiveTransportMethod(method,availability);
       const selectedOperation=this.plannedTravelOperation(effective);
+      approvedLandService=resumingApprovedLand?(approvedLandMethod.serviceApproval??null):
+        this.planLandHiredService(effective,partyAtStart)?.approval??null;
       const landLivestock=resumingApprovedLand?null:
         this.planLandVehicleBoarding(effective,this.transportArrangement,partyAtStart);
       // Validate the current Map Marker and inferred schedule before GM approval.
@@ -2869,6 +2906,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "resume the approved journey":"follow the authored land route")+" using "+
           method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+"). "+
           "Operating schedule: "+selectedOperation+". "+
+          (approvedLandService?"Hired service: "+approvedLandService.serviceLevel+" · "+
+            approvedLandService.advertisedCrew+" advertised crew per unit · "+approvedLandService.dailyHours+
+            "h/day · "+(resumingApprovedLand?"previously approved fare (no new quote). ":
+              "Estimated total "+dndCurrencyBreakdown(approvedLandService.totalCp,
+                globalThis.CONFIG?.DND5E?.currencies).label+". "):"")+
           "The party token will move using Foundry's native movement and optional "+
           "World-time advancement. Costs are estimates; no automatic boarding, "+
           "resource changes or currency deductions occur."+
@@ -2905,6 +2947,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           throw Error("Land vehicle animal boarding, availability or fare changed during approval.");
         approvedLivestock=verified.manifest;
       }
+      if(!resumingApprovedLand&&JSON.stringify(this.planLandHiredService(liveMethod,partyAtStart)?.approval??null)!==
+          JSON.stringify(approvedLandService))throw Error("The selected hired service quote changed during confirmation.");
       if(hireSnapshot){
         const updated=this.transportAvailability();
         const revised=updated.methods.find(item=>item.id===this.travelMethod);
@@ -3173,8 +3217,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         methodId:travel.methodId??this.travelMethod,
         methodName:travel.methodLabel??this.travelMethod,
         arrangement:this.transportArrangement,operation:
-          this.plannedTravelOperation(this.effectiveTransportMethod(
-            this.transportAvailability().methods.find(m=>m.id===this.travelMethod)))}
+          approvedLandService?.operation??this.plannedTravelOperation(this.effectiveTransportMethod(
+            this.transportAvailability().methods.find(m=>m.id===this.travelMethod))),
+        ...(approvedLandService?{serviceApproval:approvedLandService}:{})}
     };
     const playback=calculateGuidedPlayback({
       route,travel,paths,
@@ -3649,7 +3694,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const previous=this.recoveryRecord?.legs?.at(-1)?.convoy;
     if(this.recoveryRecord){
       this.travelMethod="walking";this.transportArrangement="owned";
-      this.transportOperation="normal";this.transportJourneyOverrides=null;
+      this.transportOperation="normal";this.transportJourneyOverrides=null;this.transportServiceLevel=null;
       this.transportHireTerms=null;this.transportHireDenomination=null;
       this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};this.mixedUnits={};
       this.mixedRiderCounts={};this.convoyEnabled=false;this.convoyCargoQuantities={};
@@ -3906,7 +3951,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.journeyTimeUI=null;
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
-    this.transportJourneyOverrides=null;
+    this.transportJourneyOverrides=null;this.transportServiceLevel=null;
     this.transferLegOperations={};
     this.partySelectionMode="all";this.partySelectedIds=[];
     this.convoyEnabled=false;
@@ -4688,7 +4733,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         !methods.some(item=>item.id===this.travelMethod)){
       this.travelMethod="walking";this.transportArrangement="owned";
       this.transportHireTerms=null;this.transportHireDenomination=null;
-      this.transportJourneyOverrides=null;
+      this.transportJourneyOverrides=null;this.transportServiceLevel=null;
       this.transportOperation="normal";
     }
     let mixedFare=null;
@@ -5081,7 +5126,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             "Insufficient seats for the selected travelers. "+
             "Choose another method or adjust the Group transportation roster."));
     }
-    if(!approvedActiveTransport&&!approvedRecoveryTransport&&
+    if(!approvedActiveTransport&&!approvedRecoveryTransport&&!approvedRecoveryLand&&
         this.travelMethod!=="walking"&&this.result?.status==="ok"&&
         methodAssessment.compatible){
       try{
@@ -5117,8 +5162,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               operation,movingHours,distanceMi,
               travelers:quoteRoster?.travelers??1,ownedQuote,regularHours:normalHours,
               livestockCount,livestockPercent:readLivestockFarePercent(game.settings)};
-            const quote=quoteTransportationService(method,{...quoteArgs,
-              hireTerms:this.transportHireTerms});
+            const quote=this.planLandHiredService(method,partySelection)?.quote??
+              quoteTransportationService(method,{...quoteArgs,hireTerms:this.transportHireTerms});
             const worldOperation=operation!=="normal"&&
               !baseMethod?.[operation+"Enabled"]?"normal":operation;
             const original=this.transportArrangement==="hire"&&baseMethod?.hireEnabled?
@@ -5149,7 +5194,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 "Overtime labor: "+formatMoney(quote.overtimeCrewCp),
                 ...(mountDetails?[mountDetails]:[])
               ].join(" · "),
-              operatingSummary:(operation==="continuous"&&
+              operatingSummary:(quote.serviceLevel?"Hired service: "+quote.serviceLevel+" · "+quote.advertisedCrew+
+                " advertised crew per unit. ":"")+(operation==="continuous"&&
                 quote.hireTerms?.hireBasis==="day"?
                 quote.billableDayUnits.toFixed(2).replace(/\\.?0+$/,"")+
                   " normal-day fare unit(s) at "+normalHours+"h/day; "+
@@ -5161,10 +5207,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 (this.transportArrangement==="hire"?
                   "Checkpoint availability listed; booking not confirmed. ":"")+
                 "No currency is deducted.",
-              overrides:Boolean(this.transportJourneyOverrides&&
+              overrides:Boolean(this.transportServiceLevel||this.transportJourneyOverrides&&
                 Object.keys(this.transportJourneyOverrides).length),disabled,
               onReset:()=>{
-                this.transportJourneyOverrides=null;
+                this.transportJourneyOverrides=null;this.transportServiceLevel=null;
                 this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
                 this.draw();void this.render(true);
               }
