@@ -45,21 +45,22 @@ function offerDetails(method,overrides,settings,systemId){
       method.hireQuantity+" "+(method.kind==="mount"?"mount(s)":"vehicle(s)")+
         (method.hireQuantity===0?" — unavailable":" available"),
       ["hireEnabled","hireUnlimited","hireQuantity"],"World preset + Map Marker defaults"),
-    line("Passenger seats",method.capacity??"Unknown",["capacity"]),
+    line("Passenger seats",method.capacity==null?"Unknown":method.capacity+" per "+(method.kind==="mount"?"mount":"vehicle"),["capacity"]),
   ];
   if(method.kind==="vehicle"){
-    lines.push(line("Animal spaces",method.livestockCapacity==null?"Unlimited":method.livestockCapacity,
+    lines.push(line("Animal spaces",method.livestockCapacity==null?"Unlimited":
+      method.livestockCapacity===0?"0 — not permitted":method.livestockCapacity+" per vehicle",
       ["livestockCapacity"]));
     const mountFare=method.livestockFareCp!=null?
       rate(method.livestockFareCp,method.livestockFareBasis)+" / "+basis(method.livestockFareBasis)+" / mount":
       (method.livestockFarePercent??readLivestockFarePercent(settings))+"% of passenger fare";
     lines.push(line("Mount fare",mountFare,["livestockFareCp","livestockFarePercent","livestockFareBasis"],
-      "World default"));
+      method.livestockFareCp!=null||method.livestockFarePercent!=null?"World preset":"World default"));
   }
   lines.push(line("Speed",atlasFormatMeasure(atlasDisplayPresetSpeed(method.speedMph,settings,systemId)),["speedMph"]));
   if(method.kind==="vehicle"||method.crewCount>0)
     lines.push(line("Crew",(method.crewCount??0)+" required"+
-      (method.hireEnabled?(method.hireCrewIncluded?" · Included in hire":" · Not included in hire"):""),
+      (method.hireEnabled?(method.hireCrewIncluded!==false?" · Included in hire":" · Not included in hire"):""),
       ["crewCount","hireCrewIncluded"]));
   lines.push(line("Operating schedules",["Standard",...(method.overtimeEnabled?["Overtime"]:[]),
     ...(method.kind==="vehicle"&&method.continuousEnabled?["Continuous"]:[])].join(" / "),
