@@ -334,7 +334,12 @@ test("Group scope uses the actual General/Services/Ownership editor, with hired 
         const ownership=elements.find(el=>el.attributes.get("data-atlas-preset-panel")==="cost");
         const generalText=flatten(general).map(e=>e.textContent??"").join(" ");
         const ownershipText=flatten(ownership).map(e=>e.textContent??"").join(" ");
-        assert.doesNotMatch(generalText,/Required crew/,"Group hides World-owned crew counts");
+        assert.match(generalText,/Passenger seats per unit/);
+        assert.match(generalText,/Required crew per unit/,"Crew requirement is read-only but visible");
+        assert.match(generalText,/World profile/);
+        const crew=elements.find(e=>e.attributes.has("data-atlas-group-crew"));
+        assert.ok(crew,"inherited staffing is presented without editable World fields");
+        assert.match(crew.textContent,/0 required/);
         assert.doesNotMatch(ownershipText,/Available for purchase|Crew wage per person/,
           "already-owned resources cannot change sale offers or crew wages");
         assert.ok(elements.find(el=>el.name==="groupSpeedCustom")?.hidden);
