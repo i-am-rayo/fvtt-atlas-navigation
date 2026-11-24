@@ -1,4 +1,5 @@
 import {describeTransportationLeg} from "./navigation-transport-transitions.js";
+import {validateHiredServiceApproval} from "./navigation-transport-service.js";
 
 const NAME_LIMIT=240;
 const validText=(v,limit=NAME_LIMIT)=>typeof v==="string"&&
@@ -31,6 +32,11 @@ export function validateTransportJourneyInfo(raw){
       !(raw.estimatedFareCp===null||
         Number.isFinite(raw.estimatedFareCp)&&raw.estimatedFareCp>=0))
     throw Error("Invalid confirmed transportation Journal detail.");
+  const serviceApproval=raw.serviceApproval===undefined?null:validateHiredServiceApproval(raw.serviceApproval);
+  if(serviceApproval&&(raw.arrangement!=="hire"||raw.kind!=="vehicle"||
+      raw.operation!==serviceApproval.operation||
+      raw.estimatedFareCp!==(raw.continuation?0:serviceApproval.totalCp)))
+    throw Error("Invalid approved service transport detail.");
   return {
     methodId:raw.methodId,methodName:raw.methodName,kind:raw.kind,
     arrangement:raw.arrangement,surface:raw.surface,
@@ -39,7 +45,8 @@ export function validateTransportJourneyInfo(raw){
     arrivalCheckpointName:raw.arrivalCheckpointName,
     roadNames:[...raw.roadNames],estimatedFareCp:raw.estimatedFareCp,
     ...(raw.operation!=null?{operation:raw.operation}:{}),
-    ...(raw.continuation===true?{continuation:true}:{})
+    ...(raw.continuation===true?{continuation:true}:{}),
+    ...(serviceApproval?{serviceApproval}:{})
   };
 }
 
