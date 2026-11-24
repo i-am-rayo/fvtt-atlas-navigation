@@ -522,6 +522,43 @@ test("shared seam choices exclude multiply claimed, protected and unauthorized c
   }finally{restore();}
 });
 
+test("read-only shared-seam shortcut excludes peer cells at other native elevations",()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    f.view.grid.getAdjacentOffsets=({i,j})=>[
+      {i:i-1,j},{i:i+1,j},{i,j:j-1},{i,j:j+1}];
+    f.source.shapes[0].offsets.push({i:4,j:0});
+    f.target.elevation={bottom:0,top:10,topInclusive:false};
+    f.source.elevation={bottom:10,top:20,topInclusive:false};
+    let guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
+    assert.equal(guide.available,true);
+    assert.equal(guide.otherElevationCells,1,
+      "a different native elevation band must be called out before seam painting");
+    assert.deepEqual(guide.peers,[],
+      "a different-floor Territory is not a shortcut source even with matching XY adjacency");
+    assert.equal(f.events.length,0,"review only; native documents are untouched");
+
+    f.source.elevation={bottom:0,top:10,topInclusive:false};
+    guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
+    assert.equal(guide.otherElevationCells,0);
+    assert.deepEqual(guide.peers.map(peer=>peer.id),["Reshara"],
+      "identical native elevation ranges retain existing seam candidates");
+
+    f.source.elevation={bottom:0,top:10,topInclusive:true};
+    guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
+    assert.equal(guide.otherElevationCells,1,
+      "the inclusive upper boundary changes which native points belong to a Level");
+    assert.deepEqual(guide.peers,[]);
+
+    f.source.elevation=undefined;
+    guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
+    assert.equal(guide.otherElevationCells,1,
+      "an unknown peer range must never be assumed equivalent to a constrained range");
+    assert.equal(f.events.length,0);
+  }finally{restore();}
+});
+
 test("shared-seam selector reports unsupported adjacency and full oversized peer groups",()=>{
   const restore=globals();
   try{
