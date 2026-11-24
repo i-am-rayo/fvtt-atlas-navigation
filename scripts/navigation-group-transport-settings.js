@@ -565,7 +565,7 @@ export class AtlasGroupTransportationSettings extends base {
       "padding:.4rem 0;border-top:1px solid var(--color-border-light-tertiary,#555);";
     const leftActions=node("div"),rightActions=node("div");
     leftActions.style.cssText="display:flex;align-items:center;gap:.35rem;";
-    rightActions.style.cssText="display:flex;align-items:center;gap:.35rem;margin-left:auto;";
+    rightActions.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.35rem;margin-left:auto;";
     const save=action("Save Party Transportation Assignments",async()=>{
       if(!game.user?.isGM)throw new Error("Only a GM may assign transportation.");
       const currentAssignments=readGroupTransportation(game.settings);
@@ -646,8 +646,19 @@ export class AtlasGroupTransportationSettings extends base {
       globalThis.ui?.notifications?.info?.("Party transportation assignments saved.");
       await this.render();
     },{icon:"floppy-disk",size:"footer"});
+    save.className+=" atlas-group-transport-save";
     save.appendChild(node("span","Save Party Transportation"));
     rightActions.appendChild(save);
+    const confirmDiscard=()=>!this.dirty||foundry.applications.api.DialogV2.confirm({
+      window:{title:"Discard Party transportation changes?"},
+      content:"<p>Your unsaved Party transportation draft will be discarded.</p>",
+      rejectClose:false,modal:true
+    });
+    rightActions.appendChild(action("Cancel",async()=>{
+      if(!await confirmDiscard())return;
+      await this.close();
+      this.dirty=false;
+    }));
     leftActions.appendChild(action("Transportation Presets",()=>{
       if(!game.user?.isGM)throw new Error("Only a GM may edit profiles.");
       const editor=new AtlasTransportationSettings();
@@ -655,14 +666,7 @@ export class AtlasGroupTransportationSettings extends base {
       return editor.render({force:true});
     }));
     leftActions.appendChild(action("Refresh Party Transportation",async()=>{
-      if(this.dirty){
-        const yes=await foundry.applications.api.DialogV2.confirm({
-          window:{title:"Discard Party transportation changes?"},
-          content:"<p>Refresh discards your uncommitted Party transportation edits.</p>",
-          rejectClose:false,modal:true
-        });
-        if(!yes)return;
-      }
+      if(!await confirmDiscard())return;
       this.dirty=false;
       await this.render();
     },{icon:"rotate"}));
