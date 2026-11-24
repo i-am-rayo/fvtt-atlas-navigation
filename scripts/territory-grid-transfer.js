@@ -68,6 +68,24 @@ function stateDifferences(current,expected){
     ["name",current.name!==expected.name]
   ].filter(([,changed])=>changed).map(([label])=>label);
 }
+/** Only offer seam shortcuts between Regions with the SAME native elevation
+ * range. Matching XY cells at different elevations must not be treated as
+ * interchangeable; the separate transfer planner remains authoritative. */
+function nativeElevationRange(region){
+  const value=region?.elevation;
+  if(value==null)return [null,null,false];
+  if(typeof value!=="object"||Array.isArray(value)||
+      (value.bottom!=null&&!Number.isFinite(value.bottom))||
+      (value.top!=null&&!Number.isFinite(value.top))||
+      (value.topInclusive!=null&&typeof value.topInclusive!=="boolean"))
+    return null;
+  return [value.bottom??null,value.top??null,value.topInclusive===true];
+}
+function sameNativeElevationRange(a,b){
+  const left=nativeElevationRange(a),right=nativeElevationRange(b);
+  return left!==null&&right!==null&&same(left,right);
+}
+
 const isGrid=region=>{const s=shapes(region);return s.length===1&&s[0].type==="grid";};
 
 function authorize(scene,id){
@@ -138,7 +156,7 @@ export function inspectEditableTerritoryGridSeams(scene,targetId,
       }
     }
   }catch{return {available:false,reason:"Native adjacency could not be inspected.",peers:[]};}
-  const claims=new Map(),eligiblePeers=new Map();
+  const claims=new Map(),eligiblePeers=new Map(),otherElevation=new Set();
   let inspected=0;
   for(const entry of entries){
     if(entry.id===targetId||!entry.linked||entry.invalid||
@@ -149,6 +167,13 @@ export function inspectEditableTerritoryGridSeams(scene,targetId,
     inspected+=peerOffsets.length;
     if(inspected>MAX_SEAM_PEER_CELLS)
       return {available:false,reason:"Adjacent Territories exceed the inspection limit.",peers:[]};
+    if(!sameNativeElevationRange(target,peer)){
+      for(const offset of peerOffsets){
+        const cellId=key(offset);
+        if(frontier.has(cellId))otherElevation.add(cellId);
+      }
+      continue;
+    }
     let editable=true;
     try{authorize(scene,peer.id);}catch{editable=false;}
     eligiblePeers.set(peer.id,{id:peer.id,name:peer.name,editable,
@@ -170,7 +195,8 @@ export function inspectEditableTerritoryGridSeams(scene,targetId,
   const peers=[...eligiblePeers.values()].filter(peer=>peer.offsets.length)
     .map(peer=>({...peer,tooLarge:peer.offsets.length>MAX_SEAM_PICK_CELLS}))
     .sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
-  return {available:true,peers,conflictedCells,protectedCells};
+  return {available:true,peers,conflictedCells,protectedCells,
+    otherElevationCells:otherElevation.size};
 }
 
 /** Read-only ownership review for a draft Hex/Grid boundary. This can inspect
