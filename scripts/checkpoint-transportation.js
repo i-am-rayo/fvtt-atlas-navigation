@@ -151,7 +151,8 @@ export function checkpointOfferMethod(offer,worldMethod){
       levels[tier]={...levels[tier],...patch};
     effective.hireServiceLevels=levels;
   }
-  resolveCrewThresholds(effective);
+  // Retain stale inherited staffing for GM correction. Explicit service quotes
+  // validate effective thresholds before accepting a new Journey estimate.
   if(effective.livestockFareCp!=null&&effective.livestockFarePercent!=null)
     throw Error("Select either a fixed livestock fare or a passenger percentage.");
   return effective;
