@@ -5,7 +5,7 @@
  */
 import { GROUP_TRANSPORT_SETTING,readGroupTransportation,
   projectGroupTransportation,setGroupTransportationMembers,eligibleGroupRiders,
-  groupTravelCapacityStatus }
+  groupTravelCapacityStatus,effectiveGroupResourceMethod }
   from "./navigation-group-transport.js";
 import { listTransportationPresets } from "./navigation-transport-catalog.js";
 import { AtlasTransportationSettings,openTransportationMethodEditor,groupRiderOptions }
@@ -13,6 +13,7 @@ import { AtlasTransportationSettings,openTransportationMethodEditor,groupRiderOp
 import {createSettingsCategoryTabs} from "./settings-category-tabs.js";
 import {alphabetizeSettingsOptions} from "./settings-select.js";
 import {createAtlasIconButton} from "./ui-action-button.js";
+import {atlasDisplayPresetSpeed} from "./navigation-measure-units.js";
 
 const MODULE_ID="fvtt-atlas-navigation";
 const SURFACES=["land","water","air"];
@@ -139,13 +140,30 @@ export class AtlasGroupTransportationSettings extends base {
       "NPCs are not mounts unless assigned as such; one Actor may represent multiple units. "+
       "Profiles use sustained travel speeds, not creature combat movement speeds."));
     const status=node("div");
-    status.style.cssText="display:flex;gap:.8rem;flex-wrap:wrap;font-weight:650;";
-    status.appendChild(node("span",roster.pcCount+" PCs | "+roster.npcCount+
-      " NPCs · "+roster.travelers+" seats needed"));
+    status.className="atlas-group-transport-capacity";
+    status.setAttribute("role","status");
+    status.setAttribute("aria-live","polite");
+    const capacityHeading=node("strong");
+    status.appendChild(capacityHeading);
+    const capacityLines={};
     for(const surface of SURFACES){
-      const capacity=groupTravelCapacityStatus(roster,surface);
-      status.appendChild(node("span",displaySurface(surface)+" seats: "+capacity.seats));
+      capacityLines[surface]=node("span");
+      status.appendChild(capacityLines[surface]);
     }
+    const renderCapacity=(projection,label)=>{
+      capacityHeading.textContent=label+" · "+projection.pcCount+" PCs | "+
+        projection.npcCount+" passenger NPCs · "+projection.travelers+" seats needed";
+      for(const surface of SURFACES){
+        const {travelers,seats,missing,unknown}=groupTravelCapacityStatus(projection,surface);
+        const line=capacityLines[surface];
+        line.textContent=displaySurface(surface)+": "+travelers+" seats needed / "+
+          seats+" available"+(missing?" · "+missing+
+          (missing===1?" seat":" seats")+(unknown?" short of known capacity":" short"):
+          " · No known shortfall")+(unknown?" · "+unknown+" resource(s) with unknown capacity":"");
+        line.className=missing?"atlas-group-transport-shortfall":"";
+      }
+    };
+    renderCapacity(roster,"Saved");
     root.appendChild(status);
     if(roster.unclassified){
       const notice=node("p",roster.unclassified+" NPC(s) still need a GM role assignment.");
@@ -158,9 +176,89 @@ export class AtlasGroupTransportationSettings extends base {
     const markDirty=()=>{
       this.dirty=true;
       draftStatus.textContent="Unsaved changes — Save Party Transportation to keep your edits.";
+      refreshDraftPreview();
     };
     root.appendChild(draftStatus);
     const editable=[];
+    const readDraftChanges=()=>{
+      const changes={};
+      for(const entry of editable){
+        const {member,role,quantity,capacity,profile,speedOverride,
+          costOverride,costBasisOverride,costAppliesOverride,
+          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo,needsSeat}=entry;
+        const isTransport=member.actorType==="vehicle"||role.value==="mount";
+        const profileId=isTransport?(profile.value||null):null;
+        const method=profileId?lookup.get(profileId):null;
+        const expectedKind=member.actorType==="vehicle"?"vehicle":"mount";
+        if(profileId&&(!method||method.kind!==expectedKind))
+          throw new Error("Choose a compatible transportation profile for "+member.actorName+".");
+        const override=!isTransport||speedOverride.value.trim()===""?
+          null:Number(speedOverride.value);
+        if(override!==null&&(!profileId||!Number.isFinite(override)||
+            override<0.1||override>600))
+          throw new Error("Enter a valid speed override between 0.1 and 600 mph for "+member.actorName+".");
+        const readMoney=control=>{
+          if(!isTransport||control.value.trim()==="")return null;
+          const n=Number(control.value);
+          if(!profileId||!Number.isFinite(n)||n<0||n>100000000)
+            throw new Error("Enter a valid nonnegative currency override for "+member.actorName+".");
+          return n;
+        };
+        const purchase=isTransport&&purchaseMode.value==="none"?"none":
+          isTransport&&purchaseMode.value==="custom"?
+            (()=>{const n=readMoney(purchaseOverride);
+              if(n===null)throw new Error("Enter a purchase price for "+member.actorName+".");
+              return n;})():null;
+        const note=isTransport?noteOverride.value.trim():null;
+        if(note!==null&&note.length>240)
+          throw new Error("GM note must be no longer than 240 characters.");
+        const riderId=assignedTo.value||null;
+        if(riderId&&(role.value!=="mount"||Number(quantity.value)!==1||
+            enabled.value!=="true"))
+          throw Error("Clear Assigned To for "+member.actorName+
+            " before changing its role, quantity, or availability.");
+        changes[member.actorId]={
+          role:member.actorType==="vehicle"?"unassigned":role.value,
+          quantity:Number(quantity.value),
+          capacity:capacity.value===""?null:Number(capacity.value),
+          surface:method?.surface??member.surface,profileId,
+          enabled:enabled.value==="true",assignedTo:riderId,
+          needsSeat:member.actorType==="npc"?needsSeat.checked:true,
+          speedMphOverride:isTransport?override:null,
+          costCpOverride:readMoney(costOverride),
+          costBasisOverride:isTransport?(costBasisOverride.value||null):null,
+          costAppliesOverride:isTransport?(costAppliesOverride.value||null):null,
+          purchaseGpOverride:purchase,
+          noteOverride:note||null
+        };
+      }
+      return changes;
+    };
+    const validateRiders=reviewed=>{
+      const eligible=new Set(eligibleGroupRiders(reviewed).map(rider=>rider.id));
+      for(const member of reviewed.members)
+        if(member.assignedTo&&!eligible.has(member.assignedTo))
+          throw Error("Assigned To for "+member.actorName+
+            " is no longer an eligible traveling Party member. Clear the assignment.");
+    };
+    const refreshDraftPreview=()=>{
+      try{
+        const next=setGroupTransportationMembers(assignments,this.groupId,readDraftChanges());
+        const reviewed=projectGroupTransportation(group,next,methods);
+        validateRiders(reviewed);
+        renderCapacity(reviewed,"Draft");
+        const byActor=new Map(reviewed.members.map(member=>[member.actorId,member]));
+        for(const entry of editable)
+          entry.updateDetails(byActor.get(entry.member.actorId)??null);
+      }catch(error){
+        capacityHeading.textContent="Draft — capacity preview unavailable: "+error.message;
+        for(const line of Object.values(capacityLines)){
+          line.textContent="";
+          line.className="";
+        }
+        for(const entry of editable)entry.updateDetails(null);
+      }
+    };
     const pendingMoves=new Map();
     const deferMove=(row,destination)=>{
       if(row.parentElement===destination)pendingMoves.delete(row);
@@ -203,7 +301,7 @@ export class AtlasGroupTransportationSettings extends base {
       "display:block;align-content:start;";
     const bucket={},emptyBySurface={};
     const sectionStyle="border:1px solid var(--color-border-light-primary,#666);"+
-      "border-radius:.5rem;padding:.6rem;min-width:0;gap:.35rem;";
+      "border-radius:.5rem;padding:.6rem;min-width:0;gap:.35rem;align-content:start;";
     for(const [surface,label] of [["land","Land Travel"],["water","Water Travel"],["air","Air Travel"]]){
       const section=node("fieldset");
       section.className="atlas-group-transport-surface";
@@ -261,13 +359,12 @@ export class AtlasGroupTransportationSettings extends base {
       for(const member of members){
         const row=node("div");
         row.className="atlas-group-transport-resource";
-        row.style.cssText="padding:.4rem 0;border-bottom:1px solid var(--color-border-light-primary,#555);"+
-          "display:grid;gap:.3rem;min-width:0;";
+        row.style.cssText="display:grid;gap:.25rem;min-width:0;align-content:start;";
         const header=node("div");
-        header.style.cssText="display:flex;align-items:center;gap:.4rem;min-width:0;";
+        header.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;min-width:0;";
         const title=node("strong",member.actorName+
           (member.primaryVehicle?" ★ Primary vehicle":""));
-        title.style.cssText="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        title.style.cssText="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;";
         header.append(title);
         const role=select("role-"+member.actorId,type==="vehicle"?
           [["vehicle","Vehicle"]]:[
@@ -278,7 +375,7 @@ export class AtlasGroupTransportationSettings extends base {
         if(type==="vehicle")role.disabled=true;
         else{
           role.setAttribute("aria-label","Role for "+member.actorName);
-          role.style.cssText+=";width:12rem;max-width:32vw;";
+          role.style.cssText+=";width:12rem;max-width:100%;";
         }
         const quantity=number("quantity-"+member.actorId,member.quantity,1,100);
         const savedCapacity=assignments.groups[this.groupId]?.members?.[member.actorId]?.capacity;
@@ -317,7 +414,7 @@ export class AtlasGroupTransportationSettings extends base {
         purchaseOverride.disabled=purchaseMode.value!=="custom";
         purchaseMode.addEventListener("change",()=>{
           purchaseOverride.disabled=purchaseMode.value!=="custom";
-          updateDetails();
+          markDirty();
         });
         const noteOverride=node("textarea");
         noteOverride.name="note-"+member.actorId;
@@ -358,10 +455,14 @@ export class AtlasGroupTransportationSettings extends base {
         seatField.append(needsSeat,node("span","Needs seat"));
         seatField.hidden=role.value!=="passenger"||type!=="npc";
         seatField.style.display=seatField.hidden?"none":"flex";
-        needsSeat.addEventListener("change",()=>{updateDetails();markDirty();});
+        needsSeat.addEventListener("change",markDirty);
         const profileDetails=node("small");
+        const costDetails=node("small");
         const riderDetails=node("small");
-        const updateDetails=()=>{
+        profileDetails.className="atlas-group-transport-metrics";
+        costDetails.className="atlas-group-transport-metrics";
+        riderDetails.className="atlas-group-transport-rider";
+        const updateDetails=(projected=member)=>{
           const rider=stagedRiders().find(item=>item.id===assignedTo.value);
           if(type==="npc"&&role.value!=="mount"){
             profileDetails.textContent=role.value==="passenger"?
@@ -369,35 +470,48 @@ export class AtlasGroupTransportationSettings extends base {
               role.value==="unassigned"?"Choose a role in Need Setup.":
               "NPC role: "+(role.options?.[role.selectedIndex]?.textContent??role.value)+
                 " · No passenger seat";
+            costDetails.textContent="";
+            costDetails.hidden=true;
             riderDetails.textContent="";
+            riderDetails.hidden=true;
             return;
           }
           riderDetails.textContent=assignedTo.value?
             "Assigned To: "+(rider?rider.name:
               "Unavailable party member — choose another rider")+
-            " (exclusive personal mount; no boarding)":
-            "";
-          const method=lookup.get(profile.value);
-          const effectiveSpeed=method?(speedOverride.value===""?method.speedMph:
-            Number(speedOverride.value)):null;
-          const effectiveCost=costOverride.value===""?method?.costCp:Number(costOverride.value);
-          const effectiveBasis=costBasisOverride.value||method?.costBasis;
-          const effectiveApplies=costAppliesOverride.value||method?.costApplies;
-          const effectivePurchase=purchaseMode.value==="inherit"?method?.purchaseGp:
-            purchaseMode.value==="none"?null:Number(purchaseOverride.value);
-          profileDetails.textContent=method?
-            "Quantity Available: "+quantity.value+" · Seats/unit: "+
-            (capacity.value||method.capacity||"unknown")+" · Surface: "+
-            displaySurface(method.surface)+" · Travel: "+
-            (Number.isFinite(effectiveSpeed)?effectiveSpeed:"—")+" mph "+
-            (speedOverride.value===""?"(World profile)":"(Group override; World "+method.speedMph+" mph)")+
-            " · "+(effectiveBasis==="none"?"No recurring cost":
-              effectiveCost+" CP / "+(effectiveBasis==="day"?"day":"mile")+
-              " per "+(effectiveApplies==="passenger"?"passenger":"unit"))+
-            " · Purchase: "+(effectivePurchase===null?"not specified":effectivePurchase+" GP"):
-            "Quantity Available: "+quantity.value+" · Choose a World profile under Edit.";
+            " (exclusive personal mount; no boarding)":"";
+          riderDetails.hidden=!riderDetails.textContent;
+          costDetails.hidden=false;
+          if(!projected){
+            profileDetails.textContent="Resolve draft errors to preview capacity and effective values.";
+            costDetails.textContent="";
+            return;
+          }
+          const method=lookup.get(projected.profileId);
+          const effective=method?effectiveGroupResourceMethod(projected,method):null;
+          const seatSource=capacity.value!==""?"Group override":
+            method?.capacity!=null?"World profile":
+            projected.capacity==null?"Unknown":type==="vehicle"?"Native vehicle":"Mount default";
+          const availability=projected.enabled?(projected.assignedTo?
+            (rider&&projected.capacity>=1?" · 1 reserved seat":" · No eligible reserved seat"):
+            projected.capacity==null?" · Capacity unknown":
+              " · "+projected.capacity*projected.quantity+" total seats"):" · Excluded";
+          profileDetails.textContent="Quantity Available: "+projected.quantity+
+            " · Seats/unit: "+(projected.capacity??"unknown")+" ("+seatSource+")"+
+            availability+" · "+displaySurface(projected.surface);
+          const speed=effective?atlasDisplayPresetSpeed(effective.speedMph,game.settings,game.system.id):null;
+          const speedLabel=speed&&Number.isFinite(speed.value)?
+            Number(speed.value.toFixed(2))+" "+speed.unit+" ("+
+            (projected.speedMphOverride!=null?"Group override":"World profile")+")":"Not configured";
+          const upkeepSource=projected.costCpOverride!=null||projected.costBasisOverride!=null||
+            projected.costAppliesOverride!=null?"Group override":"World profile";
+          const upkeep=effective?(effective.costBasis==="none"?"No recurring cost":
+            effective.costCp+" CP / "+(effective.costBasis==="day"?"travel day":"mile")+
+            " per "+(effective.costApplies==="passenger"?"passenger":"unit"))+
+            " ("+upkeepSource+")":"Not configured";
+          costDetails.textContent="Speed: "+speedLabel+" · Upkeep: "+upkeep+
+            (method?"":" · Choose a World profile under Edit.");
         };
-        updateDetails();
         if(type==="npc"&&member.role!=="mount")profile.disabled=true;
         profile.addEventListener("change",()=>{
           const method=lookup.get(profile.value);
@@ -405,21 +519,18 @@ export class AtlasGroupTransportationSettings extends base {
           if(!method)speedOverride.value="";
           if(method&&capacity.value===""&&method.capacity!==null)
             capacity.value=String(method.capacity);
-          updateDetails();
+          markDirty();
         });
         if(type==="npc")role.addEventListener("change",()=>{
           profile.disabled=role.value!=="mount";
           speedOverride.disabled=role.value!=="mount"||!profile.value;
           seatField.hidden=role.value!=="passenger";
           seatField.style.display=seatField.hidden?"none":"flex";
-          updateDetails();
         });
         speedOverride.disabled=!profile.value||(type==="npc"&&member.role!=="mount");
-        speedOverride.addEventListener("input",updateDetails);
-        for(const input of [costOverride,costBasisOverride,costAppliesOverride,
-          purchaseOverride,noteOverride]){
-          input.addEventListener("input",updateDetails);
-          input.addEventListener("change",updateDetails);
+        for(const input of [quantity,capacity,speedOverride,costOverride,costBasisOverride,
+          costAppliesOverride,purchaseOverride,noteOverride,assignedTo]){
+          input.addEventListener("change",markDirty);
         }
         const resetOverrides=node("button","Clear individual overrides");
         resetOverrides.type="button";
@@ -429,7 +540,7 @@ export class AtlasGroupTransportationSettings extends base {
           costAppliesOverride.value="";purchaseMode.value="inherit";
           purchaseOverride.value="";purchaseOverride.disabled=true;
           noteOverride.value="";
-          updateDetails();
+          markDirty();
         });
         overrides.appendChild(resetOverrides);
         const controls=node("div");
@@ -489,7 +600,6 @@ export class AtlasGroupTransportationSettings extends base {
                 String(next.purchaseGpOverride):"";
               purchaseOverride.disabled=purchaseMode.value!=="custom";
               noteOverride.value=next.noteOverride??"";
-              updateDetails();
               const nextSurface=lookup.get(next.profileId)?.surface??member.surface;
               if(type==="vehicle"||role.value==="mount"){
                 deferMove(row,bucket[nextSurface]??other);
@@ -507,7 +617,7 @@ export class AtlasGroupTransportationSettings extends base {
           });
         }
         const visible=node("div");
-        visible.style.cssText="display:flex;align-items:center;gap:.4rem;flex:0 0 auto;margin-left:auto;";
+        visible.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;flex:0 1 auto;min-width:0;margin-left:auto;";
         if(type==="npc")visible.append(role,seatField);
         visible.append(edit);
         // Native Group Actor membership owns removal. Older disabled Atlas
@@ -532,7 +642,7 @@ export class AtlasGroupTransportationSettings extends base {
           });
         }
         header.append(visible);
-        row.append(header,draftControls,profileDetails);
+        row.append(header,draftControls,profileDetails,costDetails);
         if(type==="npc")row.appendChild(riderDetails);
         if(member.profileId&&!lookup.has(member.profileId)){
           const missing=node("p","Previously selected profile '"+member.profileId+
@@ -548,7 +658,7 @@ export class AtlasGroupTransportationSettings extends base {
           "Foundry's primary-vehicle flag does not mean the party is aboard."));
         editable.push({member,role,quantity,capacity,profile,speedOverride,
           costOverride,costBasisOverride,costAppliesOverride,
-          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo,needsSeat});
+          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo,needsSeat,updateDetails});
         const surface=lookup.get(profile.value)?.surface??member.surface;
         const target=type!=="npc"||member.role==="mount"?
           bucket[surface]??other:member.role==="unassigned"?
@@ -557,6 +667,7 @@ export class AtlasGroupTransportationSettings extends base {
       }
     }
     updateSurfaceEmpty();updateNpcCategories();updateNeedSetup();
+    for(const entry of editable)entry.updateDetails(entry.member);
     root.appendChild(panelHost);
     const footer=node("div");
     footer.className="atlas-group-transport-footer";
@@ -582,64 +693,10 @@ export class AtlasGroupTransportationSettings extends base {
       const now=listTransportationPresets(game.settings,game.system.id);
       if(JSON.stringify(now)!==methodSnapshot)
         throw new Error("Transportation profiles changed. Reopen the editor.");
-      const changes={};
-      for(const entry of editable){
-        const {member,role,quantity,capacity,profile,speedOverride,
-          costOverride,costBasisOverride,costAppliesOverride,
-          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo,needsSeat}=entry;
-        const isTransport=member.actorType==="vehicle"||role.value==="mount";
-        const profileId=isTransport?(profile.value||null):null;
-        const method=profileId?lookup.get(profileId):null;
-        const expectedKind=member.actorType==="vehicle"?"vehicle":"mount";
-        if(profileId&&(!method||method.kind!==expectedKind))
-          throw new Error("Choose a compatible transportation profile for "+member.actorName+".");
-        const override=!isTransport||speedOverride.value.trim()===""?
-          null:Number(speedOverride.value);
-        if(override!==null&&(!profileId||!Number.isFinite(override)||
-            override<0.1||override>600))
-          throw new Error("Enter a valid speed override between 0.1 and 600 mph for "+member.actorName+".");
-        const readMoney=control=>{
-          if(!isTransport||control.value.trim()==="")return null;
-          const n=Number(control.value);
-          if(!profileId||!Number.isFinite(n)||n<0||n>100000000)
-            throw new Error("Enter a valid nonnegative currency override for "+member.actorName+".");
-          return n;
-        };
-        const purchase=isTransport&&purchaseMode.value==="none"?"none":
-          isTransport&&purchaseMode.value==="custom"?
-            (()=>{const n=readMoney(purchaseOverride);
-              if(n===null)throw new Error("Enter a purchase price for "+member.actorName+".");
-              return n;})():null;
-        const note=isTransport?noteOverride.value.trim():null;
-        if(note!==null&&note.length>240)
-          throw new Error("GM note must be no longer than 240 characters.");
-        const riderId=assignedTo.value||null;
-        if(riderId&&(role.value!=="mount"||Number(quantity.value)!==1||
-            enabled.value!=="true"))
-          throw Error("Clear Assigned To for "+member.actorName+
-            " before changing its role, quantity, or availability.");
-        changes[member.actorId]={
-          role:member.actorType==="vehicle"?"unassigned":role.value,
-          quantity:Number(quantity.value),
-          capacity:capacity.value===""?null:Number(capacity.value),
-          surface:method?.surface??member.surface,profileId,
-          enabled:enabled.value==="true",assignedTo:riderId,
-          needsSeat:member.actorType==="npc"?needsSeat.checked:true,
-          speedMphOverride:isTransport?override:null,
-          costCpOverride:readMoney(costOverride),
-          costBasisOverride:isTransport?(costBasisOverride.value||null):null,
-          costAppliesOverride:isTransport?(costAppliesOverride.value||null):null,
-          purchaseGpOverride:purchase,
-          noteOverride:note||null
-        };
-      }
+      const changes=readDraftChanges();
       const next=setGroupTransportationMembers(currentAssignments,this.groupId,changes);
       const reviewed=projectGroupTransportation(currentGroup,next,now);
-      const eligible=new Set(eligibleGroupRiders(reviewed).map(rider=>rider.id));
-      for(const member of reviewed.members)
-        if(member.assignedTo&&!eligible.has(member.assignedTo))
-          throw Error("Assigned To for "+member.actorName+
-            " is no longer an eligible traveling Party member. Clear the assignment.");
+      validateRiders(reviewed);
       await game.settings.set(MODULE_ID,GROUP_TRANSPORT_SETTING,next);
       this.dirty=false;
       draftStatus.textContent="Party transportation assignments saved.";
