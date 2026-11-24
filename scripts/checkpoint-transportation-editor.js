@@ -50,7 +50,7 @@ export function createCheckpointTransportationEditor({offers=[],
     const world=currentCatalog().find(method=>method.id===methodId);
     if(!offer||!world)throw Error("The Map Marker method is no longer available.");
     await openTransportationMethodEditor({
-      method:checkpointOfferMethod(offer,world),scope:"checkpoint",
+      method:checkpointOfferMethod(offer,world),scope:"checkpoint",inheritedMethod:world,
       onReset:async()=>{
         draft=validateCheckpointTransportOffers(draft.map(item=>
           item.methodId===methodId?{...item,overrides:{}}:item));
