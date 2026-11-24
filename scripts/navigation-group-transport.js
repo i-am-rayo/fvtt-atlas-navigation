@@ -5,6 +5,7 @@
  */
 export const GROUP_TRANSPORT_SETTING="guidedGroupTransportation";
 import { projectedGroupFare } from "./navigation-currency.js";
+import { classifyCrewStaffing,resolveCrewThresholds } from "./navigation-transport-catalog.js";
 
 export const GROUP_TRANSPORT_VERSION=7;
 export const GROUP_TRANSPORT_ROLES=Object.freeze([
@@ -22,6 +23,28 @@ const validAppliesOverride=v=>v===null||["unit","passenger"].includes(v);
 const validPurchaseOverride=v=>v==="none"||validMoneyOverride(v);
 const validNoteOverride=v=>v===null||(typeof v==="string"&&v.length<=240);
 
+/** Optional roster distinguishes unconfigured from explicitly zero staffing.
+ * Unit indexes belong to the existing resource Actor, not native documents.
+ * Keep stale indexes readable so a GM can correct rather than lose assignments. */
+function validateCrewRoster(roster,assigned){
+  if(!Array.isArray(roster)||roster.length>100)throw Error("Invalid crew roster.");
+  const units=new Set();
+  return roster.map(unit=>{
+    if(!unit||!integer(unit.unitIndex,1,100)||units.has(unit.unitIndex)||
+        !Array.isArray(unit.named)||unit.named.length>MAX_MEMBERS||
+        !integer(unit.hired,0,1000))throw Error("Invalid crew unit.");
+    units.add(unit.unitIndex);
+    const named=unit.named.map(member=>{
+      if(!member||!safeId(member.actorId)||assigned.has(member.actorId)||
+          (member.duty!==undefined&&(typeof member.duty!=="string"||member.duty.length>80)))
+        throw Error("Invalid or duplicate named crew member.");
+      assigned.add(member.actorId);
+      return {actorId:member.actorId,...(member.duty===undefined?{}:{duty:member.duty})};
+    });
+    return {unitIndex:unit.unitIndex,named,hired:unit.hired};
+  });
+}
+
 export function defaultGroupTransportation(){return {version:GROUP_TRANSPORT_VERSION,groups:{}};}
 
 export function validateGroupTransportation(input){
@@ -36,7 +59,7 @@ export function validateGroupTransportation(input){
         !group.members||typeof group.members!=="object"||Array.isArray(group.members)||
         Object.keys(group.members).length>MAX_MEMBERS)
       throw new Error("Invalid Atlas Group transportation roster.");
-    const members={},assignedRiders=new Set();
+    const members={},assignedRiders=new Set(),assignedCrew=new Set();
     for(const [actorId,entry] of Object.entries(group.members)){
       if(!safeId(actorId)||!entry||typeof entry!=="object"||Array.isArray(entry)||
           !GROUP_TRANSPORT_ROLES.includes(entry.role)||
@@ -70,7 +93,8 @@ export function validateGroupTransportation(input){
         costBasisOverride:entry.costBasisOverride??null,
         costAppliesOverride:entry.costAppliesOverride??null,
         purchaseGpOverride:entry.purchaseGpOverride??null,
-        noteOverride:entry.noteOverride??null};
+        noteOverride:entry.noteOverride??null,
+        ...(entry.crewRoster===undefined?{}:{crewRoster:validateCrewRoster(entry.crewRoster,assignedCrew)})};
     }
     output.groups[groupId]={members};
   }
@@ -93,7 +117,15 @@ export function setGroupTransportationMembers(input,groupId,patches){
   const current=validateGroupTransportation(input);
   const next={...current,groups:{...current.groups}};
   const prior=next.groups[groupId]??{members:{}};
-  next.groups[groupId]={members:{...prior.members,...patches}};
+  const members={...prior.members};
+  for(const [id,patch] of Object.entries(patches)){
+    // Legacy Party editors replace resource records; preserve new crew data
+    // unless this edit explicitly supplies the roster (including an empty one).
+    const previous=members[id]?.crewRoster;
+    members[id]=previous!==undefined&&patch&& !Object.hasOwn(patch,"crewRoster")?
+      {...patch,crewRoster:previous}:patch;
+  }
+  next.groups[groupId]={members};
   return validateGroupTransportation(next);
 }
 export function setGroupTransportationMember(input,groupId,actorId,entry){
@@ -154,6 +186,7 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
       profileSpeedMph,speedMphOverride,costCpOverride,costBasisOverride,costAppliesOverride,
       purchaseGpOverride,noteOverride,
       primaryVehicle:Boolean(vehicle&&group.system?.primaryVehicle?.id===actor.id),
+      ...(saved?.crewRoster===undefined?{}:{crewRoster:saved.crewRoster}),
       configured:Boolean(saved)});
   }
   // Travelers and required seats are distinct: companions may travel on
@@ -174,6 +207,44 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
   return {groupId,groupName:group.name??"The Party",members,
     travelers,pcCount,npcCount,unclassified,capacityBySurface};
 }
+/** Assess configured staffing without changing passenger counts or native membership.
+ * Missing roster retains legacy reference estimates until a leg selects units. */
+export function assessGroupCrewRoster(projection,resource,method){
+  if(resource.crewRoster===undefined)return {configured:false,units:[],issues:[]};
+  if(!integer(resource.quantity,1,100))throw Error("Invalid crew resource quantity.");
+  const roster=validateCrewRoster(resource.crewRoster,new Set());
+  const thresholds=resolveCrewThresholds(method);
+  const issues=[];
+  if(resource.role!=="vehicle"||resource.enabled===false)
+    issues.push({code:"unavailable-resource",actorId:resource.actorId});
+  const members=new Map(projection.members.map(member=>[member.actorId,member]));
+  const indexed=new Map(roster.map(unit=>[unit.unitIndex,unit]));
+  for(const unit of roster)if(unit.unitIndex>resource.quantity)
+    issues.push({code:"stale-unit",unitIndex:unit.unitIndex});
+  const units=Array.from({length:resource.quantity},(_,index)=>{
+    const unitIndex=index+1;
+    const unit=indexed.get(unitIndex)??{named:[],hired:0};
+    let pcCrew=0,npcCrew=0;
+    for(const assignment of unit.named){
+      const member=members.get(assignment.actorId);
+      const eligible=member&&member.enabled!==false&&
+        (member.actorType==="character"||
+          member.actorType==="npc"&&["crew","passenger","unassigned"].includes(member.role));
+      if(!eligible){
+        issues.push({code:"stale-member",unitIndex,actorId:assignment.actorId});
+        continue;
+      }
+      if(member.actorType==="character")pcCrew++;else npcCrew++;
+    }
+    const staffedCrew=pcCrew+npcCrew+unit.hired;
+    const tier=classifyCrewStaffing(method,staffedCrew);
+    if(tier==="over-capacity")issues.push({code:"over-capacity",unitIndex});
+    return {unitIndex,requiredCrew:thresholds.full,staffedCrew,pcCrew,npcCrew,
+      hiredCrew:unit.hired,paidCrew:method.includeCrewWages?npcCrew+unit.hired:0,tier};
+  });
+  return {configured:true,units,issues};
+}
+
 /** Eligible travelers are native Group characters or individual passenger NPCs.
  * Selected-party preview limits PC availability but cannot authorize Token movement. */
 export function eligibleGroupRiders(projection){
