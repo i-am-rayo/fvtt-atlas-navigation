@@ -2532,9 +2532,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
    * In particular a hired land vehicle may gain continuous capability at the
    * departure Map Marker while its inherited World preset remains standard. */
   resolveCurrentLegRules(travel,guidedOption=null,guidedLeg=null){
-    if(guidedLeg||!travel?.methodId||travel.methodId==="walking")
-      return this.resolveTravelRules(travel,guidedOption?.method,
+    if(guidedLeg||!travel?.methodId||travel.methodId==="walking"){
+      const rules=this.resolveTravelRules(travel,guidedOption?.method,
         guidedLeg?.transport?.operation??null);
+      const approved=guidedLeg?.transport?.serviceApproval;
+      return approved?{...rules,dailyHours:approved.operation==="continuous"?null:approved.dailyHours,
+        overnightHours:approved.overnightHours}:rules;
+    }
     const availability=this.transportAvailability();
     const world=availability.methods.find(method=>method.id===travel.methodId);
     if(!world)throw Error("The selected transportation method is unavailable.");
