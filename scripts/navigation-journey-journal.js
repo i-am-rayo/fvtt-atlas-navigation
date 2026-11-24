@@ -51,6 +51,7 @@ const validJourneyMethod=value=>Boolean(value&&typeof value==="object"&&
   !/[\u0000-\u001f]/.test(value.name)&&
   ["owned","hire"].includes(value.arrangement)&&
   ["normal","overtime","continuous"].includes(value.operation)&&
+  (value.serviceContinuation===undefined||value.serviceContinuation===true&&value.serviceApproval!==undefined)&&
   (value.serviceApproval===undefined||(()=>{
     try{return value.arrangement==="hire"&&validateHiredServiceApproval(value.serviceApproval).operation===value.operation;}
     catch{return false;}
@@ -269,6 +270,7 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
           old.transport?.arrivalCheckpointId!==resumed.transport?.arrivalCheckpointId||
           old.travelMethod?.id!==resumed.travelMethod?.id)
         throw Error("Recovery cannot change the approved hired service.");
+      if(resumed.travelMethod)resumed.travelMethod.serviceContinuation=true;
     }
     // Interruption never authorizes changing a previously approved roster.
     if(old.participation!==undefined){
@@ -345,6 +347,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     leg.events.reduce((hours,event)=>hours+(isRestUnderway(event.action)?0:(Number(event.hours)||0)),0),0);
   const clockMoving=record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0);
   const clockBreaks=record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0);
+  let shownService=null;
   const legs=record.legs.map((leg,index)=>{
     // Render from retained native Scene units; never rewrite historical Journal flags.
     const displayDistance=amount=>{
@@ -408,6 +411,26 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       `<li class="atlas-journey-transport-event">The party traveled using ${escapeHTML(leg.travelMethod.name)} (`+
         `${escapeHTML(leg.travelMethod.arrangement==="hire"?"hired":"party-owned")}).`+
         ` No automatic purchase, booking or currency deduction occurred.</li>`:"";
+    const service=leg.transport?.serviceApproval??leg.travelMethod?.serviceApproval;
+    const continuingService=Boolean(leg.transport?.continuation||leg.travelMethod?.serviceContinuation);
+    if(!continuingService||!service)shownService=null;
+    let serviceLines="";
+    if(service&&leg.completedMovingHours>0){
+      const approved=validateHiredServiceApproval(service);
+      const key=JSON.stringify(approved);
+      const money=cp=>systemId==="dnd5e"?dndCurrencyBreakdown(cp,globalThis.CONFIG?.DND5E?.currencies).label:cp+" CP";
+      const line=continuingService&&shownService===key?
+        "Continuing previously approved service; no new fare.":
+        "Approved hired service: "+approved.serviceLevel+" · "+approved.advertisedCrew+
+        " advertised crew per unit · "+approved.units+" unit(s) · "+approved.dailyHours+"h/day. "+
+        "Original estimated total: "+money(approved.totalCp)+" (base "+money(approved.baseCp)+
+        "; crew wages "+money(approved.crewWagesCp)+"; overtime fare and labor "+
+        money(approved.overtimeFareCp+approved.overtimeCrewCp)+"; mount accommodation "+
+        money(approved.livestockFareCp)+"; adjustment "+money(approved.adjustmentCp)+
+        "). No currency deducted.";
+      serviceLines=`<li class="atlas-journey-transport-event">${escapeHTML(line)}</li>`;
+      shownService=key;
+    }
     const participants=leg.participation&&leg.completedMovingHours>0?
       (p=>`<div class="atlas-journey-leg-group"><h4>Confirmed Travelers</h4>`+
         `<p>The Group explorer token represents only the travelers listed as traveling `+
@@ -431,7 +454,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
             dndCurrencyBreakdown(manifest.estimatedFareCp,
               globalThis.CONFIG?.DND5E?.currencies).label:
             manifest.estimatedFareCp+" CP")} `+
-          (leg.transport?.continuation?"(previously approved, not quoted again).":
+          (leg.transport?.continuation||leg.travelMethod?.serviceContinuation?"(previously approved, not quoted again).":
             "(included in total; no deduction).")+`</p>`)+
         `</div>`)(validateJourneyLivestock(leg.livestock)):"";
     const rows=timeline.map(step=>step.kind==="journey-event"?
@@ -462,9 +485,9 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       `Confirmed progress: ${percent}% `+
       `(${escapeHTML(formatNavigationDuration(leg.completedMovingHours,24))} moving).</p>`+
       participants+livestock+
-      (transportLines||landMethod||convoyLines?
+      (transportLines||landMethod||convoyLines||serviceLines?
         `<div class="atlas-journey-leg-group"><h4>Confirmed Transportation and Transfers</h4>`+
-        `<ul>${transportLines}${landMethod}${convoyLines}</ul></div>`:"")+
+        `<ul>${transportLines}${landMethod}${convoyLines}${serviceLines}</ul></div>`:"")+
       `<div class="atlas-journey-leg-group"><h4>Confirmed Directions and Stops</h4>`+
       `<p class="atlas-journey-caption">The full planned route remains in this Journey's saved metadata. `+
       `Only confirmed travel and approved stops appear below.</p>`+
