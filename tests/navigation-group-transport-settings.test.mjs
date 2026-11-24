@@ -130,6 +130,67 @@ test("Group editor shows compact native-Actor transportation by travel surface",
     assert.deepEqual(ctx.changes,[],"opening Group editor never changes World or native Group");
   }finally{ctx.restore();}
 });
+test("owned transport summary shows known capacity, native seats, and draft shortfalls",async()=>{
+  const ctx=setup();
+  try{
+    for(let i=2;i<=4;i++)ctx.group.system.members.push({actor:{
+      id:"pc"+i,name:"PC "+i,type:"character",system:{}}});
+    ctx.group.system.members.push({actor:{id:"nyx",name:"Nyx",type:"npc",system:{}}});
+    ctx.setSaved({version:7,groups:{group1:{members:{
+      camel1:{role:"mount",quantity:4,capacity:1,surface:"land",profileId:"camel"},
+      nyx:{role:"passenger",quantity:1,capacity:null,surface:"land",needsSeat:true}
+    }}}});
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    const root=await app._renderHTML(),nodes=flatten(root);
+    const summary=nodes.find(n=>n.className==="atlas-group-transport-capacity");
+    assert.ok(summary,"accessible capacity summary exists");
+    const read=()=>flatten(summary).map(n=>n.textContent??"").join(" ");
+    assert.match(read(),/Land: 5 seats needed \/ 4 available.*1 seat short/);
+    assert.match(read(),/Water: 5 seats needed \/ 60 available/);
+    const ship=nodes.find(n=>n.className==="atlas-group-transport-resource"&&
+      n.children[0]?.children[0]?.textContent==="Warship ★ Primary vehicle");
+    assert.match(flatten(ship).map(n=>n.textContent).join(" "),
+      /Seats\/unit: 60 \(Native vehicle\)/);
+    assert.match(ship.parentElement.style.cssText,/align-content:start/,
+      "one-row surface must not distribute its content across the full viewport");
+    const seat=nodes.find(n=>n.name==="needs-seat-nyx");
+    seat.checked=false;seat.events.change[0]();
+    assert.match(read(),/Land: 4 seats needed \/ 4 available/);
+    assert.doesNotMatch(read(),/Land:.*1 seat short/);
+    assert.match(read(),/Draft/);
+    seat.checked=true;seat.events.change[0]();
+    assert.match(read(),/Land: 5 seats needed \/ 4 available.*1 seat short/);
+    assert.equal(ctx.changes.length,0,"capacity presentation is a read-only draft projection");
+  }finally{ctx.restore();}
+});
+
+test("owned transport cards retain reserved-rider semantics and mark effective override sources",async()=>{
+  const ctx=setup();
+  try{
+    const extra={id:"pc2",name:"Mali",type:"character",system:{}};
+    ctx.group.system.members.push({actor:extra});
+    ctx.setSaved({version:7,groups:{group1:{members:{
+      camel1:{role:"mount",quantity:1,capacity:3,surface:"land",profileId:"camel",
+        assignedTo:"pc1",speedMphOverride:4,costCpOverride:250,costBasisOverride:"day",
+        costAppliesOverride:"unit"}
+    }}}});
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    const root=await app._renderHTML(),nodes=flatten(root);
+    const summary=nodes.find(n=>n.className==="atlas-group-transport-capacity");
+    assert.match(flatten(summary).map(n=>n.textContent).join(" "),
+      /Land: 2 seats needed \/ 1 available.*1 seat short/);
+    const card=nodes.find(n=>n.className==="atlas-group-transport-resource"&&
+      n.children[0]?.children[0]?.textContent==="Camel");
+    const read=()=>flatten(card).map(n=>n.textContent).join(" ");
+    assert.match(read(),/Seats\/unit: 3 \(Group override\)/);
+    assert.match(read(),/Speed: 4 mph \(Group override\)/);
+    assert.match(read(),/Upkeep: 250 CP \/ travel day per unit \(Group override\)/);
+    assert.match(read(),/Assigned To: Cassian/);
+    assert.match(read(),/1 reserved seat/);
+    assert.equal(ctx.changes.length,0);
+  }finally{ctx.restore();}
+});
+
 test("saving matching profile ID preserves mount capacity across Actor rename",async()=>{
   const ctx=setup();
   try{
