@@ -3095,8 +3095,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           after.selectedValue!==option?.value||
           (after.operation??"normal")!==(guidedLeg.transport.operation??"normal")||
           after.errors.length||
-          (approvedService&&JSON.stringify(after.recovered?after.approvedService:
-            after.serviceQuote?.serviceLevel?validateHiredServiceApproval(after.serviceQuote):null)!==JSON.stringify(approvedService))||
+          JSON.stringify(after.recovered?after.approvedService??null:
+            after.serviceQuote?.serviceLevel?validateHiredServiceApproval(after.serviceQuote):null)!==JSON.stringify(approvedService??null)||
           JSON.stringify(after.livestock??null)!==JSON.stringify(expectedLivestock))
         throw Error("The selected transportation, livestock or fare changed during confirmation. Review the updated checkpoint offer.");
       approvedLivestock=after.livestock??null;
