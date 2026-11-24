@@ -273,7 +273,7 @@ function openRoadDock(scene, refresh, takeSavedRoadId = null) {
         ui.notifications.warn("Road saved. Reopen this Scene and use Road Settings from the directory.");
         return;
       }
-      void roadActions.editRoadAppearance(scene,road,refresh).catch(error=>
+      void actions().editRoadAppearance(scene,road,refresh).catch(error=>
         ui.notifications.error(error.message??String(error)));
     }
   });
