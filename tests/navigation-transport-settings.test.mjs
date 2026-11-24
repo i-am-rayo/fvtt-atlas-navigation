@@ -736,6 +736,7 @@ test("Journey service terms use local inheritance and apply only to the trip dra
       capacity:base.capacity,crewCount:60,costBasis:"none",costApplies:"unit",
       crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",hire_gp:"250",
       hireEnabled:true,overtimeEnabled:true,overtimeExtraHours:8,overtimeMultiplier:1.5,continuousEnabled:true,
+      hireUnlimited:true,hireQuantity:1,
       "hireLevelRate-optimal":"","hireLevelOperation-optimal":"",
       "hireLevelRate-full":"0"};
     await open();
