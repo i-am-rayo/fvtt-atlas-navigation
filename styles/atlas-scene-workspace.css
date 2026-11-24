@@ -1,9 +1,15 @@
 /* Isolated visual shell. Native Region geometry and Scene data are untouched. */
+/* ApplicationV2 replaces this content with the Workspace root. Measure that
+   window, not the browser: a modeless Workspace can be resized independently. */
+.application .window-content:has(> .atlas-scene-workspace) {
+  container-name: atlas-workspace;
+  container-type: inline-size;
+}
 .atlas-scene-workspace {
   display: grid;
   grid-template-columns: minmax(165px, 205px) minmax(0, 1fr);
   height: 100%;
-  min-height: 310px;
+  min-height: 0;
   font-size: var(--font-size-14, 14px);
 }
 
@@ -31,6 +37,7 @@
 .atlas-scene-workspace .atlas-workspace-content {
   box-sizing: border-box;
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
   padding: 1rem 1.25rem 1.5rem;
 }
@@ -39,8 +46,11 @@
   justify-content: space-between;
   align-items: center;
   gap: .7rem;
+  flex-wrap: wrap;
   margin-bottom: 1rem;
 }
+.atlas-scene-workspace .atlas-workspace-heading > div { min-width: 0; overflow-wrap: anywhere; }
+.atlas-scene-workspace .atlas-workspace-heading > button { width: auto; }
 .atlas-scene-workspace .atlas-workspace-heading h2 { margin: 0; }
 .atlas-scene-workspace .atlas-workspace-heading p { margin: .25rem 0 0; }
 .atlas-scene-workspace .atlas-workspace-summary {
@@ -201,14 +211,34 @@
   justify-content: flex-start;
   margin-top: 1rem;
 }
-@media (max-width: 970px) {
+@container atlas-workspace (max-width: 970px) {
   .atlas-scene-workspace .atlas-workspace-topology .atlas-native-level-row {
     grid-template-columns: minmax(130px, 1fr) minmax(100px, 1fr);
   }
 }
-@media (max-width: 670px) {
-  .atlas-scene-workspace { grid-template-columns: minmax(125px, 155px) minmax(0, 1fr); }
+@container atlas-workspace (max-width: 670px) {
+  .atlas-scene-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .atlas-scene-workspace .atlas-workspace-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .3rem;
+    padding: .45rem .65rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border-light-tertiary, #6666);
+  }
+  .atlas-scene-workspace .atlas-workspace-nav h3 { grid-column: 1 / -1; margin: 0; }
+  .application .atlas-scene-workspace .atlas-workspace-nav > button.atlas-workspace-tab {
+    min-width: 0; margin: 0; padding: .4rem .3rem; overflow-wrap: anywhere;
+  }
   .atlas-scene-workspace .atlas-workspace-content { padding: .75rem; }
+  .atlas-scene-workspace .atlas-directory-filters > label,
+  .atlas-scene-workspace .atlas-directory-filters .atlas-directory-search { min-width: 0; max-width: none; flex: 1 1 100%; }
+  .atlas-scene-workspace .atlas-directory-creation > button,
+  .atlas-scene-workspace .atlas-directory-views > button { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  .atlas-scene-workspace .atlas-directory-toolbar > * { min-width: 0; flex-basis: 100%; }
   .atlas-scene-workspace [data-atlas-territory-manager] .atlas-territory-row {
     grid-template-columns: minmax(0, 1fr);
   }
