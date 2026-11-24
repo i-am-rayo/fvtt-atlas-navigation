@@ -8,6 +8,7 @@ import {checkpointOfferMethod,validateCheckpointTransportOffers,
   transportationMethodOverrideDelta} from "./checkpoint-transportation.js";
 import {openTransportationMethodEditor} from "./navigation-transport-settings.js";
 import {createSettingsIconButton} from "./settings-controls.js";
+import {compareAtlasLabels} from "./settings-select.js";
 import {dndCurrencyBreakdown} from "./navigation-currency.js";
 
 const node=(tag,text)=>{const el=document.createElement(tag);
@@ -80,7 +81,8 @@ export function createCheckpointTransportationEditor({offers=[],
       const legend=node("legend");legend.style.cssText="display:flex;align-items:center;gap:.5rem;font-weight:700;";
       legend.append(node("span",title));
       const candidates=methods.filter(method=>method.surface===surface&&
-        !draft.some(offer=>offer.methodId===method.id));
+        !draft.some(offer=>offer.methodId===method.id))
+        .sort((a,b)=>compareAtlasLabels(a.name,b.name)||compareAtlasLabels(a.id,b.id));
       const add=createSettingsIconButton({icon:"plus",label:"Add "+title+" method"});
       // Shared Atlas icon primitive owns the target and glyph size.
       add.disabled=!candidates.length;
