@@ -45,6 +45,21 @@ function validateCrewRoster(roster,assigned){
   });
 }
 
+/** Resource-level policy applies to all physical units represented by this Actor.
+ * A null override explicitly restores World inheritance, without clearing the roster. */
+export function validateOwnedCrewPolicy(policy){
+  if(policy===null)return null;
+  const keys=["crewCount","crewThresholds","crewWageCpPerDay","crewWageBasis","includeCrewWages"];
+  if(!policy||typeof policy!=="object"||Array.isArray(policy)||
+      Object.keys(policy).length!==keys.length||!keys.every(key=>Object.hasOwn(policy,key))||
+      !integer(policy.crewCount,0,1000)||!validMoneyOverride(policy.crewWageCpPerDay)||
+      policy.crewWageCpPerDay===null||!["day","trip","mile"].includes(policy.crewWageBasis)||
+      typeof policy.includeCrewWages!=="boolean"||policy.crewThresholds===undefined)
+    throw Error("Invalid owned crew policy.");
+  resolveCrewThresholds(policy);
+  return {...policy,crewThresholds:{...policy.crewThresholds}};
+}
+
 export function defaultGroupTransportation(){return {version:GROUP_TRANSPORT_VERSION,groups:{}};}
 
 export function validateGroupTransportation(input){
@@ -94,7 +109,8 @@ export function validateGroupTransportation(input){
         costAppliesOverride:entry.costAppliesOverride??null,
         purchaseGpOverride:entry.purchaseGpOverride??null,
         noteOverride:entry.noteOverride??null,
-        ...(entry.crewRoster===undefined?{}:{crewRoster:validateCrewRoster(entry.crewRoster,assignedCrew)})};
+        ...(entry.crewRoster===undefined?{}:{crewRoster:validateCrewRoster(entry.crewRoster,assignedCrew)}),
+        ...(entry.crewPolicyOverride===undefined?{}:{crewPolicyOverride:validateOwnedCrewPolicy(entry.crewPolicyOverride)})};
     }
     output.groups[groupId]={members};
   }
@@ -121,9 +137,11 @@ export function setGroupTransportationMembers(input,groupId,patches){
   for(const [id,patch] of Object.entries(patches)){
     // Legacy Party editors replace resource records; preserve new crew data
     // unless this edit explicitly supplies the roster (including an empty one).
-    const previous=members[id]?.crewRoster;
-    members[id]=previous!==undefined&&patch&& !Object.hasOwn(patch,"crewRoster")?
-      {...patch,crewRoster:previous}:patch;
+    const previous=members[id];
+    members[id]=patch?{...patch,
+      ...Object.fromEntries(["crewRoster","crewPolicyOverride"]
+        .filter(key=>previous?.[key]!==undefined&&!Object.hasOwn(patch,key))
+        .map(key=>[key,previous[key]]))}:patch;
   }
   next.groups[groupId]={members};
   return validateGroupTransportation(next);
@@ -187,6 +205,7 @@ export function projectGroupTransportation(group,settings=defaultGroupTransporta
       purchaseGpOverride,noteOverride,
       primaryVehicle:Boolean(vehicle&&group.system?.primaryVehicle?.id===actor.id),
       ...(saved?.crewRoster===undefined?{}:{crewRoster:saved.crewRoster}),
+      ...(saved?.crewPolicyOverride===undefined?{}:{crewPolicyOverride:saved.crewPolicyOverride}),
       configured:Boolean(saved)});
   }
   // Travelers and required seats are distinct: companions may travel on
@@ -213,6 +232,7 @@ export function assessGroupCrewRoster(projection,resource,method){
   if(resource.crewRoster===undefined)return {configured:false,units:[],issues:[]};
   if(!integer(resource.quantity,1,100))throw Error("Invalid crew resource quantity.");
   const roster=validateCrewRoster(resource.crewRoster,new Set());
+  method=effectiveGroupResourceMethod(resource,method);
   const thresholds=resolveCrewThresholds(method);
   const issues=[];
   if(resource.role!=="vehicle"||resource.enabled===false)
@@ -305,7 +325,8 @@ const matchingResources=(projection,method)=>{
 
 export function effectiveGroupResourceMethod(resource,method){
   const purchase=resource.purchaseGpOverride;
-  return {...method,capacity:resource.capacity??method.capacity,
+  return {...method,...(resource.crewPolicyOverride?validateOwnedCrewPolicy(resource.crewPolicyOverride):{}),
+    capacity:resource.capacity??method.capacity,
     speedMph:resource.speedMphOverride??method.speedMph,
     costCp:resource.costCpOverride??method.costCp,
     costBasis:resource.costBasisOverride??method.costBasis,
@@ -386,4 +407,52 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
   }
   return {amount,breakdown,unseated:remaining,
     quantity:breakdown.reduce((sum,item)=>sum+item.quantity,0)};
+}
+
+/** Estimate crew only for explicitly selected operating units. This is a draft
+ * calculation: callers must use the same unit list for passenger allocation,
+ * upkeep and approval. Legacy quotes continue through their existing path. */
+export function estimateOperatedGroupCrew(projection,method,{operatedUnits,hours,distanceMi,dayHours}={}){
+  if(!Array.isArray(operatedUnits)||!operatedUnits.length||
+      !Number.isFinite(hours)||hours<0||!Number.isFinite(distanceMi)||distanceMi<0||
+      !Number.isFinite(dayHours)||dayHours<=0||dayHours>24)
+    throw Error("Invalid operating units or crew estimate factors.");
+  const resources=new Map(matchingResources(projection,method).map(resource=>[resource.actorId,resource]));
+  const selected=Array.isArray(projection.selectedTravelerIds)?new Set(projection.selectedTravelerIds):null;
+  const members=new Map(projection.members.map(member=>[member.actorId,member]));
+  const seen=new Set(),namedCrew=new Set(),assessments=new Map(),units=[];
+  const crewDays=hours===0?0:Math.ceil(Math.max(0,hours-1e-7)/dayHours);
+  let crewWagesCp=0;
+  for(const selection of operatedUnits){
+    const resource=resources.get(selection?.actorId),unitIndex=selection?.unitIndex;
+    const key=selection?.actorId+":"+unitIndex;
+    if(!resource||!integer(unitIndex,1,resource.quantity)||seen.has(key))
+      throw Error("Invalid or duplicate operated unit.");
+    seen.add(key);
+    const effective=effectiveGroupResourceMethod(resource,method);
+    if(!assessments.has(resource.actorId))
+      assessments.set(resource.actorId,assessGroupCrewRoster(projection,resource,method));
+    const assessment=assessments.get(resource.actorId);
+    if(assessment.issues.length)throw Error("Correct invalid crew assignments before reviewing this leg.");
+    const configured=assessment.configured;
+    const named=resource.crewRoster?.find(unit=>unit.unitIndex===unitIndex)?.named??[];
+    for(const {actorId} of named){
+      if(namedCrew.has(actorId)||selected&&members.get(actorId)?.role==="passenger"&&!selected.has(actorId))
+        throw Error("Named crew must be traveling on the selected operated unit.");
+      namedCrew.add(actorId);
+    }
+    const requiredCrew=resolveCrewThresholds(effective).full;
+    const staffing=configured?assessment.units.find(unit=>unit.unitIndex===unitIndex):
+      {unitIndex,requiredCrew,staffedCrew:null,pcCrew:null,npcCrew:null,hiredCrew:null,
+        paidCrew:effective.includeCrewWages?requiredCrew:0,tier:null};
+    const wageBasis=effective.crewWageBasis??"day",rate=effective.crewWageCpPerDay??200;
+    const periods=wageBasis==="trip"?(hours>0?1:0):wageBasis==="mile"?distanceMi:crewDays;
+    const wages=staffing.paidCrew*rate*periods;
+    if(!Number.isFinite(wages)||wages<0||!Number.isSafeInteger(Math.ceil(crewWagesCp+wages)))
+      throw Error("Invalid projected crew wage total.");
+    crewWagesCp+=wages;
+    units.push({...staffing,actorId:resource.actorId,configured,crewWageBasis:wageBasis,
+      crewWageCpPerDay:rate,crewDays,crewWagesCp:wages});
+  }
+  return {units,namedCrewIds:[...namedCrew],crewWagesCp};
 }
