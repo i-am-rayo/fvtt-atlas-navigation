@@ -14,7 +14,7 @@
 }
 
 /* The Road ApplicationV2 form owns submission; no native document is written on render.
- * Shared Atlas order: edit actions then Cancel/Save, Delete last on the right.
+ * Shared Atlas order: contextual actions, separated Delete, then Cancel/Save.
  * DOM focus order matches visual order; CSS only handles available spacing.
  */
 .application:has([data-atlas-road-live]) .form-footer,
@@ -30,11 +30,11 @@
   flex: 0 0 auto;
   width: auto;
 }
-.application:has([data-atlas-road-live]) .form-footer > button[data-atlas-road-submit] {
+.application:has([data-atlas-road-live]) .form-footer > button.atlas-editor-cancel {
   margin-inline-start: auto;
 }
 /* The Map Marker editor owns one stable footer with independent action groups.
-   DOM and keyboard order: Locate, visibility, Move … Preset, Save, Delete. */
+   DOM and keyboard order: Locate, visibility, Move, Preset, Delete … Cancel, Save. */
 .atlas-checkpoint-form-actions .atlas-checkpoint-footer-left,
 .atlas-checkpoint-form-actions .atlas-checkpoint-footer-right {
   display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;min-width:0;
@@ -46,11 +46,8 @@
   flex:0 1 auto;min-width:0;max-width:100%;width:auto;white-space:normal;
 }
 
-.application:has([data-atlas-road-live]) .form-footer > button[data-atlas-road-submit].atlas-ui-icon-button {
-  flex:0 0 2rem;
-  width:2rem;min-width:2rem;max-width:2rem;
-  height:2rem;min-height:2rem;max-height:2rem;
-  padding:.2rem;
+.application:has([data-atlas-road-live]) .form-footer > button.atlas-editor-primary {
+  flex:0 1 auto;min-width:0;max-width:100%;white-space:normal;
 }
 
 .application:has([data-atlas-road-live]) [data-atlas-road-actions] {
