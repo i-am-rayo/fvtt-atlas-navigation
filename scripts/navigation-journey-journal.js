@@ -357,7 +357,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     leg.events.reduce((hours,event)=>hours+(isRestUnderway(event.action)?0:(Number(event.hours)||0)),0),0);
   const clockMoving=record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0);
   const clockBreaks=record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0);
-  let shownService=null;
+  let shownService=null,shownConvoy=null;
   const legs=record.legs.map((leg,index)=>{
     // Render from retained native Scene units; never rewrite historical Journal flags.
     const displayDistance=amount=>{
@@ -380,6 +380,13 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     const fare=leg.convoy&&[2,3].includes(leg.convoy.schemaVersion)?
       mixedTransportFareBreakdown(leg.convoy.methods,
         systemId==="dnd5e"?globalThis.CONFIG?.DND5E?.currencies:undefined):null;
+    const tiered=leg.convoy?.sharedDailyHours!==undefined;
+    const convoyKey=tiered?JSON.stringify(leg.convoy):null;
+    const prior=record.legs[index-1];
+    const continuingMixed=tiered&&prior?.completedPercent<99.999&&
+      JSON.stringify(prior.convoy)===convoyKey;
+    if(!continuingMixed)shownConvoy=null;
+    const repeatMixed=continuingMixed&&shownConvoy===convoyKey;
     const convoyLines=leg.convoy&&leg.completedMovingHours>0?(
       [2,3].includes(leg.convoy.schemaVersion)?[
         "The Group traveled together using mixed transportation at "+
@@ -393,9 +400,14 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
             (m.role==="cargo"?"Cargo only":(assignment?.travelers??riders+" riding"))+
             " · "+m.units+" "+(m.units===1?"unit":"units");
           const cost=fare.rows.find(row=>row.key===m.key);
-          return label+(cost?" · "+cost.label:"");
+          const service=m.serviceApproval;
+          const tier=service?" · "+service.serviceLevel+" service · "+service.advertisedCrew+
+            " advertised crew per unit · supports "+service.advertisedDailyHours+
+            "h/day; shared "+service.dailyHours+"h/day":"";
+          return label+tier+(cost&&!repeatMixed?" · "+cost.label:"");
         }),
-        (isMixedLandTransport(leg.transport)&&leg.transport.continuation?
+        (repeatMixed?"Continuing previously approved mixed service; no new fare.":
+          !tiered&&isMixedLandTransport(leg.transport)&&leg.transport.continuation?
           "Previously approved transportation cost: "+fare.total.label+
             " (not an additional quote; no currency deducted).":
           "Estimated transportation cost: "+fare.total.label+
@@ -416,6 +428,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         ...leg.convoy.hires.map(h=>h.units+" cargo-only "+h.methodName+
           " (estimated fare "+h.estimatedCostCp+" CP; not charged).")
       ]).map(line=>'<li class="atlas-journey-transport-event">'+escapeHTML(line)+"</li>").join(""):"";
+    if(tiered&&leg.completedMovingHours>0)shownConvoy=convoyKey;
     const landMethod=leg.travelMethod&&leg.completedMovingHours>0&&
       !leg.convoy?
       `<li class="atlas-journey-transport-event">The party traveled using ${escapeHTML(leg.travelMethod.name)} (`+
