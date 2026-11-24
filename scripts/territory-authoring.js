@@ -233,15 +233,68 @@ function intersectionArea(region,polygon){
 
 /** The authoring engine deliberately does not assume grid/polygon exclusivity.
  * Both shapes are compared with the Region's authoritative native geometry. */
+function coveragePeers(entries,geography,regionId){
+  return entries.filter(e=>e.id!==regionId&&e.linked&&!e.invalid&&e.geography&&
+    (geography.kind==="continent"?e.geography.kind==="continent":
+      ["city","town","village","settlement"].includes(geography.kind)&&
+      ["city","town","village","settlement"].includes(e.geography.kind)));
+}
+
+/** A read-only GM preflight for new Region authoring; it never authorizes Save.
+ * Native validity is always recomputed by saveTerritoryDraft after approval. */
+export function previewNewTerritoryCoverage(scene,draft,{view=globalThis.canvas}={}){
+  authorize(scene);
+  const shape=shapeForDraft(draft);
+  const {geography,entries}=validateClassification(scene,draft,null);
+  const peers=coveragePeers(entries,geography,null);
+  const conflicts=[];
+  let inspectionError=null;
+  try{
+    if(shape.type==="grid"){
+      const gridPeers=peers.filter(e=>{
+        const shapes=plainShapes(scene.regions?.get?.(e.id));
+        return shapes.length===1&&shapes[0].type==="grid";
+      }).map(e=>({regionId:e.id,offsets:plainShapes(scene.regions.get(e.id))[0].offsets}));
+      for(const item of gridCellConflicts(shape.offsets,gridPeers)){
+        const owner=peers.find(e=>e.id===item.regionId);
+        conflicts.push({name:owner?.name??"Unknown Territory",cells:item.count});
+      }
+    }else{
+      const points=[];
+      for(let i=0;i<shape.points.length;i+=2)points.push({
+        x:shape.points[i],y:shape.points[i+1]});
+      const polygon=polygonFor(points);
+      for(const peer of peers)if(intersectionArea(scene.regions.get(peer.id),polygon)>0.1)
+        conflicts.push({name:peer.name,cells:null});
+    }
+  }catch(error){inspectionError=error.message??String(error);}
+  let reason=inspectionError;
+  try{validateTerritoryCoverage(scene,draft,shape,{view});}
+  catch(error){reason=error.message??String(error);}
+  const lines=[shape.type==="grid"?
+    "Proposed native grid cells: "+shape.offsets.length+" (new Territory).":
+    "Proposed native polygon boundary for "+draft.name+"."];
+  if(conflicts.length)lines.push("Conflicting peer Territories: "+conflicts
+    .map(item=>item.name+(item.cells===null?" (polygon overlap)":
+      " ("+item.cells+" cell"+(item.cells===1?"":"s")+")")).join("; ")+".");
+  if(reason)lines.push("Native preflight BLOCKED: "+reason);
+  else lines.push("Native coverage and containment preflight passed for this draft.");
+  lines.push("Read-only preview. Confirming will recheck native Region geometry, "+
+    "ownership, permissions and recovery state; no automatic cell transfer or overwrite.");
+  const snapshot=JSON.stringify([...scene.regions?.values?.()??[]].map(region=>({
+    id:region.id,name:region.name,
+    shapes:nativeTerritoryShapeDigest(plainShapes(region)),
+    geography:region.getFlag?.(MODULE_ID,GEOGRAPHY_FLAG)
+  })).sort((a,b)=>a.id.localeCompare(b.id)));
+  return {lines,blocked:!!reason,reason,snapshot};
+}
+
 export function validateTerritoryCoverage(scene,draft,shape,{regionId=null,view=globalThis.canvas}={}){
   const {geography,entries}=validateClassification(scene,draft,regionId);
   const parent=geography.parentRegionId?scene.regions?.get?.(geography.parentRegionId):null;
   if(geography.parentRegionId&&!parent)
     throw Error("The selected parent Continent is missing.");
-  const peers=entries.filter(e=>e.id!==regionId&&e.linked&&!e.invalid&&e.geography&&
-    (geography.kind==="continent"?e.geography.kind==="continent":
-      ["city","town","village","settlement"].includes(geography.kind)&&
-      ["city","town","village","settlement"].includes(e.geography.kind)));
+  const peers=coveragePeers(entries,geography,regionId);
   // Grid containment/overlap can be exact on both square and hex Scenes.
   if(shape.type==="grid"){
     const grid=view?.grid;

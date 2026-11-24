@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {saveTerritoryDraft,readTerritoryDraft,selectedBlankWallBoundary,
-  territoryBoundaryNeedsAdoption,planNativeTerritoryAdoption,adoptNativeTerritoryBoundary}
+  territoryBoundaryNeedsAdoption,planNativeTerritoryAdoption,adoptNativeTerritoryBoundary,
+  previewNewTerritoryCoverage}
   from "../scripts/territory-authoring.js";
 
 const mkDraft=()=>({kind:"polygon",name:"Dirwest",
@@ -79,6 +80,41 @@ test("non-GMs and overlapping peer Territories cause zero writes",async()=>{
     await assert.rejects(saveTerritoryDraft(scene,mkDraft(),{view}),/overlaps/);
     assert.equal(created.length,0);
   }finally{globalThis.game=old.game;globalThis.PIXI=old.PIXI;}
+});
+
+test("new Territory conflict preview names overlapping peer Regions before any save",()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const {created,scene,view}=fixture([mockRegion("peer","village",30)]);
+    const review=previewNewTerritoryCoverage(scene,mkDraft(),{view});
+    assert.equal(review.blocked,true);
+    assert.match(review.lines.join(" "),/Millstone/);
+    assert.match(review.lines.join(" "),/overlap/i);
+    assert.equal(created.length,0,"preview never writes a native Region");
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("new grid Territory preview identifies the exact conflicting peer cell count",()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Polygon:class{constructor(points){this.points=points;}}};
+  try{
+    const peer=mockRegion("peer","town");
+    peer.shapes=[{type:"grid",offsets:[{i:2,j:3},{i:4,j:5}]}];
+    const {created,scene}=fixture([peer]);
+    const draft={...mkDraft(),kind:"grid",points:[],offsets:[{i:2,j:3},{i:7,j:8}]};
+    const view={ready:true,scene:{id:"paedor"},
+      dimensions:{sceneX:0,sceneY:0,sceneWidth:1000,sceneHeight:1000},grid:{
+        isGridless:false,getShape:()=>[{x:0,y:0},{x:1,y:0},{x:0,y:1}],
+        getCenterPoint:({i,j})=>({x:j*50,y:i*50})
+      }};
+    const review=previewNewTerritoryCoverage(scene,draft,{view});
+    assert.equal(review.blocked,true);
+    assert.match(review.lines.join(" "),/Millstone.*1 cell/);
+    assert.equal(created.length,0);
+  }finally{Object.assign(globalThis,previous);}
 });
 
 test("a newly authored Settlement cannot overlap an existing village",async()=>{

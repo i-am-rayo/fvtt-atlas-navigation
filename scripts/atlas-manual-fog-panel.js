@@ -69,8 +69,17 @@ export class AtlasManualFogPalette {
     const scene=canvas?.scene;
     const enabled=scene?readManualFog(scene).enabled:false;
     root.append(el("p",enabled?
-      "Paint Scene cells. Select a brush or hold a shortcut while clicking.":
+      "Only the current Scene is affected. Clicking while a brush is active saves "+
+        "manual cell overrides immediately when you paint; it does not edit native Fog or Region shapes.":
       "Enable Atlas Manual Fog in the Scene Atlas settings before painting.","atlas-brush-help"));
+    const active=this.controller.brush?.mode;
+    const status=el("p",enabled&&active?
+      (active==="reveal"?"Reveal":"Hide")+" brush active — click the map to paint; "+
+        "use Stop brush or Esc to exit.":
+      "Brush inactive — select Reveal or Hide to start painting.","atlas-brush-help");
+    status.setAttribute("role","status");
+    status.setAttribute("aria-live","polite");
+    root.append(status);
     const section=el("fieldset",undefined,"atlas-brush-fieldset");
     section.append(el("legend","Brushes"));
     const radiusRow=el("div",undefined,"atlas-brush-radius");
@@ -115,7 +124,8 @@ export class AtlasManualFogPalette {
     root.append(shortcutGroup);
     const footer=el("div",undefined,"atlas-brush-footer");
     const stop=el("button","Stop brush");
-    stop.type="button";stop.addEventListener("click",()=>{
+    stop.type="button";stop.disabled=!this.controller.brush?.mode;
+    stop.addEventListener("click",()=>{
       this.controller.setBrush(null,this.radius);this.draw();
     });
     footer.append(stop);root.append(footer);

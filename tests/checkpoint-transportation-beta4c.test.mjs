@@ -233,3 +233,42 @@ test("stables list purchasable mounts without silently enabling hired mount trav
   assert.ok(mounts.length>=3);
   assert.ok(mounts.every(offer=>offer.overrides.hireEnabled===false));
 });
+
+test("Map Marker can add an inherited Cart without automatically opening local overrides",async()=>{
+  const before={game:globalThis.game,document:globalThis.document,foundry:globalThis.foundry};
+  class Element{
+    constructor(tag){this.tag=tag;this.children=[];this.style={};this.listeners=new Map();
+      this.textContent="";this.value="";this.checked=false;}
+    append(...children){this.children.push(...children);}
+    appendChild(child){this.children.push(child);return child;}
+    replaceChildren(...children){this.children=[...children];}
+    setAttribute(){}
+    addEventListener(type,callback){this.listeners.set(type,callback);}
+  }
+  const flatten=node=>[node,...node.children.flatMap(flatten)];
+  let dialogs=0,writes=0;
+  try{
+    globalThis.document={createElement:tag=>new Element(tag)};
+    globalThis.game={system:{id:"dnd5e"},user:{isGM:true},
+      settings:{get:()=>undefined,set:async()=>{writes++;}}};
+    globalThis.foundry={applications:{api:{ApplicationV2:class {},
+      DialogV2:{input:async()=>{dialogs++;return null;}}}}};
+    const {createCheckpointTransportationEditor}=await import("../scripts/checkpoint-transportation-editor.js");
+    const editor=createCheckpointTransportationEditor({offers:[]});
+    const add=flatten(editor.element).find(item=>item.title==="Add Land Travel method");
+    assert.ok(add,"Land group exposes an add action");
+    await add.listeners.get("click")();
+    const selector=flatten(editor.element).find(item=>item.tag==="select");
+    assert.ok(selector,"GM chooses a World method");
+    selector.value="cart";
+    const confirm=flatten(editor.element).find(item=>item.textContent==="Add selected method");
+    assert.ok(confirm);
+    await confirm.listeners.get("click")();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(editor.getOffers(),[{methodId:"cart",mode:"land",overrides:{}}]);
+    assert.equal(dialogs,0,"adding inherited method must not force local customization");
+    assert.equal(writes,0,"draft does not persist until Map Marker Save");
+    assert.ok(flatten(editor.element).some(item=>item.title?.includes("Edit Cart")),
+      "optional local Edit remains available");
+  }finally{Object.assign(globalThis,before);}
+});

@@ -39,3 +39,38 @@ test("Reject duplicate or contradictory saved overrides",()=>{
   revealed:[{x:0,y:0}],hidden:[{x:0,y:0}]}));
  assert.throws(()=>nativeFogCells({...view(),grid:{isGridless:true}}));
 });
+
+test("Exploration brush identifies current Scene scope and live painting state",async()=>{
+ const before={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document};
+ class Element{
+   constructor(tag){this.tagName=tag;this.children=[];this.attributes={};
+     this.style={};this.textContent="";this.classList={add(){},remove(){}};}
+   append(...items){this.children.push(...items);}
+   appendChild(item){this.children.push(item);return item;}
+   replaceChildren(...items){this.children=[...items];}
+   setAttribute(key,value){this.attributes[key]=value;}
+   addEventListener(){}
+ }
+ const all=node=>[node,...node.children.flatMap(all)];
+ try{
+   globalThis.game={user:{isGM:true},
+     settings:{get:(_scope,key)=>key==="brushHideShortcut"?"shift":
+       key==="brushRevealShortcut"?"alt":1}};
+   globalThis.canvas={scene:{id:"scene",name:"Dirwest",
+     getFlag:()=>({schemaVersion:1,enabled:true,revealed:[],hidden:[]})}};
+   globalThis.document={createElement:tag=>new Element(tag)};
+   const {AtlasManualFogPalette}=await import("../scripts/atlas-manual-fog-panel.js");
+   const controller={brush:{mode:"reveal"},setBrush(mode){this.brush={mode};}};
+   const palette=new AtlasManualFogPalette(controller);
+   palette.element=new Element("section");
+   palette.draw();
+   const rendered=all(palette.element);
+   const status=rendered.find(node=>node.attributes.role==="status");
+   assert.ok(status,"painting state is announced accessibly");
+   assert.match(status.textContent,/Reveal brush active/);
+   assert.ok(rendered.some(node=>/current Scene.*save.*paint/i.test(node.textContent)),
+     "brush explains scope and actual commit boundary");
+   const stop=rendered.find(node=>node.textContent==="Stop brush");
+   assert.equal(stop.disabled,false);
+ }finally{Object.assign(globalThis,before);}
+});
