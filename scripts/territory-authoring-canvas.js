@@ -320,6 +320,10 @@ export class TerritoryAuthoringCanvas{
             "multiply owned frontier cells excluded.");
           if(seamGuide.protectedCells)warnings.push(`${seamGuide.protectedCells} `+
             "protected frontier cells excluded.");
+          if(seamGuide.otherElevationCells)warnings.push(
+            `${seamGuide.otherElevationCells} directly adjacent cell`+
+            `${seamGuide.otherElevationCells===1?"":"s"} at different native `+
+            "elevation ranges excluded from shared-boundary selection.");
         }
         if(warnings.length){
           const note=el("p",`Shared boundary assistance: ${warnings.join(" ")}`);
