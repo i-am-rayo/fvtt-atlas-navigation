@@ -75,3 +75,16 @@ test("ordinary hired land approval remains historical through interruption and o
   const wrong=structuredClone(resumed);wrong.legs[1].travelMethod.operation="continuous";
   assert.throws(()=>validateJourneyRecord(wrong),/invalid/i);
 });
+
+test("historical service discounts render as signed estimates, not invalid negative coins",()=>{
+  const quote=quoteTransportationService({...ship,id:"cart",surface:"land"},{
+    arrangement:"hire",serviceLevel:"minimum",movingHours:4,distanceMi:10,adjustmentCp:-100});
+  const plan={...itinerary({start:p(0),end:p(10),distance:10}),travel:{
+    speedPerHour:2.5,methodId:"cart",methodName:"Cart",arrangement:"hire",
+    operation:quote.operation,serviceApproval:quote}};
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"party",atlasRevision:4,itinerary:plan});
+  saved.legs[0].completedMovingHours=1;saved.legs[0].completedPercent=25;
+  assert.match(formatJourneyJournalHTML(saved,{systemId:"dnd5e"}),/adjustment -1 GP/);
+  const forged=structuredClone(saved);forged.legs[0].travelMethod.serviceContinuation=true;
+  assert.throws(()=>validateJourneyRecord(forged),/invalid|continuation/i);
+});
