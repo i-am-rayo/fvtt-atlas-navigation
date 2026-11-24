@@ -16,6 +16,7 @@ import { confirmedJourneyDirections } from "./navigation-journey-timeline.js";
 import {isRestUnderway,validatePassengerRestMetadata,confirmedJourneyMovingHours}
   from "./navigation-passenger-rest.js";
 import {validateTransportJourneyInfo,confirmedTransportJourneyLines,isMixedLandTransport} from "./navigation-transport-journal.js";
+import {validateHiredServiceApproval} from "./navigation-transport-service.js";
 import {validateJourneyTargets,validateJourneyAnchor,confirmJourneyTarget}
   from "./navigation-route-targets.js";
 import {validatePendingNativeMove}
@@ -49,7 +50,11 @@ const validJourneyMethod=value=>Boolean(value&&typeof value==="object"&&
   typeof value.name==="string"&&value.name.trim()&&value.name.length<=240&&
   !/[\u0000-\u001f]/.test(value.name)&&
   ["owned","hire"].includes(value.arrangement)&&
-  ["normal","overtime","continuous"].includes(value.operation));
+  ["normal","overtime","continuous"].includes(value.operation)&&
+  (value.serviceApproval===undefined||(()=>{
+    try{return value.arrangement==="hire"&&validateHiredServiceApproval(value.serviceApproval).operation===value.operation;}
+    catch{return false;}
+  })()));
 
 export function journeyLegFromItinerary(itinerary){
   if(itinerary?.schemaVersion!==1||!validPoint(itinerary.endpoints?.departure)||
@@ -82,7 +87,8 @@ export function journeyLegFromItinerary(itinerary){
           id:String(itinerary.travel.methodId),
           name:String(itinerary.travel.methodName??itinerary.travel.methodId),
           arrangement:String(itinerary.travel.arrangement??"owned"),
-          operation:String(itinerary.travel.operation??"normal")
+          operation:String(itinerary.travel.operation??"normal"),
+          ...(itinerary.travel.serviceApproval!==undefined?{serviceApproval:validateHiredServiceApproval(itinerary.travel.serviceApproval)}:{})
         }}:{})
   };
 }
@@ -255,12 +261,13 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
     }
   }
   if(isUnfinishedJourneyLeg(next)){
-    const approvedService=old.transport?.serviceApproval;
-    const resumedService=resumed.transport?.serviceApproval;
+    const approvedService=old.transport?.serviceApproval??old.travelMethod?.serviceApproval;
+    const resumedService=resumed.transport?.serviceApproval??resumed.travelMethod?.serviceApproval;
     if(approvedService!==undefined||resumedService!==undefined){
       if(JSON.stringify(approvedService)!==JSON.stringify(resumedService)||
           old.transport?.methodId!==resumed.transport?.methodId||
-          old.transport?.arrivalCheckpointId!==resumed.transport?.arrivalCheckpointId)
+          old.transport?.arrivalCheckpointId!==resumed.transport?.arrivalCheckpointId||
+          old.travelMethod?.id!==resumed.travelMethod?.id)
         throw Error("Recovery cannot change the approved hired service.");
     }
     // Interruption never authorizes changing a previously approved roster.
