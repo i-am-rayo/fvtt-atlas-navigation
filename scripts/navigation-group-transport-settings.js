@@ -5,7 +5,7 @@
  */
 import { GROUP_TRANSPORT_SETTING,readGroupTransportation,
   projectGroupTransportation,setGroupTransportationMembers,eligibleGroupRiders,
-  groupTravelCapacityStatus }
+  groupTravelCapacityStatus,assessGroupCrewRoster }
   from "./navigation-group-transport.js";
 import { listTransportationPresets } from "./navigation-transport-catalog.js";
 import { AtlasTransportationSettings,openTransportationMethodEditor }
@@ -60,6 +60,50 @@ const action=(label,callback,{icon=null,danger=false,size="compact"}={})=>{
   });
   return control;
 };
+/** A modal edits one unit at a time. Apply returns a draft, not a World write. */
+async function editUnitCrew({name,unitIndex,prior,candidates,assignedElsewhere}){
+  const content=node("div"),body=node("div");
+  body.style.cssText="display:grid;gap:.65rem;max-height:min(54vh,500px);overflow:auto;padding:.5rem;";
+  body.append(node("h3","Unit "+unitIndex+" — Crew roster"),
+    node("p","Named PCs and NPCs each occupy one crew position. Hired hands are a quantity, not native Actors."));
+  const hired=number("hiredCrew",prior.hired,0,1000);
+  body.append(field("Hired hands",hired));
+  const people=new Map(candidates.map(member=>[member.actorId,member]));
+  for(const assignment of prior.named)if(!people.has(assignment.actorId))
+    people.set(assignment.actorId,{actorId:assignment.actorId,actorName:"Unavailable member: "+assignment.actorId});
+  for(const member of people.values()){
+    const previous=prior.named.find(item=>item.actorId===member.actorId);
+    const check=node("input");check.type="checkbox";check.name="crew-"+member.actorId;
+    check.checked=Boolean(previous);check.defaultChecked=check.checked;
+    check.disabled=!previous&&assignedElsewhere.has(member.actorId);
+    const label=node("label");
+    label.append(check,node("span",member.actorName+" · "+(member.actorType??"Unavailable")+
+      (check.disabled?" (assigned elsewhere)":"")));
+    const duty=node("input");duty.type="text";duty.name="duty-"+member.actorId;
+    duty.maxLength=80;duty.value=previous?.duty??"";duty.defaultValue=duty.value;
+    body.append(label,field("Duty — "+member.actorName,duty,"Optional."));
+  }
+  content.append(body);
+  const response=await foundry.applications.api.DialogV2.input({
+    window:{title:"Edit "+name+" crew"},position:{width:560},content,
+    modal:true,rejectClose:false,ok:{label:"Apply to Party draft"}});
+  if(!response)return null;
+  const hiredCount=response.hiredCrew;
+  if(hiredCount==null||String(hiredCount).trim()===""||
+      !Number.isInteger(Number(hiredCount))||Number(hiredCount)<0||Number(hiredCount)>1000)
+    throw Error("Hired hands must be a whole number between 0 and 1000.");
+  const named=[];
+  for(const member of people.values()){
+    if(![true,"on","true"].includes(response["crew-"+member.actorId]))continue;
+    if(!candidates.some(item=>item.actorId===member.actorId)||assignedElsewhere.has(member.actorId))
+      throw Error("Crew member is unavailable or assigned to another unit: "+member.actorName);
+    const duty=String(response["duty-"+member.actorId]??"").trim();
+    if(duty.length>80)throw Error("Crew duty must be at most 80 characters.");
+    named.push({actorId:member.actorId,...(duty?{duty}:{})});
+  }
+  return {unitIndex,named,hired:Number(hiredCount)};
+}
+
 const base=globalThis.foundry?.applications?.api?.ApplicationV2??class {};
 
 /** Programmatic checks are repeated when opening and saving the editor. */
@@ -154,6 +198,11 @@ export class AtlasGroupTransportationSettings extends base {
     const editable=[];
     // Eligible mount riders reflect staged NPC role/seat changes, not just
     // persisted metadata from when this window first opened.
+    const stagedCrewMembers=()=>roster.members.map(member=>{
+      const entry=editable.find(item=>item.member.actorId===member.actorId);
+      return entry?{...member,role:member.actorType==="vehicle"?"vehicle":entry.role.value,
+        enabled:entry.enabled.value==="true"}:member;
+    });
     const stagedRiders=()=>{
       const riders=new Map(groupRiders.map(member=>[member.id,member]));
       for(const entry of editable)if(entry.member.actorType==="npc"){
@@ -343,6 +392,7 @@ export class AtlasGroupTransportationSettings extends base {
         needsSeat.addEventListener("change",()=>{updateDetails();this.dirty=true;});
         const profileDetails=node("small");
         const riderDetails=node("small");
+        let crewEditor=null;
         const updateDetails=()=>{
           const rider=stagedRiders().find(item=>item.id===assignedTo.value);
           if(type==="npc"&&role.value!=="mount"){
@@ -378,6 +428,7 @@ export class AtlasGroupTransportationSettings extends base {
               " per "+(effectiveApplies==="passenger"?"passenger":"unit"))+
             " · Purchase: "+(effectivePurchase===null?"not specified":effectivePurchase+" GP"):
             "Quantity Available: "+quantity.value+" · Choose a World profile under Edit.";
+          crewEditor?.refresh();
         };
         updateDetails();
         if(type==="npc"&&member.role!=="mount")profile.disabled=true;
@@ -526,9 +577,72 @@ export class AtlasGroupTransportationSettings extends base {
         }
         if(member.primaryVehicle)row.appendChild(node("small",
           "Foundry's primary-vehicle flag does not mean the party is aboard."));
-        editable.push({member,role,quantity,capacity,profile,speedOverride,
+        const draft={member,role,quantity,capacity,profile,speedOverride,
           costOverride,costBasisOverride,costAppliesOverride,
-          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo,needsSeat});
+          purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo,needsSeat,
+          crewRoster:member.crewRoster};
+        editable.push(draft);
+        if(type==="vehicle"){
+          const section=node("div"),summary=node("small");
+          section.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;";
+          const unit=select("crew-unit-"+member.actorId,[],"1");
+          unit.style.cssText="width:auto;max-width:100%;";
+          unit.setAttribute("aria-label","Operating unit for "+member.actorName);
+          const resource=()=>({...member,quantity:Number(quantity.value),
+            enabled:enabled.value==="true",crewRoster:draft.crewRoster});
+          const assess=()=>{const method=lookup.get(profile.value);
+            return method?assessGroupCrewRoster({members:stagedCrewMembers()},resource(),method):null;};
+          const refresh=()=>{
+            const count=Number(quantity.value);
+            const indices=new Set(Number.isInteger(count)&&count>=1&&count<=100?
+              Array.from({length:count},(_,i)=>i+1):[]);
+            for(const item of draft.crewRoster??[])indices.add(item.unitIndex);
+            const options=[...indices].sort((a,b)=>a-b).map(i=>
+              [String(i),"Unit "+i+(i>count?" (removed)":"")]);
+            const value=indices.has(Number(unit.value))?unit.value:options[0]?.[0]??"";
+            unit.replaceChildren(...select(unit.name,options,value).children);
+            unit.value=value;
+            const result=assess();
+            const current=result?.units.find(item=>item.unitIndex===Number(value));
+            summary.textContent=!result?"Link a World profile to configure crew.":
+              !result.configured?"Crew roster not configured — reference estimate":
+              !current?"Removed unit — clear its crew":
+              current.staffedCrew+" / "+current.requiredCrew+" crew · "+
+                current.tier.replaceAll("-"," ")+" · "+current.paidCrew+" paid"+
+                (result.issues.length?" · Review invalid assignments":"");
+          };
+          const crewEdit=action("Edit crew for "+member.actorName,async()=>{
+            if(!game.user?.isGM)throw Error("Only a GM may assign crew.");
+            const method=lookup.get(profile.value),index=Number(unit.value);
+            if(!method||!Number.isInteger(index)||index<1)
+              throw Error("Choose a World profile and operating unit first.");
+            const prior=draft.crewRoster?.find(item=>item.unitIndex===index)??
+              {unitIndex:index,named:[],hired:0};
+            const assignedElsewhere=new Set(editable.flatMap(entry=>
+              (entry.crewRoster??[]).filter(item=>entry!==draft||item.unitIndex!==index)
+                .flatMap(item=>item.named.map(person=>person.actorId))));
+            const candidates=stagedCrewMembers().filter(person=>person.enabled!==false&&
+              (person.actorType==="character"||person.actorType==="npc"&&
+                ["crew","passenger","unassigned"].includes(person.role)));
+            const before=JSON.stringify({roster:draft.crewRoster,profile:profile.value,quantity:quantity.value});
+            const next=await editUnitCrew({name:member.actorName,unitIndex:index,prior,candidates,assignedElsewhere});
+            if(!next)return;
+            if(!game.user?.isGM||before!==JSON.stringify({roster:draft.crewRoster,profile:profile.value,quantity:quantity.value}))
+              throw Error("Vehicle draft changed. Reopen crew editor.");
+            const rosterDraft=(draft.crewRoster??[]).filter(item=>item.unitIndex!==index);
+            if(next.named.length||next.hired)rosterDraft.push(next);
+            rosterDraft.sort((a,b)=>a.unitIndex-b.unitIndex);
+            const checked=assessGroupCrewRoster({members:stagedCrewMembers()},
+              {...resource(),crewRoster:rosterDraft},method);
+            if(checked.issues.some(issue=>issue.unitIndex===index))
+              throw Error("Correct crew assignments or capacity for this unit.");
+            draft.crewRoster=rosterDraft;this.dirty=true;refresh();
+          },{icon:"users"});
+          unit.addEventListener("change",refresh);
+          section.append(unit,crewEdit,summary);
+          row.appendChild(section);
+          crewEditor={refresh};refresh();
+        }
         const surface=lookup.get(profile.value)?.surface??member.surface;
         const target=type!=="npc"||member.role==="mount"?
           bucket[surface]??other:member.role==="unassigned"?
@@ -610,7 +724,8 @@ export class AtlasGroupTransportationSettings extends base {
           costBasisOverride:isTransport?(costBasisOverride.value||null):null,
           costAppliesOverride:isTransport?(costAppliesOverride.value||null):null,
           purchaseGpOverride:purchase,
-          noteOverride:note||null
+          noteOverride:note||null,
+          ...(entry.crewRoster===undefined?{}:{crewRoster:entry.crewRoster})
         };
       }
       const next=setGroupTransportationMembers(currentAssignments,this.groupId,changes);
@@ -620,6 +735,14 @@ export class AtlasGroupTransportationSettings extends base {
         if(member.assignedTo&&!eligible.has(member.assignedTo))
           throw Error("Assigned To for "+member.actorName+
             " is no longer an eligible traveling Party member. Clear the assignment.");
+      for(const member of reviewed.members){
+        if(member.crewRoster===undefined)continue;
+        const method=now.find(item=>item.id===member.profileId);
+        if(!method)throw Error("Link a valid World profile for "+member.actorName+" crew.");
+        const assessment=assessGroupCrewRoster(reviewed,member,method);
+        if(assessment.issues.length)
+          throw Error("Correct invalid crew assignments for "+member.actorName+" before saving.");
+      }
       await game.settings.set(MODULE_ID,GROUP_TRANSPORT_SETTING,next);
       this.dirty=false;
       globalThis.ui?.notifications?.info?.("Party transportation assignments saved.");
