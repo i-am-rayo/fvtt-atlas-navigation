@@ -712,6 +712,20 @@ test("one existing Preview & Save includes a fresh shared-cell review, not anoth
     assert.ok(errors.some(message=>/multiply owned/.test(message)));
     assert.ok(editor.session,"the blocked draft remains open for correction");
     editor.cancel();assert.equal(await blocked,false);
+
+    let snapshot=0;
+    const stale=editor.begin(scene,{kind:"grid",offsets:[{i:0,j:0}]},
+      async()=>{writes++;},{reviewDraft:()=>({
+        lines:["Native ownership preflight passed."],blocked:false,snapshot:String(++snapshot)
+      })});
+    const staleSave=editor.session.panel.children.find(c=>c.tagName==="div"&&
+      c.children.some(b=>b.textContent==="Preview & Save"))
+      .children.find(b=>b.textContent==="Preview & Save");
+    await staleSave.listeners.get("click")();
+    assert.equal(writes,1,"changed native ownership between review and approval cannot write");
+    assert.ok(errors.some(message=>/ownership changed during review/.test(message)));
+    assert.ok(editor.session,"stale approval keeps the unsaved draft for correction");
+    editor.cancel();assert.equal(await stale,false);
   }finally{editor.cancel();Object.assign(globalThis,saved);}
 });
 
