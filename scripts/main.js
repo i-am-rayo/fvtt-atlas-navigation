@@ -29,7 +29,7 @@ import { saveRenamedRoad, saveRemovedRoad, saveAnchoredLegacyRoads,
   saveDisconnectedIndependentCheckpoint, saveRemovedCheckpoint, saveRemovedCheckpoints, saveRoadTravelPreset,
   saveRoadAppearance, saveRoadSettings, saveRoadPlayerVisibility,
   saveCheckpointPlayerVisibility } from "./road-storage.js";
-import { getRoadMergeCandidates, suggestRoadName, findRoadSnap } from "./road-model.js";
+import { getRoadMergeCandidates, findRoadSnap } from "./road-model.js";
 import {attachIndependentCheckpointToRoadEndpoint}
   from "./road-checkpoint-existing-attachments.js";
 import { sceneImageOrigin, toCanvasPoint } from "./road-coordinates.js";
@@ -102,7 +102,7 @@ import { approveSettingsClose,confirmUnsavedSettings,trackSettingsChanges,
 import { appendSettingsField,createSettingsFieldRow } from "./settings-layout.js";
 import { registerWorldCheckpointPresets,AtlasCheckpointPresetSettings }
   from "./checkpoint-preset-settings.js";
-import { roadAppearanceForm, roadAppearanceFromForm, refreshRoadAppearancePreview,
+import { roadAppearanceForm, roadAppearanceFromForm,
   registerWorldRoadAppearance,AtlasRoadAppearanceSettings }
   from "./road-appearance-settings.js";
 import { readWorldRoadAppearance, resolveRoadAppearance, roadAppearanceMode }
