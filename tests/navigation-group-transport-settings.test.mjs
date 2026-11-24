@@ -638,3 +638,27 @@ test("NPC roles and tab switches never write; Save, Refresh and Settings use sta
     assert.deepEqual(ctx.changes,[],"render and navigation are read-only");
   }finally{ctx.restore();}
 });
+
+test("owned vehicle cards expose separate passenger and crew capacity without assigning Group crew",async()=>{
+  const ctx=setup();
+  try{
+    ctx.group.system.members.push({actor:{id:"sailor",name:"Sailor",type:"npc",system:{}}});
+    ctx.setSaved({version:7,groups:{group1:{members:{
+      ship1:{role:"unassigned",quantity:2,capacity:55,surface:"water",profileId:"warship"},
+      sailor:{role:"crew",quantity:3,capacity:null,surface:"water"}
+    }}}});
+    const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
+    const nodes=flatten(root);
+    const ship=nodes.find(n=>n.className==="atlas-group-transport-resource"&&
+      n.children[0]?.children[0]?.textContent==="Warship ★ Primary vehicle");
+    const labels=flatten(ship).map(n=>n.textContent??"").join(" ");
+    assert.match(labels,/Seats\\/unit: 55 \\(Group override\\)/);
+    assert.match(labels,/60 required crew per unit/);
+    assert.match(labels,/120 required across 2 units/);
+    assert.match(labels,/Crew wages excluded/);
+    const status=nodes.find(n=>n.className==="atlas-group-transport-capacity");
+    assert.match(flatten(status).map(n=>n.textContent??"").join(" "),/3 crew role.*not allocated/);
+    assert.match(flatten(status).map(n=>n.textContent??"").join(" "),/Water: 1 seats needed \\/ 110 available/);
+    assert.deepEqual(ctx.changes,[]);
+  }finally{ctx.restore();}
+});
