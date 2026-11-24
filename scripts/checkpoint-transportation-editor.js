@@ -102,7 +102,7 @@ export function createCheckpointTransportationEditor({offers=[],
           const methodId=chooser.value;if(!methodId)return;
           draft=validateCheckpointTransportOffers([...draft,
             {methodId,mode,overrides:{}}]);
-          adding.delete(mode);render();safeEdit(methodId);
+          adding.delete(mode);render();
         });
         addRow.append(chooser,confirm);section.append(addRow);
       }
@@ -118,11 +118,14 @@ export function createCheckpointTransportationEditor({offers=[],
         const info=node("div");
         info.style.cssText="flex:1 1 auto;min-width:0;display:grid;gap:.18rem;";
         info.append(node("strong",world?.name??"Missing World method"));
+        info.append(node("small",!world?"Missing World preset — review this offer before saving":
+          Object.keys(offer.overrides??{}).length?"Local overrides":"Inherits World preset"));
         const subtitle=node("small",fareSummary(method));subtitle.style.opacity=".8";
         info.append(subtitle);
         const edit=createSettingsIconButton({icon:"pen-to-square",
           label:"Edit "+(world?.name??offer.methodId)+" at this Map Marker",
           onClick:()=>safeEdit(offer.methodId)});
+        edit.disabled=!world;
         const remove=createSettingsIconButton({icon:"trash",danger:true,
           label:"Remove "+(world?.name??offer.methodId)+" from Map Marker",
           onClick:()=>{draft=draft.filter(item=>item!==offer);render();}});
