@@ -708,3 +708,39 @@ test("hired service tier editor saves explicit World rates and Map Marker inheri
     assert.equal(ctx.changes.length,writes,"Map Marker apply never writes World settings");
   }finally{globalThis.foundry=oldFoundry;globalThis.ui=oldUI;ctx.restore();}
 });
+
+test("Journey service terms use local inheritance and apply only to the trip draft",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const {findTransportationPreset}=await import("../scripts/navigation-transport-catalog.js");
+    const {transportationMethodOverrideDelta}=await import("../scripts/checkpoint-transportation.js");
+    const base={...findTransportationPreset("warship",game.settings,"dnd5e"),
+      hireEnabled:true,overtimeEnabled:true,continuousEnabled:true,
+      hireServiceLevels:{optimal:{hireCostCp:27500,operation:"overtime"},full:{hireCostCp:40000}}};
+    const effective={...base,hireServiceLevels:{...base.hireServiceLevels,optimal:{hireCostCp:0,operation:"overtime"}}};
+    let result=null,response=null;
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content,ok})=>{
+      const nodes=flatten(content);
+      assert.equal(ok.label,"Save for this trip");
+      const rate=nodes.find(e=>e.name==="hireLevelRate-optimal");
+      assert.ok(rate,"Journey hire terms must be editable");
+      assert.equal(rate.value,"0");
+      assert.equal(rate.placeholder,"275");
+      return response;
+    }}}}};
+    const open=()=>openTransportationMethodEditor({method:effective,scope:"journey",checkpointName:"Port",
+      inheritedMethod:base,onSave:next=>{result=next;}});
+    await open();
+    assert.equal(result,null);assert.deepEqual(ctx.changes,[]);
+    response={name:base.name,kind:base.kind,speedDisplay:base.speedMph,
+      capacity:base.capacity,crewCount:60,costBasis:"none",costApplies:"unit",
+      crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",hire_gp:"250",
+      hireEnabled:true,overtimeEnabled:true,overtimeExtraHours:8,overtimeMultiplier:1.5,continuousEnabled:true,
+      "hireLevelRate-optimal":"","hireLevelOperation-optimal":"",
+      "hireLevelRate-full":"0"};
+    await open();
+    assert.deepEqual(result.hireServiceLevels,{optimal:{hireCostCp:27500,operation:"overtime"},full:{hireCostCp:0}});
+    assert.deepEqual(transportationMethodOverrideDelta(base,result).hireServiceLevels,{full:{hireCostCp:0}});
+    assert.deepEqual(ctx.changes,[]);
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
