@@ -31,7 +31,7 @@ test("Road Settings keeps the original ApplicationV2 form submit in the footer",
   let closed = 0;
   const cancel = {addEventListener(type, handler) { this[type] = handler; }};
   const dialog={element:{ownerDocument:{createElement:tag=>tag==="i"?
-    {tag,className:"",attrs:{},setAttribute(k,v){this.attrs[k]=v;}}:cancel},querySelector:()=>bar},
+    {tag,className:"",attrs:{},setAttribute(k,v){this.attrs[k]=v;}}:tag==="span"?{tag}:cancel},querySelector:()=>bar},
     form:{querySelector:()=>footer}, close:()=>closed++};
   assert.equal(arrangeRoadDialogFooter(dialog),save);
   assert.deepEqual(footer.nodes,[locate,visible,edit,connection,remove,cancel,save],
