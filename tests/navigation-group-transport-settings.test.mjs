@@ -300,16 +300,20 @@ test("Party transportation child editor stages existing Group data without writi
     const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit Camel transportation");
     assert.ok(edit?.events.click?.length);
     globalThis.foundry={applications:{api:{DialogV2:{
-      input:async()=>({
+      input:async options=>{
+        assert.match(options.ok.label,/Apply to Party draft/);
+        return {
         groupProfileId:"camel",groupQuantity:"4",capacity:"",
         groupSpeedCustom:"on",speedDisplay:"3.75",
         groupCostCustom:"on",cost_pp:"0",cost_gp:"0",cost_ep:"0",cost_sp:"0",
         cost_cp:"0",groupBasisCustom:"on",costBasis:"none",costApplies:"unit",
         purchaseEnabled:false,note:""
-      })
+      };}
     }}}};
     await edit.events.click[0]();
     assert.equal(ctx.changes.length,0,"child edit does not save World/Group");
+    assert.ok(elements.some(e=>/Unsaved changes/.test(e.textContent??"")),
+      "child Apply visibly marks the parent draft unsaved");
     assert.equal(elements.find(e=>e.name==="quantity-camel1").value,"4");
     assert.equal(elements.find(e=>e.name==="speed-camel1").value,"3.75");
     const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
@@ -367,7 +371,9 @@ test("unique mount Assigned To uses current native Group IDs and stages until Gr
     assert.equal(rider.value,"");
     assert.deepEqual(rider.children.map(x=>x.value),["","pc1","pc2"]);
     assert.notEqual(rider.children[1].textContent,rider.children[2].textContent,
-      "identically named characters are distinguished by stable IDs");
+      "identically named characters are distinguishable without changing stable IDs");
+    assert.ok(rider.children.slice(1).every(e=>!e.textContent.includes(e.value)),
+      "raw Actor IDs are not displayed as rider labels");
     const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit Camel transportation");
     globalThis.foundry={applications:{api:{DialogV2:{input:async()=>({
       groupProfileId:"camel",groupQuantity:"1",groupAssignedTo:"pc2",
@@ -384,7 +390,7 @@ test("unique mount Assigned To uses current native Group IDs and stages until Gr
     sameName.name="Renamed passenger";
     const reopened=flatten(await app._renderHTML());
     assert.equal(reopened.find(e=>e.name==="assigned-to-camel1").value,"pc2");
-    assert.ok(reopened.some(e=>(e.textContent??"").includes("Renamed passenger · pc2")),
+    assert.ok(reopened.some(e=>(e.textContent??"")==="Assigned To: Renamed passenger (exclusive personal mount; no boarding)"),
       "live display name updates but persisted ID never changes");
   }finally{globalThis.foundry=oldFoundry;ctx.restore();}
 });
@@ -429,7 +435,7 @@ test("invalid, orphan and duplicate mount rider assignments are rejected before 
   }finally{ctx.restore();}
 });
 
-test("Need Setup role changes move NPC into category; Needs seat is staged and saved",async()=>{
+test("Need Setup role edits keep the active row until explicit tab change; seat choice stays staged",async()=>{
   const ctx=setup();try{
     const nyx={id:"nyx",name:"Nyx",type:"npc",system:{}};
     const jon={id:"jon",name:"Jonathan",type:"npc",system:{}};
@@ -449,12 +455,19 @@ test("Need Setup role changes move NPC into category; Needs seat is staged and s
     const jonSeat=input("needs-seat-jon");
     const jonRole=input("role-jon");
     assert.equal(jonSeat.parentElement.hidden,true,"toggle hidden before Companion / passenger");
+    tabs[4].events.click[0]();
+    const initialParent=jonRole.parentElement.parentElement.parentElement.parentElement;
     const before=ctx.changes.length;
     nyxSeat.checked=false;nyxSeat.events.change[0]();
     jonRole.value="passenger";jonRole.events.change.forEach(fn=>fn());
     assert.equal(tabs[4].textContent,"Need Setup");
     assert.equal(jonSeat.parentElement.hidden,false);
     assert.equal(jonSeat.checked,true);
+    assert.equal(jonRole.parentElement.parentElement.parentElement.parentElement,initialParent,
+      "role changes keep the edited row visible in its current tab");
+    assert.equal(tabs[4].attributes.get("aria-selected"),"true");
+    assert.ok(elements.some(e=>/Unsaved changes/.test(e.textContent??"")));
+    tabs[3].events.click[0]();
     const npcCategory=elements.find(e=>e.className==="atlas-group-transport-npc-category"&&
       e.children[0]?.textContent==="Companions / Passengers");
     assert.ok(npcCategory.children.some(e=>e.className==="atlas-group-transport-resource"&&
@@ -470,6 +483,32 @@ test("Need Setup role changes move NPC into category; Needs seat is staged and s
     assert.equal(ctx.group.system.members.length,5,"native Group untouched");
     assert.equal(ctx.changes.length,1,"one Atlas Group World-setting write");
   }finally{ctx.restore();}
+});
+
+test("Cancel Party transportation preserves the draft when declined and never persists",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    let closed=0,allow=false;
+    app.close=async()=>{closed++;};
+    globalThis.foundry={applications:{api:{DialogV2:{
+      confirm:async()=>allow
+    }}}};
+    const nodes=flatten(await app._renderHTML());
+    const role=nodes.find(e=>e.name==="role-camel1");
+    role.value="passenger";role.events.change.forEach(fn=>fn());
+    const cancel=nodes.find(e=>e.tagName==="BUTTON"&&e.textContent==="Cancel");
+    assert.ok(cancel,"explicit Cancel is discoverable");
+    await cancel.events.click[0]();
+    assert.equal(closed,0);
+    assert.equal(app.dirty,true);
+    assert.equal(role.value,"passenger");
+    allow=true;
+    await cancel.events.click[0]();
+    assert.equal(closed,1);
+    assert.equal(ctx.changes.length,0);
+    assert.equal(ctx.saved.groups.group1.members.camel1.role,"mount");
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
 });
 
 test("NPC roles and tab switches never write; Save, Refresh and Settings use standard footer actions",async()=>{

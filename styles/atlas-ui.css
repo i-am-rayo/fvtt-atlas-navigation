@@ -38,6 +38,22 @@
   outline-offset: 2px;
 }
 .atlas-ui-icon-button:disabled { opacity:.55; cursor:not-allowed; }
+/* The Party editor has an explicit labeled primary action, not a 2rem glyph. */
+.application button.atlas-group-transport-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+  padding: .35rem .65rem;
+  line-height: 1.25;
+  white-space: normal;
+}
+
 [data-atlas-territory-manager] legend .atlas-territory-add {
   display: inline-flex;
   align-items: center;
