@@ -83,7 +83,9 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     }
     return groups;
   }
+  const filterControls=new Map();
   function input(label, control, key, event) {
+    filterControls.set(key,control);
     const field = element("label");
     field.appendChild(element("span",label));
     control.setAttribute("aria-label",label);
@@ -132,6 +134,20 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   searchGroup.appendChild(icon);
   filters.appendChild(searchGroup);
   search.addEventListener("input",()=>{saved.query=search.value;draw();});
+  const clear=element("button","Clear filters");
+  clear.type="button";
+  clear.className="atlas-directory-clear-filters";
+  clear.addEventListener("click",()=>{
+    for(const key of ["query","type","place"])saved[key]="";
+    search.value="";
+    for(const key of ["type","place"]){
+      const control=filterControls.get(key);
+      if(control)control.value="";
+    }
+    draw();
+    search.focus();
+  });
+  filters.appendChild(clear);
 
   function group(key,label,expanded,subtitle="",expandable=true) {
     const details=element(expandable?"details":"div");
@@ -143,6 +159,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     const summary=element(expandable?"summary":"div");
     if(!expandable)summary.className="atlas-directory-row-heading";
     if(expandable){
+      summary.dataset.atlasWorkspaceFocus=JSON.stringify(["directory",view,key,"disclosure"]);
       const chevron=element("i");
       chevron.className="fa-solid fa-chevron-right atlas-directory-chevron";
       chevron.setAttribute("aria-hidden","true");
@@ -238,6 +255,11 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
           catch (error) { ui.notifications.error(error.message??String(error)); }
           finally {control.disabled=false;}
         }});
+      // The icon can change with visibility or road-link state; the action cannot.
+      const action=["eye","eye-slash"].includes(icon)?"visibility":
+        ["link","unlink"].includes(icon)?"road-link":icon;
+      control.dataset.atlasWorkspaceFocus=JSON.stringify([
+        "directory",view,parent.dataset.atlasDirectoryKey,action]);
       return bar.appendChild(control);
     }
     if (type === "territory") {
@@ -320,6 +342,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     const query = saved.query.trim().toLocaleLowerCase();
     const matches = item => !query || item.name.toLocaleLowerCase().includes(query);
     const filtered = Boolean(query || saved.type || saved.place);
+    clear.disabled=!(saved.query || saved.type || saved.place);
     function itemRow(item,type,path){
       const mode=type==="road"?roadAppearanceMode(item,presets):null;
       const subtitle=type==="road"?
