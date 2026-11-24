@@ -98,8 +98,8 @@ const heading=(text,description)=>{
   if(description){const p=element("p",description);p.style.cssText="margin:0;opacity:.8;";section.append(p);}
   return section;
 };
-const selected=(choices,value,name)=>{
-  const control=createSettingsSelect(choices,{selectedId:value,name});
+const selected=(choices,value,name,{alphabetize=true}={})=>{
+  const control=createSettingsSelect(choices,{selectedId:value,name,alphabetize});
   control.style.cssText="width:100%;min-width:0;";return control;
 };
 /** Forms serialize DOM content in DialogV2. Listeners attached before opening do
@@ -633,7 +633,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       if(value.continuousEnabled&&value.kind==="vehicle")
         choices.push(["continuous","Continuous — 24h/day"]);
       panels.general.append(field("Operating schedule for this journey",
-        selected(choices,journeyOperation,"atlasJourneyOperation"),
+        selected(choices,journeyOperation,"atlasJourneyOperation",{alphabetize:false}),
         "Saved with this trip only. The World method determines which schedules are available."));
     }
 
