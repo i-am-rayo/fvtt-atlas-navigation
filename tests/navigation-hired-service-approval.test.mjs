@@ -92,7 +92,7 @@ test("historical service discounts render as signed estimates, not invalid negat
 });
 
 test("tiered mixed checkpoint recovery retains the original shared schedule and historical fare",()=>{
-  const walker={id:"walking",kind:"foot",surface:"land"};
+  const walker={id:"walking",name:"Walking",kind:"foot",surface:"land"};
   const coach={...ship,id:"carriage",name:"Carriage",surface:"land",hireUnlimited:true};
   const convoy=planMixedLandConvoy({travelers:[
     {actorId:"pc1",seatsNeeded:1,passengers:1},{actorId:"pc2",seatsNeeded:1,passengers:1}],
