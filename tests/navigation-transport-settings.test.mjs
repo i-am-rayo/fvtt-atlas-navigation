@@ -404,9 +404,21 @@ test("Group editor records touched Map Marker fields as overrides without new vi
           if(match)return elements.find(el=>el.name===match[1])??null;
           if(selector==="[data-atlas-scope-reset]")
             return elements.find(el=>el.attributes.get("data-atlas-scope-reset")!==undefined)??null;
+          if(selector==="[data-atlas-group-crew]")
+            return elements.find(el=>el.attributes.has("data-atlas-group-crew"))??null;
           return null;
         };
         render(null,root);
+        const staffing=root.querySelector("[data-atlas-group-crew]");
+        const profile=elements.find(e=>e.name==="groupProfileId");
+        assert.match(staffing.textContent,/0 required across 3 units/);
+        profile.value="";profile.listeners.get("change")();
+        assert.match(staffing.textContent,/Not configured/);
+        profile.value="camel";profile.listeners.get("change")();
+        assert.match(staffing.textContent,/0 required across 3 units/);
+        const quantity=elements.find(e=>e.name==="groupQuantity");
+        quantity.value="4";root.listeners.get("input")({target:quantity});
+        assert.match(staffing.textContent,/0 required across 4 units/);
         const speedFlag=elements.find(e=>e.name==="groupSpeedCustom");
         const upkeepFlag=elements.find(e=>e.name==="groupCostCustom");
         assert.equal(speedFlag.checked,false,"speed starts World-inherited");
