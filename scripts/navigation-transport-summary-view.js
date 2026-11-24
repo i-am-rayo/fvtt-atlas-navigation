@@ -72,6 +72,29 @@ export function renderTransportQuote({worldEstimate=null,currentEstimate,
   return block;
 }
 
+/** Owned staffing is a World profile reference, not a roster assignment. */
+export function describeOwnedCrewProfile(method,quantity=1){
+  if(!method)return "Not configured — link a World profile.";
+  const count=method.crewCount??0;
+  const total=Number.isInteger(quantity)&&quantity>0&&quantity<=100?
+    " · "+count*quantity+" required across "+quantity+(quantity===1?" unit":" units"):"";
+  const basis=method.crewWageBasis??"day";
+  const period=basis==="day"?"operating day":basis;
+  return count+" required crew per unit (World profile)"+total+
+    " · "+(method.includeCrewWages?
+      "Crew wage rate: "+(method.crewWageCpPerDay??200)+" CP per crew member / "+period:
+      "Crew wages excluded from estimates");
+}
+
+/** The current quote already owns the arithmetic; display counts, never reprice. */
+export function describeJourneyCrewEstimate(quote){
+  if(!quote||quote.requiredCrew==null||quote.paidCrew==null)return null;
+  return "Required crew: "+quote.requiredCrew+" · Separately paid crew: "+quote.paidCrew+
+    (quote.requiredCrew>0&&quote.driverIncluded?" (crew included in hire fare)":
+      quote.requiredCrew>0&&quote.paidCrew===0?" (separate wages excluded)":"")+
+    ". Staffing is an estimate; Group crew are not automatically allocated.";
+}
+
 /** Report the *effective* current-leg mount fare without changing the World catalog. */
 export function describeJourneyMountFare(manifest,{method=null,worldPercent=50,
   arrangement=null,formatMoney=value=>value+" CP",approved=false}={}){
