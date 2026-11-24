@@ -12,7 +12,7 @@ import {territoryTier} from "./territory-view-model.js";
 import {readBoundarySource,readTerritoryDraft,nativeTerritoryShapeDigest,
   validateTerritoryCoverage} from "./territory-authoring.js";
 import {nativeSceneGridIdentity} from "./territory-grid-conversion.js";
-import {nativeRegionScopeRelation,nativeRegionScopeSnapshot}
+import {nativeRegionScopeRelation,nativeRegionScopeSnapshot,nativeRegionScopeSummary}
   from "./territory-native-region-scope.js";
 
 const clone=v=>structuredClone(v);
@@ -231,8 +231,8 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
   const added=after.filter(cell=>!before.has(key(cell)));
   const removed=original.offsets.filter(cell=>!afterKeys.has(key(cell)));
   const addedKeys=new Set(added.map(key));
-  const owners=new Map(),otherLevelAdded=new Set(),unsafeScopePeers=new Set();
-  const peers=[];
+  const owners=new Map(),blockedOwners=new Map(),otherLevelAdded=new Set();
+  const peers=[],blockedPeers=[];
   const peerCells=new Map(),peerNames=new Map();
   let scannedPeerCells=0;
   let seamComplete=after.length<=MAX_SEAM_TARGET_CELLS&&
@@ -250,7 +250,6 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
       }
       continue;
     }
-    if(scope==="mixed")unsafeScopePeers.add(peer.name);
     peerNames.set(peer.id,peer.name);
     let count=0;
     for(const offset of shapes(peer)[0].offsets){
@@ -265,14 +264,25 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
         }
       }
       if(!addedKeys.has(cellKey))continue;
-      const list=owners.get(cellKey)??[];
-      list.push(peer.id);owners.set(cellKey,list);count++;
+      const claims=scope==="mixed"?blockedOwners:owners;
+      const list=claims.get(cellKey)??[];
+      list.push(peer.id);claims.set(cellKey,list);count++;
     }
-    if(count)peers.push({id:peer.id,name:peer.name,cells:count});
+    if(count){
+      if(scope==="mixed")blockedPeers.push({id:peer.id,name:peer.name,cells:count,
+        detail:`${target.name}: ${nativeRegionScopeSummary(scene,target)}; `+
+          `${peer.name}: ${nativeRegionScopeSummary(scene,peer)}`});
+      else peers.push({id:peer.id,name:peer.name,cells:count});
+    }
   }
   peers.sort((a,b)=>b.cells-a.cells||a.name.localeCompare(b.name));
-  const contested=[...owners.values()].filter(ids=>ids.length>1).length;
-  const peerOwned=owners.size;
+  blockedPeers.sort((a,b)=>b.cells-a.cells||a.name.localeCompare(b.name));
+  const allClaims=new Map(owners);
+  for(const [cell,ids] of blockedOwners)
+    allClaims.set(cell,[...(allClaims.get(cell)??[]),...ids]);
+  const contested=[...allClaims.values()].filter(ids=>ids.length>1).length;
+  const blockedAddedCells=blockedOwners.size;
+  const peerOwned=[...owners.keys()].filter(cell=>!blockedOwners.has(cell)).length;
   // This is a *read-only* seam inspector: use the native v14 grid's actual
   // neighboring offsets, never guess that hexes are four-neighbor squares.
   // Large maps remain reviewable via exact change counts; seam diagnostics
@@ -305,27 +315,28 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
     id,name:peerNames.get(id)??id,touchingEdges
   })).sort((a,b)=>b.touchingEdges-a.touchingEdges||a.name.localeCompare(b.name));
   const previewCandidates=[...added.map(cell=>{
-    const claimedBy=owners.get(key(cell))??[];
+    const cellKey=key(cell),claimedBy=allClaims.get(cellKey)??[];
     return {i:cell.i,j:cell.j,status:claimedBy.length>1?"contested":
-      claimedBy.length===1?"peer":"unclaimed"};
+      blockedOwners.has(cellKey)?"blocked":claimedBy.length===1?"peer":"unclaimed"};
   }),...removed.map(cell=>({i:cell.i,j:cell.j,status:"removed"}))];
-  const priority={contested:0,peer:1,unclaimed:2,removed:3};
+  const priority={contested:0,blocked:1,peer:2,unclaimed:3,removed:4};
   // Surface any ownership conflicts first, even when the preview is capped.
   previewCandidates.sort((a,b)=>priority[a.status]-priority[b.status]);
   return {targetId,targetName:target.name,originalCells:original.offsets.length,
     proposedCells:after.length,addedCells:added.length,removedCells:removed.length,
-    unclaimedAddedCells:added.length-peerOwned,peerOwnedAddedCells:peerOwned,
+    unclaimedAddedCells:added.length-peerOwned-blockedAddedCells,
+    peerOwnedAddedCells:peerOwned,blockedAddedCells,
     otherLevelAddedCells:otherLevelAdded.size,
-    unsafeScopePeers:[...unsafeScopePeers].sort(),
-    contestedAddedCells:contested,peers,
+    unsafeScopePeers:blockedPeers.map(peer=>peer.name).sort(),
+    contestedAddedCells:contested,peers,blockedPeers,
     sharedBorderEdges,existingOverlapCells,adjacentPeers,
     seamInspectionAvailable:sharedBorderEdges!==null,
     previewCells:previewCandidates.slice(0,MAX_OWNERSHIP_PREVIEW_CELLS),
     previewTotalCells:previewCandidates.length,
     previewTruncated:previewCandidates.length>MAX_OWNERSHIP_PREVIEW_CELLS,
     canUseExistingTransferWriter:peers.length===1&&contested===0&&
-      unsafeScopePeers.size===0,
-    requiresMultiRegionReview:peers.length>1||contested>0||unsafeScopePeers.size>0};
+      blockedAddedCells===0,
+    requiresMultiRegionReview:peers.length>1||contested>0||blockedAddedCells>0};
 }
 
 export function readPendingTerritoryCellTransfer(scene){
