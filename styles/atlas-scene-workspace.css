@@ -474,7 +474,8 @@
 .atlas-map-directory details details { margin-inline-start: clamp(.45rem, 2vw, 1.5rem); }
 .atlas-map-directory summary { cursor: pointer; padding: .25rem; }
 .atlas-directory-actions { align-items: center; }
-.atlas-directory-actions .atlas-ui-icon-button--danger { margin-inline-start: auto; }
+.atlas-directory-actions .atlas-ui-icon-button--danger { margin-inline-start:.5rem; outline:1px solid var(--color-level-error,#d56859); outline-offset:2px; }
+.atlas-directory-actions .atlas-ui-icon-button--danger:focus-visible { outline:2px solid var(--color-border-highlight,#dcb476); }
 .atlas-directory-filters [aria-current="page"] { font-weight: bold; outline: 1px solid currentColor; }
 
 .atlas-workspace-surfaces, .atlas-surface-records {
