@@ -512,3 +512,29 @@ test("no-seat NPC is still a traveler but does not require or reserve an individ
   assert.equal(justNyx.empty,false,"an NPC without a seat is still present");
   assert.equal(justNyx.partial,true,"native Group Token cannot split");
 });
+
+test("owned quote reports required and wage-estimated crew without treating unallocated crew as passengers or discounts",()=>{
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",
+    capacity:60,speedMph:2.5,costCp:10,costBasis:"mile",costApplies:"unit",
+    crewCount:4,crewWageCpPerDay:200,includeCrewWages:true};
+  const crew=actor("crew1","Sailor","npc");
+  const saved=setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:{role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship"},
+    crew1:{role:"crew",quantity:3,capacity:null,surface:"water"}
+  });
+  for(const [basis,periods] of [["day",2],["trip",1],["mile",10]]){
+    const world={...method,crewWageBasis:basis};
+    const roster=projectGroupTransportation(group([pc,warship,crew]),saved,[world]);
+    assert.equal(roster.travelers,1,"crew roles are not passenger seats");
+    const quote=groupMethodFareEstimate(roster,world,{hours:12,distanceMi:10,dayHours:8});
+    assert.equal(quote.breakdown[0].requiredCrew,8);
+    assert.equal(quote.breakdown[0].paidCrew,8);
+    assert.equal(quote.breakdown[0].recurringCp,200);
+    assert.equal(quote.breakdown[0].crewWagesCp,8*200*periods);
+    assert.equal(quote.amount,200+8*200*periods);
+    const excluded=groupMethodFareEstimate(roster,{...world,includeCrewWages:false},{hours:12,distanceMi:10,dayHours:8});
+    assert.equal(excluded.breakdown[0].requiredCrew,8);
+    assert.equal(excluded.breakdown[0].paidCrew,0);
+    assert.equal(excluded.amount,200);
+  }
+});
