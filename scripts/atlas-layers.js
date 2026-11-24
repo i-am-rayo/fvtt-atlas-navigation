@@ -76,13 +76,22 @@ export class AtlasLayersWindow extends foundry.applications.api.ApplicationV2 {
       const toggle=element("button",this.controller.playerPreview?
         "Exit Territory Preview":"Preview Published Territories");
       toggle.type="button";
+      toggle.setAttribute("aria-pressed",String(Boolean(this.controller.playerPreview)));
+      toggle.setAttribute("aria-label",this.controller.playerPreview?
+        "Exit Player Territory Preview":"Preview published player Territories");
       toggle.addEventListener("click",async()=>{
         this.controller.setPlayerPreview(!this.controller.playerPreview);
         await this.render(true);
       });
       preview.appendChild(toggle);
-      if(this.controller.playerPreview)preview.appendChild(element("p",
-        "Territory preview is active.","atlas-layers-help"));
+      if(this.controller.playerPreview){
+        const status=element("p",
+          "Player preview active — only shared boundaries and published names are shown. "+
+          "This does not publish anything; use Exit Territory Preview to return to the GM map.",
+          "atlas-layers-help");
+        status.setAttribute("role","status");
+        preview.appendChild(status);
+      }
     }
     if(gm){
       const roads=group("Roads","Choose how Atlas displays the Road network.");
