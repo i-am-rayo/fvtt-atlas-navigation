@@ -40,6 +40,25 @@ class LegacyGraphics{
   destroy(){this.destroyed=true;}
 }
 
+
+test("read-only Grid review never presents blocked cross-Level claims as transferable",()=>{
+  const review={originalCells:86,proposedCells:88,addedCells:2,removedCells:0,
+    unclaimedAddedCells:1,peerOwnedAddedCells:0,blockedAddedCells:1,
+    otherLevelAddedCells:0,contestedAddedCells:0,targetName:"Kharak Menzor Stronghold",
+    peers:[],blockedPeers:[{name:"Underdark",cells:1,
+      detail:"Kharak: Surface; Underdark: all native Levels"}],
+    unsafeScopePeers:["Underdark"],seamInspectionAvailable:false};
+  const text=territoryGridReviewLines(review).join("\n");
+  assert.match(text,/86 → 88/);
+  assert.match(text,/1.*blocked/i);
+  assert.match(text,/Underdark/);
+  assert.doesNotMatch(text,/Proposed native ownership transfer:|Underdark → Kharak/,
+    "the preview must not suggest GM approval can override incompatible native Levels");
+  assert.doesNotMatch(text,/Confirming will recheck.*before any write/i,
+    "a blocked preview must explicitly say that no Save is permitted");
+  assert.match(text,/cannot be saved|Save is blocked/i);
+});
+
 test("Territory canvas authoring is staged, undoable and fully cleaned on Cancel",async()=>{
   const saved={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document,
     PIXI:globalThis.PIXI,requestAnimationFrame:globalThis.requestAnimationFrame};
