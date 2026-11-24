@@ -510,11 +510,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
           "Number of owned mounts or vehicles represented by this Actor.")
       );
       if(groupKind==="mount"){
-        const riders=[["","None — shared mount"],...groupRiders.map(rider=>
-          [rider.id,rider.name+" · "+rider.id])];
         const assignedId=String(baseline.assignedTo??"");
-        if(assignedId&&!groupRiders.some(rider=>rider.id===assignedId))
-          riders.push([assignedId,"Unavailable party member: "+assignedId]);
+        const riders=groupRiderOptions(groupRiders,assignedId);
         const assigned=createSettingsSelect(riders,{selectedId:assignedId,
           name:"groupAssignedTo",ariaLabel:"Assigned To"});
         groupFields.append(field("Assigned To",assigned,
@@ -1071,6 +1068,24 @@ export class AtlasTransportationSettings extends ApplicationBase {
 /** Opens the one World transportation editor for a non-World scope.
  * Callers own the Save callback; this helper never changes World settings.
  */
+/** Display current eligible riders without exposing internal Actor IDs.
+ * Equal names receive deterministic ordinal labels; option values remain IDs. */
+export function groupRiderOptions(riders,assignedId=""){
+  const sorted=[...riders].sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+  const counts=new Map(),seen=new Map();
+  for(const rider of sorted)counts.set(rider.name,(counts.get(rider.name)??0)+1);
+  const options=[["","None — shared mount"]];
+  for(const rider of sorted){
+    const ordinal=(seen.get(rider.name)??0)+1;
+    seen.set(rider.name,ordinal);
+    options.push([rider.id,counts.get(rider.name)>1?
+      rider.name+" ("+ordinal+")":rider.name]);
+  }
+  if(assignedId&&!sorted.some(rider=>rider.id===assignedId))
+    options.push([assignedId,"Unavailable party member — choose another rider"]);
+  return options;
+}
+
 export async function openTransportationMethodEditor({method,scope,onSave,onReset=null,
   onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,
   groupAssignment=null,profiles=[],groupActorName="",groupKind="vehicle",
