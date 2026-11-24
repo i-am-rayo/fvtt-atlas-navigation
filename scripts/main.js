@@ -1690,10 +1690,11 @@ function actions() {
       const region=scene.regions?.get(regionId);
       if(!region?.canUserModify?.(game.user,"delete"))
         throw new Error("No permission to delete this Region.");
+      const content=document.createElement("div");
+      content.textContent="Delete native Region “"+entry.name+"”? Its shapes and Behaviors will be deleted. Map Markers and Roads will remain.";
       const approved=await DialogV2.confirm({
-        window:{title:"Delete Terrain Region?"},
-        content:"Delete native Region “"+entry.name+"”? Its shapes and Behaviors will be deleted. Map Markers and Roads will remain.",
-        yes:{label:"Delete Region"},rejectClose:false,modal:true
+        window:{title:"Delete Terrain Region?"},content,
+        yes:{label:"Delete Region",default:false},no:{label:"Cancel",default:true},rejectClose:false,modal:true
       });
       if(!approved)return false;
       const fresh=listGeneratedRegions(scene).find(item=>item.id===regionId);
@@ -1756,10 +1757,12 @@ function actions() {
       content.appendChild(section);
       const result=await DialogV2.input({
         window:{title: "Delete Map Marker — "+checkpoint.name},
-        content,ok:{label:"Delete Confirmed Items"},
+        content,ok:{label:"Delete Confirmed Items",default:false},
+        buttons:[{action:"cancel",label:"Cancel",default:true,callback:()=>null}],
         rejectClose:false,modal:true
       });
       if(!result)return false;
+      if(typeof result!=="object")return false;
       const checked=name=>result[name]===true||result[name]==="on";
       if(!checked("confirmCheckpoint"))throw new Error("Confirm the Map Marker deletion.");
       if(related.length&&!checked("confirmRegions"))
@@ -2720,11 +2723,13 @@ function actions() {
       }
       const content=document.createElement("div");content.appendChild(shell);
       const result=await DialogV2.input({
-        window: { title: game.i18n.localize("FVTTATLAS.Roads.Delete") },
-        content,ok:{label:"Delete Road and Confirmed Items"},
+        window: { title: "Delete Road — "+road.name },
+        content,ok:{label:"Delete Road and Confirmed Items",default:false},
+        buttons:[{action:"cancel",label:"Cancel",default:true,callback:()=>null}],
         rejectClose: false,modal: true
       });
       if(!result)return;
+      if(typeof result!=="object")return;
       const checked=key=>result[key]===true || result[key]==="on";
       if(checkpoints.length && !checked("deleteCheckpoints"))
         throw new Error("Check the linked Map Marker confirmation to delete this road.");
