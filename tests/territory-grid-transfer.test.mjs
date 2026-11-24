@@ -590,6 +590,62 @@ test("different verified native Levels allow a lower Territory to expand without
   }finally{restore();}
 });
 
+
+test("separate native Levels and unrelated all-Level peers do not pollute a two-cell preview",()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    f.scene.levels=new Map([["underground",{id:"underground"}],
+      ["surface",{id:"surface"}]]);
+    f.source.levels=new Set(["underground"]);
+    f.target.levels=new Set(["surface"]);
+    const unrelated=f.makeRegion("Distant all-Level settlement",[{i:17,j:0}]);
+    unrelated.levels=new Set();
+    f.scene.regions.set(unrelated.id,unrelated);
+    const candidate=draft(f);candidate.offsets.push({i:3,j:0});
+    const review=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
+    assert.equal(review.addedCells,2);
+    assert.equal(review.unclaimedAddedCells,2);
+    assert.equal(review.otherLevelAddedCells,1);
+    assert.equal(review.peerOwnedAddedCells,0);
+    assert.equal(review.blockedAddedCells,0);
+    assert.deepEqual(review.unsafeScopePeers,[],
+      "only peers holding a proposed added hex belong in the warning");
+    assert.deepEqual(review.peers,[]);
+    assert.equal(planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}),null);
+    assert.equal(f.events.length,0);
+  }finally{restore();}
+});
+
+test("ambiguous cross-Level overlap is blocked, never described as an approvable native transfer",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    f.scene.levels=new Map([["underground",{id:"underground"}],
+      ["surface",{id:"surface"}]]);
+    f.target.levels=new Set(["surface"]);
+    f.source.levels=new Set(["surface","underground"]);
+    const unrelated=f.makeRegion("Distant all-Level settlement",[{i:17,j:0}]);
+    unrelated.levels=null;
+    f.scene.regions.set(unrelated.id,unrelated);
+    const candidate=draft(f);candidate.offsets.push({i:3,j:0});
+    const review=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
+    assert.equal(review.addedCells,2);
+    assert.equal(review.unclaimedAddedCells,1);
+    assert.equal(review.peerOwnedAddedCells,0);
+    assert.equal(review.blockedAddedCells,1);
+    assert.deepEqual(review.unsafeScopePeers,["Reshara"]);
+    assert.deepEqual(review.peers,[],"incompatible Level claim is never a transfer source");
+    assert.deepEqual(review.blockedPeers.map(peer=>peer.name),["Reshara"]);
+    assert.throws(()=>planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}),
+      /native Level|elevation scope/i);
+    await assert.rejects(
+      ()=>saveTerritoryDraft(f.scene,candidate,{regionId:f.target.id,view:f.view}),
+      /owned|overlap/i);
+    assert.equal(f.events.length,0);
+  }finally{restore();}
+});
+
 test("same or unknown native Levels still protect peer ownership, and stale target Levels block save",async()=>{
   const restore=globals();
   try{
