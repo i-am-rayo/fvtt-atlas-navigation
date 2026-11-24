@@ -119,18 +119,21 @@ export function territoryGridReviewLines(review){
     `Native cells: ${review.originalCells} → ${review.proposedCells} `+
       `(+${review.addedCells}, −${review.removedCells}).`,
     `Proposed additions: ${review.unclaimedAddedCells} unclaimed; `+
-      `${review.peerOwnedAddedCells} claimed by same-tier peers; `+
+      `${review.peerOwnedAddedCells} transferable same-scope peer claims; `+
+      `${review.blockedAddedCells??0} blocked by uncertain Level scopes; `+
       `${review.contestedAddedCells} claimed by multiple peers.`
   ];
   if(review.otherLevelAddedCells)lines.push(`${review.otherLevelAddedCells} added `+
     "cell(s) also exist at the same X/Y on separate native Levels. "+
     "Those Regions remain unchanged; this is not an ownership transfer.");
-  if(review.unsafeScopePeers?.length)lines.push("Native Level/elevation scopes "+
-    "partially overlap with "+review.unsafeScopePeers.join(", ")+
-    ". Automatic cell transfer is unsafe and will be blocked.");
+  if(review.blockedPeers?.length)lines.push("Blocked Level/elevation conflicts: "+
+    review.blockedPeers.slice(0,4).map(peer=>`${peer.name} (${peer.cells} cell(s); `+
+      `${peer.detail})`).join("; ")+
+    (review.blockedPeers.length>4?` and ${review.blockedPeers.length-4} more`:"")+".");
   if(review.peers?.length)lines.push("Cell owners affected: "+review.peers
     .map(peer=>`${peer.name} (${peer.cells})`).join("; ")+".");
-  if(review.peers?.length)lines.push("Proposed native ownership transfer: "+review.peers
+  if(review.peers?.length&&!review.blockedAddedCells&&!review.contestedAddedCells)
+    lines.push("Proposed native ownership transfer: "+review.peers
     .map(peer=>`${peer.name} → ${review.targetName??"target Territory"} (${peer.cells} cells)`)
     .join("; ")+". Source removal requires the separate transfer confirmation.");
   if(review.seamInspectionAvailable){
@@ -145,7 +148,10 @@ export function territoryGridReviewLines(review){
     "the native Save preflight remains mandatory.");
   if(review.contestedAddedCells)lines.push("Conflict: several peer Territories own " +
     "the same proposed cells. Saving is blocked until ownership is resolved.");
-  lines.push("Preview is read-only. Confirming will recheck native Region ownership, " +
+  if(review.blocked||review.blockedAddedCells||review.contestedAddedCells)
+    lines.push("Save is blocked. Review and update native Region Placement → Levels, "+
+      "then reopen the Paint Territory draft. No native changes will be written.");
+  else lines.push("Preview is read-only. Confirming will recheck native Region ownership, " +
     "permissions, geometry and recovery state before any write.");
   return lines;
 }
@@ -421,9 +427,14 @@ export class TerritoryAuthoringCanvas{
             top:90,width:450},
           content:content??`<p>${text}</p><p>Atlas will verify parent containment, peer overlaps, `+
             `permissions and native geometry before changing a Region. Cancel does not write.</p>`,
-          yes:{label:"Save Native Region"},rejectClose:false,modal:false});
+          yes:{label:"Save Native Region",disabled:Boolean(review?.blocked||
+            review?.blockedAddedCells||review?.contestedAddedCells)},
+          rejectClose:false,modal:false});
         if(!accepted)return;
         if(review?.blocked)throw Error(review.reason??"Resolve native Territory conflicts before saving.");
+        if(review?.blockedAddedCells)
+          throw Error("Save blocked: native Level scopes overlap or are uncertain. "+
+            "Review the native Region Level selections before editing.");
         if(review?.contestedAddedCells)
           throw Error("Resolve multiply owned native grid cells before saving this Territory.");
         if(!this.#live(session))return;
