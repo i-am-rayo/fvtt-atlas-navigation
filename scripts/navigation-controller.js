@@ -3068,19 +3068,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!Number.isFinite(hours)||Math.abs(weighted/travel.speed-hours)>1e-7)
         throw Error("The checkpoint leg duration differs from its approved convoy pace.");
     }else if(guidedLeg){
-      const option=this.transportationTransitionPlan()?.legs[0]?.selectedOption;
+      const legPreview=this.transportationTransitionPlan()?.legs[0];
+      const option=legPreview?.selectedOption;
       guidedOption=option;
       const info=guidedLeg.transport;
       const speedDistance=info.methodId==="walking"&&route.terrainAware?
         route.cost:route.distance;
-      const hours=this.transportationTransitionPlan()?.legs[0]?.hours;
+      const hours=legPreview?.hours;
       if(!Number.isFinite(hours)||hours<=0)throw Error("This leg has no valid operating speed.");
       travel={...travel,methodId:info.methodId,
         speed:speedDistance/hours,source:info.arrangement==="hire"?
           "checkpoint-service":"group-transport",hoursPerDay:
             resolveNavigationTravelRules({settings:game.settings,
               systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8};
-      const expectedLivestock=this.transportationTransitionPlan()?.legs[0]?.livestock??null;
+      const expectedLivestock=legPreview?.livestock??null;
       const people=partyAtStart?.members?.map(member=>({
         name:member.name,traveling:partyAtStart.selectedIds.includes(member.id)
       }))??this.recoveryRecord?.legs?.at(-1)?.participation?.people??[];
@@ -3129,6 +3130,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         ],
         notes:[
           absent.length?"Not traveling: "+absent.join(", "):null,
+          isUnfinishedJourneyLeg(this.recoveryRecord)?null:describeJourneyCrewEstimate(legPreview?.serviceQuote),
           mountDetails,
           stayingMounts.length?"Staying behind: "+stayingMounts.join(" · "):null,
           isUnfinishedJourneyLeg(this.recoveryRecord)?
