@@ -2512,7 +2512,7 @@ test("mixed carriage pencil opens the shared journey and Map Marker editor witho
       capacity:carriage.capacity,crewCount:carriage.crewCount??0,costBasis:"none",costApplies:"unit",
       crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",hire_gp:"4",
       hireEnabled:true,hireUnlimited:true,hireQuantity:1,continuousEnabled:true,
-      atlasJourneyServiceLevel:"full"};
+      overtimeExtraHours:8,overtimeMultiplier:1.5,atlasJourneyServiceLevel:"full"};
     await nav.editMixedTravelMethod("hire|carriage");
     assert.equal(nav.mixedLandChoices()[1].serviceLevel,"full");
     assert.equal(nav.mixedLandChoices()[0].serviceLevel,undefined);
