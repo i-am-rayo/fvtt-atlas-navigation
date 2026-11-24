@@ -1093,3 +1093,51 @@ test("Workspace adapts to its own window width, not only the browser viewport",(
   assert.match(css,/container-type:\s*inline-size/);
   assert.match(css,/@container\s+atlas-workspace\s*\(max-width:\s*670px\)/);
 });
+
+test("Directory retains the focused record action across refresh and clears only current filters",async()=>{
+  const ctx=context();
+  try{
+    const graph={schemaVersion:10,coordinateSpace:"image",revision:2,enabled:true,calibration:null,
+      roads:[{id:"road",name:"Coast Road",travelPresetId:null,appearance:null,playerVisible:false},
+        {id:"other",name:"Coast Road",travelPresetId:null,appearance:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:10,y:10},{id:"c",x:20,y:20}],
+      segments:[{id:"s",roadId:"road",from:"a",to:"b",via:[],bidirectional:true},
+        {id:"t",roadId:"other",from:"b",to:"c",via:[],bidirectional:true}],
+      checkpoints:[{id:"cp",name:"Bridge",roadId:"road",nodeId:"a",
+        elevationMeters:null,appearance:null,playerVisible:false}]};
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");await enter(ws,"All Roads");
+    const content=new Element("div");
+    content.contains=node=>walk(content,e=>e===node).length>0;
+    content.querySelector=selector=>walk(content,e=>
+      selector==="[data-atlas-workspace-scroll]"&&e.attributes?.has("data-atlas-workspace-scroll"))[0]??null;
+    content.querySelectorAll=selector=>walk(content,e=>
+      selector==="[data-atlas-workspace-focus]"&&e.dataset?.atlasWorkspaceFocus);
+    const install=()=>ws._replaceHTML(ws.result,content);
+    install();
+    const row=id=>walk(content,e=>e.dataset?.atlasDirectoryKey==="all/road/"+id)[0];
+    const locate=id=>buttons(row(id)).find(b=>b.title==="Locate Coast Road");
+    const old=locate("other");assert.ok(old);
+    document.activeElement=old;
+    await ws.render(true);install();
+    assert.equal(locate("other").focused,true,"restore by record identity, not duplicate name");
+    assert.notEqual(locate("road").focused,true);
+    const search=()=>walk(content,e=>e.tag==="input"&&e.type==="search")[0];
+    const selects=()=>walk(content,e=>e.tag==="select");
+    selects()[1].value="za";selects()[1].listeners.get("change")();
+    ws.directoryState.filters.allCheckpoints={query:"Bridge",type:"",place:"",sort:"az"};
+    search().value="not found";search().listeners.get("input")();
+    selects()[0].value="air";selects()[0].listeners.get("change")();
+    const clear=buttons(content).find(b=>b.textContent==="Clear filters");
+    assert.ok(clear,"filtered directory exposes an accessible reset");
+    assert.match(text(content),/No matching entries/);
+    await clear.listeners.get("click")({preventDefault(){}});
+    assert.equal(search().value,"");assert.equal(selects()[0].value,"");
+    assert.equal(selects()[1].value,"za","sort is not a filter");
+    assert.equal(ws.directoryState.filters.allCheckpoints.query,"Bridge");
+    assert.ok(row("road"));assert.equal(search().focused,true);
+    assert.deepEqual(ctx.calls,[]);
+    await ws.close();
+  }finally{ctx.restore();}
+});
