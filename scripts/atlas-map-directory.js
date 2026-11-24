@@ -14,6 +14,7 @@ import {createCheckpointIconGlyph} from "./checkpoint-icon-control.js";
 import {readCheckpointTransportStore} from "./checkpoint-transportation.js";
 import {listTransportationPresets} from "./navigation-transport-catalog.js";
 import { readWorldTravelPresets } from "./travel-preset-settings.js";
+import { createSettingsActionButton } from "./settings-controls.js";
 import { openAtlasTerritorySettings } from "./atlas-territory-settings.js";
 import { readPartyExploration } from "./party-exploration-storage.js";
 import {confirmAtlasVisibilityChange} from "./atlas-visibility-confirmation.js";
