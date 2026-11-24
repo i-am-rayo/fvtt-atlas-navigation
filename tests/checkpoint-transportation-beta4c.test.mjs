@@ -207,8 +207,11 @@ test("checkpoint pencil opens the same World preset dialog and keeps drafts isol
     edits.find(el=>el.title.includes("Sailing Ship")).listeners.get("click")();
     await new Promise(resolve=>setImmediate(resolve));
     assert.ok(modal?.content,"checkpoint pencil opens a separate shared preset dialog");
-    assert.equal(modal.ok.label,"Apply Map Marker overrides");
+    assert.equal(modal.ok.label,"Apply to Map Marker draft");
+    assert.match(modal.window.title,/Edit Map Marker offer/);
     const fields=flatten(modal.content);
+    const tabs=fields.filter(el=>el.tag==="button"&&["Hire & availability","General","Ownership"].includes(el.textContent));
+    assert.deepEqual(tabs.map(el=>el.textContent),["Hire & availability","General","Ownership"]);
     const names=fields.map(el=>el.name);
     for(const field of ["name","kind","speedDisplay","capacity","crewCount",
       "hireEnabled","hireUnlimited","hireQuantity","hireBasis","hireApplies","purchaseEnabled","costBasis"])
@@ -225,6 +228,16 @@ test("checkpoint pencil opens the same World preset dialog and keeps drafts isol
     assert.ok(fields.some(el=>el.textContent==="Clear Map Marker overrides (inherit World)"),
       "local overrides can be explicitly restored to World defaults");
     assert.deepEqual(editor.getOffers(),beforeOffers,"cancel does not change checkpoint draft");
+    const presetEditor=createCheckpointTransportationEditor({
+      offers:beforeOffers,draftTarget:"Map Marker preset",saveLabel:"Save preset"
+    });
+    flatten(presetEditor.element).find(el=>el.title?.startsWith("Edit ")).listeners.get("click")();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(modal.ok.label,"Apply to Map Marker preset draft");
+    assert.match(modal.window.title,/Edit Map Marker preset offer/);
+    assert.ok(flatten(presetEditor.element).some(el=>
+      el.textContent?.includes("Use Save preset")));
+    assert.deepEqual(presetEditor.getOffers(),beforeOffers);
   }finally{Object.assign(globalThis,before);}
 });
 
@@ -274,5 +287,26 @@ test("Map Marker can add an inherited Cart without automatically opening local o
     assert.equal(writes,0,"draft does not persist until Map Marker Save");
     assert.ok(flatten(editor.element).some(item=>item.title?.includes("Edit Cart")),
       "optional local Edit remains available");
+    const nodes=flatten(editor.element);
+    assert.ok(nodes.some(item=>item.textContent?.includes("Unsaved transportation changes")));
+    assert.ok(nodes.some(item=>item.textContent?.includes("Save Map Marker")));
+    const inherited=nodes.find(item=>item.className==="atlas-marker-offer-rate");
+    assert.ok(inherited,"hire rate leads the card");
+    assert.match(inherited.textContent,/World preset/);
+    editor.setOffers([{methodId:"cart",mode:"land",overrides:{
+      hireEnabled:true,hireCostCp:500,hireBasis:"trip",hireApplies:"unit",
+      hireUnlimited:false,hireQuantity:0,capacity:4,livestockCapacity:0
+    }}]);
+    const read=()=>flatten(editor.element).map(item=>item.textContent??"").join(" ");
+    assert.match(read(),/Hire rate: 5 GP \/ trip \/ vehicle.*Local override/);
+    assert.match(read(),/Availability: 0.*Local override/);
+    assert.match(read(),/Passenger seats: 4.*Local override/);
+    assert.match(read(),/Animal spaces: 0.*Local override/);
+    assert.match(read(),/Speed:.*World preset/);
+    assert.equal(writes,0,"replacing parent draft remains read-only");
+    editor.setOffers([{methodId:"missing-preset",mode:"land",overrides:{}}]);
+    assert.match(read(),/Missing World preset/);
+    assert.equal(flatten(editor.element).find(item=>item.title?.startsWith("Edit ")).disabled,true);
+    assert.equal(writes,0);
   }finally{Object.assign(globalThis,before);}
 });
