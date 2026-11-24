@@ -27,6 +27,7 @@ import {LIVESTOCK_FARE_PERCENT_SETTING,LIVESTOCK_FARE_PERCENT_DEFAULT,
   readLivestockFarePercent,validLivestockFarePercent}
   from "./navigation-transport-service.js";
 import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
+import {describeOwnedCrewProfile} from "./navigation-transport-summary-view.js";
 import { createAtlasIconButton } from "./ui-action-button.js";
 import {createTransportNumberSlider,createTransportCurrencyPool,transportCurrencyAmount}
  from "./navigation-transport-form-controls.js";
@@ -263,8 +264,14 @@ function wireGroupOwnedTransport(root,profiles) {
       const n=Math.floor(rest/ratio);rest-=n*ratio;put(prefix+"_"+unit,n);
     }
   };
+  const updateCrew=()=>{
+    const crew=root.querySelector("[data-atlas-group-crew]");
+    if(crew)crew.textContent=describeOwnedCrewProfile(
+      profiles.find(p=>p.id===get("groupProfileId")?.value),Number(get("groupQuantity")?.value));
+  };
   const populate=()=>{
     const method=profiles.find(p=>p.id===get("groupProfileId")?.value);
+    updateCrew();
     if(!method)return;
     if(!get("groupSpeedCustom")?.checked)
       put("speedDisplay",Number(atlasDisplayPresetSpeed(method.speedMph).value.toFixed(2)));
@@ -297,6 +304,8 @@ function wireGroupOwnedTransport(root,profiles) {
   };
   root.addEventListener("input",mark);
   root.addEventListener("change",mark);
+  root.addEventListener("input",updateCrew);
+  root.addEventListener("change",updateCrew);
   get("groupProfileId")?.addEventListener("change",populate);
   populate();
 }
@@ -608,12 +617,21 @@ export class AtlasTransportationSettings extends ApplicationBase {
       {min:0,max:1000,step:1,numericStep:1,label:"Required crew count"});
     if(group)for(const input of crewControl.querySelectorAll?.("input")??crewControl.children??[])
       input.disabled=true;
-    const passengerField=field("Passenger capacity",capacity,
+    const passengerField=field(group?"Passenger seats per unit":"Passenger capacity",capacity,
       initialSource("capacity","Passenger seats excluding required crew."));
     const crewField=field("Required crew",crewControl,
       initialSource("crewCount","Crew separate from paying passengers; native ship values are reference counts."));
     operations.append(passengerField);
     if(!group&&!checkpoint)operations.append(crewField);
+    if(group){
+      const staffing=element("div");staffing.className="atlas-transport-field";
+      const count=element("p",describeOwnedCrewProfile(
+        profiles.find(p=>p.id===baseline.profileId),baseline.quantity??1));
+      count.setAttribute("data-atlas-group-crew","");count.setAttribute("aria-live","polite");
+      staffing.append(element("strong","Required crew per unit"),count,
+        element("small","Crew are separate from passenger seats. Edit staffing and wages in the World profile."));
+      operations.append(staffing);
+    }
     if(!checkpoint)panels.general.append(operations);
     if(group)panels.general.append(groupOverride("groupCapacityCustom",
       baseline.capacity!=null));
