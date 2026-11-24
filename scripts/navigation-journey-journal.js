@@ -176,12 +176,22 @@ export function validateJourneyRecord(value){
       !Number.isSafeInteger(value.day?.restEvents)||value.day.restEvents<0||
       value.day.restEvents>48)
     throw Error("This Atlas Journey Journal has invalid recovery metadata.");
-  for(const leg of value.legs)
+  for(const [index,leg] of value.legs.entries()){
+    const service=leg.transport?.serviceApproval??leg.travelMethod?.serviceApproval;
+    if(service&&(leg.transport?.continuation||leg.travelMethod?.serviceContinuation)){
+      const prior=value.legs[index-1];
+      const priorService=prior?.transport?.serviceApproval??prior?.travelMethod?.serviceApproval;
+      if(!priorService||prior.completedPercent>=99.999||
+          (prior.transport?.methodId??prior.travelMethod?.id)!==(leg.transport?.methodId??leg.travelMethod?.id)||
+          JSON.stringify(validateHiredServiceApproval(priorService))!==JSON.stringify(validateHiredServiceApproval(service)))
+        throw Error("Invalid approved service continuation.");
+    }
     if(leg.convoy!==undefined){
       const convoy=validateApprovedConvoy(leg.convoy);
       if(Math.abs(convoy.speedPerHour-leg.speedPerHour)>1e-7)
         throw Error("Approved convoy speed differs from the saved journey leg.");
     }
+  }
   if(value.passengerRest!==undefined)validatePassengerRestMetadata(value.passengerRest);
   if(value.pendingNativeMove!==undefined&&value.pendingNativeMove!==null)
     validatePendingNativeMove(value.pendingNativeMove);
@@ -418,7 +428,8 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     if(service&&leg.completedMovingHours>0){
       const approved=validateHiredServiceApproval(service);
       const key=JSON.stringify(approved);
-      const money=cp=>systemId==="dnd5e"?dndCurrencyBreakdown(cp,globalThis.CONFIG?.DND5E?.currencies).label:cp+" CP";
+      const money=cp=>systemId==="dnd5e"?(cp<0?"-":"")+
+        dndCurrencyBreakdown(Math.abs(cp),globalThis.CONFIG?.DND5E?.currencies).label:cp+" CP";
       const line=continuingService&&shownService===key?
         "Continuing previously approved service; no new fare.":
         "Approved hired service: "+approved.serviceLevel+" · "+approved.advertisedCrew+
