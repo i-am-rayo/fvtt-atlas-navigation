@@ -191,6 +191,49 @@ test("owned transport cards retain reserved-rider semantics and mark effective o
   }finally{ctx.restore();}
 });
 
+test("capacity preview excludes disabled transport and distinguishes unknown seats from a definite shortfall",async()=>{
+  const ctx=setup();
+  try{
+    ctx.group.system.members.push({actor:{id:"unknownShip",name:"Unknown Boat",type:"vehicle",
+      system:{details:{type:"water"}}}});
+    ctx.setSaved({version:7,groups:{group1:{members:{
+      camel1:{role:"mount",quantity:3,capacity:1,surface:"land",enabled:false},
+      ship1:{role:"unassigned",quantity:1,capacity:null,surface:"water",enabled:false}
+    }}}});
+    const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
+    const nodes=flatten(root);
+    const summary=nodes.find(n=>n.className==="atlas-group-transport-capacity");
+    const read=()=>flatten(summary).map(n=>n.textContent??"").join(" ");
+    assert.match(read(),/Land: 1 seats needed \/ 0 available.*1 seat short/);
+    assert.match(read(),/Water: 1 seats needed \/ 0 available.*short of known capacity.*unknown capacity/);
+    const camel=nodes.find(n=>n.className==="atlas-group-transport-resource"&&
+      n.children[0]?.children[0]?.textContent==="Camel");
+    assert.match(flatten(camel).map(n=>n.textContent).join(" "),/Excluded/);
+    const restore=nodes.find(n=>n.attributes.get("aria-label")==="Restore Camel to Party travel");
+    assert.ok(restore);
+    await restore.events.click[0]();
+    assert.match(read(),/Land: 1 seats needed \/ 3 available/);
+    assert.equal(ctx.changes.length,0);
+  }finally{ctx.restore();}
+});
+
+test("invalid capacity draft removes stale figures and recovering the draft updates without writing",async()=>{
+  const ctx=setup();
+  try{
+    const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
+    const nodes=flatten(root);
+    const summary=nodes.find(n=>n.className==="atlas-group-transport-capacity");
+    const read=()=>flatten(summary).map(n=>n.textContent??"").join(" ");
+    const qty=nodes.find(n=>n.name==="quantity-camel1");
+    qty.value="0";qty.events.change[0]();
+    assert.match(read(),/Draft — capacity preview unavailable/);
+    assert.doesNotMatch(read(),/Land:.*available/);
+    qty.value="4";qty.events.change[0]();
+    assert.match(read(),/Land: 1 seats needed \/ 4 available/);
+    assert.equal(ctx.changes.length,0);
+  }finally{ctx.restore();}
+});
+
 test("saving matching profile ID preserves mount capacity across Actor rename",async()=>{
   const ctx=setup();
   try{
