@@ -152,3 +152,32 @@ test("day-limit and checkpoint action sets remain isolated",()=>{
     assert.deepEqual(calls,["continue"],"render does not commit checkpoint decisions");
   }finally{restore();}
 });
+
+
+test("disabled Play states the verified animal accommodation blocker without weakening approval",()=>{
+  const restore=mockDOM();
+  try{
+    const {nav,calls}=fixture();
+    const transferPlan={hasTransitions:true,legs:[{
+      selectedOption:{value:"hire|ship"},arrivalCheckpoint:{name:"Hearth's Heart Dock"},
+      transferValid:true,errors:[
+        "The vessel has insufficient verified animal accommodation."
+      ]}]};
+    const footer=renderNavigationFooter(nav,{partyMode:true,transferPlan,
+      assistedLegReady:false,methodAssessment:{guided:false,reason:"Use a checkpoint vessel."}});
+    const play=button(footer,"Travel Route");
+    assert.equal(play.disabled,true);
+    assert.match(play.title,/insufficient verified animal accommodation/);
+    const status=footer.children.find(n=>n.id==="atlas-navigation-play-blocker");
+    assert.ok(status);
+    assert.match(status.textContent,/Play unavailable/);
+    assert.match(status.textContent,/animal accommodation/);
+    assert.deepEqual(calls,[],"UI rendering never submits travel");
+    const approved=renderNavigationFooter(nav,{partyMode:true,transferPlan:{
+      ...transferPlan,legs:[{...transferPlan.legs[0],errors:[]}]},
+      assistedLegReady:true,methodAssessment:{guided:false}});
+    const go=button(approved,"Travel to Hearth's Heart Dock");
+    assert.equal(go.disabled,false,"a verified transport leg is no longer blocked");
+    assert.equal(approved.children.find(n=>n.id==="atlas-navigation-play-blocker"),undefined);
+  }finally{restore();}
+});

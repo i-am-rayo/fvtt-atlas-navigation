@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {installNativeJourneyFixture} from "./support/native-journey-fixture.mjs";
 import { createNavigationItinerary } from "../scripts/navigation-itinerary.js";
 import { formatJourneyJournalHTML } from "../scripts/navigation-journey-journal.js";
 
@@ -9,6 +10,7 @@ globalThis.foundry={applications:{api:{ApplicationV2:class {
 }}}};
 const { AtlasNavigationController }=await import("../scripts/navigation-controller.js");
 globalThis.foundry=priorFoundry;
+installNativeJourneyFixture(AtlasNavigationController);
 
 const point=(x,y)=>({x,y});
 const tickUntil=async condition=>{
@@ -61,13 +63,15 @@ async function journeyFixture({clockEnabled=true,hours=10,
   const atlas={revision:5,nodes:[{id:"a",x:100,y:100},{id:"b",x:300,y:200}],
     roads:[{id:"r",name:"Main Road"}],
     segments:[{id:"s",roadId:"r",from:"a",to:"b",via:[]}]};
+  const durableJournal={id:"daily-journal",canUserModify:()=>true,
+    getFlag:()=>structuredClone(journalStates.at(-1))};
   const nav=new AtlasNavigationController({canvasProvider:()=>view,
     atlasProvider:()=>atlas,partyTokenProvider:()=>token,
     restHoldFactory,announcementPublisher,
     journeyJournalStore:{save:async(record,{journal,updatePage}={})=>{
       journalStates.push(structuredClone(record));
       journalWrites.push({status:record.status,updatePage});
-      return journal??{id:"daily-journal"};
+      return journal??durableJournal;
     },
       find:()=>null}});
   nav.scene=scene;nav.routeRevision=5;
@@ -362,8 +366,14 @@ test("canvas teardown during an unconfirmed native move cannot invent progress o
       "World time is not advanced for an unconfirmed native move");
     assert.ok(notices.some(message=>message.includes("canvas redraw")),
       "the GM must be notified about the interrupted native movement");
-    assert.equal(f.journalWrites.some(write=>write.updatePage===true),false,
-      "interrupted movement must never be presented as a completed leg");
+    assert.equal(f.journalWrites.at(-1).updatePage,true,
+      "interruption publishes the confirmed partial summary");
+    const html=formatJourneyJournalHTML(f.journalStates.at(-1));
+    assert.match(html,/Interrupted — native checkpoint review required/);
+    assert.match(html,/Pending movement and time require GM review/);
+    assert.match(html,/Confirmed progress: 0%/);
+    assert.doesNotMatch(html,/Arrived \(World time\)/,
+      "publication must never present unconfirmed movement as arrival");
   }finally{f.restore();}
 });
 

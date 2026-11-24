@@ -92,6 +92,7 @@ import {confirmAtlasVisibilityChange} from "./atlas-visibility-confirmation.js";
 import { promptNativeMovementAction } from "./native-movement-action-picker.js";
 import { createRoadPresetStage } from "./road-settings-preset.js";
 import { createRoadTravelPresetRow } from "./road-settings-preset-view.js";
+import {createRoadMeasuredDistanceRow} from "./road-settings-distance-view.js";
 import { arrangeRoadDialogFooter } from "./road-settings-dialog-footer.js";
 import { openRoadSettingsWindow } from "./road-settings-window.js";
 import { TerritoryLocateHighlight } from "./territory-locate-highlight.js";
@@ -784,6 +785,9 @@ function actions() {
       }
       const {row:presetRow,hint:presetHint,select:presetSelect}=
         createRoadTravelPresetRow(actual.travelPresetId);
+      const {row:distanceRow,hint:distanceHint,refresh:refreshRoadDistance}=
+        createRoadMeasuredDistanceRow({scene,roadId:road.id,
+          atlasProvider:()=>readAtlas(scene)});
       const roadTools=document.createElement("div");
       roadTools.dataset.atlasRoadActions="";
       roadTools.style.cssText="position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:.4rem;align-items:center;padding:.5rem 0;background:#100f17;z-index:2;";
@@ -821,7 +825,8 @@ function actions() {
         btn.dataset.atlasRoadTool=kind;
         roadTools.appendChild(btn);
       }
-      panels.general.append(presetRow,presetHint,nameRow,visibilityRow,journalControls);
+      panels.general.append(presetRow,presetHint,nameRow,distanceRow,distanceHint,
+        visibilityRow,journalControls);
       panels.style.appendChild(roadAppearanceForm(baseline));
       const addCheckpoint=createSettingsIconButton({icon:"plus",label:"Add Map Marker"});
       addCheckpoint.dataset.atlasRoadTool="newCheckpoint";
@@ -1074,6 +1079,7 @@ function actions() {
         if (changedScene?.id!==scene.id) return;
         const live=document.querySelector('[data-atlas-road-live="'+roadDialogToken+'"]');
         if (!live) return;
+        refreshRoadDistance();
         const currentRoad=readAtlas(scene).roads.find(item=>item.id===actual.id);
         if(currentRoad&&roadDialog?.window?.title)
           roadDialog.window.title.textContent=atlasSettingsTitle("Road",currentRoad.name);

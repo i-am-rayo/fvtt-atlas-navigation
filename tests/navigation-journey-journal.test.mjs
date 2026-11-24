@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {readFileSync} from "node:fs";
-import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
+import { createJourneyRecord,validateJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   eligibleJourneyRecord,formatJourneyJournalHTML,saveJourneyJournal,
   findRecoverableJourney,ensureJourneyLogFolder,JOURNEY_JOURNAL_FLAG,
   JOURNEY_JOURNAL_PAGE,JOURNEY_JOURNAL_FOLDER }
@@ -11,6 +11,9 @@ import { journeySummaryDue,persistJourneyState }
 import { publishJourneySummary }
   from "../scripts/navigation-journey-summary-writer.js";
 import {captureApprovedJourneyPath} from "../scripts/navigation-approved-path.js";
+import {planWalkingCargoConvoy} from "../scripts/navigation-mixed-convoy.js";
+import {planMixedLandConvoy} from "../scripts/navigation-mixed-land.js";
+import {planAggregateLandConvoy} from "../scripts/navigation-theater-convoy.js";
 const MODULE_ID="fvtt-atlas-navigation";
 const itinerary=()=>({schemaVersion:1,scene:{name:"Paedor",units:"km"},
   endpoints:{departure:{x:0,y:0},destination:{x:120,y:30}},
@@ -233,7 +236,7 @@ test("Journal creation, metadata updates, and the managed summary all use one re
   }finally{globalThis.game=prev.game;globalThis.CONST=prev.CONST;}
 });
 
-test("backend checkpoints do not regenerate the readable Journal until a leg is confirmed",async()=>{
+test("backend checkpoints publish confirmed partial history at interruption, not during movement",async()=>{
   const previous=globalThis.game;
   globalThis.game={user:{isGM:true}};
   const writes=[];
@@ -252,14 +255,25 @@ test("backend checkpoints do not regenerate the readable Journal until a leg is 
     await saveJourneyJournal(interrupted,{journal,
       updatePage:journeySummaryDue({status:interrupted.status,
         completedPercent:interrupted.legs.at(-1).completedPercent})});
-    assert.deepEqual(writes.map(entry=>entry.kind),["state","state"],
-      "even an unexpected canvas interruption does not publish partial narrative history");
+    assert.deepEqual(writes.map(entry=>entry.kind),["state","state","page"],
+      "interruption publishes only confirmed partial history after the flag write");
+    assert.match(writes.at(-1).data[0]["text.content"],/Confirmed progress: 45%/);
+    assert.equal(journeySummaryDue({status:"interrupted",pendingNativeMove:{operationId:"pending"}}),true);
+    const pending={...interrupted,pendingNativeMove:{schemaVersion:1,
+      operationId:"STnppSz0mQzxlkL4-1",tokenId:interrupted.tokenId,
+      checkpointIndex:1,from:{x:0,y:0},to:{x:10,y:0},nativeDistance:10,
+      movingHours:1,worldTimeBefore:100,worldAdvanceSeconds:3600,
+      atlasRevision:interrupted.atlasRevision}};
+    const pendingHTML=formatJourneyJournalHTML(pending);
+    assert.match(pendingHTML,/Unresolved native checkpoint 2/);
+    assert.match(pendingHTML,/Confirmed progress: 45%/);
+    assert.match(pendingHTML,/Interrupted — native checkpoint review required/);
     const arrived=checkpointJourneyRecord(interrupted,{schedule:{...schedule,
       completedHours:18},progress:100,status:"paused"});
     await saveJourneyJournal(arrived,{journal,
       updatePage:journeySummaryDue({status:arrived.status,
         completedPercent:arrived.legs.at(-1).completedPercent})});
-    assert.deepEqual(writes.map(entry=>entry.kind),["state","state","state","page"]);
+    assert.deepEqual(writes.map(entry=>entry.kind),["state","state","page","state","page"]);
     assert.match(writes.at(-1).data[0]["text.content"],/Confirmed progress: 100%/);
     assert.equal(journeySummaryDue({status:"paused",completedPercent:50}),false);
     assert.equal(journeySummaryDue({status:"paused",completedPercent:100,
@@ -371,4 +385,270 @@ test("per-trip visual compression survives an interrupted Journey without schema
   }
   assert.throws(()=>createJourneyRecord({sceneId:"scene",tokenId:"token",
     atlasRevision:12,itinerary:itinerary(),playbackSecondsPerHour:50}));
+});
+
+test("walking cargo Journal retains the approved convoy on interruption and resume",()=>{
+  const cargo={schemaVersion:1,mode:"walking-cargo",
+    travelers:[{actorId:"pc1",role:"walking",seatsNeeded:1}],
+    hires:[{methodId:"cart",methodName:"Cart",checkpointId:"hearth",
+      units:1,speedMph:4,unlimited:false,availableUnits:1,
+      hireCostCp:100,hireBasis:"day",estimatedCostCp:200}],
+    suggestedSpeedPerHour:2,speedPerHour:2,movingHours:10,totalCp:200};
+  const travel=itinerary();
+  travel.travel={speedPerHour:2,methodId:"walking",methodName:"Walking with cargo",
+    arrangement:"owned",operation:"normal"};
+  travel.measurements.distance=20;
+  travel.measurements.travelHours=10;
+  travel.convoy=cargo;
+  const record=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:travel});
+  assert.deepEqual(record.legs[0].convoy,cargo);
+  const paused=checkpointJourneyRecord(record,{
+    schedule:{...schedule,completedHours:5},progress:50,status:"interrupted"});
+  const resumed=resumeJourneyRecord(paused,{
+    itinerary:{...travel,convoy:undefined},atlasRevision:12});
+  assert.deepEqual(resumed.legs[1].convoy,cargo,
+    "saved approval persists without rechecking checkpoint inventory");
+  assert.match(formatJourneyJournalHTML(paused),/hired cargo transport/);
+  const altered=structuredClone(paused);
+  altered.legs[0].convoy.speedPerHour=3;
+  assert.equal(eligibleJourneyRecord(altered,{sceneId:"scene",tokenId:"token",
+    atlasRevision:12}),false);
+});
+
+test("GM-authorized faster walking with cargo is Journal-saved and recoverable",()=>{
+  const cart={id:"cart",name:"Cart",kind:"vehicle",surface:"land",
+    capacity:2,speedMph:4,hireEnabled:true,hireApplies:"unit",
+    hireCostCp:100,hireBasis:"day",hireCrewIncluded:true,
+    hireUnlimited:false,hireQuantity:1};
+  const approved=planWalkingCargoConvoy({
+    travelers:[{actorId:"pc1",seatsNeeded:1}],walkingSpeed:3,
+    sceneUnits:"mi",routeDistance:30,weightedDistance:30,
+    distanceMi:30,hires:[{method:cart,units:1,checkpointId:"hearth"}],
+    paceOverride:4
+  });
+  const plan=itinerary();
+  plan.scene.units="mi";
+  plan.travel={speedPerHour:4,methodId:"walking",
+    methodName:"Walking with cargo",arrangement:"owned",operation:"normal"};
+  plan.measurements={distance:30,travelHours:7.5,terrainAware:false};
+  plan.directions[0].distance=30;
+  plan.directions[0].cost=30;
+  plan.convoy=approved;
+  const record=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:plan});
+  assert.equal(record.legs[0].convoy.gmWalkingPaceOverride,true);
+  assert.equal(record.legs[0].speedPerHour,4);
+  const paused=checkpointJourneyRecord(record,{
+    schedule:{...schedule,completedHours:3,events:[],restEvents:0},
+    progress:40,status:"interrupted"});
+  assert.match(formatJourneyJournalHTML(paused),/GM-approved walking pace exception/);
+  const resumed=resumeJourneyRecord(paused,{
+    itinerary:{...plan,convoy:undefined},atlasRevision:12});
+  assert.deepEqual(resumed.legs[1].convoy,approved);
+  assert.equal(resumed.legs[1].speedPerHour,4);
+  const corrupted=structuredClone(paused);
+  delete corrupted.legs[0].convoy.gmWalkingPaceOverride;
+  assert.equal(eligibleJourneyRecord(corrupted,{
+    sceneId:"scene",tokenId:"token",atlasRevision:12}),false,
+    "Journal cannot invent a faster pace without retained GM authorization");
+});
+
+test("mixed passenger assignments are saved, readable and recovered without new hire availability",()=>{
+  const coach={id:"coach-hire",name:"Coach",kind:"vehicle",surface:"land",
+    speedMph:4,capacity:4,hireEnabled:true,hireApplies:"passenger",
+    hireCostCp:100,hireBasis:"day",hireUnlimited:false,hireQuantity:1};
+  const mixed=planMixedLandConvoy({
+    travelers:[{actorId:"pc1",seatsNeeded:1,passengers:1},
+      {actorId:"pc2",seatsNeeded:1,passengers:1}],
+    assignments:{pc1:"owned|walking",pc2:"hire|coach-hire"},
+    methods:[{key:"owned|walking",arrangement:"owned",
+      method:{id:"walking",name:"Walking",kind:"foot",surface:"land"}},
+      {key:"hire|coach-hire",arrangement:"hire",method:coach,
+        checkpointId:"hearth"}],
+    walkingSpeed:3,sceneUnits:"mi",routeDistance:24,
+    weightedDistance:24,distanceMi:24
+  });
+  const scenario=itinerary();
+  scenario.scene.units="mi";
+  scenario.travel={speedPerHour:3,methodId:"walking",
+    methodName:"Mixed Group transportation",arrangement:"owned",
+    operation:"normal"};
+  scenario.measurements={distance:24,travelHours:8,terrainAware:false};
+  scenario.convoy=mixed;
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:scenario});
+  assert.deepEqual(saved.legs[0].convoy,mixed);
+  const stopped=checkpointJourneyRecord(saved,{
+    schedule:{...schedule,completedHours:4,events:[],restEvents:0},
+    progress:50,status:"interrupted"});
+  const html=formatJourneyJournalHTML(stopped);
+  assert.match(html,/Mixed party|mixed transportation/i);
+  assert.match(html,/Coach/);
+  assert.match(html,/riding/);
+  const resumed=resumeJourneyRecord(stopped,{
+    itinerary:{...scenario,convoy:undefined},atlasRevision:12});
+  assert.deepEqual(resumed.legs[1].convoy,mixed);
+  assert.equal(resumed.legs[1].speedPerHour,3);
+  const bad=structuredClone(stopped);
+  bad.legs[0].convoy.travelers[0].methodKey="hire|absent";
+  assert.equal(eligibleJourneyRecord(bad,{
+    sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
+});
+
+test("checkpoint-bound mixed convoy preserves original destination, fare and approved speed on recovery",()=>{
+  const coach={id:"coach-hire",name:"Coach",kind:"vehicle",surface:"land",
+    speedMph:4,capacity:4,hireEnabled:true,hireApplies:"passenger",
+    hireCostCp:100,hireBasis:"day",hireUnlimited:false,hireQuantity:1};
+  const mixed=planMixedLandConvoy({
+    travelers:[{actorId:"pc1",seatsNeeded:1,passengers:1},
+      {actorId:"pc2",seatsNeeded:1,passengers:1}],
+    assignments:{pc1:"owned|walking",pc2:"hire|coach-hire"},
+    methods:[{key:"owned|walking",arrangement:"owned",
+      method:{id:"walking",name:"Walking",kind:"foot",surface:"land"}},
+      {key:"hire|coach-hire",arrangement:"hire",method:coach,
+        checkpointId:"hearth"}],
+    walkingSpeed:3,sceneUnits:"mi",routeDistance:24,
+    weightedDistance:24,distanceMi:24
+  });
+  const scenario=itinerary();
+  scenario.scene.units="mi";
+  scenario.travel={speedPerHour:3,methodId:"walking",
+    methodName:"Mixed Group transportation",arrangement:"owned",
+    operation:"normal"};
+  scenario.measurements={distance:24,travelHours:8,terrainAware:false};
+  scenario.convoy=mixed;
+  scenario.transport={
+    methodId:"mixed-land",methodName:"Mixed Group transportation",
+    kind:"mixed",arrangement:"mixed",surface:"land",
+    departureCheckpointName:"Hearth",arrivalCheckpointId:"dock",
+    arrivalCheckpointName:"Dock",roadNames:["Road"],estimatedFareCp:null,
+    operation:"normal"
+  };
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:scenario,journeyDestination:{x:500,y:500}});
+  assert.deepEqual(saved.legs[0].convoy,mixed);
+  const stopped=checkpointJourneyRecord(saved,{
+    schedule:{...schedule,completedHours:4,events:[],restEvents:0},
+    progress:50,status:"interrupted"});
+  const html=formatJourneyJournalHTML(stopped);
+  assert.match(html,/Mixed party|mixed transportation/i);
+  assert.match(html,/Coach/);
+  assert.match(html,/riding/);
+  const resumed=resumeJourneyRecord(stopped,{
+    itinerary:{...scenario,convoy:undefined,
+      transport:{...scenario.transport,continuation:true}},atlasRevision:12});
+  assert.deepEqual(resumed.destination,{x:500,y:500});
+  assert.equal(resumed.legs[1].transport.arrivalCheckpointId,"dock");
+  assert.equal(resumed.legs[1].travelMethod,undefined);
+  const missing=structuredClone(saved);
+  delete missing.legs[0].convoy;
+  assert.throws(()=>validateJourneyRecord(missing),/invalid recovery metadata/i);
+  const wrong=structuredClone(saved);
+  wrong.legs[0].transport.surface="water";
+  assert.throws(()=>validateJourneyRecord(wrong),/invalid recovery metadata/i);
+  assert.throws(()=>resumeJourneyRecord(stopped,{
+    itinerary:{...scenario,transport:{...scenario.transport,arrivalCheckpointId:"other"}},
+    atlasRevision:12}),/checkpoint and terrain mode/);
+  assert.deepEqual(resumed.legs[1].convoy,mixed);
+  assert.equal(resumed.legs[1].speedPerHour,3);
+  const bad=structuredClone(stopped);
+  bad.legs[0].convoy.travelers[0].methodKey="hire|absent";
+  assert.equal(eligibleJourneyRecord(bad,{
+    sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
+});
+
+test("schema-v3 theater-of-mind seats recover without inventing named coach riders",()=>{
+  const group=[
+    {actorId:"pc1",passengers:1,seatsNeeded:1},
+    {actorId:"pc2",passengers:1,seatsNeeded:1},
+    {actorId:"npc1",passengers:1,seatsNeeded:0}
+  ];
+  const camel={key:"owned|camel",arrangement:"owned",
+    method:{id:"camel",name:"Camel",surface:"land",kind:"mount",
+      speedMph:3,capacity:1},
+    resources:[{actorId:"camel1",assignedTo:"pc1",capacity:1,
+      quantity:1,speedMph:3,method:{costCp:0,costBasis:"none",costApplies:"unit"}}]};
+  const walking={key:"owned|walking",arrangement:"owned",
+    method:{id:"walking",name:"Walking",kind:"foot",surface:"land"}};
+  const coach={key:"hire|coach",arrangement:"hire",
+    method:{id:"coach",name:"Coach",kind:"vehicle",surface:"land",
+      speedMph:4,capacity:4,hireEnabled:true,hireApplies:"passenger",
+      hireBasis:"day",hireCostCp:100,hireUnlimited:false,hireQuantity:1},
+    checkpointId:"hearth"};
+  const convoy=planAggregateLandConvoy({travelers:group,
+    methods:[walking,camel,coach],riderCounts:{"hire|coach":1},
+    walkingSpeed:3,sceneUnits:"mi",routeDistance:24,
+    weightedDistance:24,distanceMi:24});
+  const itineraryPlan=itinerary();
+  itineraryPlan.scene.units="mi";
+  itineraryPlan.travel={speedPerHour:3,methodId:"walking",
+    methodName:"Mixed Group transportation",arrangement:"owned",operation:"normal"};
+  itineraryPlan.measurements={distance:24,travelHours:8,terrainAware:false};
+  itineraryPlan.convoy=convoy;
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:itineraryPlan});
+  assert.deepEqual(saved.legs[0].convoy,convoy);
+  const stopped=checkpointJourneyRecord(saved,{
+    schedule:{...schedule,completedHours:4,events:[],restEvents:0},
+    progress:50,status:"interrupted"});
+  const html=formatJourneyJournalHTML(stopped);
+  assert.match(html,/mixed transportation/);
+  assert.match(html,/Coach/);
+  const resumed=resumeJourneyRecord(stopped,{
+    itinerary:{...itineraryPlan,convoy:undefined},atlasRevision:12});
+  assert.deepEqual(resumed.legs[1].convoy,convoy);
+  assert.equal(resumed.legs[1].speedPerHour,3);
+  const changed=structuredClone(stopped);
+  changed.legs[0].convoy.totalPassengers=40;
+  assert.equal(eligibleJourneyRecord(changed,{
+    sceneId:"scene",tokenId:"token",atlasRevision:12}),false);
+});
+
+test("confirmed named riders appear in completed Journal; Actor names are escaped",()=>{
+  const group=[
+    {actorId:"cass",name:"Dr. Cassian <Voss>",passengers:1,seatsNeeded:1},
+    {actorId:"nyx",name:"Nyx",passengers:1,seatsNeeded:0},
+    {actorId:"luc",name:"Lucious",passengers:1,seatsNeeded:1}
+  ];
+  const walking={key:"owned|walking",arrangement:"owned",
+    method:{id:"walking",name:"Walking",kind:"foot",surface:"land"}};
+  const wagon={key:"hire|wagon",arrangement:"hire",
+    method:{id:"wagon",name:"Wagon",kind:"vehicle",surface:"land",
+      capacity:2,speedMph:4,hireEnabled:true,hireApplies:"unit",
+      hireBasis:"day",hireCostCp:200,hireUnlimited:false,hireQuantity:1},
+    checkpointId:"hearth"};
+  const convoy=planMixedLandConvoy({travelers:group,methods:[walking,wagon],
+    assignments:{cass:"hire|wagon",nyx:"owned|walking",luc:"hire|wagon"},
+    walkingSpeed:3,sceneUnits:"mi",routeDistance:24,weightedDistance:24,
+    distanceMi:24});
+  const scenario=itinerary();
+  scenario.scene.units="mi";
+  scenario.travel={speedPerHour:3,methodId:"walking",
+    methodName:"Mixed Group transportation",arrangement:"owned",operation:"normal"};
+  scenario.measurements={distance:24,travelHours:8,terrainAware:false};
+  scenario.convoy=convoy;
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"token",
+    atlasRevision:12,itinerary:scenario});
+  const completed=checkpointJourneyRecord(saved,{
+    schedule:{...schedule,completedHours:8,events:[],restEvents:0},
+    progress:100,status:"completed"});
+  const html=formatJourneyJournalHTML(completed);
+  assert.match(html,/Dr\. Cassian &lt;Voss&gt;/);
+  assert.match(html,/Lucious/);
+  assert.match(html,/Walking: Nyx/);
+  assert.doesNotMatch(html,/\(no seat\)/);
+  assert.match(html,/Estimated transportation cost: 2 GP/);
+  assert.doesNotMatch(html,/<Voss>/,
+    "Actor names must be escaped in persisted Journal HTML");
+  assert.deepEqual(validateJourneyRecord(completed).legs[0].convoy,convoy);
+});
+
+test("confirmed-arrival precision displays 100%, while material partial progress stays 99%",()=>{
+  const complete=checkpointJourneyRecord(createRecord(),{
+    schedule:{...schedule,completedHours:18},progress:99.999999,status:"completed"});
+  assert.match(formatJourneyJournalHTML(complete),/Confirmed progress: 100%/);
+  const partial=checkpointJourneyRecord(createRecord(),{
+    schedule:{...schedule,completedHours:17},progress:99.9,status:"interrupted"});
+  assert.match(formatJourneyJournalHTML(partial),/Confirmed progress: 99%/);
 });

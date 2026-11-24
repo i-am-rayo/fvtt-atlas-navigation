@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AtlasTransportationSettings, renderTravelRules, renderJourneyPlayback } from "../scripts/navigation-transport-settings.js";
+import { AtlasTransportationSettings,openTransportationMethodEditor,
+  renderTravelRules,renderJourneyPlayback } from "../scripts/navigation-transport-settings.js";
 
 class FakeElement {
   constructor(tag){
@@ -203,6 +204,10 @@ test("all transport methods show consistent capacity and native currency editor 
         "ownership upkeep has a consistent section layout");
       if(names.includes("continuousEnabled"))
         assert.ok(names.includes("hireEnabled"),"water vehicles may offer hire");
+      if(names.includes("livestockCapacity")){
+        assert.ok(names.includes("livestockFareMode"),"every vehicle has a fare policy");
+        assert.ok(names.includes("livestockFarePercent"),"every vehicle has a 0–200% slider");
+      }
       const tabs=nodes.filter(n=>n.attributes?.get("role")==="tab");
       assert.deepEqual(tabs.map(n=>n.textContent),["General","Services","Ownership"]);
       assert.equal(nodes.filter(n=>n.attributes?.get("role")==="tabpanel").length,3);
@@ -303,4 +308,315 @@ test("Journey editor exposes explicit Save for this trip and Save to checkpoint 
     assert.deepEqual(result,{hireBasis:"mile",__atlasSaveScope:"checkpoint"});
     assert.deepEqual(ctx.changes,[],"opening scoped editor makes no settings writes");
   }finally{globalThis.foundry=old;ctx.restore();}
+});
+
+
+test("Group scope uses the actual General/Services/Ownership editor, with hired Services disabled",async()=>{
+  const ctx=setup(),prior=globalThis.foundry;
+  const applied=[],seen=[];
+  const method={id:"camel",name:"Camel",kind:"mount",surface:"land",
+    speedMph:3,capacity:1,costCp:5,costBasis:"day",costApplies:"unit",
+    purchaseGp:50,note:"World note"};
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{
+      input:async({content,ok,window})=>{
+        assert.equal(content.tagName,"DIV");
+        assert.equal(content.attributes.size,0,"DialogV2 requires plain outer shell");
+        const elements=flatten(content);
+        const tabs=elements.filter(e=>e.attributes.get("role")==="tab");
+        assert.deepEqual(tabs.map(t=>t.textContent),["General","Services","Ownership"]);
+        assert.equal(tabs[1].disabled,true,"owned Group cannot offer a hired service");
+        assert.equal(tabs[1].attributes.get("aria-disabled"),"true");
+        assert.equal(elements.find(e=>e.attributes.get("data-atlas-preset-panel")==="services")
+          .attributes.has("inert"),true);
+        seen.push(elements.map(el=>el.textContent??"").join(" "));
+        const general=elements.find(el=>el.attributes.get("data-atlas-preset-panel")==="general");
+        const ownership=elements.find(el=>el.attributes.get("data-atlas-preset-panel")==="cost");
+        const generalText=flatten(general).map(e=>e.textContent??"").join(" ");
+        const ownershipText=flatten(ownership).map(e=>e.textContent??"").join(" ");
+        assert.doesNotMatch(generalText,/Required crew/,"Group hides World-owned crew counts");
+        assert.doesNotMatch(ownershipText,/Available for purchase|Crew wage per person/,
+          "already-owned resources cannot change sale offers or crew wages");
+        assert.ok(elements.find(el=>el.name==="groupSpeedCustom")?.hidden);
+        assert.ok(elements.find(el=>el.name==="groupCostCustom")?.hidden);
+        assert.equal(elements.find(el=>el.name==="name")?.value,"Hamilton",
+          "Group native Actor name remains authoritative");
+        assert.match(window.title,/Edit Hamilton Transportation/);
+        assert.equal(ok.label,"Apply to Party draft");
+        return {groupProfileId:"camel",groupQuantity:"3",capacity:"",
+          groupCostCustom:"on",cost_pp:"0",cost_gp:"0",cost_ep:"0",
+          cost_sp:"0",cost_cp:"0",
+          groupBasisCustom:"on",costBasis:"none",
+          groupPurchaseCustom:"on",purchaseEnabled:false,
+          groupNoteCustom:"on",note:"Group-only"};
+      }
+    }}}};
+    const result=await openTransportationMethodEditor({scope:"group",method,
+      groupKind:"mount",groupActorName:"Hamilton",
+      profiles:[method],groupAssignment:{profileId:"camel",quantity:2,
+        capacity:null,speedMphOverride:null,costCpOverride:null},
+      onSave:value=>applied.push(value)});
+    assert.match(seen[0],/Quantity Available/);
+    assert.doesNotMatch(seen[0],/Customize Party travel speed/,
+      "reuse Map Marker fields without extra visible customization rows");
+    assert.match(seen[0],/Recurring upkeep/);
+    assert.equal(result.quantity,3);
+    assert.equal(result.capacity,null);
+    assert.equal(result.speedMphOverride,null,"inherit World speed");
+    assert.equal(result.costCpOverride,0,"explicit zero is not inherited");
+    assert.equal(result.costBasisOverride,"none");
+    assert.equal(result.purchaseGpOverride,null,
+      "purchase policy for already-owned resources remains World-owned");
+    assert.equal(result.noteOverride,"Group-only");
+    assert.deepEqual(applied,[result]);
+    assert.deepEqual(ctx.changes,[],"child Apply never writes World settings");
+    globalThis.foundry.applications.api.DialogV2.input=async()=>({
+      groupProfileId:"camel",groupQuantity:"0",capacity:""});
+    await assert.rejects(()=>openTransportationMethodEditor({scope:"group",
+      method,groupKind:"mount",profiles:[method],
+      groupAssignment:{quantity:1},onSave:()=>{}}),/Quantity Available/);
+    globalThis.foundry.applications.api.DialogV2.input=async()=>null;
+    assert.equal(await openTransportationMethodEditor({scope:"group",
+      method,groupKind:"mount",profiles:[method],
+      groupAssignment:{quantity:1},onSave:()=>{}}),undefined);
+    assert.deepEqual(ctx.changes,[]);
+  }finally{globalThis.foundry=prior;ctx.restore();}
+});
+
+test("Group editor records touched Map Marker fields as overrides without new visible controls",async()=>{
+  const ctx=setup(),previous=globalThis.foundry;
+  try{
+    const method={id:"camel",name:"Camel",kind:"mount",surface:"land",
+      speedMph:3,capacity:1,costCp:5,costBasis:"day",
+      costApplies:"unit",purchaseGp:50,note:"World note"};
+    globalThis.foundry={applications:{api:{DialogV2:{
+      input:async({content,render})=>{
+        const root=content.children[0];
+        const elements=flatten(root);
+        root.querySelectorAll=()=>[];
+        root.querySelector=selector=>{
+          const match=selector.match(/^\[name="([^"]+)"\]$/);
+          if(match)return elements.find(el=>el.name===match[1])??null;
+          if(selector==="[data-atlas-scope-reset]")
+            return elements.find(el=>el.attributes.get("data-atlas-scope-reset")!==undefined)??null;
+          return null;
+        };
+        render(null,root);
+        const speedFlag=elements.find(e=>e.name==="groupSpeedCustom");
+        const upkeepFlag=elements.find(e=>e.name==="groupCostCustom");
+        assert.equal(speedFlag.checked,false,"speed starts World-inherited");
+        root.listeners.get("input")({target:{name:"speedDisplay"}});
+        assert.equal(speedFlag.checked,true,"typing a speed makes a Party override");
+        root.listeners.get("input")({target:{
+          getAttribute:key=>key==="data-atlas-range-for"?"speedDisplay":null
+        }});
+        assert.equal(speedFlag.checked,true,"slider edits count, too");
+        root.listeners.get("input")({target:{name:"cost_gp"}});
+        assert.equal(upkeepFlag.checked,true,"native currency controls create a Group-only override");
+        const reset=root.querySelector("[data-atlas-scope-reset]");
+        reset.listeners.get("click")();
+        assert.equal(speedFlag.checked,false,"Reset restores World inheritance");
+        assert.equal(upkeepFlag.checked,false);
+        return null;
+      }
+    }}}};
+    await openTransportationMethodEditor({scope:"group",method,groupKind:"mount",
+      groupActorName:"Hamilton",profiles:[method],groupAssignment:{
+        profileId:"camel",quantity:3},onSave:()=>{throw Error("No save after cancel");}});
+    assert.deepEqual(ctx.changes,[]);
+  }finally{globalThis.foundry=previous;ctx.restore();}
+});
+
+
+test("Party World profiles group Land/Water/Air alphabetically and quantity uses the shared slider",async()=>{
+  const ctx=setup(),prior=globalThis.foundry;
+  const profiles=[
+    {id:"zebra",name:"Zebra",kind:"mount",surface:"land"},
+    {id:"eagle",name:"Eagle",kind:"mount",surface:"air"},
+    {id:"horse",name:"Riding Horse",kind:"mount",surface:"land"},
+    {id:"otter",name:"Otter",kind:"mount",surface:"water"},
+    {id:"alpaca",name:"Alpaca",kind:"mount",surface:"land"},
+    {id:"falcon",name:"Falcon",kind:"mount",surface:"air"},
+    {id:"seal",name:"Seal",kind:"mount",surface:"water"}
+  ];
+  const fullProfiles=profiles.map(profile=>({
+    speedMph:3,capacity:1,costCp:0,costBasis:"none",costApplies:"unit",
+    purchaseGp:null,note:"",...profile
+  }));
+  const saved=[];
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      const elements=flatten(content);
+      const select=elements.find(e=>e.tagName==="SELECT"&&e.name==="groupProfileId");
+      assert.ok(select);
+      assert.equal(select.children[0].textContent,"No linked World profile");
+      const groups=select.children.filter(e=>e.tagName==="OPTGROUP");
+      assert.deepEqual(groups.map(g=>g.label),["Land","Water","Air"]);
+      assert.deepEqual(groups.map(g=>g.children.map(option=>option.textContent)),[
+        ["Alpaca","Riding Horse","Zebra"],["Otter","Seal"],["Eagle","Falcon"]]);
+      assert.equal(groups.flatMap(g=>g.children).some(o=>/\\((Land|Water|Air)\\)/.test(o.textContent)),false,
+        "group heading supplies surface, not a name suffix");
+      assert.equal(groups[0].children.find(o=>o.value==="horse")?.defaultSelected,true,
+        "saved World profile ID remains selected regardless of alphabetical position");
+      const range=elements.find(e=>e.attributes.get("data-atlas-range-for")==="groupQuantity");
+      const numeric=elements.find(e=>e.name==="groupQuantity");
+      assert.ok(range&&numeric,"Quantity Available is a linked range and numeric input");
+      assert.equal(range.type,"range");assert.equal(numeric.type,"number");
+      assert.equal(range.min,"1");assert.equal(range.max,"100");assert.equal(range.step,"1");
+      assert.equal(numeric.step,"1");assert.equal(numeric.value,"3");
+      range.value="7";range.listeners.get("input")();
+      assert.equal(numeric.value,"7","slider synchronizes its numeric field");
+      return {groupProfileId:"otter",groupQuantity:numeric.value};
+    }}}}};
+    const result=await openTransportationMethodEditor({scope:"group",
+      method:fullProfiles[2],profiles:fullProfiles,groupKind:"mount",groupActorName:"Riding Horse",
+      groupAssignment:{profileId:"horse",quantity:3},onSave:next=>saved.push(next)});
+    assert.equal(result.profileId,"otter","selection persists stable World ID, not display label");
+    assert.equal(result.quantity,7);
+    assert.deepEqual(saved,[result]);
+    assert.deepEqual(ctx.changes,[],"child Apply makes no World or Group writes");
+  }finally{globalThis.foundry=prior;ctx.restore();}
+});
+
+test("shared Party Transportation General tab lists eligible Assigned To rider IDs",async()=>{
+  const ctx=setup(),previous=globalThis.foundry;
+  const profile={id:"riding-horse",name:"Riding Horse",kind:"mount",surface:"land",
+    speedMph:3,capacity:1,costCp:0,costBasis:"none",costApplies:"unit",
+    purchaseGp:null,note:""};
+  const groupRiders=[{id:"pc1",name:"Cassian"},{id:"pc2",name:"Cassian"}];
+  const saved=[];
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      const elements=flatten(content);
+      const field=elements.find(e=>e.name==="groupAssignedTo");
+      assert.ok(field,"Assigned To belongs inside the shared General tab");
+      assert.deepEqual(field.children.map(child=>child.value),["","pc1","pc2"]);
+      assert.notEqual(field.children[1].textContent,field.children[2].textContent,
+        "identical display names require distinct Actor-ID labels");
+      assert.equal(field.value,"pc1");
+      return {groupProfileId:"riding-horse",groupQuantity:"1",groupAssignedTo:"pc2"};
+    }}}}};
+    const result=await openTransportationMethodEditor({scope:"group",method:profile,
+      groupKind:"mount",groupActorName:"Horse",profiles:[profile],groupRiders,
+      groupAssignment:{profileId:profile.id,quantity:1,assignedTo:"pc1"},
+      onSave:value=>saved.push(value)});
+    assert.equal(result.assignedTo,"pc2");
+    assert.equal(result.quantity,1);
+    assert.deepEqual(saved,[result]);
+    assert.deepEqual(ctx.changes,[],"child Apply makes no authoritative writes");
+    globalThis.foundry.applications.api.DialogV2.input=async()=>({
+      groupProfileId:profile.id,groupQuantity:"2",groupAssignedTo:"pc1"
+    });
+    await assert.rejects(()=>openTransportationMethodEditor({scope:"group",
+      method:profile,groupKind:"mount",profiles:[profile],groupRiders,
+      groupAssignment:{quantity:1},onSave:()=>{}}),/Choose None before increasing/);
+    globalThis.foundry.applications.api.DialogV2.input=async()=>({
+      groupProfileId:profile.id,groupQuantity:"1",groupAssignedTo:"deletedId"
+    });
+    await assert.rejects(()=>openTransportationMethodEditor({scope:"group",
+      method:profile,groupKind:"mount",profiles:[profile],groupRiders,
+      groupAssignment:{quantity:1},onSave:()=>{}}),/current eligible Party member/);
+  }finally{globalThis.foundry=previous;ctx.restore();}
+});
+
+test("trip-only transportation edits cannot bypass a checkpoint's finite hire inventory",async()=>{
+  const ctx=setup(),old=globalThis.foundry;
+  const method={id:"cart",name:"Cart",kind:"vehicle",surface:"land",
+    speedMph:4,capacity:2,costCp:0,costBasis:"none",costApplies:"unit",
+    purchaseGp:15,note:"",hireEnabled:true,hireCostCp:100,
+    hireBasis:"day",hireApplies:"unit",hireCrewIncluded:true,
+    hireUnlimited:false,hireQuantity:1};
+  let calls=0;
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{input:async()=>({
+      hireUnlimited:true,hireQuantity:99,hireEnabled:true,
+      speedDisplay:4,capacity:2,hireBasis:"day",hireApplies:"unit",
+      overtimeExtraHours:8,overtimeMultiplier:1.5
+    })}}}};
+    await assert.rejects(()=>openTransportationMethodEditor({method,scope:"journey",
+      checkpointName:"Hearth's Heart",onSave:()=>{calls++;},
+      onSaveCheckpoint:()=>{calls++;}}),/Checkpoint inventory must be saved/);
+    assert.equal(calls,0);
+    assert.deepEqual(ctx.changes,[]);
+  }finally{globalThis.foundry=old;ctx.restore();}
+});
+
+test("Journey Carriage continuous toggle determines operation without a second selector",async()=>{
+  const ctx=setup(),old=globalThis.foundry;
+  const base={id:"cart",name:"Cart",kind:"vehicle",surface:"land",
+    speedMph:3,capacity:6,costCp:0,costBasis:"none",costApplies:"unit",
+    purchaseGp:15,hireEnabled:true,hireCostCp:400,hireBasis:"day",
+    hireApplies:"unit",hireCrewIncluded:true,continuousEnabled:false};
+  let enabled=true;const saves=[];
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{input:async()=>({
+      name:"Cart",kind:"vehicle",speedDisplay:3,capacity:6,
+      hireEnabled:true,hireBasis:"day",hireApplies:"unit",
+      hireCrewIncluded:true,costBasis:"none",costApplies:"unit",
+      crewWageBasis:"day",overtimeExtraHours:8,overtimeMultiplier:1.5,
+      continuousEnabled:enabled,atlasJourneyOperation:enabled?"normal":"continuous"
+    })}}}};
+    await openTransportationMethodEditor({method:base,scope:"journey",
+      journeyOperation:"normal",onSave:(_edited,details)=>saves.push(details.operation)});
+    enabled=false;
+    await openTransportationMethodEditor({method:{...base,continuousEnabled:true},
+      scope:"journey",journeyOperation:"continuous",
+      onSave:(_edited,details)=>saves.push(details.operation)});
+    assert.deepEqual(saves,["continuous","normal"],
+      "turning continuous on or off is the effective Journey schedule");
+    assert.deepEqual(ctx.changes,[],"trip editing does not persist World changes");
+  }finally{globalThis.foundry=old;ctx.restore();}
+});
+
+
+test("owned water vessel animal stalls remain editable even when hire is disabled",async()=>{
+  const ctx=setup(),previous=globalThis.foundry;
+  try{
+    globalThis.foundry={applications:{api:{DialogV2:{
+      input:async({content})=>{
+        const nodes=flatten(content);
+        const stalls=nodes.find(node=>node.name==="livestockCapacity");
+        const animalRate=nodes.find(node=>node.name==="livestockFareBasis");
+        const hire=nodes.find(node=>node.name==="hireEnabled");
+        const hireOnly=nodes.find(node=>node.attributes?.has("data-atlas-hire-controls"));
+        assert.ok(stalls,"vessel animal capacity is configurable independently");
+        assert.ok(animalRate);
+        assert.equal(hire.checked,false,"owned ship is not automatically hired");
+        assert.ok(hireOnly);
+        assert.equal(flatten(hireOnly).includes(stalls),false,
+          "animal accommodation must not inherit the disabled hire-only controls");
+        return null;
+      }
+    }}}};
+    await new AtlasTransportationSettings()._edit({
+      id:"sailing",name:"Sailing Ship",kind:"vehicle",surface:"water",
+      speedMph:2,capacity:20,costCp:0,costBasis:"none",costApplies:"unit",
+      purchaseGp:10000,hireEnabled:false,hireCostCp:0,hireBasis:"day",
+      hireApplies:"unit",livestockCapacity:null,livestockFareCp:null,
+      livestockFareBasis:"trip"
+    },"water");
+    assert.deepEqual(ctx.changes,[],"opening accommodation editor never writes");
+  }finally{globalThis.foundry=previous;ctx.restore();}
+});
+
+test("World-inherited mount fare is visible in preset and Map Marker editors without saving",async()=>{
+  const ctx=setup(),previous=globalThis.foundry;
+  try{
+    const get=globalThis.game.settings.get;
+    globalThis.game.settings.get=(module,key)=>key==="guidedLivestockFarePercent"?50:
+      get(module,key);
+    let dialogs=0;
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      dialogs++;
+      const label=flatten(content).map(node=>node.textContent??"").join(" ");
+      assert.match(label,/Inherit World default \(50%\)/);
+      assert.match(label,/without copying it to this preset or Map Marker/);
+      return null;
+    }}}}};
+    const editor=new AtlasTransportationSettings();
+    await editor._edit(null,"water");
+    await editor._edit(null,"air");
+    assert.equal(dialogs,2);
+    assert.deepEqual(ctx.changes,[],"preview and Cancel do not change World catalogs");
+  }finally{globalThis.foundry=previous;ctx.restore();}
 });

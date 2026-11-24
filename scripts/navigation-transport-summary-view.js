@@ -71,3 +71,79 @@ export function renderTransportQuote({worldEstimate=null,currentEstimate,
   }
   return block;
 }
+
+/** Report the *effective* current-leg mount fare without changing the World catalog. */
+export function describeJourneyMountFare(manifest,{method=null,worldPercent=50,
+  arrangement=null,formatMoney=value=>value+" CP",approved=false}={}){
+  const aboard=manifest?.resources?.filter(item=>item.aboard>0)??[];
+  if(!aboard.length)return null;
+  const quantity=aboard.reduce((sum,item)=>sum+item.aboard,0);
+  const names=aboard.map(item=>item.name+" ×"+item.aboard).join(", ");
+  const policy=approved?"Previously approved fare":
+    arrangement==="owned"?"No boarding fee on party-owned transport":
+    method?.livestockFareCp!=null?"Fixed mount fare override":
+    method?.livestockFarePercent!=null?
+      "Method override "+method.livestockFarePercent+"% of passenger fare":
+    method?.hireApplies==="unit"?
+      "No automatic percentage on unit-priced service":
+      "World default "+worldPercent+"% of passenger fare";
+  return names+" ("+quantity+" mounts · "+policy+"): "+
+    formatMoney(manifest.estimatedFareCp)+" (included in total; not charged)";
+}
+
+/** Shared read-only GM confirmation. All rows and metrics come from a
+ * previously validated current-leg plan; this view never approves travel. */
+export function renderNavigationTransportApproval({
+  heading="Transportation summary",destination=null,rows=[],metrics=[],notes=[],fareRows=[]
+}={}){
+  if(!rows.length||metrics.length!==4)
+    throw Error("A transportation approval needs a complete leg summary.");
+  // DialogV2 requires a plain, attribute-free outer div.
+  const wrapper=el("div");
+  const root=el("div");
+  root.className="atlas-transport-approval";
+  root.append(el("h3",heading));
+  if(destination)root.append(el("p",destination));
+  const table=el("table");
+  table.className="atlas-transport-approval-table";
+  const head=el("thead"),labels=el("tr");
+  for(const label of ["Method","Travelers","Units","Cost"]){
+    const cell=el("th",label);
+    cell.scope="col";
+    labels.append(cell);
+  }
+  head.append(labels);table.append(head);
+  const body=el("tbody");
+  for(const data of rows){
+    const row=el("tr");
+    for(const value of [data.method,data.travelers,data.units,data.cost])
+      row.append(el("td",String(value??"—")));
+    body.append(row);
+  }
+  table.append(body);root.append(table);
+  if(fareRows.length){
+    root.append(el("h4","Fare breakdown"));
+    const fares=el("dl");
+    fares.className="atlas-transport-approval-fares";
+    for(const [label,value] of fareRows){
+      const item=el("div");
+      item.append(el("dt",String(label)),el("dd",String(value)));
+      fares.append(item);
+    }
+    root.append(fares);
+  }
+  const totals=el("dl");
+  totals.className="atlas-transport-approval-metrics";
+  for(const [label,value] of metrics){
+    const tile=el("div");
+    tile.className="atlas-transport-approval-metric";
+    tile.append(el("dt",label),el("dd",String(value)));
+    totals.append(tile);
+  }
+  root.append(totals);
+  for(const note of notes){
+    if(note)root.append(el("p",note));
+  }
+  wrapper.append(root);
+  return wrapper;
+}

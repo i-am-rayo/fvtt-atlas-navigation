@@ -2,6 +2,7 @@
  * v0.3.8-beta.7: pure, immutable current-leg native-travel gate.
  * A checkpoint boundary clips movement before a different route surface.
  */
+import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 const finitePoint=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y);
 const near=(a,b,tolerance=0.01)=>finitePoint(a)&&finitePoint(b)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
@@ -29,8 +30,17 @@ export function prepareGuidedTransportLeg(route,leg){
   if(!Number.isFinite(distance)||Math.abs(distance-leg.distance)>Math.max(.001,leg.distance*1e-6)||
       !Number.isFinite(cost)||cost<0)
     throw Error("The checkpoint leg's distance changed since its preview.");
-  const walking=leg.selectedOption.method?.id==="walking";
-  const terrainAware=walking&&leg.surface==="land"&&Boolean(route.terrainAware);
+  const mixed=leg.selectedOption.method?.kind==="mixed";
+  if(mixed&&(leg.surface!=="land"||leg.selectedOption.arrangement!=="mixed"||
+      leg.selectedOption.method.id!=="mixed-land"||!leg.convoy||leg.operation!=="normal"))
+    throw Error("A checkpoint-bound mixed convoy must be an approved land plan.");
+  const convoy=mixed?validateMixedLandConvoy(leg.convoy):null;
+  const walking=mixed?convoy.methods.some(method=>method.role==="walking"):
+    leg.selectedOption.method?.id==="walking";
+  const terrainAware=walking&&leg.surface==="land"&&Boolean(route.terrainAware)&&
+    (!mixed||leg.terrainAware!==false);
+  if(mixed&&Math.abs((terrainAware?cost:distance)/convoy.speedPerHour-leg.hours)>1e-7)
+    throw Error("The mixed checkpoint leg duration differs from its approved convoy pace.");
   return {
     status:"ok",
     start:{...leg.start},end:{...leg.end},
@@ -47,7 +57,7 @@ export function prepareGuidedTransportLeg(route,leg){
       arrivalCheckpointId:leg.arrivalCheckpoint.id,
       arrivalCheckpointName:leg.arrivalCheckpoint.name,
       roadNames:[...leg.roadNames],
-      estimatedFareCp:leg.costCp??null,
+      estimatedFareCp:mixed?null:leg.costCp??null,
       operation:leg.operation??"normal",continuation:Boolean(leg.recovered)}
   };
 }

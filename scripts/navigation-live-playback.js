@@ -28,7 +28,7 @@ export function canAdjustLiveJourneyVisuals(session){
     !["ending","rest-applying","checkpoint-arrival","rest-checkpointing",
       "rest-error"].includes(session.phase)&&
     session.transportLeg?.transport?.operation!=="continuous"&&
-    !session.nativeActive);
+    (!session.nativeActive||session.nativeOperationKind==="ordinary"));
 }
 
 export function expectedAdditionalTravelBreaks(session){

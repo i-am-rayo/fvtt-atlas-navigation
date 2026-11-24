@@ -1,5 +1,5 @@
 /** Read-only party-member selection view; this never changes Group members. */
-import {partyCharacterRoster,projectPartyTravelSelection}
+import {partyTravelerRoster,projectPartyTravelSelection}
   from "./navigation-party-selection.js";
 
 const el=(tag,text)=>{
@@ -10,7 +10,7 @@ const el=(tag,text)=>{
 
 export function renderNavigationPartySelection({roster,mode="all",ids=[],
   disabled=false,onChange}={}){
-  const members=partyCharacterRoster(roster);
+  const members=partyTravelerRoster(roster);
   if(!members.length)return null;
   const preview=projectPartyTravelSelection(roster,{mode,ids});
   const root=el("fieldset");
@@ -18,9 +18,12 @@ export function renderNavigationPartySelection({roster,mode="all",ids=[],
   root.style.cssText="display:grid;gap:.5rem;margin:0;min-width:0;"+
     "padding:.65rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:9px;";
   root.appendChild(el("legend","Traveling party"));
+  const seatInfo=el("small",preview.travelerCount+" seats needed");
+  seatInfo.style.cssText="font-weight:600;opacity:.85;";
   const options=el("div");
   options.style.cssText="display:flex;flex-wrap:wrap;gap:1rem;";
-  for(const [value,title] of [["all","All party · "+members.length+" PCs"],
+  for(const [value,title] of [["all","All party · "+preview.pcCount+
+    " PCs | "+preview.npcCount+" NPCs"],
     ["selected","Select party members"]]){
     const label=el("label");
     label.style.cssText="display:flex;align-items:center;gap:.35rem;cursor:pointer;";
@@ -35,7 +38,7 @@ export function renderNavigationPartySelection({roster,mode="all",ids=[],
     label.append(radio,el("span",title));
     options.appendChild(label);
   }
-  root.appendChild(options);
+  root.append(options,seatInfo);
   if(mode==="selected"){
     const list=el("div");
     list.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.35rem;";
@@ -53,18 +56,19 @@ export function renderNavigationPartySelection({roster,mode="all",ids=[],
         else next.delete(member.id);
         onChange?.({mode:"selected",ids:[...next]});
       });
-      label.append(input,el("span",member.name));
+      label.append(input,el("span",member.name+(member.type==="npc"?
+        (member.seats?" · needs seat":" · shares seat"):"")));
       list.appendChild(label);
     }
     root.appendChild(list);
-    const count=el("small",preview.selectedIds.length+" / "+members.length+
-      " PCs selected"+(preview.additionalPassengers?
-      " · "+preview.additionalPassengers+" other Group passenger(s) retained":""));
+    const count=el("small",preview.selectedPcCount+" / "+preview.pcCount+
+      " PCs · "+preview.selectedNpcCount+" / "+preview.npcCount+
+      " NPCs selected · "+preview.travelerCount+" seats needed");
     root.appendChild(count);
     if(preview.partial){
-      const warning=el("small","Subset capacity is preview-only. Atlas moves "+
-        "the complete assigned explorer token: select All party or configure "+
-        "a separate Group/explorer token before starting this trip.");
+      const warning=el("small","This unapproved Journey selection changes "+
+        "only Atlas traveler participation; the assigned Group explorer token "+
+        "represents the selected cohort without changing native Group membership.");
       warning.style.cssText="color:var(--color-text-warning,#d7a85a);line-height:1.45;";
       root.appendChild(warning);
     }

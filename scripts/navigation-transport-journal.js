@@ -5,10 +5,19 @@ const validText=(v,limit=NAME_LIMIT)=>typeof v==="string"&&
   v.length<=limit&&!/[\u0000-\u001f]/.test(v);
 const optionalText=v=>v===null||validText(v);
 
+/** Mixed convoy owns fare and rider details; this metadata is its checkpoint boundary. */
+export const isMixedLandTransport=t=>Boolean(t?.methodId==="mixed-land"&&
+  t.kind==="mixed"&&t.arrangement==="mixed"&&t.surface==="land"&&
+  t.operation==="normal"&&t.estimatedFareCp===null);
+export const mixedLandTransportMethod=Object.freeze({
+  id:"mixed-land",name:"Mixed Group transportation",kind:"mixed",surface:"land"
+});
+
 /** Optional schema-1 Journal detail, stored only when a GM confirms this leg. */
 export function validateTransportJourneyInfo(raw){
   if(!raw||typeof raw!=="object"||Array.isArray(raw)||
-      !["owned","hire"].includes(raw.arrangement)||
+      (raw.kind==="mixed"||raw.arrangement==="mixed"?
+        !isMixedLandTransport(raw):!["owned","hire"].includes(raw.arrangement))||
       !["land","water","air","unspecified"].includes(raw.surface)||
       !validText(raw.methodName)||!raw.methodName.trim()||
       !validText(raw.methodId,128)||!validText(raw.kind,24)||
@@ -38,6 +47,8 @@ export function validateTransportJourneyInfo(raw){
 export function confirmedTransportJourneyLines(info,{movingHours=0,complete=false}={}){
   if(!info||!Number.isFinite(movingHours)||movingHours<=0)return [];
   const t=validateTransportJourneyInfo(info);
+  if(isMixedLandTransport(t))return complete?
+    ["Reached "+t.arrivalCheckpointName+"."]:[];
   const leg={
     departureCheckpoint:t.departureCheckpointName?
       {name:t.departureCheckpointName}:null,

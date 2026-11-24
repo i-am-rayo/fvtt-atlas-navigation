@@ -135,3 +135,67 @@ export function describeTransportationLeg(leg,{name,kind,surface,arrangement}={}
     (embarking?(surface==="water"?"Disembarked at ":"Landed at ")+dest+".":"Reached "+dest+"."):null;
   return [preamble,moving,...(end?[end]:[])];
 }
+
+/**
+ * Preview-only journey timetable across authored transportation legs.
+ * Duty already used on an earlier standard/overtime leg carries into the next
+ * leg; continuous transport can rotate operators and needs no vehicle stop.
+ * This is an estimate, never a passenger rest, boarding or clock authorization.
+ * An unplanned transfer blocks the entire remaining prefix, not just its fare.
+ */
+export function summarizeTransportationOperatingSchedule(legs){
+  if(!Array.isArray(legs)||!legs.length||legs.length>4096)
+    throw Error("A nonempty transportation itinerary is required.");
+  const EPS_HOURS=1e-7;
+  let moving=0,downtime=0,fare=0,dutyUsed=0,blocked=false;
+  const pendingLegIndices=[],legSummaries=[];
+  for(const [position,leg] of legs.entries()){
+    const index=leg?.index??position;
+    const eligible=!blocked&&leg?.selectedOption&&
+      Array.isArray(leg.errors)&&leg.errors.length===0&&
+      ["normal","overtime","continuous"].includes(leg.operation)&&
+      Number.isFinite(leg.hours)&&leg.hours>=0&&
+      Number.isFinite(leg.costCp)&&leg.costCp>=0&&
+      Number.isFinite(leg.dailyHours)&&leg.dailyHours>0&&leg.dailyHours<=24&&
+      Number.isFinite(leg.overnightHours)&&leg.overnightHours>=0&&
+      leg.overnightHours<=24&&
+      (leg.operation!=="continuous"||
+        leg.dailyHours===24&&leg.overnightHours===0);
+    if(!eligible){
+      blocked=true;
+      pendingLegIndices.push(index);
+      legSummaries.push({index,status:"pending"});
+      continue;
+    }
+    let remaining=leg.hours,legDowntime=0;
+    if(leg.operation==="continuous"){
+      // Operators may rotate; passengers are NOT automatically rested.
+      // Keep pre-voyage duty until an actual GM-approved rest is recorded.
+    }else{
+      while(remaining>EPS_HOURS){
+        const available=Math.max(0,leg.dailyHours-dutyUsed);
+        if(available<=EPS_HOURS){
+          legDowntime+=leg.overnightHours;
+          dutyUsed=0;
+          continue;
+        }
+        const portion=Math.min(remaining,available);
+        remaining-=portion;
+        dutyUsed+=portion;
+      }
+    }
+    moving+=leg.hours;
+    downtime+=legDowntime;
+    fare+=Math.round(leg.costCp);
+    legSummaries.push({index,status:"estimated",movingHours:leg.hours,
+      plannedDowntimeHours:legDowntime,elapsedHours:leg.hours+legDowntime,
+      fareCp:Math.round(leg.costCp),operation:leg.operation});
+  }
+  const complete=pendingLegIndices.length===0;
+  return {complete,knownMovingHours:moving,plannedDowntimeHours:downtime,
+    knownElapsedHours:moving+downtime,knownFareCp:fare,
+    totalMovingHours:complete?moving:null,
+    totalElapsedHours:complete?moving+downtime:null,
+    totalFareCp:complete?fare:null,
+    pendingLegIndices,legSummaries};
+}

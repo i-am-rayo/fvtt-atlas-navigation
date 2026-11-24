@@ -13,6 +13,8 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
 import { TRANSPORT_CATALOG_SETTING,defaultTransportationCatalog }
   from "./navigation-transport-catalog.js";
 import { AtlasTransportationSettings } from "./navigation-transport-settings.js";
+import {LIVESTOCK_FARE_PERCENT_SETTING,LIVESTOCK_FARE_PERCENT_DEFAULT}
+  from "./navigation-transport-service.js";
 import { GROUP_TRANSPORT_SETTING,defaultGroupTransportation }
   from "./navigation-group-transport.js";
 import {ATLAS_LEVEL_PLANNER_SETTING} from "./navigation-native-level-model.js";
@@ -27,6 +29,16 @@ export function registerNavigationWorldSettings({settings=game.settings,onPlayba
       "Each Scene must also opt in. Proposed ranges are reviewed and confirmed " +
       "before native Level creation or in-place updates. No road, Region or Token changes.",
     scope:"world",config:true,restricted:true,type:Boolean,default:true
+  });
+  settings.register(MODULE_ID,LIVESTOCK_FARE_PERCENT_SETTING,{
+    name:"Atlas — Mount Boarding Fare (% of Passenger)",
+    hint:"World default for each physical mount boarding hired passenger-priced land, water or air transport. "+
+      "50% means a 10 GP passenger trip costs 5 GP per mount. "+
+      "Transportation methods and individual Journeys can override this estimate. "+
+      "An explicitly configured fixed animal fare remains in effect. "+
+      "Unit-priced hired vehicles have no per-passenger rate to discount.",
+    scope:"world",config:true,restricted:true,type:Number,
+    default:LIVESTOCK_FARE_PERCENT_DEFAULT,range:{min:0,max:200,step:1}
   });
   settings.register(MODULE_ID,TRANSPORT_CATALOG_SETTING,{
     name:"Atlas Transportation Catalog",

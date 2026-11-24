@@ -11,18 +11,19 @@ export const CHECKPOINT_TRANSPORT_MODES=Object.freeze(["land","water","sea","air
 const ID=/^[A-Za-z0-9_-]{1,128}$/;
 const KEYS=["speedMph","capacity","costCp","costBasis","costApplies",
   "purchaseGp","crewCount","crewWageCpPerDay","crewWageBasis","includeCrewWages",
-  "hireEnabled","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
+  "hireEnabled","hireUnlimited","hireQuantity","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
   "overtimeEnabled","overtimeExtraHours","overtimeMultiplier",
-  "continuousEnabled","note"];
+  "continuousEnabled","livestockCapacity","livestockFareCp","livestockFareBasis",
+  "livestockFarePercent","note"];
 const ENUM={
   costBasis:["none","day","mile"],costApplies:["unit","passenger"],
   hireBasis:["trip","mile","day"],hireApplies:["unit","passenger"],
-  crewWageBasis:["day","trip","mile"]
+  crewWageBasis:["day","trip","mile"],livestockFareBasis:["trip","day","mile"]
 };
-const BOOL=new Set(["includeCrewWages","hireEnabled","hireCrewIncluded",
+const BOOL=new Set(["includeCrewWages","hireEnabled","hireUnlimited","hireCrewIncluded",
   "overtimeEnabled","continuousEnabled"]);
-const NONNEG=new Set(["costCp","purchaseGp","crewWageCpPerDay","hireCostCp"]);
-const INTEGER=new Set(["capacity","crewCount","overtimeExtraHours"]);
+const NONNEG=new Set(["costCp","purchaseGp","crewWageCpPerDay","hireCostCp","livestockFareCp"]);
+const INTEGER=new Set(["capacity","crewCount","hireQuantity","overtimeExtraHours","livestockCapacity"]);
 export function validateCheckpointTransportOffers(value){
   if(value==null)return [];
   if(!Array.isArray(value)||value.length>40)throw Error("Too many checkpoint transportation offers.");
@@ -41,20 +42,21 @@ export function validateCheckpointTransportOffers(value){
       if(ENUM[key]){if(!ENUM[key].includes(value))throw Error("Invalid "+key+" override.");}
       else if(BOOL.has(key)){if(typeof value!=="boolean")throw Error("Invalid "+key+" toggle.");}
       else if(key==="note"){if(typeof value!=="string"||value.length>240)throw Error("Invalid transport note.");}
-      else if(key==="purchaseGp"&&value===null){}
+      else if(["purchaseGp","livestockCapacity","livestockFareCp","livestockFarePercent"].includes(key)&&value===null){}
       else if(typeof value!=="number"||!Number.isFinite(value)||
         (NONNEG.has(key)&& (value<0||value>1e8))||
         (INTEGER.has(key)&&!Number.isInteger(value))||
         (key==="capacity"&&(value<1||value>1000))||
+        (key==="livestockCapacity"&&(value<0||value>1000))||
+        (key==="livestockFarePercent"&&(!Number.isInteger(value)||value<0||value>200))||
         (key==="crewCount"&&(value<0||value>1000))||
+         (key==="hireQuantity"&&(value<0||value>100))||
         (key==="overtimeExtraHours"&&(value<1||value>8))||
         (key==="overtimeMultiplier"&&(value<1||value>5))||
         (key==="speedMph"&&(value<0.1||value>600)))
         throw Error("Invalid "+key+" transport override.");
       overrides[key]=value;
     }
-    if(overrides.continuousEnabled&&offer.mode==="land")
-      throw Error("Continuous travel needs a water, sea or air transport.");
     return {methodId:offer.methodId,mode:offer.mode,overrides};
   });
 }
@@ -98,7 +100,9 @@ export function transportationMethodOverrideDelta(base,edited){
   const overrides={};
   for(const key of KEYS){
     const value=edited[key];
-    if(value===undefined||value===base[key]||
+    const baseline=key==="hireUnlimited"?(base[key]??true):
+      key==="hireQuantity"?(base[key]??1):base[key];
+    if(value===undefined||value===baseline||
         (key==="capacity"&&value===null))continue;
     overrides[key]=value;
   }
@@ -112,9 +116,19 @@ export function checkpointOfferMethod(offer,worldMethod){
     (checked.mode==="air"&&worldMethod.surface!=="air")||
     ((checked.mode==="water"||checked.mode==="sea")&&worldMethod.surface!=="water"))
     throw Error("Checkpoint offer surface differs from its World method.");
+  if((worldMethod.kind!=="vehicle"||!["land","water","air"].includes(worldMethod.surface))&&
+      (checked.overrides.livestockCapacity!=null||
+        checked.overrides.livestockFareCp!=null||
+        checked.overrides.livestockFarePercent!=null||
+        checked.overrides.livestockFareBasis!==undefined&&
+          checked.overrides.livestockFareBasis!=="trip"))
+    throw Error("Livestock accommodation settings require a vehicle.");
   if(checked.overrides.continuousEnabled&&worldMethod.kind!=="vehicle")
     throw Error("Continuous travel needs a vehicle.");
-  return {...worldMethod,...checked.overrides};
+  const effective={...worldMethod,hireUnlimited:true,hireQuantity:1,...checked.overrides};
+  if(effective.livestockFareCp!=null&&effective.livestockFarePercent!=null)
+    throw Error("Select either a fixed livestock fare or a passenger percentage.");
+  return effective;
 }
 export function validateCheckpointTransportStore(value){
   if(value==null)return {schemaVersion:CHECKPOINT_TRANSPORT_VERSION,entries:{}};

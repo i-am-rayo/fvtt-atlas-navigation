@@ -5,11 +5,11 @@ import {coordinateNativeTokenMovement}
 
 function nativeHarness({alterDestination=false,alterOrigin=false,
   detour=false,animationNeverEnds=false,alterMovementId=false,
-  documentUpdateTiming="before-hook"}={}){
+  destinationOnly=false,omitHook=false,enablePreflight=false,documentUpdateTiming="before-hook"}={}){
   const listeners=new Map();
   const calls=[];
   const hooks={
-    on(name,fn){assert.equal(name,"moveToken");listeners.set(name,fn);return fn;},
+    on(name,fn){listeners.set(name,fn);return fn;},
     off(name,id){assert.equal(id,listeners.get(name));listeners.delete(name);}
   };
   const token={id:"party",x:0,y:0,stopped:false,moves:0,
@@ -20,12 +20,14 @@ function nativeHarness({alterDestination=false,alterOrigin=false,
     },
     stopMovement(){this.stopped=true;this.release?.();return true;},
     async move(path,options){
+      assert.match(options.id,/^[A-Za-z0-9]{16}$/,"Foundry rejects malformed native IDs");
       this.moves++;
-      assert.equal(path.length,2,"native move() receives destinations, not its origin");
+      assert.equal(path.length,1,"only the next approved destination is submitted");
       for(const [index,to] of path.entries()){
         if(this.stopped)return false;
         const from={x:this.x,y:this.y};
         const destination={x:to.x+(alterDestination?4:0),y:to.y};
+        if(enablePreflight&&listeners.get("preMoveToken")?.(this,{id:options.id,chain:[],origin:from,destination,constrained:false,passed:{waypoints:detour?[{x:from.x+5,y:8},destination]:[destination]},pending:{waypoints:[]}})===false)return false;
         if(documentUpdateTiming==="before-hook")Object.assign(this,destination);
         this.hold=null;this.release=null;
         let endAnimation;
@@ -35,15 +37,18 @@ function nativeHarness({alterDestination=false,alterOrigin=false,
           index?"second-native-id":options.id,
           chain:alterMovementId?[]:index?[options.id]:[],
           origin:alterOrigin?{x:from.x-5,y:from.y}:from,
-          destination,
+          destination,constrained:false,pending:{waypoints:[]},
           passed:{waypoints:detour?[from,{x:from.x+5,y:8},destination]:
             [from,destination]},
           animation:{ended:animationEnded}};
+        if(destinationOnly)movement.passed.waypoints.shift();
+        this.movement={...movement,state:"completed",constrained:false,pending:{waypoints:[]}};
         calls.push(movement);
-        listeners.get("moveToken")(this,movement,{}, {isSelf:true});
+        if(!omitHook)listeners.get("moveToken")(this,movement,{}, {isSelf:true});
         // Live v14 may expose the old document position to moveToken even
         // though the native operation already reports the approved endpoint.
         if(documentUpdateTiming==="after-hook")Object.assign(this,destination);
+        if(documentUpdateTiming!=="never")listeners.get("updateToken")?.(this,{x:this.x,y:this.y});
         endAnimation?.();
         if(this.hold)await this.hold;
       }
@@ -58,12 +63,12 @@ function nativeHarness({alterDestination=false,alterOrigin=false,
   return {token,plan,hooks,calls,listeners};
 }
 
-test("one native TokenDocument.move waits for a durable intent and each confirmed checkpoint",async()=>{
+test("each bounded native move waits for the previous durable checkpoint",async()=>{
   const {token,plan,hooks,calls,listeners}=nativeHarness();
   const order=[];
   let awaitingSave=false;
-  const result=await coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-42",movementSpeed:2,
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000000",movementSpeed:2,
     prepareCheckpoint:async point=>{
       order.push("intent:"+point.index);
       awaitingSave=true;
@@ -79,16 +84,30 @@ test("one native TokenDocument.move waits for a durable intent and each confirme
   });
   assert.deepEqual(order,["intent:0","confirmed:0","intent:1","confirmed:1"]);
   assert.deepEqual(result,{completed:true,confirmed:2,error:null});
-  assert.equal(token.moves,1);
+  assert.equal(token.moves,2);
+  assert.notEqual(calls[0].id,calls[1].id);
   assert.equal(calls.length,2);
   assert.equal(listeners.size,0);
+});
+
+test("bounded native playback preserves the GM's skip-animation preference",async()=>{
+  const {token,plan,hooks}=nativeHarness();
+  let seen=null;
+  const move=token.move.bind(token);
+  token.move=(waypoints,options)=>{seen=options.animate;return move(waypoints,options);};
+  const one={path:plan.path.slice(0,2),checkpoints:[plan.checkpoints[0]]};
+  const result=await coordinateNativeTokenMovement({token,plan:one,hooks,
+    operationId:"SkipAnimation001",movementSpeed:1,animate:false,
+    prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{}});
+  assert.equal(result.completed,true);
+  assert.equal(seen,false,"only playback animation is skipped, never native movement");
 });
 
 test("a failed Journal confirmation stops native movement and never credits another checkpoint",async()=>{
   const {token,plan,hooks,listeners}=nativeHarness();
   const confirmed=[];
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-43",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000001",movementSpeed:2,
     prepareCheckpoint:async()=>{},
     confirmCheckpoint:async(point)=>{
       confirmed.push(point.index);
@@ -104,8 +123,8 @@ test("native moveToken may precede the TokenDocument update without rejecting th
   const {token,plan,hooks,listeners}=nativeHarness({documentUpdateTiming:"after-hook"});
   const observed=[];
   const confirmed=[];
-  const result=await coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-delayed-document",movementSpeed:2,
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000002",movementSpeed:2,
     prepareCheckpoint:async()=>{},
     confirmCheckpoint:async checkpoint=>{
       assert.deepEqual({x:token.x,y:token.y},checkpoint.point,
@@ -133,8 +152,8 @@ test("native arrival that never updates TokenDocument remains unconfirmed after 
   plan.checkpoints[0].segmentId="water-segment";
   const observed=[];
   let confirmed=0;
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-missing-document",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000003",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;},
     onCheckpointDiagnostics:event=>observed.push(event)
   }),/TokenDocument missed its approved checkpoint/);
@@ -150,14 +169,14 @@ test("native arrival that never updates TokenDocument remains unconfirmed after 
   assert.deepEqual(blocked?.details.tokenDocument,{x:0,y:0});
   assert.equal(blocked?.details.roadId,"water-route");
   assert.equal(blocked?.details.segmentId,"water-segment");
-  assert.equal(blocked?.details.nativeCheckpointKey,"atlas-native-missing-document:0");
+  assert.equal(blocked?.details.nativeCheckpointKey,"AtlasTest0000003:0");
 });
 
 test("a redirected native checkpoint stops without accepting visually close-enough progress",async()=>{
   const {token,plan,hooks}=nativeHarness({alterDestination:true});
   let confirmed=0;
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-44",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000004",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;}
   }),/does not match the approved native checkpoint/);
   assert.equal(confirmed,0);
@@ -168,14 +187,14 @@ test("a reported full-path origin is reconciled only with an exact passed approv
   const {token,plan,hooks}=nativeHarness({alterOrigin:true,
     documentUpdateTiming:"after-hook"});
   const observed=[];
-  const result=await coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-verified",movementSpeed:2,
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000005",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{},
     onCheckpointDiagnostics:event=>observed.push(event)
   });
   assert.equal(result.confirmed,2);
   assert.ok(observed.every(event=>event.details.reconciledFromPassed));
-  assert.equal(observed[0].details.nativeCheckpointKey,"atlas-native-verified:0");
+  assert.equal(observed[0].details.nativeCheckpointKey,"AtlasTest0000005:0");
   assert.deepEqual(observed[0].details.expectedFrom,{x:0,y:0});
   assert.deepEqual(observed[0].details.nativeOrigin,{x:-5,y:0});
   assert.equal(observed[0].details.documentMatches,false);
@@ -185,8 +204,8 @@ test("a reported full-path origin is reconciled only with an exact passed approv
 test("a native passed-path detour is rejected even if its final endpoint matches",async()=>{
   const {token,plan,hooks}=nativeHarness({alterOrigin:true,detour:true});
   const observed=[];
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-detour",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000006",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{},
     onCheckpointDiagnostics:event=>observed.push(event)
   }),/does not match the approved native checkpoint/);
@@ -202,8 +221,8 @@ test("native checkpoint failures report Atlas checkpoint and road IDs with both 
   plan.checkpoints[0].segmentId="segment-ship";
   plan.checkpoints[0].atlasCheckpointId="checkpoint-harbor";
   const observed=[];
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-coordinates",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000007",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{},
     onCheckpointDiagnostics:event=>observed.push(event)
   }),/does not match the approved native checkpoint/);
@@ -217,12 +236,14 @@ test("native checkpoint failures report Atlas checkpoint and road IDs with both 
   assert.deepEqual(observed[0].details.failedChecks,["destination"],
     "only immutable native-path mismatches block at the movement hook");
   assert.equal(observed[0].details.observationPhase,"move-hook");
-  assert.equal(observed[0].details.nativeOperationId,"atlas-native-coordinates");
-  assert.equal(observed[0].details.nativeCheckpointKey,"atlas-native-coordinates:0");
+  assert.equal(observed[0].details.nativeOperationId,"AtlasTest0000007");
+  assert.equal(observed[0].details.nativeCheckpointKey,"AtlasTest0000007:0");
   assert.deepEqual(observed[0].details.expectedFrom,{x:0,y:0});
   assert.deepEqual(observed[0].details.nativeOrigin,{x:0,y:0});
   assert.deepEqual(observed[0].details.tokenDocument,{x:14,y:0});
-  assert.equal(observed[0].details.pendingWaypointCount,null);
+  assert.equal(observed[0].details.pendingWaypointCount,0);
+  assert.deepEqual(observed[0].details.approvedPath,[{x:0,y:0},{x:10,y:0}]);
+  assert.deepEqual(observed[0].details.passedWaypoints,[{x:0,y:0},{x:14,y:0}]);
   assert.equal(observed[0].details.nativeSubpathId,null);
   const exported=JSON.parse(JSON.stringify(observed[0].details));
   assert.deepEqual(exported.failedChecks,["destination"],
@@ -234,8 +255,8 @@ test("a foreign native movement ID emits an actionable failure without Journal c
   const {token,plan,hooks}=nativeHarness({alterMovementId:true});
   const observed=[];
   let confirmed=0;
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-owned",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000008",movementSpeed:2,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;},
     onCheckpointDiagnostics:event=>observed.push(event)
   }),/Another native movement displaced/);
@@ -244,14 +265,14 @@ test("a foreign native movement ID emits an actionable failure without Journal c
   assert.equal(observed[0].details.failureReason,"foreign-native-movement-id");
   assert.deepEqual(observed[0].details.failedChecks,["movement-id"]);
   assert.equal(observed[0].details.nativeMovementId,"foreign-token-move");
-  assert.equal(observed[0].details.nativeOperationId,"atlas-native-owned");
+  assert.equal(observed[0].details.nativeOperationId,"AtlasTest0000008");
   assert.deepEqual(observed[0].details.expectedTo,{x:10,y:0});
 });
 
 test("preparation fails before any native Document position changes",async()=>{
   const {token,plan,hooks,listeners}=nativeHarness();
-  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-45",movementSpeed:2,
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000009",movementSpeed:2,
     prepareCheckpoint:async()=>{throw Error("Journal unavailable");},
     confirmCheckpoint:async()=>{}
   }),/Journal unavailable/);
@@ -264,8 +285,8 @@ test("canvas abort stops a movement whose native animation promise never settles
   const {token,plan,hooks,listeners}=nativeHarness({animationNeverEnds:true});
   const abort=new AbortController();
   let confirmed=0;
-  const pending=coordinateNativeTokenMovement({token,plan,hooks,
-    operationId:"atlas-native-abort",movementSpeed:2,signal:abort.signal,
+  const pending=coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000010",movementSpeed:2,signal:abort.signal,
     prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;}
   });
   for(let index=0;index<100&&token.x===0;index++)await Promise.resolve();
@@ -275,4 +296,259 @@ test("canvas abort stops a movement whose native animation promise never settles
   assert.equal(token.stopped,true);
   assert.equal(confirmed,0);
   assert.equal(listeners.size,0);
+});
+
+test("redraw during the next intent cannot release an unsent native waypoint suffix",async()=>{
+  const {token,plan,hooks,listeners}=nativeHarness();
+  const abort=new AbortController();
+  const confirmed=[];
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,createOperationId:()=>"NextMovement0001",
+    operationId:"AtlasTest0000011",movementSpeed:2,signal:abort.signal,
+    prepareCheckpoint:async checkpoint=>{if(checkpoint.index===1)abort.abort();},
+    confirmCheckpoint:async checkpoint=>confirmed.push(checkpoint.index)
+  });
+  assert.equal(result.completed,false);
+  assert.deepEqual(confirmed,[0]);
+  assert.equal(token.moves,1);
+  assert.equal(token.x,10);
+  assert.equal(listeners.size,0);
+});
+
+test("malformed or repeated native IDs cannot persist an intent or submit its move",async()=>{
+  for(const invalid of ["STnppSz0mQzxlkL4-1","STnppSz0mQzxlkL4"]){
+    const {token,plan,hooks}=nativeHarness();
+    const intents=[];
+    await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
+      operationId:"STnppSz0mQzxlkL4",createOperationId:()=>invalid,movementSpeed:2,
+      prepareCheckpoint:async(checkpoint,id)=>intents.push([checkpoint.index,id]),
+      confirmCheckpoint:async()=>{}
+    }),/Invalid or repeated native movement ID/);
+    assert.deepEqual(intents,[[0,"STnppSz0mQzxlkL4"]]);
+    assert.equal(token.moves,1);
+  }
+});
+
+test("normal native confirmation accepts destination-only waypoints but rejects a detour with the correct origin",async()=>{
+  for(const detour of [false,true]){
+    const {token,plan,hooks}=nativeHarness({destinationOnly:true,detour});
+    let confirmed=0;
+    const result=coordinateNativeTokenMovement({token,plan,hooks,
+      operationId:"AtlasTest0000012",createOperationId:()=>"NextMovement0001",movementSpeed:2,
+      prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;}
+    });
+    if(detour){
+      await assert.rejects(result,/does not match the approved native checkpoint/);
+      assert.equal(confirmed,0);
+    }else{
+      assert.equal((await result).completed,true);
+      assert.equal(confirmed,2);
+    }
+  }
+});
+
+test("native completion can confirm a missed movement hook without an animation signal",async()=>{
+  const {token,plan,hooks,listeners}=nativeHarness({destinationOnly:true,
+    omitHook:true,animationNeverEnds:true});
+  const order=[];
+  const result=await coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"AtlasTest0000013",createOperationId:()=>"NextMovement0001",movementSpeed:2,
+    prepareCheckpoint:async checkpoint=>order.push("intent:"+checkpoint.index),
+    confirmCheckpoint:async(checkpoint,movement)=>{
+      assert.equal(token.x,checkpoint.point.x);
+      assert.equal(movement.state,"completed");
+      order.push("confirmed:"+checkpoint.index);
+    }
+  });
+  assert.equal(result.completed,true);
+  assert.deepEqual(order,["intent:0","confirmed:0","intent:1","confirmed:1"]);
+  assert.equal(listeners.size,0);
+});
+
+test("preMoveToken rejects unauthorized finalized native geometry before movement",async()=>{
+  const {token,plan,hooks,listeners}=nativeHarness({detour:true,enablePreflight:true});
+  let confirmed=0;
+  await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"AtlasTest0000014",createOperationId:()=>"NextMovement0001",movementSpeed:2,
+    prepareCheckpoint:async()=>{},confirmCheckpoint:async()=>{confirmed++;}
+  }),/does not match the approved native checkpoint/);
+  assert.equal(confirmed,0);
+  assert.equal(token.x,0,"preflight must prevent the unauthorized document update");
+  assert.equal(listeners.size,0);
+});
+
+test("verified document arrival is saved before the visual animation finishes",async()=>{
+  const {token,plan,hooks,listeners}=nativeHarness({destinationOnly:true,
+    animationNeverEnds:true,documentUpdateTiming:"after-hook"});
+  const controller=new AbortController(),events=[];
+  // Abort even on the unfixed implementation; the event assertion then fails.
+  const fallback=setImmediate(()=>controller.abort());
+  try{await assert.rejects(coordinateNativeTokenMovement({token,plan,hooks,
+    operationId:"AtlasTest0000015",createOperationId:()=>"NextMovement0001",movementSpeed:2,
+    signal:controller.signal,
+    prepareCheckpoint:async()=>events.push("intent"),
+    recordCheckpointEvidence:async(checkpoint,movement)=>{
+      assert.equal(token.x,checkpoint.point.x);
+      assert.equal(movement.id,"AtlasTest0000015");
+      events.push("evidence");
+      controller.abort();
+    },
+    confirmCheckpoint:async()=>events.push("clock/confirmation")
+  }),/cancelled|stopped|interrupted/);}finally{clearImmediate(fallback);}
+  assert.deepEqual(events,["intent","evidence"]);
+  assert.equal(token.moves,1);
+  assert.equal(listeners.size,0);
+});
+
+test("captured dev.22 native path passes preflight, move hook and endpoint persistence",async()=>{
+  const from={x:3763,y:1675},bend={x:3816,y:1716},to={x:3823,y:1720};
+  const id="AWT1ypT9qflk7VTs";
+  const listeners=new Map(),order=[];
+  const hooks={on(name,fn){listeners.set(name,fn);return fn;},
+    off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+  const movement={id,chain:[],origin:from,destination:to,constrained:false,
+    passed:{waypoints:[{x:3798,y:1697,intermediate:true,snapped:true,
+      explicit:false,checkpoint:false,movementId:id,subpathId:id},
+      {...bend,movementId:id},{...to,movementId:id}]},pending:{waypoints:[]},
+    animation:{ended:Promise.resolve()}};
+  const token={...from,stopMovement(){throw Error("Approved native movement must not stop");},
+    getCompleteMovementPath(){return [from,{x:3798,y:1697},bend,to];},
+    async move(path,options){
+      assert.deepEqual(path,[bend,to]);assert.equal(options.id,id);
+      assert.notEqual(listeners.get("preMoveToken")(this,movement),false);
+      listeners.get("moveToken")(this,movement);
+      Object.assign(this,to);
+      listeners.get("updateToken")(this);
+      this.movement={...movement,state:"completed"};
+      return true;
+    }};
+  const result=await coordinateNativeTokenMovement({token,hooks,operationId:id,
+    movementSpeed:2,plan:{path:[from,bend,to],
+      checkpoints:[{index:0,from,point:to,distance:74.80603416676962}]},
+    prepareCheckpoint:async()=>order.push("intent"),
+    recordCheckpointEvidence:async()=>order.push("evidence"),
+    confirmCheckpoint:async()=>order.push("confirmation")});
+  assert.equal(result.completed,true);
+  assert.deepEqual(order,["intent","evidence","confirmation"]);
+  assert.equal(listeners.size,0);
+});
+
+test("dev.23 recovery accepts only the independently expanded native path",async()=>{
+  const from={x:3891,y:1748},to={x:3963,y:1769};
+  const intermediate={x:3896,y:1782,intermediate:true,snapped:true,explicit:false,checkpoint:false};
+  const id="avS46ySeX8hYrImD";
+  for(const altered of [false,true]){
+    const listeners=new Map(),order=[];
+    const hooks={on(name,fn){listeners.set(name,fn);return fn;},
+      off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+    const movement={id,chain:[],origin:from,destination:to,constrained:false,
+      passed:{waypoints:[{...intermediate,y:altered?1794:1782,movementId:id},
+        {...to,movementId:id}]},pending:{waypoints:[]},animation:{ended:Promise.resolve()}};
+    const token={...from,stopMovement(){return true;},
+      getCompleteMovementPath(){return [from,intermediate,to];},
+      async move(path){
+        assert.deepEqual(path,[to],"submit the authored path, not the expanded one");
+        if(listeners.get("preMoveToken")(this,movement)===false)return false;
+        Object.assign(this,to);listeners.get("moveToken")(this,movement);
+        listeners.get("updateToken")(this);
+        return true;
+      }};
+    const run=coordinateNativeTokenMovement({token,hooks,operationId:id,movementSpeed:2,
+      plan:{path:[from,to],checkpoints:[{index:0,from,point:to,distance:75}]},
+      prepareCheckpoint:async(_checkpoint,_id,path,nativePath)=>{
+        assert.deepEqual(path,[from,to]);
+        assert.deepEqual(nativePath,[from,{x:3896,y:1782},to]);
+        order.push("intent");
+      },
+      recordCheckpointEvidence:async()=>order.push("evidence"),
+      confirmCheckpoint:async()=>order.push("confirmation")});
+    if(altered){
+      await assert.rejects(run,/does not match the approved native checkpoint/);
+      assert.deepEqual({x:token.x,y:token.y},from);
+      assert.deepEqual(order,["intent"]);
+    }else{
+      assert.equal((await run).completed,true);
+      assert.deepEqual(order,["intent","evidence","confirmation"]);
+    }
+    assert.equal(listeners.size,0);
+  }
+});
+
+test("canvas suspension leaves the submitted move alive and releases no successor",async()=>{
+  const from={x:0,y:0},to={x:10,y:0},last={x:20,y:0},id="SuspendVoyage001";
+  const listeners=new Map(),events=[],suspension=new AbortController();
+  let submitted,settle,stopCalls=0;
+  const entered=new Promise(resolve=>{submitted=resolve;});
+  const release=new Promise(resolve=>{settle=resolve;});
+  const hooks={on(name,fn){listeners.set(name,fn);return fn;},
+    off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+  const token={...from,stopMovement(){stopCalls++;return true;},
+    async move(){
+      events.push("submitted");submitted();await release;
+      const movement={id,state:"completed",chain:[],origin:from,destination:to,
+        constrained:false,passed:{waypoints:[{...to,movementId:id}]},
+        pending:{waypoints:[]},animation:{ended:new Promise(()=>{})}};
+      Object.assign(this,to);this.movement=movement;
+      listeners.get("moveToken")(this,movement);listeners.get("updateToken")(this);
+      return true;
+    }};
+  const run=coordinateNativeTokenMovement({token,hooks,operationId:id,movementSpeed:2,
+    suspensionSignal:suspension.signal,
+    shouldStop:()=>suspension.signal.aborted,
+    plan:{path:[from,to,last],checkpoints:[
+      {index:0,from,point:to,distance:10},{index:1,from:to,point:last,distance:10}]},
+    prepareCheckpoint:async()=>events.push("intent"),
+    recordCheckpointEvidence:async()=>events.push("evidence"),
+    confirmCheckpoint:async()=>events.push("confirmed")});
+  // Give an unfixed implementation a deterministic termination route too.
+  const result=run.catch(error=>({error}));
+  await entered;suspension.abort();settle();
+  const timeout=await Promise.race([result,new Promise(resolve=>setImmediate(()=>resolve(null)))]);
+  assert.ok(timeout,"suspension must not depend on a lost visual animation");
+  assert.equal(timeout.completed,false);
+  assert.equal(stopCalls,0);
+  assert.deepEqual(events,["intent","submitted","evidence"]);
+  assert.equal(token.x,10);
+  assert.equal(listeners.size,0);
+});
+
+test("canvas suspension during intent persistence does not submit a native move",async()=>{
+  const from={x:0,y:0},to={x:10,y:0},id="SuspendVoyage002";
+  const suspension=new AbortController(),listeners=new Map();
+  let moves=0,stops=0;
+  const hooks={on(name,fn){listeners.set(name,fn);return fn;},
+    off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+  const token={...from,move(){moves++;return Promise.resolve(true);},
+    stopMovement(){stops++;return true;}};
+  const result=await coordinateNativeTokenMovement({token,hooks,operationId:id,movementSpeed:2,
+    suspensionSignal:suspension.signal,
+    plan:{path:[from,to],checkpoints:[{index:0,from,point:to,distance:10}]},
+    prepareCheckpoint:async()=>suspension.abort(),
+    confirmCheckpoint:async()=>assert.fail("unsubmitted movement must not be confirmed")});
+  assert.equal(result.completed,false);assert.equal(moves,0);assert.equal(stops,0);
+  assert.equal(listeners.size,0);
+});
+
+test("canvas suspension preserves a settled partial operation for review, not full confirmation",async()=>{
+  const from={x:0,y:0},to={x:10,y:0},actual={x:4,y:0},id="SuspendVoyage003";
+  const suspension=new AbortController(),listeners=new Map(),events=[];
+  let stops=0;
+  const hooks={on(name,fn){listeners.set(name,fn);return fn;},
+    off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+  const movement={id,state:"completed",chain:[],origin:from,destination:actual,
+    constrained:false,passed:{waypoints:[{...actual,movementId:id}]},pending:{waypoints:[]}};
+  const token={...from,stopMovement(){stops++;return true;},async move(){
+    suspension.abort();Object.assign(this,actual);this.movement=movement;
+    listeners.get("moveToken")(this,movement);listeners.get("updateToken")(this);
+    return false;
+  }};
+  const result=await coordinateNativeTokenMovement({token,hooks,operationId:id,movementSpeed:2,
+    suspensionSignal:suspension.signal,shouldStop:()=>suspension.signal.aborted,
+    plan:{path:[from,to],checkpoints:[{index:0,from,point:to,distance:10}]},
+    prepareCheckpoint:async()=>events.push("intent"),
+    recordSuspendedEvidence:async(_checkpoint,observed)=>{
+      assert.deepEqual(observed,movement);events.push("partial");
+    },
+    confirmCheckpoint:async()=>assert.fail("partial move is not a full checkpoint")});
+  assert.equal(result.completed,false);assert.deepEqual(events,["intent","partial"]);
+  assert.equal(stops,0);assert.equal(token.x,4);assert.equal(listeners.size,0);
 });

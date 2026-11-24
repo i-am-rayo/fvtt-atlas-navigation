@@ -1,15 +1,21 @@
-/**
- * D&D5e Group preview only. Native Group Actor and its assigned explorer Token
- * own the full party; a subset cannot authorize that Token to move.
- */
+/** Native Group membership is read-only; traveler participation belongs to a Journey. */
 const validId=value=>typeof value==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(value);
 
-export function partyCharacterRoster(roster){
+/** NPC companions remain listed even when they share a seat with a traveler. */
+export function partyTravelerRoster(roster){
   if(!Array.isArray(roster?.members))return [];
-  return roster.members.filter(m=>m.actorType==="character"&&
-    m.role==="passenger"&&validId(m.actorId)).map(m=>({
-    id:m.actorId,name:String(m.actorName??"Unnamed PC").slice(0,120)
-  })).sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+  return roster.members.filter(m=>m.role==="passenger"&&
+    ["character","npc"].includes(m.actorType)&&validId(m.actorId))
+    .map(m=>({id:m.actorId,name:String(m.actorName??"Unnamed traveler").slice(0,120),
+      type:m.actorType,seats:m.actorType==="character"||m.needsSeat!==false?
+        (Number.isInteger(m.quantity)&&m.quantity>0?m.quantity:1):0}))
+    .sort((a,b)=>a.type===b.type?
+      a.name.localeCompare(b.name)||a.id.localeCompare(b.id):
+      a.type==="character"?-1:1);
+}
+export function partyCharacterRoster(roster){
+  return partyTravelerRoster(roster).filter(m=>m.type==="character")
+    .map(({id,name})=>({id,name}));
 }
 
 export function projectPartyTravelSelection(roster,{mode="all",ids=[]}={}){
@@ -19,17 +25,22 @@ export function projectPartyTravelSelection(roster,{mode="all",ids=[]}={}){
       ids.length>150||ids.some(x=>!validId(x))||
       new Set(ids).size!==ids.length)
     throw Error("Invalid GM party-member selection.");
-  const members=partyCharacterRoster(roster),known=new Set(members.map(x=>x.id));
-  const selected=mode==="all"?members.map(x=>x.id):
-    ids.filter(id=>known.has(id));
-  const additionalPassengers=Math.max(0,roster.travelers-members.length);
-  const count=mode==="all"?roster.travelers:selected.length+additionalPassengers;
+  const members=partyTravelerRoster(roster),known=new Set(members.map(x=>x.id));
+  if(mode==="selected"&&ids.some(id=>!known.has(id)))
+    throw Error("The Group roster changed. Review the traveler selection.");
+  const selected=mode==="all"?members.map(x=>x.id):ids;
+  const chosen=new Set(selected);
+  const count=members.reduce((sum,m)=>sum+(chosen.has(m.id)?m.seats:0),0);
+  const pcCount=members.filter(m=>m.type==="character").length;
+  const npcCount=members.length-pcCount;
   const partial=mode==="selected"&&selected.length<members.length;
   return {
-    members,selectedIds:selected,pcCount:members.length,travelerCount:count,
-    additionalPassengers,partial,empty:count===0,
-    // Only the preview count differs; never mutate native Group/Actor state.
-    previewRoster:{...roster,travelers:count}
+    members,selectedIds:selected,pcCount,npcCount,travelerCount:count,
+    selectedPcCount:members.filter(m=>m.type==="character"&&chosen.has(m.id)).length,
+    selectedNpcCount:members.filter(m=>m.type==="npc"&&chosen.has(m.id)).length,
+    partial,empty:selected.length===0,
+    // Only the Journey decides participation; native Group membership is unchanged.
+    previewRoster:{...roster,travelers:count,selectedTravelerIds:selected}
   };
 }
 
@@ -40,12 +51,19 @@ export function describeTravelMethodCapacity({choice,roster=null,capacity=null}=
     if(!capacity)return "Capacity not configured";
     const units=capacity.quantity??0,seats=capacity.unknown?
       "? seats":(capacity.seats??0)+" seats";
-    return units+" available · "+seats;
+    return units+" available · "+seats+
+      (roster?.travelers!=null?" · "+roster.travelers+" seats needed":"");
   }
   if(choice.value.startsWith("hire|")){
     const perUnit=Number(choice.methodCapacity);
-    return Number.isFinite(perUnit)&&perUnit>0?
-      "Offered · "+perUnit+" seats/unit":"Service offered · seats unverified";
+    if(!Number.isFinite(perUnit)||perUnit<=0)
+      return "Service offered · seats unverified";
+    const stock=choice.methodUnlimited!==false?"Unlimited":
+      String(choice.methodQuantity??0)+" available";
+    const required=roster?.travelers!=null?Math.ceil(roster.travelers/perUnit):null;
+    return "Offered · "+perUnit+" seats/unit · "+stock+
+      (required!==null?" · "+roster.travelers+" seats needed ("+
+        required+" unit(s) required)":"");
   }
   return "";
 }

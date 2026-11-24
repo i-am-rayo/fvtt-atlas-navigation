@@ -98,10 +98,16 @@ export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
         (!methodAssessment?.guided&&!assistedLegReady||repeatingCheckpoint))||
         phase==="ending"||phase==="pausing"||phase==="rest-applying"||
         phase==="rest-holding"||phase==="rest-error";
-      move.title=partySplitBlocked&&!nav.travelSession?
-        "Subset planning does not authorize moving the entire assigned party token":
-        phase==="paused"?"Resume the paused journey":phase==="moving"?
-        "Pause after the current short road stretch":moveLabel;
+      const leg=transferPlan?.hasTransitions?transferPlan.legs?.[0]:null;
+      const blockReason=!nav.travelSession&&move.disabled?(
+        pendingNativeReview?"Native movement needs GM recovery review before another Journey.":
+        partySplitBlocked?"Select at least one valid traveler before approving movement.":
+        repeatingCheckpoint?"The party has already arrived at this checkpoint; choose an onward destination.":
+        leg?.errors?.length?leg.errors.join(" "):
+        leg&&!assistedLegReady?"Choose valid transportation and an authored arrival checkpoint before travel.":
+        methodAssessment?.reason??"Travel is not ready for approval."):null;
+      move.title=blockReason??(phase==="paused"?"Resume the paused journey":
+        phase==="moving"?"Pause after the current short road stretch":moveLabel);
       move.addEventListener("click",()=>{
         if(nav.travelSession){
           const ok=nav.travelSession.phase==="paused"?nav.resumeGuidedTravel():
@@ -116,6 +122,15 @@ export function renderNavigationFooter(nav,{partyMode=false,transferPlan=null,
         });
       });
       row.appendChild(move);
+      if(blockReason){
+        const info=document.createElement("small");
+        info.id="atlas-navigation-play-blocker";
+        info.textContent="Play unavailable: "+blockReason;
+        info.style.cssText="flex-basis:100%;opacity:.85;line-height:1.35;"+
+          "font-size:.78em;overflow-wrap:anywhere;";
+        move.setAttribute?.("aria-describedby",info.id);
+        row.appendChild(info);
+      }
     }
     if(nav.travelSession?.phase==="paused"){
       const session=nav.travelSession,rules=session.schedule.rules;

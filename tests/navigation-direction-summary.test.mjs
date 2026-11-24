@@ -48,3 +48,15 @@ test("actual large change of Roads emits the correct turn direction",()=>{
     destinationLabel:"Road to Dirwest"});
   assert.deepEqual(markers.map(m=>m.label),["Turn left toward Dirwest"]);
 });
+
+test("merging road directions cannot convert invalid travel hours into zero-hour advice",()=>{
+  const rows=[{kind:"direction",direction:"north",instruction:"Follow Road A",
+      distanceValue:1,hoursValue:null,info:"1 mi · time unavailable"},
+    {kind:"direction",direction:"north",instruction:"Follow Road A",
+      distanceValue:2,hoursValue:null,info:"2 mi · time unavailable"}];
+  const result=compactNavigationDirectionRows(rows,{
+    formatDistance:n=>n+" mi",formatHours:n=>n+"h"});
+  assert.equal(result.length,1);
+  assert.equal(result[0].hoursValue,null);
+  assert.equal(result[0].info,"3 mi · time unavailable");
+});

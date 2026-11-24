@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {projectPartyTravelSelection} from "../scripts/navigation-party-selection.js";
 import {
   defaultGroupTransportation,validateGroupTransportation,
-  setGroupTransportationMember,projectGroupTransportation,groupTravelCapacityStatus,
+  setGroupTransportationMember,setGroupTransportationMembers,eligibleGroupRiders,
+  projectGroupTransportation,groupTravelCapacityStatus,
   groupMethodCapacityStatus,groupMethodFareEstimate,effectiveGroupResourceMethod,
   readGroupTransportation
 } from "../scripts/navigation-group-transport.js";
@@ -87,7 +89,7 @@ test("legacy v1 Group assignments are normalized without writing or losing quant
   const changes=[];
   const settings={get:()=>old,set:(...args)=>changes.push(args)};
   const migrated=readGroupTransportation(settings);
-  assert.equal(migrated.version,4);
+  assert.equal(migrated.version,7);
   assert.equal(migrated.groups.group1.members.camel1.quantity,3);
   assert.equal(migrated.groups.group1.members.camel1.profileId,null);
   assert.deepEqual(changes,[],"read must not persist migration");
@@ -116,7 +118,7 @@ test("legacy v2 Group settings upgrade in memory and preserve stable profiles",(
     camel1:{role:"mount",quantity:2,capacity:1,surface:"land",profileId:"camel"}
   }}}};
   const migrated=validateGroupTransportation(previous);
-  assert.equal(migrated.version,4);
+  assert.equal(migrated.version,7);
   assert.equal(migrated.groups.group1.members.camel1.profileId,"camel");
   assert.equal(migrated.groups.group1.members.camel1.speedMphOverride,null);
   assert.equal(previous.version,2,"migrating is read-only");
@@ -163,7 +165,7 @@ test("v3 speed overrides migrate read-only into v4 with World prices inherited",
   }}}};
   const migrated=validateGroupTransportation(previous);
   const item=migrated.groups.group1.members.camel1;
-  assert.equal(migrated.version,4);
+  assert.equal(migrated.version,7);
   assert.equal(item.speedMphOverride,3.75);
   assert.equal(item.costCpOverride,null);
   assert.equal(item.purchaseGpOverride,null);
@@ -234,4 +236,279 @@ test("optional per-unit crew wages appear in the owned Group navigation quote",(
   const noWages=groupMethodFareEstimate(projected,{...method,includeCrewWages:false},
     {distanceMi:100,hours:40,dayHours:24});
   assert.equal(noWages.amount,0,"crew costs remain off by default");
+});
+
+
+test("linked World capacity is inherited while explicit Group seats win",()=>{
+  const profile={id:"warship",name:"Warship",kind:"vehicle",surface:"water",
+    capacity:45,speedMph:3,costCp:0,costBasis:"none",costApplies:"unit"};
+  let saved=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship1",
+    {role:"unassigned",quantity:2,capacity:null,surface:"water",profileId:"warship"});
+  let p=projectGroupTransportation(group([pc,warship]),saved,[profile]);
+  assert.equal(p.members.find(m=>m.actorId==="ship1").capacity,45);
+  assert.equal(groupMethodCapacityStatus(p,profile).seats,90);
+  p=projectGroupTransportation(group([pc,warship]),saved,[{...profile,capacity:12}]);
+  assert.equal(groupMethodCapacityStatus(p,profile).seats,24,
+    "inherited capacity changes with the World preset");
+  saved=setGroupTransportationMember(saved,"group1","ship1",
+    {role:"unassigned",quantity:2,capacity:17,surface:"water",profileId:"warship"});
+  p=projectGroupTransportation(group([pc,warship]),saved,[{...profile,capacity:12}]);
+  assert.equal(groupMethodCapacityStatus(p,profile).seats,34,
+    "explicitly saved Group capacity remains stable");
+});
+
+test("v4 reads default to included; v5 exclusion survives World/Group projection and matching",()=>{
+  const old={version:4,groups:{group1:{members:{ship1:{
+    role:"unassigned",quantity:1,capacity:30,surface:"water",profileId:"warship"
+  }}}}};
+  const normalized=validateGroupTransportation(old);
+  assert.equal(normalized.version,7);
+  assert.equal(normalized.groups.group1.members.ship1.enabled,true);
+  const excluded=setGroupTransportationMember(normalized,"group1","ship1",{
+    ...normalized.groups.group1.members.ship1,enabled:false
+  });
+  const p=projectGroupTransportation(group([pc,warship]),excluded);
+  assert.equal(p.capacityBySurface.water,0);
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",
+    speedMph:3,costCp:5,costBasis:"day",costApplies:"unit"};
+  assert.equal(groupMethodCapacityStatus(p,method).seats,0);
+  assert.equal(groupMethodFareEstimate(p,method,{hours:8,distanceMi:10,dayHours:8}).amount,0);
+  assert.throws(()=>setGroupTransportationMember(normalized,"group1","ship1",{
+    ...normalized.groups.group1.members.ship1,enabled:"false"
+  }),/Invalid/);
+});
+
+test("legacy v5 personal mounts normalize without writes; IDs survive rename",()=>{
+  const old={version:5,groups:{group1:{members:{
+    camel1:{role:"mount",quantity:1,capacity:1,surface:"land",profileId:"camel"}
+  }}}};
+  const validated=validateGroupTransportation(old);
+  assert.equal(validated.version,7);
+  assert.equal(validated.groups.group1.members.camel1.assignedTo,null);
+  assert.equal(old.version,5,"legacy settings must not migrate on read");
+  const saved=setGroupTransportationMember(validated,"group1","camel1",{
+    ...validated.groups.group1.members.camel1,assignedTo:"pc1"
+  });
+  assert.equal(saved.groups.group1.members.camel1.assignedTo,"pc1");
+  const renamed=actor("pc1","Cassian Renamed","character");
+  const projection=projectGroupTransportation(group([renamed,camel]),saved);
+  assert.equal(projection.members.find(m=>m.actorId==="camel1").assignedTo,"pc1");
+  assert.deepEqual(eligibleGroupRiders(projection),[{id:"pc1",name:"Cassian Renamed"}]);
+  assert.equal(groupTravelCapacityStatus(projection,"land").seats,1);
+});
+
+test("personal mount only counts for its actual selected rider, not another PC",()=>{
+  const second=actor("pc2","Lucious","character");
+  const method={id:"camel",name:"Camel",kind:"mount",surface:"land",
+    speedMph:3,costCp:9,costBasis:"day",costApplies:"unit"};
+  const saved=setGroupTransportationMember(defaultGroupTransportation(),"group1","camel1",
+    {role:"mount",quantity:1,capacity:2,surface:"land",
+      profileId:"camel",assignedTo:"pc1"});
+  const projection=projectGroupTransportation(group([pc,second,camel]),saved,[method]);
+  const full=groupMethodCapacityStatus(projection,method);
+  assert.equal(full.seats,1,"a personal mount never gives extra seats to other riders");
+  assert.equal(full.missing,1);
+  assert.equal(full.sufficient,false);
+  const notRider={...projection,travelers:1,selectedTravelerIds:["pc2"]};
+  const noSeat=groupMethodCapacityStatus(notRider,method);
+  assert.equal(noSeat.seats,0);
+  assert.equal(noSeat.matched,0,"not offered as available transport to the other PC");
+  assert.equal(groupTravelCapacityStatus(notRider,"land").seats,0);
+  const noFare=groupMethodFareEstimate(notRider,method,
+    {hours:8,distanceMi:20,dayHours:8});
+  assert.equal(noFare.amount,0,"do not charge upkeep for an absent personal rider");
+  assert.equal(noFare.breakdown.length,0);
+  const rider={...projection,travelers:1,selectedTravelerIds:["pc1"]};
+  assert.equal(groupMethodCapacityStatus(rider,method).seats,1);
+  assert.equal(groupMethodCapacityStatus(rider,method).sufficient,true);
+  const quoted=groupMethodFareEstimate(rider,method,
+    {hours:8,distanceMi:20,dayHours:8});
+  assert.equal(quoted.breakdown[0].passengers,1);
+  assert.equal(quoted.unseated,0);
+  assert.equal(quoted.amount,9);
+});
+
+test("shared pools and distinct personal mounts do not double-count riders or fares",()=>{
+  const second=actor("pc2","Lucious","character");
+  const third=actor("pc3","Mali","character");
+  const method={id:"mounted",name:"Mounted (general)",kind:"mount",surface:"land",
+    speedMph:4,costCp:5,costBasis:"day",costApplies:"passenger"};
+  let saved=defaultGroupTransportation();
+  saved=setGroupTransportationMember(saved,"group1","camel1",{
+    role:"mount",quantity:1,capacity:2,surface:"land",assignedTo:"pc1",
+    costCpOverride:7
+  });
+  saved=setGroupTransportationMember(saved,"group1","camel2",{
+    role:"mount",quantity:2,capacity:1,surface:"land"
+  });
+  const projection=projectGroupTransportation(group([pc,second,third,camel,camel2]),saved);
+  assert.equal(projection.travelers,3);
+  assert.equal(groupTravelCapacityStatus(projection,"land").seats,3,
+    "1 reserved seat plus 2 shared seats, not 4");
+  const status=groupMethodCapacityStatus(projection,method);
+  assert.equal(status.seats,3);assert.equal(status.sufficient,true);
+  const quote=groupMethodFareEstimate(projection,method,
+    {hours:8,distanceMi:20,dayHours:8});
+  assert.deepEqual(quote.breakdown.map(x=>x.passengers),[1,2]);
+  assert.equal(quote.amount,17,"7 CP personal rider + 10 CP two shared passengers");
+  assert.equal(quote.unseated,0);
+  const otherSelection={...projection,travelers:2,selectedTravelerIds:["pc2","pc3"]};
+  assert.equal(groupMethodCapacityStatus(otherSelection,method).seats,2);
+  assert.equal(groupMethodCapacityStatus(otherSelection,method).sufficient,true);
+});
+
+test("invalid riders, duplicate assignments and pool transitions fail closed",()=>{
+  const base={role:"mount",quantity:1,capacity:1,surface:"land"};
+  const good=setGroupTransportationMember(defaultGroupTransportation(),
+    "group1","camel1",{...base,assignedTo:"pc1"});
+  for(const patch of [
+    {assignedTo:"../../evil"},{quantity:2},{role:"pack"},{enabled:false}
+  ])assert.throws(()=>setGroupTransportationMember(good,"group1","camel1",
+    {...good.groups.group1.members.camel1,...patch}),/Invalid/i);
+  assert.throws(()=>setGroupTransportationMember(good,"group1","camel2",
+    {...base,assignedTo:"pc1"}),/cannot be assigned more than one/i);
+  // The Group editor saves one completed draft, allowing A->B reassignment
+  // without transient duplicate IDs during its staging process.
+  const switched=setGroupTransportationMembers(good,"group1",{
+    camel1:{...good.groups.group1.members.camel1,assignedTo:null},
+    camel2:{...base,assignedTo:"pc1"}
+  });
+  assert.equal(switched.groups.group1.members.camel1.assignedTo,null);
+  assert.equal(switched.groups.group1.members.camel2.assignedTo,"pc1");
+  const noMember=projectGroupTransportation(group([camel,camel2]),good);
+  assert.equal(groupTravelCapacityStatus(noMember,"land").seats,0,
+    "orphan personal mount cannot become shared transport");
+});
+
+test("an individually traveling NPC passenger is eligible; pooled passengers are not",()=>{
+  let saved=defaultGroupTransportation();
+  saved=setGroupTransportationMember(saved,"group1","camel1",{
+    role:"mount",quantity:1,capacity:1,surface:"land",assignedTo:"camel2"
+  });
+  saved=setGroupTransportationMember(saved,"group1","camel2",{
+    role:"passenger",quantity:1,capacity:null,surface:"land"
+  });
+  const one=projectGroupTransportation(group([camel,camel2]),saved);
+  assert.deepEqual(eligibleGroupRiders(one),[{id:"camel2",name:"Camel"}]);
+  assert.equal(groupTravelCapacityStatus(one,"land").seats,1);
+  saved=setGroupTransportationMember(saved,"group1","camel2",{
+    role:"passenger",quantity:2,capacity:null,surface:"land"
+  });
+  const pooled=projectGroupTransportation(group([camel,camel2]),saved);
+  assert.deepEqual(eligibleGroupRiders(pooled),[]);
+  assert.equal(groupTravelCapacityStatus(pooled,"land").seats,0);
+});
+
+test("selected party previews cannot borrow a personal mount owned by an absent PC",()=>{
+  const second=actor("pc2","Lucious","character");
+  const saved=setGroupTransportationMember(defaultGroupTransportation(),"group1","camel1",{
+    role:"mount",quantity:1,capacity:1,surface:"land",assignedTo:"pc1"
+  });
+  const projection=projectGroupTransportation(group([pc,second,camel]),saved);
+  const other=projectPartyTravelSelection(projection,{mode:"selected",ids:["pc2"]});
+  assert.equal(other.previewRoster.travelers,1);
+  assert.deepEqual(other.previewRoster.selectedTravelerIds,["pc2"]);
+  assert.equal(groupTravelCapacityStatus(other.previewRoster,"land").seats,0);
+  const rider=projectPartyTravelSelection(projection,{mode:"selected",ids:["pc1"]});
+  assert.equal(groupTravelCapacityStatus(rider.previewRoster,"land").seats,1);
+  assert.equal(projection.travelers,2,"preview selection never mutates authoritative Group");
+});
+
+test("v6 NPC passenger records retain seat requirement by default without write on read",()=>{
+  const old={version:6,groups:{group1:{members:{
+    camel1:{role:"passenger",quantity:1,capacity:null,surface:"land"}
+  }}}};
+  const writes=[];
+  const migrated=readGroupTransportation({
+    get:()=>old,set:(...args)=>writes.push(args)
+  });
+  assert.equal(migrated.version,7);
+  assert.equal(migrated.groups.group1.members.camel1.needsSeat,true);
+  assert.equal(old.version,6);
+  assert.deepEqual(writes,[]);
+  assert.throws(()=>setGroupTransportationMember(migrated,"group1","camel1",{
+    ...migrated.groups.group1.members.camel1,needsSeat:"yes"
+  }),/Invalid/);
+});
+
+test("three PC and optional-seat NPC acceptance matrix, with assigned camel and shared horses",()=>{
+  const cass=actor("cass","Cassian","character");
+  const luc=actor("luc","Lucious","character");
+  const torr=actor("torr","Torrus","character");
+  const nyx=actor("nyx","Nyx","npc");
+  const jon=actor("jon","Jonathan","npc");
+  const vip2=actor("vip2","VIP 2","npc");
+  const horse=actor("horse","Riding Horse","npc");
+  const camel=actor("camel","Hamilton","npc");
+  const members=[cass,luc,torr,nyx,jon,vip2,horse,camel];
+  const herd={id:"horse-preset",name:"Riding Horse",surface:"land",kind:"mount",
+    speedMph:3.5,capacity:1,costCp:0,costBasis:"none",costApplies:"unit"};
+  const camelMethod={id:"camel-preset",name:"Camel",surface:"land",kind:"mount",
+    speedMph:2.5,capacity:1,costCp:0,costBasis:"none",costApplies:"unit"};
+  const generic={id:"mounted",name:"Mounted (general)",surface:"land",kind:"mount",
+    speedMph:4,costCp:0,costBasis:"none",costApplies:"unit"};
+  let owned=defaultGroupTransportation();
+  owned=setGroupTransportationMember(owned,"group1","horse",{
+    role:"mount",quantity:3,capacity:1,surface:"land",profileId:herd.id});
+  owned=setGroupTransportationMember(owned,"group1","camel",{
+    role:"mount",quantity:1,capacity:1,surface:"land",profileId:camelMethod.id,
+    assignedTo:"cass"});
+  for(const [id,needsSeat] of [["nyx",false],["jon",true],["vip2",true]])
+    owned=setGroupTransportationMember(owned,"group1",id,{
+      role:"passenger",quantity:1,capacity:null,surface:"land",needsSeat});
+  const scenarios=[
+    {npcs:["nyx"],needed:3,bSufficient:true,aSufficient:true,bMissing:0,aMissing:0},
+    {npcs:["jon"],needed:4,bSufficient:true,aSufficient:false,bMissing:0,aMissing:1},
+    {npcs:["nyx","jon","vip2"],needed:5,bSufficient:false,aSufficient:false,
+      bMissing:1,aMissing:2}
+  ];
+  for(const scenario of scenarios){
+    const party=group([...members.slice(0,3),
+      ...scenario.npcs.map(id=>members.find(actor=>actor.id===id)),horse,camel]);
+    const aParty=group([...members.slice(0,3),
+      ...scenario.npcs.map(id=>members.find(actor=>actor.id===id)),horse]);
+    const b=projectGroupTransportation(party,owned,[herd,camelMethod]);
+    const a=projectGroupTransportation(aParty,owned,[herd,camelMethod]);
+    assert.equal(b.travelers,scenario.needed,"B seat demand "+scenario.needed);
+    assert.equal(b.pcCount,3);
+    assert.equal(b.npcCount,scenario.npcs.length);
+    assert.equal(groupMethodCapacityStatus(b,generic).seats,4);
+    const bs=groupMethodCapacityStatus(b,generic);
+    const as=groupMethodCapacityStatus(a,generic);
+    assert.deepEqual([bs.sufficient,bs.missing],
+      [scenario.bSufficient,scenario.bMissing]);
+    assert.deepEqual([as.sufficient,as.missing],
+      [scenario.aSufficient,scenario.aMissing]);
+    assert.equal(bs.effectiveSpeedMph,2.5,
+      "the slower camel sets the shared convoy pace");
+    assert.equal(as.effectiveSpeedMph,3.5,"horses-only convoy uses horse speed");
+  }
+  const missingCass=projectGroupTransportation(group([luc,torr,horse,camel]),
+    owned,[herd,camelMethod]);
+  const capacities=groupMethodCapacityStatus(missingCass,generic);
+  assert.equal(capacities.seats,3,"personal camel unavailable when its rider is absent");
+  assert.equal(capacities.effectiveSpeedMph,3.5,
+    "unused personal mount does not slow the convoy");
+  assert.equal(groupMethodFareEstimate(missingCass,generic,{
+    hours:8,distanceMi:30,dayHours:8
+  }).quantity,3,"unused camel does not add to the fare quote");
+});
+
+test("no-seat NPC is still a traveler but does not require or reserve an individual seat",()=>{
+  const nyx=actor("nyx","Nyx","npc");
+  let saved=defaultGroupTransportation();
+  saved=setGroupTransportationMember(saved,"group1","nyx",{
+    role:"passenger",quantity:1,capacity:null,surface:"land",needsSeat:false});
+  const p=projectGroupTransportation(group([pc,nyx]),saved);
+  assert.equal(p.travelers,1);
+  assert.deepEqual([p.pcCount,p.npcCount],[1,1]);
+  assert.equal(eligibleGroupRiders(p).some(m=>m.id==="nyx"),false,
+    "no-seat companion cannot reserve an exclusive personal mount");
+  const selected=projectPartyTravelSelection(p,{mode:"selected",ids:["pc1","nyx"]});
+  assert.equal(selected.travelerCount,1);
+  assert.equal(selected.partial,false);
+  const justNyx=projectPartyTravelSelection(p,{mode:"selected",ids:["nyx"]});
+  assert.equal(justNyx.travelerCount,0);
+  assert.equal(justNyx.empty,false,"an NPC without a seat is still present");
+  assert.equal(justNyx.partial,true,"native Group Token cannot split");
 });

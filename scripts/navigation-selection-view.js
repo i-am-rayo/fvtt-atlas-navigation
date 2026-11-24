@@ -73,19 +73,38 @@ export function renderNavigationTravelMethodSelector({choices,selectedValue,
 }
 
 /**
- * Only one GM-approved planning method can be selected at a time.
- * Each choice retains its original owned/hire identifier, availability
- * checks and editor workflow; radio controls are a presentation replacement
- * for the previous optgroup select, not new transportation authority.
+ * Travel methods are checkbox selections during fresh GM planning.
+ * The controller alone authorizes compatible combinations; presentation never
+ * approves a multi-method journey or assigns passengers to vehicles.
  */
+export function travelMethodIconClass(value,label){
+    const key=value.split("|").at(-1)?.toLowerCase()??"";
+    const labelText=String(label??"").toLowerCase();
+    const symbol=key==="walking"?"fa-person-walking":
+      /caravan|wagon|coach|cart/.test(key+" "+labelText)?"fa-wagon-covered":
+      /horse|pony|mount/.test(key+" "+labelText)?"fa-horse":
+      /camel/.test(key+" "+labelText)?"fa-paw":
+      /ship|boat|barge|warship/.test(key+" "+labelText)?"fa-ship":
+      /fly|air/.test(key+" "+labelText)?"fa-dove":"fa-route";
+    return "fa-solid "+symbol;
+}
+
 export function renderNavigationTravelMethodButtons({choices,selectedValue,
-  disabled=false,showEditor=false,onMethodChange,onEdit}){
+  selectedValues=null,disabled=false,showEditor=false,onMethodChange,onMethodToggle,onEdit,
+  onEditMethod}){
   const section=el("fieldset");
   section.className="atlas-navigation-methods";
   section.style.cssText="display:grid;gap:.55rem;border:1px solid var(--color-border-light-tertiary,#555);border-radius:9px;padding:.7rem;margin:0;min-width:0;";
-  const title=el("legend","Travel method");
+  const title=el("legend","2 · How are we traveling?");
   title.style.cssText="font-weight:700;padding:0 .35rem;";
   section.appendChild(title);
+  if(Array.isArray(selectedValues)){
+    const help=el("small","Choose one or more methods.");
+    help.style.cssText="opacity:.8;line-height:1.35;";
+    section.appendChild(help);
+  }
+  const selected=new Set(selectedValues??[selectedValue]);
+  const multiple=Array.isArray(selectedValues);
   const groups=new Map();
   for(const choice of choices??[]){
     const origin=choice.group==="Party"?"Party Owned":
@@ -106,26 +125,22 @@ export function renderNavigationTravelMethodButtons({choices,selectedValue,
     const id="atlas-navigation-method-"+choice.value.replace(/[^a-zA-Z0-9_-]/g,"-");
     const label=el("label");
     label.htmlFor=id;
+    const active=selected.has(choice.value);
+    const canEdit=Boolean(onEditMethod&&active&&choice.value!=="owned|walking");
     label.style.cssText="display:flex;align-items:center;gap:.35rem;"+
-      "padding:.4rem .5rem;border-radius:7px;min-width:0;cursor:pointer;"+
-      "border:1px solid "+(choice.value===selectedValue?"#3eaf93":
+      "padding:.4rem "+(canEdit?"2.6rem":".5rem")+" .4rem .5rem;"+
+      "border-radius:7px;min-width:0;cursor:pointer;"+
+      "border:1px solid "+(active?"#3eaf93":
         "var(--color-border-light-tertiary,#555)")+";"+
-      (choice.value===selectedValue?"background:rgba(22,169,101,.12);":"");
+      (active?"background:rgba(22,169,101,.12);":"");
     const input=el("input");
-    input.type="radio";input.name="atlas-navigation-travel-method";
-    input.id=id;input.value=choice.value;input.checked=choice.value===selectedValue;
+    input.type=multiple?"checkbox":"radio";
+    input.name="atlas-navigation-travel-method";
+    input.id=id;input.value=choice.value;input.checked=active;
     input.disabled=Boolean(disabled);
     input.style.cssText="margin:0;accent-color:#3eaf93;flex:0 0 auto;";
     const icon=el("i");
-    const key=choice.value.split("|").at(-1)?.toLowerCase()??"";
-    const labelText=String(choice.label??"").toLowerCase();
-    const symbol=key==="walking"?"fa-person-walking":
-      /caravan|wagon|coach|cart/.test(key+" "+labelText)?"fa-wagon-covered":
-      /horse|pony|mount/.test(key+" "+labelText)?"fa-horse":
-      /camel/.test(key+" "+labelText)?"fa-paw":
-      /ship|boat|barge|warship/.test(key+" "+labelText)?"fa-ship":
-      /fly|air/.test(key+" "+labelText)?"fa-dove":"fa-route";
-    icon.className="fa-solid "+symbol;
+    icon.className=travelMethodIconClass(choice.value,choice.label);
     icon.setAttribute?.("aria-hidden","true");
     const content=el("span");
     content.style.cssText="display:grid;gap:.1rem;min-width:0;overflow-wrap:anywhere;";
@@ -139,13 +154,32 @@ export function renderNavigationTravelMethodButtons({choices,selectedValue,
     }
     if(choice.insufficient){
       label.title="Insufficient configured seats for the chosen travelers";
-      label.style.borderColor="#ad694e";
+      if(!choice.cargoOnly)label.style.borderColor="#ad694e";
     }
     label.append(input,icon,content);
     input.addEventListener("change",()=>{
-      if(!disabled&&input.checked)onMethodChange?.(input.value);
+      if(disabled)return;
+      if(multiple)onMethodToggle?.(input.value,input.checked);
+      else if(input.checked)onMethodChange?.(input.value);
     });
-    group.appendChild(label);
+    if(canEdit){
+      // A sibling button, never nested in a label: editing must not toggle
+      // the checkbox or change the staged mixed-party assignment.
+      const tile=el("div");
+      tile.style.cssText="position:relative;min-width:0;";
+      const edit=el("button");
+      edit.type="button";edit.disabled=Boolean(disabled);
+      edit.title="Edit "+choice.label+" for this journey or its Map Marker";
+      edit.setAttribute?.("aria-label","Edit "+choice.label+" transportation");
+      edit.innerHTML='<i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>';
+      edit.style.cssText="position:absolute;right:.3rem;top:50%;transform:translateY(-50%);"+
+        "min-width:2rem;min-height:2rem;";
+      edit.addEventListener("click",()=>{
+        if(!disabled)onEditMethod(choice.value);
+      });
+      tile.append(label,edit);
+      group.appendChild(tile);
+    }else group.appendChild(label);
   }
   if(showEditor){
     const edit=el("button","Edit selected method");

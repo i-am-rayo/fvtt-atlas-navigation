@@ -115,3 +115,18 @@ test("saved C dock authorizes guided continuation on a single water-surface leg"
   assert.equal(isCheckpointBoundContinuation({record,route:{...seaRoute,end:{x:999,y:0}},
     projected,gridSize:100}),false,"unrelated destinations remain blocked");
 });
+
+
+test("saved intermediate land checkpoint remains a checkpoint decision, not final arrival",()=>{
+  const plan={schemaVersion:1,nextTargetIndex:2,targets:[
+    {id:"A",point:{x:0,y:0}},{id:"B",point:{x:10,y:0},checkpointId:"port"},
+    {id:"C",point:{x:20,y:0},checkpointId:"next-port"},
+    {id:"D",point:{x:30,y:0}}]};
+  const record={status:"paused",routeTargets:plan,legs:[{completedPercent:100}]};
+  const route={status:"ok",start:{x:10,y:0},end:{x:20,y:0}};
+  const projected={hasTransitions:false,legs:[{surface:"land",transferValid:true,
+    end:route.end,arrivalCheckpoint:{id:"next-port"}}]};
+  assert.equal(isCheckpointBoundContinuation({record,route,projected,gridSize:100}),true);
+  assert.equal(isCheckpointBoundContinuation({record:{...record,routeTargets:{
+    ...plan,targets:plan.targets.slice(0,3)}},route,projected,gridSize:100}),false);
+});

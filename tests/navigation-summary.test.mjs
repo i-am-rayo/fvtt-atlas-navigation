@@ -87,3 +87,16 @@ test("Navigation status preserves World time, speed, playback and terrain line o
     assert.equal(dom.actions,0);
   }finally{dom.restore();}
 });
+
+test("summary shows fourth fare card with individual rounded rows",()=>{
+  const dom=mockDOM();
+  try{
+    const view=renderNavigationSummaryMetrics({metrics:[
+      {label:"Distance",value:"24 mi"},{label:"Travel Time",value:"8h"},
+      {label:"Total Trip",value:"8h"},{label:"Estimated Cost",value:"2 SP · 2 CP",
+      lines:[{label:"Horse",value:"1 SP · 1 CP"},{label:"Cart",value:"1 SP · 1 CP"}]}]});
+    assert.deepEqual(view.nodes[0].children[3].children.slice(2)
+      .map(row=>row.children.map(n=>n.textContent)),
+      [["Horse","1 SP · 1 CP"],["Cart","1 SP · 1 CP"]]);
+  }finally{dom.restore();}
+});

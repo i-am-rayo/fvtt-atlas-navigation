@@ -8,7 +8,7 @@ import {CHECKPOINT_BULK_FIELDS,buildCheckpointBulkUpdate,
   applyCheckpointPresetBulk} from "../scripts/checkpoint-bulk-apply.js";
 import {defaultCheckpointTransportOffers,validateCheckpointTransportOffers,
   validateCheckpointTransportStore,checkpointOfferMethod,offersAtOrigin,
-  checkpointOffers} from "../scripts/checkpoint-transportation.js";
+  checkpointOffers,saveCheckpointOffers} from "../scripts/checkpoint-transportation.js";
 import {listTransportationPresets} from "../scripts/navigation-transport-catalog.js";
 
 const settings={get:()=>undefined};
@@ -45,6 +45,46 @@ test("legacy v1 World checkpoint catalog is projected without overwriting custom
   assert.ok(validateCheckpointPresets(previous).presets.some(p=>p.category==="air-dock"));
   assert.deepEqual(previous.presets,original.presets.filter(p=>p.category!=="air-dock"));
 });
+test("land Map Marker can enable continuous travel only for vehicle methods",()=>{
+  const offer={methodId:"carriage",mode:"land",
+    overrides:{hireEnabled:true,continuousEnabled:true}};
+  const stored=validateCheckpointTransportOffers([offer]);
+  assert.deepEqual(stored,[offer],
+    "Map Marker validation must accept GM-configured rotating carriage crews");
+  const carriage=checkpointOfferMethod(offer,world("carriage"));
+  assert.equal(carriage.continuousEnabled,true);
+  assert.equal(world("carriage").continuousEnabled,false,
+    "Map Marker never edits the World preset");
+  assert.throws(()=>checkpointOfferMethod({
+    methodId:"riding-horse",mode:"land",overrides:{continuousEnabled:true}
+  },world("riding-horse")) ,/vehicle/,
+  "the editor cannot grant continuous operation to ordinary mounts");
+});
+
+test("authorized Map Marker save retains a continuous carriage and denies non-GMs",async()=>{
+  const previous=globalThis.game;
+  let stored={schemaVersion:1,entries:{}},writes=0;
+  const scene={canUserModify:()=>true,
+    getFlag:(_module,key)=>key==="checkpointTransportOffers"?stored:undefined,
+    async setFlag(_module,key,value){
+      assert.equal(key,"checkpointTransportOffers");
+      writes++;stored=value;
+    }};
+  const offer={methodId:"carriage",mode:"land",
+    overrides:{hireEnabled:true,continuousEnabled:true}};
+  try{
+    globalThis.game={user:{isGM:true}};
+    await saveCheckpointOffers(scene,"dirwest",[offer]);
+    assert.equal(writes,1);
+    assert.deepEqual(checkpointOffers(scene,"dirwest"),[offer]);
+    assert.equal(checkpointOfferMethod(checkpointOffers(scene,"dirwest")[0],
+      world("carriage")).continuousEnabled,true);
+    globalThis.game.user.isGM=false;
+    await assert.rejects(saveCheckpointOffers(scene,"dirwest",[]),/GM/);
+    assert.equal(writes,1,"players cannot overwrite a GM-enabled Map Marker");
+  }finally{globalThis.game=previous;}
+});
+
 test("checkpoint offers reject duplicates, invalid fares, and surface mismatches",()=>{
   const offers=defaultCheckpointTransportOffers("dock");
   assert.deepEqual(validateCheckpointTransportOffers(offers),offers);
@@ -65,6 +105,17 @@ test("checkpoint offers reject duplicates, invalid fares, and surface mismatches
     overrides:{}},world("airship")) ,/surface/);
   assert.equal(carriage.hireCostCp,900);
   assert.equal(carriage.capacity,3);
+  assert.equal(carriage.hireUnlimited,true,"old checkpoint offers default to unlimited");
+  const finite=checkpointOfferMethod({methodId:"cart",mode:"land",
+    overrides:{hireUnlimited:false,hireQuantity:1}},world("cart"));
+  assert.equal(finite.hireQuantity,1);
+  assert.equal(finite.hireUnlimited,false);
+  assert.throws(()=>validateCheckpointTransportOffers([{methodId:"cart",mode:"land",
+    overrides:{hireQuantity:101}}]),/hireQuantity/);
+  assert.throws(()=>validateCheckpointTransportOffers([{methodId:"cart",mode:"land",
+    overrides:{hireQuantity:1.5}}]),/hireQuantity/);
+  assert.throws(()=>validateCheckpointTransportOffers([{methodId:"cart",mode:"land",
+    overrides:{hireUnlimited:"false"}}]),/hireUnlimited/);
   assert.equal(world("carriage").hireCostCp,400,"World rate is unmodified");
   assert.throws(()=>validateCheckpointTransportStore({schemaVersion:19,entries:{}}),/Unsupported/);
 });
@@ -160,7 +211,7 @@ test("checkpoint pencil opens the same World preset dialog and keeps drafts isol
     const fields=flatten(modal.content);
     const names=fields.map(el=>el.name);
     for(const field of ["name","kind","speedDisplay","capacity","crewCount",
-      "hireEnabled","hireBasis","hireApplies","purchaseEnabled","costBasis"])
+      "hireEnabled","hireUnlimited","hireQuantity","hireBasis","hireApplies","purchaseEnabled","costBasis"])
       assert.ok(names.includes(field),"shared editor is missing "+field);
     for(const prefix of ["hire","purchase","crewWage","cost"])
       for(const denomination of ["pp","gp","ep","sp","cp"]){

@@ -121,3 +121,221 @@ test("native recovery cannot accept tampered, missing, or oversized intent",()=>
     tokenId:"party",atlasRevision:3,recordedMovementIds:["native-motion-1"],
     tokenPoint:pt(30,30),worldTime:1000}).worldClockAction,"none");
 });
+
+test("bounded arrival verifies native identity, ordered waypoints and exact clock before credit",async()=>{
+  const {assessBoundedNativeArrival}=await import("../scripts/navigation-native-movement-reconciliation.js");
+  const from={x:0,y:0},bend={x:10,y:4},to={x:20,y:0};
+  const pending={schemaVersion:1,bounded:true,previousMovementId:null,
+    operationId:"bounded-op",tokenId:"party",checkpointIndex:2,from,to,
+    path:[from,bend,to],completedPercent:50,nativeDistance:22,movingHours:1,
+    worldTimeBefore:100,worldAdvanceSeconds:3600,atlasRevision:4};
+  const movement={id:"bounded-op",state:"stopped",origin:from,destination:to,
+    passed:{waypoints:[from,bend,to]}};
+  const context={tokenId:"party",tokenPoint:to,atlasRevision:4,worldTime:100,movement};
+  assert.equal(assessBoundedNativeArrival(pending,context).worldClockAction,"advance");
+  assert.equal(assessBoundedNativeArrival(pending,{...context,worldTime:3700}).worldClockAction,"already-advanced");
+  assert.equal(assessBoundedNativeArrival(pending,{...context,worldTime:200}).status,"review");
+  assert.equal(assessBoundedNativeArrival(pending,{...context,tokenPoint:{x:430,y:0}}).status,"review");
+  assert.equal(assessBoundedNativeArrival(pending,{...context,movement:{...movement,id:"other"}}).status,"review");
+  assert.equal(assessBoundedNativeArrival(pending,{...context,movement:{...movement,
+    passed:{waypoints:[from,to,bend]}}}).status,"review");
+});
+
+test("live v14 checkpoint 10 uses separate origin and ordered destination waypoints",async()=>{
+  const {assessBoundedNativeArrival}=await import("../scripts/navigation-native-movement-reconciliation.js");
+  const path=[pt(3964,2178),pt(3959,2214),pt(3953,2225),pt(3942,2237),pt(3935,2243)];
+  const operationId="A4lYQ7BRk9Bg0mxJ";
+  const intent={schemaVersion:1,bounded:true,previousMovementId:"2HK8P3WTVosg7yHB",
+    operationId,tokenId:"party",checkpointIndex:9,from:path[0],to:path.at(-1),
+    path,completedPercent:83.89029316924135,nativeDistance:74.80603416676962,
+    movingHours:4.00516488699251,worldTimeBefore:28978478955,worldAdvanceSeconds:14419,
+    atlasRevision:587};
+  const passed=path.slice(1).map(p=>({...p,movementId:operationId,elevation:0}));
+  const movement={id:operationId,chain:[],state:"completed",constrained:false,
+    origin:path[0],destination:path.at(-1),passed:{waypoints:passed},pending:{waypoints:[]}};
+  const context={tokenId:"party",tokenPoint:path.at(-1),atlasRevision:587,
+    worldTime:28978478955,movement};
+  assert.deepEqual(assessBoundedNativeArrival(intent,context),
+    {status:"at-end",confirmed:true,worldClockAction:"advance"});
+  assert.equal(assessBoundedNativeArrival(intent,{...context,worldTime:28978493374}).worldClockAction,
+    "already-advanced");
+  for(const changed of [
+    {...movement,origin:pt(3968,2178)},
+    {...movement,id:"foreign"},
+    {...movement,passed:{waypoints:passed.slice(1)}},
+    {...movement,passed:{waypoints:[passed[1],passed[0],...passed.slice(2)]}},
+    {...movement,passed:{waypoints:[...passed,pt(4000,2300)]}},
+    {...movement,pending:{waypoints:[pt(4000,2300)]}},
+    {...movement,constrained:true}
+  ])assert.equal(assessBoundedNativeArrival(intent,{...context,movement:changed}).status,"review");
+  assert.equal(assessBoundedNativeArrival(intent,{...context,worldTime:28978478956}).status,"review");
+  assert.equal(assessBoundedNativeArrival(intent,{...context,tokenPoint:pt(3939,2243)}).status,"review");
+  // Existing mocks/versions may include the origin; require it to match as well.
+  assert.equal(assessBoundedNativeArrival(intent,{...context,movement:{...movement,
+    passed:{waypoints:path}}}).status,"at-end");
+  assert.equal(assessBoundedNativeArrival(intent,{...context,movement:{...movement,
+    origin:pt(3968,2178),passed:{waypoints:path}}}).status,"review");
+});
+
+test("dev.22 live snapped intermediate waypoint is native evidence, not an authored bend",async()=>{
+  const {assessBoundedNativeArrival}=await import("../scripts/navigation-native-movement-reconciliation.js");
+  const path=[pt(3763,1675),pt(3816,1716),pt(3823,1720)];
+  const operationId="AWT1ypT9qflk7VTs";
+  const intent={schemaVersion:1,bounded:true,previousMovementId:"gG8WwHMSOFHJLQXG",
+    operationId,tokenId:"party",checkpointIndex:0,from:path[0],to:path.at(-1),
+    path,completedPercent:8.389029316924134,nativeDistance:74.80603416676962,
+    movingHours:4.005164886992507,worldTimeBefore:28978493833,worldAdvanceSeconds:14419,
+    atlasRevision:587};
+  const intermediate={...pt(3798,1697),intermediate:true,snapped:true,
+    explicit:false,checkpoint:false,movementId:operationId,subpathId:operationId};
+  const passed=[intermediate,...path.slice(1).map(p=>({...p,movementId:operationId}))];
+  const movement={id:operationId,state:"completed",constrained:false,
+    origin:path[0],destination:path.at(-1),passed:{waypoints:passed},pending:{waypoints:[]}};
+  const context={movement,tokenId:"party",tokenPoint:path.at(-1),atlasRevision:587,
+    worldTime:28978493833};
+  assert.equal(assessBoundedNativeArrival(intent,context).worldClockAction,"advance");
+  assert.equal(assessBoundedNativeArrival(intent,{...context,worldTime:28978508252}).worldClockAction,"already-advanced");
+  for(const bad of [
+    [{...intermediate,y:1680},...passed.slice(1)],
+    [{...intermediate,movementId:"foreign"},...passed.slice(1)],
+    [{...intermediate,explicit:true},...passed.slice(1)],
+    [{...intermediate,checkpoint:true},...passed.slice(1)],
+    [{...intermediate,snapped:false},...passed.slice(1)],
+    [intermediate,passed[2]],
+    [passed[1],intermediate,passed[2]],
+    [intermediate,{...intermediate,x:3789,y:1692},...passed.slice(1)]
+  ])assert.equal(assessBoundedNativeArrival(intent,{...context,
+    movement:{...movement,passed:{waypoints:bad}}}).status,"review");
+});
+
+test("durable endpoint evidence survives a reload but cannot override conflicting native identity or clock",async()=>{
+  const {assessBoundedNativeArrival,captureNativeArrivalEvidence,validatePendingNativeMove}=
+    await import("../scripts/navigation-native-movement-reconciliation.js");
+  const from=pt(0,0),to=pt(20,0),operationId="receipt-op";
+  const intent={schemaVersion:1,bounded:true,previousMovementId:null,
+    operationId,tokenId:"party",checkpointIndex:0,from,to,path:[from,to],
+    completedPercent:50,nativeDistance:20,movingHours:1,
+    worldTimeBefore:100,worldAdvanceSeconds:3600,atlasRevision:4};
+  const movement={id:operationId,state:"completed",origin:from,destination:to,
+    constrained:false,passed:{waypoints:[{...to,movementId:operationId}]},pending:{waypoints:[]}};
+  const evidence=captureNativeArrivalEvidence(intent,{movement,tokenPoint:to});
+  assert.ok(evidence);
+  assert.equal(captureNativeArrivalEvidence(intent,{movement,tokenPoint:from}),null);
+  assert.equal(captureNativeArrivalEvidence(intent,{movement:{...movement,constrained:true},tokenPoint:to}),null);
+  assert.equal(captureNativeArrivalEvidence(intent,{movement:{...movement,passed:{waypoints:[]}},tokenPoint:to}),null);
+  const saved=validatePendingNativeMove({...intent,arrivalEvidence:evidence});
+  const context={tokenId:"party",tokenPoint:to,atlasRevision:4,worldTime:100,
+    movement:{id:"",state:"completed"}};
+  assert.equal(assessBoundedNativeArrival(intent,context).status,"review");
+  assert.equal(assessBoundedNativeArrival(saved,context).worldClockAction,"advance");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,worldTime:3700}).worldClockAction,"already-advanced");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,worldTime:101}).status,"review");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,tokenPoint:from}).status,"review");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,movement:{id:"foreign",state:"completed"}}).status,"review");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,movement:{id:"",state:"moving"}}).status,"review");
+  assert.throws(()=>validatePendingNativeMove({...saved,arrivalEvidence:{...evidence,id:"foreign"}}),/Invalid/);
+});
+
+test("normalized native path is durable recovery authority, not a wider pixel tolerance",async()=>{
+  const {assessBoundedNativeArrival,captureNativeArrivalEvidence,validatePendingNativeMove}=
+    await import("../scripts/navigation-native-movement-reconciliation.js");
+  const from=pt(3891,1748),to=pt(3963,1769),extra=pt(3896,1782),id="avS46ySeX8hYrImD";
+  const intent={schemaVersion:1,bounded:true,previousMovementId:null,operationId:id,
+    tokenId:"party",checkpointIndex:2,from,to,path:[from,to],nativePath:[from,extra,to],
+    completedPercent:25,nativeDistance:75,movingHours:4,worldTimeBefore:100,
+    worldAdvanceSeconds:14419,atlasRevision:4};
+  const waypoint={...extra,intermediate:true,snapped:true,explicit:false,checkpoint:false,movementId:id};
+  const movement={id,chain:[],state:"completed",origin:from,destination:to,constrained:false,
+    passed:{waypoints:[waypoint,{...to,movementId:id}]},pending:{waypoints:[]}};
+  const context={tokenId:"party",tokenPoint:to,atlasRevision:4,worldTime:100,movement};
+  assert.equal(assessBoundedNativeArrival(intent,context).worldClockAction,"advance");
+  const evidence=captureNativeArrivalEvidence(intent,{movement,tokenPoint:to});
+  assert.ok(evidence);
+  const saved=validatePendingNativeMove({...intent,arrivalEvidence:evidence});
+  assert.equal(assessBoundedNativeArrival(saved,{...context,movement:{id:"",state:"completed"}}).worldClockAction,"advance");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,worldTime:14519,movement:{id:"",state:"completed"}}).worldClockAction,"already-advanced");
+  assert.equal(assessBoundedNativeArrival(saved,{...context,worldTime:101}).status,"review");
+  for(const bad of [
+    [{...waypoint,y:1794},to],
+    [{...waypoint,movementId:"foreign"},to],
+    [{...waypoint,explicit:true},to],
+    [{...waypoint,checkpoint:true},to],
+    [to],
+    [to,waypoint],
+    []
+  ])assert.equal(assessBoundedNativeArrival(intent,{...context,
+    movement:{...movement,passed:{waypoints:bad}}}).status,"review");
+  assert.throws(()=>validatePendingNativeMove({...intent,nativePath:[from,extra]}),/Invalid/);
+  assert.throws(()=>validatePendingNativeMove({...intent,path:[from,pt(3910,1754),to]}),/Invalid/);
+});
+
+test("partial native recovery proves a terminal ordered prefix, not coordinate proximity",async()=>{
+  const {assessBoundedNativePartial,validatePendingNativeMove}=await import("../scripts/navigation-native-movement-reconciliation.js");
+  const from=pt(0,0),bend=pt(20,0),to=pt(20,60),position=pt(20,20),id="PartialVoyage001";
+  const intent={schemaVersion:1,bounded:true,previousMovementId:null,operationId:id,
+    tokenId:"party",checkpointIndex:5,from,to,path:[from,bend,to],nativePath:[from,bend,to],
+    completedPercent:50,nativeDistance:80,movingHours:4,worldTimeBefore:100,
+    worldAdvanceSeconds:14400,atlasRevision:4};
+  const movement={id,state:"completed",chain:[],origin:from,destination:position,
+    constrained:false,passed:{waypoints:[{...bend,movementId:id},{...position,movementId:id}]},
+    pending:{waypoints:[]}};
+  const context={tokenId:"party",tokenPoint:position,atlasRevision:4,worldTime:100,movement};
+  const partial=assessBoundedNativePartial(intent,context);
+  assert.equal(partial.status,"partial");
+  assert.equal(partial.fraction,.5);
+  assert.equal(partial.worldAdvanceSeconds,7200);
+  assert.equal(partial.worldClockAction,"advance");
+  assert.equal(assessBoundedNativePartial(intent,{...context,worldTime:7300}).status,"review",
+    "a partial target clock cannot be attributed to Atlas without a previously saved receipt");
+  const saved=validatePendingNativeMove({...intent,partialEvidence:partial.evidence});
+  assert.equal(assessBoundedNativePartial(saved,{...context,movement:{id:"",state:"completed"},
+    worldTime:7300}).worldClockAction,"already-advanced");
+  for(const bad of [
+    {...movement,id:"foreign"},
+    {...movement,passed:{waypoints:[{...position,movementId:id}]}},
+    {...movement,passed:{waypoints:[{...bend,movementId:"foreign"},{...position,movementId:id}]}},
+    {...movement,destination:to},
+    {...movement,pending:{waypoints:[to]}},
+    {...movement,constrained:true}
+  ])assert.equal(assessBoundedNativePartial(intent,{...context,movement:bad}).status,"review");
+  assert.equal(assessBoundedNativePartial(intent,{...context,worldTime:101}).status,"review");
+  assert.equal(assessBoundedNativePartial(intent,{...context,tokenPoint:pt(21,30)}).status,"review");
+  assert.equal(assessBoundedNativePartial(intent,{...context,movement:{id:"",state:"completed"}}).status,"review");
+  assert.throws(()=>validatePendingNativeMove({...intent,partialEvidence:{...partial.evidence,destination:to}}),/Invalid/);
+});
+
+test("dev.24 checkpoint 6 matching movement ID and displaced endpoint alone are insufficient",async()=>{
+  const {assessBoundedNativePartial}=await import("../scripts/navigation-native-movement-reconciliation.js");
+  const from=pt(3967,2029),to=pt(3965,2104),
+    actual=pt(3965.049458110207,2051.431231732619),id="dX7qhx6Yl9nA5L5d";
+  // Only the screenshot facts are known. This straight path is a negative
+  // fixture, NOT a reconstruction of the missing authored/processed arrays.
+  const intent={schemaVersion:1,bounded:true,previousMovementId:null,operationId:id,
+    tokenId:"party",checkpointIndex:5,from,to,path:[from,to],nativePath:[from,to],
+    completedPercent:60,nativeDistance:75,movingHours:14430/3600,
+    worldTimeBefore:100,worldAdvanceSeconds:14430,atlasRevision:4};
+  assert.equal(assessBoundedNativePartial(intent,{tokenId:"party",tokenPoint:actual,
+    atlasRevision:4,worldTime:100,movement:{id,state:"completed",origin:from,
+      destination:actual,constrained:false,pending:{waypoints:[]}}}).status,"review");
+});
+
+
+test("fractional native checkpoints defer their World-time credit to verified movement",()=>{
+  const plan=planNativeCheckpointPath([pt(0,0),pt(.3,0),pt(20.1,0)],{
+    movementSpeed:1,gridSize:10,secondsPerCheckpoint:2,
+    totalMovingHours:1});
+  assert.equal(plan.checkpoints.length,1);
+  assert.equal(plan.checkpoints[0].index,0);
+  assert.equal(plan.checkpoints[0].completedMovingHours,1);
+  assert.ok(Math.abs(plan.checkpoints[0].completedDistance-plan.totalDistance)<1e-6);
+  assert.deepEqual(plan.checkpoints[0].point,pt(20,0));
+  const tail=planNativeCheckpointPath([pt(0,0),pt(20,0),pt(20.3,0)],{
+    movementSpeed:1,gridSize:10,secondsPerCheckpoint:2,
+    totalMovingHours:1});
+  assert.equal(tail.checkpoints.length,1);
+  assert.equal(tail.checkpoints[0].completedMovingHours,1);
+  assert.deepEqual(tail.checkpoints[0].point,pt(20,0));
+  assert.throws(()=>planNativeCheckpointPath([pt(0,0),pt(.3,0)],{
+    movementSpeed:1,gridSize:10,secondsPerCheckpoint:2,
+    totalMovingHours:1}),/no distinct pixel|unmovable/);
+});

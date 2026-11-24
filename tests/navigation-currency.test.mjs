@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { atlasCurrencyChoices,coinFromCopper,copperFromCoin,projectedGroupFare,dndCurrencyBreakdown }
+import { atlasCurrencyChoices,coinFromCopper,copperFromCoin,projectedGroupFare,dndCurrencyBreakdown,mixedTransportFareBreakdown }
   from "../scripts/navigation-currency.js";
 
 test("currency adapter exposes native D&D5e denomination options",()=>{
@@ -67,4 +67,17 @@ test("D&D overland mount feed bills by eight-hour travel days, not 24 moving hou
   assert.equal(projectedGroupFare(horse,{quantity:3,hours:0,dayHours:8}),0);
   assert.throws(()=>projectedGroupFare(horse,{quantity:1,hours:10,dayHours:0}),/factors/);
   assert.throws(()=>projectedGroupFare(horse,{quantity:1,hours:10,dayHours:25}),/factors/);
+});
+
+test("mixed quotes round separately, omit walking, and preserve exact estimates",()=>{
+  const methods=[{role:"walking",estimatedCostCp:0},
+    {key:"horse",methodName:"Horse",role:"riders",units:2,estimatedCostCp:10.1},
+    {key:"cart",methodName:"Cart",role:"cargo",units:1,estimatedCostCp:10.1}];
+  const before=structuredClone(methods);
+  const fare=mixedTransportFareBreakdown(methods);
+  assert.deepEqual(fare.rows.map(r=>r.payableCopper),[11,11]);
+  assert.equal(fare.total.payableCopper,22);
+  assert.deepEqual(methods,before);
+  assert.equal(mixedTransportFareBreakdown(methods,
+    {gp:{conversion:1},sp:{conversion:10}}).total.label,"4 SP");
 });

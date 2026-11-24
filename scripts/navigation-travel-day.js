@@ -57,8 +57,9 @@ export class GuidedTravelDayTracker {
   get availableHours(){
     const daily=this.rules.dailyHours;
     if(daily===null)return Infinity;
-    if(this.todayHours<daily-EPSILON)return daily-this.todayHours;
-    return Math.max(0,this.permittedExtraUntil-this.todayHours);
+    // Explicit GM approval can extend the boundary before the exact day
+    // threshold when that position cannot be a distinct native pixel.
+    return Math.max(0,Math.max(daily,this.permittedExtraUntil)-this.todayHours);
   }
 
   get needsDecision(){return this.remainingHours>EPSILON&&this.availableHours<=EPSILON;}
@@ -96,11 +97,14 @@ export class GuidedTravelDayTracker {
     if(!this.needsDecision&&!allowEarly)
       throw Error("No daily travel break is due.");
     if(action==="continue"){
-      if(!this.needsDecision)
+      if(!this.needsDecision&&(!allowEarly||this.availableHours>1+EPSILON||
+          this.rules.dailyHours===null))
         throw Error("Forced marching is only available at the daily travel limit.");
-      if(this.todayHours>=24-EPSILON)
+      if(Math.max(this.todayHours,this.permittedExtraUntil,
+          this.rules.dailyHours??0)>=24-EPSILON)
         throw Error("A journey cannot travel more than 24 hours without a break.");
-      return {action,hours:0,resetsDay:false};
+      return {action,hours:0,resetsDay:false,
+        ...(!this.needsDecision?{early:true}:{})};
     }
     const hours={short:this.rules.shortRestHours,long:this.rules.longRestHours,
       overnight:this.rules.overnightHours}[action];
@@ -134,7 +138,11 @@ export class GuidedTravelDayTracker {
       ...(startedTimeLabel?{startedTimeLabel}:{}),
       ...(endedTimeLabel?{endedTimeLabel}:{})}));
     if(choice.action==="continue"){
-      this.permittedExtraUntil=Math.min(24,this.todayHours+1);
+      // A rounded-pixel day boundary may require the GM to approve the
+      // upcoming hour before a native move can be split safely. Never let
+      // such early approval shorten the previously authorized limit.
+      this.permittedExtraUntil=Math.min(24,Math.max(this.todayHours,
+        this.permittedExtraUntil,this.rules.dailyHours??0)+1);
       return;
     }
     this.restEvents++;
@@ -167,7 +175,9 @@ export function splitGuidedChunkAtDistance(chunk,cut){
     const split={x:a.x+(b.x-a.x)*fraction,y:a.y+(b.y-a.y)*fraction};
     if(Math.hypot(split.x-first.at(-1).x,split.y-first.at(-1).y)>EPSILON)
       first.push(split);
-    const remainder=fraction>=1-EPSILON?points.slice(i+1):points.slice(i);
+    // A near-1 fraction is still short of the authored bend. Keep that
+    // final fraction for the next native move; never drop the route endpoint.
+    const remainder=fraction>=1?points.slice(i+1):points.slice(i);
     return [
       {waypoints:first,distance:cut},
       {waypoints:[split,...remainder],distance:chunk.distance-cut}

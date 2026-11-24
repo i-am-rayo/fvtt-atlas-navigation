@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {resolveTransportationOperation,quoteTransportationService,resolveTransportationHireFare}
+import {resolveTransportationOperation,quoteTransportationService,resolveTransportationHireFare,
+  assessHiredTransportAvailability}
   from "../scripts/navigation-transport-service.js";
 import {estimateNavigationTotalTrip} from "../scripts/navigation-travel-day.js";
 
@@ -156,4 +157,69 @@ test("trip-local hire quotes validate bad GM terms without touching world prices
   assert.throws(()=>resolveTransportationHireFare(wagon,{hireApplies:"crew"}),/Invalid GM/);
   assert.throws(()=>quoteTransportationService(wagon,{arrangement:"hire",
     movingHours:8,distanceMi:24,hireTerms:{hireCostCp:Infinity}}),/Invalid GM/);
+});
+
+test("finite hire stock blocks insufficient carts; legacy offers remain unlimited",()=>{
+  const cart={...wagon,capacity:2,hireQuantity:1,hireUnlimited:false};
+  const inputs={arrangement:"hire",movingHours:5,distanceMi:20,travelers:4};
+  assert.deepEqual(assessHiredTransportAvailability(cart,{travelers:4}),{
+    requiredUnits:2,availableUnits:1,unlimited:false,
+    unknown:false,missing:1,sufficient:false
+  });
+  assert.throws(()=>quoteTransportationService(cart,inputs),/Not enough hired/);
+  const two={...cart,hireQuantity:2};
+  assert.equal(quoteTransportationService(two,inputs).units,2);
+  assert.equal(quoteTransportationService({...wagon,capacity:2},inputs).units,2,
+    "historical checkpoint offers have unlimited supply");
+  assert.throws(()=>quoteTransportationService({...cart,hireQuantity:-1},inputs),
+    /Not enough hired/);
+});
+
+test("one hired cargo cart can accompany walkers at walking speed without using passenger seats",()=>{
+  const cart={...wagon,capacity:2,hireUnlimited:false,hireQuantity:1};
+  const fast=quoteTransportationService(cart,{arrangement:"hire",
+    travelers:0,requestedUnits:1,movingHours:5,distanceMi:20});
+  const slow=quoteTransportationService(cart,{arrangement:"hire",
+    travelers:0,requestedUnits:1,movingHours:10,distanceMi:20});
+  assert.equal(fast.units,1);
+  assert.equal(slow.units,1);
+  assert.equal(fast.baseCp,400);
+  assert.equal(slow.baseCp,800,"per-day hired service must cost more when a convoy is slower");
+  assert.throws(()=>quoteTransportationService({...cart,hireQuantity:0},{
+    arrangement:"hire",travelers:0,requestedUnits:1,movingHours:10,distanceMi:20}),
+    /Not enough hired/);
+});
+
+test("continuous carriage daily fare uses fractional normal duty days, not 24h chunks",()=>{
+  const carriage={...wagon,continuousEnabled:true,hireCostCp:400};
+  const q=quoteTransportationService(carriage,{arrangement:"hire",
+    operation:"continuous",movingHours:12,distanceMi:36,travelers:4,regularHours:8});
+  assert.equal(q.travelDays,1,"the carriage keeps moving in one 24h operating period");
+  assert.equal(q.billableDayUnits,1.5,"fare uses the configured eight-hour normal day");
+  assert.equal(q.baseCp,600,"4 GP × 1.5 normal day-units");
+  assert.equal(q.totalCp,600);
+  assert.equal(q.overtimeFareCp,0);
+  const six=quoteTransportationService(carriage,{arrangement:"hire",
+    operation:"continuous",movingHours:12,distanceMi:36,travelers:4,regularHours:6});
+  assert.equal(six.billableDayUnits,2);
+  assert.equal(six.totalCp,800,"custom World regular day is honored");
+  assert.equal(quoteTransportationService({...carriage,hireBasis:"trip"},{
+    arrangement:"hire",operation:"continuous",movingHours:12,
+    distanceMi:36,travelers:4,regularHours:8}).totalCp,400,
+  "per-trip fares are not multiplied by duty periods");
+  assert.equal(quoteTransportationService({...carriage,hireBasis:"mile",hireCostCp:10},{
+    arrangement:"hire",operation:"continuous",movingHours:12,
+    distanceMi:36,travelers:4,regularHours:8}).totalCp,360,
+  "per-mile fares follow distance, independently of continuous schedule");
+});
+
+test("continuous day-based crew wages use proportional normal duty days",()=>{
+  const carriage={...wagon,continuousEnabled:true,hireCostCp:400,
+    hireCrewIncluded:false,crewWageBasis:"day",crewCount:1,crewWageCpPerDay:200};
+  const quote=quoteTransportationService(carriage,{arrangement:"hire",
+    operation:"continuous",movingHours:12,distanceMi:36,travelers:4,regularHours:8});
+  assert.equal(quote.baseCp,600);
+  assert.equal(quote.crewWagesCp,300,"daily wages are 1.5 × 2 GP, not one 24h day");
+  assert.equal(quote.totalCp,900);
+  assert.equal(quote.driverIncluded,false);
 });

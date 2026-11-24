@@ -63,7 +63,7 @@ export function atlasDisplaySpeed(amount,sceneUnit,settings,systemId){
 /** Canonical transportation speed is mph regardless of display settings. */
 export function atlasDisplayPresetSpeed(speedMph,settings,systemId){
   const metric=resolveAtlasMeasuringUnits(settings,systemId)==="metric";
-  return {value:metric?speedMph*1.609344:speedMph,unit:metric?"km/h":"mph"};
+  return {value:metric?speedMph*1.609344:speedMph,unit:metric?"kph":"mph"};
 }
 export function atlasPresetSpeedFromDisplay(speed,settings,systemId){
   return resolveAtlasMeasuringUnits(settings,systemId)==="metric"?speed/1.609344:speed;
@@ -72,6 +72,20 @@ export function atlasPresetSpeedFromDisplay(speed,settings,systemId){
 export function atlasSceneDistanceFromDisplay(amount,sceneUnit,settings,systemId){
   const displayUnit=resolveAtlasMeasuringUnits(settings,systemId,sceneUnit)==="metric"?"km":"mi";
   return convertDistance(amount,displayUnit,sceneUnit)??amount;
+}
+/** Convert a UI speed to Scene units/hour; the hour divisor cancels.
+ * Honor the rounded maximum shown beside the control without exceeding it.
+ */
+export function atlasSceneSpeedFromDisplay(speed,sceneUnit,settings,systemId,
+  canonicalMaximum=null){
+  const converted=atlasSceneDistanceFromDisplay(speed,sceneUnit,settings,systemId);
+  if(Number.isFinite(canonicalMaximum)){
+    const shown=atlasDisplaySpeed(canonicalMaximum,sceneUnit,settings,systemId).value;
+    if(Number.isFinite(shown)&&
+        Math.abs(speed-Number(shown.toFixed(2)))<1e-8)
+      return canonicalMaximum;
+  }
+  return converted;
 }
 export function atlasDisplayElevation(meters,settings,systemId){
   const imperial=resolveAtlasMeasuringUnits(settings,systemId)==="imperial";
@@ -85,5 +99,8 @@ export function atlasCostPerMileFromDisplay(cpPerUnit,settings,systemId){
   return resolveAtlasMeasuringUnits(settings,systemId)==="metric"?cpPerUnit*1.609344:cpPerUnit;
 }
 export function atlasFormatMeasure({value,unit},digits=2){
-  return Number(value).toLocaleString(undefined,{maximumFractionDigits:digits})+" "+unit;
+  const displayedUnit=unit==="mi/hour"?"mph":
+    unit==="km/hour"||unit==="km/h"?"kph":unit;
+  return Number(value).toLocaleString(undefined,{maximumFractionDigits:digits})+
+    " "+displayedUnit;
 }

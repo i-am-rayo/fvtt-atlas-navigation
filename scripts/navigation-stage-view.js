@@ -55,6 +55,12 @@ export function renderNavigationCompletedOverview({title,departed,arrived,
     const card=el("section");
     card.style.cssText="border-top:1px solid var(--color-border-light-tertiary,#555);padding-top:.6rem;display:grid;gap:.2rem;";
     card.append(el("strong",leg.label),el("span",leg.details));
+    if(leg.manifest?.length){
+      const assignments=el("ul");
+      assignments.style.cssText="margin:.25rem 0 0;padding-left:1.1rem;font-size:.87em;";
+      for(const detail of leg.manifest)assignments.append(el("li",detail));
+      card.append(assignments);
+    }
     section.appendChild(card);
   }
   return section;
