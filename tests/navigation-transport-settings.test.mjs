@@ -661,3 +661,50 @@ test("World crew thresholds expose editable inherited defaults, save explicit va
     assert.equal(ctx.changes.at(-1)[1].overrides.dnd5e2024.warship.crewThresholds,undefined);
   }finally{globalThis.foundry=oldFoundry;globalThis.ui=oldUI;ctx.restore();}
 });
+
+test("hired service tier editor saves explicit World rates and Map Marker inheritance, without enabling hire",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry,oldUI=globalThis.ui;
+  try{
+    const {findTransportationPreset}=await import("../scripts/navigation-transport-catalog.js");
+    const {checkpointOfferMethod,transportationMethodOverrideDelta}=await import("../scripts/checkpoint-transportation.js");
+    const ship=findTransportationPreset("warship",game.settings,"dnd5e");
+    const app=new AtlasTransportationSettings();app.render=async()=>{};
+    globalThis.ui={notifications:{info(){}}};
+    let response=null,expectedRate="",expectedSchedule="",expectedPlaceholder="250";
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      const nodes=flatten(content);
+      const rate=nodes.find(e=>e.name==="hireLevelRate-optimal");
+      const schedule=nodes.find(e=>e.name==="hireLevelOperation-optimal");
+      assert.ok(rate&&schedule,"shared Services tab shows a tier editor");
+      assert.equal(rate.value,expectedRate);
+      assert.equal(rate.placeholder,expectedPlaceholder);
+      assert.equal(schedule.value,expectedSchedule);
+      return response;
+    }}}}};
+    await app._edit(ship,"water");
+    assert.deepEqual(ctx.changes,[]);
+    const base={name:ship.name,kind:ship.kind,speedDisplay:ship.speedMph,
+      capacity:ship.capacity,crewCount:60,costBasis:"none",costApplies:"unit",
+      crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",hire_gp:"250",
+      overtimeEnabled:true,overtimeExtraHours:8,overtimeMultiplier:1.5,continuousEnabled:true};
+    response={...base,"hireLevelRate-optimal":"275","hireLevelOperation-optimal":"overtime"};
+    await app._edit(ship,"water");
+    const stored=ctx.changes.at(-1)[1].overrides.dnd5e2024.warship;
+    assert.deepEqual(stored.hireServiceLevels,{optimal:{hireCostCp:27500,operation:"overtime"}});
+    assert.equal(stored.hireEnabled,false);
+    const writes=ctx.changes.length;
+    response={...base,continuousEnabled:false,"hireLevelOperation-full":"continuous"};
+    await assert.rejects(()=>app._edit(ship,"water"),/continuous/i);
+    assert.equal(ctx.changes.length,writes);
+    const world={...ship,hireServiceLevels:stored.hireServiceLevels,overtimeEnabled:true,continuousEnabled:true};
+    const offer={methodId:ship.id,mode:"sea",overrides:{hireServiceLevels:{optimal:{hireCostCp:0}}}};
+    const local=checkpointOfferMethod(offer,world);
+    let result;
+    expectedRate="0";expectedPlaceholder="275";
+    response={...base,"hireLevelRate-optimal":"","hireLevelOperation-optimal":""};
+    await openTransportationMethodEditor({method:local,scope:"checkpoint",inheritedMethod:world,onSave:next=>{result=next;}});
+    assert.deepEqual(result.hireServiceLevels,world.hireServiceLevels);
+    assert.equal(transportationMethodOverrideDelta(world,result).hireServiceLevels,undefined);
+    assert.equal(ctx.changes.length,writes,"Map Marker apply never writes World settings");
+  }finally{globalThis.foundry=oldFoundry;globalThis.ui=oldUI;ctx.restore();}
+});
