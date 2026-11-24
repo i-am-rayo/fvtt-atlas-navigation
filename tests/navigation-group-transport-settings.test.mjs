@@ -566,3 +566,47 @@ test("Party Save blocks stale crew assignments and invalid unit edits",async()=>
     assert.equal(ctx.changes.length,1);
   }finally{globalThis.foundry=oldFoundry;ctx.restore();}
 });
+
+test("Party crew policy editor previews inherited values, applies overrides and resets without losing crew",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const old=ctx.saved;
+    const crewRoster=[{unitIndex:1,named:[{actorId:"pc1"}],hired:30}];
+    ctx.setSaved({...old,groups:{group1:{members:{...old.groups.group1.members,
+      ship1:{role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship",crewRoster}}}}});
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit crew policy for Warship");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
+    assert.ok(edit);
+    let response=null,expectedFull="60";
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content,ok})=>{
+      const nodes=flatten(content);
+      assert.equal(ok.label,"Apply to Party draft");
+      assert.equal(nodes.find(n=>n.name==="policyFull").value,expectedFull);
+      assert.ok(nodes.find(n=>n.name==="policyMode"));
+      assert.ok(nodes.find(n=>n.name==="policyWage_gp"));
+      return response;
+    }}}}};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[]);
+    response={policyMode:"custom",policyFull:"40",policyMinimum:"10",policyOptimal:"20",policyExcellent:"30",
+      policyWage_gp:"2",policyBasis:"trip",policyPaid:true};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[]);
+    assert.ok(elements.some(e=>/31 \/ 40/.test(e.textContent??"")));
+    await save.events.click[0]();
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewPolicyOverride,
+      {crewCount:40,crewThresholds:{minimum:10,optimal:20,excellent:30},crewWageCpPerDay:200,
+        crewWageBasis:"trip",includeCrewWages:true});
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewRoster,crewRoster);
+    const reopened=flatten(await app._renderHTML());
+    expectedFull="40";response={policyMode:"inherit"};
+    await reopened.find(e=>e.attributes.get("aria-label")==="Edit crew policy for Warship").events.click[0]();
+    assert.equal(ctx.changes.length,1);
+    await reopened.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments").events.click[0]();
+    assert.equal(ctx.saved.groups.group1.members.ship1.crewPolicyOverride,null);
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewRoster,crewRoster);
+    assert.equal(ctx.changes.length,2);
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
