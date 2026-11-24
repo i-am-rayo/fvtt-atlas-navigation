@@ -705,7 +705,6 @@ export class AtlasGroupTransportationSettings extends base {
     },{icon:"floppy-disk",size:"footer"});
     save.className+=" atlas-group-transport-save";
     save.appendChild(node("span","Save Party Transportation"));
-    rightActions.appendChild(save);
     const confirmDiscard=()=>!this.dirty||foundry.applications.api.DialogV2.confirm({
       window:{title:"Discard Party transportation changes?"},
       content:"<p>Your unsaved Party transportation draft will be discarded.</p>",
@@ -716,6 +715,7 @@ export class AtlasGroupTransportationSettings extends base {
       await this.close();
       this.dirty=false;
     }));
+    rightActions.appendChild(save);
     leftActions.appendChild(action("Transportation Presets",()=>{
       if(!game.user?.isGM)throw new Error("Only a GM may edit profiles.");
       const editor=new AtlasTransportationSettings();
