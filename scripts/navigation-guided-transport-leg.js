@@ -3,6 +3,7 @@
  * A checkpoint boundary clips movement before a different route surface.
  */
 import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
+import {validateHiredServiceApproval} from "./navigation-transport-service.js";
 const finitePoint=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y);
 const near=(a,b,tolerance=0.01)=>finitePoint(a)&&finitePoint(b)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
@@ -58,7 +59,9 @@ export function prepareGuidedTransportLeg(route,leg){
       arrivalCheckpointName:leg.arrivalCheckpoint.name,
       roadNames:[...leg.roadNames],
       estimatedFareCp:mixed?null:leg.costCp??null,
-      operation:leg.operation??"normal",continuation:Boolean(leg.recovered)}
+      operation:leg.operation??"normal",continuation:Boolean(leg.recovered),
+      ...(leg.approvedService||leg.serviceQuote?.serviceLevel?{serviceApproval:
+        validateHiredServiceApproval(leg.approvedService??leg.serviceQuote)}:{})}
   };
 }
 
