@@ -190,3 +190,32 @@ test("approved schema-2 records retain safe historical rider names without a mig
   unsafe.travelers[0].name="Cassian\nInjected";
   assert.throws(()=>validateMixedLandConvoy(unsafe),/Invalid mixed Journey traveler/);
 });
+
+test("mixed hired tiers use advertised staffing and rates but the shared convoy travel day",()=>{
+  const hired={...coachMethod,serviceLevel:"full",method:{...coach,crewCount:8,
+    continuousEnabled:true,hireCrewIncluded:false,includeCrewWages:true,
+    crewWageCpPerDay:200,crewWageBasis:"day",
+    hireServiceLevels:{full:{hireCostCp:150}}}};
+  const input={methods:[walking,hired],routeDistance:48,weightedDistance:48,distanceMi:48};
+  const before=JSON.stringify(input);
+  const result=plan(input),row=result.methods[1];
+  assert.equal(result.movingHours,16);
+  assert.equal(row.serviceApproval.serviceLevel,"full");
+  assert.equal(row.serviceApproval.advertisedCrew,8);
+  assert.equal(row.serviceApproval.advertisedDailyHours,24);
+  assert.equal(row.serviceApproval.operation,"normal");
+  assert.equal(row.serviceApproval.dailyHours,8);
+  assert.equal(row.serviceApproval.baseCp,900);
+  assert.equal(row.serviceApproval.crewWagesCp,3200);
+  assert.equal(row.estimatedCostCp,4100);
+  assert.equal(result.totalCp,4100);
+  assert.deepEqual(validateMixedLandConvoy(result),result);
+  assert.equal(JSON.stringify(input),before);
+  const tampered=structuredClone(result);
+  tampered.methods[1].serviceApproval.dailyHours=16;
+  assert.throws(()=>validateMixedLandConvoy(tampered),/invalid|schedule/i);
+  const changed=structuredClone(result);
+  changed.methods[1].estimatedCostCp++;changed.totalCp++;
+  assert.throws(()=>validateMixedLandConvoy(changed),/invalid|fare/i);
+  assert.equal(plan().methods[1].serviceApproval,undefined);
+});
