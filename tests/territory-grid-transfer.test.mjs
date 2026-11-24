@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {readTerritoryDraft} from "../scripts/territory-authoring.js";
+import {readTerritoryDraft,saveTerritoryDraft} from "../scripts/territory-authoring.js";
 import {inspectTerritoryGridOwnership,inspectEditableTerritoryGridSeams,
   planTerritoryCellTransfer,commitTerritoryCellTransfer,
   planMultiDestinationTerritoryCellTransfer,commitMultiDestinationTerritoryCellTransfer,
@@ -555,6 +555,87 @@ test("read-only shared-seam shortcut excludes peer cells at other native elevati
     guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
     assert.equal(guide.otherElevationCells,1,
       "an unknown peer range must never be assumed equivalent to a constrained range");
+    assert.equal(f.events.length,0);
+  }finally{restore();}
+});
+
+
+test("different verified native Levels allow a lower Territory to expand without transferring surface cells",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    f.scene.levels=new Map([["underground",{id:"underground"}],
+      ["surface",{id:"surface"}]]);
+    f.target.levels=new Set(["underground"]);
+    f.source.levels=new Set(["surface"]);
+    f.target.elevation={bottom:null,top:null,topInclusive:false};
+    f.source.elevation={bottom:null,top:null,topInclusive:false};
+    const candidate=draft(f);
+    const originalSource=structuredClone(f.source.shapes);
+    const review=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
+    assert.equal(review.peerOwnedAddedCells,0,
+      "XY overlap across separate native Levels is not a transferable cell claim");
+    assert.equal(review.unclaimedAddedCells,1);
+    assert.equal(review.otherLevelAddedCells,1,
+      "the review must explicitly identify cells overlapping another native Level");
+    assert.equal(planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}),null,
+      "no proposal may remove a Surface cell for an Underground edit");
+    await saveTerritoryDraft(f.scene,candidate,{regionId:f.target.id,view:f.view});
+    assert.deepEqual(f.source.shapes,originalSource,
+      "the Surface native Region, its cells and all Behaviors remain untouched");
+    assert.equal(f.target.shapes[0].offsets.some(p=>p.i===1&&p.j===0),true);
+    assert.deepEqual(f.events.filter(e=>e.type==="region").map(e=>e.id),["Valecor"]);
+    assert.equal(f.events.some(e=>e.type==="scene"),false,
+      "no cross-Region recovery transaction is necessary for separate native Levels");
+  }finally{restore();}
+});
+
+test("same or unknown native Levels still protect peer ownership, and stale target Levels block save",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    f.scene.levels=new Map([["underground",{id:"underground"}],
+      ["surface",{id:"surface"}]]);
+    f.target.levels=new Set(["underground"]);
+    f.source.levels=new Set(["underground"]);
+    const candidate=draft(f);
+    let review=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
+    assert.equal(review.peerOwnedAddedCells,1);
+    assert.equal(planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}).sourceId,"Reshara");
+    await assert.rejects(
+      ()=>saveTerritoryDraft(f.scene,candidate,{regionId:f.target.id,view:f.view}),
+      /owned|overlap/i);
+    // Unknown Level IDs and an empty selection (all Levels) are not proof of isolation.
+    f.source.levels=new Set(["missing-id"]);
+    review=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
+    assert.equal(review.peerOwnedAddedCells,1);
+    f.source.levels=new Set();
+    review=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
+    assert.equal(review.peerOwnedAddedCells,1);
+    // The GM may change the target's native Level after the Atlas draft opens.
+    f.source.levels=new Set(["surface"]);
+    f.target.levels=new Set(["surface"]);
+    await assert.rejects(
+      ()=>saveTerritoryDraft(f.scene,candidate,{regionId:f.target.id,view:f.view}),
+      /Level.*changed|changed.*Level/i);
+    assert.equal(f.events.length,0,"blocked saves never write native Regions or Scene flags");
+  }finally{restore();}
+});
+
+test("shared seam selector checks native Level IDs as well as elevation bounds",()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    f.scene.levels=new Map([["underground",{id:"underground"}],
+      ["surface",{id:"surface"}]]);
+    f.view.grid.getAdjacentOffsets=({i,j})=>[
+      {i:i-1,j},{i:i+1,j},{i,j:j-1},{i,j:j+1}];
+    f.target.levels=new Set(["underground"]);
+    f.source.levels=new Set(["surface"]);
+    const guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
+    assert.deepEqual(guide.peers,[],
+      "the shortcut never lets a lower-level Region paint from a surface-only peer");
+    assert.ok(guide.otherElevationCells>0,"excluded frontier cells are counted");
     assert.equal(f.events.length,0);
   }finally{restore();}
 });
