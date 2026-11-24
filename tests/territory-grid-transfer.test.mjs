@@ -622,6 +622,40 @@ test("same or unknown native Levels still protect peer ownership, and stale targ
   }finally{restore();}
 });
 
+test("partially shared native Level membership never authorizes destructive cell transfer",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    f.scene.levels=new Map([["underground",{id:"underground"}],
+      ["surface",{id:"surface"}]]);
+    f.target.levels=new Set(["underground"]);
+    f.source.levels=new Set(["underground","surface"]);
+    const candidate=draft(f);
+    assert.throws(()=>planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}),
+      /native Level|elevation scope/i,
+      "a source spanning more Levels than the target cannot lose the cell automatically");
+    await assert.rejects(
+      ()=>saveTerritoryDraft(f.scene,candidate,{regionId:f.target.id,view:f.view}),
+      /owned|overlap/i);
+    assert.equal(f.events.length,0);
+  }finally{restore();}
+});
+
+test("batch planner never removes surface-only Region cells for underground destinations",()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),b=batch(f);
+    f.scene.levels=new Map([["underground",{id:"underground"}],
+      ["surface",{id:"surface"}]]);
+    for(const target of [f.target,b.target])target.levels=new Set(["underground"]);
+    for(const source of [f.source,b.source])source.levels=new Set(["surface"]);
+    const proposal=planMultiDestinationTerritoryCellTransfer(f.scene,b.staged,{view:f.view});
+    assert.deepEqual(proposal.sourceIds,[]);
+    assert.equal(proposal.unclaimedAddedCells,2);
+    assert.equal(f.events.length,0,"batch planning never writes native docs");
+  }finally{restore();}
+});
+
 test("shared seam selector checks native Level IDs as well as elevation bounds",()=>{
   const restore=globals();
   try{
