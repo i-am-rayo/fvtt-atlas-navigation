@@ -283,7 +283,8 @@ export class AtlasCheckpointAppearanceEditor extends foundry.applications.api.Ap
     const pageGeneral = el("section"), pageMarker = el("section"), pageTerrain = el("section");
     const pageTransport=el("section");
     const transportEditor=createCheckpointTransportationEditor({offers:this.createDraft?[]:
-      checkpointOffers(this.scene,this.checkpointId)});
+      checkpointOffers(this.scene,this.checkpointId),
+      saveLabel:this.createDraft?"Create Map Marker":"Save Map Marker"});
     pageTransport.append(transportEditor.element);
     pageGeneral.appendChild(fields);
 
