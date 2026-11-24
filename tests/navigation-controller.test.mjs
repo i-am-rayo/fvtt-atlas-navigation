@@ -1937,12 +1937,25 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
       selectedIds:nav.partySelectionMode==="selected"?["a"]:["a","b"],
       travelerCount:nav.partySelectionMode==="selected"?1:2,
       empty:false,partial:nav.partySelectionMode==="selected"});
-    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+    globalThis.foundry.applications.api.DialogV2.confirm=async({content})=>{
+      assert.ok(approvalNodes(content).some(n=>n.textContent==="Alba, Kori"));
+      assert.ok(approvalNodes(content).some(n=>n.textContent==="2"));
       nav.partySelectionMode="selected";return true;};
     await assert.rejects(()=>nav.startGuidedTravel(),/participation changed|selection changed/,
       "late selection changes must fail before native move or Journal writes");
     assert.equal(token.moves,0);assert.equal(writes.length,0);
     nav.partySelectionMode="all";nav.partyTravelSelection=originalPartySelection;
+    advanceClock=true;
+    game.users.activeGM={id:"gm",name:"Current GM"};
+    game.time={advance:async()=>{throw Error("Unexpected clock write");}};
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      game.users.activeGM={id:"other-gm",name:"Other GM"};
+      return true;
+    };
+    await assert.rejects(nav.startGuidedTravel(),/active GM/);
+    assert.equal(token.moves,0,"active GM handoff cannot launch movement");
+    assert.equal(writes.length,0,"active GM handoff cannot create a Journal");
+    advanceClock=false;
     globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
       dialogTitles.push(options.window.title);return true;};
     approve=true;
