@@ -12,6 +12,8 @@ import {territoryTier} from "./territory-view-model.js";
 import {readBoundarySource,readTerritoryDraft,nativeTerritoryShapeDigest,
   validateTerritoryCoverage} from "./territory-authoring.js";
 import {nativeSceneGridIdentity} from "./territory-grid-conversion.js";
+import {nativeRegionScopeRelation,nativeRegionScopeSnapshot}
+  from "./territory-native-region-scope.js";
 
 const clone=v=>structuredClone(v);
 const key=p=>`${p.i},${p.j}`;
@@ -105,10 +107,12 @@ function virtualScene(scene,changes){
     const proposed=changes.get(region.id);
     if(!proposed)return region;
     return {id:region.id,name:region.name,hidden:region.hidden,
+      levels:region.levels,elevation:region.elevation,
       shapes:proposed, getFlag:(...args)=>region.getFlag(...args)};
   });
   const index=new Map(all.map(region=>[region.id,region]));
-  return {id:scene.id,regions:{values:()=>all.values(),get:id=>index.get(id)}};
+  return {id:scene.id,levels:scene.levels,
+    regions:{values:()=>all.values(),get:id=>index.get(id)}};
 }
 
 function gridSource(prior,shape){
@@ -167,7 +171,8 @@ export function inspectEditableTerritoryGridSeams(scene,targetId,
     inspected+=peerOffsets.length;
     if(inspected>MAX_SEAM_PEER_CELLS)
       return {available:false,reason:"Adjacent Territories exceed the inspection limit.",peers:[]};
-    if(!sameNativeElevationRange(target,peer)){
+    if(nativeRegionScopeRelation(scene,target,peer)!=="same"||
+        !sameNativeElevationRange(target,peer)){
       for(const offset of peerOffsets){
         const cellId=key(offset);
         if(frontier.has(cellId))otherElevation.add(cellId);
@@ -211,8 +216,10 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
       !globalThis.foundry?.data?.GridShapeData||!isGrid(target))
     throw Error("The active Scene needs an editable native Grid Region.");
   const original=readTerritoryDraft(scene,targetId,{view});
-  if(original.kind!=="grid"||original.sourceDigest!==draft.sourceDigest)
-    throw Error("The native Territory changed. Reopen Paint Territory.");
+  if(original.kind!=="grid"||original.sourceDigest!==draft.sourceDigest||
+      draft.nativeScopeSnapshot!==undefined&&
+      draft.nativeScopeSnapshot!==original.nativeScopeSnapshot)
+    throw Error("The native Territory Shape or Levels changed. Reopen Paint Territory.");
   const entries=listSceneGeography(scene);
   const entry=entries.find(e=>e.id===targetId);
   const tier=territoryTier(entry);
@@ -224,7 +231,7 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
   const added=after.filter(cell=>!before.has(key(cell)));
   const removed=original.offsets.filter(cell=>!afterKeys.has(key(cell)));
   const addedKeys=new Set(added.map(key));
-  const owners=new Map();
+  const owners=new Map(),otherLevelAdded=new Set(),unsafeScopePeers=new Set();
   const peers=[];
   const peerCells=new Map(),peerNames=new Map();
   let scannedPeerCells=0;
@@ -235,6 +242,15 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
         territoryTier(candidate)!==tier)continue;
     const peer=scene.regions.get(candidate.id);
     if(!peer||!isGrid(peer))continue;
+    const scope=nativeRegionScopeRelation(scene,target,peer);
+    if(scope==="separate"){
+      for(const offset of shapes(peer)[0].offsets){
+        const cellId=key(offset);
+        if(addedKeys.has(cellId))otherLevelAdded.add(cellId);
+      }
+      continue;
+    }
+    if(scope==="mixed")unsafeScopePeers.add(peer.name);
     peerNames.set(peer.id,peer.name);
     let count=0;
     for(const offset of shapes(peer)[0].offsets){
@@ -299,14 +315,17 @@ export function inspectTerritoryGridOwnership(scene,targetId,draft,
   return {targetId,targetName:target.name,originalCells:original.offsets.length,
     proposedCells:after.length,addedCells:added.length,removedCells:removed.length,
     unclaimedAddedCells:added.length-peerOwned,peerOwnedAddedCells:peerOwned,
+    otherLevelAddedCells:otherLevelAdded.size,
+    unsafeScopePeers:[...unsafeScopePeers].sort(),
     contestedAddedCells:contested,peers,
     sharedBorderEdges,existingOverlapCells,adjacentPeers,
     seamInspectionAvailable:sharedBorderEdges!==null,
     previewCells:previewCandidates.slice(0,MAX_OWNERSHIP_PREVIEW_CELLS),
     previewTotalCells:previewCandidates.length,
     previewTruncated:previewCandidates.length>MAX_OWNERSHIP_PREVIEW_CELLS,
-    canUseExistingTransferWriter:peers.length===1&&contested===0,
-    requiresMultiRegionReview:peers.length>1||contested>0};
+    canUseExistingTransferWriter:peers.length===1&&contested===0&&
+      unsafeScopePeers.size===0,
+    requiresMultiRegionReview:peers.length>1||contested>0||unsafeScopePeers.size>0};
 }
 
 export function readPendingTerritoryCellTransfer(scene){
@@ -348,8 +367,10 @@ export function planTerritoryCellTransfer(scene,targetId,draft,{view=globalThis.
   if(!view?.ready||view.scene?.id!==scene.id||!view.grid||view.grid.isGridless||
       !globalThis.foundry?.data?.GridShapeData||!isGrid(target))return null;
   const original=readTerritoryDraft(scene,targetId,{view});
-  if(original.kind!=="grid"||original.sourceDigest!==draft.sourceDigest)
-    throw Error("The selected native grid Region changed. Reopen the editor.");
+  if(original.kind!=="grid"||original.sourceDigest!==draft.sourceDigest||
+      draft.nativeScopeSnapshot!==undefined&&
+      draft.nativeScopeSnapshot!==original.nativeScopeSnapshot)
+    throw Error("The selected native grid Region Shape or Levels changed. Reopen the editor.");
   const targetOffsets=validateGridOffsets(draft.offsets);
   const existing=new Set(original.offsets.map(key));
   const additions=targetOffsets.filter(p=>!existing.has(key));
@@ -366,7 +387,12 @@ export function planTerritoryCellTransfer(scene,targetId,draft,{view=globalThis.
     const peer=scene.regions.get(entry.id),peerShapes=shapes(peer);
     if(peerShapes.length!==1||peerShapes[0].type!=="grid")continue;
     const claimed=peerShapes[0].offsets.filter(offset=>addedKeys.has(key(offset)));
-    if(claimed.length)owners.push({id:entry.id,claimed});
+    if(!claimed.length)continue;
+    const relation=nativeRegionScopeRelation(scene,target,peer);
+    if(relation==="separate")continue;
+    if(relation!=="same")
+      throw Error("Overlapping native Level/elevation scopes cannot transfer cells safely. Review the Region Levels.");
+    owners.push({id:entry.id,claimed});
   }
   if(!owners.length)return null;
   if(owners.length>4)
@@ -449,7 +475,10 @@ export function planMultiDestinationTerritoryCellTransfer(scene,staged,
     const geography=entries.find(entry=>entry.id===regionId);
     const currentTier=territoryTier(geography);
     if(!isGrid(region)||prior.kind!=="grid"||
-        prior.sourceDigest!==draft.sourceDigest||currentTier==="unclassified"||
+        prior.sourceDigest!==draft.sourceDigest||
+        draft.nativeScopeSnapshot!==undefined&&
+        draft.nativeScopeSnapshot!==prior.nativeScopeSnapshot||
+        currentTier==="unclassified"||
         !same(geography?.geography,draft.geography)||
         (tier!==null&&tier!==currentTier))
       throw Error("A batch destination changed or has a different geographic tier. Reopen its editor.");
@@ -480,7 +509,14 @@ export function planMultiDestinationTerritoryCellTransfer(scene,staged,
         targets.has(entry.id))continue;
     const source=scene.regions.get(entry.id);
     if(!source||!isGrid(source))continue;
-    const claimed=shapes(source)[0].offsets.filter(offset=>additions.has(key(offset)));
+    const claimed=shapes(source)[0].offsets.filter(offset=>{
+      const targetId=additions.get(key(offset));
+      if(!targetId)return false;
+      const relation=nativeRegionScopeRelation(scene,targets.get(targetId).region,source);
+      if(relation==="mixed")
+        throw Error("Batch crosses partially shared native Level/elevation scopes. Review the Region Levels.");
+      return relation==="same";
+    });
     if(claimed.length){sourceClaims.set(entry.id,claimed);movedCells+=claimed.length;}
   }
   if(!additions.size&&!removedCells)
