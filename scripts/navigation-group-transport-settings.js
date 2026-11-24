@@ -14,6 +14,7 @@ import {createSettingsCategoryTabs} from "./settings-category-tabs.js";
 import {alphabetizeSettingsOptions} from "./settings-select.js";
 import {createAtlasIconButton} from "./ui-action-button.js";
 import {atlasDisplayPresetSpeed} from "./navigation-measure-units.js";
+import {describeOwnedCrewProfile} from "./navigation-transport-summary-view.js";
 
 const MODULE_ID="fvtt-atlas-navigation";
 const SURFACES=["land","water","air"];
@@ -153,6 +154,8 @@ export class AtlasGroupTransportationSettings extends base {
     const renderCapacity=(projection,label)=>{
       capacityHeading.textContent=label+" · "+projection.pcCount+" PCs | "+
         projection.npcCount+" passenger NPCs · "+projection.travelers+" seats needed";
+      const crew=projection.members.filter(m=>m.role==="crew").reduce((n,m)=>n+m.quantity,0);
+      if(crew)capacityHeading.textContent+=" · "+crew+" crew role unit(s), not allocated to vehicles";
       for(const surface of SURFACES){
         const {travelers,seats,missing,unknown}=groupTravelCapacityStatus(projection,surface);
         const line=capacityLines[surface];
@@ -510,7 +513,8 @@ export class AtlasGroupTransportationSettings extends base {
             " per "+(effective.costApplies==="passenger"?"passenger":"unit"))+
             " ("+upkeepSource+")":"Not configured";
           costDetails.textContent="Speed: "+speedLabel+" · Upkeep: "+upkeep+
-            (method?"":" · Choose a World profile under Edit.");
+            (method?"":" · Choose a World profile under Edit.")+
+            (type==="vehicle"?" · "+describeOwnedCrewProfile(method,projected.quantity):"");
         };
         if(type==="npc"&&member.role!=="mount")profile.disabled=true;
         profile.addEventListener("change",()=>{
