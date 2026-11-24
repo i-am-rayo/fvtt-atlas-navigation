@@ -247,11 +247,15 @@ export class AtlasGroupTransportationSettings extends base {
         const reviewed=projectGroupTransportation(group,next,methods);
         validateRiders(reviewed);
         renderCapacity(reviewed,"Draft");
+        const byActor=new Map(reviewed.members.map(member=>[member.actorId,member]));
         for(const entry of editable)
-          entry.updateDetails(reviewed.members.find(m=>m.actorId===entry.member.actorId));
+          entry.updateDetails(byActor.get(entry.member.actorId)??null);
       }catch(error){
         capacityHeading.textContent="Draft — capacity preview unavailable: "+error.message;
-        for(const line of Object.values(capacityLines))line.textContent="";
+        for(const line of Object.values(capacityLines)){
+          line.textContent="";
+          line.className="";
+        }
         for(const entry of editable)entry.updateDetails(null);
       }
     };
@@ -410,7 +414,7 @@ export class AtlasGroupTransportationSettings extends base {
         purchaseOverride.disabled=purchaseMode.value!=="custom";
         purchaseMode.addEventListener("change",()=>{
           purchaseOverride.disabled=purchaseMode.value!=="custom";
-          updateDetails();
+          markDirty();
         });
         const noteOverride=node("textarea");
         noteOverride.name="note-"+member.actorId;
@@ -508,7 +512,6 @@ export class AtlasGroupTransportationSettings extends base {
           costDetails.textContent="Speed: "+speedLabel+" · Upkeep: "+upkeep+
             (method?"":" · Choose a World profile under Edit.");
         };
-        updateDetails();
         if(type==="npc"&&member.role!=="mount")profile.disabled=true;
         profile.addEventListener("change",()=>{
           const method=lookup.get(profile.value);
@@ -516,21 +519,18 @@ export class AtlasGroupTransportationSettings extends base {
           if(!method)speedOverride.value="";
           if(method&&capacity.value===""&&method.capacity!==null)
             capacity.value=String(method.capacity);
-          updateDetails();
+          markDirty();
         });
         if(type==="npc")role.addEventListener("change",()=>{
           profile.disabled=role.value!=="mount";
           speedOverride.disabled=role.value!=="mount"||!profile.value;
           seatField.hidden=role.value!=="passenger";
           seatField.style.display=seatField.hidden?"none":"flex";
-          updateDetails();
         });
         speedOverride.disabled=!profile.value||(type==="npc"&&member.role!=="mount");
-        speedOverride.addEventListener("input",updateDetails);
-        for(const input of [costOverride,costBasisOverride,costAppliesOverride,
-          purchaseOverride,noteOverride]){
-          input.addEventListener("input",updateDetails);
-          input.addEventListener("change",updateDetails);
+        for(const input of [quantity,capacity,speedOverride,costOverride,costBasisOverride,
+          costAppliesOverride,purchaseOverride,noteOverride,assignedTo]){
+          input.addEventListener("change",markDirty);
         }
         const resetOverrides=node("button","Clear individual overrides");
         resetOverrides.type="button";
@@ -540,7 +540,7 @@ export class AtlasGroupTransportationSettings extends base {
           costAppliesOverride.value="";purchaseMode.value="inherit";
           purchaseOverride.value="";purchaseOverride.disabled=true;
           noteOverride.value="";
-          updateDetails();
+          markDirty();
         });
         overrides.appendChild(resetOverrides);
         const controls=node("div");
@@ -600,7 +600,6 @@ export class AtlasGroupTransportationSettings extends base {
                 String(next.purchaseGpOverride):"";
               purchaseOverride.disabled=purchaseMode.value!=="custom";
               noteOverride.value=next.noteOverride??"";
-              updateDetails();
               const nextSurface=lookup.get(next.profileId)?.surface??member.surface;
               if(type==="vehicle"||role.value==="mount"){
                 deferMove(row,bucket[nextSurface]??other);
