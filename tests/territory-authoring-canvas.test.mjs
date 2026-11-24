@@ -672,12 +672,13 @@ test("one existing Preview & Save includes a fresh shared-cell review, not anoth
   const surface=new Element("canvas"),body=new Element("body"),doc=new Element("document");
   doc.createElement=tag=>new Element(tag);doc.body=body;
   const group={addChild(g){g.parent=this;},removeChild(g){g.parent=null;}};
-  const scene={id:"paedor"},reviews=[],dialogTexts=[],errors=[];
+  const scene={id:"paedor"},reviews=[],dialogTexts=[],dialogDisabled=[],errors=[];
   let writes=0,allow=false;
   globalThis.game={user:{isGM:true}};
   globalThis.ui={notifications:{error:message=>errors.push(message)}};
   globalThis.foundry={applications:{api:{DialogV2:{confirm:async data=>{
-    dialogTexts.push(data.content.children.map(p=>p.textContent));return allow;
+    dialogTexts.push(data.content.children.map(p=>p.textContent));
+    dialogDisabled.push(Boolean(data.yes?.disabled));return allow;
   }}}}};
   globalThis.PIXI={Graphics};globalThis.document=doc;
   globalThis.requestAnimationFrame=undefined;
@@ -729,8 +730,29 @@ test("one existing Preview & Save includes a fresh shared-cell review, not anoth
     await blockedSave.listeners.get("click")();
     assert.equal(writes,1,"GM confirmation cannot bypass multiple native cell owners");
     assert.ok(errors.some(message=>/multiply owned/.test(message)));
+    assert.equal(dialogDisabled.at(-1),true,
+      "a contested draft cannot offer an active native Save control");
     assert.ok(editor.session,"the blocked draft remains open for correction");
     editor.cancel();assert.equal(await blocked,false);
+
+    const mixed=editor.begin(scene,{kind:"grid",offsets:[{i:0,j:0}]},
+      async()=>{writes++;},{reviewDraft:async candidate=>({
+        ...reviewDraft(candidate),unclaimedAddedCells:0,peerOwnedAddedCells:0,
+        blockedAddedCells:1,contestedAddedCells:0,peers:[],
+        blockedPeers:[{name:"Underdark",cells:1,
+          detail:"Kharak: Surface; Underdark: all native Levels"}]
+      })});
+    const mixedSave=editor.session.panel.children.find(c=>c.tagName==="div"&&
+      c.children.some(b=>b.textContent==="Preview & Save"))
+      .children.find(b=>b.textContent==="Preview & Save");
+    await mixedSave.listeners.get("click")();
+    assert.equal(dialogDisabled.at(-1),true,
+      "native Save is disabled when a proposed hex has uncertain Level ownership");
+    assert.ok(dialogTexts.at(-1).some(line=>/Save is blocked/.test(line)));
+    assert.equal(writes,1,"even a mocked approval cannot bypass blocked native Levels");
+    assert.ok(errors.some(message=>/Save blocked: native Level scopes/.test(message)));
+    assert.ok(editor.session,"blocked native Level preview preserves the paint draft");
+    editor.cancel();assert.equal(await mixed,false);
 
     let snapshot=0;
     const stale=editor.begin(scene,{kind:"grid",offsets:[{i:0,j:0}]},
