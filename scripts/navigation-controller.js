@@ -67,7 +67,7 @@ import { resolveTransportationOperation,draftTransportationOperation,quoteTransp
   from "./navigation-transport-service.js";
 import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
 import { offersAtOrigin,checkpointOffers,saveCheckpointOffers,
-  checkpointOfferMethod,transportationMethodOverrideDelta }
+  checkpointOfferMethod,transportationMethodOverrideDelta,applyTransportationMethodOverrides }
   from "./checkpoint-transportation.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
@@ -515,7 +515,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(arrangement==="owned"){
         if(id!=="walking"&&!availability.owned.has(id))
           throw Error("The Group no longer owns the selected travel method.");
-        return {key,arrangement,method:{...world,...this.mixedMethodOverrides?.[key]}};
+        return {key,arrangement,method:applyTransportationMethodOverrides(world,this.mixedMethodOverrides?.[key])};
       }
       const offer=availability.offers.get(id);
       if(!offer)throw Error("Selected hired service is no longer offered at departure.");
@@ -524,7 +524,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!method.hireEnabled)
         throw Error("Selected hired service is no longer available.");
       return {key,arrangement,
-        method:{...method,...this.mixedMethodOverrides?.[key]},
+        method:applyTransportationMethodOverrides(method,this.mixedMethodOverrides?.[key]),
         checkpointId:offer.checkpointId,units:this.mixedUnits[key]??undefined};
     });
   }
@@ -893,7 +893,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const baseline=offer?checkpointOfferMethod({methodId:offer.methodId,mode:offer.mode,
       overrides:offer.overrides},method):method;
     return method.id===this.travelMethod&&this.transportJourneyOverrides?
-      {...baseline,...this.transportJourneyOverrides}:baseline;
+      applyTransportationMethodOverrides(baseline,this.transportJourneyOverrides):baseline;
   }
 
   /** Completed/suspended Journeys retain their approved operation. A fresh
@@ -1003,7 +1003,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(option){
         const local=this.transferLegOverrides[index];
         if(local?.selection===option.value)
-          option.method={...option.method,...local.overrides};
+          option.method=applyTransportationMethodOverrides(option.method,local.overrides);
       }
       if(index>0&&!projected.legs[index-1].transferValid)
         errors.push("A transfer needs an authored checkpoint or landing at the connecting road node.");
@@ -1127,7 +1127,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const initialOffers=checkpointId?checkpointOffers(this.scene,checkpointId):null;
     const {openTransportationMethodEditor}=await import("./navigation-transport-settings.js");
     await openTransportationMethodEditor({
-      method:option.method,scope:"journey",
+      method:option.method,scope:"journey",inheritedMethod:origin,
       checkpointName:option.offer?.checkpointName??null,
       journeyOperation:leg.operation,
       onReset:async()=>{
@@ -1194,7 +1194,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     };
     const {openTransportationMethodEditor}=await import("./navigation-transport-settings.js");
     await openTransportationMethodEditor({
-      method:{...baseline,...this.mixedMethodOverrides[key]},scope:"journey",
+      method:applyTransportationMethodOverrides(baseline,this.mixedMethodOverrides[key]),scope:"journey",
+      inheritedMethod:baseline,
       checkpointName:offer?.checkpointName??null,
       // A mixed convoy's one operating schedule is not decided by one vehicle.
       onSave:async edited=>{
@@ -1233,7 +1234,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const initialOffers=offer?checkpointOffers(this.scene,offer.checkpointId):null;
     const {openTransportationMethodEditor}=await import("./navigation-transport-settings.js");
     await openTransportationMethodEditor({
-      method:baseline,scope:"journey",checkpointName:offer?.checkpointName??null,
+      method:baseline,scope:"journey",inheritedMethod:original,checkpointName:offer?.checkpointName??null,
       journeyOperation:this.transportOperation,
       onSaveCheckpoint:offer?async (edited,{operation}={})=>{
         if(this.travelMethod!==id||this.transportArrangement!=="hire")
