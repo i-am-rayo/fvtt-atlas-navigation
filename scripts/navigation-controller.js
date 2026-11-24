@@ -2782,6 +2782,22 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const atlas=this.atlasProvider(this.scene);
     if(atlas.revision!==this.routeRevision)
       throw Error("The road network changed. Calculate a fresh route before traveling.");
+    // Check before any approval dialog, and again just before creating the
+    // Journey. Native active-GM authority can change while a dialog is open.
+    const verifyWorldClock=()=>{
+      const enabled=readNavigationWorldClockSetting(game.settings);
+      if(enabled){
+        const activeGM=game.users?.activeGM;
+        if(activeGM?.id!==game.user?.id||!game.user?.isGM)
+          throw Error("Only Foundry's active GM can advance World time during an Atlas journey. "+
+            (activeGM?.name?"Current active GM: "+activeGM.name+". ":"")+
+            "Use the active GM session, or deliberately disable World-time advancement in Atlas World settings.");
+        if(typeof game.time?.advance!=="function")
+          throw Error("Foundry World time is unavailable for guided travel.");
+      }
+      return enabled;
+    };
+    verifyWorldClock();
     const approvedLandMethod=isUnfinishedJourneyLeg(this.recoveryRecord)&&
       !this.recoveryRecord.legs.at(-1)?.transport?
       this.recoveryRecord.legs.at(-1)?.travelMethod:null;
@@ -2845,30 +2861,85 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // Validate the current Map Marker and inferred schedule before GM approval.
       this.resolveTravelRules({methodId:this.travelMethod,hoursPerDay:8},
         effective,selectedOperation);
+      const routeBefore=this.result,arrangementBefore=this.transportArrangement;
+      const money=cp=>dndCurrencyBreakdown(cp,globalThis.CONFIG?.DND5E?.currencies).label;
+      const landSummary=(currentMethod,boarding)=>{
+        const travel=this.resolveTravel().travel;
+        const sceneUnit=this.scene.grid.units;
+        const shown=atlasDisplaySpeed(travel.speed,sceneUnit,game.settings,game.system?.id);
+        const unit=shown.unit==="mi/hour"?"mph":shown.unit==="km/hour"?"km/h":shown.unit;
+        const hours=navigationHours(this.result.terrainAware?this.result.cost:this.result.distance,
+          travel.speed);
+        const saved=resumingApprovedLand?this.recoveryRecord.legs.at(-1):null;
+        const people=saved?.participation?.people??partyAtStart?.members?.map(member=>({
+          name:member.name,traveling:partyAtStart.selectedIds.includes(member.id)
+        }))??[];
+        const traveling=people.filter(member=>member.traveling).map(member=>member.name);
+        const absent=people.filter(member=>!member.traveling).map(member=>member.name);
+        const roster=partyAtStart?.previewRoster??partyAtStart?.roster;
+        const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
+        let quote=boarding?.quote??null;
+        if(!saved&&!quote&&Number.isFinite(distanceMi)){
+          const ownedQuote=arrangementBefore==="owned"&&roster?
+            groupMethodFareEstimate(roster,currentMethod,{hours,distanceMi,
+              dayHours:this.resolveTravelRules(travel).dailyHours??8}):null;
+          if(arrangementBefore==="hire"||ownedQuote){
+            const regularHours=resolveNavigationTravelRules({settings:game.settings,
+              systemId:game.system?.id,actorHoursPerDay:travel.hoursPerDay}).dailyHours??8;
+            quote=quoteTransportationService(currentMethod,{
+              arrangement:arrangementBefore,operation:selectedOperation,
+              movingHours:hours,distanceMi,travelers:partyAtStart?.travelerCount??1,
+              ownedQuote,regularHours,hireTerms:this.transportHireTerms,
+              livestockPercent:readLivestockFarePercent(game.settings)});
+          }
+        }
+        const cost=saved?"Previously approved — not re-quoted":quote?money(quote.totalCp):"Not quoted";
+        const manifest=boarding?.manifest??saved?.livestock;
+        const aboard=manifest?.resources.reduce((n,m)=>n+m.aboard,0)??0;
+        const mountDetails=describeJourneyMountFare(manifest,{
+          method:currentMethod,arrangement:arrangementBefore,
+          worldPercent:saved||!aboard?undefined:readLivestockFarePercent(game.settings),
+          formatMoney:money,approved:Boolean(saved)});
+        const staying=manifest?.resources.filter(m=>m.quantity>m.aboard)
+          .map(m=>m.name+": "+(m.quantity-m.aboard)+" staying")??[];
+        return {speed:travel.speed,hours,quote,view:{
+          rows:[{method:currentMethod.name+" ("+(arrangementBefore==="hire"?"hired":"party-owned")+")",
+            travelers:traveling.join(", ")||"Assigned party explorer",
+            units:quote?.units??manifest?.units??"—",cost}],
+          metrics:[
+            ["Total travelers",people.length?String(traveling.length):"Party explorer"],
+            ["Group travel speed",shown.value.toFixed(2)+" "+unit],
+            ["Estimated moving time",formatNavigationDuration(hours,24)],
+            ["Estimated transportation cost",cost]
+          ],
+          notes:[
+            "Operating schedule: "+selectedOperation+".",
+            absent.length?"Not traveling: "+absent.join(", "):null,
+            manifest?"Carrying "+aboard+" physical mounts; "+
+              (manifest.capacityPerUnit===null?"unlimited animal accommodation":
+                manifest.capacityPerUnit+" animal spaces per vehicle")+".":null,
+            mountDetails,
+            staying.length?"Staying behind: "+staying.join(" · "):null,
+            saved?"Resuming the approved Journey; no new fare is quoted or charged.":null,
+            "The Group explorer represents the selected travelers; native Group membership remains "+
+              "unchanged. Foundry validates native movement and optionally advances confirmed World time. "+
+              "Costs are estimates; no booking, boarding, payment or Actor changes occur automatically."
+          ]
+        }};
+      };
+      const summary=landSummary(effective,landLivestock);
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:resumingApprovedLand?"Resume approved land travel":"Confirm land travel"},
-        content:el("div","GM confirmation: "+(resumingApprovedLand?
-          "resume the approved journey":"follow the authored land route")+" using "+
-          method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+"). "+
-          "Operating schedule: "+selectedOperation+". "+
-          "The party token will move using Foundry's native movement and optional "+
-          "World-time advancement. Costs are estimates; no automatic boarding, "+
-          "resource changes or currency deductions occur."+
-          (landLivestock?" Carrying "+
-            landLivestock.manifest.resources.reduce((n,m)=>n+m.aboard,0)+
-            " physical mounts in "+
-            (landLivestock.manifest.capacityPerUnit===null?
-              "unlimited default animal accommodation":
-              landLivestock.manifest.capacityPerUnit+" animal spaces per vehicle")+
-            "; estimated animal fare "+landLivestock.manifest.estimatedFareCp+
-            " CP (not deducted).":"")+" Continue?"),
-        rejectClose:false,modal:true
+        content:renderNavigationTransportApproval(summary.view),rejectClose:false,modal:true
       });
       if(!approval)return false;
       const liveAvailability=this.transportAvailability();
       const liveWorld=liveAvailability.methods.find(m=>m.id===this.travelMethod);
       const liveMethod=liveWorld&&this.effectiveTransportMethod(liveWorld,liveAvailability);
-      if(this.travelSession||this.pendingTransfer||this.scene?.id!==view.scene?.id||
+      if(this.travelSession||this.journalStarting||this.pendingTransfer||
+          !game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
+          this.scene?.id!==view.scene?.id||this.result!==routeBefore||
+          this.travelMethod!==method.id||this.transportArrangement!==arrangementBefore||
           this.atlasProvider(this.scene).revision!==this.routeRevision||
           this.getPartyToken()?.id!==token.id||!liveMethod||
           this.plannedTravelOperation(liveMethod)!==selectedOperation)
@@ -2895,6 +2966,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           method:this.effectiveTransportMethod(revised,updated)})!==hireSnapshot)
           throw Error("The checkpoint's hired service or its terms changed during confirmation. Review the updated offer.");
       }
+      if(JSON.stringify(landSummary(liveMethod,landLivestock))!==JSON.stringify(summary))
+        throw Error("The land transportation summary changed during confirmation. Review again.");
     }
     // A fresh cargo convoy requires explicit GM authorization, with live
     // stock/party/route revalidated after confirmation and before Journal creation.
@@ -2930,18 +3003,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "use "+shown.value.toFixed(2)+" "+speedUnit+
           ". You confirm all walkers can keep up; Actor movement speeds and "+
           "exhaustion are not changed automatically.":"";
+      const names=new Map(partyAtStart?.members?.map(m=>[m.id,m.name])??[]);
+      const fare=mixedTransportFareBreakdown(proposed.hires.map(h=>({...h,
+        key:h.methodId,role:"cargo",passengers:0})),globalThis.CONFIG?.DND5E?.currencies);
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm mixed walking and cargo travel"},
-        content:el("div","GM confirmation: all "+proposed.travelers.length+
-          " Group travelers will walk. Hire "+proposed.hires.map(h=>
-            h.units+" cargo-only "+h.methodName).join(", ")+
-          " at a shared pace of "+shown.value.toFixed(2)+" "+speedUnit+
-          " ("+proposed.movingHours.toFixed(2)+
-          " moving hours; estimated "+proposed.totalCp+
-          " CP)."+walkingException+
-          " No passengers board the cargo, and Atlas makes no booking, "+
-          "currency deduction, Actor change or automatic hire payment. Continue?"),
-        rejectClose:false,modal:true
+        content:renderNavigationTransportApproval({
+          rows:[{method:"Walking",travelers:proposed.travelers.map(t=>names.get(t.actorId)??t.actorId)
+            .join(", "),units:"—",cost:"—"},
+            ...proposed.hires.map(h=>({method:h.methodName+" (hired)",travelers:"Cargo only",
+              units:h.units,cost:fare.rows.find(row=>row.key===h.methodId)?.label??"—"}))],
+          metrics:[
+            ["Total travelers",String(proposed.travelers.length)],
+            ["Group travel speed",shown.value.toFixed(2)+" "+speedUnit],
+            ["Estimated moving time",formatNavigationDuration(proposed.movingHours,24)],
+            ["Estimated transportation cost",fare.total.label]
+          ],
+          notes:[walkingException||null,
+            "All selected travelers walk; no passengers board the cargo. "+
+            "Atlas makes no booking, currency deduction, Actor change or automatic hire payment."]
+        }),rejectClose:false,modal:true
       });
       if(!approval)return false;
       if(this.travelSession||this.journalStarting||this.pendingTransfer||
@@ -3184,13 +3265,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       arrivalCheckpointId:guidedLeg?.checkpoint?.id??null}):null;
     if(nativePlan&&Math.abs(nativePlan.totalDistance-totalDistance)>1e-3)
       throw Error("The native and approved route distances disagree.");
-    const advanceWorldTime=readNavigationWorldClockSetting(game.settings);
-    if(advanceWorldTime){
-      if(game.users?.activeGM?.id!==game.user?.id||!game.user?.isGM)
-        throw Error("Only Foundry's active GM can advance World time during an Atlas journey.");
-      if(typeof game.time?.advance!=="function")
-        throw Error("Foundry World time is unavailable for guided travel.");
-    }
+    const advanceWorldTime=verifyWorldClock();
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
       playbackSecondsPerHour:playback.secondsPerHour,visualRestHold:null,
