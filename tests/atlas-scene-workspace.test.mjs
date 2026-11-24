@@ -848,9 +848,8 @@ test("Map Directory keeps derived counts next to names, before actions, without 
       assert.equal(summary.children.indexOf(count),-1,"counts do not follow the action bar");
       assert.ok(identity.children.indexOf(count)>0);
       if(actionsLast)assert.equal(summary.children.at(-1).className,"atlas-directory-actions");
-      else assert.equal(summary.children.at(-1).title,
-        "Add Territory (choose its location and type)",
-        "the accessible Add shortcut remains after all heading/count metadata");
+      else assert.equal(summary.children.at(-1),identity,
+        "collection headings keep counts but no longer repeat the top Create commands");
       return count.textContent;
     };
     const continents=findRow("continents");
