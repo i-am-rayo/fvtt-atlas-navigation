@@ -573,3 +573,63 @@ test("crew assessment reports eligible named crew, hired hands and stale units w
   assert.ok(result.issues.some(x=>x.code==="over-capacity"));
   assert.equal(JSON.stringify(native),before);
 });
+
+test("owned crew policy overrides are validated and reset independently of the roster",()=>{
+  const entry={role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship",
+    crewRoster:[{unitIndex:1,named:[{actorId:"pc1"}],hired:30}]};
+  const policy={crewCount:40,crewThresholds:{minimum:10,optimal:20,excellent:30},
+    crewWageCpPerDay:0,crewWageBasis:"trip",includeCrewWages:false};
+  const world={id:"warship",crewCount:60,crewThresholds:{minimum:15,optimal:30,excellent:45},
+    crewWageCpPerDay:200,crewWageBasis:"day",includeCrewWages:true};
+  const saved=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship1",
+    {...entry,crewPolicyOverride:policy});
+  const resource=data=>projectGroupTransportation(group([pc,warship]),data,[world]).members.find(m=>m.actorId==="ship1");
+  const effective=effectiveGroupResourceMethod(resource(saved),world);
+  for(const key of Object.keys(policy))assert.deepEqual(effective[key],policy[key]);
+  const unrelated=setGroupTransportationMember(saved,"group1","ship1",{...entry,noteOverride:"Note"});
+  assert.deepEqual(resource(unrelated).crewPolicyOverride,policy);
+  const reset=setGroupTransportationMember(unrelated,"group1","ship1",{...entry,crewPolicyOverride:null});
+  assert.deepEqual(resource(reset).crewRoster,entry.crewRoster);
+  assert.equal(effectiveGroupResourceMethod(resource(reset),world).crewCount,60);
+  assert.equal(world.crewWageCpPerDay,200);
+  for(const patch of [{crewCount:-1},{crewCount:20},{crewWageCpPerDay:-1},
+    {crewWageBasis:"week"},{includeCrewWages:"false"},{unknown:1}])
+    assert.throws(()=>setGroupTransportationMember(saved,"group1","ship1",
+      {...entry,crewPolicyOverride:{...policy,...patch}}),/invalid/i);
+});
+test("explicit operated-unit crew estimates pay NPCs and hired hands only, preserving reference estimates for missing rosters",async()=>{
+  const {estimateOperatedGroupCrew}=await import("../scripts/navigation-group-transport.js");
+  const npc=actor("npc1","Sailor","npc");
+  const native=group([pc,npc,warship]);
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",crewCount:60,
+    crewWageCpPerDay:200,crewWageBasis:"day",includeCrewWages:true};
+  const entry={role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship",
+    crewRoster:[{unitIndex:1,named:[{actorId:"pc1"},{actorId:"npc1"}],hired:30},
+      {unitIndex:2,named:[],hired:10}]};
+  const selected=[{actorId:"ship1",unitIndex:1}];
+  const build=entry=>projectGroupTransportation(native,setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:entry,npc1:{role:"crew",quantity:1,capacity:null,surface:"water"}}),[method]);
+  const factors={operatedUnits:selected,hours:24,distanceMi:60,dayHours:8};
+  const estimate=(entry,patch={})=>estimateOperatedGroupCrew(build(entry),method,{...factors,...patch});
+  const result=estimate(entry);
+  assert.equal(result.crewWagesCp,18600);
+  assert.deepEqual(result.namedCrewIds,["pc1","npc1"]);
+  assert.equal(result.units[0].paidCrew,31);
+  assert.equal(result.units[0].tier,"optimal");
+  assert.equal(estimate(entry,{operatedUnits:[{actorId:"ship1",unitIndex:2}]}).crewWagesCp,6000);
+  assert.equal(estimate({...entry,crewRoster:[]}).crewWagesCp,0);
+  const {crewRoster,...legacy}=entry;
+  const ref=estimate(legacy);
+  assert.equal(ref.crewWagesCp,36000);
+  assert.equal(ref.units[0].configured,false);
+  const policy={crewCount:60,crewThresholds:{minimum:15,optimal:30,excellent:45},
+    crewWageCpPerDay:200,crewWageBasis:"trip",includeCrewWages:true};
+  assert.equal(estimate({...entry,crewPolicyOverride:policy}).crewWagesCp,6200);
+  assert.equal(estimate({...entry,crewPolicyOverride:{...policy,crewWageBasis:"mile"}}).crewWagesCp,372000);
+  assert.equal(estimate({...entry,crewPolicyOverride:{...policy,includeCrewWages:false}}).crewWagesCp,0);
+  assert.equal(estimate(entry,{hours:0,distanceMi:0}).crewWagesCp,0);
+  for(const operatedUnits of [[],[...selected,...selected],[{actorId:"ship1",unitIndex:3}],[{actorId:"unknown",unitIndex:1}]])
+    assert.throws(()=>estimate(entry,{operatedUnits}),/unit/i);
+  const partial={...build(entry),selectedTravelerIds:[],travelers:0};
+  assert.throws(()=>estimateOperatedGroupCrew(partial,method,factors),/crew/i);
+});
