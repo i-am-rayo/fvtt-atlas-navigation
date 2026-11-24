@@ -652,13 +652,13 @@ test("owned vehicle cards expose separate passenger and crew capacity without as
     const ship=nodes.find(n=>n.className==="atlas-group-transport-resource"&&
       n.children[0]?.children[0]?.textContent==="Warship ★ Primary vehicle");
     const labels=flatten(ship).map(n=>n.textContent??"").join(" ");
-    assert.match(labels,/Seats\\/unit: 55 \\(Group override\\)/);
+    assert.match(labels,/Seats\/unit: 55 \(Group override\)/);
     assert.match(labels,/60 required crew per unit/);
     assert.match(labels,/120 required across 2 units/);
     assert.match(labels,/Crew wages excluded/);
     const status=nodes.find(n=>n.className==="atlas-group-transport-capacity");
     assert.match(flatten(status).map(n=>n.textContent??"").join(" "),/3 crew role.*not allocated/);
-    assert.match(flatten(status).map(n=>n.textContent??"").join(" "),/Water: 1 seats needed \\/ 110 available/);
+    assert.match(flatten(status).map(n=>n.textContent??"").join(" "),/Water: 1 seats needed \/ 110 available/);
     assert.deepEqual(ctx.changes,[]);
   }finally{ctx.restore();}
 });
