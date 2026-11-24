@@ -249,3 +249,35 @@ export function quoteTransportationService(method,{
     provisionalAvailability:arrangement==="hire",
     ...(level?{serviceLevel:level.serviceLevel,advertisedCrew:level.crewCount}:{})});
 }
+
+/** Bounded copy of an explicitly reviewed hired tier quote. This is historical
+ * evidence, not a fresh booking, and needs no live catalog to validate it. */
+export function validateHiredServiceApproval(raw){
+  const numeric=["movingHours","distanceMi","billableDayUnits","extraHours","baseCp",
+    "crewWagesCp","overtimeFareCp","overtimeCrewCp","livestockBaseCp","livestockOvertimeCp",
+    "livestockFareCp","totalCp"];
+  const count=(value,max)=>Number.isInteger(value)&&value>=0&&value<=max;
+  if(!raw||raw.arrangement!=="hire"||!HIRE_SERVICE_LEVELS.includes(raw.serviceLevel)||
+      !TRANSPORT_OPERATIONS.includes(raw.operation)||!count(raw.advertisedCrew,1000)||
+      !count(raw.units,1000)||raw.units===0||!count(raw.travelers,1000)||
+      !count(raw.livestockCount,15000)||!Number.isSafeInteger(raw.travelDays)||raw.travelDays<0||
+      numeric.some(key=>!nonnegative(raw[key])||raw[key]>Number.MAX_SAFE_INTEGER)||
+      !Number.isFinite(raw.adjustmentCp)||Math.abs(raw.adjustmentCp)>1e8||
+      !Number.isFinite(raw.dailyHours)||raw.dailyHours<=0||raw.dailyHours>24||
+      raw.overnightHours!==24-raw.dailyHours||
+      raw.operation==="continuous"&&raw.dailyHours!==24||
+      raw.operation==="overtime"&&(raw.dailyHours<9||raw.dailyHours>16)||
+      raw.extraHours>raw.movingHours||raw.operation!=="overtime"&&raw.extraHours!==0||
+      typeof raw.driverIncluded!=="boolean"||
+      raw.driverIncluded&&(raw.crewWagesCp!==0||raw.overtimeCrewCp!==0)||
+      raw.livestockFareCp!==raw.livestockBaseCp+raw.livestockOvertimeCp||
+      raw.totalCp!==Math.max(0,raw.baseCp+raw.crewWagesCp+raw.overtimeFareCp+
+        raw.overtimeCrewCp+raw.livestockBaseCp+raw.livestockOvertimeCp+raw.adjustmentCp))
+    throw Error("Invalid approved hired service estimate.");
+  const hireTerms=resolveTransportationHireFare({hireEnabled:true},raw.hireTerms);
+  return {arrangement:"hire",serviceLevel:raw.serviceLevel,advertisedCrew:raw.advertisedCrew,
+    operation:raw.operation,dailyHours:raw.dailyHours,overnightHours:raw.overnightHours,
+    units:raw.units,travelers:raw.travelers,travelDays:raw.travelDays,livestockCount:raw.livestockCount,
+    ...Object.fromEntries(numeric.map(key=>[key,raw[key]])),adjustmentCp:raw.adjustmentCp,
+    hireTerms:{...hireTerms},driverIncluded:raw.driverIncluded};
+}
