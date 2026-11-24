@@ -44,7 +44,7 @@ test("Exploration brush identifies current Scene scope and live painting state",
  const before={game:globalThis.game,canvas:globalThis.canvas,document:globalThis.document};
  class Element{
    constructor(tag){this.tagName=tag;this.children=[];this.attributes={};
-     this.style={};this.textContent="";}
+     this.style={};this.textContent="";this.classList={add(){},remove(){}};}
    append(...items){this.children.push(...items);}
    appendChild(item){this.children.push(item);return item;}
    replaceChildren(...items){this.children=[...items];}
