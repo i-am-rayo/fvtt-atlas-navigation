@@ -2464,7 +2464,7 @@ test("mixed land method overrides are per-method and remain preview-only",()=>{
 test("mixed carriage pencil opens the shared journey and Map Marker editor without saving",async()=>{
   const previous={game:globalThis.game,foundry:globalThis.foundry,
     document:globalThis.document};
-  const writes=[],dialogs=[];
+  const writes=[],dialogs=[];let response=null;
   class Node {
     constructor(tag){this.tagName=tag.toUpperCase();this.children=[];
       this.style={cssText:""};this.attributes=new Map();
@@ -2477,13 +2477,13 @@ test("mixed carriage pencil opens the shared journey and Map Marker editor witho
   try{
     globalThis.document={createElement:tag=>new Node(tag)};
     globalThis.foundry={applications:{api:{DialogV2:{
-      input:async data=>{dialogs.push(data);return null;}
+      input:async data=>{dialogs.push(data);return response;}
     }}}};
     globalThis.game={system:{id:"dnd5e"},user:{id:"gm",isGM:true},
       settings:{get:()=>undefined,set:async()=>writes.push("world")}};
     const carriage=findTransportationPreset("carriage",game.settings,"dnd5e");
     const offer={methodId:"carriage",mode:"land",
-      overrides:{hireEnabled:true,hireCostCp:400},
+      overrides:{hireEnabled:true,hireCostCp:400,continuousEnabled:true},
       checkpointId:"port",checkpointName:"Dirwest"};
     const nav=new AtlasNavigationController({
       atlasProvider:()=>({revision:7})});
@@ -2494,7 +2494,7 @@ test("mixed carriage pencil opens the shared journey and Map Marker editor witho
         }]}}:undefined,
       setFlag:async()=>writes.push("scene")};
     nav.mixedKeys=["owned|walking","hire|carriage"];
-    nav.transportAvailability=()=>({all:[carriage],methods:[carriage],
+    nav.transportAvailability=()=>({all:[carriage],methods:[{id:"walking",name:"Walking",surface:"land",kind:"foot"},carriage],
       offers:new Map([["carriage",offer]]),owned:new Set()});
     nav.canDraftTravelMethods=()=>true;
     nav.render=async()=>{};
@@ -2505,9 +2505,22 @@ test("mixed carriage pencil opens the shared journey and Map Marker editor witho
     assert.match(dialogs[0].window.title,/Edit Carriage/);
     assert.deepEqual(writes,[],"opening or cancelling cannot write World or Map Marker");
     assert.deepEqual(nav.mixedKeys,["owned|walking","hire|carriage"]);
+    const flatten=n=>[n,...(n.children??[]).flatMap(flatten)];
+    const select=flatten(dialogs[0].content).find(n=>n.name==="atlasJourneyServiceLevel");
+    assert.ok(select,"mixed hire editor exposes service selection");
+    response={name:carriage.name,kind:carriage.kind,speedDisplay:carriage.speedMph,
+      capacity:carriage.capacity,crewCount:carriage.crewCount??0,costBasis:"none",costApplies:"unit",
+      crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",hire_gp:"4",
+      hireEnabled:true,hireUnlimited:true,hireQuantity:1,continuousEnabled:true,
+      atlasJourneyServiceLevel:"full"};
+    await nav.editMixedTravelMethod("hire|carriage");
+    assert.equal(nav.mixedLandChoices()[1].serviceLevel,"full");
+    assert.equal(nav.mixedLandChoices()[0].serviceLevel,undefined);
+    assert.deepEqual(writes,[],"tier applies to Journey draft only");
+    assert.equal(offer.overrides.serviceLevel,undefined);
     globalThis.game.user.isGM=false;
     await assert.rejects(nav.editMixedTravelMethod("hire|carriage"),/authorized GM/);
-    assert.equal(dialogs.length,1,"a non-GM cannot open the editing workflow");
+    assert.equal(dialogs.length,2,"a non-GM cannot open the editing workflow");
   }finally{Object.assign(globalThis,previous);}
 });
 
@@ -4136,4 +4149,18 @@ test("ordinary hired land service keeps explicit tier and immutable approved far
     assert.equal(nav.assessTravelMethod().guided,false);
     assert.match(nav.assessTravelMethod().reason,/no longer offered/);
   }finally{nav?.stop();Object.assign(globalThis,previous);}
+});
+
+test("approved mixed convoy retains the common travel day even after World rules change",()=>{
+  const before=globalThis.game;
+  try{
+    globalThis.game={system:{id:"dnd5e"},settings:{get:()=>undefined}};
+    const nav=new AtlasNavigationController();
+    nav.resolveTravelRules=()=>({dailyHours:8,overnightHours:16});
+    const approved={schemaVersion:2,sharedDailyHours:6};
+    const rules=nav.resolveCurrentLegRules({methodId:"walking"},null,null,approved);
+    assert.equal(rules.dailyHours,6);
+    assert.equal(rules.overnightHours,18);
+    assert.equal(nav.resolveCurrentLegRules({methodId:"walking"}).dailyHours,8);
+  }finally{globalThis.game=before;}
 });
