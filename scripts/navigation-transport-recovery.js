@@ -178,10 +178,12 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
     operation,recovered:true,
     ...(approvedService?{approvedService,dailyHours:approvedService.dailyHours,
       overnightHours:approvedService.overnightHours}:{}),
-    ...(mixed?{convoy,terrainAware:prior.terrainAware}:{}),
+    ...(mixed?{convoy,terrainAware:prior.terrainAware,
+      ...(convoy.sharedDailyHours!==undefined?{dailyHours:convoy.sharedDailyHours,
+        overnightHours:24-convoy.sharedDailyHours}:{})}:{}),
     narration:["Continuing the previously approved "+t.methodName+" voyage toward "+
       t.arrivalCheckpointName+". No new booking or payment occurs."]};
-  const dailyHours=approvedService?.dailyHours??(operation==="continuous"?24:
+  const dailyHours=approvedService?.dailyHours??convoy?.sharedDailyHours??(operation==="continuous"?24:
     operation==="overtime"?8+(method.overtimeExtraHours??8):8);
   return {...verifiedProjection,hasTransitions:true,complete:true,legs:[leg],
     totalHours:hours,totalElapsedHours:hours+
