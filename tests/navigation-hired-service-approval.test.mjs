@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {quoteTransportationService} from "../scripts/navigation-transport-service.js";
 import {prepareGuidedTransportLeg} from "../scripts/navigation-guided-transport-leg.js";
 import {restoreApprovedTransportPlan} from "../scripts/navigation-transport-recovery.js";
-import {createJourneyRecord,resumeJourneyRecord,validateJourneyRecord} from "../scripts/navigation-journey-journal.js";
+import {createJourneyRecord,resumeJourneyRecord,validateJourneyRecord,formatJourneyJournalHTML} from "../scripts/navigation-journey-journal.js";
 const p=x=>({x,y:0});
 const ship={id:"warship",name:"Warship",kind:"vehicle",surface:"water",speedMph:2.5,
   capacity:60,crewCount:60,hireEnabled:true,hireCostCp:25000,hireBasis:"day",hireApplies:"unit",
@@ -45,4 +45,33 @@ test("explicit hired service approval is copied into a checkpoint leg and retain
   const changed=structuredClone(resumed);changed.transport.serviceApproval.serviceLevel="full";
   assert.throws(()=>resumeJourneyRecord(saved,{itinerary:itinerary(changed),atlasRevision:4}),/approved|service/i);
   assert.equal(ship.crewCount,60);
+});
+
+test("ordinary hired land approval remains historical through interruption and only one fare is displayed",()=>{
+  const method={...ship,id:"carriage",surface:"land",name:"Carriage"};
+  const quote=quoteTransportationService(method,{arrangement:"hire",serviceLevel:"optimal",
+    movingHours:24,distanceMi:60,travelers:4});
+  const plan={...itinerary({start:p(0),end:p(60),distance:60}),travel:{
+    speedPerHour:2.5,methodId:"carriage",methodName:"Carriage",arrangement:"hire",
+    operation:quote.operation,serviceApproval:quote}};
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"party",atlasRevision:4,itinerary:plan});
+  const approval=saved.legs[0].travelMethod.serviceApproval;
+  assert.equal(approval.dailyHours,12);
+  assert.doesNotMatch(formatJourneyJournalHTML(saved),/Approved hired service/);
+  saved.status="interrupted";saved.legs[0].completedPercent=50;saved.legs[0].completedMovingHours=12;
+  const next={...plan,endpoints:{departure:p(30),destination:p(60)},
+    measurements:{distance:30,travelHours:12,terrainAware:false},
+    travel:{...plan.travel,serviceApproval:approval}};
+  const resumed=resumeJourneyRecord(saved,{itinerary:next,atlasRevision:4});
+  assert.deepEqual(resumed.legs[1].travelMethod.serviceApproval,approval);
+  resumed.legs[1].completedPercent=50;resumed.legs[1].completedMovingHours=6;
+  const html=formatJourneyJournalHTML(resumed);
+  assert.equal((html.match(/Approved hired service/g)||[]).length,1);
+  assert.match(html,/previously approved service; no new fare/i);
+  assert.match(html,/30 advertised crew per unit/);
+  assert.match(html,/12h\/day/);
+  assert.throws(()=>resumeJourneyRecord(saved,{itinerary:{...next,travel:{...next.travel,
+    serviceApproval:undefined}},atlasRevision:4}),/approved hired service/);
+  const wrong=structuredClone(resumed);wrong.legs[1].travelMethod.operation="continuous";
+  assert.throws(()=>validateJourneyRecord(wrong),/invalid/i);
 });
