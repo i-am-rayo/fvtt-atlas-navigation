@@ -3,7 +3,7 @@
  */
 import {convertGroupSpeed} from "./navigation-party-speed.js";
 import {projectedGroupFare} from "./navigation-currency.js";
-import {quoteTransportationService,assessHiredTransportAvailability}
+import {quoteTransportationService,assessHiredTransportAvailability,validateHiredServiceApproval}
   from "./navigation-transport-service.js";
 
 const id=s=>typeof s==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(s);
@@ -28,6 +28,10 @@ export function validateMixedLandConvoy(record){
     record.totalSeatsNeeded<0)
     throw Error("Invalid approved mixed transportation Journey.");
   const keys=new Set(),riders=new Set(),resources=new Set();
+  const tiered=record.methods.some(m=>m.serviceApproval!==undefined);
+  if(tiered&&(!positive(record.sharedDailyHours)||record.sharedDailyHours>24)||
+      !tiered&&record.sharedDailyHours!==undefined)
+    throw Error("Invalid mixed Journey service schedule.");
   for(const t of record.travelers){
     if(!id(t.actorId)||riders.has(t.actorId)||
       typeof t.methodKey!=="string"||
@@ -63,6 +67,14 @@ export function validateMixedLandConvoy(record){
          !Number.isInteger(m.availableUnits)||m.availableUnits<m.units||
          m.availableUnits>100)))
       throw Error("Invalid mixed Journey hired inventory.");
+    if(m.serviceApproval!==undefined){
+      const approval=validateHiredServiceApproval(m.serviceApproval);
+      if(m.arrangement!=="hire"||approval.advertisedDailyHours===undefined||
+          approval.dailyHours!==record.sharedDailyHours||approval.units!==m.units||
+          approval.travelers!==m.passengers||approval.movingHours!==record.movingHours||
+          approval.totalCp!==m.estimatedCostCp)
+        throw Error("Invalid approved mixed service fare or schedule.");
+    }
     if(m.arrangement==="owned"){
       if(!Array.isArray(m.resourceIds)||m.resourceIds.length>150||
         m.resourceIds.some(r=>!id(r)||resources.has(r)))
@@ -139,7 +151,8 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
   });
   const usedResources=new Set();
   const prepared=[];
-  for(const {key,arrangement,method,checkpointId,resources=[],units} of methods){
+  for(const {key,arrangement,method,checkpointId,resources=[],units,serviceLevel=null} of methods){
+    if(serviceLevel!==null&&arrangement!=="hire")throw Error("Hired service tiers require a hired vehicle.");
     const people=roster.filter(t=>t.methodKey===key);
     const seatsUsed=sum(people,"seatsNeeded");
     const passengers=sum(people,"passengers");
@@ -172,7 +185,7 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
         speedPerHour:nativeSpeed,units:count,capacity,
         seatsUsed,passengers,role:passengers?"riders":"cargo",
         checkpointId,unlimited:supply.unlimited,
-        availableUnits:supply.availableUnits,method});
+        availableUnits:supply.availableUnits,method,serviceLevel});
       continue;
     }
     if(!Array.isArray(resources)||!resources.length)
@@ -218,11 +231,13 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
   if(!positive(movingHours)||movingHours>1e7)
     throw Error("Mixed convoy moving time is invalid.");
   const historic=prepared.map(p=>{
-    let total=0;
+    let total=0,serviceApproval=null;
     if(p.arrangement==="hire"){
-      total=quoteTransportationService(p.method,{arrangement:"hire",
+      const quote=quoteTransportationService(p.method,{arrangement:"hire",
         travelers:p.passengers,requestedUnits:p.units,movingHours,
-        distanceMi,regularHours}).totalCp;
+        distanceMi,regularHours,serviceLevel:p.serviceLevel,sharedTravelDay:p.serviceLevel!==null});
+      total=quote.totalCp;
+      if(p.serviceLevel!==null)serviceApproval=validateHiredServiceApproval(quote);
     }else if(p.role!=="walking"){
       let remaining=p.passengers;
       for(const [index,r] of p.costResources.entries()){
@@ -240,13 +255,14 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
         }
       }
     }
-    const {method,costResources,...record}=p;
-    return {...record,estimatedCostCp:total};
+    const {method,costResources,serviceLevel,...record}=p;
+    return {...record,estimatedCostCp:total,...(serviceApproval?{serviceApproval}:{})};
   });
   const result={schemaVersion:2,mode:"mixed-land",sceneUnits,
     travelers:roster,methods:historic,walkingSpeedPerHour:walkingSpeed,
     suggestedSpeedPerHour:recommended,speedPerHour:chosenSpeed,movingHours,
     ...(gmWalkingPaceOverride?{gmWalkingPaceOverride:true}:{}),
+    ...(historic.some(m=>m.serviceApproval)?{sharedDailyHours:regularHours}:{}),
     totalSeatsNeeded:sum(roster,"seatsNeeded"),
     totalCp:sum(historic,"estimatedCostCp")};
   return validateMixedLandConvoy(result);
