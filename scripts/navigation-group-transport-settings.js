@@ -5,9 +5,10 @@
  */
 import { GROUP_TRANSPORT_SETTING,readGroupTransportation,
   projectGroupTransportation,setGroupTransportationMembers,eligibleGroupRiders,
-  groupTravelCapacityStatus,assessGroupCrewRoster }
+  groupTravelCapacityStatus,assessGroupCrewRoster,validateOwnedCrewPolicy,effectiveGroupResourceMethod }
   from "./navigation-group-transport.js";
-import { listTransportationPresets } from "./navigation-transport-catalog.js";
+import { listTransportationPresets,resolveCrewThresholds } from "./navigation-transport-catalog.js";
+import {createTransportCurrencyPool,transportCurrencyAmount} from "./navigation-transport-form-controls.js";
 import { AtlasTransportationSettings,openTransportationMethodEditor }
   from "./navigation-transport-settings.js";
 import {createSettingsCategoryTabs} from "./settings-category-tabs.js";
@@ -102,6 +103,57 @@ async function editUnitCrew({name,unitIndex,prior,candidates,assignedElsewhere})
     named.push({actorId:member.actorId,...(duty?{duty}:{})});
   }
   return {unitIndex,named,hired:Number(hiredCount)};
+}
+
+/** Override the existing World crew policy, independently of unit rosters. */
+async function editCrewPolicy({name,resource,method}){
+  const effective=effectiveGroupResourceMethod(resource,method);
+  const thresholds=resolveCrewThresholds(effective);
+  const content=node("div"),body=node("div");
+  body.style.cssText="display:grid;gap:.6rem;max-height:min(54vh,500px);overflow:auto;padding:.5rem;";
+  body.append(node("h3","Crew and wages"),node("p",
+    "Applies to all physical units of this owned vehicle. Resetting to World settings preserves every crew roster."));
+  const mode=select("policyMode",[["inherit","Inherit World policy"],["custom","Customize owned vehicle policy"]],
+    resource.crewPolicyOverride?"custom":"inherit");
+  body.append(field("Policy source",mode));
+  const fields=node("div");
+  fields.style.cssText="display:grid;gap:.6rem;";
+  const counts=node("div");
+  counts.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:.5rem;";
+  const controls=[];
+  for(const [key,label] of [["minimum","Minimum"],["optimal","Optimal"],["excellent","Excellent"],["full","Full"]]){
+    const input=number("policy"+label,thresholds[key],0,1000);
+    controls.push(input);counts.append(field(label+" crew",input));
+  }
+  const wages=createTransportCurrencyPool("policyWage",effective.crewWageCpPerDay??200);
+  const basis=select("policyBasis",[["day","Per operating day"],["trip","Per trip"],["mile","Per mile"]],effective.crewWageBasis??"day");
+  const paid=node("input");paid.type="checkbox";paid.name="policyPaid";paid.checked=Boolean(effective.includeCrewWages);
+  paid.defaultChecked=paid.checked;
+  const paidLabel=node("label");paidLabel.append(paid,node("span","Include crew wages in estimates"));
+  fields.append(counts,paidLabel,field("Wage per paid crew member",wages.element),field("Wage basis",basis),
+    node("small","PC crew are unpaid. Eligible NPC crew and hired hands are paid when wages are enabled."));
+  body.append(fields);content.append(body);
+  const update=()=>{const inherit=mode.value==="inherit";
+    fields.setAttribute("aria-disabled",String(inherit));
+    for(const input of [...controls,basis,paid,...(wages.element.querySelectorAll?.("input")??[])])input.disabled=inherit;
+  };
+  mode.addEventListener("change",update);update();
+  const response=await foundry.applications.api.DialogV2.input({
+    window:{title:"Crew policy — "+name},position:{width:560},content,
+    modal:true,rejectClose:false,ok:{label:"Apply to Party draft"}});
+  if(!response)return undefined;
+  if(response.policyMode==="inherit")return null;
+  if(response.policyMode!=="custom")throw Error("Choose a valid crew policy source.");
+  const readCount=key=>{
+    const raw=response[key];
+    if(raw==null||String(raw).trim()===""||!Number.isInteger(Number(raw)))
+      throw Error("Enter whole-number crew thresholds.");
+    return Number(raw);
+  };
+  return validateOwnedCrewPolicy({crewCount:readCount("policyFull"),
+    crewThresholds:{minimum:readCount("policyMinimum"),optimal:readCount("policyOptimal"),excellent:readCount("policyExcellent")},
+    crewWageCpPerDay:transportCurrencyAmount(response,"policyWage"),crewWageBasis:response.policyBasis,
+    includeCrewWages:[true,"on","true"].includes(response.policyPaid)});
 }
 
 const base=globalThis.foundry?.applications?.api?.ApplicationV2??class {};
@@ -580,16 +632,17 @@ export class AtlasGroupTransportationSettings extends base {
         const draft={member,role,quantity,capacity,profile,speedOverride,
           costOverride,costBasisOverride,costAppliesOverride,
           purchaseMode,purchaseOverride,noteOverride,enabled,assignedTo,needsSeat,
-          crewRoster:member.crewRoster};
+          crewRoster:member.crewRoster,crewPolicyOverride:member.crewPolicyOverride};
         editable.push(draft);
         if(type==="vehicle"){
           const section=node("div"),summary=node("small");
           section.style.cssText="display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;";
+          const policySource=node("small");
           const unit=select("crew-unit-"+member.actorId,[],"1");
           unit.style.cssText="width:auto;max-width:100%;";
           unit.setAttribute("aria-label","Operating unit for "+member.actorName);
           const resource=()=>({...member,quantity:Number(quantity.value),
-            enabled:enabled.value==="true",crewRoster:draft.crewRoster});
+            enabled:enabled.value==="true",crewRoster:draft.crewRoster,crewPolicyOverride:draft.crewPolicyOverride});
           const assess=()=>{const method=lookup.get(profile.value);
             return method?assessGroupCrewRoster({members:stagedCrewMembers()},resource(),method):null;};
           const refresh=()=>{
@@ -603,6 +656,7 @@ export class AtlasGroupTransportationSettings extends base {
             unit.replaceChildren(...select(unit.name,options,value).children);
             unit.value=value;
             const result=assess();
+            policySource.textContent=draft.crewPolicyOverride?"Owned crew policy":"World crew policy";
             const current=result?.units.find(item=>item.unitIndex===Number(value));
             summary.textContent=!result?"Link a World profile to configure crew.":
               !result.configured?"Crew roster not configured — reference estimate":
@@ -639,7 +693,18 @@ export class AtlasGroupTransportationSettings extends base {
             draft.crewRoster=rosterDraft;this.dirty=true;refresh();
           },{icon:"users"});
           unit.addEventListener("change",refresh);
-          section.append(unit,crewEdit,summary);
+          const policyEdit=action("Edit crew policy for "+member.actorName,async()=>{
+            if(!game.user?.isGM)throw Error("Only a GM may edit crew policies.");
+            const method=lookup.get(profile.value);
+            if(!method)throw Error("Link a World profile first.");
+            const before=JSON.stringify({profile:profile.value,policy:draft.crewPolicyOverride});
+            const next=await editCrewPolicy({name:member.actorName,resource:resource(),method});
+            if(next===undefined)return;
+            if(!game.user?.isGM||before!==JSON.stringify({profile:profile.value,policy:draft.crewPolicyOverride}))
+              throw Error("Vehicle draft changed. Reopen crew policy.");
+            draft.crewPolicyOverride=next;this.dirty=true;refresh();
+          },{icon:"gear"});
+          section.append(unit,crewEdit,summary,policyEdit,policySource);
           row.appendChild(section);
           crewEditor={refresh};refresh();
         }
@@ -725,7 +790,8 @@ export class AtlasGroupTransportationSettings extends base {
           costAppliesOverride:isTransport?(costAppliesOverride.value||null):null,
           purchaseGpOverride:purchase,
           noteOverride:note||null,
-          ...(entry.crewRoster===undefined?{}:{crewRoster:entry.crewRoster})
+          ...(entry.crewRoster===undefined?{}:{crewRoster:entry.crewRoster}),
+          ...(entry.crewPolicyOverride===undefined?{}:{crewPolicyOverride:entry.crewPolicyOverride})
         };
       }
       const next=setGroupTransportationMembers(currentAssignments,this.groupId,changes);
@@ -736,7 +802,7 @@ export class AtlasGroupTransportationSettings extends base {
           throw Error("Assigned To for "+member.actorName+
             " is no longer an eligible traveling Party member. Clear the assignment.");
       for(const member of reviewed.members){
-        if(member.crewRoster===undefined)continue;
+        if(member.crewRoster===undefined&&!member.crewPolicyOverride)continue;
         const method=now.find(item=>item.id===member.profileId);
         if(!method)throw Error("Link a valid World profile for "+member.actorName+" crew.");
         const assessment=assessGroupCrewRoster(reviewed,member,method);
