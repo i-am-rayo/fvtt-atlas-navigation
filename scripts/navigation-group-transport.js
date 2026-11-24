@@ -376,14 +376,35 @@ export function groupMethodResourceInventory(projection,method){
 /** Display-only per-resource planning quote. For per-passenger overrides,
  * passengers are allocated across available seats in stable Group roster order;
  * no actual boarding or currency mutation occurs. */
-export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayHours}){
-  const resources=matchingResources(projection,method);
+export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayHours,operatedUnits}){
+  let resources=matchingResources(projection,method);
   if(!Number.isFinite(hours)||hours<0||!Number.isFinite(distanceMi)||distanceMi<0||
       !Number.isFinite(dayHours)||dayHours<=0||dayHours>24)
     throw new Error("Invalid Group transportation cost inputs.");
-  const usable=eligibleResourceSeats(projection,resources);
+  const crew=operatedUnits===undefined?null:
+    estimateOperatedGroupCrew(projection,method,{operatedUnits,hours,distanceMi,dayHours});
+  const crewByResource=new Map();
+  let seatProjection=projection;
+  if(crew){
+    for(const unit of crew.units){
+      if(!crewByResource.has(unit.actorId))crewByResource.set(unit.actorId,[]);
+      crewByResource.get(unit.actorId).push(unit);
+    }
+    resources=resources.filter(resource=>crewByResource.has(resource.actorId))
+      .map(resource=>({...resource,quantity:crewByResource.get(resource.actorId).length}));
+    const named=new Set(crew.namedCrewIds);
+    // Named crew remain travelers, but occupy crew positions instead of passenger seats.
+    // Count one seat at most per named Actor, even for an NPC quantity pool.
+    const crewSeats=projection.members.filter(member=>named.has(member.actorId)&&
+      member.role==="passenger"&&member.needsSeat!==false).length;
+    seatProjection={...projection,travelers:Math.max(0,projection.travelers-crewSeats),
+      selectedTravelerIds:[...eligibleTravelerSet(projection)].filter(id=>!named.has(id))};
+  }
+  const usable=eligibleResourceSeats(seatProjection,resources);
+  if(crew&&usable.some(item=>item.member.assignedTo&&!item.reserved))
+    throw Error("An operated personal mount requires its eligible assigned rider.");
   const reservedCount=usable.filter(item=>item.reserved).length;
-  let remaining=Math.max(0,projection.travelers-reservedCount),amount=0;
+  let remaining=Math.max(0,seatProjection.travelers-reservedCount),amount=0;
   const breakdown=[];
   for(const {member,seats,reserved} of usable){
     if(member.role==="mount"&&member.assignedTo&&!reserved)continue;
@@ -395,7 +416,9 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
     const crewDays=hours===0?0:Math.ceil(Math.max(0,hours-1e-7)/dayHours);
     const wagePeriods=effective.crewWageBasis==="trip"?(hours>0?1:0):
       effective.crewWageBasis==="mile"?distanceMi:crewDays;
-    const wages=effective.includeCrewWages?
+    const crewUnits=crewByResource.get(member.actorId);
+    const wages=crewUnits?crewUnits.reduce((sum,unit)=>sum+unit.crewWagesCp,0):
+      effective.includeCrewWages?
       wagePeriods*(effective.crewCount??0)*(effective.crewWageCpPerDay??200)*member.quantity:0;
     if(!Number.isFinite(wages)||wages<0||!Number.isSafeInteger(Math.ceil(amount+cost+wages)))
       throw new Error("Invalid projected crew wage total.");
@@ -403,10 +426,14 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
     breakdown.push({actorId:member.actorId,name:member.actorName,
       quantity:member.quantity,passengers,costCp:effective.costCp,
       costBasis:effective.costBasis,costApplies:effective.costApplies,
-      recurringCp:cost,crewWagesCp:wages,crewDays,crewWageBasis:effective.crewWageBasis??"day",amount:cost+wages});
+      recurringCp:cost,crewWagesCp:wages,crewDays,crewWageBasis:effective.crewWageBasis??"day",amount:cost+wages,
+      ...(crewUnits?{crewUnits,requiredCrew:crewUnits.reduce((sum,unit)=>sum+unit.requiredCrew,0),
+        staffedCrew:crewUnits.every(unit=>unit.configured)?crewUnits.reduce((sum,unit)=>sum+unit.staffedCrew,0):null,
+        paidCrew:crewUnits.reduce((sum,unit)=>sum+unit.paidCrew,0)}:{})});
   }
   return {amount,breakdown,unseated:remaining,
-    quantity:breakdown.reduce((sum,item)=>sum+item.quantity,0)};
+    quantity:breakdown.reduce((sum,item)=>sum+item.quantity,0),
+    ...(crew?{namedCrewIds:crew.namedCrewIds}:{})};
 }
 
 /** Estimate crew only for explicitly selected operating units. This is a draft
