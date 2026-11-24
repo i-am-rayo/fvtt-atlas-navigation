@@ -76,3 +76,22 @@ test("stale inherited staffing remains readable for correction and cannot produc
   assert.equal(service.resolveHiredServiceLevel(corrected,"optimal").crewCount,10);
   assert.deepEqual(local,offer({crewCount:20}),"read does not repair or rewrite an offer");
 });
+
+test("Journey overrides compose with Map Marker and World tiers without copying sibling terms",async()=>{
+  const {applyTransportationMethodOverrides}=await import("../scripts/checkpoint-transportation.js");
+  const world={...ship(),hireServiceLevels:{minimum:{hireCostCp:1000},optimal:{hireCostCp:2000,operation:"overtime"},full:{hireCostCp:4000}}};
+  const marker=checkpointOfferMethod(offer({hireServiceLevels:{optimal:{hireCostCp:3000}}}),world);
+  const local={hireServiceLevels:{optimal:{operation:"normal"},full:{hireCostCp:0}}};
+  const before=JSON.stringify({world,marker,local});
+  const effective=applyTransportationMethodOverrides(marker,local);
+  assert.deepEqual(effective.hireServiceLevels,{minimum:{hireCostCp:1000},
+    optimal:{hireCostCp:3000,operation:"normal"},full:{hireCostCp:0}});
+  assert.deepEqual(transportationMethodOverrideDelta(marker,effective),local);
+  const updated=applyTransportationMethodOverrides(checkpointOfferMethod(offer({
+    hireServiceLevels:{optimal:{hireCostCp:3500}}}),world),local);
+  assert.equal(service.resolveHiredServiceLevel(updated,"optimal").hireCostCp,3500);
+  assert.equal(service.resolveHiredServiceLevel(updated,"optimal").operation,"normal");
+  assert.equal(JSON.stringify({world,marker,local}),before);
+  assert.deepEqual(applyTransportationMethodOverrides(marker,null),marker);
+  assert.throws(()=>applyTransportationMethodOverrides(marker,{hireServiceLevels:{full:{operation:"invalid"}}}),/invalid/i);
+});
