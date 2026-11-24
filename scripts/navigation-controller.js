@@ -179,7 +179,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyCargoQuantities={};
     this.convoyPace=null;
     this.mixedKeys=[];
-    this.mixedMethodOverrides={};
+    this.mixedMethodOverrides={};this.mixedServiceLevels={};
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
@@ -271,7 +271,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyCargoQuantities={};
     this.convoyPace=null;
     this.mixedKeys=[];
-    this.mixedMethodOverrides={};
+    this.mixedMethodOverrides={};this.mixedServiceLevels={};
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
@@ -378,7 +378,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.routeRevision=atlas.revision;
     // Recalculate path/quotes without discarding a confirmed disembark
     // manifest or a GM-edited mount draft. Deliberate clear() resets it.
-    this.mixedMethodOverrides={};
+    this.mixedMethodOverrides={};this.mixedServiceLevels={};
     this.transferSelections={};
     this.transferLegOverrides={};
     this.transferLegOperations={};
@@ -406,7 +406,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
           const first=projectTransportationRouteLegs(this.result,atlas,presets.presets).legs[0];
           if(first?.surface!=="land"){
-            this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};this.mixedUnits={};
+            this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedServiceLevels={};this.mixedAssignments={};this.mixedUnits={};
             this.mixedRiderCounts={};this.convoyPace=null;
           }
         }
@@ -525,7 +525,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("Selected hired service is no longer available.");
       return {key,arrangement,
         method:applyTransportationMethodOverrides(method,this.mixedMethodOverrides?.[key]),
-        checkpointId:offer.checkpointId,units:this.mixedUnits[key]??undefined};
+        checkpointId:offer.checkpointId,units:this.mixedUnits[key]??undefined,
+         serviceLevel:this.mixedServiceLevels[key]??null};
     });
   }
 
@@ -623,7 +624,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         assignedSeats/Math.max(1,method.capacity))):null;
       const count=hires?this.mixedUnits[entry.key]??minimumUnits:null;
       const fare=mixedFare?.rows.find(row=>row.key===entry.key);
-      const terms=hires?[{cost:method.hireCostCp,basis:method.hireBasis,applies:method.hireApplies}]:
+      const terms=hires?[{cost:method.hireServiceLevels?.[entry.serviceLevel]?.hireCostCp??method.hireCostCp,
+          basis:method.hireBasis,applies:method.hireApplies}]:
         (resources[entry.key]??[]).filter(r=>fare?.resourceIds.includes(r.actorId))
           .map(r=>({cost:r.method.costCp,basis:r.method.costBasis,applies:r.method.costApplies}));
       const rates=[...new Set(terms.filter(r=>r.cost>0&&r.basis!=="none")
@@ -633,7 +635,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         ...(mixed&&method.id!=="walking"?{
           costLabel:fare?.label??"Estimate unavailable",
           costDetail:fare?fare.units+" unit"+(fare.units===1?"":"s")+
-            (rates.length?" · "+rates.join(" + "):""):null}:{}),
+            (rates.length?" · "+rates.join(" + "):"")+
+             (entry.serviceLevel?" · "+entry.serviceLevel+" service (shared travel day)":""):null}:{}),
         speed,speedLabel:shown.value.toFixed(2)+" "+speedUnit(shown.unit),
         capacity:method.id==="walking"?null:hires?
           count*method.capacity:total,
@@ -730,7 +733,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         ["Estimated moving time",formatNavigationDuration(proposed.movingHours,24)],
         ["Estimated transportation cost",fare.total.label]
       ],
-      notes:[notTraveling?"Not traveling: "+notTraveling:null]
+      notes:[notTraveling?"Not traveling: "+notTraveling:null,
+        ...proposed.methods.filter(m=>m.serviceApproval).map(m=>{
+          const a=m.serviceApproval;
+          return m.methodName+": "+a.serviceLevel+" service · "+a.advertisedCrew+
+            " advertised crew per unit · service supports "+a.advertisedDailyHours+
+            "h/day; convoy travels "+a.dailyHours+"h/day. Fare reflects the shared schedule.";
+        })]
     });
     if(proposed.gmWalkingPaceOverride){
       const ordinary=atlasDisplaySpeed(proposed.suggestedSpeedPerHour,
@@ -1013,7 +1022,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         return {...leg,options,selectedOption:convoy&&!errors.length?{
           value:"mixed-land",arrangement:"mixed",method:mixedLandTransportMethod}:null,
           selectedValue:"mixed-land",methodName:mixedLandTransportMethod.name,operation:"normal",
-          dailyHours:regularHours,overnightHours:normalDowntime,
+          dailyHours:convoy?.sharedDailyHours??regularHours,
+          overnightHours:convoy?.sharedDailyHours!==undefined?24-convoy.sharedDailyHours:normalDowntime,
           convoy,errors,hours:errors.length?null:convoy?.movingHours??null,
           costCp:errors.length?null:convoy?.totalCp??null,
           narration:["The Group travels together to the next checkpoint."]};
@@ -1234,21 +1244,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       inheritedMethod:baseline,
       checkpointName:offer?.checkpointName??null,
       // A mixed convoy's one operating schedule is not decided by one vehicle.
-      onSave:async edited=>{
+      journeyServiceLevel:arrangement==="hire"&&baseline.kind==="vehicle"?(this.mixedServiceLevels[key]??""):null,
+      onSave:async (edited,{serviceLevel}={})=>{
         verify();
         this.mixedMethodOverrides[key]=transportationMethodOverrideDelta(baseline,edited);
+        if(serviceLevel)this.mixedServiceLevels[key]=serviceLevel;
+        else delete this.mixedServiceLevels[key];
         await this.render(true);
       },
       onReset:async()=>{
         verify();
-        delete this.mixedMethodOverrides[key];
+        delete this.mixedMethodOverrides[key];delete this.mixedServiceLevels[key];
         await this.render(true);
       },
-      onSaveCheckpoint:offer?async edited=>{
+      onSaveCheckpoint:offer?async (edited,{serviceLevel}={})=>{
         verify();
         await this.saveNavigationCheckpointOffer({checkpointId:offer.checkpointId,
           methodId:id,world,originalOffers:initialOffers,edited});
         delete this.mixedMethodOverrides[key];
+        if(serviceLevel)this.mixedServiceLevels[key]=serviceLevel;
+        else delete this.mixedServiceLevels[key];
         await this.render(true);
       }:null
     });
@@ -1334,7 +1349,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       ownsSelected?"owned":offer?"hire":"owned";
     if(preferred==="hire"&&!offer||preferred==="owned"&&method!=="walking"&&!ownsSelected)return;
     this.travelMethod=method;
-    this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};
+    this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedServiceLevels={};this.mixedAssignments={};
     this.mixedRiderCounts={};this.mixedUnits={};
     if(method!=="walking"){
       this.convoyEnabled=false;this.convoyCargoQuantities={};this.convoyPace=null;
@@ -1372,7 +1387,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       void this.render(true);return;
     }
     if(next.length===1){
-      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};
+      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedServiceLevels={};this.mixedAssignments={};
     this.mixedRiderCounts={};this.mixedUnits={};
       this.convoyEnabled=false;this.convoyCargoQuantities={};this.convoyPace=null;
       const [singleArrangement,singleMethod]=next[0].split("|",2);
@@ -1414,6 +1429,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mixedKeys=next;
     this.mixedMethodOverrides=Object.fromEntries(
       Object.entries(this.mixedMethodOverrides).filter(([key])=>next.includes(key)));
+    this.mixedServiceLevels=Object.fromEntries(
+      Object.entries(this.mixedServiceLevels).filter(([key])=>next.includes(key)));
     this.mixedRiderCounts=Object.fromEntries(
       Object.entries(this.mixedRiderCounts).filter(([key])=>next.includes(key)));
     this.mixedUnits=Object.fromEntries(Object.entries(this.mixedUnits)
@@ -2531,6 +2548,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   resolveTravelRules(travel,approvedMethod=null,approvedOperation=null){
     const rules=resolveNavigationTravelRules({settings:game.settings,
       systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
+    const savedConvoy=isUnfinishedJourneyLeg(this.recoveryRecord)?this.recoveryRecord?.legs.at(-1)?.convoy:null;
+    if(travel?.methodId==="walking"&&savedConvoy?.sharedDailyHours!==undefined)
+      return {...rules,dailyHours:savedConvoy.sharedDailyHours,overnightHours:24-savedConvoy.sharedDailyHours};
     if(!travel?.methodId||travel.methodId==="walking")return rules;
     const saved=isUnfinishedJourneyLeg(this.recoveryRecord)?this.recoveryRecord?.legs.at(-1)?.travelMethod:null;
     if(saved?.serviceApproval&&saved.id===travel.methodId){
@@ -2579,7 +2599,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** Resolve the exact edited method and approved operation before travel.
    * In particular a hired land vehicle may gain continuous capability at the
    * departure Map Marker while its inherited World preset remains standard. */
-  resolveCurrentLegRules(travel,guidedOption=null,guidedLeg=null){
+  resolveCurrentLegRules(travel,guidedOption=null,guidedLeg=null,approvedConvoy=null){
+    if(approvedConvoy?.sharedDailyHours!==undefined){
+      const rules=this.resolveTravelRules(travel);
+      return {...rules,dailyHours:approvedConvoy.sharedDailyHours,overnightHours:24-approvedConvoy.sharedDailyHours};
+    }
     if(guidedLeg||!travel?.methodId||travel.methodId==="walking"){
       const rules=this.resolveTravelRules(travel,guidedOption?.method,
         guidedLeg?.transport?.operation??null);
@@ -3234,7 +3258,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(!chunks)throw Error("The approved route has no distinct native pixel movement.");
     const totalDistance=chunks.reduce((sum,chunk)=>sum+chunk.distance,0);
     const schedule=new GuidedTravelDayTracker({travelHours:playback.travelHours,
-      rules:this.resolveCurrentLegRules(travel,guidedOption,guidedLeg)});
+      rules:this.resolveCurrentLegRules(travel,guidedOption,guidedLeg,approvedConvoy)});
     if(nativeContinuous&&(
       typeof token.pauseMovement!=="function"||
       typeof token.stopMovement!=="function"||
@@ -3696,7 +3720,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.travelMethod="walking";this.transportArrangement="owned";
       this.transportOperation="normal";this.transportJourneyOverrides=null;this.transportServiceLevel=null;
       this.transportHireTerms=null;this.transportHireDenomination=null;
-      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};this.mixedUnits={};
+      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedServiceLevels={};this.mixedAssignments={};this.mixedUnits={};
       this.mixedRiderCounts={};this.convoyEnabled=false;this.convoyCargoQuantities={};
       this.convoyPace=null;
       // A new leg starts from the last approved cohort as an editable draft;
@@ -3760,7 +3784,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     if(duplicateArrival){
       this.end=null;
-      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};this.mixedUnits={};
+      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedServiceLevels={};this.mixedAssignments={};this.mixedUnits={};
       this.calculateRoute(view,atlas);
     }
     this.travelNotice=this.end?
@@ -3958,7 +3982,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.convoyCargoQuantities={};
     this.convoyPace=null;
     this.mixedKeys=[];
-    this.mixedMethodOverrides={};
+    this.mixedMethodOverrides={};this.mixedServiceLevels={};
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
