@@ -624,7 +624,8 @@ test("NPC roles and tab switches never write; Save, Refresh and Settings use sta
     const left=footer.children[0],right=footer.children[1];
     assert.ok(flatten(left).some(n=>n.textContent==="Transportation Presets"));
     assert.ok(flatten(left).some(n=>n.attributes.get("aria-label")==="Refresh Party Transportation"));
-    const save=right.children[0];
+    assert.equal(right.children[0].textContent,"Cancel");
+    const save=right.children[1];
     assert.equal(save.attributes.get("aria-label"),"Save Party Transportation Assignments");
     assert.match(save.className,/atlas-ui-icon-button--footer/);
     assert.equal(save.children[0].className,"fa-solid fa-floppy-disk");
