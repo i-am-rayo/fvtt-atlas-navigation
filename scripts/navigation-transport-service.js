@@ -2,6 +2,8 @@
  * Opt-in transportation service schedule and estimate engine.
  * Pure planning only. No Actor, Scene, currency or clock writes.
  */
+import {HIRE_SERVICE_LEVELS,validateHireServiceLevels,resolveCrewThresholds} from "./navigation-transport-catalog.js";
+
 export const TRANSPORT_HIRE_BASES=Object.freeze(["trip","mile","day"]);
 export const TRANSPORT_OPERATIONS=Object.freeze(["normal","overtime","continuous"]);
 export const LIVESTOCK_FARE_PERCENT_SETTING="guidedLivestockFarePercent";
@@ -48,6 +50,22 @@ export function resolveTransportationOperation(method,operation="normal",regular
     throw Error("Invalid transportation overtime multiplier.");
   return Object.freeze({operation,dailyHours,overnightHours:24-dailyHours,
     overtimeMultiplier:multiplier});
+}
+
+/** Resolve an explicitly chosen hired service level, never infer availability.
+ * Existing unselected offers retain their original fare and schedule. */
+export function resolveHiredServiceLevel(method,tier,regularHours=8){
+  if(!method?.hireEnabled)throw Error("This transportation method is not offered for hire.");
+  if(method.kind!=="vehicle")throw Error("Hired service levels require a vehicle.");
+  if(!HIRE_SERVICE_LEVELS.includes(tier))throw Error("Unknown hired service level.");
+  const thresholds=resolveCrewThresholds(method);
+  const terms=validateHireServiceLevels(method.hireServiceLevels??{})[tier]??{};
+  const defaultOperation=tier==="full"&&method.continuousEnabled?"continuous":
+    tier!=="minimum"&&method.overtimeEnabled?"overtime":"normal";
+  const operation=terms.operation??defaultOperation;
+  resolveTransportationOperation(method,operation,regularHours);
+  const fare=resolveTransportationHireFare(method,terms);
+  return Object.freeze({...fare,serviceLevel:tier,crewCount:thresholds[tier],operation});
 }
 
 /** Resolve a trip-local quote without altering the World transportation preset. */
@@ -101,7 +119,7 @@ export function assessHiredTransportAvailability(method,{travelers,requestedUnit
 export function quoteTransportationService(method,{
   arrangement="owned",operation="normal",movingHours,distanceMi,
   travelers=1,requestedUnits=null,livestockCount=0,ownedQuote=null,
-  hireTerms=null,adjustmentCp=0,regularHours=8,
+  hireTerms=null,adjustmentCp=0,regularHours=8,serviceLevel=null,
   livestockPercent=LIVESTOCK_FARE_PERCENT_DEFAULT
 }={}){
   if(!method||!["owned","hire"].includes(arrangement)||
@@ -111,6 +129,13 @@ export function quoteTransportationService(method,{
     !validLivestockFarePercent(livestockPercent)||
     !Number.isFinite(adjustmentCp)||Math.abs(adjustmentCp)>1e8)
     throw Error("Invalid transportation service estimate.");
+  let level=null;
+  if(serviceLevel!==null){
+    if(arrangement!=="hire")throw Error("Service levels apply to hired transportation only.");
+    level=resolveHiredServiceLevel(method,serviceLevel,regularHours);
+    method={...method,crewCount:level.crewCount,hireCostCp:level.hireCostCp};
+    operation=level.operation;
+  }
   const fare=arrangement==="hire"?resolveTransportationHireFare(method,hireTerms):null;
   const schedule=resolveTransportationOperation(method,operation,regularHours);
   const days=movingHours<=EPS?0:Math.ceil(Math.max(0,movingHours-EPS)/schedule.dailyHours);
@@ -221,5 +246,6 @@ export function quoteTransportationService(method,{
     livestockCount,livestockBaseCp,livestockOvertimeCp,
     livestockFareCp:livestockBaseCp+livestockOvertimeCp,
     totalCp,hireTerms:fare,driverIncluded:arrangement==="hire"&&Boolean(method.hireCrewIncluded),
-    provisionalAvailability:arrangement==="hire"});
+    provisionalAvailability:arrangement==="hire",
+    ...(level?{serviceLevel:level.serviceLevel,advertisedCrew:level.crewCount}:{})});
 }
