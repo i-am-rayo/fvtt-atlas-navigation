@@ -444,6 +444,8 @@ export function planTerritoryCellTransfer(scene,targetId,draft,{view=globalThis.
     movedCells:ownedKeys.size,targetCellCount:targetAfter.offsets.length,
     convertedBackupAffected:[...sources.map(s=>s.region),target].some(r=>
       r.getFlag(MODULE_ID,GRID_CONVERSION_BACKUP_FLAG)!=null),
+    nativeScopes:records.map(record=>({id:record.id,
+      snapshot:nativeRegionScopeSnapshot(scene.regions.get(record.id))})),
     records};
   if(sources.length===1)return {...base,sourceId:sources[0].region.id,
     sourceName:sources[0].region.name,sourceCellCount:sources[0].remaining};
@@ -573,7 +575,10 @@ export function planMultiDestinationTerritoryCellTransfer(scene,staged,
     movedCells,unclaimedAddedCells:additions.size-movedCells,removedCells,
     convertedBackupAffected:[...sourceRecords,...targetRecords].some(record=>
       scene.regions.get(record.id).getFlag(MODULE_ID,GRID_CONVERSION_BACKUP_FLAG)!=null),
-    sources,destinations,records:[...sourceRecords,...targetRecords]};
+    sources,destinations,
+    nativeScopes:[...sourceRecords,...targetRecords].map(record=>({id:record.id,
+      snapshot:nativeRegionScopeSnapshot(scene.regions.get(record.id))})),
+    records:[...sourceRecords,...targetRecords]};
 }
 
 function checkRecord(scene,record){
