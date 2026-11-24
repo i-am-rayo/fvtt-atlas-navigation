@@ -512,3 +512,64 @@ test("no-seat NPC is still a traveler but does not require or reserve an individ
   assert.equal(justNyx.empty,false,"an NPC without a seat is still present");
   assert.equal(justNyx.partial,true,"native Group Token cannot split");
 });
+
+test("unit-specific crew rosters preserve missing versus explicit empty configuration",()=>{
+  const entry={role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship"};
+  const legacy=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship1",entry);
+  const empty=setGroupTransportationMember(legacy,"group1","ship1",{...entry,crewRoster:[]});
+  assert.equal(legacy.groups.group1.members.ship1.crewRoster,undefined);
+  assert.deepEqual(empty.groups.group1.members.ship1.crewRoster,[]);
+  const roster=[{unitIndex:1,named:[{actorId:"pc1",duty:"Navigator"}],hired:30},
+    {unitIndex:2,named:[],hired:12}];
+  const configured=setGroupTransportationMember(empty,"group1","ship1",{...entry,crewRoster:roster});
+  const source=JSON.stringify(configured);
+  const projection=projectGroupTransportation(group([pc,warship]),configured);
+  assert.deepEqual(projection.members.find(m=>m.actorId==="ship1").crewRoster,roster);
+  const revised=setGroupTransportationMember(configured,"group1","ship1",{...entry,noteOverride:"new note"});
+  assert.deepEqual(revised.groups.group1.members.ship1.crewRoster,roster,"unrelated edits retain roster");
+  roster[0].hired=99;
+  assert.equal(JSON.stringify(configured),source,"saved roster is independent from draft input");
+  assert.equal(projection.travelers,1,"legacy passenger projection is unchanged until leg selection");
+});
+test("crew roster validation rejects duplicate named members across units and resources",()=>{
+  const entry={role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship"};
+  const unit={unitIndex:1,named:[{actorId:"pc1"}],hired:1};
+  for(const crewRoster of [null,{},[{...unit,unitIndex:0}],[{...unit,hired:-1}],
+    [{...unit,hired:1.5}],[{...unit,named:[{actorId:"pc1",duty:"x".repeat(81)}]}],
+    [unit,{...unit,named:[]}],[unit,{...unit,unitIndex:2}]])
+    assert.throws(()=>setGroupTransportationMember(defaultGroupTransportation(),"group1","ship1",
+      {...entry,crewRoster}),/invalid|crew/i);
+  const saved=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship1",
+    {...entry,crewRoster:[unit]});
+  assert.throws(()=>setGroupTransportationMember(saved,"group1","ship2",
+    {...entry,crewRoster:[unit]}),/crew/i);
+});
+test("crew assessment reports eligible named crew, hired hands and stale units without mutating native Actors",async()=>{
+  const {assessGroupCrewRoster}=await import("../scripts/navigation-group-transport.js");
+  const npc=actor("npc1","Sailor","npc");
+  const native=group([pc,npc,warship]);
+  const before=JSON.stringify(native);
+  const method={id:"warship",kind:"vehicle",crewCount:60,includeCrewWages:true};
+  const entry={role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship"};
+  let saved=setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:{...entry,crewRoster:[{unitIndex:1,named:[{actorId:"pc1"},{actorId:"npc1"}],hired:30}]},
+    npc1:{role:"crew",quantity:1,capacity:null,surface:"water"}
+  });
+  const assess=()=>{const p=projectGroupTransportation(native,saved,[method]);
+    return assessGroupCrewRoster(p,p.members.find(m=>m.actorId==="ship1"),method);};
+  let result=assess();
+  assert.equal(result.configured,true);
+  assert.deepEqual(result.issues,[]);
+  assert.deepEqual(result.units.map(({unitIndex,staffedCrew,pcCrew,paidCrew,tier})=>
+    ({unitIndex,staffedCrew,pcCrew,paidCrew,tier})),[
+      {unitIndex:1,staffedCrew:32,pcCrew:1,paidCrew:31,tier:"optimal"},
+      {unitIndex:2,staffedCrew:0,pcCrew:0,paidCrew:0,tier:"below-minimum"}]);
+  saved=setGroupTransportationMember(saved,"group1","ship1",{...entry,quantity:1,
+    crewRoster:[{unitIndex:1,named:[{actorId:"missing"}],hired:61},
+      {unitIndex:2,named:[],hired:1}]});
+  result=assess();
+  assert.ok(result.issues.some(x=>x.code==="stale-member"));
+  assert.ok(result.issues.some(x=>x.code==="stale-unit"));
+  assert.ok(result.issues.some(x=>x.code==="over-capacity"));
+  assert.equal(JSON.stringify(native),before);
+});
