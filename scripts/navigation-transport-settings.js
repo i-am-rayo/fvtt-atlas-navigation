@@ -152,7 +152,7 @@ const wirePresetDialog=container=>{
       tabs[next].focus();
     });
   }
-  activate((tabs.find(tab=>tab.getAttribute("aria-selected")==="true")??tabs[0]).dataset.atlasPresetTab);
+  activate((tabs.find(tab=>tab.getAttribute?.("aria-selected")==="true")??tabs[0]).dataset.atlasPresetTab);
   const fieldValue=name=>root.querySelector('[name="'+name+'"]');
   const number=name=>Number(fieldValue(name)?.value??0);
   const currency=name=>transportCurrencyAmount(Object.fromEntries(
