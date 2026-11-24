@@ -34,15 +34,16 @@ test("Road Settings keeps the original ApplicationV2 form submit in the footer",
     {tag,className:"",attrs:{},setAttribute(k,v){this.attrs[k]=v;}}:cancel},querySelector:()=>bar},
     form:{querySelector:()=>footer}, close:()=>closed++};
   assert.equal(arrangeRoadDialogFooter(dialog),save);
-  assert.deepEqual(footer.nodes,[locate,visible,edit,connection,cancel,save,remove],
-    "Road utility actions lead, native Save stays in the form, Delete is last");
+  assert.deepEqual(footer.nodes,[locate,visible,edit,connection,remove,cancel,save],
+    "Delete is outside the Cancel/Save primary cluster in DOM order");
   assert.equal(bar.style.display,"none");
   assert.equal(cancel.type,"button");
   assert.equal(cancel.textContent,"Cancel");
   assert.equal(save.dataset.action,"ok","native DialogV2 submit ownership is intact");
   assert.equal(save.title,"Save Road");
   assert.equal(save.attrs["aria-label"],"Save Road");
-  assert.ok(classes.has("atlas-ui-icon-button"));
+  assert.ok(classes.has("atlas-editor-primary"));
+  assert.equal(save.children[1].textContent,"Save Road");
   assert.equal(save.children[0].className,"fa-solid fa-floppy-disk");
   assert.equal(save.children[0].attrs["aria-hidden"],"true");
   cancel.click();
