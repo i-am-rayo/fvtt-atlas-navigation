@@ -301,11 +301,10 @@ function wireGroupOwnedTransport(root,profiles) {
     const override=groupFields[name]||
       (name.startsWith("cost_")?"groupCostCustom":null);
     if(override){const input=get(override);if(input)input.checked=true;}
+    if(name==="groupQuantity")updateCrew();
   };
   root.addEventListener("input",mark);
   root.addEventListener("change",mark);
-  root.addEventListener("input",updateCrew);
-  root.addEventListener("change",updateCrew);
   get("groupProfileId")?.addEventListener("change",populate);
   populate();
 }
