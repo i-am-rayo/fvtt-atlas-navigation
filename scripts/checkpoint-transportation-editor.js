@@ -178,7 +178,7 @@ export function createCheckpointTransportationEditor({offers=[],
           }
         }
         const edit=createSettingsIconButton({icon:"pen-to-square",
-          label:"Edit "+(world?.name??offer.methodId)+" offer at this "+draftTarget,
+          label:"Edit "+(world?.name??offer.methodId)+" offer"+(draftTarget==="Map Marker preset"?" in this Map Marker preset":" at this Map Marker"),
           onClick:()=>safeEdit(offer.methodId)});
         edit.disabled=!world;
         const remove=createSettingsIconButton({icon:"trash",danger:true,
