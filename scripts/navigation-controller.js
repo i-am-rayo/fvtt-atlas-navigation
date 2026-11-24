@@ -2898,11 +2898,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const aboard=manifest?.resources.reduce((n,m)=>n+m.aboard,0)??0;
         const mountDetails=describeJourneyMountFare(manifest,{
           method:currentMethod,arrangement:arrangementBefore,
-          worldPercent:readLivestockFarePercent(game.settings),formatMoney:money,
-          approved:Boolean(saved)});
+          worldPercent:saved||!aboard?undefined:readLivestockFarePercent(game.settings),
+          formatMoney:money,approved:Boolean(saved)});
         const staying=manifest?.resources.filter(m=>m.quantity>m.aboard)
           .map(m=>m.name+": "+(m.quantity-m.aboard)+" staying")??[];
-        return {
+        return {speed:travel.speed,hours,quote,view:{
           rows:[{method:currentMethod.name+" ("+(arrangementBefore==="hire"?"hired":"party-owned")+")",
             travelers:traveling.join(", ")||"Assigned party explorer",
             units:quote?.units??manifest?.units??"—",cost}],
@@ -2925,12 +2925,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               "unchanged. Foundry validates native movement and optionally advances confirmed World time. "+
               "Costs are estimates; no booking, boarding, payment or Actor changes occur automatically."
           ]
-        };
+        }};
       };
       const summary=landSummary(effective,landLivestock);
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:resumingApprovedLand?"Resume approved land travel":"Confirm land travel"},
-        content:renderNavigationTransportApproval(summary),rejectClose:false,modal:true
+        content:renderNavigationTransportApproval(summary.view),rejectClose:false,modal:true
       });
       if(!approval)return false;
       const liveAvailability=this.transportAvailability();
