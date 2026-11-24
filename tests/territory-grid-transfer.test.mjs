@@ -649,6 +649,9 @@ test("batch planner never removes surface-only Region cells for underground dest
       ["surface",{id:"surface"}]]);
     for(const target of [f.target,b.target])target.levels=new Set(["underground"]);
     for(const source of [f.source,b.source])source.levels=new Set(["surface"]);
+    // Stage after the GM selects native Levels, not before.
+    b.staged=[draftFor(f,f.target,[{i:1,j:0}]),
+      draftFor(f,b.target,[{i:3,j:0}])];
     const proposal=planMultiDestinationTerritoryCellTransfer(f.scene,b.staged,{view:f.view});
     assert.deepEqual(proposal.sourceIds,[]);
     assert.equal(proposal.unclaimedAddedCells,2);
@@ -666,6 +669,7 @@ test("shared seam selector checks native Level IDs as well as elevation bounds",
       {i:i-1,j},{i:i+1,j},{i,j:j-1},{i,j:j+1}];
     f.target.levels=new Set(["underground"]);
     f.source.levels=new Set(["surface"]);
+    f.source.shapes[0].offsets.push({i:4,j:0});
     const guide=inspectEditableTerritoryGridSeams(f.scene,f.target.id,{view:f.view});
     assert.deepEqual(guide.peers,[],
       "the shortcut never lets a lower-level Region paint from a surface-only peer");
