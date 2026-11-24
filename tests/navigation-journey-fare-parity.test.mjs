@@ -76,11 +76,18 @@ test("onward single-method legs reuse first-leg roster and quoted fare component
 test("a first-leg land quote uses explicit boarded animals like a later water leg",()=>{
   const controller=readFileSync(new URL("../scripts/navigation-controller.js",import.meta.url),"utf8");
   const firstQuote=controller.slice(controller.indexOf("const quoteArgs={arrangement:this.transportArrangement"),
-    controller.indexOf("const quote=quoteTransportationService(method,{...quoteArgs"));
+    controller.indexOf("const quote=this.planLandHiredService(method,partySelection)?.quote??"));
   assert.match(firstQuote,/livestockCount/,
     "the initial hired-land preview must price committed mount draft counts");
-  const firstBreakdown=controller.slice(controller.indexOf("const quote=quoteTransportationService(method,{...quoteArgs"),
-    controller.indexOf("body.append(renderTransportQuote({",controller.indexOf("const quote=quoteTransportationService(method,{...quoteArgs")));
+  const firstBreakdown=controller.slice(controller.indexOf("const quote=this.planLandHiredService(method,partySelection)?.quote??"),
+    controller.indexOf("body.append(renderTransportQuote({",controller.indexOf("const quote=this.planLandHiredService(method,partySelection)?.quote??")));
+  assert.match(firstBreakdown,/quoteTransportationService\(method,\{\.\.\.quoteArgs/,
+    "reference travel retains the existing engine");
+  const selectedQuote=controller.slice(controller.indexOf("  planLandHiredService(method,party=null)"),
+    controller.indexOf("  /**\n   * Read-only multi-surface journey plan."));
+  assert.match(selectedQuote,/quoteTransportationService\(method,\{arrangement:"hire",serviceLevel:this\.transportServiceLevel/);
+  assert.match(selectedQuote,/livestockCount,regularHours/,
+    "selected-tier quotes must also include the boarded animals");
   assert.match(firstBreakdown,/describeJourneyMountFare/,
     "the first leg and onward legs must use one visible mount-fare description");
 });
