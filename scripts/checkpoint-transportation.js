@@ -4,6 +4,7 @@
  * World preset templates and Scene offers use this same constrained schema.
  */
 import { MODULE_ID } from "./atlas-storage.js";
+import {validateHireServiceLevels,resolveCrewThresholds} from "./navigation-transport-catalog.js";
 
 export const CHECKPOINT_TRANSPORT_FLAG="checkpointTransportOffers";
 export const CHECKPOINT_TRANSPORT_VERSION=1;
@@ -14,7 +15,7 @@ const KEYS=["speedMph","capacity","costCp","costBasis","costApplies",
   "hireEnabled","hireUnlimited","hireQuantity","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
   "overtimeEnabled","overtimeExtraHours","overtimeMultiplier",
   "continuousEnabled","livestockCapacity","livestockFareCp","livestockFareBasis",
-  "livestockFarePercent","note"];
+  "livestockFarePercent","note","hireServiceLevels","crewThresholds"];
 const ENUM={
   costBasis:["none","day","mile"],costApplies:["unit","passenger"],
   hireBasis:["trip","mile","day"],hireApplies:["unit","passenger"],
@@ -39,6 +40,12 @@ export function validateCheckpointTransportOffers(value){
       Object.keys(patch).some(k=>!KEYS.includes(k)))throw Error("Invalid checkpoint transport override fields.");
     const overrides={};
     for(const [key,value] of Object.entries(patch)){
+      if(key==="hireServiceLevels"){overrides[key]=validateHireServiceLevels(value);continue;}
+      if(key==="crewThresholds"){
+        if(value===undefined)throw Error("Invalid crew thresholds.");
+        const {full,...thresholds}=resolveCrewThresholds({crewCount:1000,crewThresholds:value});
+        overrides[key]=thresholds;continue;
+      }
       if(ENUM[key]){if(!ENUM[key].includes(value))throw Error("Invalid "+key+" override.");}
       else if(BOOL.has(key)){if(typeof value!=="boolean")throw Error("Invalid "+key+" toggle.");}
       else if(key==="note"){if(typeof value!=="string"||value.length>240)throw Error("Invalid transport note.");}
@@ -100,6 +107,17 @@ export function transportationMethodOverrideDelta(base,edited){
   const overrides={};
   for(const key of KEYS){
     const value=edited[key];
+    if(key==="hireServiceLevels"){
+      const levels=validateHireServiceLevels(value??{}),prior=validateHireServiceLevels(base[key]??{});
+      const delta={};
+      for(const [tier,patch] of Object.entries(levels)){
+        const fields=Object.fromEntries(Object.entries(patch).filter(([field,val])=>val!==prior[tier]?.[field]));
+        if(Object.keys(fields).length)delta[tier]=fields;
+      }
+      if(Object.keys(delta).length)overrides[key]=delta;
+      continue;
+    }
+    if(key==="crewThresholds"&&JSON.stringify(value)===JSON.stringify(base[key]))continue;
     const baseline=key==="hireUnlimited"?(base[key]??true):
       key==="hireQuantity"?(base[key]??1):base[key];
     if(value===undefined||value===baseline||
@@ -126,6 +144,14 @@ export function checkpointOfferMethod(offer,worldMethod){
   if(checked.overrides.continuousEnabled&&worldMethod.kind!=="vehicle")
     throw Error("Continuous travel needs a vehicle.");
   const effective={...worldMethod,hireUnlimited:true,hireQuantity:1,...checked.overrides};
+  if(checked.overrides.hireServiceLevels!==undefined){
+    if(worldMethod.kind!=="vehicle")throw Error("Hired service levels require a vehicle.");
+    const levels=validateHireServiceLevels(worldMethod.hireServiceLevels??{});
+    for(const [tier,patch] of Object.entries(checked.overrides.hireServiceLevels))
+      levels[tier]={...levels[tier],...patch};
+    effective.hireServiceLevels=levels;
+  }
+  resolveCrewThresholds(effective);
   if(effective.livestockFareCp!=null&&effective.livestockFarePercent!=null)
     throw Error("Select either a fixed livestock fare or a passenger percentage.");
   return effective;
