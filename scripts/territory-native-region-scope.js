@@ -49,6 +49,21 @@ export function nativeRegionScopeRelation(scene,a,b){
     JSON.stringify(aRange)===JSON.stringify(bRange)?"same":"mixed";
 }
 
+/** GM-only readout to distinguish unassigned (all Levels), missing IDs and
+ * explicit native Scene Level membership without guessing from elevation. */
+export function nativeRegionScopeSummary(scene,region){
+  const ids=selectedLevelIds(region),range=nativeRange(region);
+  const membership=ids===null?"invalid native Level IDs":
+    ids.length?ids.map(id=>{
+      const level=scene?.levels?.get?.(id)||
+        scene?.levels?.contents?.find?.(item=>item.id===id);
+      return level?.name??(level?id:`missing Level ${id}`);
+    }).join(", "):"all native Levels";
+  return membership+"; elevation "+
+    (range?`${range[0]??"-∞"} to ${range[1]??"+∞"}${range[2]?" inclusive":""}`:
+      "invalid");
+}
+
 /** Capture a mutable existing Region's native scope when opening its editor.
  * Recheck before Save; missing/all-Levels and unbounded elevation remain
  * distinct from an explicitly selected Level or bounded range. */
