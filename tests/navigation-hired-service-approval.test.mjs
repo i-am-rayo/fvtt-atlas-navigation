@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {planMixedLandConvoy} from "../scripts/navigation-mixed-land.js";
+import {mixedLandTransportMethod} from "../scripts/navigation-transport-journal.js";
 import {quoteTransportationService} from "../scripts/navigation-transport-service.js";
 import {prepareGuidedTransportLeg} from "../scripts/navigation-guided-transport-leg.js";
 import {restoreApprovedTransportPlan} from "../scripts/navigation-transport-recovery.js";
@@ -87,4 +89,35 @@ test("historical service discounts render as signed estimates, not invalid negat
   assert.match(formatJourneyJournalHTML(saved,{systemId:"dnd5e"}),/adjustment -1 GP/);
   const forged=structuredClone(saved);forged.legs[0].travelMethod.serviceContinuation=true;
   assert.throws(()=>validateJourneyRecord(forged),/invalid|continuation/i);
+});
+
+test("tiered mixed checkpoint recovery retains the original shared schedule and historical fare",()=>{
+  const walker={id:"walking",kind:"foot",surface:"land"};
+  const coach={...ship,id:"carriage",name:"Carriage",surface:"land",hireUnlimited:true};
+  const convoy=planMixedLandConvoy({travelers:[
+    {actorId:"pc1",seatsNeeded:1,passengers:1},{actorId:"pc2",seatsNeeded:1,passengers:1}],
+    assignments:{pc1:"owned|walking",pc2:"hire|carriage"},
+    methods:[{key:"owned|walking",arrangement:"owned",method:walker},
+      {key:"hire|carriage",arrangement:"hire",method:coach,checkpointId:"port",serviceLevel:"full"}],
+    walkingSpeed:2.5,sceneUnits:"mi",routeDistance:60,weightedDistance:60,distanceMi:60,regularHours:6});
+  const mixedLeg=start=>({...leg(start),surface:"land",operation:"normal",convoy,
+    selectedOption:{arrangement:"mixed",method:mixedLandTransportMethod}});
+  const guided=prepareGuidedTransportLeg(route(),mixedLeg(0));
+  const original={...itinerary(guided),convoy};
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"party",atlasRevision:4,itinerary:original});
+  saved.status="interrupted";saved.legs[0].completedPercent=50;saved.legs[0].completedMovingHours=12;
+  const recovered=restoreApprovedTransportPlan(route(30),{legs:[mixedLeg(30)]},saved,[walker]);
+  assert.equal(recovered.legs[0].dailyHours,6);
+  assert.equal(recovered.legs[0].overnightHours,18);
+  assert.equal(recovered.totalElapsedHours,30);
+  assert.equal(recovered.totalCp,0);
+  assert.deepEqual(recovered.legs[0].convoy,convoy);
+  const resumed=prepareGuidedTransportLeg(route(30),recovered.legs[0]);
+  const history=resumeJourneyRecord(saved,{itinerary:{...itinerary(resumed),convoy},atlasRevision:4});
+  history.legs[1].completedMovingHours=6;history.legs[1].completedPercent=50;
+  const html=formatJourneyJournalHTML(history);
+  assert.match(html,/full service · 60 advertised crew per unit · supports 24h\/day; shared 6h\/day/i);
+  assert.equal((html.match(/Estimated transportation cost:/g)||[]).length,1);
+  assert.match(html,/Continuing previously approved mixed service; no new fare/);
+  assert.deepEqual(history.legs[1].convoy,convoy);
 });
