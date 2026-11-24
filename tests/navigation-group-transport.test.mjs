@@ -633,3 +633,40 @@ test("explicit operated-unit crew estimates pay NPCs and hired hands only, prese
   const partial={...build(entry),selectedTravelerIds:[],travelers:0};
   assert.throws(()=>estimateOperatedGroupCrew(partial,method,factors),/crew/i);
 });
+
+test("explicit owned unit quote separates crew from passenger seats and bills selected upkeep plus wages",()=>{
+  const npc=actor("npc1","Sailor","npc");
+  const rider=actor("pc2","Passenger","character");
+  const native=group([pc,rider,npc,warship]);
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",crewCount:60,
+    costCp:100,costBasis:"day",costApplies:"unit",crewWageCpPerDay:200,
+    crewWageBasis:"day",includeCrewWages:true};
+  const saved=setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:{role:"unassigned",quantity:2,capacity:1,surface:"water",profileId:"warship",
+      crewRoster:[{unitIndex:1,named:[{actorId:"pc1"},{actorId:"npc1"}],hired:30},
+        {unitIndex:2,named:[],hired:10}]},
+    npc1:{role:"passenger",quantity:1,capacity:null,surface:"water"}
+  });
+  const projection=projectGroupTransportation(native,saved,[method]);
+  const original=JSON.stringify(projection);
+  const factors={hours:24,distanceMi:60,dayHours:8};
+  const legacy=groupMethodFareEstimate(projection,method,factors);
+  assert.equal(legacy.amount,72600,"legacy reference calculation remains available");
+  const quote=groupMethodFareEstimate(projection,method,
+    {...factors,operatedUnits:[{actorId:"ship1",unitIndex:1}]});
+  assert.equal(quote.quantity,1);
+  assert.equal(quote.unseated,0);
+  assert.equal(quote.breakdown[0].passengers,1);
+  assert.equal(quote.breakdown[0].recurringCp,300);
+  assert.equal(quote.breakdown[0].crewWagesCp,18600);
+  assert.equal(quote.amount,18900);
+  assert.deepEqual(quote.namedCrewIds,["pc1","npc1"]);
+  assert.equal(quote.breakdown[0].staffedCrew,32);
+  assert.equal(quote.breakdown[0].requiredCrew,60);
+  assert.equal(quote.breakdown[0].paidCrew,31);
+  const other=groupMethodFareEstimate(projection,method,
+    {...factors,operatedUnits:[{actorId:"ship1",unitIndex:2}]});
+  assert.equal(other.unseated,2,"crew of non-operating units still need passenger seats");
+  assert.equal(other.amount,6300);
+  assert.equal(JSON.stringify(projection),original,"quotes do not alter Group projection");
+});
