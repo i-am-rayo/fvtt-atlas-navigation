@@ -7,6 +7,7 @@ import {assessApprovedJourneyRecovery,MAX_APPROVED_ROUTE_MARGIN_CELLS}
   from "./navigation-approved-path.js";
 import {isMixedLandTransport,mixedLandTransportMethod} from "./navigation-transport-journal.js";
 import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
+import {validateHiredServiceApproval} from "./navigation-transport-service.js";
 const near=(a,b,tolerance=.01)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
   Number.isFinite(b?.x)&&Number.isFinite(b?.y)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
@@ -116,6 +117,9 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
   if(!hasUnfinishedApprovedTransport(record))return null;
   const prior=record.legs.at(-1);
   const t=prior.transport;
+  const approvedService=t.serviceApproval===undefined?null:validateHiredServiceApproval(t.serviceApproval);
+  if(approvedService&&(t.arrangement!=="hire"||t.operation!==approvedService.operation))
+    throw Error("The saved service approval differs from the voyage.");
   if(route?.status==="ok")checkConfirmedRemainingDistance(route,record,prior,context);
   const verifiedProjection=approvedTerminalAttachment(route,projected,prior,context)??projected;
   // Preserve the same strict guard, but report which requirement failed so a
@@ -165,17 +169,20 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
     value:t.arrangement+"|"+t.methodId,label:t.methodName,group:"Current voyage",
     method:{...method,name:t.methodName,
       ...(operation==="continuous"?{continuousEnabled:true}:{}),
-      ...(operation==="overtime"?{overtimeEnabled:true}:{})},
+      ...(operation==="overtime"?{overtimeEnabled:true,
+        ...(approvedService?{overtimeExtraHours:approvedService.dailyHours-8}:{})}:{})},
     arrangement:t.arrangement,recovered:true
   };
   const leg={...verifiedProjection.legs[0],options:[option],selectedOption:option,
     selectedValue:option.value,methodName:t.methodName,errors:[],hours,costCp:0,
     operation,recovered:true,
+    ...(approvedService?{approvedService,dailyHours:approvedService.dailyHours,
+      overnightHours:approvedService.overnightHours}:{}),
     ...(mixed?{convoy,terrainAware:prior.terrainAware}:{}),
     narration:["Continuing the previously approved "+t.methodName+" voyage toward "+
       t.arrivalCheckpointName+". No new booking or payment occurs."]};
-  const dailyHours=operation==="continuous"?24:
-    operation==="overtime"?8+(method.overtimeExtraHours??8):8;
+  const dailyHours=approvedService?.dailyHours??(operation==="continuous"?24:
+    operation==="overtime"?8+(method.overtimeExtraHours??8):8);
   return {...verifiedProjection,hasTransitions:true,complete:true,legs:[leg],
     totalHours:hours,totalElapsedHours:hours+
       Math.max(0,Math.ceil(Math.max(0,hours-1e-7)/dailyHours)-1)*
