@@ -659,6 +659,45 @@ test("batch planner never removes surface-only Region cells for underground dest
   }finally{restore();}
 });
 
+test("approved single transfer refuses a changed native Level scope even if both peers switch together",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture();
+    f.scene.levels=new Map([["underground",{id:"underground"}],
+      ["surface",{id:"surface"}]]);
+    f.source.levels=new Set(["surface"]);
+    f.target.levels=new Set(["surface"]);
+    const reviewed=planTerritoryCellTransfer(f.scene,f.target.id,draft(f),{view:f.view});
+    assert.equal(reviewed.sourceId,"Reshara");
+    f.source.levels=new Set(["underground"]);
+    f.target.levels=new Set(["underground"]);
+    await assert.rejects(
+      ()=>commitTerritoryCellTransfer(f.scene,reviewed,{view:f.view}),
+      /changed since preview|changed.*Level/i);
+    assert.equal(f.events.length,0,"a stale review must never persist an intent or update Regions");
+  }finally{restore();}
+});
+
+test("approved native batch refuses a changed Level scope before creating a recovery ledger",async()=>{
+  const restore=globals();
+  try{
+    const f=fixture(),b=batch(f);
+    f.scene.levels=new Map([["underground",{id:"underground"}],
+      ["surface",{id:"surface"}]]);
+    for(const region of [f.source,f.target,b.source,b.target])
+      region.levels=new Set(["surface"]);
+    b.staged=[draftFor(f,f.target,[{i:1,j:0}]),
+      draftFor(f,b.target,[{i:3,j:0}])];
+    const reviewed=planMultiDestinationTerritoryCellTransfer(f.scene,b.staged,{view:f.view});
+    for(const region of [f.source,f.target,b.source,b.target])
+      region.levels=new Set(["underground"]);
+    await assert.rejects(
+      ()=>commitMultiDestinationTerritoryCellTransfer(f.scene,reviewed,{view:f.view}),
+      /changed since preview|changed.*Level/i);
+    assert.equal(f.events.length,0,"native Level changes invalidate batch approval before write");
+  }finally{restore();}
+});
+
 test("shared seam selector checks native Level IDs as well as elevation bounds",()=>{
   const restore=globals();
   try{
