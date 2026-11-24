@@ -664,10 +664,16 @@ test("same or unknown native Levels still protect peer ownership, and stale targ
     // Unknown Level IDs and an empty selection (all Levels) are not proof of isolation.
     f.source.levels=new Set(["missing-id"]);
     review=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
-    assert.equal(review.peerOwnedAddedCells,1);
+    assert.equal(review.peerOwnedAddedCells,0,"unresolved native Levels are not transferable");
+    assert.equal(review.blockedAddedCells,1,"unresolved native Levels block a Save");
+    assert.throws(()=>planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}),
+      /native Level|elevation scope/i);
     f.source.levels=new Set();
     review=inspectTerritoryGridOwnership(f.scene,f.target.id,candidate,{view:f.view});
-    assert.equal(review.peerOwnedAddedCells,1);
+    assert.equal(review.peerOwnedAddedCells,0,"all-Levels is not an identical scoped transfer");
+    assert.equal(review.blockedAddedCells,1,"all-Levels XY overlap still blocks Save");
+    assert.throws(()=>planTerritoryCellTransfer(f.scene,f.target.id,candidate,{view:f.view}),
+      /native Level|elevation scope/i);
     // The GM may change the target's native Level after the Atlas draft opens.
     f.source.levels=new Set(["surface"]);
     f.target.levels=new Set(["surface"]);
