@@ -69,7 +69,7 @@ import {inspectTerritoryGridOwnership,inspectEditableTerritoryGridSeams,
   from "./territory-grid-transfer.js";
 import {preferredTerritoryCreationMethod} from "./territory-authoring-model.js";
 import {readTerritoryDraft,selectedBlankWallBoundary,saveTerritoryDraft,
-  planNativeTerritoryAdoption,adoptNativeTerritoryBoundary}
+  previewNewTerritoryCoverage,planNativeTerritoryAdoption,adoptNativeTerritoryBoundary}
   from "./territory-authoring.js";
 import {atlasSettingsTitle,atlasTerrainRegionSheetClass}
   from "./atlas-settings-title.js";
@@ -1940,8 +1940,11 @@ function actions() {
         methodLabel.appendChild(hint);}
       content.appendChild(methodLabel);
       const kindLabel=document.createElement("label");kindLabel.textContent="Territory type";
-      kindLabel.appendChild(createSettingsSelect(Object.entries(GEOGRAPHY_KINDS),
-        {name:"kind",ariaLabel:"Geographic classification"}));
+      const kindSelect=createSettingsSelect([["","Choose a Territory type…"],
+        ...Object.entries(GEOGRAPHY_KINDS)],
+        {name:"kind",selectedId:"",ariaLabel:"Geographic classification"});
+      kindSelect.required=true;
+      kindLabel.appendChild(kindSelect);
       content.appendChild(kindLabel);
       const parents=listSceneGeography(scene).filter(e=>e.linked&&!e.invalid&&
         ["continent","area"].includes(e.geography?.kind));
@@ -1954,6 +1957,8 @@ function actions() {
       const result=await DialogV2.input({window:{title:"Create Atlas Territory"},
         content,ok:{label:"Edit Boundary"},rejectClose:false,modal:true});
       if(!result)return;
+      if(!Object.hasOwn(GEOGRAPHY_KINDS,result.kind))
+        throw Error("Choose a Territory type before drawing. The selection is never inferred.");
       if(result.kind==="continent"&&result.parent)
         throw Error("A Continent cannot have a parent.");
       const kind=result.method==="grid"?"grid":"polygon";
@@ -1966,7 +1971,7 @@ function actions() {
       const finished=await territoryCanvas.begin(scene,draft,async candidate=>{
         const created=await saveTerritoryDraft(scene,candidate);
         refresh();ui.notifications.info(`Atlas Territory ${created.name} created as a native Region.`);
-      });
+      },{reviewDraft:candidate=>previewNewTerritoryCoverage(scene,candidate)});
       if(!finished)atlasDebug("territory","Territory authoring cancelled",{
         method:kind},{level:"verbose"});
     },
