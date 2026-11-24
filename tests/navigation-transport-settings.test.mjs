@@ -745,3 +745,30 @@ test("Journey service terms use local inheritance and apply only to the trip dra
     assert.deepEqual(ctx.changes,[]);
   }finally{globalThis.foundry=oldFoundry;ctx.restore();}
 });
+
+test("checkpoint Journey tier selector chooses the advertised schedule without persisting selection",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const {findTransportationPreset}=await import("../scripts/navigation-transport-catalog.js");
+    const method={...findTransportationPreset("warship",game.settings,"dnd5e"),
+      hireEnabled:true,overtimeEnabled:true,continuousEnabled:true};
+    let result=null,selection=null;
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      const select=flatten(content).find(e=>e.name==="atlasJourneyServiceLevel");
+      assert.ok(select);assert.deepEqual(select.children.map(o=>o.value),["","minimum","optimal","excellent","full"]);
+      return {name:method.name,kind:method.kind,speedDisplay:method.speedMph,
+        capacity:method.capacity,crewCount:60,costBasis:"none",costApplies:"unit",
+        crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",hire_gp:"250",
+        hireEnabled:true,hireUnlimited:true,hireQuantity:1,overtimeEnabled:true,
+        overtimeExtraHours:8,overtimeMultiplier:1.5,continuousEnabled:true,
+        atlasJourneyOperation:"continuous",atlasJourneyServiceLevel:"minimum"};
+    }}}}};
+    await openTransportationMethodEditor({method,scope:"journey",checkpointName:"Port",
+      inheritedMethod:method,journeyOperation:"continuous",journeyServiceLevel:"",
+      onSave:(next,draft)=>{result=next;selection=draft;}});
+    assert.deepEqual(selection,{operation:"normal",serviceLevel:"minimum"});
+    assert.equal(result.serviceLevel,undefined);
+    assert.equal(result.atlasJourneyServiceLevel,undefined);
+    assert.deepEqual(ctx.changes,[]);
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
