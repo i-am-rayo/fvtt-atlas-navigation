@@ -620,3 +620,44 @@ test("World-inherited mount fare is visible in preset and Map Marker editors wit
     assert.deepEqual(ctx.changes,[],"preview and Cancel do not change World catalogs");
   }finally{globalThis.foundry=previous;ctx.restore();}
 });
+
+test("World crew thresholds expose editable inherited defaults, save explicit values and reject invalid drafts",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry,oldUI=globalThis.ui;
+  try{
+    const {findTransportationPreset,TRANSPORT_CATALOG_SETTING}=await import("../scripts/navigation-transport-catalog.js");
+    const ship=findTransportationPreset("warship",game.settings,"dnd5e");
+    const app=new AtlasTransportationSettings();app.render=async()=>{};
+    globalThis.ui={notifications:{info(){}}};
+    let response=null;
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      const nodes=flatten(content);
+      for(const [name,expected] of [["crewMinimum","15"],["crewOptimal","30"],["crewExcellent","45"]]){
+        const input=nodes.find(e=>e.name===name);
+        assert.ok(input,name);assert.equal(input.type,"number");
+        assert.equal(input.placeholder,expected);
+        assert.equal(input.value,"","blank inherits the reference threshold");
+      }
+      return response;
+    }}}}};
+    await app._edit(ship,"water");
+    assert.deepEqual(ctx.changes,[]);
+    const base={name:ship.name,kind:ship.kind,speedDisplay:ship.speedMph,
+      capacity:ship.capacity,crewCount:60,costBasis:"none",costApplies:"unit",
+      crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",overtimeExtraHours:8,overtimeMultiplier:1.5};
+    response={...base,crewMinimum:"10",crewOptimal:"25",crewExcellent:"50"};
+    await app._edit(ship,"water");
+    assert.deepEqual(ctx.changes.at(-1)[1].overrides.dnd5e2024.warship.crewThresholds,
+      {minimum:10,optimal:25,excellent:50});
+    const writes=ctx.changes.length;
+    response={...base,crewMinimum:"10",crewOptimal:"",crewExcellent:"50"};
+    await assert.rejects(()=>app._edit(ship,"water"),/crew threshold/i);
+    assert.equal(ctx.changes.length,writes);
+    response={...base,crewMinimum:"10",crewOptimal:"55",crewExcellent:"50"};
+    await assert.rejects(()=>app._edit(ship,"water"),/invalid/i);
+    assert.equal(ctx.changes.length,writes);
+    response={...base,crewMinimum:"",crewOptimal:"",crewExcellent:""};
+    await app._edit(ship,"water");
+    assert.equal(ctx.changes.at(-1)[0],TRANSPORT_CATALOG_SETTING);
+    assert.equal(ctx.changes.at(-1)[1].overrides.dnd5e2024.warship.crewThresholds,undefined);
+  }finally{globalThis.foundry=oldFoundry;globalThis.ui=oldUI;ctx.restore();}
+});
