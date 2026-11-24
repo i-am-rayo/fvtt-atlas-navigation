@@ -124,6 +124,7 @@ export function quoteTransportationService(method,{
     extraHours=fullDays*(schedule.dailyHours-8)+Math.max(0,remaining-8);
   }
   let units=1,baseCp=0,crewWagesCp=0,baseLabel="Owned Group resources";
+  let requiredCrew=null,paidCrew=null;
   let livestockBaseCp=0,livestockOvertimeCp=0;
   if(arrangement==="hire"){
     const animalSlots=method.livestockCapacity;
@@ -170,6 +171,8 @@ export function quoteTransportationService(method,{
     }
     baseLabel="Hired "+fare.hireBasis+" fare ("+count+" "+
       (fare.hireApplies==="passenger"?"passenger(s)":"unit(s)")+")";
+    requiredCrew=(method.crewCount??0)*units;
+    paidCrew=method.includeCrewWages&&!method.hireCrewIncluded?requiredCrew:0;
     if(method.includeCrewWages&&!method.hireCrewIncluded)
       crewWagesCp=(method.crewCount??0)*(method.crewWageCpPerDay??200)*
         wagePeriods(method,billableDayUnits,distanceMi,movingHours)*units;
@@ -182,6 +185,12 @@ export function quoteTransportationService(method,{
       (item.recurringCp??item.amount??0),0);
     crewWagesCp=ownedQuote.breakdown.reduce((sum,item)=>sum+
       (item.crewWagesCp??0),0);
+    // Legacy/incomplete breakdowns lack staffing evidence. Do not invent it.
+    const crewTotal=key=>ownedQuote.breakdown.every(item=>
+      Number.isSafeInteger(item[key])&&item[key]>=0)?
+      ownedQuote.breakdown.reduce((sum,item)=>sum+item[key],0):null;
+    requiredCrew=crewTotal("requiredCrew");
+    paidCrew=crewTotal("paidCrew");
   }
   let overtimeFareCp=0,overtimeCrewCp=0;
   if(operation==="overtime"&&extraHours>EPS){
@@ -217,7 +226,7 @@ export function quoteTransportationService(method,{
   return Object.freeze({arrangement,operation,units,travelers,
     movingHours,distanceMi,travelDays:days,billableDayUnits,extraHours,
     dailyHours:schedule.dailyHours,overnightHours:schedule.overnightHours,
-    baseLabel,baseCp,crewWagesCp,overtimeFareCp,overtimeCrewCp,adjustmentCp,
+    baseLabel,baseCp,requiredCrew,paidCrew,crewWagesCp,overtimeFareCp,overtimeCrewCp,adjustmentCp,
     livestockCount,livestockBaseCp,livestockOvertimeCp,
     livestockFareCp:livestockBaseCp+livestockOvertimeCp,
     totalCp,hireTerms:fare,driverIncluded:arrangement==="hire"&&Boolean(method.hireCrewIncluded),
