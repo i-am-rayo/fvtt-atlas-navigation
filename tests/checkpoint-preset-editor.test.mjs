@@ -47,6 +47,16 @@ test("World checkpoint preset editor exposes all three tabs and full appearance 
     const editor=new AtlasCheckpointPresetEditor({preset:defaultCheckpointPresets().presets[0]});
     assert.equal(editor.options.position.left,24,"preset editor opens from the left edge");
     const root=await editor._renderHTML();
+    const initialDirty=editor._isDirty();
+    assert.equal(initialDirty,false,"opening the preset is clean");
+    const add=all(root).find(item=>item.title==="Add Air Travel method");
+    add.listeners.get("click")();
+    const addRow=all(root).find(item=>item.children.some(child=>child.textContent==="Add selected method"));
+    const select=addRow.children.find(item=>item.tag==="select");
+    select.value="airship";
+    addRow.children.find(item=>item.textContent==="Add selected method").listeners.get("click")();
+    assert.equal(editor._isDirty(),true,"transportation-only changes enter the parent dirty guard");
+    assert.equal(writes,0,"staging a preset offer does not persist");
     assert.equal(root.className,"atlas-marker-preset-editor");
     assert.equal(root.children.length,2,"body and footer share one stable parent");
     const [body,footer]=root.children;
