@@ -6,7 +6,7 @@
 import { TRANSPORT_CATALOG_SETTING,TRANSPORT_SURFACES,TRANSPORT_KINDS,
   TRANSPORT_COST_BASES,TRANSPORT_HIRE_BASES,TRANSPORT_CREW_WAGE_BASES,readTransportationCatalog,listTransportationPresets,
   selectedTransportationProfile,setTransportationPreset,resetTransportationPreset,
-  deleteCustomTransportationPreset,addOptionalTirelessExamples,estimateTransportationTrip }
+  deleteCustomTransportationPreset,addOptionalTirelessExamples,estimateTransportationTrip,resolveCrewThresholds }
   from "./navigation-transport-catalog.js";
 import { NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED } from "./navigation-time.js";
 import { NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT,
@@ -611,6 +611,17 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(!group)operations.append(field("Required crew",crewControl,
       "Crew separate from paying passengers; native ship values are reference counts."));
     panels.general.append(operations);
+    if(scope==="world"){
+      const thresholds=resolveCrewThresholds({...value,crewCount:value.crewCount??0});
+      const fields=row("8rem");
+      for(const [key,label] of [["minimum","Minimum"],["optimal","Optimal"],["excellent","Excellent"]]){
+        const input=numberInput("crew"+label,value.crewThresholds?.[key]??"",{min:0,max:1000,step:1});
+        input.placeholder=String(thresholds[key]);
+        fields.append(field(label,input));
+      }
+      panels.general.append(heading("Crew staffing thresholds",
+        "Full staffing is the required crew count. Leave all three fields blank to inherit 25%, 50% and 75% (rounded up). Staffing is advisory."),fields);
+    }
     if(group)panels.general.append(groupOverride("groupCapacityCustom",
       baseline.capacity!=null));
     const note=element("textarea");note.name="note";note.maxLength=240;
@@ -921,6 +932,19 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const crewCount=Number(response.crewCount??0);
     if(!Number.isInteger(crewCount)||crewCount<0||crewCount>1000)
       throw new Error("Crew count must be a whole number between 0 and 1000.");
+    let crewThresholds=value.crewThresholds;
+    if(scope==="world"){
+      const raw=["crewMinimum","crewOptimal","crewExcellent"].map(key=>response[key]);
+      if(raw.some(v=>v!==undefined)){
+        const blank=v=>v===undefined||v===null||String(v).trim()==="";
+        if(raw.every(blank))crewThresholds=undefined;
+        else{
+          if(raw.some(blank))throw Error("Enter all three crew thresholds or leave all blank to inherit.");
+          crewThresholds={minimum:Number(raw[0]),optimal:Number(raw[1]),excellent:Number(raw[2])};
+        }
+      }
+      resolveCrewThresholds({id,crewCount,crewThresholds});
+    }
     const hiredOnlyChoice=["ship-passage","coach-hire"].includes(id);
     const crewWageCpPerDay=hiredOnlyChoice?(value.crewWageCpPerDay??200):
       currencyFromResponse(response,"crewWage");
@@ -978,6 +1002,10 @@ export class AtlasTransportationSettings extends ApplicationBase {
       overtimeMultiplier:Number(response.overtimeMultiplier),
       continuousEnabled:bool("continuousEnabled"),
       note:scope==="world"&&preset?.builtIn?value.note:String(response.note??"")};
+    if(scope==="world"){
+      if(crewThresholds===undefined)delete next.crewThresholds;
+      else next.crewThresholds=crewThresholds;
+    }
     if((scope==="checkpoint"||scope==="journey"&&checkpointName)&&
         (!Number.isInteger(next.hireQuantity)||next.hireQuantity<0||next.hireQuantity>100))
       throw Error("Available transport quantity must be a whole number between 0 and 100.");
