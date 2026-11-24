@@ -129,8 +129,9 @@ test("Road travel preset controls match Map Marker stage/select workflow with no
 
 test("Road Settings places the World preset control above Road name in General",()=>{
   const main=readFileSync(new URL("../scripts/main.js",import.meta.url),"utf8");
-  assert.ok(main.includes("panels.general.append(presetRow,presetHint,nameRow,visibilityRow,journalControls);"),
-    "the existing native form appends Travel preset and its hint before Road name");
+  assert.match(main,
+    /panels\\.general\\.append\\(presetRow,presetHint,nameRow,distanceRow,distanceHint,\\s*visibilityRow,journalControls\\);/,
+    "the existing native form keeps Travel preset before Road name and now adds read-only distance below it");
   const css=readFileSync(new URL("../styles/road-settings-dialog.css",import.meta.url),"utf8");
   assert.ok(css.includes("display:flex;flex-direction:row;align-items:center;") &&
     css.includes("justify-content:space-between;flex-wrap:wrap;"),
