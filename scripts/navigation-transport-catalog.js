@@ -230,7 +230,10 @@ const serviceFields=p=>Object.fromEntries([
 ].filter(key=>p[key]!==undefined).map(key=>[key,p[key]]));
 const projectedServices=p=>({
   hireEnabled:p.hireEnabled??referenceHire[p.id]?.hireEnabled??false,
-  hireCostCp:p.hireCostCp??referenceHire[p.id]?.hireCostCp??0,
+  // Missing hire rates use an editable Atlas estimate: 1% of purchase GP
+  // per operating day, expressed in CP. Explicit zero and availability win.
+  hireCostCp:p.hireCostCp??referenceHire[p.id]?.hireCostCp??
+    (p.kind==="foot"?0:p.id==="mounted"?75:p.purchaseGp??0),
   hireBasis:p.hireBasis??referenceHire[p.id]?.hireBasis??"day",
   hireApplies:p.hireApplies??referenceHire[p.id]?.hireApplies??"unit",
   hireCrewIncluded:p.hireCrewIncluded??true,
