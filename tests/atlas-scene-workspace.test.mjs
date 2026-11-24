@@ -760,7 +760,7 @@ test("Map Directory renders Road marker counts with browser-like HTMLCollection 
   }finally{ctx.restore();}
 });
 
-test("Directory section Plus uses existing authoring and never implies a Road attachment",async()=>{
+test("Directory exposes one accessible creation group without repeated nested Plus actions",async()=>{
   const ctx=context();
   try{
     const graph={schemaVersion:10,coordinateSpace:"image",revision:1,enabled:true,
@@ -771,26 +771,25 @@ test("Directory section Plus uses existing authoring and never implies a Road at
       checkpoints:[{id:"m",name:"Bridge",roadId:"r",nodeId:"a",
         appearance:null,playerVisible:false,elevationMeters:null}]};
     ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
-    ctx.actions.beginCheckpoint=(_scene,refresh)=>{ctx.calls.push("marker");};
-    ctx.actions.begin=(_scene,refresh)=>{ctx.calls.push("road");};
+    ctx.actions.beginCheckpoint=()=>ctx.calls.push("marker");
+    ctx.actions.begin=()=>ctx.calls.push("road");
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     await enter(ws,"Map directory");
-    const addRoad=buttons(ws.result).find(node=>node.title==="Add Road (draw on the Scene)");
-    assert.ok(addRoad,"Road collection has an accessible context Plus");
-    let stopped=0;
-    await addRoad.listeners.get("click")({preventDefault(){},stopPropagation(){stopped++;}});
-    assert.deepEqual(ctx.calls,["road"],"uses existing Road GM authoring action");
-    assert.equal(stopped,1,"Plus must not toggle its disclosure row");
+    const creation=walk(ws.result,item=>item.className==="atlas-directory-creation");
+    assert.equal(creation.length,1,"one consistent creation area");
+    assert.deepEqual(buttons(creation[0]).map(item=>item.textContent),
+      ["Add Territory","Add Road","Add Map Marker"]);
+    assert.equal(walk(ws.result,item=>item.className?.includes?.("atlas-directory-shortcut")).length,0,
+      "nested directory groups no longer repeat creation controls");
+    await buttons(creation[0]).find(item=>item.textContent==="Add Road")
+      .listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,["road"]);
     ctx.calls.length=0;
     await enter(ws,"All Roads");
-    const addMarker=buttons(ws.result).find(node=>
-      node.title==="Add Map Marker (choose its position and Road attachment)");
-    assert.ok(addMarker,"a Road child collection offers a Map Marker Plus");
-    await addMarker.listeners.get("click")({preventDefault(){},stopPropagation(){stopped++;}});
-    assert.deepEqual(ctx.calls,["marker"],"no Road ID is preselected or persisted");
-    assert.deepEqual(graph.checkpoints.map(item=>item.roadId),["r"],
-      "opening contextual authoring leaves existing associations unchanged");
-    assert.equal(stopped,2);
+    const add=buttons(ws.result).find(item=>item.textContent==="Add Map Marker");
+    await add.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,["marker"],"adding from Workspace does not infer a Road");
+    assert.deepEqual(graph.checkpoints.map(item=>item.roadId),["r"]);
     await ws.close();
   }finally{ctx.restore();}
 });
