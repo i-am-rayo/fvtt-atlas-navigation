@@ -11,6 +11,7 @@ import { listTransportationPresets } from "./navigation-transport-catalog.js";
 import { AtlasTransportationSettings,openTransportationMethodEditor }
   from "./navigation-transport-settings.js";
 import {createSettingsCategoryTabs} from "./settings-category-tabs.js";
+import {alphabetizeSettingsOptions} from "./settings-select.js";
 import {createAtlasIconButton} from "./ui-action-button.js";
 
 const MODULE_ID="fvtt-atlas-navigation";
@@ -32,7 +33,7 @@ const field=(label,control,help)=>{
 const select=(name,choices,value)=>{
   const control=node("select");control.name=name;
   control.style.cssText="width:100%;min-width:0;";
-  for(const [id,label] of choices){
+  for(const [id,label] of alphabetizeSettingsOptions(choices)){
     const option=node("option",label);
     option.value=id;option.defaultSelected=id===value;option.selected=id===value;
     control.appendChild(option);
