@@ -6,7 +6,7 @@
 import { TRANSPORT_CATALOG_SETTING,TRANSPORT_SURFACES,TRANSPORT_KINDS,
   TRANSPORT_COST_BASES,TRANSPORT_HIRE_BASES,TRANSPORT_CREW_WAGE_BASES,readTransportationCatalog,listTransportationPresets,
   selectedTransportationProfile,setTransportationPreset,resetTransportationPreset,
-  deleteCustomTransportationPreset,addOptionalTirelessExamples,estimateTransportationTrip,resolveCrewThresholds }
+  deleteCustomTransportationPreset,addOptionalTirelessExamples,estimateTransportationTrip,resolveCrewThresholds,HIRE_SERVICE_LEVELS,validateHireServiceLevels }
   from "./navigation-transport-catalog.js";
 import { NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED } from "./navigation-time.js";
 import { NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT,
@@ -24,7 +24,7 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   from "./navigation-travel-method.js";
 import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
 import {LIVESTOCK_FARE_PERCENT_SETTING,LIVESTOCK_FARE_PERCENT_DEFAULT,
-  readLivestockFarePercent,validLivestockFarePercent}
+  readLivestockFarePercent,validLivestockFarePercent,resolveTransportationOperation}
   from "./navigation-transport-service.js";
 import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
 import { createAtlasIconButton } from "./ui-action-button.js";
@@ -418,7 +418,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
   }
 
   async _edit(preset,surface="land",{scope="world",onSave=null,onReset=null,
-    onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,
+    onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,inheritedMethod=null,
     groupAssignment=null,profiles=[],groupActorName="",groupKind="vehicle",
     groupRiders=[]}={}){
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
@@ -611,16 +611,21 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(!group)operations.append(field("Required crew",crewControl,
       "Crew separate from paying passengers; native ship values are reference counts."));
     panels.general.append(operations);
-    if(scope==="world"){
-      const thresholds=resolveCrewThresholds({...value,crewCount:value.crewCount??0});
+    if(scope==="world"||scope==="checkpoint"){
+      const inherited=inheritedMethod?.crewThresholds;
+      const explicit=scope==="checkpoint"&&JSON.stringify(value.crewThresholds)===JSON.stringify(inherited)?
+        undefined:value.crewThresholds;
+      const thresholds=resolveCrewThresholds({crewCount:value.crewCount??0});
       const fields=row("8rem");
       for(const [key,label] of [["minimum","Minimum"],["optimal","Optimal"],["excellent","Excellent"]]){
-        const input=numberInput("crew"+label,value.crewThresholds?.[key]??"",{min:0,max:1000,step:1});
-        input.placeholder=String(thresholds[key]);
+        const input=numberInput("crew"+label,explicit?.[key]??"",{min:0,max:1000,step:1});
+        input.placeholder=String(inherited?.[key]??thresholds[key]);
         fields.append(field(label,input));
       }
       panels.general.append(heading("Crew staffing thresholds",
-        "Full staffing is the required crew count. Leave all three fields blank to inherit 25%, 50% and 75% (rounded up). Staffing is advisory."),fields);
+        "Full staffing is the required crew count. Leave all three fields blank to inherit the "+
+        (scope==="checkpoint"?"World thresholds.":"25%, 50% and 75% reference thresholds (rounded up).")+
+        " Staffing is advisory."),fields);
     }
     if(group)panels.general.append(groupOverride("groupCapacityCustom",
       baseline.capacity!=null));
@@ -740,6 +745,37 @@ export class AtlasTransportationSettings extends ApplicationBase {
     hireControls.append(preview(["Scenario","Charged to","Service fare","Estimated cost"],
       ["scenario","count","fare","total"],"data-atlas-hire-preview"));
     panels.services.append(hireControls);
+    // Tier configuration stays editable even while hire availability is disabled.
+    if(!group&&value.kind==="vehicle"&&["world","checkpoint"].includes(scope)){
+      const tiers=element("div");
+      tiers.style.cssText="display:grid;gap:.6rem;";
+      tiers.append(heading("Hired service levels",
+        "Advertised crew uses the staffing thresholds in General. Blank fare and schedule inherit defaults. "+
+        "Each level uses the shared fare frequency and charging unit; schedule choices require the corresponding capability. "+
+        "Setting rates does not enable hire."));
+      const thresholds=resolveCrewThresholds({crewCount:value.crewCount??0});
+      const displayRate=cp=>String((value.hireBasis==="mile"?atlasDisplayCostPerDistance(cp):cp)/100);
+      const local=validateHireServiceLevels(value.hireServiceLevels??{});
+      const inherited=validateHireServiceLevels(inheritedMethod?.hireServiceLevels??{});
+      for(const tier of HIRE_SERVICE_LEVELS){
+        const name=tier[0].toUpperCase()+tier.slice(1);
+        const record=local[tier]??{},parent=inherited[tier]??{};
+        const hasRate=record.hireCostCp!==undefined&&record.hireCostCp!==parent.hireCostCp;
+        const hasOperation=record.operation!==undefined&&record.operation!==parent.operation;
+        const rate=numberInput("hireLevelRate-"+tier,hasRate?displayRate(record.hireCostCp):"",
+          {min:0,max:1000000,step:"any"});
+        rate.placeholder=displayRate(parent.hireCostCp??value.hireCostCp??0);
+        const choices=[["","Inherit"+(parent.operation?" "+parent.operation:" schedule")],
+          ["normal","Standard"],["overtime","Overtime"],["continuous","Continuous"]];
+        const schedule=selected(choices,hasOperation?record.operation:"","hireLevelOperation-"+tier);
+        const entry=row("10rem");
+        entry.append(field(name+" service fare (GP)",rate,
+          "Per shared fare period"+(value.hireBasis==="mile"?" (displayed distance unit)":"")+"; blank inherits."),
+          field(name+" operating schedule",schedule));
+        tiers.append(entry);
+      }
+      panels.services.append(tiers);
+    }
 
     // Ownership — sale price, staff pay, and optional feed/maintenance.
     panels.cost.append(heading("Ownership",
@@ -933,11 +969,11 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(!Number.isInteger(crewCount)||crewCount<0||crewCount>1000)
       throw new Error("Crew count must be a whole number between 0 and 1000.");
     let crewThresholds=value.crewThresholds;
-    if(scope==="world"){
+    if(scope==="world"||scope==="checkpoint"){
       const raw=["crewMinimum","crewOptimal","crewExcellent"].map(key=>response[key]);
       if(raw.some(v=>v!==undefined)){
         const blank=v=>v===undefined||v===null||String(v).trim()==="";
-        if(raw.every(blank))crewThresholds=undefined;
+        if(raw.every(blank))crewThresholds=inheritedMethod?.crewThresholds;
         else{
           if(raw.some(blank))throw Error("Enter all three crew thresholds or leave all blank to inherit.");
           crewThresholds={minimum:Number(raw[0]),optimal:Number(raw[1]),excellent:Number(raw[2])};
@@ -1002,9 +1038,38 @@ export class AtlasTransportationSettings extends ApplicationBase {
       overtimeMultiplier:Number(response.overtimeMultiplier),
       continuousEnabled:bool("continuousEnabled"),
       note:scope==="world"&&preset?.builtIn?value.note:String(response.note??"")};
-    if(scope==="world"){
+    if(scope==="world"||scope==="checkpoint"){
       if(crewThresholds===undefined)delete next.crewThresholds;
       else next.crewThresholds=crewThresholds;
+    }
+    if(!group&&["world","checkpoint"].includes(scope)&&next.kind==="vehicle"){
+      const levels=validateHireServiceLevels(value.hireServiceLevels??{});
+      const inherited=validateHireServiceLevels(inheritedMethod?.hireServiceLevels??{});
+      for(const tier of HIRE_SERVICE_LEVELS){
+        const patch={...levels[tier]},parent=inherited[tier]??{};
+        const raw=response["hireLevelRate-"+tier],schedule=response["hireLevelOperation-"+tier];
+        if(raw!==undefined){
+          if(raw===null||String(raw).trim()===""){
+            delete patch.hireCostCp;
+            if(parent.hireCostCp!==undefined)patch.hireCostCp=parent.hireCostCp;
+          }else{
+            const amount=Number(raw)*100;
+            if(!Number.isFinite(amount)||amount<0||amount>1e8)throw Error("Invalid service level fare.");
+            patch.hireCostCp=next.hireBasis==="mile"?atlasCostPerMileFromDisplay(amount):amount;
+          }
+        }
+        if(schedule!==undefined){
+          if(schedule===""){
+            delete patch.operation;
+            if(parent.operation!==undefined)patch.operation=parent.operation;
+          }else patch.operation=schedule;
+        }
+        if(Object.keys(patch).length)levels[tier]=patch;else delete levels[tier];
+      }
+      const cleaned=validateHireServiceLevels(levels);
+      for(const terms of Object.values(cleaned))if(terms.operation)
+        resolveTransportationOperation(next,terms.operation);
+      if(Object.keys(cleaned).length)next.hireServiceLevels=cleaned;else delete next.hireServiceLevels;
     }
     if((scope==="checkpoint"||scope==="journey"&&checkpointName)&&
         (!Number.isInteger(next.hireQuantity)||next.hireQuantity<0||next.hireQuantity>100))
@@ -1100,7 +1165,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
  * Callers own the Save callback; this helper never changes World settings.
  */
 export async function openTransportationMethodEditor({method,scope,onSave,onReset=null,
-  onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,
+  onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,inheritedMethod=null,
   groupAssignment=null,profiles=[],groupActorName="",groupKind="vehicle",
   groupRiders=[]}={}){
   if((!method&&scope!=="group")||!["checkpoint","journey","group"].includes(scope)||
@@ -1109,7 +1174,7 @@ export async function openTransportationMethodEditor({method,scope,onSave,onRese
     throw Error("Invalid transportation editor context.");
   const app=new AtlasTransportationSettings();
   return app._edit(method,method?.surface??"land",{scope,onSave,onReset,
-    onSaveCheckpoint,checkpointName,journeyOperation,groupAssignment,profiles,
+    onSaveCheckpoint,checkpointName,journeyOperation,inheritedMethod,groupAssignment,profiles,
     groupActorName,groupKind,groupRiders});
 }
 
