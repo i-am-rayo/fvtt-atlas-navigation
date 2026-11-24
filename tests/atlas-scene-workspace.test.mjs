@@ -1038,3 +1038,58 @@ test("Milestone 01 Workspace icon targets use one shared 2rem action sizing rule
   assert.match(shared,/\.atlas-ui-icon-button,[\s\S]*?width:\s*2rem;/,
     "one component sets the accessible shared 2rem icon target");
 });
+
+
+test("Workspace refresh retains directory focus, caret and scroll; switching views resets scroll",async()=>{
+  const ctx=context();
+  try{
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    const content=new Element("div");
+    content.contains=node=>walk(content,e=>e===node).length>0;
+    content.querySelector=selector=>walk(content,e=>
+      selector==="[data-atlas-workspace-scroll]"&&e.attributes?.has("data-atlas-workspace-scroll"))[0]??null;
+    content.querySelectorAll=selector=>walk(content,e=>
+      selector==="[data-atlas-workspace-focus]"&&e.dataset?.atlasWorkspaceFocus);
+    const install=()=>ws._replaceHTML(ws.result,content);
+    install();
+    const search=()=>walk(content,e=>e.tag==="input"&&e.type==="search")[0];
+    const old=search();
+    old.value="Millstone";old.listeners.get("input")();
+    old.selectionStart=2;old.selectionEnd=5;old.selectionDirection="forward";
+    document.activeElement=old;
+    content.querySelector("[data-atlas-workspace-scroll]").scrollTop=185;
+    const create=document.createElement;
+    document.createElement=tag=>{
+      const node=create(tag);
+      node.setSelectionRange=(start,end,direction)=>{
+        node.selectionStart=start;node.selectionEnd=end;node.selectionDirection=direction;
+      };
+      return node;
+    };
+    await ws.render(true);install();
+    assert.notEqual(search(),old);
+    assert.equal(search().value,"Millstone");
+    assert.equal(search().focused,true,"replacement search restores keyboard focus");
+    assert.equal(search().selectionStart,2);
+    assert.equal(search().selectionEnd,5);
+    assert.equal(content.querySelector("[data-atlas-workspace-scroll]").scrollTop,185);
+    const allRoads=buttons(content).find(e=>e.textContent==="All Roads");
+    document.activeElement=allRoads;
+    await enter(ws,"All Roads");install();
+    assert.equal(content.querySelector("[data-atlas-workspace-scroll]").scrollTop,0,
+      "new directory view begins at the top");
+    assert.equal(buttons(content).find(e=>e.textContent==="All Roads").focused,true);
+    const outside=new Element("button");document.activeElement=outside;
+    await ws.render(true);install();
+    assert.ok(!buttons(content).some(e=>e.focused),"background refresh never steals external focus");
+    assert.deepEqual(ctx.calls,[],"UI restoration never writes Scene data");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("Workspace adapts to its own window width, not only the browser viewport",()=>{
+  const css=readFileSync(new URL("../styles/atlas-scene-workspace.css",import.meta.url),"utf8");
+  assert.match(css,/container-type:\s*inline-size/);
+  assert.match(css,/@container\s+atlas-workspace\s*\(max-width:\s*670px\)/);
+});

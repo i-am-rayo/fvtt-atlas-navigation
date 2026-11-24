@@ -87,6 +87,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     const field = element("label");
     field.appendChild(element("span",label));
     control.setAttribute("aria-label",label);
+    control.dataset.atlasWorkspaceFocus="directory:"+view+":"+key;
     field.appendChild(control);
     filters.appendChild(field);
     control.value = saved[key];
@@ -122,6 +123,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   const searchGroup=element("label");
   searchGroup.className="atlas-directory-search";
   search.setAttribute("aria-label","Search map records");
+  search.dataset.atlasWorkspaceFocus="directory:"+view+":search";
   search.value=saved.query;
   searchGroup.appendChild(search);
   const icon=element("i");
