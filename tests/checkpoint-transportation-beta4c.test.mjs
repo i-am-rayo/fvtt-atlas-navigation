@@ -228,6 +228,16 @@ test("checkpoint pencil opens the same World preset dialog and keeps drafts isol
     assert.ok(fields.some(el=>el.textContent==="Clear Map Marker overrides (inherit World)"),
       "local overrides can be explicitly restored to World defaults");
     assert.deepEqual(editor.getOffers(),beforeOffers,"cancel does not change checkpoint draft");
+    const presetEditor=createCheckpointTransportationEditor({
+      offers:beforeOffers,draftTarget:"Map Marker preset",saveLabel:"Save preset"
+    });
+    flatten(presetEditor.element).find(el=>el.title?.startsWith("Edit ")).listeners.get("click")();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(modal.ok.label,"Apply to Map Marker preset draft");
+    assert.match(modal.window.title,/Edit Map Marker preset offer/);
+    assert.ok(flatten(presetEditor.element).some(el=>
+      el.textContent?.includes("Use Save preset")));
+    assert.deepEqual(presetEditor.getOffers(),beforeOffers);
   }finally{Object.assign(globalThis,before);}
 });
 
