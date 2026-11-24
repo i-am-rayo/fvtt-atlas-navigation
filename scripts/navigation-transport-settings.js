@@ -746,7 +746,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       ["scenario","count","fare","total"],"data-atlas-hire-preview"));
     panels.services.append(hireControls);
     // Tier configuration stays editable even while hire availability is disabled.
-    if(!group&&value.kind==="vehicle"&&["world","checkpoint"].includes(scope)){
+    if(!group&&value.kind==="vehicle"&&(["world","checkpoint"].includes(scope)||scope==="journey"&&Boolean(checkpointName))){
       const tiers=element("div");
       tiers.style.cssText="display:grid;gap:.6rem;";
       tiers.append(heading("Hired service levels",
@@ -1042,7 +1042,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       if(crewThresholds===undefined)delete next.crewThresholds;
       else next.crewThresholds=crewThresholds;
     }
-    if(!group&&["world","checkpoint"].includes(scope)&&next.kind==="vehicle"){
+    if(!group&&(["world","checkpoint"].includes(scope)||scope==="journey"&&Boolean(checkpointName))&&next.kind==="vehicle"){
       const levels=validateHireServiceLevels(value.hireServiceLevels??{});
       const inherited=validateHireServiceLevels(inheritedMethod?.hireServiceLevels??{});
       for(const tier of HIRE_SERVICE_LEVELS){
