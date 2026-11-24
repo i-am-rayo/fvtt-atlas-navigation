@@ -4,11 +4,11 @@ Owner-approved direction, recorded 2026-11-17. Applies to the upcoming beta.8.55
 
 ## Scope and precedence
 
-Use these standards for Atlas-owned applications, dialogs, directories, settings and contextual controls. Reuse existing ApplicationV2/DialogV2 lifecycle, shared controls, validation, draft state and persistence handlers. Do not override unrelated Foundry or other-module UI. The current action order below supersedes the less-specific beta.8.53 footer wording in AGENTS.md. Existing permission, dirty-close, validation and explicit-confirmation protections remain.
+Use these standards for Atlas-owned applications, dialogs, directories, settings and contextual controls. Reuse existing ApplicationV2/DialogV2 lifecycle, shared controls, validation, draft state and persistence handlers. Do not override unrelated Foundry or other-module UI. The November 24 #518 action order below supersedes the older far-right Delete rule, including historical handoffs and AGENTS.md. Existing permission, dirty-close, validation and explicit-confirmation protections remain.
 
 ## Action vocabulary and order
 
-Use consistent bundled monochrome icons (existing Font Awesome Free assets where available), not platform-dependent emoji artwork. The owner's emoji describe meaning. Standard actions are icon-only with localized tooltips and accessible names that identify the item. Section, tab, field and navigation labels remain text.
+Use consistent bundled monochrome icons (existing Font Awesome Free assets where available), not platform-dependent emoji artwork. The owner's emoji describe meaning. Contextual actions use shared icons with tooltips and accessible names that identify the item. Safe primary actions and Cancel/Back use visible labels. Section, tab, field and navigation labels remain text.
 
 | Action | Icon meaning | Placement and behavior |
 | --- | --- | --- |
@@ -16,20 +16,20 @@ Use consistent bundled monochrome icons (existing Font Awesome Free assets where
 | Visibility | Eye when shown; eye-slash when hidden | Second left action; icon indicates current state |
 | Settings | Gear | Third left action; opens configuration |
 | Edit / Paint / Modify in Scene / Move / Change | Pencil | Fourth left action; invokes existing edit workflow |
-| Save | Floppy disk | Right action group, immediately before Delete when both exist |
-| Delete | Trash | Last, far right; danger styling and existing confirmation |
+| Save | Floppy disk + visible action name | Final safe primary action on the right, after Cancel/Back |
+| Delete | Trash | Separated danger action or named overflow away from the primary cluster; confirmation defaults to Cancel and identifies the item |
 | Link | Chain link | Contextual action, before the right save/delete group |
 | Unlink | Broken chain | Contextual action; never relabel Delete as Unlink |
 | Add / New / Create | Plus | Beside its named section or an explicitly named creation menu |
 
-Footer layout: [Locate] [Visibility] [Settings] [Edit] [contextual actions] ... [Save] [Delete].
+Footer layout: [Locate] [Visibility] [Settings] [Edit] [contextual actions] [separated Delete] … [Cancel/Back] [Save item]. Native Foundry dialogs are unchanged.
 Use only applicable actions; do not add no-op buttons to fill slots. DOM and keyboard order must match visual order. For item rows, put the applicable action group at the far right of that row; preserve ordering within the group. Destructive actions retain a distinct gap/separator and danger styling.
 
 Additional common mappings: Duplicate = copy; Refresh = circular arrow; Import = inward arrow; Export = outward arrow; Reset to defaults = undo; Close = X. These actions require distinct accessible labels and tooltips. Reset and Refresh must not be interchangeable. A regeneration action may use circular arrows but must say “Regenerate …” and keep its existing preview/confirmation.
 
 Visibility accessible text must communicate both state and operation (for example, “Hide Dirwest from players; currently shown”) and a consistent pressed-state model. Remove redundant visible Shown/Hidden text only where the state icon is present. Never use icon/color alone as the accessible name.
 
-“Save as preset” is distinct from Save current item. Use a separate contextual preset command with an explicit accessible label and tooltip, or a named menu entry; do not present two indistinguishable floppy buttons. Preserve create-new versus overwrite choice, scope and confirmation. Native dialog Cancel/close/dirty-draft handling must remain available; do not remove cancellation safety merely to achieve the icon layout. Map any retained Cancel to a clearly named close/cancel affordance without changing submission semantics.
+“Save as preset” is distinct from Save current item. Use a left-side contextual preset command with an explicit accessible label and tooltip, or a named menu entry; do not present two indistinguishable floppy buttons. Preserve create-new versus overwrite choice, scope and confirmation. Native dialog Cancel/close/dirty-draft handling must remain available; do not remove cancellation safety merely to achieve the icon layout. Cancel/Back is visibly named immediately before the primary action and retains the existing dirty-close guard.
 
 ## One action-button size
 
@@ -70,7 +70,7 @@ Center labels horizontally and vertically inside navigation buttons. Directory v
 
 Place row actions inline at the far right without losing nesting indentation or the disclosure hit area. Action clicks must not toggle the row disclosure. Preserve open groups, search/filter values, scroll, focus and window position through ordinary actions/rerenders. Locate must not strand the Workspace minimized or change Scene. On narrow screens wrap actions within the same item rather than overlap names.
 
-Placed Map Marker Settings uses one persistent bottom footer outside the scrolling tab body: [Locate] [staged visibility] [Move] on the left, and [Save as preset…] [Save Map Marker] [Delete Map Marker] on the right, Delete last in DOM order. Locate only invokes the existing transient Atlas camera/focus callback and does not leave the editor or change its draft; new unsaved markers must disable Locate with an explanatory accessible label. The preset Save remains an independent World confirmation. [#415 live checklist](TEST_0_3_11_DEV_4_ISSUE_415.md).
+Placed Map Marker Settings uses one persistent bottom footer outside the scrolling tab body: [Locate] [staged visibility] [Move] [Save as preset…] [separated Delete Map Marker] on the left, and [Cancel] [Save Map Marker] on the right. Locate only invokes the existing transient Atlas camera/focus callback and does not leave the editor or change its draft; new unsaved markers must disable Locate with an explanatory accessible label. The preset Save remains an independent World confirmation. [#415 live checklist](TEST_0_3_11_DEV_4_ISSUE_415.md).
 
 Sort checkpoint display lists A–Z with locale-aware comparison and deterministic ties; never reorder the graph or stored checkpoint sequence for a visual sort. Native Region priority lists remain in priority order and retain drag/keyboard semantics.
 
