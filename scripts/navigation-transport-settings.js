@@ -643,6 +643,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       panels.general.append(field("Hired service level",selected([["","Reference service (legacy schedule)"],
         ...HIRE_SERVICE_LEVELS.map(tier=>[tier,tier[0].toUpperCase()+tier.slice(1)])],
         journeyServiceLevel,"atlasJourneyServiceLevel"),
+        journeyOperation===null?"The selected tier determines advertised crew and rates. The convoy retains its shared travel day; additional operating hours are not used.":
         "The selected tier determines this leg’s operating schedule and advertised crew. It overrides the reference schedule below; choosing Reference restores manual scheduling."));
     }
     if(scope==="journey"&&journeyOperation!==null){
