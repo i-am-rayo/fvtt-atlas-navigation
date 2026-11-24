@@ -255,7 +255,7 @@ test("Map Marker can add an inherited Cart without automatically opening local o
       DialogV2:{input:async()=>{dialogs++;return null;}}}}};
     const {createCheckpointTransportationEditor}=await import("../scripts/checkpoint-transportation-editor.js");
     const editor=createCheckpointTransportationEditor({offers:[]});
-    const add=flatten(editor.element).find(item=>item.title==="Add Land method");
+    const add=flatten(editor.element).find(item=>item.title==="Add Land Travel method");
     assert.ok(add,"Land group exposes an add action");
     await add.listeners.get("click")();
     const selector=flatten(editor.element).find(item=>item.tag==="select");
