@@ -1057,6 +1057,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(!game.user?.isGM||preset.builtIn)throw new Error("Only custom presets can be deleted.");
     const yes=await foundry.applications.api.DialogV2.confirm({
       window:{title:"Delete "+preset.name},modal:true,rejectClose:false,
+      yes:{label:"Delete preset",default:false},no:{label:"Cancel",default:true},
       content:"<p>Remove this custom transportation option from future route planning? "+
         "Previously saved Journey Journals and Scene data will not be changed.</p>"
     });
