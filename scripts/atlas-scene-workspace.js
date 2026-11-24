@@ -145,13 +145,15 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     if (directoryActive) {
       const toolbar = make("div",undefined,"atlas-directory-toolbar");
       const create = make("div",undefined,"atlas-directory-creation");
-      create.appendChild(make("strong","Create"));
+      create.setAttribute("role","group");
+      create.setAttribute("aria-label","Create Atlas items on the current Scene");
+      create.appendChild(make("strong","Create on Scene"));
       addControls(create);
       toolbar.appendChild(create);
       main.appendChild(toolbar);
       const views = make("nav",undefined,"atlas-directory-views");
       views.setAttribute("aria-label","Directory views");
-      views.appendChild(make("strong","View"));
+      views.appendChild(make("strong","Browse"));
       links(views,directoryViews);
       for(const item of views.querySelectorAll?.("button")??[])
         item.setAttribute("aria-pressed",String(item.getAttribute("aria-current")==="page"));
