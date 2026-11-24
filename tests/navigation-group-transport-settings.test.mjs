@@ -494,3 +494,75 @@ test("NPC roles and tab switches never write; Save, Refresh and Settings use sta
     assert.deepEqual(ctx.changes,[],"render and navigation are read-only");
   }finally{ctx.restore();}
 });
+
+test("Party vehicle crew editor applies unit drafts without saving, then persists only on Party Save",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const sailor={id:"npc2",name:"Sailor",type:"npc",system:{}};
+    ctx.group.system.members.push({actor:sailor});
+    const old=ctx.saved;
+    ctx.setSaved({...old,groups:{group1:{members:{...old.groups.group1.members,
+      ship1:{role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship"},
+      npc2:{role:"crew",quantity:1,capacity:null,surface:"water"}}}}});
+    const native=JSON.stringify(ctx.group);
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const unit=elements.find(e=>e.name==="crew-unit-ship1");
+    const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit crew for Warship");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
+    assert.ok(unit&&edit,"owned vehicle has a unit roster editor");
+    assert.deepEqual(unit.children.map(o=>o.value),["1","2"]);
+    let response=null;
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content,ok})=>{
+      assert.equal(ok.label,"Apply to Party draft");
+      const nodes=flatten(content);
+      assert.ok(nodes.find(n=>n.name==="crew-pc1"));
+      assert.ok(nodes.find(n=>n.name==="crew-npc2"));
+      assert.equal(nodes.some(n=>n.name==="crew-camel1"),false,"mounts are not eligible named crew");
+      return response;
+    }}}}};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[],"Cancel performs no write");
+    response={hiredCrew:"30","crew-pc1":true,"duty-pc1":"Navigator","crew-npc2":true};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[],"Apply affects only the parent draft");
+    assert.ok(elements.some(n=>/32 \/ 60/.test(n.textContent??"")),"shows staffed vs full");
+    unit.value="2";
+    response={hiredCrew:"12","crew-pc1":true};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[],"duplicate draft crew cannot write");
+    response={hiredCrew:"12"};
+    await edit.events.click[0]();
+    await save.events.click[0]();
+    assert.equal(ctx.changes.length,1);
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewRoster,[
+      {unitIndex:1,named:[{actorId:"pc1",duty:"Navigator"},{actorId:"npc2"}],hired:30},
+      {unitIndex:2,named:[],hired:12}
+    ]);
+    assert.equal(JSON.stringify(ctx.group),native,"no native Group or Actor changes");
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
+test("Party Save blocks stale crew assignments and invalid unit edits",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const old=ctx.saved;
+    ctx.setSaved({...old,groups:{group1:{members:{...old.groups.group1.members,
+      ship1:{role:"unassigned",quantity:1,capacity:60,surface:"water",profileId:"warship",
+        crewRoster:[{unitIndex:1,named:[{actorId:"missing"}],hired:0}]}}}}});
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit crew for Warship");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
+    await save.events.click[0]();
+    assert.deepEqual(ctx.changes,[],"stale assignment cannot be saved silently");
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      assert.ok(flatten(content).some(e=>e.name==="crew-missing"),"stale member is visible for correction");
+      return {hiredCrew:"0"};
+    }}}}};
+    await edit.events.click[0]();
+    await save.events.click[0]();
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewRoster,[]);
+    assert.equal(ctx.changes.length,1);
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
