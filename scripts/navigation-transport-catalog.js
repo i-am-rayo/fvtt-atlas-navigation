@@ -177,13 +177,49 @@ const validCapacity=value=>value===null||(Number.isInteger(value)&&value>=1&&val
 const validCostApplies=value=>value==="unit"||value==="passenger";
 const validCrewCount=value=>Number.isInteger(value)&&value>=0&&value<=1000;
 const validCrewWage=value=>money(value);
+const validCrewThresholds=(thresholds,full)=>
+  thresholds!==null&&typeof thresholds==="object"&&!Array.isArray(thresholds)&&
+  Object.keys(thresholds).length===3&&
+  ["minimum","optimal","excellent"].every(key=>own(thresholds,key)&&validCrewCount(thresholds[key]))&&
+  thresholds.minimum<=thresholds.optimal&&thresholds.optimal<=thresholds.excellent&&
+  thresholds.excellent<=full;
+
+function referenceCrewCount(p){
+  return p.crewCount??referenceOccupancy[p.id]?.crewCount??0;
+}
+
+/** Advisory thresholds; full remains the existing canonical crew count. */
+export function resolveCrewThresholds(method){
+  const full=referenceCrewCount(method);
+  if(!validCrewCount(full))throw new Error("Invalid crew count.");
+  const thresholds=method.crewThresholds===undefined?
+    {minimum:Math.ceil(full/4),optimal:Math.ceil(full/2),excellent:Math.ceil(full*3/4)}:
+    method.crewThresholds;
+  if(!validCrewThresholds(thresholds,full))throw new Error("Invalid crew thresholds.");
+  return Object.freeze({...thresholds,full});
+}
+
+export function classifyCrewStaffing(method,count){
+  if(!Number.isSafeInteger(count)||count<0)throw new Error("Invalid staffed crew count.");
+  const {minimum,optimal,excellent,full}=resolveCrewThresholds(method);
+  if(count>full)return "over-capacity";
+  if(full===0)return "not-required";
+  if(count>=full)return "full";
+  if(count>=excellent)return "excellent";
+  if(count>=optimal)return "optimal";
+  if(count>=minimum)return "minimum";
+  return "below-minimum";
+}
+
 const validCrewFields=p=>
   (p.crewCount===undefined||validCrewCount(p.crewCount))&&
+  (p.crewThresholds===undefined||validCrewThresholds(p.crewThresholds,referenceCrewCount(p)))&&
   (p.crewWageCpPerDay===undefined||validCrewWage(p.crewWageCpPerDay))&&
   (p.crewWageBasis===undefined||TRANSPORT_CREW_WAGE_BASES.includes(p.crewWageBasis))&&
   (p.includeCrewWages===undefined||typeof p.includeCrewWages==="boolean");
 const crewFields=p=>({
   ...(p.crewCount===undefined?{}:{crewCount:p.crewCount}),
+  ...(p.crewThresholds===undefined?{}:{crewThresholds:{...p.crewThresholds}}),
   ...(p.crewWageCpPerDay===undefined?{}:{crewWageCpPerDay:p.crewWageCpPerDay}),
   ...(p.crewWageBasis===undefined?{}:{crewWageBasis:p.crewWageBasis}),
   ...(p.includeCrewWages===undefined?{}:{includeCrewWages:p.includeCrewWages})
@@ -274,7 +310,7 @@ export function validateTransportationCatalog(input){
           !(patch.purchaseGp===null||money(patch.purchaseGp))||
           (patch.capacity!==undefined&&!validCapacity(patch.capacity))||
           (patch.costApplies!==undefined&&!validCostApplies(patch.costApplies))||
-          !validCrewFields(patch)||
+          !validCrewFields({...patch,id})||
           !validServiceFields(patch,dnd2024.find(p=>p.id===id)?.kind,
             dnd2024.find(p=>p.id===id)?.surface))
         throw new Error("Invalid transportation override for "+id+".");
