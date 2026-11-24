@@ -14,6 +14,8 @@ import {smoothClosedBoundary,inspectNativePolygonShape} from "./region-boundary-
 import {sceneImageOrigin,toCanvasPoint} from "./road-coordinates.js";
 import {checkpointCategory} from "./checkpoint-types.js";
 import {territoryCheckpointLinks} from "./territory-checkpoint-link.js";
+import {nativeRegionScopeRelation,nativeRegionScopeSnapshot}
+  from "./territory-native-region-scope.js";
 
 const clone=v=>structuredClone(v);
 const plainShapes=r=>Array.from(r?.shapes??[],s=>s.toObject?.()??clone(s));
@@ -140,9 +142,11 @@ export function readTerritoryDraft(scene,regionId,{view=globalThis.canvas}={}){
       for(const point of points){point.x+=dx;point.y+=dy;}
     }
     return {kind:source.kind,points,offsets:source.offsets??[],
-      wallIds:source.wallIds,smoothing:source.smoothing??0,sourceDigest:digest};
+      wallIds:source.wallIds,smoothing:source.smoothing??0,sourceDigest:digest,
+      nativeScopeSnapshot:nativeRegionScopeSnapshot(region)};
   }
-  return draftFromNativeShapes(shapes,digest);
+  return {...draftFromNativeShapes(shapes,digest),
+    nativeScopeSnapshot:nativeRegionScopeSnapshot(region)};
 }
 
 export function planNativeTerritoryAdoption(scene,regionId,{view=globalThis.canvas}={}){
@@ -294,7 +298,10 @@ export function validateTerritoryCoverage(scene,draft,shape,{regionId=null,view=
   const parent=geography.parentRegionId?scene.regions?.get?.(geography.parentRegionId):null;
   if(geography.parentRegionId&&!parent)
     throw Error("The selected parent Continent is missing.");
-  const peers=coveragePeers(entries,geography,regionId);
+  const activeRegion=regionId?scene.regions?.get?.(regionId):null;
+  const peers=coveragePeers(entries,geography,regionId).filter(entry=>
+    !activeRegion||nativeRegionScopeRelation(scene,activeRegion,
+      scene.regions?.get?.(entry.id))!=="separate");
   // Grid containment/overlap can be exact on both square and hex Scenes.
   if(shape.type==="grid"){
     const grid=view?.grid;
@@ -358,6 +365,9 @@ export async function saveTerritoryDraft(scene,draft,{regionId=null,
   if(checkpointAssociation!==null && regionId)
     throw Error("Checkpoint association can only be created with a new native Territory.");
   if(regionId&&(!region||region.parent?.id!==scene.id))throw Error("Native Region changed or is missing.");
+  if(region&&draft.nativeScopeSnapshot!==undefined&&
+      draft.nativeScopeSnapshot!==nativeRegionScopeSnapshot(region))
+    throw Error("Native Region Levels or elevation changed during editing. Reopen Paint Territory.");
   const name=draft.name?.trim();
   if(!region&&(!name||name.length>120||/[\x00-\x1f\x7f]/.test(name)))
     throw Error("Enter a printable Territory name (1–120 characters).");
