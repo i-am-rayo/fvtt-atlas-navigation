@@ -127,6 +127,21 @@ export function transportationMethodOverrideDelta(base,edited){
   return overrides;
 }
 
+/** Compose a scoped draft with its parent without losing untouched tier fields.
+ * No writes, and no change to legacy scalar override semantics. */
+export function applyTransportationMethodOverrides(base,overrides){
+  if(!overrides)return {...base};
+  const effective={...base,...overrides};
+  if(overrides.hireServiceLevels!==undefined){
+    if(base.kind!=="vehicle")throw Error("Hired service levels require a vehicle.");
+    const levels=validateHireServiceLevels(base.hireServiceLevels??{});
+    for(const [tier,patch] of Object.entries(validateHireServiceLevels(overrides.hireServiceLevels)))
+      levels[tier]={...levels[tier],...patch};
+    effective.hireServiceLevels=levels;
+  }
+  return effective;
+}
+
 export function checkpointOfferMethod(offer,worldMethod){
   const checked=validateCheckpointTransportOffers([offer])[0];
   if(!worldMethod||worldMethod.id!==checked.methodId)throw Error("Missing linked World method.");
@@ -143,14 +158,7 @@ export function checkpointOfferMethod(offer,worldMethod){
     throw Error("Livestock accommodation settings require a vehicle.");
   if(checked.overrides.continuousEnabled&&worldMethod.kind!=="vehicle")
     throw Error("Continuous travel needs a vehicle.");
-  const effective={...worldMethod,hireUnlimited:true,hireQuantity:1,...checked.overrides};
-  if(checked.overrides.hireServiceLevels!==undefined){
-    if(worldMethod.kind!=="vehicle")throw Error("Hired service levels require a vehicle.");
-    const levels=validateHireServiceLevels(worldMethod.hireServiceLevels??{});
-    for(const [tier,patch] of Object.entries(checked.overrides.hireServiceLevels))
-      levels[tier]={...levels[tier],...patch};
-    effective.hireServiceLevels=levels;
-  }
+  const effective=applyTransportationMethodOverrides({...worldMethod,hireUnlimited:true,hireQuantity:1},checked.overrides);
   // Retain stale inherited staffing for GM correction. Explicit service quotes
   // validate effective thresholds before accepting a new Journey estimate.
   if(effective.livestockFareCp!=null&&effective.livestockFarePercent!=null)
