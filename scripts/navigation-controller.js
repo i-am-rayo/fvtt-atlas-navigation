@@ -95,7 +95,7 @@ import {renderNavigationTravelMethodSelector,renderNavigationTravelMethodButtons
 import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
 import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote,
-  renderNavigationTransportApproval,describeJourneyMountFare}
+  renderNavigationTransportApproval,describeJourneyMountFare,describeJourneyCrewEstimate}
   from "./navigation-transport-summary-view.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
@@ -2914,6 +2914,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           ],
           notes:[
             "Operating schedule: "+selectedOperation+".",
+            describeJourneyCrewEstimate(quote),
             absent.length?"Not traveling: "+absent.join(", "):null,
             manifest?"Carrying "+aboard+" physical mounts; "+
               (manifest.capacityPerUnit===null?"unlimited animal accommodation":
@@ -5195,11 +5196,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 "Transport excluding mounts: "+formatMoney(Math.max(0,
                   Math.round(quote.totalCp)-Math.round(quote.livestockFareCp))),
                 quote.baseLabel+": "+formatMoney(quote.baseCp),
-                "Paid crew: "+formatMoney(quote.crewWagesCp),
+                describeJourneyCrewEstimate(quote),
+                "Crew wages: "+formatMoney(quote.crewWagesCp),
                 "Overtime fare: "+formatMoney(quote.overtimeFareCp),
                 "Overtime labor: "+formatMoney(quote.overtimeCrewCp),
                 ...(mountDetails?[mountDetails]:[])
-              ].join(" · "),
+              ].filter(Boolean).join(" · "),
               operatingSummary:(operation==="continuous"&&
                 quote.hireTerms?.hireBasis==="day"?
                 quote.billableDayUnits.toFixed(2).replace(/\\.?0+$/,"")+
@@ -5354,11 +5356,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             breakdown:[
               "Transport excluding mounts: "+formatMoney(otherTotal),
               "Base fare: "+formatMoney(fare.baseCp),
-              "Paid crew: "+formatMoney(fare.crewWagesCp),
+              describeJourneyCrewEstimate(fare),
+              "Crew wages: "+formatMoney(fare.crewWagesCp),
               "Overtime fare and labor: "+
                 formatMoney(fare.overtimeFareCp+fare.overtimeCrewCp),
               ...(mountDetails?[mountDetails]:[])
-            ].join(" · "),
+            ].filter(Boolean).join(" · "),
             operatingSummary:"Operating schedule: "+leg.operation+
               ". Estimates only; no booking, payment, rest, World time or "+
               "Token movement is authorized by this preview."
