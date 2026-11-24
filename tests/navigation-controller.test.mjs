@@ -4033,3 +4033,107 @@ test("checkpoint Journey explicitly selected hired tier drives schedule and quot
     assert.equal(JSON.stringify(stock),before);
   }finally{globalThis.game=previous;}
 });
+
+test("ordinary hired land service keeps explicit tier and immutable approved fare",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,
+    document:globalThis.document,PIXI:globalThis.PIXI};
+  let nav;
+  try{
+    let offers=[{methodId:"cart",mode:"land",overrides:{hireEnabled:true,
+      hireCostCp:250,hireBasis:"day",hireApplies:"unit",
+      continuousEnabled:true,hireServiceLevels:{minimum:{hireCostCp:123}}}}];
+    const writes=[],dialogTitles=[];
+    let approve=false;
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
+      settings:{get:()=>undefined}};
+    globalThis.PIXI=undefined;
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:""})};
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      dialogTitles.push(options.window.title);return approve;
+    }}}}};
+    const token={id:"party",x:-50,y:-50,width:1,height:1,actor:null,
+      moves:0,canUserModify:()=>true,
+      async move(waypoints){this.moves++;Object.assign(this,waypoints.at(-1));return true;}};
+    const scene={id:"port-scene",name:"Paedor",grid:{size:100,units:"mi"},
+      canUserModify:()=>true,
+      getFlag:(_module,key)=>key==="checkpointTransportOffers"?{
+        schemaVersion:1,entries:{port:offers}}:null};
+    const atlas={revision:7,nodes:[{id:"p",x:0,y:0},{id:"g",x:300,y:0}],
+      roads:[{id:"land",name:"Dirwest-Port Barthos"}],
+      segments:[{id:"segment",roadId:"land",from:"p",to:"g",via:[]}],
+      checkpoints:[{id:"port",name:"Port Barthos",nodeId:"p",roadId:"land"}]};
+    const view={ready:true,scene};
+    const route={status:"ok",start:point(0,0),end:point(300,0),
+      distance:6,cost:6,terrainAware:false,legs:[{kind:"road",roadId:"land",
+        segmentId:"segment",points:[point(0,0),point(300,0)],distance:6,cost:6}]};
+    nav=new AtlasNavigationController({canvasProvider:()=>view,
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      atlasPoint:(_view,_atlas,location)=>location,
+      journeyJournalStore:{find:()=>null,save:async record=>{
+        writes.push(structuredClone(record));return {id:"cart-journey"};}}});
+    nav.scene=scene;nav.sourceMode="party";nav.routeRevision=7;
+    nav.start=route.start;nav.end=route.end;nav.result=route;
+    nav.travelMethod="cart";nav.transportArrangement="hire";
+    nav.transportServiceLevel="minimum";
+    nav.render=async()=>{};nav.draw=()=>{};
+    nav.itinerary=createNavigationItinerary({sceneId:scene.id,sceneName:scene.name,
+      sceneUnits:"mi",atlasRevision:7,route,travel:{speed:3}});
+    // Port Barthos is also the arrival after a previously completed hired
+    // ship checkpoint leg. Approving the Cart must append a new land leg to
+    // that Journal, not demand another authored checkpoint at South-East Gate.
+    const priorItinerary=createNavigationItinerary({sceneId:scene.id,
+      sceneName:scene.name,sceneUnits:"mi",atlasRevision:7,route,
+      travel:{speed:2}});
+    priorItinerary.transport={methodId:"ship-passage",methodName:"Ship passage (hired)",
+      kind:"vehicle",arrangement:"hire",surface:"water",
+      departureCheckpointName:"Hearth's Heart Dock",arrivalCheckpointId:"port",
+      arrivalCheckpointName:"Port Barthos",roadNames:["Coastal Passage"],
+      estimatedFareCp:500,operation:"continuous"};
+    const previousRecord=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:7,itinerary:priorItinerary});
+    previousRecord.status="paused";
+    previousRecord.legs[0].completedPercent=100;
+    previousRecord.legs[0].completedMovingHours=previousRecord.legs[0].movingHours;
+    nav.recoveryRecord=previousRecord;
+    nav.recoveryJournal={id:"prior-voyage"};
+    assert.equal(nav.transportAvailability().owned.has("cart"),false);
+    assert.equal(nav.transportAvailability().offers.get("cart").checkpointId,"port");
+    assert.equal(nav.assessTravelMethod().guided,true,
+      "a checkpoint-offered Cart is eligible even without a party-owned Cart");
+    assert.equal(nav.transportOperation,"normal",
+      "the unapproved default contains no separate continuous choice");
+    assert.equal(nav.resolveTravelRules({methodId:"cart"}).dailyHours,8,
+      "explicit minimum service must not be silently promoted to continuous");
+    assert.equal(await nav.startGuidedTravel(),false,
+      "declining the explicit GM hire leaves the Journey unchanged");
+    assert.equal(token.moves,0);assert.equal(writes.length,0);
+    approve=true;
+    assert.equal(await nav.startGuidedTravel(),true);
+    assert.ok(token.moves>0,"a native TokenDocument move completes the Cart journey");
+    assert.deepEqual(dialogTitles,["Confirm land travel","Confirm land travel"]);
+    assert.equal(writes.at(-1).status,"completed");
+    assert.equal(writes.at(-1).legs.length,2);
+    assert.deepEqual(writes.at(-1).legs[1].approvedPath.legs.map(leg=>({
+      roadId:leg.roadId,segmentId:leg.segmentId})),[
+      {roadId:"land",segmentId:"segment"}],
+    "every newly approved continuation leg persists its exact Road identity");
+    assert.equal(writes.at(-1).legs[0].transport.methodId,"ship-passage");
+    const approved=writes.at(-1).legs[1].travelMethod;
+    assert.equal(approved.operation,"normal");
+    assert.equal(approved.serviceApproval.serviceLevel,"minimum");
+    assert.equal(approved.serviceApproval.totalCp,123);
+    assert.equal(approved.serviceApproval.dailyHours,8);
+    assert.equal(approved.serviceApproval.hireTerms.hireCostCp,123);
+    assert.equal(offers[0].overrides.hireCostCp,250);
+    assert.equal(writes.at(-1).legs[1].speedPerHour,3);
+    assert.equal(writes.at(-1).legs[1].worldTravelSeconds,0,
+      "without the World-clock setting the Cart cannot advance time");
+    assert.equal(nav.completedRoute,true);
+    assert.equal(scene.setFlag,undefined,"no Scene offer is written or charged");
+    // Another World/custom method is not licensed merely because the road is land.
+    nav.recoveryRecord=null;nav.completedRoute=false;nav.transportArrangement="hire";
+    offers=[];
+    assert.equal(nav.assessTravelMethod().guided,false);
+    assert.match(nav.assessTravelMethod().reason,/no longer offered/);
+  }finally{nav?.stop();Object.assign(globalThis,previous);}
+});
