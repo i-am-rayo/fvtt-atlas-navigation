@@ -76,6 +76,9 @@ export function journeyLegFromItinerary(itinerary){
       ...itinerary.travel,id:itinerary.travel.methodId,
       name:itinerary.travel.methodName??itinerary.travel.methodId})))
     throw Error("Invalid approved owned land service.");
+  const convoy=itinerary.convoy?validateApprovedConvoy(itinerary.convoy):null;
+  if(convoy?.methods?.some(m=>m.ownedApproval)&&!itinerary.participation)
+    throw Error("An approved owned convoy requires its traveler manifest.");
   return {
     sceneName:String(itinerary.scene?.name??"Scene"),
     departure:point(itinerary.endpoints.departure),
@@ -93,9 +96,9 @@ export function journeyLegFromItinerary(itinerary){
     completedMovingHours:0,completedPercent:0,events:[],
     worldTravelSeconds:0,worldRestSeconds:0,
     ...(itinerary.participation?{participation:validateJourneyParticipation(itinerary.participation,{
-      ownedApproval:itinerary.transport?.ownedApproval??landOwned})}:{}),
+      ownedApproval:itinerary.transport?.ownedApproval??landOwned,convoy})}:{}),
     ...(itinerary.livestock?{livestock:validateJourneyLivestock(itinerary.livestock)}:{}),
-    ...(itinerary.convoy?{convoy:validateApprovedConvoy(itinerary.convoy)}:{}),
+    ...(convoy?{convoy}:{}),
     ...(itinerary.transport?{transport:validateTransportJourneyInfo(itinerary.transport)}
       :itinerary.travel?.methodId&&
         (itinerary.travel.methodId!=="walking"||itinerary.convoy)?
@@ -225,8 +228,21 @@ export function validateJourneyRecord(value){
           throw Error("Invalid approved owned service continuation.");
       }
     }
+    const priorMixed=value.legs[index-1];
+    if(priorMixed?.convoy?.methods?.some(m=>m.ownedApproval)&&priorMixed.completedPercent<99.999&&
+        (JSON.stringify(priorMixed.convoy)!==JSON.stringify(leg.convoy)||
+          JSON.stringify(priorMixed.participation)!==JSON.stringify(leg.participation)||
+          priorMixed.destination.x!==leg.destination.x||priorMixed.destination.y!==leg.destination.y||
+          priorMixed.terrainAware!==leg.terrainAware||
+          Boolean(priorMixed.transport)!==Boolean(leg.transport)||
+          priorMixed.transport?.arrivalCheckpointId!==leg.transport?.arrivalCheckpointId))
+      throw Error("Invalid approved owned convoy continuation.");
     if(leg.convoy!==undefined){
       const convoy=validateApprovedConvoy(leg.convoy);
+      if(convoy.methods?.some(m=>m.ownedApproval)){
+        if(!leg.participation)throw Error("The approved owned convoy traveler manifest is missing.");
+        validateJourneyParticipation(leg.participation,{convoy});
+      }
       if(Math.abs(convoy.speedPerHour-leg.speedPerHour)>1e-7)
         throw Error("Approved convoy speed differs from the saved journey leg.");
     }
@@ -296,6 +312,11 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
   if(isUnfinishedJourneyLeg(next)&&old?.convoy){
     if(Math.abs(resumed.speedPerHour-old.speedPerHour)>1e-7)
       throw Error("The saved convoy speed must be retained before recovery.");
+    if(old.convoy.methods?.some(m=>m.ownedApproval)&&
+        (JSON.stringify(resumed.convoy)!==JSON.stringify(old.convoy)||
+          old.destination.x!==resumed.destination.x||old.destination.y!==resumed.destination.y||
+          old.terrainAware!==resumed.terrainAware))
+      throw Error("Recovery cannot change the approved owned convoy.");
     resumed.convoy=validateApprovedConvoy(old.convoy);
     if(isMixedLandTransport(old.transport)){
       if(!isMixedLandTransport(resumed.transport)||
@@ -456,7 +477,14 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
           const tier=service?" · "+service.serviceLevel+" service · "+service.advertisedCrew+
             " advertised crew per unit · supports "+service.advertisedDailyHours+
             "h/day; shared "+service.dailyHours+"h/day":"";
-          return label+tier+(cost&&!repeatMixed?" · "+cost.label:"");
+          const owned=m.ownedApproval;
+          const staffing=owned?" · "+owned.passengerSeats+"/"+owned.passengerCapacity+
+            " passenger seats · shared "+owned.dailyHours+"h/day · "+
+            owned.units.map(u=>u.name+" — Unit "+u.unitIndex+": "+
+              (u.configured?u.staffedCrew+"/"+u.requiredCrew+" crew":"Roster unconfigured")+
+              " · "+u.paidCrew+" paid"+(u.namedCrew.length?" · "+u.namedCrew.map(c=>c.name).join(", "):"")).join("; ")+
+            (owned.belowMinimum?" · Below-minimum staffing acknowledged":""):"";
+          return label+tier+staffing+(cost&&!repeatMixed?" · "+cost.label:"");
         }),
         (repeatMixed?"Continuing previously approved mixed service; no new fare.":
           !tiered&&isMixedLandTransport(leg.transport)&&leg.transport.continuation?

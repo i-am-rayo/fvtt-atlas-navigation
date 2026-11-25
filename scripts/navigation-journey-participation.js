@@ -23,6 +23,18 @@ function ownedCrewMembers(roster,approval){
   return members;
 }
 
+function mixedOwnedApprovals(convoy){
+  return (convoy?.schemaVersion===2?convoy.methods:[]).filter(m=>m.ownedApproval!==undefined)
+    .map(m=>validateConfirmedOwnedVehicleApproval(m.ownedApproval));
+}
+function assertMixedParticipation(manifest,convoy){
+  if(!mixedOwnedApprovals(convoy).length)return;
+  const traveling=manifest.people.filter(p=>p.traveling);
+  if(traveling.length!==convoy.travelers.length||traveling.some(p=>
+      !convoy.travelers.some(t=>t.actorId===p.actorId&&t.methodKey===p.methodKey&&t.seatsNeeded===p.seats)))
+    throw Error("The owned convoy crew, method or passenger seats differ from the approved manifest.");
+}
+
 function assertOwnedParticipation(manifest,approval){
   const traveling=manifest.people.filter(person=>person.traveling);
   if(traveling.some(person=>person.methodKey!=="owned|"+approval.methodId)||
@@ -34,11 +46,16 @@ function assertOwnedParticipation(manifest,approval){
 
 /** Treat the complete live native Group roster as the source of membership. */
 export function createJourneyParticipation(roster,selectedIds,{methodKey,assignments={},
-  checkpointId=null,ownedApproval}={}){
+  checkpointId=null,ownedApproval,convoy}={}){
   const approval=ownedApproval===undefined?null:validateConfirmedOwnedVehicleApproval(ownedApproval);
   if(approval&&methodKey!=="owned|"+approval.methodId)
     throw Error("The owned vehicle approval differs from the selected method.");
   const crew=approval?ownedCrewMembers(roster,approval):new Map();
+  const mixed=mixedOwnedApprovals(convoy);
+  for(const a of mixed)for(const [actorId,member] of ownedCrewMembers(roster,a)){
+    if(crew.has(actorId))throw Error("Named crew cannot be assigned twice.");
+    crew.set(actorId,member);
+  }
   const members=partyTravelerRoster(roster);
   if((!members.length&&!crew.size)||members.length>150||new Set(members.map(m=>m.id)).size!==members.length)
     throw Error("Cannot approve a Journey without a valid unique Group roster.");
@@ -67,11 +84,12 @@ export function createJourneyParticipation(roster,selectedIds,{methodKey,assignm
   }));
   const manifest=validateJourneyParticipation({schemaVersion:1,checkpointId,people});
   if(approval)assertOwnedParticipation(manifest,approval);
+  assertMixedParticipation(manifest,convoy);
   return manifest;
 }
 
 /** Existing Journeys without participation metadata remain readable unchanged. */
-export function validateJourneyParticipation(value,{ownedApproval}={}){
+export function validateJourneyParticipation(value,{ownedApproval,convoy}={}){
   if(!value||value.schemaVersion!==1||
     value.checkpointId!==null&&value.checkpointId!==undefined&&!id(value.checkpointId)||
     !Array.isArray(value.people)||!value.people.length||value.people.length>150)
@@ -90,6 +108,7 @@ export function validateJourneyParticipation(value,{ownedApproval}={}){
   if(!selected)throw Error("A Journey leg must include at least one traveler.");
   if(ownedApproval!==undefined)
     assertOwnedParticipation(value,validateConfirmedOwnedVehicleApproval(ownedApproval));
+  assertMixedParticipation(value,convoy);
   return structuredClone(value);
 }
 
@@ -100,9 +119,11 @@ export function priorJourneySelection(record,liveRoster){
   const owned=leg?.transport?.ownedApproval??leg?.travelMethod?.ownedApproval;
   const approval=owned===undefined?null:validateConfirmedOwnedVehicleApproval(owned);
   const unfinished=Number.isFinite(leg?.completedPercent)&&leg.completedPercent<99.999;
-  if(approval&&unfinished){
+  const mixed=mixedOwnedApprovals(leg?.convoy);
+  const approvals=approval?[approval]:mixed;
+  if(approvals.length&&unfinished){
     if(!prior)throw Error("The approved owned vehicle traveler manifest is unavailable.");
-    if(approval.units.some(unit=>!liveRoster?.members?.some(member=>
+    if(approvals.flatMap(a=>a.units).some(unit=>!liveRoster?.members?.some(member=>
         member.actorId===unit.actorId&&member.role==="vehicle"&&
         member.enabled!==false&&member.quantity>=unit.unitIndex)))
       throw Error("The approved owned operating units are no longer available. Preserve the saved Journey for review.");
@@ -110,8 +131,9 @@ export function priorJourneySelection(record,liveRoster){
   if(!prior)return null;
   const approved=validateJourneyParticipation(prior);
   const live=new Set(partyTravelerRoster(liveRoster).map(m=>m.id));
-  const crew=approval?ownedCrewMembers(liveRoster,approval):new Map();
+  const crew=new Map(approvals.flatMap(a=>[...ownedCrewMembers(liveRoster,a)]));
   if(approval)assertOwnedParticipation(approved,approval);
+  assertMixedParticipation(approved,leg?.convoy);
   if(approved.people.some(person=>!live.has(person.actorId)&&!crew.has(person.actorId)))
     throw Error("The Group roster changed since the approved Journey. Review the saved manifest.");
   // The next draft uses passenger IDs only; named non-passengers join via its own operated units.

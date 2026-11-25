@@ -36,7 +36,7 @@ export function prepareGuidedTransportLeg(route,leg){
   if(mixed&&(leg.surface!=="land"||leg.selectedOption.arrangement!=="mixed"||
       leg.selectedOption.method.id!=="mixed-land"||!leg.convoy||leg.operation!=="normal"))
     throw Error("A checkpoint-bound mixed convoy must be an approved land plan.");
-  const convoy=mixed?validateMixedLandConvoy(leg.convoy):null;
+  const convoy=mixed?validateMixedLandConvoy(leg.convoy,{draft:!leg.recovered}):null;
   const walking=mixed?convoy.methods.some(method=>method.role==="walking"):
     leg.selectedOption.method?.id==="walking";
   const terrainAware=walking&&leg.surface==="land"&&Boolean(route.terrainAware)&&

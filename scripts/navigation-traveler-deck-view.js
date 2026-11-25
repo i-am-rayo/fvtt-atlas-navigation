@@ -50,16 +50,16 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
         "padding:.4rem .45rem;border-radius:5px;"+
         "border:1px solid var(--color-border-light-tertiary,#555);"+
         "background:var(--color-bg-option,#23212b);min-width:0;");
-      pill.draggable=!disabled;
-      pill.setAttribute?.("aria-label",t.name+", draggable traveler");
+      pill.draggable=!disabled&&!t.fixed;
+      pill.setAttribute?.("aria-label",t.name+(t.fixed?", crew assigned to operating unit":", draggable traveler"));
       pill.addEventListener("dragstart",event=>{
-        if(disabled){event.preventDefault();return;}
+        if(disabled||t.fixed){event.preventDefault();return;}
         event.dataTransfer?.setData("text/plain",t.id);
         if(event.dataTransfer)event.dataTransfer.effectAllowed="move";
       });
-      const name=css(el("span",t.name),"flex:1;min-width:0;overflow-wrap:anywhere;font-size:.83em;");
+      const name=css(el("span",t.name+(t.crew?" · Crew · "+t.crew:"")),"flex:1;min-width:0;overflow-wrap:anywhere;font-size:.83em;");
       const move=el("button","↔");
-      move.type="button";move.disabled=disabled;
+      move.type="button";move.disabled=disabled||Boolean(t.fixed);
       move.title="Move "+t.name;
       move.setAttribute?.("aria-label","Move "+t.name+" to a travel method");
       move.style.cssText="min-width:1.6rem;padding:.1rem .25rem;";
@@ -70,7 +70,7 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
       }
       const stay=el("option","Not traveling");stay.value="";chooser.append(stay);
       chooser.value=selected.has(t.id)?assignments[t.id]??keys[0]:"";
-      chooser.disabled=disabled;
+      chooser.disabled=disabled||Boolean(t.fixed);
       chooser.addEventListener("change",()=>{
         chooser.hidden=true;
         if(chooser.value)onAssign?.(t.id,chooser.value);
@@ -132,7 +132,7 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
       column.addEventListener("drop",event=>{
         event.preventDefault();
         const t=event.dataTransfer?.getData("text/plain");
-        if(!disabled&&names.has(t))onAssign?.(t,method.key);
+        if(!disabled&&names.has(t)&&!names.get(t).fixed)onAssign?.(t,method.key);
       });
       column.append(landing);board.append(column);
     }
@@ -159,7 +159,7 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
     stay.addEventListener("drop",event=>{
       event.preventDefault();
       const id=event.dataTransfer?.getData("text/plain");
-      if(!disabled&&names.has(id)&&selected.has(id))onInclude?.(id,false);
+      if(!disabled&&names.has(id)&&!names.get(id).fixed&&selected.has(id))onInclude?.(id,false);
     });
     stay.append(waitingLanding);board.append(stay);
     root.append(board);
