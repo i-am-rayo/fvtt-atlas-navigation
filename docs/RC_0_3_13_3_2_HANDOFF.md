@@ -47,7 +47,7 @@ The Product Owner reported four Pass and two Partial results from the [RC.3.2 te
 
 ## Next gate
 
-Resume with test B at Save and reopen, then the missing-preset case. Finish the remaining test E entry points and cancellation cases. Playback, checkpoint continuation, recovery, the finished Journal and separate player permissions still need live verification. Keep #528 and #537 in their separate scope. Overall RC.3.2 acceptance remains open and merge, tag or release requires PO approval.
+Resume test B at the missing-preset case using a disposable orphaned offer. Cart Save and reopen and the remaining test E steps passed in the follow-up below. Playback, checkpoint continuation, recovery, the finished Journal and separate player permissions still need live verification. Keep #528 and #537 in their separate scope. Overall RC.3.2 acceptance remains open and merge, tag or release requires PO approval.
 
 ## Follow-up live GM retest — 2026-11-25 (JST)
 
@@ -73,3 +73,9 @@ Resume with test B at Save and reopen, then the missing-preset case. Finish the 
 Screenshot evidence captured in the live test session: reopened Cart offer showing **4 available / 3 required**, and toolbar Road Settings showing **Road name** focused with the Foundry 370 and D&D 5e 6.1.1 badges. The captures include surrounding Sandbox map content and were kept in the test session. The browser error log showed no entries when checked at the end.
 
 Sandbox started at 47 roads and 39 markers. The two named test roads and one independent Cart QA marker were intentionally saved and left identifiable for follow-up. The saved marker count reached 40 and the road count reached 49. The toolbar screenshot also shows a duplicated travel preset value and missing spacing between the authored-distance label and value.
+
+## Road Settings follow-up
+
+The preset row shows the selector when choosing a preset and a single summary when a valid preset is collapsed. The missing-preset warning remains visible when a saved selection is unavailable. The authored-distance row now uses the same wrapping and spacing as the preset row. Verify both display corrections in Foundry during the next Sandbox check.
+
+The existing Checkpoint Transportation test covers the missing World preset warning and disabled Edit action without writes. B4 still needs an orphaned offer in a disposable live fixture. E remains Pass for the tested save and cancellation workflows.
