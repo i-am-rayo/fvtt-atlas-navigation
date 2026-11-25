@@ -617,6 +617,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
    */
   renderTravelersAndPace(party,availability,{disabled=false,mixedFare=null,
     singleChoice=null,transferColumns=false,mountBoard=null,ownedLeg=null}={}){
+    // DOM disabled state is a snapshot; check live authority and lifecycle
+    // again for callbacks from a previous render.
+    const canEdit=()=>!disabled&&Boolean(game.user?.isGM)&&
+      this.canDraftTravelMethods()&&!this.suspendedNativeSession;
+    disabled=!canEdit();
     const root=el("div");
     root.style.cssText="display:grid;gap:.6rem;padding-top:.45rem;";
     const all=partyTravelerRoster(party.previewRoster);
@@ -727,7 +732,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           method.hireQuantity:null:null};
     });
     const setIncluded=(id,include)=>{
-      if(disabled||!game.user?.isGM||!passengerIds.has(id)||
+      if(!canEdit()||!passengerIds.has(id)||
           !include&&crewMethods.has(id))return;
       const next=new Set(party.selectedIds);
       if(include)next.add(id);else next.delete(id);
@@ -746,13 +751,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       units:this.mixedUnits,disabled,previewOnly:party.partial,
       transferColumns,mountBoard,onInclude:setIncluded,
       onAssign:(id,key)=>{
-        if(disabled||!game.user?.isGM||crewMethods.has(id)&&crewMethods.get(id)!==key||
+        if(!canEdit()||!passengerIds.has(id)||crewMethods.has(id)&&crewMethods.get(id)!==key||
             !descriptions.some(m=>m.key===key))return;
         this.mixedAssignments={...this.mixedAssignments,[id]:key};
         if(!picked.has(id))setIncluded(id,true);
         else {this.convoyPace=null;void this.render(true);}
       },
       onUnits:(key,count)=>{
+        if(!canEdit())return;
         const method=descriptions.find(m=>m.key===key);
         if(!method||method.arrangement!=="hire"||
             !Number.isInteger(count)||count<1||count>100||
@@ -776,6 +782,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         methods:speeds,selected,unit:speedUnit(showSpeed(walkingSpeed).unit),
         maxSpeed:showSpeed(slowestVehicle).value,disabled,
         onPace:value=>{
+          if(!canEdit())return;
           this.convoyPace=value===null?null:atlasSceneSpeedFromDisplay(
             value,sceneUnits,game.settings,game.system?.id,slowestVehicle);
           void this.render(true);
