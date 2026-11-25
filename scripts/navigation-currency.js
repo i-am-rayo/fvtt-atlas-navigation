@@ -94,3 +94,11 @@ export function mixedTransportFareBreakdown(methods,currencyConfig){
   return {rows,total:dndCurrencyBreakdown(
     rows.reduce((sum,row)=>sum+row.payableCopper,0),currencyConfig)};
 }
+
+/** Adapt legacy cargo-only hires to the same display-only rounding contract. */
+export function walkingCargoFareBreakdown(hires,currencyConfig){
+  return mixedTransportFareBreakdown(hires.map(h=>({
+    key:h.methodId,methodName:h.methodName,role:"cargo",units:h.units,
+    passengers:0,estimatedCostCp:h.estimatedCostCp
+  })),currencyConfig);
+}
