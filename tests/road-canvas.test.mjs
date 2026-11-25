@@ -2133,3 +2133,33 @@ test("GM opt-in Road hover adds native Territory below Road name, never on playe
     assert.equal(m.controller.labels.some(item=>item.text==="Dirwest, Valecor"),false);
   }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
 });
+
+test("declining either linked or standalone Map Marker form exits placement and never writes",async()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+  const m=setup();
+  try{
+    globalThis.game={user:{isGM:true},i18n:{localize:key=>key}};
+    globalThis.PIXI={Graphics:m.Graphics};
+    let seq=0;
+    const atlas=addRoad(createEmptyAtlas(),{name:"Road",points:[{x:0,y:0},{x:100,y:0}],
+      idFactory:()=>"initial"+ ++seq});
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",atlas);
+    let writes=0,changes=0,prompts=0;
+    const original=m.scene.setFlag;
+    m.scene.setFlag=async(...args)=>{writes++;return original(...args);};
+    m.controller.promptCheckpoint=async()=>{prompts++;return null;};
+    for(const [x,y] of [[80,85],[30,15]]){
+      m.controller.startCheckpoint(m.scene,()=>{changes++;},{
+        confirmIndependent:async()=>{prompts++;return null;},
+        saveIndependent:async()=>{throw Error("Cancelled draft cannot save");}});
+      await m.listeners.get("pointerdown")(pointEvent(x,y));
+      assert.equal(m.controller.getDraft(m.scene),null,"discard closes the single placement session");
+      assert.equal(m.listeners.has("pointerdown"),false);
+      assert.equal(m.docListeners.has("keydown"),false);
+    }
+    assert.equal(prompts,2);
+    assert.equal(changes,4,"one begin and one end per session");
+    assert.equal(writes,0);
+    assert.deepEqual(readAtlas(m.scene),atlas);
+  }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
+});

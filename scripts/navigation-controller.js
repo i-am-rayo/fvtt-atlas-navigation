@@ -875,7 +875,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       })),
       fareRows:proposed.methods.flatMap(m=>describeTransportationFareRows(
         m.ownedApproval??m.serviceApproval,{owned:Boolean(m.ownedApproval),methodName:m.methodName,
-          currencyConfig:globalThis.CONFIG?.DND5E?.currencies})),
+          formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies})),
       metrics:[
         ["Total travelers",String(proposed.methods.reduce((n,m)=>n+m.passengers,0))],
         ["Group travel speed",shown.value.toFixed(2)+" "+units],
@@ -3476,7 +3476,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               formatNavigationDuration(reviewedOwned.movingHours,24)],
             ["Estimated transportation cost",cost]],
           fareRows:historicalOwned?[]:describeTransportationFareRows(reviewedOwned,{owned:true,livestock:manifest,
-            currencyConfig:globalThis.CONFIG?.DND5E?.currencies}),
+            formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies}),
           notes:[absent.length?"Not traveling: "+absent.join(", "):null,
             ...reviewedOwned.units.map(describeOwnedUnitStaffing),
             "Passenger seats: "+reviewedOwned.passengerSeats+" / "+reviewedOwned.passengerCapacity+
@@ -3521,7 +3521,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             [prior?"Estimated remaining moving time":"Estimated moving time",formatNavigationDuration(hours,24)],
             ["Estimated transportation cost",cost]],
           fareRows:describeTransportationFareRows(quote,{owned:this.transportArrangement==="owned",
-            currencyConfig:globalThis.CONFIG?.DND5E?.currencies}),
+            formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies}),
           notes:[
             "Operating schedule: "+selectedOperation+" · "+(rules.dailyHours??24)+"h/day",
             approvedLandService?"Hired service: "+approvedLandService.serviceLevel+" · "+
@@ -3762,7 +3762,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         destination:"Current leg to "+guidedLeg.checkpoint.name,
         overview:describeOwnedApprovalOverview(traveling.length,ownedService,displayLivestock),
         fareRows:quote?describeTransportationFareRows(quote,{owned:info.arrangement==="owned",livestock:displayLivestock,
-          currencyConfig:globalThis.CONFIG?.DND5E?.currencies}):
+          formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies}):
           !continuing&&mountDetails&&Number.isFinite(info.estimatedFareCp)?[
             ["Transport excluding mounts",formatExactTransportationFare(Math.max(0,info.estimatedFareCp-mountFare),globalThis.CONFIG?.DND5E?.currencies)],
             ["Physical mount boarding",formatExactTransportationFare(mountFare,globalThis.CONFIG?.DND5E?.currencies)]
@@ -5935,7 +5935,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               breakdown:[
                 ...(!ordinaryOwned?.ownedDraft?[describeJourneyCrewEstimate(quote)].filter(Boolean):[]),
                 ...describeTransportationFareRows(quote,{owned:quote.arrangement==="owned",livestock:ordinaryOwned?.livestock,
-                  currencyConfig:globalThis.CONFIG?.DND5E?.currencies})
+                  formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies})
                   .map(([label,value])=>label+": "+value),
                 ...(mountDetails?[mountDetails]:[]),
                 "Fare components are before rounding; the total is rounded once."
@@ -6084,7 +6084,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             breakdown:[
               ...(!leg.ownedDraft?[describeJourneyCrewEstimate(fare)].filter(Boolean):[]),
               ...describeTransportationFareRows(fare,{owned:fare.arrangement==="owned",livestock:leg.livestock,
-                currencyConfig:globalThis.CONFIG?.DND5E?.currencies})
+                formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies})
                 .map(([label,value])=>label+": "+value),
               ...(mountDetails?[mountDetails]:[]),
               "Fare components are before rounding; the total is rounded once."

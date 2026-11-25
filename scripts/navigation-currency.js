@@ -115,7 +115,7 @@ export function formatExactTransportationFare(copper,currencyConfig){
   }
   return copper+" CP";
 }
-export function describeTransportationFareRows(quote,{owned=false,methodName=null,livestock=null,currencyConfig}={}){
+export function describeTransportationFareRows(quote,{owned=false,methodName=null,livestock=null,currencyConfig,formatCoins=false}={}){
   if(!quote)return [];
   const rows=[
     [owned?"Vehicle upkeep":"Base transportation",quote.baseCp],
@@ -129,5 +129,5 @@ export function describeTransportationFareRows(quote,{owned=false,methodName=nul
     ...(quote.adjustmentCp?[["Fare adjustment",quote.adjustmentCp]]:[])
   ];
   return rows.filter(([,amount])=>Number.isFinite(amount)).map(([label,amount])=>
-    [methodName?methodName+" — "+label:label,formatExactTransportationFare(amount,currencyConfig)]);
+    [methodName?methodName+" — "+label:label,formatCoins?formatExactTransportationFare(amount,currencyConfig):amount+" CP"]);
 }

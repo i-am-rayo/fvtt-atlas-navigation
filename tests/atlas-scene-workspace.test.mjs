@@ -12,7 +12,7 @@ class MockApplicationV2 {
 }
 globalThis.foundry = { applications: { api: { ApplicationV2: MockApplicationV2 } } };
 const { AtlasSceneWorkspace, openAtlasSceneWorkspace, refreshAtlasSceneWorkspace,
-  restoreAtlasSceneWorkspace, minimizeAtlasSceneWorkspace } =
+  restoreAtlasSceneWorkspace, minimizeAtlasSceneWorkspace,captureAtlasWorkspaceFocus } =
   await import("../scripts/atlas-scene-workspace.js");
 
 class Element {
@@ -1139,5 +1139,34 @@ test("Directory retains the focused record action across refresh and clears only
     assert.ok(row("road"));assert.equal(search().focused,true);
     assert.deepEqual(ctx.calls,[]);
     await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("canvas authoring restores the originating Workspace control by stable key, never reopens closed windows",async()=>{
+  const ctx=context();
+  try{
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    const original=buttons(ws.result).find(b=>b.textContent==="Add Map Marker");
+    assert.equal(original.dataset.atlasWorkspaceFocus,"create:beginCheckpoint");
+    ws.element=ws.result;
+    ws.element.contains=node=>walk(ws.result,e=>e===node).length>0;
+    ws.element.querySelectorAll=()=>walk(ws.result,e=>Boolean(e.dataset?.atlasWorkspaceFocus));
+    document.activeElement=original;
+    const restore=captureAtlasWorkspaceFocus(ctx.scene);
+    await ws.minimize();
+    restore();
+    assert.equal(original.focused,undefined,"do not focus a minimized Workspace");
+    await ws.maximize();
+    await ws.render(true);
+    const replacement=buttons(ws.result).find(b=>b.textContent==="Add Map Marker");
+    ws.element=ws.result;
+    ws.element.querySelectorAll=()=>walk(ws.result,e=>Boolean(e.dataset?.atlasWorkspaceFocus));
+    restore();
+    assert.equal(replacement.focused,true,"return focus to the replaced initiating control");
+    assert.equal(ws.activeSection,"directory");
+    await ws.close();
+    replacement.focused=false;restore();
+    assert.equal(replacement.focused,false,"closed Workspace is not revived");
   }finally{ctx.restore();}
 });
