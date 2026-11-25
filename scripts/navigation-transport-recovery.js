@@ -8,6 +8,7 @@ import {assessApprovedJourneyRecovery,MAX_APPROVED_ROUTE_MARGIN_CELLS}
 import {isMixedLandTransport,mixedLandTransportMethod} from "./navigation-transport-journal.js";
 import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 import {validateHiredServiceApproval} from "./navigation-transport-service.js";
+import {validateConfirmedOwnedVehicleApproval} from "./navigation-group-transport.js";
 const near=(a,b,tolerance=.01)=>Number.isFinite(a?.x)&&Number.isFinite(a?.y)&&
   Number.isFinite(b?.x)&&Number.isFinite(b?.y)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
@@ -120,6 +121,11 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
   const approvedService=t.serviceApproval===undefined?null:validateHiredServiceApproval(t.serviceApproval);
   if(approvedService&&(t.arrangement!=="hire"||t.operation!==approvedService.operation))
     throw Error("The saved service approval differs from the voyage.");
+  const ownedApproval=t.ownedApproval===undefined?null:validateConfirmedOwnedVehicleApproval(t.ownedApproval);
+  if(ownedApproval&&(approvedService||t.arrangement!=="owned"||t.kind!=="vehicle"||
+      t.methodId!==ownedApproval.methodId||t.surface!==ownedApproval.surface||
+      t.operation!==ownedApproval.operation))
+    throw Error("The saved owned approval differs from the voyage.");
   if(route?.status==="ok")checkConfirmedRemainingDistance(route,record,prior,context);
   const verifiedProjection=approvedTerminalAttachment(route,projected,prior,context)??projected;
   // Preserve the same strict guard, but report which requirement failed so a
@@ -170,7 +176,7 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
     method:{...method,name:t.methodName,
       ...(operation==="continuous"?{continuousEnabled:true}:{}),
       ...(operation==="overtime"?{overtimeEnabled:true,
-        ...(approvedService?{overtimeExtraHours:approvedService.dailyHours-8}:{})}:{})},
+        ...((approvedService??ownedApproval)?{overtimeExtraHours:(approvedService??ownedApproval).dailyHours-8}:{})}:{})},
     arrangement:t.arrangement,recovered:true
   };
   const leg={...verifiedProjection.legs[0],options:[option],selectedOption:option,
@@ -178,12 +184,14 @@ export function restoreApprovedTransportPlan(route,projected,record,catalog,
     operation,recovered:true,
     ...(approvedService?{approvedService,dailyHours:approvedService.dailyHours,
       overnightHours:approvedService.overnightHours}:{}),
+    ...(ownedApproval?{ownedApproval,dailyHours:ownedApproval.dailyHours,
+      overnightHours:ownedApproval.overnightHours}:{}),
     ...(mixed?{convoy,terrainAware:prior.terrainAware,
       ...(convoy.sharedDailyHours!==undefined?{dailyHours:convoy.sharedDailyHours,
         overnightHours:24-convoy.sharedDailyHours}:{})}:{}),
     narration:["Continuing the previously approved "+t.methodName+" voyage toward "+
       t.arrivalCheckpointName+". No new booking or payment occurs."]};
-  const dailyHours=approvedService?.dailyHours??convoy?.sharedDailyHours??(operation==="continuous"?24:
+  const dailyHours=approvedService?.dailyHours??ownedApproval?.dailyHours??convoy?.sharedDailyHours??(operation==="continuous"?24:
     operation==="overtime"?8+(method.overtimeExtraHours??8):8);
   return {...verifiedProjection,hasTransitions:true,complete:true,legs:[leg],
     totalHours:hours,totalElapsedHours:hours+
