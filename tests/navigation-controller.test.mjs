@@ -5703,3 +5703,26 @@ for(const scenario of ["mixed","mixed-final","continuous","overtime"])test(
     assert.equal(listeners.size,0);
   }finally{Object.assign(globalThis,previous);}
 });
+
+test("planner replacement restores only the matching enabled keyboard control inside its own content",()=>{
+  const nav=Object.create(AtlasNavigationController.prototype);
+  const key="traveler-move:cass";
+  for(const mode of ["matched","disabled","missing","external","hidden","ambiguous"]){
+    let calls=0;
+    const previous={getAttribute:name=>name==="data-atlas-travel-focus"?key:null};
+    const control={getAttribute:previous.getAttribute,disabled:mode==="disabled",
+      closest:()=>mode==="hidden"?{}:null,
+      focus(options){assert.equal(options.preventScroll,true);calls++;}};
+    const oldDocument=globalThis.document;
+    globalThis.document={activeElement:previous};
+    try{
+      const content={scrollTop:24,contains:node=>mode!=="external"&&node===previous,
+        querySelectorAll:selector=>selector==="[data-atlas-travel-focus]"?
+          mode==="missing"?[]:mode==="ambiguous"?[control,control]:[control]:[],
+        replaceChildren(){this.scrollTop=0;}};
+      nav._replaceHTML({},content);
+      assert.equal(calls,mode==="matched"?1:0,mode);
+      assert.equal(content.scrollTop,24);
+    }finally{globalThis.document=oldDocument;}
+  }
+});

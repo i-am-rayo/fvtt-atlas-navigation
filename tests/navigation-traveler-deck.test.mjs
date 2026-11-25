@@ -25,7 +25,7 @@ const dom=()=>{
     append(...nodes){this.children.push(...nodes);},
     addEventListener(name,callback){this.listeners[name]=callback;},
     setAttribute(name,value){this[name]=value;},
-    focus(){}
+    focus(){globalThis.document.activeElement=this;}
   })};
   return ()=>{globalThis.document=old;};
 };
@@ -222,5 +222,79 @@ test("mount allocations appear within section 3 rather than a separate planner s
     assert.ok(all(view).some(n=>n.textContent==="Riding Horse ×3"));
     assert.ok(all(view).some(n=>n.textContent==="3 · Who goes where?"));
     assert.equal(all(view).filter(n=>n.className==="atlas-journey-livestock").length,1);
+  }finally{restore();}
+});
+
+test("keyboard Move cancels with Escape and returns focus before applying a draft",()=>{
+  const restore=dom();
+  try{
+    const changes=[];
+    const view=renderNavigationTravelRoster({travelers,selectedIds:travelers.map(t=>t.id),
+      methods,assignments:suggestedTravelAssignments(travelers,methods),
+      onAssign:(id,key)=>changes.push([id,key])});
+    const move=all(view).find(n=>n.title==="Move Lucious");
+    const chooser=all(view).find(n=>n["aria-label"]==="Destination method for Lucious");
+    assert.equal(move["aria-expanded"],"false");
+    assert.equal(move["data-atlas-travel-focus"],"traveler-move:luc");
+    move.listeners.click();
+    assert.equal(move["aria-expanded"],"true");
+    assert.equal(document.activeElement,chooser);
+    chooser.value="hire|cart";
+    let stopped=false;
+    chooser.listeners.keydown({key:"Escape",preventDefault(){},stopPropagation(){stopped=true;}});
+    assert.equal(stopped,true);
+    assert.equal(chooser.hidden,true);
+    assert.equal(move["aria-expanded"],"false");
+    assert.equal(document.activeElement,move);
+    assert.equal(chooser.value,"owned|walking");
+    assert.deepEqual(changes,[]);
+    move.listeners.click();
+    chooser.value="hire|cart";chooser.listeners.change();
+    assert.equal(document.activeElement,move);
+    assert.equal(move["aria-expanded"],"false");
+    assert.deepEqual(changes,[["luc","hire|cart"]]);
+  }finally{restore();}
+});
+
+test("locked traveler and pace controls cannot invoke draft callbacks",()=>{
+  const restore=dom();
+  try{
+    const changes=[];
+    const view=renderNavigationTravelRoster({travelers,selectedIds:travelers.map(t=>t.id),
+      methods,assignments:suggestedTravelAssignments(travelers,methods),disabled:true,
+      onAssign:(...args)=>changes.push(args),onInclude:(...args)=>changes.push(args),
+      onUnits:(...args)=>changes.push(args)});
+    const move=all(view).find(n=>n.title==="Move Lucious");
+    const chooser=all(view).find(n=>n["aria-label"]==="Destination method for Lucious");
+    const units=all(view).find(n=>n["aria-label"]==="Units of Cart");
+    move.listeners.click();
+    assert.equal(chooser.hidden,true);
+    chooser.value="hire|cart";chooser.listeners.change();
+    units.value="2";units.listeners.change();
+    const pace=renderNavigationPaceChoice({methods,disabled:true,onPace:v=>changes.push(v)});
+    for(const radio of all(pace).filter(n=>n.type==="radio")){
+      radio.checked=true;radio.listeners.change();
+    }
+    const custom=all(pace).find(n=>n.type==="number");
+    custom.value="3.5";custom.listeners.change();
+    assert.deepEqual(changes,[]);
+  }finally{restore();}
+});
+
+test("fixed crew cannot change method through the keyboard alternative",()=>{
+  const restore=dom();
+  try{
+    const changes=[];
+    const crew=[{...travelers[0],fixed:true,crew:"Cart — Unit 1"}];
+    const view=renderNavigationTravelRoster({travelers:crew,selectedIds:["cass"],
+      methods,assignments:{cass:"hire|cart"},onAssign:(...args)=>changes.push(args),
+      onInclude:(...args)=>changes.push(args)});
+    const move=all(view).find(n=>n.title==="Move Cassian");
+    const chooser=all(view).find(n=>n["aria-label"]==="Destination method for Cassian");
+    assert.equal(move.disabled,true);
+    move.listeners.click();
+    chooser.value="";chooser.listeners.change();
+    assert.equal(chooser.hidden,true);
+    assert.deepEqual(changes,[]);
   }finally{restore();}
 });
