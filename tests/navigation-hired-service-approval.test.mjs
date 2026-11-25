@@ -81,13 +81,16 @@ test("ordinary hired land approval remains historical through interruption and o
 
 test("historical service discounts render as signed estimates, not invalid negative coins",()=>{
   const quote=quoteTransportationService({...ship,id:"cart",surface:"land"},{
-    arrangement:"hire",serviceLevel:"minimum",movingHours:4,distanceMi:10,adjustmentCp:-100});
+    arrangement:"hire",serviceLevel:"minimum",movingHours:4,distanceMi:10,adjustmentCp:-100.25});
   const plan={...itinerary({start:p(0),end:p(10),distance:10}),travel:{
     speedPerHour:2.5,methodId:"cart",methodName:"Cart",arrangement:"hire",
     operation:quote.operation,serviceApproval:quote}};
   const saved=createJourneyRecord({sceneId:"scene",tokenId:"party",atlasRevision:4,itinerary:plan});
   saved.legs[0].completedMovingHours=1;saved.legs[0].completedPercent=25;
-  assert.match(formatJourneyJournalHTML(saved,{systemId:"dnd5e"}),/adjustment -1 GP/);
+  const html=formatJourneyJournalHTML(saved,{systemId:"dnd5e"});
+  assert.match(html,/Fare adjustment: -100\.25 CP/);
+  assert.match(html,/Original estimated total: 24 PP · 9 GP/);
+  assert.equal(saved.legs[0].travelMethod.serviceApproval.adjustmentCp,-100.25);
   const forged=structuredClone(saved);forged.legs[0].travelMethod.serviceContinuation=true;
   assert.throws(()=>validateJourneyRecord(forged),/invalid|continuation/i);
 });
@@ -173,8 +176,8 @@ test("owned checkpoint approval requires acknowledgement, preserves staffing and
 });
 
 test("ordinary owned land approval preserves the exact historical crew, schedule and fare",()=>{
-  const method={...ship,id:"carriage",name:"Carriage",surface:"land",costCp:100,
-    costBasis:"day",costApplies:"unit",includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"};
+  const method={...ship,id:"carriage",name:"Carriage",surface:"land",costCp:100.125,
+    costBasis:"day",costApplies:"unit",includeCrewWages:true,crewWageCpPerDay:200.125,crewWageBasis:"day"};
   const roster={travelers:1,members:[
     {actorId:"pc",actorName:"Driver",actorType:"character",role:"passenger",quantity:1,needsSeat:true,enabled:true},
     {actorId:"cart",actorName:"Carriage",actorType:"vehicle",role:"vehicle",quantity:2,capacity:2,
@@ -202,6 +205,9 @@ test("ordinary owned land approval preserves the exact historical crew, schedule
   const html=formatJourneyJournalHTML(resumed);
   assert.equal((html.match(/Approved owned service:/g)||[]).length,1);
   assert.match(html,/Continuing previously approved owned service; no new fare/);
+  assert.ok(html.includes("Vehicle upkeep: "+approval.baseCp+" CP"));
+  assert.ok(html.includes("Paid crew wages: "+approval.crewWagesCp+" CP"));
+  assert.equal((html.match(/Vehicle upkeep:/g)??[]).length,1);
   for(const edit of [
     q=>delete q.travel.ownedApproval,
     q=>{q.travel.speedPerHour=3;},
