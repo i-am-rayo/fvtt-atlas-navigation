@@ -440,13 +440,13 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         (leg.travelMethod?.ownedContinuation||leg.travelMethod?.serviceContinuation)&&
         leg.travelMethod.id===prior.travelMethod?.id);
     if(!continues)legGroups.push([]);
-    legGroups.at(-1).push(leg);
+    legGroups.at(-1).push({leg,prior});
   }
   const legs=legGroups.map((group,index)=>{
     const label="Leg "+(index+1);
-    const segments=group.map((leg,segmentIndex)=>{
-    const sectionLabel=group.length===1?label:"Segment "+(segmentIndex+1);
-    const heading=group.length===1?"h3":"h4";
+    const segments=group.map(({leg,prior},segmentIndex)=>{
+      const sectionLabel=group.length===1?label:"Segment "+(segmentIndex+1);
+      const heading=group.length===1?"h3":"h4";
       // Render from retained native Scene units; never rewrite historical Journal flags.
       const displayDistance=amount=>{
         const display=atlasDisplayDistance(amount,leg.units,settings,systemId);
@@ -474,7 +474,6 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         systemId==="dnd5e"?globalThis.CONFIG?.DND5E?.currencies:undefined):null;
       const tracksQuote=tiered||cargo;
       const convoyKey=tracksQuote?JSON.stringify(leg.convoy):null;
-      const prior=record.legs[index-1];
       const continuingConvoy=tracksQuote&&prior?.completedPercent<99.999&&
         JSON.stringify(prior.convoy)===convoyKey;
       if(!continuingConvoy)shownConvoy=null;
