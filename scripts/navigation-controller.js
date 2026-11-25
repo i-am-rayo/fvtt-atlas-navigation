@@ -60,7 +60,7 @@ import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure,
   from "./navigation-measure-units.js";
 import { readGroupTransportation,projectGroupTransportation,
   groupMethodCapacityStatus,groupMethodFareEstimate,groupMethodResourceInventory,
-  planOwnedVehicleService,assessGroupCrewRoster }
+  planOwnedVehicleService,assessGroupCrewRoster,validateConfirmedOwnedVehicleApproval }
   from "./navigation-group-transport.js";
 import { dndCurrencyBreakdown,mixedTransportFareBreakdown } from "./navigation-currency.js";
 import { resolveTransportationOperation,draftTransportationOperation,quoteTransportationService,
@@ -2646,6 +2646,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
    * In particular a hired land vehicle may gain continuous capability at the
    * departure Map Marker while its inherited World preset remains standard. */
   resolveCurrentLegRules(travel,guidedOption=null,guidedLeg=null,approvedConvoy=null){
+    if(guidedLeg?.transport?.ownedApproval!==undefined){
+      // The validated historical schedule owns both execution and continuation.
+      // Do not resolve it through mutable World vehicle operating capabilities.
+      const approved=validateConfirmedOwnedVehicleApproval(guidedLeg.transport.ownedApproval);
+      if(approved.methodId!==travel?.methodId||approved.operation!==guidedLeg.transport.operation)
+        throw Error("The owned vehicle approval differs from this leg.");
+      const rules=resolveNavigationTravelRules({settings:game.settings,
+        systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
+      return {...rules,profile:"transport-service",label:"Transport service",
+        dailyHours:approved.operation==="continuous"?null:approved.dailyHours,
+        overnightHours:approved.overnightHours,forcedMarch:"custom"};
+    }
     if(approvedConvoy?.sharedDailyHours!==undefined){
       const rules=this.resolveTravelRules(travel);
       return {...rules,dailyHours:approvedConvoy.sharedDailyHours,overnightHours:24-approvedConvoy.sharedDailyHours};
