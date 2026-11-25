@@ -151,12 +151,33 @@ async function editCrewPolicy({name,resource,method}){
       const source=root?.querySelector('[name="policyMode"]');
       const section=root?.querySelector("[data-atlas-crew-policy-fields]");
       if(!source||!section)return;
-      const sync=()=>update(source,section,section.querySelectorAll("input,select"));
+      const inputs=[...section.querySelectorAll("input,select")];
       if(source.dataset.atlasPolicyWired!=="true"){
         source.dataset.atlasPolicyWired="true";
+        const read=()=>inputs.map(input=>input.type==="checkbox"?input.checked:input.value);
+        const write=values=>inputs.forEach((input,index)=>{
+          if(input.type==="checkbox")input.checked=values[index];
+          else input.value=values[index];
+        });
+        const worldThresholds=resolveCrewThresholds(method);
+        const worldWages=createTransportCurrencyPool("policyWage",method.crewWageCpPerDay??200);
+        const inherited=new Map([...worldWages.element.querySelectorAll("input")]
+          .map(input=>[input.name,input.value]));
+        for(const [key,label] of [["minimum","Minimum"],["optimal","Optimal"],["excellent","Excellent"],["full","Full"]])
+          inherited.set("policy"+label,worldThresholds[key]===null?"":String(worldThresholds[key]));
+        inherited.set("policyBasis",method.crewWageBasis??"day");
+        inherited.set("policyPaid",Boolean(method.includeCrewWages));
+        const world=inputs.map(input=>inherited.get(input.name));
+        let custom=read(),previous=source.value;
+        const sync=()=>{
+          if(previous==="custom"&&source.value==="inherit")custom=read();
+          write(source.value==="inherit"?world:custom);
+          previous=source.value;
+          update(source,section,inputs);
+        };
         source.addEventListener("change",sync);
+        sync();
       }
-      sync();
     }});
   if(!response)return undefined;
   if(response.policyMode==="inherit")return null;
