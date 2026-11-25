@@ -4965,14 +4965,18 @@ test("staffed mixed land convoy completes only its approved checkpoint leg with 
   }finally{Object.assign(globalThis,previous);}
 });
 
-for(const interruptFinal of [false,true])test(interruptFinal?
-  "ordinary staffed mixed final native interval reconciles to terminal arrival without replay":
-  "ordinary staffed mixed native interruption reconciles only verified progress after reload",async()=>{
+for(const scenario of ["mixed","mixed-final","continuous","overtime"])test(
+  scenario==="mixed-final"?"ordinary staffed mixed final native interval reconciles to terminal arrival without replay":
+  scenario==="mixed"?"ordinary staffed mixed native interruption reconciles only verified progress after reload":
+  "ordinary staffed owned "+scenario+" executes the approved schedule across native interruption and reload",async()=>{
+  const mixed=scenario.startsWith("mixed"),interruptFinal=scenario==="mixed-final";
+  const approvalOf=leg=>mixed?leg.convoy:leg.travelMethod.ownedApproval;
   const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document,
     Hooks:globalThis.Hooks};
   try{
     const listeners=new Map(),writes=[];
     let serial=0,advances=0,dialogs=0,moves=0,record=null,failConfirmation=false;
+    const restHolds=[];
     globalThis.Hooks={on(name,fn){listeners.set(name,fn);return fn;},
       off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
     globalThis.foundry={utils:{randomID:()=>"MixedNative"+String(++serial).padStart(5,"0")},
@@ -5006,7 +5010,9 @@ for(const interruptFinal of [false,true])test(interruptFinal?
         moves++;
         const pending=record.pendingNativeMove;
         assert.equal(pending.operationId,options.id);
-        assert.ok(record.legs[0].convoy.methods[1].ownedApproval.belowMinimumAcknowledged);
+        assert.ok((mixed?record.legs[0].convoy.methods[1].ownedApproval:
+          record.legs[0].travelMethod.ownedApproval).belowMinimumAcknowledged);
+        if(!mixed)assert.equal(record.legs.at(-1).travelMethod.operation,scenario);
         assert.equal(pending.nativePath.length,2,"straight bounded interval");
         const partial=moves===1;
         const finalInterrupted=interruptFinal&&!partial&&pending.completedPercent>=99.999;
@@ -5025,7 +5031,7 @@ for(const interruptFinal of [false,true])test(interruptFinal?
     const scene={id:"land-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined,
       tokens:{get:id=>id===token.id?token:null},canUserModify:()=>true};
     const route=(start,end)=>{
-      const distance=(end.x-start.x)*12/300;
+      const distance=(end.x-start.x)*(mixed?12:64)/300;
       return {status:"ok",start,end,distance,cost:distance,terrainAware:false,
         legs:[{kind:"road",roadId:"land",segmentId:"segment",points:[start,end],distance,cost:distance}]};
     };
@@ -5034,6 +5040,7 @@ for(const interruptFinal of [false,true])test(interruptFinal?
       const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
         canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
         routeCalculator:(_v,_s,_a,start,end)=>route(start,end),
+        restHoldFactory:ms=>{restHolds.push(ms);return {finished:Promise.resolve(true),cancel(){}};},
         journeyJournalStore:{find:()=>null,save:async next=>{
           if(failConfirmation&&!next.pendingNativeMove)throw Error("Test confirmation write failure");
           record=structuredClone(next);return journal;
@@ -5045,17 +5052,28 @@ for(const interruptFinal of [false,true])test(interruptFinal?
     const nav=createController();
     nav.start=from;nav.end=to;nav.result=route(from,to);
     nav.syncPartyDeparture=()=>false;
-    nav.travelMethod="walking";nav.transportArrangement="owned";
-    nav.mixedKeys=["owned|walking","owned|cart"];
-    nav.mixedAssignments={pc:"owned|cart",walker:"owned|walking"};
-    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    nav.travelMethod=mixed?"walking":"cart";nav.transportArrangement="owned";
+    if(mixed){
+      nav.mixedKeys=["owned|walking","owned|cart"];
+      nav.mixedAssignments={pc:"owned|cart",walker:"owned|walking"};
+      await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    }else{
+      nav.transportJourneyOverrides=scenario==="continuous"?{continuousEnabled:true}:
+        {overtimeEnabled:true,overtimeExtraHours:4,overtimeMultiplier:1.5};
+      nav.transportOperation=scenario;
+      await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+      const draft=nav.ordinaryOwnedLeg().ownedDraft;
+      assert.equal(draft.movingHours,16);
+      assert.equal(draft.dailyHours,scenario==="continuous"?24:12);
+      assert.equal(draft.billingDayHours,scenario==="continuous"?8:12);
+    }
     const native=JSON.stringify(token.actor);
     assert.equal(await nav.startGuidedTravel(),false);
     assert.equal(moves,1);assert.equal(dialogs,1);assert.equal(advances,0);
     assert.equal(record.status,"interrupted");
     assert.equal(record.legs[0].completedPercent,0);
     const pending=structuredClone(record.pendingNativeMove);
-    const approved=structuredClone(record.legs[0].convoy);
+    const approved=structuredClone(approvalOf(record.legs[0]));
     const manifest=structuredClone(record.legs[0].participation);
     assert.ok(pending.worldAdvanceSeconds>0);
     const retry=createController();
@@ -5086,13 +5104,36 @@ for(const interruptFinal of [false,true])test(interruptFinal?
     assert.ok(Math.abs(record.legs[0].completedPercent-pending.completedPercent/2)<1e-6);
     assert.ok(Math.abs(record.legs[0].completedMovingHours-pending.movingHours/2)<1e-6);
     assert.equal(record.legs[0].worldTravelSeconds,Math.round(pending.worldAdvanceSeconds/2));
-    assert.deepEqual(record.legs[0].convoy,approved);
+    assert.deepEqual(approvalOf(record.legs[0]),approved);
     assert.deepEqual(record.legs[0].participation,manifest);
     assert.deepEqual(record.destination,to);
     assert.deepEqual(reloaded.recoveryRecord,record);
     assert.equal(reloaded.assessTravelMethod().guided,true);
     const originalLeg=structuredClone(record.legs[0]);
-    assert.equal(await reloaded.startGuidedTravel(),!interruptFinal);
+    if(scenario==="overtime"){
+      // At the retained 12-hour travel-day boundary, explicit GM approval
+      // alone may add the 12-hour overnight break before the next move.
+      const running=reloaded.startGuidedTravel();
+      let settled=false;
+      void running.then(()=>{settled=true;},()=>{settled=true;});
+      try{
+        for(let i=0;i<2000&&!settled&&reloaded.travelSession?.phase!=="rest-choice";i++)
+          await Promise.resolve();
+        if(settled)await running;
+        assert.equal(reloaded.travelSession?.phase,"rest-choice");
+        assert.equal(reloaded.travelSession.schedule.rules.dailyHours,12);
+        assert.ok(Math.abs(reloaded.travelSession.schedule.todayHours-12)<1e-6);
+        assert.ok(Math.abs(game.time.worldTime-1000-12*3600)<=1);
+        const atRest=structuredClone(record),position=point(token.x,token.y),moveCount=moves;
+        assert.equal(reloaded.chooseDailyTravelBreak("overnight"),true);
+        assert.deepEqual(record,atRest);
+        assert.deepEqual(point(token.x,token.y),position);
+        assert.equal(moves,moveCount);
+        assert.equal(await running,true);
+      }finally{
+        if(!settled){reloaded.stopGuidedTravel();await running.catch(()=>{});}
+      }
+    }else assert.equal(await reloaded.startGuidedTravel(),!interruptFinal);
     if(interruptFinal){
       assert.equal(record.status,"interrupted");
       assert.ok(record.pendingNativeMove?.completedPercent>=99.999);
@@ -5145,27 +5186,35 @@ for(const interruptFinal of [false,true])test(interruptFinal?
     assert.equal(record.pendingNativeMove,null);
     assert.equal(record.legs.length,2,"the remainder is a continuation of one approval");
     assert.deepEqual(record.legs[0],originalLeg);
-    assert.deepEqual(record.legs[1].convoy,approved);
+    assert.deepEqual(approvalOf(record.legs[1]),approved);
+    if(!mixed)assert.equal(record.legs[1].travelMethod.ownedContinuation,true);
     assert.deepEqual(record.legs[1].participation,manifest);
     assert.equal(record.legs[1].completedPercent,100);
     assert.equal(record.arrivedWorldTime,game.time.worldTime);
     assert.equal(token.x,to.x-50);assert.equal(token.y,to.y-50);
     assert.deepEqual(record.destination,to);
     assert.equal(record.routeTargets.nextTargetIndex,record.routeTargets.targets.length);
-    assert.equal(dialogs,1,"no second fare or staffing approval");
+    assert.equal(dialogs,mixed?1:2,"single-owned resume reviews the original approval, never a new fare");
     assert.ok(Math.abs(record.legs.reduce((sum,leg)=>sum+leg.completedMovingHours,0)-
       originalLeg.movingHours)<1e-6);
+    const restSeconds=scenario==="overtime"?12*3600:0;
+    assert.equal(record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0),restSeconds);
     assert.equal(record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0),
-      game.time.worldTime-1000);
-    assert.ok(Math.abs(game.time.worldTime-1000-Math.round(originalLeg.movingHours*3600))<=1);
+      game.time.worldTime-1000-restSeconds);
+    assert.ok(Math.abs(game.time.worldTime-1000-restSeconds-Math.round(originalLeg.movingHours*3600))<=1);
+    const events=record.legs.flatMap(leg=>leg.events);
+    assert.deepEqual(events.map(e=>[e.action,e.hours]),scenario==="overtime"?[["overnight",12]]:[]);
+    assert.deepEqual(restHolds,scenario==="overtime"?[24000]:[]);
     const html=formatJourneyJournalHTML(record);
-    assert.equal((html.match(/Estimated transportation cost:/g)??[]).length,1);
-    assert.match(html,/Continuing previously approved mixed service; no new fare/);
+    assert.equal((html.match(mixed?/Estimated transportation cost:/g:/Original estimated total:/g)??[]).length,1);
+    assert.match(html,mixed?/Continuing previously approved mixed service; no new fare/:
+      /Continuing previously approved owned service; no new fare/);
     assert.equal(JSON.stringify(token.actor),native);
-    // Only the existing start and arrival announcements may write settings.
-    assert.deepEqual(writes.map(([scope,key,pulse])=>[scope,key,pulse.type]),
-      [["fvtt-atlas-navigation","atlasAnnouncementPulse","journey.started"],
-       ["fvtt-atlas-navigation","atlasAnnouncementPulse","destination.reached"]]);
+    // Only committed Journey announcements may write settings.
+    assert.ok(writes.every(([scope,key])=>scope==="fvtt-atlas-navigation"&&key==="atlasAnnouncementPulse"));
+    assert.deepEqual(writes.map(([, ,pulse])=>pulse.type),scenario==="overtime"?
+      ["journey.started","break.started","break.ended","destination.reached"]:
+      ["journey.started","destination.reached"]);
     assert.equal(listeners.size,0);
   }finally{Object.assign(globalThis,previous);}
 });
