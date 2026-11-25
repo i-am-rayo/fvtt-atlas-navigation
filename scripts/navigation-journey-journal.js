@@ -4,7 +4,7 @@ import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 import {describeConfirmedTravelers} from "./navigation-journey-manifest.js";
 import {validateJourneyParticipation} from "./navigation-journey-participation.js";
 import {validateJourneyLivestock} from "./navigation-journey-livestock.js";
-import {mixedTransportFareBreakdown,dndCurrencyBreakdown} from "./navigation-currency.js";
+import {mixedTransportFareBreakdown,dndCurrencyBreakdown,walkingCargoFareBreakdown} from "./navigation-currency.js";
 import {validateAggregateLandConvoy} from "./navigation-theater-convoy.js";
 const validateApprovedConvoy=value=>value?.schemaVersion===3?
   validateAggregateLandConvoy(value):value?.schemaVersion===2?
@@ -454,12 +454,16 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       mixedTransportFareBreakdown(leg.convoy.methods,
         systemId==="dnd5e"?globalThis.CONFIG?.DND5E?.currencies:undefined):null;
     const tiered=leg.convoy?.sharedDailyHours!==undefined;
-    const convoyKey=tiered?JSON.stringify(leg.convoy):null;
+    const cargo=leg.convoy?.schemaVersion===1;
+    const cargoFare=cargo?walkingCargoFareBreakdown(leg.convoy.hires,
+      systemId==="dnd5e"?globalThis.CONFIG?.DND5E?.currencies:undefined):null;
+    const tracksQuote=tiered||cargo;
+    const convoyKey=tracksQuote?JSON.stringify(leg.convoy):null;
     const prior=record.legs[index-1];
-    const continuingMixed=tiered&&prior?.completedPercent<99.999&&
+    const continuingConvoy=tracksQuote&&prior?.completedPercent<99.999&&
       JSON.stringify(prior.convoy)===convoyKey;
-    if(!continuingMixed)shownConvoy=null;
-    const repeatMixed=continuingMixed&&shownConvoy===convoyKey;
+    if(!continuingConvoy)shownConvoy=null;
+    const repeatMixed=continuingConvoy&&shownConvoy===convoyKey;
     const convoyLines=leg.convoy&&leg.completedMovingHours>0?(
       [2,3].includes(leg.convoy.schemaVersion)?[
         "The Group traveled together using mixed transportation at "+
@@ -506,9 +510,12 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
             ", approved "+convoySpeed(leg.convoy.speedPerHour)+
             " for this Journey; Actor movement speeds were not changed."]:[]),
         ...leg.convoy.hires.map(h=>h.units+" cargo-only "+h.methodName+
-          " (estimated fare "+h.estimatedCostCp+" CP; not charged).")
+          (repeatMixed?"": " (estimated fare "+cargoFare.rows.find(row=>row.key===h.methodId).label+
+            "; not charged).")),
+        repeatMixed?"Continuing previously approved cargo service; no new fare.":
+          "Estimated transportation cost: "+cargoFare.total.label+" (planned leg quote; no currency deducted)."
       ]).map(line=>'<li class="atlas-journey-transport-event">'+escapeHTML(line)+"</li>").join(""):"";
-    if(tiered&&leg.completedMovingHours>0)shownConvoy=convoyKey;
+    if(tracksQuote&&leg.completedMovingHours>0)shownConvoy=convoyKey;
     const landMethod=leg.travelMethod&&leg.completedMovingHours>0&&
       !leg.convoy?
       `<li class="atlas-journey-transport-event">The party traveled using ${escapeHTML(leg.travelMethod.name)} (`+
