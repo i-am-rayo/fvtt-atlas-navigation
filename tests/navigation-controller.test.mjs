@@ -5114,6 +5114,26 @@ for(const scenario of ["mixed","mixed-final","continuous","overtime"])test(
     assert.deepEqual(reloaded.recoveryRecord,record);
     assert.equal(reloaded.assessTravelMethod().guided,true);
     const originalLeg=structuredClone(record.legs[0]);
+    const expectedRemainingHours=route(point(token.x+50,token.y+50),to).distance/
+      originalLeg.speedPerHour;
+    if(!mixed){
+      assert.equal(approved.movingHours,16);
+      assert.equal(approved.baseCp,200);
+      assert.equal(approved.crewWagesCp,800);
+      assert.equal(approved.overtimeCrewCp,scenario==="overtime"?300:0);
+      assert.equal(approved.totalCp,scenario==="overtime"?1300:1000);
+      // A valid land route with the same endpoints is not a new approval.
+      // Distinct authored segment identity must be rejected on continuation.
+      const originalRoute=reloaded.result;
+      atlas.segments.push({...atlas.segments[0],id:"alternate"});
+      reloaded.result={...originalRoute,legs:originalRoute.legs.map(leg=>({...leg,segmentId:"alternate"}))};
+      const beforeReview=structuredClone(record),beforeMoves=moves,beforeClock=game.time.worldTime;
+      assert.equal(reloaded.assessTravelMethod().guided,false,"an alternate road segment is not the approved route");
+      await assert.rejects(()=>reloaded.startGuidedTravel(),/approved route|road-sequence-changed/i);
+      assert.deepEqual(record,beforeReview);assert.equal(moves,beforeMoves);
+      assert.equal(game.time.worldTime,beforeClock);assert.equal(dialogs,1);
+      atlas.segments.pop();reloaded.result=originalRoute;
+    }
     if(scenario==="overtime"){
       // At the retained 12-hour travel-day boundary, explicit GM approval
       // alone may add the 12-hour overnight break before the next move.
@@ -5199,18 +5219,21 @@ for(const scenario of ["mixed","mixed-final","continuous","overtime"])test(
     assert.deepEqual(record.destination,to);
     assert.equal(record.routeTargets.nextTargetIndex,record.routeTargets.targets.length);
     assert.equal(dialogs,mixed?1:2,"single-owned resume reviews the original approval, never a new fare");
-    assert.ok(Math.abs(record.legs.reduce((sum,leg)=>sum+leg.completedMovingHours,0)-
-      originalLeg.movingHours)<1e-6,JSON.stringify({
-        pending,originalHours:originalLeg.movingHours,credited:originalLeg.completedMovingHours,
-        continuationHours:record.legs[1].completedMovingHours,
-        resumedDeparture:record.legs[1].departure,anchor:originalLeg.destination,
-        clock:game.time.worldTime-1000
-      }));
+    assert.ok(Math.abs(record.legs[1].completedMovingHours-expectedRemainingHours)<1e-6);
+    // The approved interval credits its proven native fraction. The new
+    // route is measured from the native position at the SAME approved pace.
+    // A rounded native endpoint can differ from its logical pixel length.
+    const expectedMoving=originalLeg.completedMovingHours+expectedRemainingHours;
+    const roundedPixelDrift=Math.abs(pending.to.x-pending.from.x-pending.nativeDistance)/2;
+    const roundingHours=roundedPixelDrift*originalLeg.movingHours/(to.x-from.x);
+    assert.ok(Math.abs(expectedMoving-originalLeg.movingHours)<=roundingHours+1e-6);
+    assert.ok(Math.abs(record.legs.reduce((sum,leg)=>sum+leg.completedMovingHours,0)-expectedMoving)<1e-6);
     const restSeconds=scenario==="overtime"?12*3600:0;
     assert.equal(record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0),restSeconds);
     assert.equal(record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0),
       game.time.worldTime-1000-restSeconds);
-    assert.ok(Math.abs(game.time.worldTime-1000-restSeconds-Math.round(originalLeg.movingHours*3600))<=1);
+    assert.equal(game.time.worldTime-1000-restSeconds,
+      Math.round(pending.worldAdvanceSeconds/2)+Math.round(expectedRemainingHours*3600));
     const events=record.legs.flatMap(leg=>leg.events);
     assert.deepEqual(events.map(e=>[e.action,e.hours]),scenario==="overtime"?[["overnight",12]]:[]);
     assert.deepEqual(restHolds,scenario==="overtime"?[24000]:[]);
