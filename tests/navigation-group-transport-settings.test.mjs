@@ -27,6 +27,9 @@ class FakeElement {
     this.parent.children.splice(i+1,0,child);child.parent=this;
   }
   replaceChildren(...children){this.children=[...children];}
+  querySelectorAll(selector){
+    return selector==="input"?flatten(this).filter(n=>n.tagName==="INPUT"):[];
+  }
   querySelector(selector){
     if(selector==="h3")return this.children.find(c=>c.tagName==="H3")??null;
     if(selector===".atlas-transport-button")
@@ -724,13 +727,43 @@ test("Party crew policy editor previews inherited values, applies overrides and 
     const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
     assert.ok(edit);
     let response=null,expectedFull="60";
-    globalThis.foundry={applications:{api:{DialogV2:{input:async({content,ok})=>{
-      const nodes=flatten(content);
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content,ok,render})=>{
+      // DialogV2 serializes markup: fresh nodes retain attributes and values
+      // but not listeners. Exercise the rendered form, not the source tree.
+      const clone=original=>{
+        const copy=new FakeElement(original.tagName);
+        Object.assign(copy,original,{events:{},children:[],attributes:new Map(original.attributes),
+          dataset:{},parentElement:null});
+        copy.append(...original.children.map(clone));
+        return copy;
+      };
+      const live=clone(content),nodes=flatten(live);
+      const byName=name=>nodes.find(n=>n.name===name);
+      live.querySelector=selector=>selector==='[name="policyMode"]'?byName("policyMode"):
+        selector==="[data-atlas-crew-policy-fields]"?nodes.find(n=>n.attributes.has("data-atlas-crew-policy-fields")):null;
+      for(const n of nodes)n.querySelectorAll=selector=>selector==="input,select"?
+        flatten(n).filter(x=>["INPUT","SELECT"].includes(x.tagName)):[];
+      render?.({}, {element:live});
       assert.equal(ok.label,"Apply to Party draft");
-      assert.equal(nodes.find(n=>n.name==="policyFull").value,expectedFull);
-      assert.ok(nodes.find(n=>n.name==="policyMode"));
-      assert.ok(nodes.find(n=>n.name==="policyWage_gp"));
-      return response;
+      assert.equal(byName("policyFull").value,expectedFull);
+      const mode=byName("policyMode"),full=byName("policyFull"),wage=byName("policyWage_gp");
+      assert.equal(full.disabled,mode.value==="inherit");
+      assert.equal(wage.disabled,mode.value==="inherit");
+      if(!response)return null;
+      mode.value=response.policyMode;
+      for(const fn of mode.events.change??[])fn();
+      assert.equal(full.disabled,mode.value==="inherit");
+      assert.equal(wage.disabled,mode.value==="inherit");
+      if(mode.value==="custom"){
+        for(const [name,value] of Object.entries(response)){
+          const control=byName(name);
+          assert.ok(control&&!control.disabled,name);
+          if(control.type==="checkbox")control.checked=value;
+          else control.value=value;
+        }
+      }
+      return Object.fromEntries(nodes.filter(n=>n.name&&!n.disabled).map(n=>
+        [n.name,n.type==="checkbox"?n.checked:n.value]));
     }}}}};
     await edit.events.click[0]();
     assert.deepEqual(ctx.changes,[]);

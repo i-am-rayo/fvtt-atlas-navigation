@@ -4689,6 +4689,9 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
       "the method card must show the same selected capacity as the deck");
     await nav.setCheckpointOperatedUnits([]);
     const emptyPanel=flatten(await nav.renderDestinationStage());
+    assert.ok(emptyPanel.some(n=>n.textContent==="Select at least one operating unit."),
+      "empty unit list gives the specific corrective action");
+    assert.deepEqual(nav.transportationTransitionPlan().legs[0].errors,["Select at least one operating unit."]);
     assert.match(labels(selectedTile(emptyPanel)).join(" "),/selected.unit estimate unavailable/i);
     assert.equal(emptyPanel.some(n=>n.className==="atlas-navigation-playback"),false,
       "invalid operating-unit draft cannot advertise a playback duration");

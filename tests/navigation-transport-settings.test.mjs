@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {createTransportNumberSlider} from "../scripts/navigation-transport-form-controls.js";
 import { AtlasTransportationSettings,openTransportationMethodEditor,
   renderTravelRules,renderJourneyPlayback } from "../scripts/navigation-transport-settings.js";
 
@@ -788,4 +789,16 @@ test("checkpoint Journey tier selector chooses the advertised schedule without p
     assert.equal(result.atlasJourneyServiceLevel,undefined);
     assert.deepEqual(ctx.changes,[]);
   }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
+test("transport slider serializes its initial zero and finite availability rather than browser midpoint",()=>{
+  const ctx=setup();
+  try{
+    for(const [name,value,max] of [["crewCount",0,1000],["hireQuantity",1,100]]){
+      const [range,number]=createTransportNumberSlider(name,value,{min:0,max,step:1}).children;
+      assert.equal(range.value,String(value));
+      assert.equal(range.defaultValue,String(value),"serialized range default must match numeric field");
+      assert.equal(number.defaultValue,String(value));
+    }
+  }finally{ctx.restore();}
 });
