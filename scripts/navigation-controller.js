@@ -3607,8 +3607,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(approvedConvoy?.schemaVersion===2){
         const accompanying=new Set(approvedLivestock.resources.filter(m=>m.aboard>0)
           .map(m=>m.actorId));
+        const mountIds=new Set(groupLivestockResources(partyNow.roster).map(m=>m.actorId));
         if(approvedConvoy.methods.flatMap(m=>m.resourceIds??[])
-          .some(id=>!accompanying.has(id)))
+          .some(id=>mountIds.has(id)&&!accompanying.has(id)))
           throw Error("A left-behind mount cannot be assigned to a land convoy.");
       }
     }
@@ -5557,8 +5558,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.transportArrangement+"|"+this.travelMethod);
     const blockedOwnedCheckpoint=currentLeg?.operatedUnits!==undefined&&
       Boolean(currentLeg.errors.length);
+    const blockedRecoveredOwned=Boolean(approvedRecoveryLand&&
+      (approvedRecoveryLand.ownedApproval||recoveryLeg?.convoy?.methods?.some(m=>m.ownedApproval))&&
+      !methodAssessment.guided);
     const blockedEstimate=Boolean(!this.travelSession&&(blockedOwnedCheckpoint||recoveredPlanError||
-      approvedRecoveryLand?.ownedApproval&&!methodAssessment.guided||
+      blockedRecoveredOwned||
       !this.recoveryRecord&&!this.recoverableJourney&&!transferPlan?.hasTransitions&&
       (selectedMethodChoice?.insufficient||
         (this.convoyEnabled||this.mixedKeys.length)&&!methodAssessment.guided)));
@@ -5877,7 +5881,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         metric("Travel Time","Unavailable");
         metric("Total Trip","Unavailable");
         tripExplanation=blockedOwnedCheckpoint?currentLeg.errors.join(" "):
-          recoveredPlanError?recoveredPlanError:approvedRecoveryLand?.ownedApproval&&!methodAssessment.guided?
+          recoveredPlanError?recoveredPlanError:blockedRecoveredOwned?
           methodAssessment.reason:(this.convoyEnabled||this.mixedKeys.length)&&
           !methodAssessment.guided?
           (methodAssessment.reason??"Choose a valid shared convoy pace."):
