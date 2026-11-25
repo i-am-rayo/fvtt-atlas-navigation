@@ -4234,8 +4234,12 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),append(...items){this.children.push(...items);},appendChild(n){this.children.push(n);return n;},addEventListener(n,f){this.listeners.set(n,f);},setAttribute(n,v){this[n]=v;}})};
     const labels=node=>[node.textContent,...node.children.flatMap(labels)];
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
-      dialogs++;assert.match(labels(options.content).join(" "),/below.minimum/i);
+      dialogs++;const summary=labels(options.content).join(" ");
+      assert.match(summary,/below.minimum/i);
+      assert.match(summary,/Paid crew wages 4400 CP/);
+      assert.match(summary,/Fare components are before rounding/);
       assert.match(options.yes?.label??"",/acknowledge/i);
+      assert.equal(options.no?.label,"Back to plan");
       return false;
     }}}}};
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},time:{worldTime:0},settings:{
@@ -4419,7 +4423,16 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     assert.deepEqual(nav.recoveryRecord,savedBefore);
     assert.equal(journals.length,2);
     token.actor.system.members.push(removedShip);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      const summary=labels(options.content).join(" ");
+      assert.match(summary,/Previously approved — no new fare/);
+      assert.doesNotMatch(summary,/Fare breakdown/);
+      assert.equal(options.yes?.label,"Resume leg");
+      assert.equal(options.no?.label,"Back to plan");
+      return true;
+    };
     await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
     assert.equal(journals.length,3);
     const continued=journals[2].legs.at(-1);
     assert.deepEqual(continued.transport.ownedApproval,recorded.transport.ownedApproval);
@@ -4706,8 +4719,15 @@ test("mixed owned Cart draft, confirmation, Journal and recovery share exact ope
     const labels=node=>flatten(node).map(n=>n.textContent).join(" ");
     let dialogs=0;
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
-      dialogs++;assert.match(labels(options.content),/Driver/);
-      assert.match(options.yes?.label??"",/acknowledge/i);return false;
+      dialogs++;const summary=labels(options.content);
+      assert.match(summary,/Driver/);
+      const fares=flatten(options.content).find(n=>n.className==="atlas-transport-approval-fares");
+      assert.ok(fares,"staffed mixed costs use the same fare breakdown as single-method approval");
+      assert.match(labels(fares),/Cart.*Vehicle upkeep.*100 CP/);
+      assert.match(labels(fares),/Cart.*Paid crew wages.*400 CP/);
+      assert.match(summary,/rounded independently, then summed/);
+      assert.match(options.yes?.label??"",/acknowledge/i);
+      assert.equal(options.no?.label,"Back to plan");return false;
     }}}}};
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},time:{worldTime:0},settings:{
       get:(_m,key)=>key==="guidedGroupTransportation"?owned:undefined,
