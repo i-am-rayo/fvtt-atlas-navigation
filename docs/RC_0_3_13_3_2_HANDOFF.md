@@ -138,3 +138,18 @@ Environment observed in the GM session: Sandbox, Atlas `0.3.13-rc.3.2` active in
 | Verify persistence and preserve Cart overrides | Pass | On reopen, show the replacement without the orphan and retain Cart's existing overrides. | The directory listed **Transportation (2): Cart, Riding Horse**. The reopened marker showed the new Riding Horse offer, no missing-preset card, and Cart still at **4 vehicles available** and **3 required crew**. |
 
 The B4 result above supersedes the earlier Partial status. The Journey execution, reload, Journal, and separate player checks retain their earlier status.
+
+### Live Journey verification — 2026-11-26 (JST)
+
+Tested the GM Sandbox session in Foundry 14 Stable build 370 and D&D 5e 6.1.1. The exact installed Atlas archive commit was not verified. The preceding live session verified Atlas `0.3.13-rc.3.2`.
+
+| Check | Result | Expected and observed |
+| --- | --- | --- |
+| 1. Departure and checkpoint arrival | Partial | Approved the water leg from Party departure point to **Port Barthos**, with **Dirwest** as final destination. Approved **Warship Unit 1**, **6 travelers**, **4 passenger seats**, **31/60 crew, optimal, 31 paid**, and all **4 mounts** (3 Riding Horses and 1 Warhorse) embarking. Quoted fare **43 PP · 4 GP**, entirely crew wages, and **0 CP** boarding. Planned **135.22 mi** and **54h 5m** of movement. Playback reached **14%** and stopped before Port Barthos at the daily travel-hour boundary. Arrival and single first-leg credit remain unverified. |
+| 2. Onward leg and finished Journal | Not run | Expected explicit onward approval, arrival at Dirwest, and reconciled completed Journal. The first leg was held at the travel-hours decision after the discrepancy below. |
+| 3. Separate reload and recovery | Not run | Expected matching token, confirmed Journal progress and World time before and after reload, with no duplicate credit. Preserved the first run and did not reload or start a separate recovery journey. |
+| 4. Player permissions | Not run | Expected permitted map and Journal access and no GM route/approval actions. A separate authenticated non-GM session was unavailable. |
+| 5. Travel variants | Not run | Ordinary land, mixed and cargo-only travel, hired mount fares at 0%, 50% and 200%, local override and finite stalls remain open. |
+| 6. Accessibility and layout | Partial | At **800 × 600**, Journal, camp, rest, march and end controls were within the viewport. Shift+Tab from End Journey focused Continue March, and the browser matched `:focus-visible`. Restored the original viewport. The 200% browser zoom, reduced-motion and compact review-detail checks remain open. |
+
+**Evidence to preserve:** Journal `JournalEntry.15cC0k0kk6TjdWuY` (“Deap sea to Dirwest”) contained one Leg 1 section while in progress. At the daily travel-hours prompt the Journey panel showed **14%**, **7h 58m** traveled, and **+7h 58m** World time advanced. The visible World clock read **07:58 PM**, from a **12:00 PM** baseline. Closing and reopening the Journal still showed **0% confirmed**, **0m** confirmed movement, and **0m** World time recorded. The Journal was reopened and left beside the held Journey. No rest, forced march, continuation, or reload was applied after the discrepancy. Whether the Journal is intentionally updated only at later boundaries remains unverified.
