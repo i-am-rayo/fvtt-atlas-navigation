@@ -5,7 +5,8 @@
 <script type="module">
 import {AtlasGroupTransportationSettings} from "../../scripts/navigation-group-transport-settings.js";
 import {AtlasTransportationSettings,openTransportationMethodEditor} from "../../scripts/navigation-transport-settings.js";
-import {findTransportationPreset} from "../../scripts/navigation-transport-catalog.js";
+import {createCheckpointTransportationEditor} from "../../scripts/checkpoint-transportation-editor.js";
+import {deleteCustomTransportationPreset,findTransportationPreset,TRANSPORT_CATALOG_SETTING} from "../../scripts/navigation-transport-catalog.js";
 
 const result=document.querySelector("#result");
 const check=(condition,message)=>{if(!condition)throw Error(message);};
@@ -15,12 +16,13 @@ const pc={id:"pc1",name:"PC",type:"character",system:{}};
 const ship={id:"ship1",name:"Warship",type:"vehicle",system:{passengers:{max:60},details:{type:"water"}}};
 const group={id:"group1",name:"Party",type:"group",system:{members:[{actor:pc},{actor:ship}],primaryVehicle:ship}};
 const roster=[{unitIndex:1,named:[{actorId:"pc1"}],hired:30}];
+let catalog;
 let saved={version:1,groups:{group1:{members:{ship1:{role:"unassigned",quantity:2,capacity:60,
   surface:"water",profileId:"warship",crewRoster:roster}}}}};
 const writes=[],errors=[];
 globalThis.game={user:{isGM:true},system:{id:"dnd5e"},actors:{contents:[group],get:id=>id===group.id?group:null},
-  settings:{get(_m,key){return key==="guidedGroupTransportation"?saved:key==="guidedTravelRulesProfile"?"dnd5e2024":undefined;},
-    async set(_m,key,value){writes.push(key);saved=value;return value;}}};
+  settings:{get(_m,key){return key===TRANSPORT_CATALOG_SETTING?catalog:key==="guidedGroupTransportation"?saved:key==="guidedTravelRulesProfile"?"dnd5e2024":undefined;},
+    async set(_m,key,value){writes.push(key);if(key===TRANSPORT_CATALOG_SETTING)catalog=value;else saved=value;return value;}}};
 globalThis.ui={notifications:{info(){},error(message){errors.push(message);}}};
 let exercise=null;
 globalThis.foundry={applications:{api:{DialogV2:{input:async options=>{
@@ -127,9 +129,32 @@ try{
   };
   await worldEditor._edit(null,"land");
   equal(writes.length,3,"New preset writes the World catalog once");
-  equal(saved.customs.map(({name,kind,surface})=>({name,kind,surface})),
+  equal(catalog.customs.map(({name,kind,surface})=>({name,kind,surface})),
     [{name:"B4 Disposable QA Transport",kind:"vehicle",surface:"land"}],
     "New preset saves under the surface of its catalog section");
+  const temporary=catalog.customs[0];
+  const offer=methodId=>({methodId,mode:"land",overrides:{}});
+  const storedOffers=[offer("cart"),offer(temporary.id)];
+  const openOffers=offers=>createCheckpointTransportationEditor({offers});
+  check(openOffers(storedOffers).element.textContent.includes(temporary.name),
+    "Saved custom preset resolves in the marker editor");
+  catalog=deleteCustomTransportationPreset(catalog,temporary.id);
+  const orphan=openOffers(storedOffers);
+  check(orphan.element.textContent.includes("Missing World preset"),"Orphan warning appears");
+  check(orphan.element.querySelector('[aria-label^="Edit '+temporary.id+' "]').disabled,
+    "Orphan editing is disabled");
+  await click(orphan.element,"Remove "+temporary.id+" from Map Marker");
+  await click(orphan.element,"Add Land Travel method");
+  const picker=orphan.element.querySelector("select");
+  const replacement=[...picker.options].find(option=>option.value&&option.value!=="cart").value;
+  picker.value=replacement;
+  [...orphan.element.querySelectorAll("button")].find(button=>
+    button.textContent==="Add selected method").click();
+  equal(storedOffers,[offer("cart"),offer(temporary.id)],"Replacement changes only the draft");
+  equal(writes.length,3,"Marker draft does not write World settings");
+  const reopened=openOffers(structuredClone(orphan.getOffers()));
+  equal(reopened.getOffers(),[offer("cart"),offer(replacement)],"Reopen retains Cart and replacement");
+  check(!reopened.element.textContent.includes("Missing World preset"),"Warning clears after replacement");
   result.textContent="PASS: Atlas transport dialog browser regression";
 }catch(error){result.textContent="FAIL: "+error.stack;console.error(error);}
 </script></body></html>

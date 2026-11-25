@@ -109,3 +109,7 @@ The Sandbox retest could not create either disposable land preset because World 
 | Verify warning, disabled Edit, and replacement persistence | Not run | Open the orphaned offer, verify the warning and disabled Edit, remove the old offer, add an available method other than the existing Cart, save, and reopen to verify the replacement. | Pending creation of the orphaned offer state. |
 
 Overall B4 is **Partial**. The live fixture creation blocker is resolved. The temporary preset and its offer remain in place for the next session.
+
+## Combined retest candidate
+
+The Chromium fixture now exercises creating a World method, resolving its offer, removing the method from the test catalog, and replacing the orphan through the Map Marker draft. Reopen is simulated from the draft payload. B4 remains Partial in live Foundry pending owner-approved deletion of the temporary preset and replacement verification. Use the [combined Sandbox retest](TEST_0_3_13_RC_3_2.md#combined-sandbox-retest) to cover B4, Journey execution and Journal, reload, and player permissions under one installed candidate.
