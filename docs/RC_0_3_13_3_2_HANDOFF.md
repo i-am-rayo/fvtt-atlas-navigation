@@ -182,3 +182,9 @@ Started a fresh **West Gate → Millstone** Walking Journey in **Sandbox (Copy)*
 **Pass for Journal, panel, and clock agreement.** At the first daily limit, the Journey panel showed **43% and +8h World time**. The reopened Journal (`JournalEntry.wcFNyjFpAoXTv5Cv`) showed **43% confirmed, 8h moving, 0m downtime, and 8h World time recorded**. The visible World clock advanced from **04:28 AM to 12:28 PM**. The run was left at the prompt with the Journal open.
 
 Exact native token coordinates and the onward **From Port Barthos** check remain unverified. Separate reload, player access, transportation, and accessibility checks were not run in this session.
+
+### Journal continuation display candidate
+
+The fresh daily-hours Journal, panel, and clock check passed in Sandbox (Copy). This follow-up groups explicitly recorded continuations under their approved leg in the readable Journal. Segment progress, directions, stops and fare history remain visible. Independent approvals still get their own leg numbers. The renderer leaves the saved ledger intact.
+
+After CI is green, install the updated branch build once in the authorized test World using the existing RC.3.2 manifest. Preserve the earlier evidence Journals. Use a new disposable Journey with an overnight stop and a checkpoint transfer. Verify that the resumed segment sits under Leg 1, the onward approval starts Leg 2, the review says From Port Barthos, and the finished totals and fares still match the confirmed travel. Use the same install for separately authorized reload and non-GM checks. Record the installed build evidence and exact native Token coordinates if available.

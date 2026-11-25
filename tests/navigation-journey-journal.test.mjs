@@ -577,6 +577,15 @@ test("checkpoint-bound mixed convoy preserves original destination, fare and app
   assert.deepEqual(resumed.destination,{x:500,y:500});
   assert.equal(resumed.legs[1].transport.arrivalCheckpointId,"dock");
   assert.equal(resumed.legs[1].travelMethod,undefined);
+  const before=structuredClone(resumed);
+  const grouped=formatJourneyJournalHTML(resumed);
+  assert.equal((grouped.match(/aria-label="Leg \d+"/g)??[]).length,1);
+  assert.match(grouped,/aria-label="Segment 1"/);
+  assert.match(grouped,/aria-label="Segment 2"/);
+  assert.deepEqual(resumed,before,"grouping does not change the saved ledger");
+  const arrived=checkpointJourneyRecord(resumed,{schedule,progress:100,status:"paused"});
+  const onward=resumeJourneyRecord(arrived,{itinerary:itinerary(),atlasRevision:12});
+  assert.match(formatJourneyJournalHTML(onward),/aria-label="Leg 2"/);
   const missing=structuredClone(saved);
   delete missing.legs[0].convoy;
   assert.throws(()=>validateJourneyRecord(missing),/invalid recovery metadata/i);
