@@ -4166,14 +4166,22 @@ test("approved mixed convoy retains the common travel day even after World rules
 });
 
 test("owned checkpoint unit selection is a scoped draft with selected capacity, pace and wages",async()=>{
-  const previous={game:globalThis.game};
+  const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document};
   try{
     const owned=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship",{
       role:"unassigned",quantity:2,capacity:2,surface:"water",profileId:"warship",
       speedMphOverride:5,crewPolicyOverride:{crewCount:60,crewThresholds:{minimum:15,optimal:30,excellent:45},
-        includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},crewRoster:[{unitIndex:1,named:[],hired:10},{unitIndex:2,named:[],hired:30}]});
-    const writes=[];
-    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},settings:{
+        includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},crewRoster:[{unitIndex:1,named:[{actorId:"sailor"}],hired:10},{unitIndex:2,named:[],hired:30}]});
+    const writes=[],journals=[];
+    let dialogs=0;
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],append(...items){this.children.push(...items);}})};
+    const labels=node=>[node.textContent,...node.children.flatMap(labels)];
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      dialogs++;assert.match(labels(options.content).join(" "),/below.minimum/i);
+      assert.match(options.yes?.label??"",/acknowledge/i);
+      return false;
+    }}}}};
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},time:{worldTime:0},settings:{
       get:(_module,key)=>key==="guidedGroupTransportation"?owned:undefined,
       set:(...args)=>writes.push(args)}};
     const from=point(0,0),to=point(300,0),end=point(400,0);
@@ -4183,14 +4191,17 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
       checkpoints:[{id:"dock",name:"Dock",nodeId:"start",roadId:"sea"},
         {id:"port",name:"Port",nodeId:"end",roadId:"sea"}]};
     const token={id:"party",x:-50,y:-50,width:1,height:1,moves:0,
-      canUserModify:()=>true,move:async()=>{throw Error("Unexpected native movement");},actor:{id:"group1",type:"group",system:{members:[
+      canUserModify:()=>true,move:async()=>{token.moves++;throw Error("Unexpected native movement");},actor:{id:"group1",type:"group",system:{members:[
       {actor:{id:"pc",name:"Traveler",type:"character"}},
+      {actor:{id:"sailor",name:"Sailor",type:"npc"}},
       {actor:{id:"ship",name:"Warship",type:"vehicle"}}]}}};
     const scene={id:"sea-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined,canUserModify:()=>true};
     const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
-      canvasProvider:()=>({ready:true,scene}),journeyJournalStore:{save:async()=>{throw Error("Unexpected Journal write");}}});
+      canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
+      journeyJournalStore:{save:async record=>{journals.push(structuredClone(record));throw Error("Test Journal boundary");}}});
     nav.routeRevision=1;nav.syncPartyDeparture=()=>false;
     nav.scene=scene;nav.sourceMode="party";nav.render=async()=>{};
+    nav.start=from;nav.end=end;
     nav.result={status:"ok",start:from,end,distance:65,cost:65,
       legs:[{kind:"road",roadId:"sea",segmentId:"segment",points:[from,to],distance:60,cost:60},
         {kind:"road",roadId:"land",segmentId:"onward",points:[to,end],distance:5,cost:5}]};
@@ -4206,10 +4217,38 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     assert.equal(leg.hours,12);
     assert.equal(leg.serviceQuote.units,1);
     assert.equal(leg.ownedDraft.units[0].unitIndex,1);
-    assert.equal(leg.ownedDraft.units[0].staffedCrew,10);
-    assert.equal(leg.ownedDraft.crewWagesCp,4000);
-    assert.equal(leg.serviceQuote.crewWagesCp,4000);
-    await assert.rejects(()=>nav.startGuidedTravel(),/staffing approval workflow/);
+    assert.equal(leg.ownedDraft.units[0].staffedCrew,11);
+    assert.equal(leg.ownedDraft.crewWagesCp,4400);
+    assert.equal(leg.serviceQuote.crewWagesCp,4400);
+    assert.equal(await nav.startGuidedTravel(),false,"Cancel must not approve or save a Journey");
+    assert.equal(dialogs,1);assert.equal(journals.length,0);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:2}]);return true;
+    };
+    await assert.rejects(()=>nav.startGuidedTravel(),/changed.*confirmation|review/i);
+    assert.equal(journals.length,0);
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      globalThis.game.user.isGM=false;return true;
+    };
+    await assert.rejects(()=>nav.startGuidedTravel(),/GM|changed.*confirmation/i);
+    assert.equal(journals.length,0);
+    globalThis.game.user.isGM=true;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,1,"Only a confirmed, revalidated plan reaches the Journal");
+    const recorded=journals[0].legs[0];
+    assert.deepEqual(recorded.transport.ownedApproval,{...leg.ownedDraft,belowMinimumAcknowledged:true});
+    assert.deepEqual(recorded.participation.people.map(p=>[p.actorId,p.traveling,p.seats]),
+      [["pc",true,1],["sailor",true,0]]);
+    assert.equal(token.moves,0);
+    // An empty passenger selection can travel with named non-passenger crew.
+    nav.partySelectionMode="selected";nav.partySelectedIds=[];
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,2);
+    assert.deepEqual(journals[1].legs[0].participation.people.map(p=>[p.actorId,p.traveling,p.seats]),
+      [["pc",false,1],["sailor",true,0]]);
+    nav.partySelectionMode="all";nav.partySelectedIds=[];
     assert.equal(leg.ownedDraft.belowMinimum,true);
     assert.equal(leg.ownedDraft.belowMinimumAcknowledged,undefined);
     assert.equal(leg.ownedApproval,undefined);
