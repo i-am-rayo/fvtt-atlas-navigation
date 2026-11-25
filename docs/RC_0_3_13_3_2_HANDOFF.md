@@ -174,3 +174,11 @@ The next draft candidate publishes the confirmed readable Journal at the daily t
 1. Preserve the completed Journey and held Walking run as evidence. In the approved disposable World, install the new candidate from the existing branch manifest after CI passes. Verify Atlas `0.3.13-rc.3.2` in Add-on Modules and record the candidate commit separately.
 2. In a fresh disposable run, stop at the first daily travel-hours prompt. Compare the reopened Journal with the Journey panel, Token position and World clock. Record confirmed progress, moving time and World time credited. Continue to a checkpoint and verify the onward From label names that checkpoint.
 3. When the confirmed records agree, use a separately approved run to verify reload and continuation without duplicate credit. Finish any open player, transportation and accessibility rows from the release checklist. Keep the historical discrepancy records intact.
+
+#### Fresh daily-hours boundary retest — 2026-11-26 (JST)
+
+Started a fresh **West Gate → Millstone** Walking Journey in **Sandbox (Copy)** (`DnaYpY0ilR20GWLc`). The copy was viewed without activating it for players. The original completed Journal and held Walking run were preserved. The exact installed archive commit was unverified.
+
+**Pass for Journal, panel, and clock agreement.** At the first daily limit, the Journey panel showed **43% and +8h World time**. The reopened Journal (`JournalEntry.wcFNyjFpAoXTv5Cv`) showed **43% confirmed, 8h moving, 0m downtime, and 8h World time recorded**. The visible World clock advanced from **04:28 AM to 12:28 PM**. The run was left at the prompt with the Journal open.
+
+Exact native token coordinates and the onward **From Port Barthos** check remain unverified. Separate reload, player access, transportation, and accessibility checks were not run in this session.
