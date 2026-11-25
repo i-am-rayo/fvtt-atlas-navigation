@@ -5726,3 +5726,64 @@ test("planner replacement restores only the matching enabled keyboard control in
     }finally{globalThis.document=oldDocument;}
   }
 });
+
+test("stale planner controls cannot edit the draft after GM authority or Journey state changes",()=>{
+  const previous={document:globalThis.document,game:globalThis.game};
+  try{
+    globalThis.document={createElement:tag=>({
+      tag,children:[],style:{},listeners:new Map(),hidden:false,
+      append(...items){this.children.push(...items);},
+      addEventListener(name,fn){this.listeners.set(name,fn);},
+      setAttribute(name,value){this[name]=value;},focus(){}
+    })};
+    let writes=0,renders=0;
+    globalThis.game={settings:{get:()=>undefined,set:()=>writes++},
+      system:{id:"dnd5e"},user:{isGM:true}};
+    const nav=new AtlasNavigationController();
+    nav.scene={id:"scene",grid:{units:"mi",size:100}};
+    nav.sourceMode="party";nav.travelMethod="walking";nav.transportArrangement="owned";
+    nav.render=()=>{renders++;};nav.resolveTravel=()=>({travel:{speed:3}});
+    const roster={travelers:2,members:[
+      {actorId:"cass",actorName:"Cassian",actorType:"character",role:"passenger",needsSeat:true,quantity:1},
+      {actorId:"luc",actorName:"Lucious",actorType:"character",role:"passenger",needsSeat:true,quantity:1}
+    ]};
+    const selection={previewRoster:roster,selectedIds:["cass","luc"],partial:false};
+    const walking={id:"walking",name:"Walking",kind:"foot",surface:"land"};
+    const cart={id:"cart",name:"Cart",kind:"vehicle",surface:"land",speedMph:4,capacity:2,
+      hireCostCp:100,hireBasis:"trip",hireApplies:"unit",hireUnlimited:true};
+    const available={methods:[walking,cart]};
+    nav.mixedKeys=["owned|walking","hire|cart"];
+    nav.mixedLandChoices=()=>[
+      {key:"owned|walking",method:walking,arrangement:"owned",units:1},
+      {key:"hire|cart",method:cart,arrangement:"hire",units:1}];
+    nav.mixedOwnedLegs=()=>[];
+    nav.mixedAssignments={cass:"hire|cart",luc:"owned|walking"};
+    const flat=node=>[node,...node.children.flatMap(flat)];
+    const snapshot=()=>JSON.stringify({selection:nav.partySelectionMode,ids:nav.partySelectedIds,
+      assignments:nav.mixedAssignments,units:nav.mixedUnits,pace:nav.convoyPace,roster});
+    for(const lock of ["player","moving","preparing","suspended"]){
+      game.user.isGM=true;
+      nav.travelSession=null;nav.journalStarting=false;nav.suspendedNativeSession=null;
+      const controls=flat(nav.renderTravelersAndPace(selection,available));
+      const unit=controls.find(n=>n["aria-label"]==="Units of Cart");
+      const move=controls.find(n=>n.title==="Move Lucious");
+      const chooser=controls.find(n=>n["aria-label"]==="Destination method for Lucious");
+      const radio=controls.filter(n=>n.type==="radio")[1];
+      assert.ok(unit&&move&&chooser&&radio,lock);
+      move.listeners.get("click")();
+      const before=snapshot(),renderBefore=renders;
+      if(lock==="player")game.user.isGM=false;
+      if(lock==="moving")nav.travelSession={};
+      if(lock==="preparing")nav.journalStarting=true;
+      if(lock==="suspended")nav.suspendedNativeSession={};
+      chooser.value="hire|cart";chooser.listeners.get("change")();
+      unit.value="2";unit.listeners.get("change")();
+      radio.checked=true;radio.listeners.get("change")();
+      assert.equal(snapshot(),before,lock+" may not edit the previous draft");
+      assert.equal(renders,renderBefore);
+      const fresh=flat(nav.renderTravelersAndPace(selection,available));
+      assert.ok(fresh.filter(n=>["button","input","select"].includes(n.tag)).every(n=>n.disabled),lock);
+    }
+    assert.equal(writes,0);
+  }finally{Object.assign(globalThis,previous);}
+});
