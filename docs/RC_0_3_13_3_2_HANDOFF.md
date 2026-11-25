@@ -48,3 +48,28 @@ The Product Owner reported four Pass and two Partial results from the [RC.3.2 te
 ## Next gate
 
 Resume with test B at Save and reopen, then the missing-preset case. Finish the remaining test E entry points and cancellation cases. Playback, checkpoint continuation, recovery, the finished Journal and separate player permissions still need live verification. Keep #528 and #537 in their separate scope. Overall RC.3.2 acceptance remains open and merge, tag or release requires PO approval.
+
+## Follow-up live GM retest — 2026-11-25 (JST)
+
+- Environment: authorized Sandbox scene, Foundry VTT 14 Stable build 370, Dungeons & Dragons Fifth Edition 6.1.1. Core Module Management showed active FVTT Atlas Navigation `0.3.13-rc.3.2`.
+- Installed archive commit: unverified. The installed UI exposes the version, and the branch archive URL is mutable. GitHub independently verified [implementation checkpoint `2914792`](https://github.com/i-am-rayo/fvtt-atlas-navigation/commit/2914792b3358eab8671f166b782aea332f88fb22) and [passing CI](https://github.com/i-am-rayo/fvtt-atlas-navigation/actions/runs/45570920417). At the time of this retest, the branch was two documentation-only commits ahead.
+- Overall for this retest: **B Partial**, **E Pass**. This is live GM evidence for the listed steps. The earlier walkthrough above remains the record for A, C, D and F.
+
+| Step | Result | Expected | Observed |
+| --- | --- | --- | --- |
+| B1 — Cart defaults | Pass | Crew range and number start at 0. Switching to finite availability starts both controls at 1. | Crew displayed 0/0 and finite availability displayed 1/1. |
+| B2 — Paired inputs and staging | Pass | Each input updates its paired control. Applying stages the offer for explicit marker save. | ArrowRight moved crew to 1/1 and availability to 2/2. Numeric entry updated both pairs to 3/3 and 4/4. Apply returned to the marker draft. |
+| B3 — Explicit save and reopen | Pass | The offer survives an explicit marker save and both controls reopen with the persisted overrides. | Clicked **Create Map Marker**, then found **RC.3.2 B Cart QA** in Map Directory and reopened its Transportation tab. The offer showed **Local overrides**, **4 vehicles available** and **3 required crew**. The reopened editor showed 3/3 and 4/4. |
+| B4 — Missing preset | Not run | An offer with an unavailable World preset displays its missing-preset state and offers a recovery path. | The Cart test used an existing World preset. A disposable orphaned offer fixture was unavailable. No shared preset was removed. |
+| E1 — Cancel from filtered Map Directory | Pass | Restore the directory view, search and Add Road focus. | **All Roads**, search **RC.3.2 E** and focus on **Add Road** returned. Both saved QA roads were visible under that filter. |
+| E2 — Save a two-point Road from Map Directory | Pass | Open exactly one Road Settings for the newly persisted Road with **Road name** focused. | After **Finish Road** and **Create Road Without Connections**, one settings window opened for `aQAjbbBdWy8m15DB` with Name focused. The renamed **RC.3.2 E Directory Road QA** appeared in the directory. |
+| E3 — Save a two-point Road from toolbar | Pass | Open exactly one Road Settings for the newly persisted Road with **Road name** focused. | **Finish Road** opened one settings window for `u0bBIo0cwtF3Wkz2` with Name focused. The renamed **RC.3.2 E Toolbar Road QA** appeared in the directory. |
+| E4 — Discard linked marker | Pass | Return to Workspace and Add Map Marker focus after cancelling the linked draft, with no second placement cancellation. | The draft identified the directory QA road as **Named road**. **Cancel** dismissed the draft and placement dock and restored the filtered directory and Add Map Marker focus. |
+| E5 — Discard independent marker | Pass | Return to Workspace and Add Map Marker focus after cancelling the independent draft, with no second placement cancellation. | The form identified an independent marker. **Cancel** dismissed the form and dock and restored the filtered directory and Add Map Marker focus. |
+| E6 — Explicit Exit placement | Pass | Exit before opening a form, restore Workspace and focus, and create no marker. | **Exit placement** closed the dock and restored Add Map Marker focus. Workspace still reported 40 markers. |
+| E7 — Close originating Workspace | Pass | Cancel an active Road draft without recreating the intentionally closed Workspace. | Closed the minimized Workspace with drawing active and verified its window was absent. **Cancel** removed the canvas dock and the Workspace stayed absent. |
+| Cumulative playback, checkpoint continuation, recovery/reload, finished Journal and separate player permissions | Not run | Verify committed Journey and player behavior in their designated live tests. | This follow-up covered the B/E gate in the GM Sandbox session. |
+
+Screenshot evidence captured in the live test session: reopened Cart offer showing **4 available / 3 required**, and toolbar Road Settings showing **Road name** focused with the Foundry 370 and D&D 5e 6.1.1 badges. The captures include surrounding Sandbox map content and were kept in the test session. The browser error log showed no entries when checked at the end.
+
+Sandbox started at 47 roads and 39 markers. The two named test roads and one independent Cart QA marker were intentionally saved and left identifiable for follow-up. The saved marker count reached 40 and the road count reached 49. The toolbar screenshot also shows a duplicated travel preset value and missing spacing between the authored-distance label and value.
