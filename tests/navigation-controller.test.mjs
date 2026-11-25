@@ -3,7 +3,7 @@ import test from "node:test";
 import {installNativeJourneyFixture} from "./support/native-journey-fixture.mjs";
 import { createNavigationItinerary } from "../scripts/navigation-itinerary.js";
 import { createJourneyRecord,checkpointJourneyRecord,findRecoverableJourney,validateJourneyRecord,
-  JOURNEY_JOURNAL_FLAG } from "../scripts/navigation-journey-journal.js";
+  JOURNEY_JOURNAL_FLAG,formatJourneyJournalHTML } from "../scripts/navigation-journey-journal.js";
 import { GuidedTravelDayTracker,estimateNavigationTotalTrip }
   from "../scripts/navigation-travel-day.js";
 import {planNativeCheckpointPath}
@@ -4753,6 +4753,10 @@ test("mixed owned Cart draft, confirmation, Journal and recovery share exact ope
       token.actor.system.members=originalMembers.filter(m=>m.actor.id!=="driver");return true;};
     await assert.rejects(()=>nav.startGuidedTravel(),/crew|roster|changed|eligible/i);
     token.actor.system.members=originalMembers;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      token.actor.system.members=originalMembers.filter(m=>m.actor.id!=="cart");return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/unit|available|changed|eligible/i);
+    token.actor.system.members=originalMembers;
     assert.equal(journals.length,0);
     assert.equal(token.moves,0);
     assert.deepEqual(writes,[]);
@@ -5002,12 +5006,18 @@ test("ordinary staffed mixed native interruption reconciles only verified progre
         assert.equal(pending.operationId,options.id);
         assert.ok(record.legs[0].convoy.methods[1].ownedApproval.belowMinimumAcknowledged);
         assert.equal(pending.nativePath.length,2,"straight bounded interval");
-        const destination=point((pending.from.x+pending.to.x)/2,pending.from.y);
-        this.x=destination.x;this.y=destination.y;
-        this.movement={id:options.id,state:"stopped",origin:pending.from,destination,
+        const partial=moves===1;
+        const destination=partial?point((pending.from.x+pending.to.x)/2,pending.from.y):pending.to;
+        const movement={id:options.id,state:partial?"stopped":"completed",origin:pending.from,destination,
           constrained:false,passed:{waypoints:[{...destination,movementId:options.id}]},
-          pending:{waypoints:[]}};
-        return false;
+          pending:{waypoints:[]},chain:[],animation:{ended:Promise.resolve()}};
+        if(!partial)assert.notEqual(listeners.get("preMoveToken")?.(this,movement),false);
+        this.x=destination.x;this.y=destination.y;this.movement=movement;
+        if(!partial){
+          listeners.get("moveToken")?.(this,movement);
+          listeners.get("updateToken")?.(this,{x:this.x,y:this.y});
+        }
+        return !partial;
       }};
     const scene={id:"land-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined,
       tokens:{get:id=>id===token.id?token:null},canUserModify:()=>true};
@@ -5048,6 +5058,12 @@ test("ordinary staffed mixed native interruption reconciles only verified progre
     const retry=createController();
     retry.recoverableJourney=journal;
     assert.throws(()=>retry.recoverSavedJourney(),/stopped during native checkpoint/);
+    const unreconciled=structuredClone(record);
+    token.canUserModify=()=>false;
+    await assert.rejects(()=>retry.recoverSavedJourneyWithNativeReview(),/stopped during native checkpoint/);
+    assert.deepEqual(record,unreconciled);
+    assert.equal(advances,0);assert.equal(moves,1);
+    token.canUserModify=()=>true;
     failConfirmation=true;
     await assert.rejects(()=>retry.recoverSavedJourneyWithNativeReview(),/Test confirmation write failure/);
     assert.ok(record.pendingNativeMove.partialEvidence);
@@ -5072,11 +5088,32 @@ test("ordinary staffed mixed native interruption reconciles only verified progre
     assert.deepEqual(record.destination,to);
     assert.deepEqual(reloaded.recoveryRecord,record);
     assert.equal(reloaded.assessTravelMethod().guided,true);
+    const originalLeg=structuredClone(record.legs[0]);
+    assert.equal(await reloaded.startGuidedTravel(),true);
+    assert.equal(record.status,"completed");
+    assert.equal(record.pendingNativeMove,null);
+    assert.equal(record.legs.length,2,"the remainder is a continuation of one approval");
+    assert.deepEqual(record.legs[0],originalLeg);
+    assert.deepEqual(record.legs[1].convoy,approved);
+    assert.deepEqual(record.legs[1].participation,manifest);
+    assert.equal(record.legs[1].completedPercent,100);
+    assert.equal(token.x,to.x-50);assert.equal(token.y,to.y-50);
+    assert.deepEqual(record.destination,to);
+    assert.equal(record.routeTargets.nextTargetIndex,record.routeTargets.targets.length);
+    assert.equal(dialogs,1,"no second fare or staffing approval");
+    assert.ok(Math.abs(record.legs.reduce((sum,leg)=>sum+leg.completedMovingHours,0)-
+      originalLeg.movingHours)<1e-6);
+    assert.equal(record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0),
+      game.time.worldTime-1000);
+    assert.ok(Math.abs(game.time.worldTime-1000-Math.round(originalLeg.movingHours*3600))<=1);
+    const html=formatJourneyJournalHTML(record);
+    assert.equal((html.match(/Estimated transportation cost:/g)??[]).length,1);
+    assert.match(html,/Continuing previously approved mixed service; no new fare/);
     assert.equal(JSON.stringify(token.actor),native);
-    // The existing journey.started announcement is the sole permitted
-    // settings write; neither recovery nor staffing changes World catalogs.
+    // Only the existing start and arrival announcements may write settings.
     assert.deepEqual(writes.map(([scope,key,pulse])=>[scope,key,pulse.type]),
-      [["fvtt-atlas-navigation","atlasAnnouncementPulse","journey.started"]]);
+      [["fvtt-atlas-navigation","atlasAnnouncementPulse","journey.started"],
+       ["fvtt-atlas-navigation","atlasAnnouncementPulse","destination.reached"]]);
     assert.equal(listeners.size,0);
   }finally{Object.assign(globalThis,previous);}
 });
