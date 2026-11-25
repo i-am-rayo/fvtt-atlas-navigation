@@ -4870,6 +4870,11 @@ test("ordinary owned Cart selects exact units, reviews staffing and retains its 
     assert.equal(nav.ordinaryOwnedLeg().livestock.estimatedFareCp,0);
     assert.equal(nav.ordinaryOwnedLeg().ownedDraft.totalCp,500);
     const mountPlan=nav.ordinaryOwnedLeg().livestock;
+    const mountPanel=labels(await nav.renderDestinationStage());
+    assert.equal((mountPanel.match(/Physical mount boarding: 0 CP/g)??[]).length,1);
+    nav.livestockDecisions={horse:0};
+    assert.doesNotMatch(labels(await nav.renderDestinationStage()),/Physical mount boarding:/);
+    nav.livestockDecisions={horse:1};
     const snapshotBefore=JSON.stringify(token.actor),mountWrites=journals.length;
     const assertMountReview=(options,recovered)=>{
       const summary=labels(options.content);
