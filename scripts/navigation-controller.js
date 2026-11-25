@@ -615,18 +615,35 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** One planning step: a single method shows checkboxes; mixed methods show
    * drag/drop assignments. The submitted Journey still owns one Group token.
    */
-  renderTravelersAndPace(party,availability,{disabled=false,mixedFare=null,
-    singleChoice=null,transferColumns=false,mountBoard=null,ownedLeg=null}={}){
-    // DOM disabled state is a snapshot; check live authority and lifecycle
-    // again for callbacks from a previous render.
-    // A confirmed checkpoint can retain its Journal handle while the GM
-    // reviews the next leg. Only an unfinished approval or an unresolved
-    // recovery/decision blocks this roster, not the broader method lock.
-    const canEdit=()=>!disabled&&Boolean(game.user?.isGM)&&
+  /** A completed checkpoint may retain its Journal while the next leg
+   * is reviewed. An unfinished approval or unresolved decision is locked. */
+  canEditJourneyDraftAllocations(){
+    return Boolean(game.user?.isGM)&&
       !this.travelSession&&!this.journalStarting&&!this.suspendedNativeSession&&
       !this.pendingTransfer&&!this.completedRoute&&
       (!this.recoverableJourney||Boolean(this.recoveryRecord))&&
       !isUnfinishedJourneyLeg(this.recoveryRecord);
+  }
+
+  renderJourneyLivestockDraft(options){
+    const {scene,result,routeRevision,travelMethod,transportArrangement}=this;
+    const transfer=this.transferSelections[0];
+    const canEdit=()=>!options.disabled&&this.canEditJourneyDraftAllocations()&&
+      this.scene===scene&&this.result===result&&this.routeRevision===routeRevision&&
+      this.travelMethod===travelMethod&&this.transportArrangement===transportArrangement&&
+      this.transferSelections[0]===transfer;
+    return renderJourneyLivestockBoarding({...options,decisions:this.livestockDecisions,
+      disabled:!canEdit(),onChange:(id,quantity)=>{
+        if(!canEdit())return;
+        this.livestockDecisions={...this.livestockDecisions,[id]:quantity};
+        void this.render(true);
+      }});
+  }
+
+  renderTravelersAndPace(party,availability,{disabled=false,mixedFare=null,
+    singleChoice=null,transferColumns=false,mountBoard=null,ownedLeg=null}={}){
+    // DOM disabled state is only a snapshot; recheck on every callback.
+    const canEdit=()=>!disabled&&this.canEditJourneyDraftAllocations();
     disabled=!canEdit();
     const root=el("div");
     root.style.cssText="display:grid;gap:.6rem;padding-top:.45rem;";
@@ -1374,6 +1391,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   renderOwnedOperatingUnits(leg,onChange){
+    const {scene,result,routeRevision}=this;
+    const canEdit=()=>!leg.recovered&&this.canEditJourneyDraftAllocations()&&
+      !this.recoverableJourney&&this.scene===scene&&this.result===result&&
+      this.routeRevision===routeRevision;
     const field=el("fieldset");
     field.append(el("legend",leg.legend??"Operating units (Journey draft)"));
     const selected=leg.operatedUnits??leg.ownedUnitChoices;
@@ -1382,8 +1403,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const label=el("label"),input=el("input");
       input.type="checkbox";input.name="atlas-owned-operating-unit";
       input.checked=keys.has(unit.actorId+":"+unit.unitIndex);
-      input.disabled=Boolean(this.travelSession||this.journalStarting||this.pendingTransfer);
+      input.disabled=!canEdit();
+      input.setAttribute?.("data-atlas-travel-focus","owned-unit:"+leg.selectedValue+":"+unit.actorId+":"+unit.unitIndex);
       input.addEventListener("change",()=>{
+        if(input.disabled||!canEdit())return;
         const next=selected.filter(u=>u.actorId!==unit.actorId||u.unitIndex!==unit.unitIndex);
         if(input.checked)next.push(unit);
         void onChange(next).catch(error=>
@@ -1397,9 +1420,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     if(selected.some(u=>!leg.ownedUnitChoices.some(v=>v.actorId===u.actorId&&v.unitIndex===u.unitIndex))){
       const reset=el("button","Review current available units");
-      reset.type="button";reset.disabled=Boolean(this.travelSession||this.journalStarting);
-      reset.addEventListener("click",()=>void onChange([]).catch(error=>
-        globalThis.ui?.notifications?.error?.(error.message??String(error))));
+      reset.type="button";reset.disabled=!canEdit();
+      reset.setAttribute?.("data-atlas-travel-focus","owned-unit-reset:"+leg.selectedValue);
+      reset.addEventListener("click",()=>{
+        if(reset.disabled||!canEdit())return;
+        void onChange([]).catch(error=>
+          globalThis.ui?.notifications?.error?.(error.message??String(error)));
+      });
       field.append(el("p","A selected unit is no longer available. Review the current units."),reset);
     }
     if(leg.ownedDraft?.belowMinimum)field.append(el("p","Below-minimum staffing. GM acknowledgement will be required before travel."));
@@ -1429,8 +1456,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     });
   }
   async setOwnedOperatedUnits(units,project,store=draft=>{this.checkpointOwnedDraft=draft;}){
-    if(!game.user?.isGM||this.travelSession||this.journalStarting||this.pendingTransfer||
-        this.recoverableJourney||isUnfinishedJourneyLeg(this.recoveryRecord))
+    if(!this.canEditJourneyDraftAllocations()||this.recoverableJourney)
       throw Error("Only a GM may edit operating units before approval.");
     const leg=project();
     if(!leg?.ownedScope||!Array.isArray(leg.ownedUnitChoices)||!Array.isArray(units))
@@ -5527,13 +5553,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           selected.surface==="land";
         const method=carrier?this.effectiveTransportMethod(selected,availability):null;
         const mountBoard=carrier||this.recoveryRecord?.legs?.at(-1)?.livestock?
-          renderJourneyLivestockBoarding({
+          this.renderJourneyLivestockDraft({
             resources:groupLivestockResources(partySelection.roster),
-            surface:"land",carried:carrier,method,decisions:this.livestockDecisions,
-            disabled:Boolean(this.journalStarting),onChange:(id,amount)=>{
-              this.livestockDecisions={...this.livestockDecisions,[id]:amount};
-              void this.render(true);
-            }}):null;
+            surface:"land",carried:carrier,method}):null;
         section.append(this.renderTravelersAndPace(partySelection,
           availability,{disabled:Boolean(this.journalStarting),mixedFare,mountBoard,ownedLeg:ordinaryOwned}));
         if(ordinaryOwned?.ownedUnitChoices?.length||ordinaryOwned?.operatedUnits!==undefined)
@@ -5968,15 +5990,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           const carrier=leg.selectedOption?.method?.kind==="vehicle"&&
             leg.surface==="land";
           const mountBoard=carrier||this.recoveryRecord?.legs?.at(-1)?.livestock?
-            renderJourneyLivestockBoarding({
+            this.renderJourneyLivestockDraft({
               resources:groupLivestockResources(partySelection.roster),
               surface:"land",carried:carrier,method:leg.selectedOption?.method,
-              planned:leg.livestock,decisions:this.livestockDecisions,
-              disabled:Boolean(this.journalStarting),
-              onChange:(id,amount)=>{
-                this.livestockDecisions={...this.livestockDecisions,[id]:amount};
-                void this.render(true);
-              }}):null;
+              planned:leg.livestock}):null;
           card.append(this.renderTravelersAndPace(partySelection,availability,{
             mixedFare,singleChoice:this.mixedKeys.length?null:leg.selectedOption,
             ownedLeg:leg,mountBoard}));
@@ -6008,15 +6025,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           if(!locked&&partyMode&&partySelection&&leg.selectedOption&&
               (["water","air"].includes(leg.surface)||
                 leg.surface==="land"&&leg.selectedOption.method?.kind==="vehicle")){
-            const mountBoard=renderJourneyLivestockBoarding({
+            const mountBoard=this.renderJourneyLivestockDraft({
               resources:groupLivestockResources(partySelection.roster),
-              decisions:this.livestockDecisions,method:leg.selectedOption.method,
-              planned:leg.livestock,surface:leg.surface,
-              carried:leg.surface==="land",disabled:locked,
-              onChange:(id,quantity)=>{
-                this.livestockDecisions={...this.livestockDecisions,[id]:quantity};
-                void this.render(true);
-              }});
+              method:leg.selectedOption.method,planned:leg.livestock,
+              surface:leg.surface,carried:leg.surface==="land",disabled:locked});
             card.append(this.renderTravelersAndPace(partySelection,availability,{
               ownedLeg:leg,singleChoice:leg.selectedOption,mountBoard}));
           }
