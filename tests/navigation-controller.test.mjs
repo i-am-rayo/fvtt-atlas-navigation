@@ -5106,15 +5106,29 @@ for(const interruptFinal of [false,true])test(interruptFinal?
       assert.equal(finalRecovery.boundedNativeArrival(record),null);
       await assert.rejects(()=>finalRecovery.recoverSavedJourneyWithNativeReview(),/stopped during native checkpoint/);
       assert.equal(game.time.worldTime,priorClock);
-      record=finalPending;
-      assert.equal(await finalRecovery.recoverSavedJourneyWithNativeReview(),true);
-      assert.equal(finalRecovery.completedRoute,true);
-      assert.deepEqual(finalRecovery.completedRecord,record);
-      assert.equal(finalRecovery.recoverableJourney,null);
-      assert.equal(finalRecovery.pendingTransfer,null);
-      assert.equal(moves,priorMoves);
+      record=structuredClone(finalPending);
+      const beforeFinalAdvance=advances;
+      failConfirmation=true;
+      await assert.rejects(()=>finalRecovery.recoverSavedJourneyWithNativeReview(),/Test confirmation write failure/);
+      assert.equal(record.status,"interrupted");
+      assert.ok(record.pendingNativeMove.arrivalEvidence);
+      assert.equal(advances,beforeFinalAdvance+1);
       assert.equal(game.time.worldTime,priorClock+finalPending.pendingNativeMove.worldAdvanceSeconds);
-      await assert.rejects(()=>finalRecovery.startGuidedTravel(),/Journey is completed/);
+      assert.equal(writes.filter(([,key,pulse])=>key==="atlasAnnouncementPulse"&&
+        pulse.type==="destination.reached").length,0,"no arrival announcement before durable completion");
+      token.movement={id:"",state:"completed"};
+      failConfirmation=false;
+      const finalReload=createController();
+      finalReload.recoverableJourney=journal;
+      assert.equal(await finalReload.recoverSavedJourneyWithNativeReview(),true);
+      assert.equal(finalReload.completedRoute,true);
+      assert.deepEqual(finalReload.completedRecord,record);
+      assert.equal(finalReload.recoverableJourney,null);
+      assert.equal(finalReload.pendingTransfer,null);
+      assert.equal(moves,priorMoves);
+      assert.equal(advances,beforeFinalAdvance+1);
+      assert.equal(game.time.worldTime,priorClock+finalPending.pendingNativeMove.worldAdvanceSeconds);
+      await assert.rejects(()=>finalReload.startGuidedTravel(),/Journey is completed/);
     }
     assert.equal(record.status,"completed");
     assert.equal(record.pendingNativeMove,null);
@@ -5123,6 +5137,7 @@ for(const interruptFinal of [false,true])test(interruptFinal?
     assert.deepEqual(record.legs[1].convoy,approved);
     assert.deepEqual(record.legs[1].participation,manifest);
     assert.equal(record.legs[1].completedPercent,100);
+    assert.equal(record.arrivedWorldTime,game.time.worldTime);
     assert.equal(token.x,to.x-50);assert.equal(token.y,to.y-50);
     assert.deepEqual(record.destination,to);
     assert.equal(record.routeTargets.nextTargetIndex,record.routeTargets.targets.length);
