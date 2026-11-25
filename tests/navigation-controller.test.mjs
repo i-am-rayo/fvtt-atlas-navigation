@@ -4824,6 +4824,17 @@ test("staffed mixed land convoy completes only its approved checkpoint leg with 
     nav.mixedAssignments={pc1:"owned|walking",pc2:"owned|cart"};
     assert.deepEqual(nav.mixedKeys,["owned|walking","owned|cart"]);
     await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    await nav.setMixedOperatedUnits("owned|cart",[]);
+    assert.equal(nav.assessTravelMethod().guided,false);
+    const flatten=n=>[n,...n.children.flatMap(flatten)];
+    const panel=flatten(await nav.renderDestinationStage());
+    assert.ok(panel.some(n=>n.textContent==="Unavailable"));
+    assert.ok(panel.some(n=>/time unavailable until travel method is valid/i.test(n.textContent)));
+    assert.equal(logs.length,0);assert.equal(nativeMoves,0);
+    globalThis.game.user.isGM=false;
+    await assert.rejects(()=>nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]),/GM/i);
+    globalThis.game.user.isGM=true;
+    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
     const plan=nav.transportationTransitionPlan();
     assert.equal(plan.legs.length,2);
     assert.equal(plan.legs[0].selectedOption.method.kind,"mixed");

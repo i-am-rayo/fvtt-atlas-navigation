@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {mixedTransportFareBreakdown} from "../scripts/navigation-currency.js";
 import {planMixedLandConvoy,validateMixedLandConvoy}
   from "../scripts/navigation-mixed-land.js";
 
@@ -269,4 +270,63 @@ test("mixed owned units use exact staffing, seats and common convoy billing day"
   assert.throws(()=>plan({...args,assignments:{...args.assignments,pc2:"owned|walking"}}),/named crew/i);
   assert.throws(()=>plan({...args,methods:[walking,{...entry,operatedUnits:[]}]}),/operating units/i);
   assert.throws(()=>plan({...args,methods:[walking,{...entry,operatedUnits:[{actorId:"cart1",unitIndex:3}]}]}),/operated unit/i);
+});
+
+test("five mixed methods share pace and billing without double staffing or fractional fare rounding",()=>{
+  const travelers=walkers.map(t=>({...t,seatsNeeded:1}));
+  const members=travelers.map(t=>({actorId:t.actorId,actorName:t.actorId,
+    actorType:t.actorId.startsWith("pc")?"character":"npc",role:"passenger",
+    quantity:1,needsSeat:true,enabled:true}));
+  members.push({actorId:"driver",actorName:"Driver",actorType:"npc",role:"crew",quantity:1,enabled:true},
+    {actorId:"guard",actorName:"Guard",actorType:"npc",role:"crew",quantity:1,enabled:true});
+  const cart={id:"cart",name:"Cart",kind:"vehicle",surface:"land",speedMph:4,capacity:2,
+    crewCount:6,crewThresholds:{minimum:3,optimal:4,excellent:5},
+    costCp:0.25,costBasis:"day",costApplies:"unit",includeCrewWages:true,
+    crewWageCpPerDay:200,crewWageBasis:"day"};
+  const wagon={...cart,id:"wagon",name:"Wagon",speedMph:5,costCp:0,
+    crewWageCpPerDay:0.1,crewWageBasis:"mile"};
+  members.push({actorId:"cartActor",actorName:"Cart",actorType:"vehicle",role:"vehicle",
+    quantity:2,capacity:2,surface:"land",profileId:"cart",enabled:true,
+    crewRoster:[{unitIndex:1,named:[{actorId:"pc2"},{actorId:"driver"}],hired:1}]},
+    {actorId:"wagonActor",actorName:"Wagon",actorType:"vehicle",role:"vehicle",
+      quantity:1,capacity:2,surface:"land",profileId:"wagon",enabled:true,
+      crewRoster:[{unitIndex:1,named:[{actorId:"guard"}],hired:0}]});
+  const projection={travelers:5,members,selectedTravelerIds:travelers.map(t=>t.actorId)};
+  const owned=(method,actorId)=>({key:"owned|"+method.id,arrangement:"owned",method,projection,
+    operatedUnits:[{actorId,unitIndex:1}]});
+  const hired={...coachMethod,serviceLevel:"full",method:{...coach,crewCount:8,
+    continuousEnabled:true,hireCrewIncluded:true,hireServiceLevels:{full:{hireCostCp:150}}}};
+  const horse={key:"owned|horse",arrangement:"owned",
+    method:{id:"horse",name:"Horse",kind:"mount",surface:"land",speedMph:4},
+    resources:[{actorId:"horseActor",quantity:1,capacity:1,speedMph:4,
+      method:{costCp:0.2,costBasis:"day",costApplies:"unit"}}]};
+  const args={travelers,assignments:{pc1:"owned|walking",pc2:"owned|cart",pc3:"owned|wagon",
+    npc1:"hire|coach-hire",npc2:"owned|horse"},
+    methods:[walking,owned(cart,"cartActor"),owned(wagon,"wagonActor"),hired,horse],
+    regularHours:6,routeDistance:25,weightedDistance:25,distanceMi:25};
+  const before=JSON.stringify(args),draft=plan(args);
+  assert.equal(draft.sharedDailyHours,6);assert.equal(draft.movingHours,25/3);
+  assert.equal(draft.travelers.length,7);
+  assert.deepEqual(draft.methods.map(m=>m.estimatedCostCp),[0,800.5,2.5,300,0.4]);
+  assert.equal(draft.methods[1].ownedApproval.passengerSeats,0);
+  assert.equal(draft.methods[1].ownedApproval.units[0].paidCrew,2);
+  assert.equal(draft.methods[2].ownedApproval.units[0].paidCrew,1);
+  assert.equal(draft.methods[3].serviceApproval.advertisedDailyHours,24);
+  assert.equal(draft.methods[3].serviceApproval.dailyHours,6);
+  assert.equal(mixedTransportFareBreakdown(draft.methods).total.payableCopper,1105);
+  assert.equal(JSON.stringify(args),before);
+  const approved=structuredClone(draft);
+  for(const m of approved.methods)if(m.ownedApproval)
+    m.ownedApproval.belowMinimumAcknowledged=m.ownedApproval.belowMinimum;
+  assert.deepEqual(validateMixedLandConvoy(approved),approved);
+  const duplicate=structuredClone(args);
+  duplicate.methods[2].projection.members.find(m=>m.actorId==="wagonActor").crewRoster[0].named=[{actorId:"driver"}];
+  assert.throws(()=>plan(duplicate),/named crew/i);
+  const stale=structuredClone(args);
+  stale.methods[1].projection.members.find(m=>m.actorId==="driver").role="ignore";
+  assert.throws(()=>plan(stale),/invalid crew/i);
+  const trip=structuredClone(args);
+  trip.methods[2].method.crewWageBasis="trip";
+  trip.methods[2].method.crewWageCpPerDay=17;
+  assert.equal(plan(trip).methods[2].ownedApproval.crewWagesCp,17);
 });
