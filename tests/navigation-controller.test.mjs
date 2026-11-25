@@ -3198,6 +3198,16 @@ test("saved B to C all-water route uses current-leg tiles rather than the old me
     const root=await nav._renderHTML();
     const find=(node,predicate)=>predicate(node)?node:
       node.children?.map(child=>find(child,predicate)).find(Boolean);
+    const routeContext=find(root,node=>node.className==="atlas-navigation-route-context");
+    const contextLabels=node=>[node.textContent,...(node.children??[]).flatMap(contextLabels)].join(" ");
+    assert.ok(routeContext,"saved onward route has an explicit current-leg context");
+    assert.match(contextLabels(routeContext),/From\s+Port Barthos.*Next stop\s+Hearth's Heart Dock.*Final destination\s+Selected map destination/);
+    assert.equal(nav.recoveryRecord.routeTargets.nextTargetIndex,2);
+    game.user.isGM=false;
+    const playerView=await nav._renderHTML();
+    assert.equal(find(playerView,node=>node.className==="atlas-navigation-route-context"),undefined,
+      "the new GM-only route context must not disclose saved checkpoint or destination metadata");
+    game.user.isGM=true;
     const tiles=find(root,node=>node.className==="atlas-navigation-methods");
     assert.ok(tiles,"the onward water leg uses the same method cards as land");
     const ship=find(tiles,node=>node.tag==="input"&&node.value==="hire|ship-passage");
@@ -4193,12 +4203,14 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
       assert.equal(leg.serviceQuote.livestockFareCp,amount);
       assert.equal(leg.livestock.estimatedFareCp,amount);
       const panel=labels(await nav.renderDestinationStage());
+      assert.match(panel,/From\s+Dock.*Next stop\s+Port.*Final destination\s+Selected map destination/);
       assert.ok(panel.includes("Physical mount boarding: "+amount+" CP"));
       assert.ok(panel.includes(policy));
       assert.ok(panel.includes(total));
       globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
         dialogCount++;
         const summary=labels(options.content);
+        assert.match(summary,/From\s+Dock.*Next stop\s+Port.*Final destination\s+Selected map destination/);
         assert.ok(summary.includes("Base transportation 20.2 CP"));
         assert.ok(summary.includes("Physical mount boarding "+amount+" CP"));
         assert.equal((summary.match(/Physical mount boarding/g)??[]).length,1);
@@ -4236,6 +4248,7 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
       const summary=labels(options.content);
       assert.match(summary,/Previously approved — no new fare/);
       assert.match(summary,/Warhorse ×1.*Previously approved fare/);
+      assert.match(summary,/From\s+Dock.*Next stop\s+Port.*Final destination\s+Selected map destination/);
       assert.doesNotMatch(summary,/Fare breakdown|World default 200%|5\.05 CP/);
       assert.equal(options.yes?.label,"Resume leg");
       assert.equal(options.no?.label,"Back to plan");
@@ -4860,6 +4873,7 @@ test("ordinary owned Cart selects exact units, reviews staffing and retains its 
     const snapshotBefore=JSON.stringify(token.actor),mountWrites=journals.length;
     const assertMountReview=(options,recovered)=>{
       const summary=labels(options.content);
+      assert.match(summary,/From\s+Party departure point.*Next stop\s+Selected map destination.*Final destination\s+Selected map destination/);
       assert.match(summary,/Riding Horse ×1 \(1 mounts? · /);
       assert.match(summary,/Animal accommodation: 1 spaces? per vehicle/);
       assert.match(summary,/Staying behind: Riding Horse ×1/);
