@@ -4249,6 +4249,32 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     assert.deepEqual(journals[1].legs[0].participation.people.map(p=>[p.actorId,p.traveling,p.seats]),
       [["pc",false,1],["sailor",true,0]]);
     nav.partySelectionMode="all";nav.partySelectedIds=[];
+    // Resume an interrupted approved departure with changed wage policy.
+    // No native movement occurred yet, so its verified start anchor is intact.
+    const fullRoute=nav.result;
+    const saved=structuredClone(journals[0]);saved.status="interrupted";
+    nav.recoveryRecord=saved;nav.recoveryJournal={id:"existing-journey"};
+    nav.result={...fullRoute,end:to,distance:60,cost:60,legs:[fullRoute.legs[0]]};
+    nav.end=to;nav.travelMethod="warship";nav.transportArrangement="owned";
+    const storedShip=owned.groups.group1.members.ship;
+    storedShip.crewPolicyOverride.crewWageCpPerDay=900;
+    const restored=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(restored.ownedApproval,recorded.transport.ownedApproval);
+    assert.equal(restored.costCp,0);
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,3);
+    const continued=journals[2].legs.at(-1);
+    assert.deepEqual(continued.transport.ownedApproval,recorded.transport.ownedApproval);
+    assert.deepEqual(continued.participation,recorded.participation);
+    assert.equal(continued.transport.estimatedFareCp,0);
+    assert.equal(continued.transport.continuation,true);
+    const removed=token.actor.system.members.splice(1,1)[0];
+    await assert.rejects(()=>nav.startGuidedTravel(),/roster changed|crew/i);
+    assert.equal(journals.length,3);
+    token.actor.system.members.splice(1,0,removed);
+    storedShip.crewPolicyOverride.crewWageCpPerDay=200;
+    nav.recoveryRecord=null;nav.recoveryJournal=null;
+    nav.result=fullRoute;nav.end=end;nav.travelMethod="walking";
     assert.equal(leg.ownedDraft.belowMinimum,true);
     assert.equal(leg.ownedDraft.belowMinimumAcknowledged,undefined);
     assert.equal(leg.ownedApproval,undefined);
