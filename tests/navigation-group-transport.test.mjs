@@ -670,3 +670,46 @@ test("explicit owned unit quote separates crew from passenger seats and bills se
   assert.equal(other.amount,6300);
   assert.equal(JSON.stringify(projection),original,"quotes do not alter Group projection");
 });
+
+test("explicit owned vehicle selection uses only operated hulls for seats, crew, pace and upkeep",()=>{
+  const npc=actor("npc1","Sailor","npc"),rider=actor("pc2","Passenger","character");
+  const other=actor("ship2","Other Warship","vehicle",{passengers:{max:60}});
+  const native=group([pc,rider,npc,warship,other]);
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",speedMph:5,
+    crewCount:60,costCp:100,costBasis:"day",costApplies:"unit",crewWageCpPerDay:200,
+    crewWageBasis:"day",includeCrewWages:true};
+  const saved=setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:{role:"unassigned",quantity:2,capacity:1,surface:"water",profileId:"warship",
+      crewRoster:[{unitIndex:1,named:[{actorId:"pc1"},{actorId:"npc1"}],hired:30},
+        {unitIndex:2,named:[],hired:10}],speedMphOverride:4},
+    ship2:{role:"unassigned",quantity:1,capacity:60,surface:"water",profileId:"warship",
+      speedMphOverride:2,crewRoster:[]},
+    npc1:{role:"passenger",quantity:1,capacity:null,surface:"water"}
+  });
+  const projection=projectGroupTransportation(native,saved,[method]);
+  const original=JSON.stringify(projection);
+  const operatedUnits=[{actorId:"ship1",unitIndex:1}];
+  const capacity=groupMethodCapacityStatus(projection,method,{operatedUnits});
+  assert.equal(capacity.sufficient,true);
+  assert.equal(capacity.travelers,1);
+  assert.equal(capacity.seats,1);
+  assert.equal(capacity.quantity,1);
+  assert.equal(capacity.effectiveSpeedMph,4);
+  assert.deepEqual(capacity.namedCrewIds,["pc1","npc1"]);
+  assert.equal(capacity.belowMinimum,false);
+  const otherUnit=groupMethodCapacityStatus(projection,method,{operatedUnits:[{actorId:"ship1",unitIndex:2}]});
+  assert.equal(otherUnit.sufficient,false);
+  assert.equal(otherUnit.missing,2);
+  assert.equal(otherUnit.belowMinimum,true);
+  const empty=groupMethodCapacityStatus(projection,method,{operatedUnits:[{actorId:"ship2",unitIndex:1}]});
+  assert.equal(empty.belowMinimum,true);
+  const legacy=groupMethodCapacityStatus(projection,method);
+  assert.equal(legacy.quantity,3);
+  assert.equal(legacy.effectiveSpeedMph,2);
+  const fare=groupMethodFareEstimate(projection,method,{hours:24,distanceMi:96,dayHours:8,operatedUnits});
+  assert.equal(fare.amount,18900);
+  assert.equal(fare.unseated,capacity.missing);
+  assert.throws(()=>groupMethodCapacityStatus(projection,method,{operatedUnits:[]}),/unit/i);
+  assert.throws(()=>groupMethodCapacityStatus(projection,method,{operatedUnits:[{actorId:"ship1",unitIndex:3}]}),/unit/i);
+  assert.equal(JSON.stringify(projection),original);
+});
