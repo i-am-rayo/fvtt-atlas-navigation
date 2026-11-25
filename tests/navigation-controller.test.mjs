@@ -36,6 +36,10 @@ globalThis.foundry=previousFoundry;
 
 installNativeJourneyFixture(AtlasNavigationController);
 
+const approvalDocument=()=>({createElement:tag=>({tag,style:{},textContent:"",children:[],
+  append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);}})});
+const approvalNodes=node=>[node,...(node.children??[]).flatMap(approvalNodes)];
+
 const point=(x,y)=>({x,y});
 const pointer=(x,y,flags={})=>({button:0,clientX:x,clientY:y,
   shiftKey:false,altKey:false,ctrlKey:false,metaKey:false,
@@ -1863,9 +1867,10 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
       hireCostCp:250,hireBasis:"day",hireApplies:"unit",
       continuousEnabled:true}}];
     const writes=[],dialogTitles=[];
-    let approve=false;
+    let approve=false,advanceClock=false;
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
-      settings:{get:()=>undefined}};
+      users:{activeGM:{id:"other-gm",name:"Other GM"}},
+      settings:{get:(_m,key)=>key==="guidedTravelAdvanceWorldTime"?advanceClock:undefined}};
     globalThis.PIXI=undefined;
     globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
       append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;}})};
@@ -1880,6 +1885,13 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
       assert.match(labels,/1 EP · 1 SP · 3 CP/);
       assert.equal(options.yes?.label,"Start leg");
       assert.equal(options.no?.label,"Back to plan");
+      assert.ok(items.some(n=>n.className==="atlas-transport-approval"),"single land uses standard summary");
+      for(const label of ["Method","Travelers","Units","Cost","Total travelers","Group travel speed",
+        "Estimated moving time","Estimated transportation cost"])
+        assert.ok(items.some(n=>n.textContent===label),label);
+      assert.ok(items.some(n=>n.textContent==="Cart (hired)"));
+      assert.ok(items.some(n=>n.textContent==="1"));
+      assert.ok(items.some(n=>n.textContent==="3.00 mph"));
       dialogTitles.push(options.window.title);return approve;
     }}}}};
     const token={id:"party",x:-50,y:-50,width:1,height:1,actor:null,
@@ -1934,6 +1946,11 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
       "the unapproved default contains no separate continuous choice");
     assert.equal(nav.resolveTravelRules({methodId:"cart"}).dailyHours,null,
       "the effective offered Cart automatically determines the continuous plan");
+    advanceClock=true;
+    await assert.rejects(nav.startGuidedTravel(),/active GM/);
+    assert.equal(dialogTitles.length,0,"inactive GM is blocked before presenting an approval");
+    assert.equal(token.moves,0);assert.equal(writes.length,0);
+    advanceClock=false;
     assert.equal(await nav.startGuidedTravel(),false,
       "declining the explicit GM hire leaves the Journey unchanged");
     assert.equal(token.moves,0);assert.equal(writes.length,0);
@@ -1947,13 +1964,27 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
       {id:"a",name:"Alba",type:"character",seats:1},
       {id:"b",name:"Kori",type:"character",seats:1}],
       selectedIds:nav.partySelectionMode==="selected"?["a"]:["a","b"],
+      travelerCount:nav.partySelectionMode==="selected"?1:2,
       empty:false,partial:nav.partySelectionMode==="selected"});
-    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+    globalThis.foundry.applications.api.DialogV2.confirm=async({content})=>{
+      assert.ok(approvalNodes(content).some(n=>n.textContent==="Alba, Kori"));
+      assert.ok(approvalNodes(content).some(n=>n.textContent==="2"));
       nav.partySelectionMode="selected";return true;};
     await assert.rejects(()=>nav.startGuidedTravel(),/participation changed|selection changed/,
       "late selection changes must fail before native move or Journal writes");
     assert.equal(token.moves,0);assert.equal(writes.length,0);
     nav.partySelectionMode="all";nav.partyTravelSelection=originalPartySelection;
+    advanceClock=true;
+    game.users.activeGM={id:"gm",name:"Current GM"};
+    game.time={advance:async()=>{throw Error("Unexpected clock write");}};
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      game.users.activeGM={id:"other-gm",name:"Other GM"};
+      return true;
+    };
+    await assert.rejects(nav.startGuidedTravel(),/active GM/);
+    assert.equal(token.moves,0,"active GM handoff cannot launch movement");
+    assert.equal(writes.length,0,"active GM handoff cannot create a Journal");
+    advanceClock=false;
     globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
       dialogTitles.push(options.window.title);return true;};
     approve=true;
@@ -3407,6 +3438,9 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
       assert.match(labels,/No passengers board/);
       assert.equal(options.yes?.label,"Start leg");
       assert.equal(options.no?.label,"Back to plan");
+      assert.ok(items.some(n=>n.className==="atlas-transport-approval"),"cargo uses standard summary");
+      assert.ok(items.some(n=>n.textContent==="Cargo only"));
+      assert.ok(items.some(n=>n.textContent==="Traveler"));
       available=0;return true;
     }}}}};
     const group={id:"group1",type:"group",name:"Party",system:{members:[

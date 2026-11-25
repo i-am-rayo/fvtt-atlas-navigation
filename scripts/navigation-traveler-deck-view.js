@@ -5,6 +5,7 @@ const el=(tag,text)=>{const n=document.createElement(tag);
   if(text!==undefined)n.textContent=String(text);return n;};
 const css=(node,style)=>{node.style.cssText=style;return node;};
 import {travelMethodIconClass} from "./navigation-selection-view.js";
+import {compareAtlasLabels} from "./settings-select.js";
 
 /** A single method uses checkboxes; multiple methods expose drag destinations
  * plus a compact per-person keyboard alternative. All names appear once.
@@ -65,7 +66,8 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
       move.style.cssText="min-width:1.6rem;padding:.1rem .25rem;";
       const chooser=el("select");chooser.hidden=true;
       chooser.setAttribute?.("aria-label","Destination method for "+t.name);
-      for(const method of methods){
+      for(const method of [...methods].sort((a,b)=>
+        compareAtlasLabels(a.name,b.name)||compareAtlasLabels(a.key,b.key))){
         const opt=el("option",method.name);opt.value=method.key;chooser.append(opt);
       }
       const stay=el("option","Not traveling");stay.value="";chooser.append(stay);

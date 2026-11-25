@@ -26,7 +26,7 @@ test("both native cost dialogs can reuse one prompt without writing Behaviors",a
     assert.equal(action,actions[1]);
     assert.equal(dialog.content.children[1].name,"atlasMovementAction");
     assert.equal(dialog.content.children[1].children[0].attributes.get("selected"),"");
-    assert.deepEqual(dialog.content.children[1].children.map(item=>item.value),["","walk","fly"]);
+    assert.deepEqual(dialog.content.children[1].children.map(item=>item.value),["","fly","walk"]);
     globalThis.foundry.applications.api.DialogV2.input=async()=>null;
     assert.equal(await promptNativeMovementAction({title:"Select",message:"Cost",actions}),null);
     globalThis.foundry.applications.api.DialogV2.input=async()=>({atlasMovementAction:"nope"});

@@ -65,7 +65,6 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     this.scene = scene;
     this.actions = actions;
     this.activeSection = "overview";
-    this._scrollY = 0;
     this.surfaceExpansion = new Set();
     this.travelSettingsTab = "rules";
     this.directoryState = {open:new Set(), filters:{}};
@@ -76,7 +75,6 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
   _showSection(id) {
     if (this.activeSection === id) return;
     this.activeSection = id;
-    this._scrollY = 0;
     return this.render(true);
   }
 
@@ -93,7 +91,6 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
 
   async _renderHTML() {
     assertEditable(this.scene);
-    this._scrollY = this.element?.querySelector?.("[data-atlas-workspace-scroll]")?.scrollTop ?? this._scrollY;
     const atlas = readAtlas(this.scene);
     const nativeRegions = listSceneRegions(this.scene);
     const generated = listGeneratedRegions(this.scene);
@@ -114,16 +111,20 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       tab.className = "atlas-workspace-tab";
       tab.setAttribute("aria-current", section === id ? "page" : "false");
       tab.setAttribute("data-atlas-workspace-tab", id);
+      tab.dataset.atlasWorkspaceFocus="section:"+id;
       sidebar.appendChild(tab);
     }
     const main = make("main", undefined, "atlas-workspace-content");
     main.setAttribute("data-atlas-workspace-scroll", "");
+    main.dataset.atlasWorkspaceSection=this.activeSection;
     const heading = make("header", undefined, "atlas-workspace-heading");
     const title = make("div");
     title.appendChild(make("h2",section==="directory"?"Map directory":section==="settings"?"Settings":"Scene Overview"));
     title.appendChild(make("p", `Scene: ${this.scene.name ?? this.scene.id}`, "hint"));
     heading.appendChild(title);
-    heading.appendChild(action("Refresh", "Read current Scene and native Region records", () => this.render(true)));
+    const reload=action("Refresh", "Read current Scene and native Region records", () => this.render(true));
+    reload.dataset.atlasWorkspaceFocus="refresh";
+    heading.appendChild(reload);
     main.appendChild(heading);
 
     const refresh = () => (!this.rendered || this.minimized) ?
@@ -139,19 +140,22 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
       for (const [id,label] of entries) {
         const control = action(label,label,()=>this._showSection(id));
         control.setAttribute("aria-current",this.activeSection===id?"page":"false");
+        control.dataset.atlasWorkspaceFocus="view:"+id;
         container.appendChild(control);
       }
     };
     if (directoryActive) {
       const toolbar = make("div",undefined,"atlas-directory-toolbar");
       const create = make("div",undefined,"atlas-directory-creation");
-      create.appendChild(make("strong","Create"));
+      create.setAttribute("role","group");
+      create.setAttribute("aria-label","Create Atlas items on the current Scene");
+      create.appendChild(make("strong","Create on Scene"));
       addControls(create);
       toolbar.appendChild(create);
       main.appendChild(toolbar);
       const views = make("nav",undefined,"atlas-directory-views");
       views.setAttribute("aria-label","Directory views");
-      views.appendChild(make("strong","View"));
+      views.appendChild(make("strong","Browse"));
       links(views,directoryViews);
       for(const item of views.querySelectorAll?.("button")??[])
         item.setAttribute("aria-pressed",String(item.getAttribute("aria-current")==="page"));
@@ -309,9 +313,25 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
   }
 
   _replaceHTML(result, content) {
+    const selector="[data-atlas-workspace-scroll]";
+    const previous=content.querySelector?.(selector);
+    const previousSection=previous?.dataset.atlasWorkspaceSection;
+    const previousScroll=previous?.scrollTop??0;
+    // Restore only explicitly identified controls owned by this Workspace.
+    // Never pull focus out of another modeless editor after a background refresh.
+    const active=document.activeElement;
+    const key=content.contains?.(active)?active?.dataset?.atlasWorkspaceFocus:null;
+    const selection=key&&active.type==="search"&&Number.isInteger(active.selectionStart)?
+      [active.selectionStart,active.selectionEnd,active.selectionDirection]:null;
     content.replaceChildren(result);
-    const scroll = content.querySelector?.("[data-atlas-workspace-scroll]");
-    if (scroll) scroll.scrollTop = this._scrollY;
+    const scroll=content.querySelector?.(selector);
+    if(scroll)scroll.scrollTop=previousSection===scroll.dataset.atlasWorkspaceSection?previousScroll:0;
+    if(!key)return;
+    const target=Array.from(content.querySelectorAll?.("[data-atlas-workspace-focus]")??[])
+      .find(node=>node.dataset.atlasWorkspaceFocus===key&&!node.disabled);
+    if(!target)return;
+    target.focus({preventScroll:true});
+    if(selection&&target.type==="search")target.setSelectionRange?.(...selection);
   }
 
   _onClose(options) {

@@ -5,7 +5,7 @@ import { readPlayerTerritorySharing } from "./player-territory-sharing.js";
 import { readPendingTerritoryCellTransfer } from "./territory-grid-transfer.js";
 import { GEOGRAPHY_KINDS } from "./territory-geography-model.js";
 import { CHECKPOINT_TYPE_GROUPS, CHECKPOINT_TYPES, CHECKPOINT_TYPE_FLAG, validateCheckpointCategories } from "./checkpoint-types.js";
-import { createSettingsGroupedSelect } from "./settings-select.js";
+import { createSettingsGroupedSelect,alphabetizeSettingsOptions } from "./settings-select.js";
 import { MODULE_ID } from "./atlas-storage.js";
 import {roadAppearanceMode,readWorldRoadAppearance,resolveRoadAppearance} from "./road-appearance.js";
 import {nativeRegionColorHex} from "./native-region-color.js";
@@ -83,10 +83,13 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     }
     return groups;
   }
+  const filterControls=new Map();
   function input(label, control, key, event) {
+    filterControls.set(key,control);
     const field = element("label");
     field.appendChild(element("span",label));
     control.setAttribute("aria-label",label);
+    control.dataset.atlasWorkspaceFocus="directory:"+view+":"+key;
     field.appendChild(control);
     filters.appendChild(field);
     control.value = saved[key];
@@ -97,7 +100,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   }
   function select(label, key, options) {
     const control = element("select");
-    for (const [id, name] of [["","All"], ...options]) {
+    for (const [id, name] of alphabetizeSettingsOptions([["","All"], ...options])) {
       const option = element("option", name);
       option.value = id;
       control.appendChild(option);
@@ -122,6 +125,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   const searchGroup=element("label");
   searchGroup.className="atlas-directory-search";
   search.setAttribute("aria-label","Search map records");
+  search.dataset.atlasWorkspaceFocus="directory:"+view+":search";
   search.value=saved.query;
   searchGroup.appendChild(search);
   const icon=element("i");
@@ -130,6 +134,20 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
   searchGroup.appendChild(icon);
   filters.appendChild(searchGroup);
   search.addEventListener("input",()=>{saved.query=search.value;draw();});
+  const clear=element("button","Clear filters");
+  clear.type="button";
+  clear.className="atlas-directory-clear-filters";
+  clear.addEventListener("click",()=>{
+    for(const key of ["query","type","place"])saved[key]="";
+    search.value="";
+    for(const key of ["type","place"]){
+      const control=filterControls.get(key);
+      if(control)control.value="";
+    }
+    draw();
+    search.focus();
+  });
+  filters.appendChild(clear);
 
   function group(key,label,expanded,subtitle="",expandable=true) {
     const details=element(expandable?"details":"div");
@@ -141,6 +159,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     const summary=element(expandable?"summary":"div");
     if(!expandable)summary.className="atlas-directory-row-heading";
     if(expandable){
+      summary.dataset.atlasWorkspaceFocus=JSON.stringify(["directory",view,key,"disclosure"]);
       const chevron=element("i");
       chevron.className="fa-solid fa-chevron-right atlas-directory-chevron";
       chevron.setAttribute("aria-hidden","true");
@@ -222,26 +241,6 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     row._atlasSummaryIdentity.insertBefore(symbol(type,item),
       row._atlasSummaryIdentity.children[0]??null);
   }
-  // These launch the original creation tools; no Road/Territory association
-  // is inferred from the directory group where the GM clicked Plus.
-  function addShortcut(section,type){
-    const handler={territory:"createNativeTerritory",road:"begin",
-      checkpoint:"beginCheckpoint"}[type];
-    const label={territory:"Add Territory (choose its location and type)",
-      road:"Add Road (draw on the Scene)",
-      checkpoint:"Add Map Marker (choose its position and Road attachment)"}[type];
-    if(!handler||typeof actions[handler]!=="function")return;
-    const button=createSettingsActionButton({icon:"plus",label,
-      onClick:async event=>{
-        event.preventDefault?.();
-        event.stopPropagation?.();
-        try{await actions[handler](scene,refresh);}
-        catch(error){ui.notifications.error(error.message??String(error));}
-      }});
-    button.classList?.add?.("atlas-directory-shortcut");
-    button.disabled=Boolean(actions.draft?.(scene)||pending);
-    section.children[0].appendChild(button);
-  }
   function tools(parent, item, type) {
     const bar = element("span");
     bar.className = "atlas-directory-actions";
@@ -256,6 +255,11 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
           catch (error) { ui.notifications.error(error.message??String(error)); }
           finally {control.disabled=false;}
         }});
+      // The icon can change with visibility or road-link state; the action cannot.
+      const action=["eye","eye-slash"].includes(icon)?"visibility":
+        ["link","unlink"].includes(icon)?"road-link":icon;
+      control.dataset.atlasWorkspaceFocus=JSON.stringify([
+        "directory",view,parent.dataset.atlasDirectoryKey,action]);
       return bar.appendChild(control);
     }
     if (type === "territory") {
@@ -338,6 +342,7 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     const query = saved.query.trim().toLocaleLowerCase();
     const matches = item => !query || item.name.toLocaleLowerCase().includes(query);
     const filtered = Boolean(query || saved.type || saved.place);
+    clear.disabled=!(saved.query || saved.type || saved.place);
     function itemRow(item,type,path){
       const mode=type==="road"?roadAppearanceMode(item,presets):null;
       const subtitle=type==="road"?
@@ -374,7 +379,6 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
           row.appendChild(list);
         }
       }
-      if(type==="road")addShortcut(row,"checkpoint");
       tools(row,item,type);
       if(type==="road"){
         const children=attached.map(marker=>itemRow(marker,"checkpoint",path+"/road/"+item.id));
@@ -386,7 +390,6 @@ export function createMapDirectory({scene, atlas, actions, refresh, locate, stat
     function section(key,label,entries,type,path){
       if(!entries.length)return null;
       const node=group(key,label+" ("+entries.length+")",Boolean(query));
-      addShortcut(node,type);
       const rows=entries.map(item=>type==="territory"?item:itemRow(item,type,path));
       node.append(...rows);
       collectCounts(node,rows);

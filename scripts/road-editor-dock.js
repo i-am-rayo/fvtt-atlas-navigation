@@ -180,7 +180,7 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       ? "Choose a map location for a Map Marker. Road attachment requires confirmation."
       : draft.mode==="points"
       ? "Drag Road points to change their shape. Changes stay in this draft until Save Points."
-      : "Click the map to draw the Road. Finish Road saves; Cancel discards.";
+      : "Click at least two map points to draw the Road. Finish Road saves it and opens Road Settings. Cancel discards the draft.";
     root.appendChild(guidance);
     const gestures=draft.mode==="points"?
       [["Drag","Move a bend or a junction"],
@@ -229,7 +229,7 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       const summary = element("div");
       summary.className="atlas-road-editor-summary";
       summary.appendChild(element("strong", options.name));
-      summary.appendChild(element("p", "Road settings were configured before drawing. Add two or more points, then finish to save."));
+      summary.appendChild(element("p", "Draw at least two Road points, then Finish Road to save. Configure its name, preset, appearance and linked Journal in Road Settings afterward."));
       root.appendChild(summary);
     }
 

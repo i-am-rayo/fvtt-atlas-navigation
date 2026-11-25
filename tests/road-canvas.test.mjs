@@ -1318,6 +1318,29 @@ test("drag handles preview without writes; undo, cancel, and save are reversible
  } finally {m.controller.tearDown();Object.assign(globalThis,prev);}
 });
 
+test("map-first Road authoring reports the exact persisted Road ID after save",async()=>{
+ const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+ const m=setup();
+ const created=[];
+ try{
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Graphics:m.Graphics};
+  m.controller.start(m.scene,()=>{},null,id=>created.push(id));
+  assert.deepEqual(created,[],"starting a Road never produces a saved identity");
+  m.listeners.get("pointerdown")(pointEvent(20,30));
+  assert.equal(await m.controller.finish(),false,"one point cannot create a Road");
+  assert.deepEqual(created,[]);
+  m.listeners.get("pointerdown")(pointEvent(70,80));
+  assert.deepEqual(created,[],"drawing remains transient");
+  assert.equal(await m.controller.finish(),true);
+  const stored=readAtlas(m.scene);
+  assert.deepEqual(created,[stored.roads[0].id],
+    "post-save Road Settings receives an authoritative returned ID, not the name");
+  assert.equal(await m.controller.finish(),false,"a completed draft cannot fire a second handoff");
+  assert.equal(created.length,1);
+ }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
+});
+
 test("Locate Road receives active uncommitted geometry, never the saved copy",async()=>{
  const prev={game:globalThis.game,PIXI:globalThis.PIXI};
  const m=setup();

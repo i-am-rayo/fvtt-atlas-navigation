@@ -444,7 +444,9 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
       recurringCp:cost,crewWagesCp:wages,crewDays,crewWageBasis:effective.crewWageBasis??"day",amount:cost+wages,
       ...(crewUnits?{crewUnits,requiredCrew:crewUnits.reduce((sum,unit)=>sum+unit.requiredCrew,0),
         staffedCrew:crewUnits.every(unit=>unit.configured)?crewUnits.reduce((sum,unit)=>sum+unit.staffedCrew,0):null,
-        paidCrew:crewUnits.reduce((sum,unit)=>sum+unit.paidCrew,0)}:{})});
+        paidCrew:crewUnits.reduce((sum,unit)=>sum+unit.paidCrew,0)}:{
+        requiredCrew:(effective.crewCount??0)*member.quantity,
+        paidCrew:effective.includeCrewWages?(effective.crewCount??0)*member.quantity:0})});
   }
   return {amount,breakdown,unseated:remaining,
     quantity:breakdown.reduce((sum,item)=>sum+item.quantity,0),

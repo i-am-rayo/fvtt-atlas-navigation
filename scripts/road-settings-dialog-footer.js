@@ -23,9 +23,10 @@ export function arrangeRoadDialogFooter(dialog) {
   if(visible)footer.insertBefore(visible,save);
   footer.insertBefore(edit,save);
   footer.insertBefore(connection,save);
+  remove.className=(remove.className??"")+" atlas-editor-danger";
+  footer.insertBefore(remove,save);
+  cancel.className="atlas-editor-cancel";
   footer.insertBefore(cancel,save);
-  // Destructive action comes last in both visual and keyboard DOM order.
-  footer.appendChild(remove);
   // Keep the original submit button and its form ownership authoritative.
   save.title="Save Road";
   save.setAttribute("aria-label","Save Road");
@@ -34,7 +35,10 @@ export function arrangeRoadDialogFooter(dialog) {
   icon.className="fa-solid fa-floppy-disk";
   icon.setAttribute("aria-hidden","true");
   save.appendChild(icon);
-  save.classList.add("atlas-ui-icon-button","atlas-ui-icon-button--footer");
+  const label=dialog.element.ownerDocument.createElement("span");
+  label.textContent="Save Road";
+  save.appendChild(label);
+  save.classList.add("atlas-editor-primary");
   bar.style.display="none";
   return save;
 }

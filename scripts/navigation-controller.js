@@ -97,7 +97,7 @@ import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
 import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote,
   renderNavigationTransportApproval,describeJourneyMountFare,describeOwnedUnitStaffing,
-  describeTransportationFareRows,renderNavigationRouteContext}
+  describeTransportationFareRows,renderNavigationRouteContext,describeJourneyCrewEstimate}
   from "./navigation-transport-summary-view.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
@@ -3269,6 +3269,22 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.calculateRoute(view,atlas);this.draw();void this.render(true);
       throw Error("The party moved since the preview. Select transportation on the refreshed route.");
     }
+    // Preserve the accepted RC.1 active-GM guard before any approval, and
+    // recheck immediately before Journey creation.
+    const verifyWorldClock=()=>{
+      const enabled=readNavigationWorldClockSetting(game.settings);
+      if(enabled){
+        const activeGM=game.users?.activeGM;
+        if(activeGM?.id!==game.user?.id||!game.user?.isGM)
+          throw Error("Only Foundry's active GM can advance World time during an Atlas journey. "+
+            (activeGM?.name?"Current active GM: "+activeGM.name+". ":"")+
+            "Use the active GM session, or deliberately disable World-time advancement in Atlas World settings.");
+        if(typeof game.time?.advance!=="function")
+          throw Error("Foundry World time is unavailable for guided travel.");
+      }
+      return enabled;
+    };
+    verifyWorldClock();
     let guidedLeg=null,guidedOption=null,reviewedCheckpointLeg=null;
     let ownedRouteSignature=null;
     let approvedLivestock=null,approvedLandService=null,approvedLandOwned=null;
@@ -3330,6 +3346,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const ownedDraft=ordinaryOwned?.ownedDraft??null;
       const historicalOwned=approvedLandMethod?.ownedApproval??null;
       const reviewedOwned=historicalOwned??ownedDraft;
+      const landRoute=this.result,landArrangement=this.transportArrangement;
       const landRouteSignature=JSON.stringify(this.result);
       const landLivestock=resumingApprovedLand?null:
         ordinaryOwned?.operatedUnits!==undefined?
@@ -3446,6 +3463,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             "Operating schedule: "+selectedOperation+" · "+(rules.dailyHours??24)+"h/day",
             approvedLandService?"Hired service: "+approvedLandService.serviceLevel+" · "+
               approvedLandService.advertisedCrew+" advertised crew per unit":null,
+            !prior?describeJourneyCrewEstimate(quote):null,
             absent.length?"Not traveling: "+absent.map(p=>p.name).join(", "):null,
             mountDetails,manifest?"Animal accommodation: "+(manifest.capacityPerUnit===null?
               "unlimited by default":manifest.capacityPerUnit+" spaces per vehicle"):null,
@@ -3472,7 +3490,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           this.canvasProvider()?.scene?.id!==view.scene?.id||
           this.travelSession||this.journalStarting||this.suspendedNativeSession||this.pendingTransfer||
           this.scene?.id!==view.scene?.id||this.atlasProvider(this.scene).revision!==this.routeRevision||
-          this.getPartyToken()?.id!==token.id||!liveMethod||
+          this.getPartyToken()?.id!==token.id||!liveMethod||this.result!==landRoute||
+          this.travelMethod!==method.id||this.transportArrangement!==landArrangement||
           this.plannedTravelOperation(liveMethod)!==selectedOperation)
         throw Error("The Scene, token or operating schedule changed during confirmation.");
       const current=this.atlasPoint(view,atlas,
@@ -3695,6 +3714,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           approvedService?"Hired service: "+approvedService.serviceLevel+" · "+approvedService.advertisedCrew+
             " advertised crew per unit · "+approvedService.dailyHours+"h/day"+(guidedLeg.transport.continuation?
               " (previously approved; no new fare)":""):null,
+          ...(!ownedService&&!continuing?[describeJourneyCrewEstimate(quote)]:[]),
           ...(ownedService?ownedService.units.map(describeOwnedUnitStaffing):[]),
           ownedService?"Passenger seats: "+ownedService.passengerSeats+" / "+ownedService.passengerCapacity:null,
           "Operating schedule: "+(info.operation??"normal")+" · "+
@@ -3870,13 +3890,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       arrivalCheckpointId:guidedLeg?.checkpoint?.id??null}):null;
     if(nativePlan&&Math.abs(nativePlan.totalDistance-totalDistance)>1e-3)
       throw Error("The native and approved route distances disagree.");
-    const advanceWorldTime=readNavigationWorldClockSetting(game.settings);
-    if(advanceWorldTime){
-      if(game.users?.activeGM?.id!==game.user?.id||!game.user?.isGM)
-        throw Error("Only Foundry's active GM can advance World time during an Atlas journey.");
-      if(typeof game.time?.advance!=="function")
-        throw Error("Foundry World time is unavailable for guided travel.");
-    }
+    const advanceWorldTime=verifyWorldClock();
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
       playbackSecondsPerHour:playback.secondsPerHour,visualRestHold:null,
@@ -5846,6 +5860,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 "hired service":"party-owned transport")+" estimate: "+
                 formatMoney(quote.totalCp),
               breakdown:[
+                ...(!ordinaryOwned?.ownedDraft?[describeJourneyCrewEstimate(quote)].filter(Boolean):[]),
                 ...describeTransportationFareRows(quote,{owned:quote.arrangement==="owned",livestock:ordinaryOwned?.livestock})
                   .map(([label,value])=>label+": "+value),
                 ...(mountDetails?[mountDetails]:[]),
@@ -6003,6 +6018,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               "hired service":"party-owned transport")+" estimate: "+
               formatMoney(fare.totalCp),
             breakdown:[
+              ...(!leg.ownedDraft?[describeJourneyCrewEstimate(fare)].filter(Boolean):[]),
               ...describeTransportationFareRows(fare,{owned:fare.arrangement==="owned",livestock:leg.livestock})
                 .map(([label,value])=>label+": "+value),
               ...(mountDetails?[mountDetails]:[]),

@@ -281,7 +281,8 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
       preset?.event?.kind??"none"));
     terrain.appendChild(el("small","No automatic event triggers, random rolls or encounter spawning are enabled by this preset."));
 
-    const transportEditor=createCheckpointTransportationEditor({offers:preset?.transportation??[]});
+    const transportEditor=createCheckpointTransportationEditor({offers:preset?.transportation??[],
+      draftTarget:"Map Marker preset",saveLabel:"Save preset"});
     sections.get("Transportation").append(transportEditor.element);
     for(const panel of sections.values())body.appendChild(panel);
     const footer=el("div");
@@ -329,7 +330,7 @@ export class AtlasCheckpointPresetEditor extends foundry.applications.api.Applic
     save.addEventListener("click",()=>void saveValue());
     footer.append(save);root.append(body,footer);showTab();
     this._saveDraft=saveValue;
-    this._isDirty=trackSettingsChanges(root,()=>({iconId}));
+    this._isDirty=trackSettingsChanges(root,()=>({iconId,transportation:transportEditor.getOffers()}));
     return root;
   }
   _replaceHTML(result,content){content.replaceChildren(result);}

@@ -204,6 +204,18 @@ test("GM palette starts with player preview and omits the publication roster",as
   try{
     const window=new AtlasLayersWindow(controller);
     const gm=await window._renderHTML();
+    const previewToggle=all(gm).find(e=>e.textContent==="Preview Published Territories");
+    assert.ok(previewToggle,"GM can enter player preview");
+    assert.equal(previewToggle.attributes["aria-pressed"],"false",
+      "preview button exposes its active state to assistive technology");
+    controller.playerPreview=true;
+    const active=await window._renderHTML();
+    const exit=all(active).find(e=>e.textContent==="Exit Territory Preview");
+    assert.equal(exit?.attributes["aria-pressed"],"true",
+      "active preview has an explicit exit control");
+    assert.ok(all(active).some(e=>e.attributes?.role==="status" &&
+      /only shared.*published/i.test(e.textContent)),
+      "status explains that preview does not publish new data");
     assert.equal(all(gm).find(e=>e.tagName==="legend")?.textContent,"Player Territory Preview");
     assert.equal(all(gm).some(e=>e.textContent==="Player Publication"),false);
     assert.deepEqual(changes,[]);

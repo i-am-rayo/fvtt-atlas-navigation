@@ -1,5 +1,6 @@
 /** Modeless GM canvas authoring surface. Only Save commits a RegionDocument;
  * pointer input, keyboard Undo, brush strokes and previews are transient. */
+import {compareAtlasLabels} from "./settings-select.js";
 import {paintGridCells,MAX_TERRITORY_NODES} from "./territory-authoring-model.js";
 import {smoothClosedBoundary} from "./region-boundary-model.js";
 import {acquireAtlasCanvasEditorFocus} from "./atlas-canvas-editor-focus.js";
@@ -113,6 +114,7 @@ function drawBrushFootprint(graphics,points,erase,zoom){
  * the full geometry/permission/stale preflight after the GM confirms. */
 export function territoryGridReviewLines(review){
   if(!review)return [];
+  if(Array.isArray(review.lines))return review.lines;
   const lines=[
     `Native cells: ${review.originalCells} → ${review.proposedCells} `+
       `(+${review.addedCells}, −${review.removedCells}).`,
@@ -288,7 +290,8 @@ export class TerritoryAuthoringCanvas{
           "Select a neighboring Territory for seam-only painting");
         const regular=el("option","Free paint — all cells");
         regular.value="";select.appendChild(regular);
-        for(const peer of seamGuide.peers){
+        for(const peer of [...seamGuide.peers].sort((a,b)=>
+          compareAtlasLabels(a.name,b.name)||compareAtlasLabels(a.id,b.id))){
           const option=el("option",`${peer.name} — ${peer.offsets.length} edge cells`+
             (peer.tooLarge?" (use smaller free-paint strokes)":""));
           option.value=peer.id;option.disabled=!!peer.tooLarge;
@@ -371,7 +374,8 @@ export class TerritoryAuthoringCanvas{
         select.setAttribute("aria-label","Switch to selected batch Territory");
         const prompt=el("option","Choose another Territory…");
         prompt.value="";select.appendChild(prompt);
-        const otherTargets=batchContext.targets.filter(target=>target.id!==batchContext.regionId);
+        const otherTargets=batchContext.targets.filter(target=>target.id!==batchContext.regionId)
+          .sort((a,b)=>compareAtlasLabels(a.name,b.name)||compareAtlasLabels(a.id,b.id));
         for(const target of otherTargets){
           const option=el("option",`${target.name} — ${target.staged?"Staged":"Not staged"}`);
           option.value=target.id;select.appendChild(option);
@@ -387,11 +391,13 @@ export class TerritoryAuthoringCanvas{
     if(!batchContext){
       const save=addButton("Preview & Save",async()=>{
       if(save.disabled)return;save.disabled=true;
+      // Freeze the transient paint draft while its nonmodal map-side review is open.
+      session.saving=true;
       try{
         const text=draft.kind==="grid"?
           `Save ${session.draft.offsets.length} native grid cells?`:
           `Save ${session.draft.points.length} editable boundary nodes?`;
-        const review=draft.kind==="grid"&&typeof reviewDraft==="function"?
+        const review=typeof reviewDraft==="function"?
           await reviewDraft(copy(session.draft)):null;
         if(!this.#live(session))return;
         const content=review?document.createElement("div"):null;
@@ -401,16 +407,23 @@ export class TerritoryAuthoringCanvas{
           }
         }
         const accepted=await foundry.applications.api.DialogV2.confirm({window:{title:"Save Territory boundary"},
+          position:{left:Math.max(24,(globalThis.window?.innerWidth??1200)-490),
+            top:90,width:450},
           content:content??`<p>${text}</p><p>Atlas will verify parent containment, peer overlaps, `+
             `permissions and native geometry before changing a Region. Cancel does not write.</p>`,
-          yes:{label:"Save Native Region"},rejectClose:false,modal:true});
+          yes:{label:"Save Native Region"},rejectClose:false,modal:false});
         if(!accepted)return;
+        if(review?.blocked)throw Error(review.reason??"Resolve native Territory conflicts before saving.");
         if(review?.contestedAddedCells)
           throw Error("Resolve multiply owned native grid cells before saving this Territory.");
         if(!this.#live(session))return;
         if(globalThis.canvas?.scene?.id!==scene.id)
           throw Error("The active Scene changed; reopen the Territory editor.");
-        session.saving=true;
+        if(review&&typeof reviewDraft==="function"){
+          const fresh=await reviewDraft(copy(session.draft));
+          if(JSON.stringify(fresh)!==JSON.stringify(review))
+            throw Error("Native Territory ownership changed during review. Preview again; no changes saved.");
+        }
         const saved=await onSave(copy(session.draft),reportProgress);
         if(saved!==false)session.close(true);
       }catch(error){globalThis.ui?.notifications?.error?.(error.message??String(error));}

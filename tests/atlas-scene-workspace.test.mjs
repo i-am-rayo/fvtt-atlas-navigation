@@ -760,7 +760,7 @@ test("Map Directory renders Road marker counts with browser-like HTMLCollection 
   }finally{ctx.restore();}
 });
 
-test("Directory section Plus uses existing authoring and never implies a Road attachment",async()=>{
+test("Directory exposes one accessible creation group without repeated nested Plus actions",async()=>{
   const ctx=context();
   try{
     const graph={schemaVersion:10,coordinateSpace:"image",revision:1,enabled:true,
@@ -771,26 +771,25 @@ test("Directory section Plus uses existing authoring and never implies a Road at
       checkpoints:[{id:"m",name:"Bridge",roadId:"r",nodeId:"a",
         appearance:null,playerVisible:false,elevationMeters:null}]};
     ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
-    ctx.actions.beginCheckpoint=(_scene,refresh)=>{ctx.calls.push("marker");};
-    ctx.actions.begin=(_scene,refresh)=>{ctx.calls.push("road");};
+    ctx.actions.beginCheckpoint=()=>ctx.calls.push("marker");
+    ctx.actions.begin=()=>ctx.calls.push("road");
     const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
     await enter(ws,"Map directory");
-    const addRoad=buttons(ws.result).find(node=>node.title==="Add Road (draw on the Scene)");
-    assert.ok(addRoad,"Road collection has an accessible context Plus");
-    let stopped=0;
-    await addRoad.listeners.get("click")({preventDefault(){},stopPropagation(){stopped++;}});
-    assert.deepEqual(ctx.calls,["road"],"uses existing Road GM authoring action");
-    assert.equal(stopped,1,"Plus must not toggle its disclosure row");
+    const creation=walk(ws.result,item=>item.className==="atlas-directory-creation");
+    assert.equal(creation.length,1,"one consistent creation area");
+    assert.deepEqual(buttons(creation[0]).map(item=>item.textContent),
+      ["Add Territory","Add Road","Add Map Marker"]);
+    assert.equal(walk(ws.result,item=>item.className?.includes?.("atlas-directory-shortcut")).length,0,
+      "nested directory groups no longer repeat creation controls");
+    await buttons(creation[0]).find(item=>item.textContent==="Add Road")
+      .listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,["road"]);
     ctx.calls.length=0;
     await enter(ws,"All Roads");
-    const addMarker=buttons(ws.result).find(node=>
-      node.title==="Add Map Marker (choose its position and Road attachment)");
-    assert.ok(addMarker,"a Road child collection offers a Map Marker Plus");
-    await addMarker.listeners.get("click")({preventDefault(){},stopPropagation(){stopped++;}});
-    assert.deepEqual(ctx.calls,["marker"],"no Road ID is preselected or persisted");
-    assert.deepEqual(graph.checkpoints.map(item=>item.roadId),["r"],
-      "opening contextual authoring leaves existing associations unchanged");
-    assert.equal(stopped,2);
+    const add=buttons(ws.result).find(item=>item.textContent==="Add Map Marker");
+    await add.listeners.get("click")({preventDefault(){}});
+    assert.deepEqual(ctx.calls,["marker"],"adding from Workspace does not infer a Road");
+    assert.deepEqual(graph.checkpoints.map(item=>item.roadId),["r"]);
     await ws.close();
   }finally{ctx.restore();}
 });
@@ -849,9 +848,8 @@ test("Map Directory keeps derived counts next to names, before actions, without 
       assert.equal(summary.children.indexOf(count),-1,"counts do not follow the action bar");
       assert.ok(identity.children.indexOf(count)>0);
       if(actionsLast)assert.equal(summary.children.at(-1).className,"atlas-directory-actions");
-      else assert.equal(summary.children.at(-1).title,
-        "Add Territory (choose its location and type)",
-        "the accessible Add shortcut remains after all heading/count metadata");
+      else assert.equal(summary.children.at(-1),identity,
+        "collection headings keep counts but no longer repeat the top Create commands");
       return count.textContent;
     };
     const continents=findRow("continents");
@@ -1039,4 +1037,107 @@ test("Milestone 01 Workspace icon targets use one shared 2rem action sizing rule
   const shared=readFileSync(new URL("../styles/atlas-ui.css",import.meta.url),"utf8");
   assert.match(shared,/\.atlas-ui-icon-button,[\s\S]*?width:\s*2rem;/,
     "one component sets the accessible shared 2rem icon target");
+});
+
+
+test("Workspace refresh retains directory focus, caret and scroll; switching views resets scroll",async()=>{
+  const ctx=context();
+  try{
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");
+    const content=new Element("div");
+    content.contains=node=>walk(content,e=>e===node).length>0;
+    content.querySelector=selector=>walk(content,e=>
+      selector==="[data-atlas-workspace-scroll]"&&e.attributes?.has("data-atlas-workspace-scroll"))[0]??null;
+    content.querySelectorAll=selector=>walk(content,e=>
+      selector==="[data-atlas-workspace-focus]"&&e.dataset?.atlasWorkspaceFocus);
+    const install=()=>ws._replaceHTML(ws.result,content);
+    install();
+    const search=()=>walk(content,e=>e.tag==="input"&&e.type==="search")[0];
+    const old=search();
+    old.value="Millstone";old.listeners.get("input")();
+    old.selectionStart=2;old.selectionEnd=5;old.selectionDirection="forward";
+    document.activeElement=old;
+    content.querySelector("[data-atlas-workspace-scroll]").scrollTop=185;
+    const create=document.createElement;
+    document.createElement=tag=>{
+      const node=create(tag);
+      node.setSelectionRange=(start,end,direction)=>{
+        node.selectionStart=start;node.selectionEnd=end;node.selectionDirection=direction;
+      };
+      return node;
+    };
+    await ws.render(true);install();
+    assert.notEqual(search(),old);
+    assert.equal(search().value,"Millstone");
+    assert.equal(search().focused,true,"replacement search restores keyboard focus");
+    assert.equal(search().selectionStart,2);
+    assert.equal(search().selectionEnd,5);
+    assert.equal(content.querySelector("[data-atlas-workspace-scroll]").scrollTop,185);
+    const allRoads=buttons(content).find(e=>e.textContent==="All Roads");
+    document.activeElement=allRoads;
+    await enter(ws,"All Roads");install();
+    assert.equal(content.querySelector("[data-atlas-workspace-scroll]").scrollTop,0,
+      "new directory view begins at the top");
+    assert.equal(buttons(content).find(e=>e.textContent==="All Roads").focused,true);
+    const outside=new Element("button");document.activeElement=outside;
+    await ws.render(true);install();
+    assert.ok(!buttons(content).some(e=>e.focused),"background refresh never steals external focus");
+    assert.deepEqual(ctx.calls,[],"UI restoration never writes Scene data");
+    await ws.close();
+  }finally{ctx.restore();}
+});
+
+test("Workspace adapts to its own window width, not only the browser viewport",()=>{
+  const css=readFileSync(new URL("../styles/atlas-scene-workspace.css",import.meta.url),"utf8");
+  assert.match(css,/container-type:\s*inline-size/);
+  assert.match(css,/@container\s+atlas-workspace\s*\(max-width:\s*670px\)/);
+});
+
+test("Directory retains the focused record action across refresh and clears only current filters",async()=>{
+  const ctx=context();
+  try{
+    const graph={schemaVersion:10,coordinateSpace:"image",revision:2,enabled:true,calibration:null,
+      roads:[{id:"road",name:"Coast Road",travelPresetId:null,appearance:null,playerVisible:false},
+        {id:"other",name:"Coast Road",travelPresetId:null,appearance:null,playerVisible:false}],
+      nodes:[{id:"a",x:0,y:0},{id:"b",x:10,y:10},{id:"c",x:20,y:20}],
+      segments:[{id:"s",roadId:"road",from:"a",to:"b",via:[],bidirectional:true},
+        {id:"t",roadId:"other",from:"b",to:"c",via:[],bidirectional:true}],
+      checkpoints:[{id:"cp",name:"Bridge",roadId:"road",nodeId:"a",
+        elevationMeters:null,appearance:null,playerVisible:false}]};
+    ctx.scene.getFlag=(_scope,key)=>key==="atlas"?graph:null;
+    const ws=await openAtlasSceneWorkspace(ctx.scene,ctx.actions);
+    await enter(ws,"Map directory");await enter(ws,"All Roads");
+    const content=new Element("div");
+    content.contains=node=>walk(content,e=>e===node).length>0;
+    content.querySelector=selector=>walk(content,e=>
+      selector==="[data-atlas-workspace-scroll]"&&e.attributes?.has("data-atlas-workspace-scroll"))[0]??null;
+    content.querySelectorAll=selector=>walk(content,e=>
+      selector==="[data-atlas-workspace-focus]"&&e.dataset?.atlasWorkspaceFocus);
+    const install=()=>ws._replaceHTML(ws.result,content);
+    install();
+    const row=id=>walk(content,e=>e.dataset?.atlasDirectoryKey==="all/road/"+id)[0];
+    const locate=id=>buttons(row(id)).find(b=>b.title==="Locate Coast Road");
+    const old=locate("other");assert.ok(old);
+    document.activeElement=old;
+    await ws.render(true);install();
+    assert.equal(locate("other").focused,true,"restore by record identity, not duplicate name");
+    assert.notEqual(locate("road").focused,true);
+    const search=()=>walk(content,e=>e.tag==="input"&&e.type==="search")[0];
+    const selects=()=>walk(content,e=>e.tag==="select");
+    selects()[1].value="za";selects()[1].listeners.get("change")();
+    ws.directoryState.filters.allCheckpoints={query:"Bridge",type:"",place:"",sort:"az"};
+    search().value="not found";search().listeners.get("input")();
+    selects()[0].value="air";selects()[0].listeners.get("change")();
+    const clear=buttons(content).find(b=>b.textContent==="Clear filters");
+    assert.ok(clear,"filtered directory exposes an accessible reset");
+    assert.match(text(content),/No matching entries/);
+    await clear.listeners.get("click")({preventDefault(){}});
+    assert.equal(search().value,"");assert.equal(selects()[0].value,"");
+    assert.equal(selects()[1].value,"za","sort is not a filter");
+    assert.equal(ws.directoryState.filters.allCheckpoints.query,"Bridge");
+    assert.ok(row("road"));assert.equal(search().focused,true);
+    assert.deepEqual(ctx.calls,[]);
+    await ws.close();
+  }finally{ctx.restore();}
 });
