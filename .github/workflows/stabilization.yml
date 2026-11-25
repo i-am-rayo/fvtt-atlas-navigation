@@ -37,6 +37,16 @@ jobs:
           node-version: "24"
       - name: Check syntax and run tests
         run: npm run check
+      - name: Browser regression for serialized transportation dialogs
+        run: |
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$browser"
+          "$browser" --headless --disable-gpu --no-sandbox --disable-dev-shm-usage --allow-file-access-from-files --virtual-time-budget=15000 --dump-dom "file://$PWD/tests/browser/transport-dialog.html" > /tmp/atlas-transport-dialog.html
+          if ! grep -Fq '<output id="result">PASS: Atlas transport dialog browser regression</output>' /tmp/atlas-transport-dialog.html; then
+            cat /tmp/atlas-transport-dialog.html
+            exit 1
+          fi
+          echo "Verified browser-native serialized transportation controls, draft, Save/reopen and reset."
       - name: Check pull request whitespace and conflict markers
         if: github.event_name == 'pull_request'
         env:
