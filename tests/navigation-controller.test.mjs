@@ -4169,7 +4169,7 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
   const previous={game:globalThis.game};
   try{
     const owned=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship",{
-      role:"vehicle",quantity:2,capacity:2,surface:"water",profileId:"warship",
+      role:"unassigned",quantity:2,capacity:2,surface:"water",profileId:"warship",
       speedMphOverride:5,crewRoster:[{unitIndex:1,named:[],hired:10},{unitIndex:2,named:[],hired:30}]});
     const writes=[];
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},settings:{
