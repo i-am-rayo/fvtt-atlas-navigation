@@ -6,7 +6,7 @@ import { calculateSceneRoadRoute } from "./navigation-foundry.js";
 import { roadStrokeSpans } from "./road-appearance.js";
 import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.js";
 import { navigationCanvasLegPaths } from "./navigation-render-path.js";
-import {captureApprovedJourneyPath,assessApprovedRoutePosition} from "./navigation-approved-path.js";
+import {captureApprovedJourneyPath,assessApprovedRoutePosition,assessApprovedJourneyRecovery} from "./navigation-approved-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
 import { planGuidedTravelChunks,waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS,
@@ -1860,6 +1860,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         try{
           if(!party)throw Error("The approved owned vehicle traveler manifest is unavailable.");
           priorJourneySelection(this.recoveryRecord,party.roster);
+          // A recalculated land route must retain its approved segment
+          // sequence and geometry, just like a checkpoint-bound voyage.
+          if(savedLeg.approvedPath){
+            const route=assessApprovedJourneyRecovery({approvedPath:savedLeg.approvedPath,
+              route:this.result,anchor:this.recoveryRecord.lastConfirmedAnchor,
+              tokenPosition:this.result.start,gridSize:this.scene.grid.size});
+            if(!route.safe)throw Error("The saved owned Journey cannot resume against its approved route ("+
+              route.reason+"). Review the confirmed position and route before continuing.");
+          }
         }catch(error){return {...result,guided:false,reason:error.message??String(error)};}
       }
       const ordinaryOwned=this.ordinaryOwnedLeg();
