@@ -5122,18 +5122,19 @@ for(const scenario of ["mixed","mixed-final","continuous","overtime"])test(
       assert.equal(approved.crewWagesCp,800);
       assert.equal(approved.overtimeCrewCp,scenario==="overtime"?300:0);
       assert.equal(approved.totalCp,scenario==="overtime"?1300:1000);
-      // A valid land route with the same endpoints is not a new approval.
-      // Distinct authored segment identity must be rejected on continuation.
-      const originalRoute=reloaded.result;
-      atlas.segments.push({...atlas.segments[0],id:"alternate"});
-      reloaded.result={...originalRoute,legs:originalRoute.legs.map(leg=>({...leg,segmentId:"alternate"}))};
-      const beforeReview=structuredClone(record),beforeMoves=moves,beforeClock=game.time.worldTime;
-      assert.equal(reloaded.assessTravelMethod().guided,false,"an alternate road segment is not the approved route");
-      await assert.rejects(()=>reloaded.startGuidedTravel(),/approved route|road-sequence-changed/i);
-      assert.deepEqual(record,beforeReview);assert.equal(moves,beforeMoves);
-      assert.equal(game.time.worldTime,beforeClock);assert.equal(dialogs,1);
-      atlas.segments.pop();reloaded.result=originalRoute;
     }
+    // A valid land route with the same endpoints is not a new approval.
+    // Distinct authored segment identity must be rejected on continuation,
+    // for both single-owned and mixed-owned ordinary travel.
+    const originalRoute=reloaded.result;
+    atlas.segments.push({...atlas.segments[0],id:"alternate"});
+    reloaded.result={...originalRoute,legs:originalRoute.legs.map(leg=>({...leg,segmentId:"alternate"}))};
+    const beforeReview=structuredClone(record),beforeMoves=moves,beforeClock=game.time.worldTime;
+    assert.equal(reloaded.assessTravelMethod().guided,false,"an alternate road segment is not the approved route");
+    await assert.rejects(()=>reloaded.startGuidedTravel(),/approved route|road-sequence-changed/i);
+    assert.deepEqual(record,beforeReview);assert.equal(moves,beforeMoves);
+    assert.equal(game.time.worldTime,beforeClock);assert.equal(dialogs,1);
+    atlas.segments.pop();reloaded.result=originalRoute;
     if(scenario==="overtime"){
       // At the retained 12-hour travel-day boundary, explicit GM approval
       // alone may add the 12-hour overnight break before the next move.
