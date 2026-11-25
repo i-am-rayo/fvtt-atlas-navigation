@@ -268,8 +268,12 @@ function openRoadDock(scene, refresh, takeSavedRoadId = null,
       if (roadDock === dock) roadDock = null;
       const savedId=takeSavedRoadId?.();
       void restoreEditorWindows().then(async()=>{
-        if(roadDock||!game.user?.isGM||!canvas?.ready||canvas.scene?.id!==scene.id||
-            !scene.canUserModify?.(game.user,"update"))return;
+        if(roadDock)return;
+        if(!game.user?.isGM||!canvas?.ready||canvas.scene?.id!==scene.id||
+            !scene.canUserModify?.(game.user,"update")){
+          if(savedId)ui.notifications.warn("Road saved. Reopen this Scene and use Road Settings from the directory.");
+          return;
+        }
         try{await refresh();}
         catch(error){atlasWarn("lifecycle","Atlas Workspace authoring refresh failed",error);}
         if(roadDock||!game.user?.isGM||canvas?.scene?.id!==scene.id)return;
