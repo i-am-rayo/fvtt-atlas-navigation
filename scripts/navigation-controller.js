@@ -3520,7 +3520,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             ["Group travel speed",shown.value.toFixed(2)+" "+unit],
             [prior?"Estimated remaining moving time":"Estimated moving time",formatNavigationDuration(hours,24)],
             ["Estimated transportation cost",cost]],
-          fareRows:describeTransportationFareRows(quote,{owned:this.transportArrangement==="owned",
+          fareRows:describeTransportationFareRows(quote,{owned:this.transportArrangement==="owned",crewMethod:effective,
             formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies}),
           notes:[
             "Operating schedule: "+selectedOperation+" · "+(rules.dailyHours??24)+"h/day",
@@ -3761,7 +3761,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         routeContext:this.routeReviewContext(guidedLeg),
         destination:"Current leg to "+guidedLeg.checkpoint.name,
         overview:describeOwnedApprovalOverview(traveling.length,ownedService,displayLivestock),
-        fareRows:quote?describeTransportationFareRows(quote,{owned:info.arrangement==="owned",livestock:displayLivestock,
+        fareRows:quote?describeTransportationFareRows(quote,{owned:info.arrangement==="owned",livestock:displayLivestock,crewMethod:option.method,
           formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies}):
           !continuing&&mountDetails&&Number.isFinite(info.estimatedFareCp)?[
             ["Transport excluding mounts",formatExactTransportationFare(Math.max(0,info.estimatedFareCp-mountFare),globalThis.CONFIG?.DND5E?.currencies)],
@@ -5934,7 +5934,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 formatMoney(quote.totalCp),
               breakdown:[
                 ...(!ordinaryOwned?.ownedDraft?[describeJourneyCrewEstimate(quote)].filter(Boolean):[]),
-                ...describeTransportationFareRows(quote,{owned:quote.arrangement==="owned",livestock:ordinaryOwned?.livestock,
+                ...describeTransportationFareRows(quote,{owned:quote.arrangement==="owned",livestock:ordinaryOwned?.livestock,crewUnits:ordinaryOwned?.ownedDraft?.units,crewMethod:method,
                   formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies})
                   .map(([label,value])=>label+": "+value),
                 ...(mountDetails?[mountDetails]:[]),
@@ -6083,7 +6083,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               formatMoney(fare.totalCp),
             breakdown:[
               ...(!leg.ownedDraft?[describeJourneyCrewEstimate(fare)].filter(Boolean):[]),
-              ...describeTransportationFareRows(fare,{owned:fare.arrangement==="owned",livestock:leg.livestock,
+              ...describeTransportationFareRows(fare,{owned:fare.arrangement==="owned",livestock:leg.livestock,crewUnits:leg.ownedDraft?.units,crewMethod:leg.selectedOption?.method,
                 formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies})
                 .map(([label,value])=>label+": "+value),
               ...(mountDetails?[mountDetails]:[]),
