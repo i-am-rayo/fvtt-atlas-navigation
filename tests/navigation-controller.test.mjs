@@ -4138,8 +4138,8 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
   try{
     const config=setGroupTransportationMember(defaultGroupTransportation(),"group1","horse",{
       role:"mount",quantity:1,capacity:1,surface:"land",profileId:"warhorse"});
-    let percent=50,override=null,moves=0,journals=0,dialogCount=0;
-    const writes=[];
+    let percent=50,override=null,moves=0,dialogCount=0;
+    const writes=[],journals=[];
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},settings:{
       get:(_m,key)=>key==="guidedGroupTransportation"?config:
         key==="guidedLivestockFarePercent"?percent:undefined,
@@ -4170,7 +4170,7 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
       getFlag:(_m,key)=>key==="checkpointTransportOffers"?offer():undefined};
     const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
       canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
-      journeyJournalStore:{find:()=>null,save:async()=>{journals++;throw Error("Unexpected Journal write");}}});
+      journeyJournalStore:{find:()=>null,save:async record=>{journals.push(structuredClone(record));throw Error("Test Journal boundary");}}});
     nav.scene=scene;nav.sourceMode="party";nav.routeRevision=1;
     nav.start=from;nav.end=end;nav.result={status:"ok",start:from,end,distance:25,cost:25,
       legs:[{kind:"road",roadId:"sea",segmentId:"sea-segment",points:[from,port],distance:20,cost:20},
@@ -4210,7 +4210,47 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
       }}}}};
       assert.equal(await nav.startGuidedTravel(),false);
     }
-    assert.equal(dialogCount,4);assert.equal(journals,0);assert.equal(moves,0);
+    assert.equal(dialogCount,4);assert.equal(journals.length,0);assert.equal(moves,0);
+    // Approve the explicit local override once; stop at the real Journal
+    // persistence boundary rather than simulate successful native movement.
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,1);assert.equal(moves,0);
+    const saved=structuredClone(journals[0]),approved=saved.legs[0];
+    assert.equal(approved.transport.serviceApproval.livestockFareCp,5.05);
+    assert.equal(approved.transport.serviceApproval.totalCp,25.25);
+    assert.equal(approved.livestock.estimatedFareCp,5.05);
+    assert.equal(approved.livestock.resources[0].aboard,1);
+    assert.equal(approved.participation.people.filter(p=>p.traveling).length,2);
+    saved.status="interrupted";
+    nav.recoveryRecord=saved;nav.recoveryJournal={id:"saved-ship"};
+    nav.result={...nav.result,end:port,distance:20,cost:20,legs:[nav.result.legs[0]]};
+    nav.end=port;nav.travelMethod="ship-passage";nav.transportArrangement="hire";
+    nav.transportOperation="normal";
+    percent=200;override=null;
+    const recovered=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(recovered.approvedService,approved.transport.serviceApproval);
+    assert.equal(recovered.costCp,0);
+    const savedBefore=structuredClone(saved);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      const summary=labels(options.content);
+      assert.match(summary,/Previously approved — no new fare/);
+      assert.match(summary,/Warhorse ×1.*Previously approved fare/);
+      assert.doesNotMatch(summary,/Fare breakdown|World default 200%|5\.05 CP/);
+      assert.equal(options.yes?.label,"Resume leg");
+      assert.equal(options.no?.label,"Back to plan");
+      return true;
+    };
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,2);
+    const continued=journals[1].legs.at(-1);
+    assert.equal(continued.transport.continuation,true);
+    assert.equal(continued.transport.estimatedFareCp,0);
+    assert.deepEqual(continued.transport.serviceApproval,approved.transport.serviceApproval);
+    assert.deepEqual(continued.livestock,approved.livestock);
+    assert.deepEqual(continued.participation,approved.participation);
+    assert.deepEqual(saved,savedBefore);
+    assert.equal(moves,0);
     assert.deepEqual(writes,[]);assert.deepEqual(token.actor,groupBefore);
   }finally{Object.assign(globalThis,previous);}
 });
