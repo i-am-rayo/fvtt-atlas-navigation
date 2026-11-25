@@ -4588,7 +4588,7 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
       dialogs++;const summary=labels(options.content).join(" ");
       assert.match(summary,/below.minimum/i);
-      assert.match(summary,/Paid crew wages 4 PP · 4 GP/);
+      assert.match(summary,/Paid crew wages \(11 paid × 2 GP\/day\) 4 PP · 4 GP/);
       assert.match(summary,/Fare components are before rounding/);
       assert.match(options.yes?.label??"",/acknowledge/i);
       assert.equal(options.no?.label,"Back to plan");
