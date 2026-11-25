@@ -113,3 +113,15 @@ Overall B4 is **Partial**. The live fixture creation blocker is resolved. The te
 ## Combined retest candidate
 
 The Chromium fixture now exercises creating a World method, resolving its offer, removing the method from the test catalog, and replacing the orphan through the Map Marker draft. Reopen is simulated from the draft payload. B4 remains Partial in live Foundry pending owner-approved deletion of the temporary preset and replacement verification. Use the [combined Sandbox retest](TEST_0_3_13_RC_3_2.md#combined-sandbox-retest) to cover B4, Journey execution and Journal, reload, and player permissions under one installed candidate.
+
+### Combined live retest checkpoint — 2026-11-25 (JST)
+
+Environment observed in the GM session: Sandbox, Atlas `0.3.13-rc.3.2` active in core Module Management, Foundry 14 Stable build 370, D&D 5e 6.1.1. The exact installed archive commit and a current disposable World backup were not verified.
+
+| Combined check | Result | Expected | Observed |
+| --- | --- | --- | --- |
+| B4 — Orphaned offer | Partial | The orphan shows a warning and disabled Edit, and its replacement persists while the existing Cart retains its overrides. | Reopened **RC.3.2 B Cart QA**. Cart still showed **4 available** and **3 required crew**. **B4 Disposable QA Transport** still resolved with Edit enabled. Owner confirmation for permanently deleting only that disposable World preset is pending. The orphan warning, disabled Edit and replacement were not exercised. |
+| Journey — Departure and arrival | Partial | Approval uses the intended route, roster and fare, and playback reaches the checkpoint and records progress. | Planned **Dirwest** via **Port Barthos** with Warship Unit 1. The review showed **6 travelers, 4 seats, 4 mounts, 1 vessel**, **31/60 crew, optimal, 31 paid**, and **43 PP · 4 GP**. The wage row showed **31 paid × 2 GP/day**. **Back to plan** preserved the destination and four mount decisions. No departure was approved. |
+| Journey — Onward leg and finished Journal | Not run | Continue with explicit approval and reconcile the finished Journal against the confirmed legs. | The Journey stopped at the approval preview. |
+| Journey — Reload and recovery | Not run | Compare confirmed Token position, Journal progress, and World time across reload on a separately approved disposable run. | No separately approved recovery run or verified disposable backup was available in this session. |
+| Separate player session | Not run | Verify visible Journals and map records and absence of GM-only controls through a non-GM account. | Only the authenticated GM session was available for this retest. |
