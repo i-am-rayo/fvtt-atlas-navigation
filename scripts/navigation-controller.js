@@ -619,8 +619,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     singleChoice=null,transferColumns=false,mountBoard=null,ownedLeg=null}={}){
     // DOM disabled state is a snapshot; check live authority and lifecycle
     // again for callbacks from a previous render.
+    // A confirmed checkpoint can retain its Journal handle while the GM
+    // reviews the next leg. Only an unfinished approval or an unresolved
+    // recovery/decision blocks this roster, not the broader method lock.
     const canEdit=()=>!disabled&&Boolean(game.user?.isGM)&&
-      this.canDraftTravelMethods()&&!this.suspendedNativeSession;
+      !this.travelSession&&!this.journalStarting&&!this.suspendedNativeSession&&
+      !this.pendingTransfer&&!this.completedRoute&&
+      (!this.recoverableJourney||Boolean(this.recoveryRecord))&&
+      !isUnfinishedJourneyLeg(this.recoveryRecord);
     disabled=!canEdit();
     const root=el("div");
     root.style.cssText="display:grid;gap:.6rem;padding-top:.45rem;";
