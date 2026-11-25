@@ -62,7 +62,7 @@ import { readGroupTransportation,projectGroupTransportation,
   groupMethodCapacityStatus,groupMethodFareEstimate,groupMethodResourceInventory,
   planOwnedVehicleService,assessGroupCrewRoster,validateConfirmedOwnedVehicleApproval }
   from "./navigation-group-transport.js";
-import { dndCurrencyBreakdown,mixedTransportFareBreakdown } from "./navigation-currency.js";
+import { dndCurrencyBreakdown,mixedTransportFareBreakdown,walkingCargoFareBreakdown } from "./navigation-currency.js";
 import { resolveTransportationOperation,draftTransportationOperation,quoteTransportationService,
   assessHiredTransportAvailability,readLivestockFarePercent,resolveHiredServiceLevel,validateHiredServiceApproval }
   from "./navigation-transport-service.js";
@@ -3524,10 +3524,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "use "+shown.value.toFixed(2)+" "+speedUnit+
           ". You confirm all walkers can keep up; Actor movement speeds and "+
           "exhaustion are not changed automatically.":"";
-      const fare=mixedTransportFareBreakdown(proposed.hires.map(h=>({
-        key:h.methodId,methodName:h.methodName,role:"cargo",units:h.units,
-        passengers:0,estimatedCostCp:h.estimatedCostCp
-      })),globalThis.CONFIG?.DND5E?.currencies);
+      const fare=walkingCargoFareBreakdown(proposed.hires,globalThis.CONFIG?.DND5E?.currencies);
       const names=new Map((partyAtStart?.members??[]).map(p=>[p.id,p.name]));
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm mixed walking and cargo travel"},
@@ -5497,9 +5494,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           convertGroupSpeed(c.method.speedMph,"mph",sceneUnits));
         const slowest=Math.min(sceneSpeed,...cargoSpeeds);
         const cargoLimit=cargoSpeeds.length?Math.min(...cargoSpeeds):null;
-        let plan=null,error=null;
-        try{plan=this.mixedConvoyPlan();}
-        catch(e){error=e.message??String(e);}
+        let plan=null,error=null,fare=null;
+        try{
+          plan=this.mixedConvoyPlan();
+          fare=walkingCargoFareBreakdown(plan.hires,globalThis.CONFIG?.DND5E?.currencies);
+        }catch(e){plan=null;error=e.message??String(e);}
         const unit=walkDisplay.unit==="mi/hour"?"mph":
           walkDisplay.unit==="km/hour"?"kph":walkDisplay.unit;
         const current=this.convoyPace===null?null:
@@ -5514,7 +5513,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           plan:plan?{
             speed:displaySpeed(plan.speedPerHour).value.toFixed(2),
             moving:formatNavigationDuration(plan.movingHours,24),
-            cost:plan.totalCp+" CP"
+            cost:fare.total.label
           }:null,error,
           onQuantity:(id,count)=>{
             if(!Number.isInteger(count)||count<1||count>100){
