@@ -3389,8 +3389,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             [historicalOwned?"Originally approved moving time":"Estimated moving time",
               formatNavigationDuration(reviewedOwned.movingHours,24)],
             ["Estimated transportation cost",cost]],
-          fareRows:historicalOwned?[]:[...describeTransportationFareRows(reviewedOwned,{owned:true}),
-            ...(mountDetails?[["Physical mount boarding",manifest.estimatedFareCp+" CP"]]:[])],
+          fareRows:historicalOwned?[]:describeTransportationFareRows(reviewedOwned,{owned:true,livestock:manifest}),
           notes:[absent.length?"Not traveling: "+absent.join(", "):null,
             ...reviewedOwned.units.map(describeOwnedUnitStaffing),
             "Passenger seats: "+reviewedOwned.passengerSeats+" / "+reviewedOwned.passengerCapacity+
@@ -3665,7 +3664,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const approvedSummary=renderNavigationTransportApproval({
         routeContext:this.routeReviewContext(guidedLeg),
         destination:"Current leg to "+guidedLeg.checkpoint.name,
-        fareRows:quote?describeTransportationFareRows(quote,{owned:info.arrangement==="owned"}):
+        fareRows:quote?describeTransportationFareRows(quote,{owned:info.arrangement==="owned",livestock:displayLivestock}):
           !continuing&&mountDetails&&Number.isFinite(info.estimatedFareCp)?[
             ["Transport excluding mounts",Math.max(0,info.estimatedFareCp-mountFare)+" CP"],
             ["Physical mount boarding",mountFare+" CP"]
@@ -5834,7 +5833,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 "hired service":"party-owned transport")+" estimate: "+
                 formatMoney(quote.totalCp),
               breakdown:[
-                ...describeTransportationFareRows(quote,{owned:quote.arrangement==="owned"})
+                ...describeTransportationFareRows(quote,{owned:quote.arrangement==="owned",livestock:ordinaryOwned?.livestock})
                   .map(([label,value])=>label+": "+value),
                 ...(mountDetails?[mountDetails]:[]),
                 "Fare components are before rounding; the total is rounded once."
@@ -5991,7 +5990,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               "hired service":"party-owned transport")+" estimate: "+
               formatMoney(fare.totalCp),
             breakdown:[
-              ...describeTransportationFareRows(fare,{owned:fare.arrangement==="owned"})
+              ...describeTransportationFareRows(fare,{owned:fare.arrangement==="owned",livestock:leg.livestock})
                 .map(([label,value])=>label+": "+value),
               ...(mountDetails?[mountDetails]:[]),
               "Fare components are before rounding; the total is rounded once."
