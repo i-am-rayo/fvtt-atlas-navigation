@@ -4728,6 +4728,35 @@ test("mixed owned Cart draft, confirmation, Journal and recovery share exact ope
       await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:2}]);return true;};
     await assert.rejects(()=>nav.startGuidedTravel(),/changed|review/i);
     await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    // A stale explicit unit must not expand to the other available Cart.
+    const originalMembers=token.actor.system.members;
+    token.actor.system.members=originalMembers.filter(m=>m.actor.id!=="cart");
+    assert.equal(nav.assessTravelMethod().guided,false);
+    const stalePanel=flatten(await nav.renderDestinationStage());
+    assert.ok(stalePanel.some(n=>n.textContent==="Review current available units"));
+    assert.ok(stalePanel.some(n=>n.textContent==="Unavailable"));
+    await assert.rejects(()=>nav.startGuidedTravel(),/unit|available|eligible/i);
+    await nav.setMixedOperatedUnits("owned|cart",[]);
+    assert.equal(nav.assessTravelMethod().guided,false,"review does not select an alternate fleet");
+    token.actor.system.members=originalMembers;
+    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      globalThis.game.user.isGM=false;return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/changed|GM/i);
+    globalThis.game.user.isGM=true;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      token.canUserModify=()=>false;return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/changed|permission/i);
+    token.canUserModify=()=>true;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      token.actor.system.members=originalMembers.filter(m=>m.actor.id!=="driver");return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/crew|roster|changed|eligible/i);
+    token.actor.system.members=originalMembers;
+    assert.equal(journals.length,0);
+    assert.equal(token.moves,0);
+    assert.deepEqual(writes,[]);
+
     globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
     await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
     const saved=structuredClone(journals[0]),leg=saved.legs[0];
@@ -4741,6 +4770,15 @@ test("mixed owned Cart draft, confirmation, Journal and recovery share exact ope
     assert.throws(()=>validateJourneyRecord(tampered),/convoy|crew|method/i);
     saved.status="interrupted";nav.recoveryRecord=saved;nav.recoveryJournal={id:"saved-mixed"};
     owned.groups.group1.members.cart.crewPolicyOverride.crewWageCpPerDay=900;
+    const beforeRoleChange=owned;
+    owned=setGroupTransportationMember(owned,"group1","driver",{role:"ignore"});
+    assert.equal(nav.assessTravelMethod().guided,false);
+    await assert.rejects(()=>nav.startGuidedTravel(),/crew|roster|eligible/i);
+    assert.equal(journals.length,1);assert.equal(token.moves,0);
+    owned=beforeRoleChange;
+    globalThis.game.user.isGM=false;
+    await assert.rejects(()=>nav.startGuidedTravel(),/GM|permission|authorized/i);
+    globalThis.game.user.isGM=true;
     assert.equal(nav.assessTravelMethod().guided,true);
     await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
     assert.deepEqual(journals[1].legs.at(-1).convoy,leg.convoy);
