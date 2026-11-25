@@ -5252,7 +5252,7 @@ test("mixed owned Cart draft, confirmation, Journal and recovery share exact ope
     assert.equal(dialogs,1);assert.equal(journals.length,0);
     await nav.setMixedOperatedUnits("owned|cart",[]);
     assert.equal(nav.assessTravelMethod().guided,false);
-    await assert.rejects(()=>nav.startGuidedTravel(),/operating units/i);
+    await assert.rejects(()=>nav.startGuidedTravel(),/Select at least one operating unit\./);
     await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
     globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
       await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:2}]);return true;};

@@ -268,7 +268,7 @@ test("mixed owned units use exact staffing, seats and common convoy billing day"
     assert.throws(()=>validateMixedLandConvoy(bad),/invalid|differs|balance|acknowledg/i);
   }
   assert.throws(()=>plan({...args,assignments:{...args.assignments,pc2:"owned|walking"}}),/named crew/i);
-  assert.throws(()=>plan({...args,methods:[walking,{...entry,operatedUnits:[]}]}),/operating units/i);
+  assert.throws(()=>plan({...args,methods:[walking,{...entry,operatedUnits:[]}]}),/Select at least one operating unit\./);
   assert.throws(()=>plan({...args,methods:[walking,{...entry,operatedUnits:[{actorId:"cart1",unitIndex:3}]}]}),/operated unit/i);
 });
 
