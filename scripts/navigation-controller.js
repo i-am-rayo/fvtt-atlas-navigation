@@ -5494,7 +5494,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 void this.render(true);
               }});
             card.append(this.renderTravelersAndPace(partySelection,availability,{
-              singleChoice:leg.selectedOption,ownedLeg:leg,mountBoard}));
+              ownedLeg:leg,singleChoice:leg.selectedOption,mountBoard}));
           }
         }
         if(!leg.recovered&&leg.ownedUnitChoices?.length&&game.user?.isGM){
