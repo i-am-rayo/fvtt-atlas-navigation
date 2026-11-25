@@ -115,11 +115,32 @@ export function formatExactTransportationFare(copper,currencyConfig){
   }
   return copper+" CP";
 }
-export function describeTransportationFareRows(quote,{owned=false,methodName=null,livestock=null,currencyConfig,formatCoins=false}={}){
+/** Display captured rates; never derive a rate from a subtotal or reprice history. */
+function describePaidCrewRates(units,currencyConfig){
+  if(!Array.isArray(units)||!units.length)return "";
+  const groups=new Map();
+  for(const unit of units){
+    const {paidCrew,crewWageCpPerDay:rate,crewWageBasis:basis}=unit;
+    if(!Number.isSafeInteger(paidCrew)||paidCrew<0||
+      !Number.isFinite(rate)||rate<0||!["day","trip","mile"].includes(basis))return "";
+    if(!paidCrew)continue;
+    const key=JSON.stringify([rate,basis]);
+    groups.set(key,(groups.get(key)??0)+paidCrew);
+  }
+  return groups.size?[...groups].map(([key,count])=>{
+    const [rate,basis]=JSON.parse(key);
+    return count+" paid × "+formatExactTransportationFare(rate,currencyConfig)+"/"+basis;
+  }).join("; "):"0 paid";
+}
+export function describeTransportationFareRows(quote,{owned=false,methodName=null,livestock=null,currencyConfig,formatCoins=false,crewUnits=null,crewMethod=null}={}){
   if(!quote)return [];
+  const rates=formatCoins?describePaidCrewRates(crewUnits??(owned&&Array.isArray(quote.units)?quote.units:
+    !owned&&crewMethod&&Number.isSafeInteger(quote.paidCrew)?[{
+      paidCrew:quote.paidCrew,crewWageCpPerDay:crewMethod.crewWageCpPerDay??200,
+      crewWageBasis:crewMethod.crewWageBasis??"day"}]:null),currencyConfig):"";
   const rows=[
     [owned?"Vehicle upkeep":"Base transportation",quote.baseCp],
-    ["Paid crew wages",quote.crewWagesCp],
+    ["Paid crew wages"+(rates?" ("+rates+")":""),quote.crewWagesCp],
     ...(!owned?[["Overtime fare",quote.overtimeFareCp]]:[]),
     ["Overtime crew wages",quote.overtimeCrewCp],
     ...(owned&&livestock?livestock.resources.some(item=>item.aboard>0)?

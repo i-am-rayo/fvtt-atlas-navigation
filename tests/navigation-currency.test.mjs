@@ -98,3 +98,15 @@ test("fare components use the total's coin denominations only when exact; no com
   assert.equal(Object.fromEntries(describeTransportationFareRows(quote,{owned:true}))["Vehicle upkeep"],
     "84000 CP","existing historical Journal presentation remains CP");
 });
+
+test("live fare rows display captured paid crew and distinct rates without repricing",()=>{
+  const quote={baseCp:0,crewWagesCp:4400,overtimeCrewCp:0,units:[
+    {paidCrew:20,crewWageCpPerDay:200,crewWageBasis:"day"},
+    {paidCrew:2,crewWageCpPerDay:200,crewWageBasis:"day"},
+    {paidCrew:1,crewWageCpPerDay:0.5,crewWageBasis:"mile"}]};
+  const before=structuredClone(quote);
+  assert.equal(Object.fromEntries(describeTransportationFareRows(quote,{owned:true,formatCoins:true}))["Paid crew wages (22 paid × 2 GP/day; 1 paid × 0.5 CP/mile)"],"4 PP · 4 GP");
+  assert.equal(Object.fromEntries(describeTransportationFareRows(quote,{owned:true}))["Paid crew wages"],"4400 CP");
+  assert.equal(Object.fromEntries(describeTransportationFareRows({crewWagesCp:0,units:[{paidCrew:0,crewWageCpPerDay:200,crewWageBasis:"day"}]},{owned:true,formatCoins:true}))["Paid crew wages (0 paid)"],"0 CP");
+  assert.deepEqual(quote,before);
+});
