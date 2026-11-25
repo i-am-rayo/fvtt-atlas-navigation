@@ -5525,7 +5525,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               operation,movingHours,distanceMi,
               travelers:quoteRoster?.travelers??1,ownedQuote,regularHours:normalHours,
               livestockCount,livestockPercent:readLivestockFarePercent(game.settings)};
-            const quote=ordinaryOwned?.serviceQuote??this.planLandHiredService(method,partySelection)?.quote??
+            const quote=this.planLandHiredService(method,partySelection)?.quote??ordinaryOwned?.serviceQuote??
               quoteTransportationService(method,{...quoteArgs,hireTerms:this.transportHireTerms});
             const worldOperation=operation!=="normal"&&
               !baseMethod?.[operation+"Enabled"]?"normal":operation;
