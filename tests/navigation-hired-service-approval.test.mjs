@@ -159,6 +159,12 @@ test("owned checkpoint approval requires acknowledgement, preserves staffing and
   assert.match(html,/continuing previously approved owned service; no new fare/i);
   assert.throws(()=>resumeJourneyRecord(saved,{itinerary:{...itinerary(resumed),
     transport:{...resumed.transport,ownedApproval:undefined}},atlasRevision:4}),/approved owned/i);
+  const omitted=structuredClone(history);
+  delete omitted.legs[1].transport.ownedApproval;
+  assert.throws(()=>validateJourneyRecord(omitted),/invalid|approved owned/i);
+  const displaced=structuredClone(history);
+  displaced.legs[1].destination.x++;
+  assert.throws(()=>validateJourneyRecord(displaced),/invalid|approved owned/i);
   for(const edit of [a=>a.belowMinimumAcknowledged=false,a=>a.totalCp++,
     a=>a.units[0].unitIndex=2]){
     const bad=structuredClone(history);edit(bad.legs[1].transport.ownedApproval);
