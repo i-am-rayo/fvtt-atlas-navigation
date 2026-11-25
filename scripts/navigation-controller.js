@@ -797,6 +797,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       from:route.start,next,final:destination,party:this.sourceMode==="party"});
   }
 
+  /** GM-only projection of a durable approved leg, including checkpoint decisions.
+   * Never substitute a stale draft or a nearest marker for Journal coordinates. */
+  approvedRouteContext(record){
+    if(!game.user?.isGM||!this.scene||record?.sceneId!==this.scene.id)return null;
+    const leg=record.legs?.at(-1);
+    return describeNavigationRouteContext(this.atlasProvider(this.scene),{
+      from:leg?.departure,next:leg?.destination,final:record.destination,party:true});
+  }
+
   /** Confirm an explicit per-rider manifest and then re-read every authority:
    * roster, Scene, route, hire inventory, mounts, pricing and chosen pace.
    */
@@ -5068,6 +5077,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         body.append(renderCheckpointArrivalPrompt({
           checkpointName:checkpoint.name,atDestination}));
       }
+      const context=this.approvedRouteContext(this.recoveryRecord);
+      if(context)body.append(renderNavigationRouteContext(context,{nextLabel:"Current stop"}));
       if(game.user?.isGM&&this.recoveryRecord?.routeTargets)
         body.append(renderJourneyTargets(this.recoveryRecord.routeTargets));
       body.append(el("p","Continue retains the saved Point B and lets the GM choose the next eligible transportation method. Complete is available only at the confirmed final destination."));
@@ -5140,6 +5151,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       title:"Journey in progress to "+(destination??"selected destination"),
       notice:urgent?this.travelNotice:null
     }));
+    const context=this.approvedRouteContext(session.journeyRecord);
+    if(context)body.append(renderNavigationRouteContext(context));
     const summary=renderNavigationSummaryMetrics({metrics:[
       {label:"Current Leg Distance",value:showDistance(leg?.distance??this.result?.distance??0)},
       {label:"Travel Time",value:formatGuidedWorldTime(Math.round(hours*3600))},
@@ -6145,6 +6158,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         try{
           playbackTab.append(renderNavigationPlaybackControls({
             model:realPlaybackModel,
+            legScoped:Boolean(transferPlan?.hasTransitions),
             secondsPerHour:this.playbackSecondsPerHourOverride??
               readGuidedPlaybackSetting(game.settings),
             disabled:Boolean(this.journalStarting),
