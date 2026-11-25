@@ -33,6 +33,19 @@ export function verifiedJourneyDestinationName(atlas,point){
   return matches.length===1?cleanLabel(matches[0].name):null;
 }
 
+/** Read-only labels for the current departure, next stop and final destination.
+ * Use exact authored locations only; never guess from a nearby Map Marker. */
+export function describeNavigationRouteContext(atlas,{from,next,final,party=false}={}){
+  if(![from,next,final].every(validPoint))return null;
+  const destination=verifiedJourneyDestinationName(atlas,final)??"Selected map destination";
+  return {
+    from:verifiedJourneyDestinationName(atlas,from)??(party?"Party departure point":"Selected map origin"),
+    next:Math.hypot(next.x-final.x,next.y-final.y)<=0.02?destination:
+      verifiedJourneyDestinationName(atlas,next)??"Selected map stop",
+    final:destination
+  };
+}
+
 /** Capture the trip's start date at creation, before Atlas advances World time.
  * CalendarData.format is the public v14 API and respects custom World calendars. */
 export function nativeJourneyDate(time=globalThis.game?.time,worldTime=time?.worldTime){
