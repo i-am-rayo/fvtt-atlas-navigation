@@ -100,6 +100,22 @@ export function describeOwnedUnitStaffing(unit){
       unit.namedCrew.map(c=>c.name+(c.duty?" ("+c.duty+")":"")).join(", "):"");
 }
 
+/** Display exact quote components, never round each component into a coin.
+ * Only the method total goes through the existing currency adapter. */
+export function describeTransportationFareRows(quote,{owned=false,methodName=null}={}){
+  if(!quote)return [];
+  const rows=[
+    [owned?"Vehicle upkeep":"Base transportation",quote.baseCp],
+    ["Paid crew wages",quote.crewWagesCp],
+    ...(!owned?[["Overtime fare",quote.overtimeFareCp]]:[]),
+    ["Overtime crew wages",quote.overtimeCrewCp],
+    ...(quote.livestockFareCp>0?[["Physical mount boarding",quote.livestockFareCp]]:[]),
+    ...(quote.adjustmentCp?[["Fare adjustment",quote.adjustmentCp]]:[])
+  ];
+  return rows.filter(([,amount])=>Number.isFinite(amount)).map(([label,amount])=>
+    [methodName?methodName+" — "+label:label,amount+" CP"]);
+}
+
 /** Shared read-only GM confirmation. All rows and metrics come from a
  * previously validated current-leg plan; this view never approves travel. */
 export function renderNavigationTransportApproval({
