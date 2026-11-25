@@ -1751,6 +1751,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   assessTravelMethod(){
+    const prior=this.recoveryRecord?.legs?.at(-1);
+    // Staffed ordinary land continuations retain the approved road sequence
+    // and geometry, just like a checkpoint-bound voyage.
+    if(isUnfinishedJourneyLeg(this.recoveryRecord)&&!prior.transport&&prior.approvedPath&&
+        (prior.travelMethod?.ownedApproval||prior.convoy?.methods?.some(m=>m.ownedApproval))){
+      try{
+        const route=assessApprovedJourneyRecovery({approvedPath:prior.approvedPath,
+          route:this.result,anchor:this.recoveryRecord.lastConfirmedAnchor,
+          tokenPosition:this.result?.start,gridSize:this.scene?.grid?.size});
+        if(!route.safe)throw Error("The saved owned Journey cannot resume against its approved route ("+
+          route.reason+"). Review the confirmed position and route before continuing.");
+      }catch(error){return {compatible:false,guided:false,reason:error.message??String(error)};}
+    }
     // Continuation mounts may be undecided in the UI, but never at approval.
     // Gate even Walking: no method may bypass the saved cohort review.
     if(!this.travelSession&&this.recoveryRecord?.legs?.at(-1)?.livestock&&
@@ -1860,15 +1873,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         try{
           if(!party)throw Error("The approved owned vehicle traveler manifest is unavailable.");
           priorJourneySelection(this.recoveryRecord,party.roster);
-          // A recalculated land route must retain its approved segment
-          // sequence and geometry, just like a checkpoint-bound voyage.
-          if(savedLeg.approvedPath){
-            const route=assessApprovedJourneyRecovery({approvedPath:savedLeg.approvedPath,
-              route:this.result,anchor:this.recoveryRecord.lastConfirmedAnchor,
-              tokenPosition:this.result.start,gridSize:this.scene.grid.size});
-            if(!route.safe)throw Error("The saved owned Journey cannot resume against its approved route ("+
-              route.reason+"). Review the confirmed position and route before continuing.");
-          }
         }catch(error){return {...result,guided:false,reason:error.message??String(error)};}
       }
       const ordinaryOwned=this.ordinaryOwnedLeg();
@@ -3433,6 +3437,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // stock/party/route revalidated after confirmation and before Journal creation.
     const previousConvoy=isUnfinishedJourneyLeg(this.recoveryRecord)?
       this.recoveryRecord.legs.at(-1)?.convoy:null;
+    if(!guidedLeg&&previousConvoy?.methods?.some(m=>m.ownedApproval)){
+      const assessment=this.assessTravelMethod();
+      if(!assessment.guided)throw Error(assessment.reason??"Review the approved owned convoy.");
+    }
     let approvedConvoy=previousConvoy?
       previousConvoy.schemaVersion===3?validateAggregateLandConvoy(previousConvoy):
         previousConvoy.schemaVersion===2?validateMixedLandConvoy(previousConvoy):
