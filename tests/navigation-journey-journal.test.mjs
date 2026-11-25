@@ -416,6 +416,42 @@ test("walking cargo Journal retains the approved convoy on interruption and resu
     atlasRevision:12}),false);
 });
 
+test("walking cargo Journal rounds each hire once and distinguishes continuation from a new leg",()=>{
+  const cargo={schemaVersion:1,mode:"walking-cargo",
+    travelers:[{actorId:"pc1",role:"walking",seatsNeeded:1}],
+    hires:["cart","wagon"].map(methodId=>({methodId,methodName:methodId==="cart"?"Cart":"Wagon",
+      checkpointId:"hearth",units:1,speedMph:4,unlimited:true,availableUnits:null,
+      hireCostCp:10.1,hireBasis:"trip",estimatedCostCp:10.1})),
+    suggestedSpeedPerHour:2,speedPerHour:2,movingHours:10,totalCp:20.2};
+  const plan=itinerary();
+  plan.travel={speedPerHour:2,methodId:"walking",methodName:"Walking with cargo",
+    arrangement:"owned",operation:"normal"};
+  plan.measurements.distance=20;plan.measurements.travelHours=10;plan.convoy=cargo;
+  const record=createJourneyRecord({sceneId:"scene",tokenId:"token",atlasRevision:12,itinerary:plan});
+  const progress=(record,hours,percent,status="interrupted")=>checkpointJourneyRecord(record,{
+    schedule:{...schedule,completedHours:hours,events:[],restEvents:0},progress:percent,status});
+  const resume=record=>resumeJourneyRecord(record,{itinerary:{...plan,convoy:undefined},atlasRevision:12});
+  const html=record=>formatJourneyJournalHTML(record,{systemId:"dnd5e"});
+  const paused=progress(record,5,50);
+  const resumed=progress(resume(paused),5,100,"paused");
+  const before=structuredClone(resumed);
+  const rendered=html(resumed);
+  assert.match(rendered,/Cart.*1 SP · 1 CP/);
+  assert.match(rendered,/Wagon.*1 SP · 1 CP/);
+  assert.equal((rendered.match(/Estimated transportation cost: 2 SP · 2 CP/g)??[]).length,1);
+  assert.equal((rendered.match(/estimated fare 1 SP · 1 CP/g)??[]).length,2);
+  assert.match(rendered,/Continuing previously approved cargo service; no new fare/);
+  assert.deepEqual(resumed,before,"presentation never rewrites the exact snapshot");
+  assert.deepEqual(resumed.legs.map(l=>l.convoy.totalCp),[20.2,20.2]);
+  const newLeg=resumeJourneyRecord(resumed,{itinerary:plan,atlasRevision:12});
+  assert.equal((html(progress(newLeg,10,100,"completed")).match(/Estimated transportation cost: 2 SP · 2 CP/g)??[]).length,2,
+    "a genuinely new leg with identical terms receives its own estimate");
+  const zero=progress(record,0,0);
+  const zeroResume=progress(resume(zero),5,50);
+  assert.equal((html(zeroResume).match(/Estimated transportation cost: 2 SP · 2 CP/g)??[]).length,1,
+    "an interrupted approval with no confirmed movement must not suppress the first displayed fare");
+});
+
 test("GM-authorized faster walking with cargo is Journal-saved and recoverable",()=>{
   const cart={id:"cart",name:"Cart",kind:"vehicle",surface:"land",
     capacity:2,speedMph:4,hireEnabled:true,hireApplies:"unit",
