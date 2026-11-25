@@ -5,7 +5,6 @@
 <script type="module">
 import {AtlasGroupTransportationSettings} from "../../scripts/navigation-group-transport-settings.js";
 import {AtlasTransportationSettings,openTransportationMethodEditor} from "../../scripts/navigation-transport-settings.js";
-import {createCheckpointTransportationEditor} from "../../scripts/checkpoint-transportation-editor.js";
 import {deleteCustomTransportationPreset,findTransportationPreset,TRANSPORT_CATALOG_SETTING} from "../../scripts/navigation-transport-catalog.js";
 
 const result=document.querySelector("#result");
@@ -132,6 +131,7 @@ try{
   equal(catalog.customs.map(({name,kind,surface})=>({name,kind,surface})),
     [{name:"B4 Disposable QA Transport",kind:"vehicle",surface:"land"}],
     "New preset saves under the surface of its catalog section");
+  const {createCheckpointTransportationEditor}=await import("../../scripts/checkpoint-transportation-editor.js");
   const temporary=catalog.customs[0];
   const offer=methodId=>({methodId,mode:"land",overrides:{}});
   const storedOffers=[offer("cart"),offer(temporary.id)];
