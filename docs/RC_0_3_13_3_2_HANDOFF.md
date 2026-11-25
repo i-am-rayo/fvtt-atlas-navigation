@@ -188,3 +188,9 @@ Exact native token coordinates and the onward **From Port Barthos** check remain
 The fresh daily-hours Journal, panel, and clock check passed in Sandbox (Copy). This follow-up groups explicitly recorded continuations under their approved leg in the readable Journal. Segment progress, directions, stops and fare history remain visible. Independent approvals still get their own leg numbers. The renderer leaves the saved ledger intact.
 
 After CI is green, install the updated branch build once in the authorized test World using the existing RC.3.2 manifest. Preserve the earlier evidence Journals. Use a new disposable Journey with an overnight stop and a checkpoint transfer. Verify that the resumed segment sits under Leg 1, the onward approval starts Leg 2, the review says From Port Barthos, and the finished totals and fares still match the confirmed travel. Use the same install for separately authorized reload and non-GM checks. Record the installed build evidence and exact native Token coordinates if available.
+
+#### Journal continuation candidate retest status — 2026-11-26 (JST)
+
+**Blocked before installation.** [Stabilization checks for `953357e`](https://github.com/i-am-rayo/fvtt-atlas-navigation/actions/runs/45650636174) failed. The branch advanced to [`a70b012`](https://github.com/i-am-rayo/fvtt-atlas-navigation/commit/a70b0129a90164a4cd562adc76b17321d4d00be3) with a fare-deduplication correction. GitHub did not return a workflow run or commit status for that revision when checked. The handoff requires green CI before installing the candidate.
+
+**Not run:** fresh overnight Warship Journey, grouping the continuation under Leg 1 and showing its approved fare once, Port Barthos onward origin and Leg 2, finished Journal reconciliation, separate reload, and non-GM permissions. No candidate installation or Foundry changes were made in this retest attempt.
