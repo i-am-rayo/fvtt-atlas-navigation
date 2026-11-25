@@ -4588,7 +4588,7 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
       dialogs++;const summary=labels(options.content).join(" ");
       assert.match(summary,/below.minimum/i);
-      assert.match(summary,/Paid crew wages 4400 CP/);
+      assert.match(summary,/Paid crew wages 4 PP · 4 GP/);
       assert.match(summary,/Fare components are before rounding/);
       assert.match(options.yes?.label??"",/acknowledge/i);
       assert.equal(options.no?.label,"Back to plan");
@@ -5202,8 +5202,8 @@ test("mixed owned Cart draft, confirmation, Journal and recovery share exact ope
       assert.match(summary,/Driver/);
       const fares=flatten(options.content).find(n=>n.className==="atlas-transport-approval-fares");
       assert.ok(fares,"staffed mixed costs use the same fare breakdown as single-method approval");
-      assert.match(labels(fares),/Cart.*Vehicle upkeep.*100 CP/);
-      assert.match(labels(fares),/Cart.*Paid crew wages.*400 CP/);
+      assert.match(labels(fares),/Cart.*Vehicle upkeep.*1 GP/);
+      assert.match(labels(fares),/Cart.*Paid crew wages.*4 GP/);
       assert.match(summary,/rounded independently, then summed/);
       assert.match(options.yes?.label??"",/acknowledge/i);
       assert.equal(options.no?.label,"Back to plan");return false;

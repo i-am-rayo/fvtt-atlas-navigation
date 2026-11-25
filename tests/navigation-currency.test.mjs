@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { atlasCurrencyChoices,coinFromCopper,copperFromCoin,projectedGroupFare,dndCurrencyBreakdown,mixedTransportFareBreakdown }
+import { atlasCurrencyChoices,coinFromCopper,copperFromCoin,projectedGroupFare,dndCurrencyBreakdown,mixedTransportFareBreakdown,describeTransportationFareRows }
   from "../scripts/navigation-currency.js";
 
 test("currency adapter exposes native D&D5e denomination options",()=>{
@@ -80,4 +80,19 @@ test("mixed quotes round separately, omit walking, and preserve exact estimates"
   assert.deepEqual(methods,before);
   assert.equal(mixedTransportFareBreakdown(methods,
     {gp:{conversion:1},sp:{conversion:10}}).total.label,"4 SP");
+});
+
+test("fare components use the total's coin denominations only when exact; no component rounding",()=>{
+  const quote={baseCp:84000,crewWagesCp:4400,overtimeCrewCp:0,
+    livestockCount:1,livestockFareCp:5.05};
+  const rows=Object.fromEntries(describeTransportationFareRows(quote,{owned:true}));
+  assert.equal(rows["Vehicle upkeep"],"84 PP");
+  assert.equal(rows["Paid crew wages"],"4 PP · 4 GP");
+  assert.equal(rows["Physical mount boarding"],"5.05 CP");
+  assert.equal(rows["Overtime crew wages"],"0 CP");
+  const limited=Object.fromEntries(describeTransportationFareRows(quote,
+    {owned:true,currencyConfig:{gp:{conversion:1},sp:{conversion:10}}}));
+  assert.equal(limited["Vehicle upkeep"],"840 GP");
+  assert.equal(limited["Physical mount boarding"],"5.05 CP");
+  assert.equal(quote.baseCp,84000);
 });
