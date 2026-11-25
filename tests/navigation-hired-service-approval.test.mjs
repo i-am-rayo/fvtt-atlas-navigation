@@ -171,3 +171,55 @@ test("owned checkpoint approval requires acknowledgement, preserves staffing and
     assert.throws(()=>validateJourneyRecord(bad),/invalid|acknowledg/i);
   }
 });
+
+test("ordinary owned land approval preserves the exact historical crew, schedule and fare",()=>{
+  const method={...ship,id:"carriage",name:"Carriage",surface:"land",costCp:100,
+    costBasis:"day",costApplies:"unit",includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"};
+  const roster={travelers:1,members:[
+    {actorId:"pc",actorName:"Driver",actorType:"character",role:"passenger",quantity:1,needsSeat:true,enabled:true},
+    {actorId:"cart",actorName:"Carriage",actorType:"vehicle",role:"vehicle",quantity:2,capacity:2,
+      surface:"land",profileId:"carriage",enabled:true,crewRoster:[{unitIndex:1,named:[{actorId:"pc"}],hired:10}]}]};
+  const draft=planOwnedVehicleService(roster,method,{operatedUnits:[{actorId:"cart",unitIndex:1}],
+    movingHours:24,distanceMi:60,regularHours:6,operation:"normal"}).approval;
+  const approval={...draft,belowMinimumAcknowledged:draft.belowMinimum};
+  const participation={schemaVersion:1,checkpointId:null,people:[{
+    actorId:"pc",name:"Driver",traveling:true,seats:0,methodKey:"owned|carriage"}]};
+  const plan={...itinerary({start:p(0),end:p(60),distance:60}),participation,
+    travel:{speedPerHour:2.5,methodId:"carriage",methodName:"Carriage",arrangement:"owned",
+      operation:"normal",ownedApproval:approval}};
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"party",atlasRevision:4,itinerary:plan});
+  assert.deepEqual(saved.legs[0].travelMethod.ownedApproval,approval);
+  assert.doesNotMatch(formatJourneyJournalHTML(saved),/Approved owned service/);
+  saved.status="interrupted";saved.legs[0].completedPercent=50;saved.legs[0].completedMovingHours=12;
+  const next={...plan,endpoints:{departure:p(30),destination:p(60)},
+    measurements:{distance:30,travelHours:12,terrainAware:false}};
+  const resumed=resumeJourneyRecord(saved,{itinerary:next,atlasRevision:4});
+  assert.deepEqual(resumed.legs[1].travelMethod.ownedApproval,approval);
+  assert.equal(resumed.legs[1].travelMethod.ownedContinuation,true);
+  assert.deepEqual(resumed.legs[1].participation,participation);
+  resumed.legs[1].completedMovingHours=6;resumed.legs[1].completedPercent=50;
+  assert.deepEqual(validateJourneyRecord(resumed),resumed);
+  const html=formatJourneyJournalHTML(resumed);
+  assert.equal((html.match(/Approved owned service:/g)||[]).length,1);
+  assert.match(html,/Continuing previously approved owned service; no new fare/);
+  for(const edit of [
+    q=>delete q.travel.ownedApproval,
+    q=>{q.travel.speedPerHour=3;},
+    q=>{q.endpoints.destination=p(61);},
+    q=>{q.travel.ownedApproval.belowMinimumAcknowledged=false;},
+    q=>{q.participation.people[0].seats=1;}
+  ]){
+    const changed=structuredClone(next);edit(changed);
+    assert.throws(()=>resumeJourneyRecord(saved,{itinerary:changed,atlasRevision:4}),/approved|acknowledg|seats/i);
+  }
+  for(const edit of [
+    q=>delete q.legs[1].travelMethod.ownedApproval,
+    q=>delete q.legs[1].travelMethod.ownedContinuation,
+    q=>{q.legs[1].travelMethod.arrangement="hire";},
+    q=>{q.legs[1].destination.x++;},
+    q=>{q.legs[1].participation.people[0].seats=1;}
+  ]){
+    const changed=structuredClone(resumed);edit(changed);
+    assert.throws(()=>validateJourneyRecord(changed),/invalid|approved|seats/i);
+  }
+});

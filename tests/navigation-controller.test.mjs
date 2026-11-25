@@ -4287,7 +4287,42 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     await nav.setCheckpointOperatedUnits([]);
     const emptyPanel=flatten(await nav.renderDestinationStage());
     assert.match(labels(selectedTile(emptyPanel)).join(" "),/selected.unit estimate unavailable/i);
+    assert.equal(emptyPanel.some(n=>n.className==="atlas-navigation-playback"),false,
+      "invalid operating-unit draft cannot advertise a playback duration");
     await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    token.actor.system.members.push(
+      {actor:{id:"extra1",name:"Extra traveler one",type:"character"}},
+      {actor:{id:"extra2",name:"Extra traveler two",type:"character"}});
+    const insufficient=nav.transportationTransitionPlan().legs[0];
+    assert.ok(insufficient.errors.some(e=>/seats/i.test(e)));
+    assert.equal(insufficient.hours,null,"insufficient seats cannot yield an actionable moving-time estimate");
+    assert.equal(insufficient.costCp,null);
+    const insufficientPanel=flatten(await nav.renderDestinationStage());
+    assert.equal(insufficientPanel.some(n=>n.className==="atlas-navigation-playback"),false);
+    assert.ok(insufficientPanel.some(n=>n.textContent==="Unavailable"));
+    await assert.rejects(()=>nav.startGuidedTravel(),/review|seats/i);
+    assert.equal(journals.length,0);
+    token.actor.system.members.splice(-2);
+    // Same real destination-stage controls on a land-to-water route.
+    const shipSettings=owned.groups.group1.members.ship;
+    const priorScope=nav.checkpointOwnedDraft;
+    atlas.roads[0].travelPresetId="land-stone";
+    atlas.roads[1].travelPresetId="water-sea";
+    shipSettings.profileId="cart";shipSettings.surface="land";
+    nav.transferSelections[0]="owned|cart";
+    delete nav.transferLegOverrides[0];nav.transferLegOperations[0]="normal";
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    const landLeg=nav.transportationTransitionPlan().legs[0];
+    assert.equal(landLeg.surface,"land");assert.deepEqual(landLeg.errors,[]);
+    const landPanel=flatten(await nav.renderDestinationStage());
+    const cartTile=landPanel.find(n=>n.tag==="label"&&
+      n.children.some(c=>c.name==="atlas-navigation-travel-method"&&c.value==="owned|cart"&&c.checked));
+    assert.ok(cartTile,"current land leg uses a real selected method card");
+    assert.match(labels(cartTile).join(" "),/1 operated unit.*1\/2 passenger seats/);
+    atlas.roads[0].travelPresetId="water-sea";delete atlas.roads[1].travelPresetId;
+    shipSettings.profileId="warship";shipSettings.surface="water";
+    nav.transferSelections[0]="owned|warship";nav.checkpointOwnedDraft=priorScope;
+
 
     delete nav.transferLegOverrides[0];nav.transferLegOperations[0]="normal";
     assert.equal(await nav.startGuidedTravel(),false,"Cancel must not approve or save a Journey");
