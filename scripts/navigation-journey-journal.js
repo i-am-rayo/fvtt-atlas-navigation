@@ -188,17 +188,20 @@ export function validateJourneyRecord(value){
         throw Error("Invalid approved service continuation.");
     }
     const owned=leg.transport?.ownedApproval;
+    const priorOwned=value.legs[index-1];
+    const continuesOwned=priorOwned?.transport?.ownedApproval&&priorOwned.completedPercent<99.999;
+    if(continuesOwned&&(!owned||!leg.transport.continuation))
+      throw Error("Invalid replacement of unfinished owned service.");
     if(owned){
       const approval=validateConfirmedOwnedVehicleApproval(owned);
-      const prior=value.legs[index-1];
       if(leg.transport.continuation){
-        if(!prior?.transport?.ownedApproval||prior.completedPercent>=99.999||
-            prior.transport.arrivalCheckpointId!==leg.transport.arrivalCheckpointId||
-            prior.speedPerHour!==leg.speedPerHour||
-            JSON.stringify(prior.transport.ownedApproval)!==JSON.stringify(approval))
+        if(!continuesOwned||
+            priorOwned.transport.arrivalCheckpointId!==leg.transport.arrivalCheckpointId||
+            priorOwned.speedPerHour!==leg.speedPerHour||
+            priorOwned.destination.x!==leg.destination.x||
+            priorOwned.destination.y!==leg.destination.y||
+            JSON.stringify(priorOwned.transport.ownedApproval)!==JSON.stringify(approval))
           throw Error("Invalid approved owned service continuation.");
-      }else if(prior?.transport?.ownedApproval&&prior.completedPercent<99.999){
-        throw Error("Invalid replacement of unfinished owned service.");
       }
     }
     if(leg.convoy!==undefined){
