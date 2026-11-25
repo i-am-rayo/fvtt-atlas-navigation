@@ -4174,7 +4174,7 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
         includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},crewRoster:[{unitIndex:1,named:[{actorId:"sailor"}],hired:10},{unitIndex:2,named:[],hired:30}]});
     const writes=[],journals=[];
     let dialogs=0;
-    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),append(...items){this.children.push(...items);},addEventListener(n,f){this.listeners.set(n,f);},setAttribute(n,v){this[n]=v;}})};
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),append(...items){this.children.push(...items);},appendChild(n){this.children.push(n);return n;},addEventListener(n,f){this.listeners.set(n,f);},setAttribute(n,v){this[n]=v;}})};
     const labels=node=>[node.textContent,...node.children.flatMap(labels)];
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
       dialogs++;assert.match(labels(options.content).join(" "),/below.minimum/i);
@@ -4244,6 +4244,17 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     assert.ok(invalidDeck.some(n=>n.type==="checkbox"&&/Traveler/.test(n["aria-label"])));
     assert.ok(!invalidDeck.some(n=>/\/4 passenger seats/.test(n.textContent)));
     await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    nav.transferLegOverrides[0]={selection:"owned|warship",overrides:{continuousEnabled:true}};
+    nav.transferLegOperations[0]="continuous";
+    const continuous=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(continuous.errors,[]);
+    assert.equal(continuous.ownedDraft.dailyHours,24);
+    const continuousPanel=flatten(await nav.renderDestinationStage());
+    assert.ok(continuousPanel.some(n=>/Trip with 0 planned 8h Long Rest/.test(n.textContent)),
+      "continuous owned-leg playback must not insert a World travel-day rest");
+    assert.ok(continuousPanel.some(n=>/1\/2 passenger seats/.test(n.textContent)),
+      "the actual destination stage must use the selected-unit traveler deck");
+    delete nav.transferLegOverrides[0];nav.transferLegOperations[0]="normal";
     assert.equal(await nav.startGuidedTravel(),false,"Cancel must not approve or save a Journey");
     assert.equal(dialogs,1);assert.equal(journals.length,0);
     globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
