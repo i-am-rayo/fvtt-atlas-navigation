@@ -2033,6 +2033,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   draw() {
+    // The route is a GM-only overlay, separate from the player map projection.
+    if(!globalThis.game?.user?.isGM){
+      if(this.overlay&&!this.overlay.destroyed)this.overlay.clear();
+      return;
+    }
     const view = this.canvasProvider();
     if (!this.scene || view?.scene?.id !== this.scene.id || !view.ready ||
         !globalThis.PIXI?.Graphics || !view.primary?.addChild) return;
@@ -5305,6 +5310,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   async _renderHTML(){
+    // Navigation is a GM-only application. Recheck before projecting any
+    // checkpoint, route, roster, fare or saved Journal details.
+    if(!globalThis.game?.user?.isGM){
+      this.travelProgressUI=null;
+      this.journeyTimeUI=null;
+      this.worldTimeUI=null;
+      return el("p","Only a GM may use Atlas Navigation.");
+    }
     const stage=this.navigationStage();
     if(stage!==NAVIGATION_STAGES.JOURNEY){
       // Drop references to the previous stage's detached DOM on transitions.
