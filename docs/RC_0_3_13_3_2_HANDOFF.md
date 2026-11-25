@@ -47,7 +47,7 @@ The Product Owner reported four Pass and two Partial results from the [RC.3.2 te
 
 ## Next gate
 
-Resume test B at the missing-preset case using a disposable orphaned offer. Cart Save and reopen and the remaining test E steps passed in the follow-up below. Playback, checkpoint continuation, recovery, the finished Journal and separate player permissions still need live verification. Keep #528 and #537 in their separate scope. Overall RC.3.2 acceptance remains open and merge, tag or release requires PO approval.
+B4 and E have passed in Sandbox. Resume at approval and departure for Dirwest via Port Barthos. Use the [release-candidate checklist](TEST_0_3_13_RC_3_2.md#release-candidate-checklist) to run the remaining checks in one batch. Playback, checkpoint continuation, recovery, the finished Journal and separate player permissions still need live verification. Keep #528 and #537 in their separate scope. Overall RC.3.2 acceptance remains open and merge, tag or release requires PO approval.
 
 ## Follow-up live GM retest — 2026-11-25 (JST)
 
