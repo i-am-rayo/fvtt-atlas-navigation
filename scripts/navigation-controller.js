@@ -59,7 +59,8 @@ import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure,
   atlasSceneSpeedFromDisplay }
   from "./navigation-measure-units.js";
 import { readGroupTransportation,projectGroupTransportation,
-  groupMethodCapacityStatus,groupMethodFareEstimate,groupMethodResourceInventory }
+  groupMethodCapacityStatus,groupMethodFareEstimate,groupMethodResourceInventory,
+  planOwnedVehicleService,assessGroupCrewRoster }
   from "./navigation-group-transport.js";
 import { dndCurrencyBreakdown,mixedTransportFareBreakdown } from "./navigation-currency.js";
 import { resolveTransportationOperation,draftTransportationOperation,quoteTransportationService,
@@ -186,7 +187,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.livestockDecisions={};
     this.transferSelections={};
     this.transferLegOverrides={};
-    this.transferLegOperations={};
+    this.transferLegOperations={};this.checkpointOwnedDraft=null;
     this.pendingTransfer=null;
     this.start = null;
     this.end = null;
@@ -278,7 +279,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.livestockDecisions={};
     this.transferSelections={};
     this.transferLegOverrides={};
-    this.transferLegOperations={};
+    this.transferLegOperations={};this.checkpointOwnedDraft=null;
     this.pendingTransfer=null;
     // Favor the manually assigned Atlas party explorer when it can actually
     // provide a valid Scene-to-Atlas origin. Otherwise retain map-point mode.
@@ -381,7 +382,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mixedMethodOverrides={};this.mixedServiceLevels={};
     this.transferSelections={};
     this.transferLegOverrides={};
-    this.transferLegOperations={};
+    this.transferLegOperations={};this.checkpointOwnedDraft=null;
     this.result=null;
     this.itinerary=null;
     this.travelProgress=0;
@@ -1065,15 +1066,36 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         try{operationRules=resolveTransportationOperation(option.method,operation,regularHours);}
         catch(error){errors.push(error.message??String(error));}
       }
-      let hours=null,costCp=null,livestock=null,serviceQuote=null;
+      let hours=null,costCp=null,livestock=null,serviceQuote=null,ownedDraft=null;
+      let ownedUnitChoices=null,operatedUnits,ownedScope=null;
+      if(index===0&&activeRoster&&option?.arrangement==="owned"&&option.method.kind==="vehicle"&&
+          (projected.hasTransitions||checkpointContinuation)){
+        ownedScope=JSON.stringify([this.scene.id,actor?.id,leg.start,leg.end,option.value]);
+        try{
+          ownedUnitChoices=groupMethodResourceInventory(activeRoster,option.method).flatMap(resource=>{
+            const member=activeRoster.members.find(m=>m.actorId===resource.actorId);
+            const assessment=assessGroupCrewRoster(activeRoster,member,option.method);
+            return Array.from({length:resource.quantity},(_,i)=>({
+              actorId:resource.actorId,unitIndex:i+1,name:resource.actorName,
+              staffing:assessment.units.find(u=>u.unitIndex===i+1)??null
+            }));
+          });
+          const prior=this.checkpointOwnedDraft;
+          if(prior?.scope===ownedScope)operatedUnits=prior.units;
+          else if(ownedUnitChoices.some(u=>u.staffing!==null))
+            operatedUnits=ownedUnitChoices.map(({actorId,unitIndex})=>({actorId,unitIndex}));
+        }catch(error){errors.push(error.message??String(error));}
+      }
       if(option){
         let speed=null;
         if(option.method?.id==="walking")speed=walking.speed;
         else if(option.arrangement==="owned"&&roster){
-          const capacity=groupMethodCapacityStatus(activeRoster,option.method);
-          if(!capacity.sufficient)errors.push("Not enough party-owned seats for this leg.");
-          const mph=capacity.effectiveSpeedMph??option.method.speedMph;
-          speed=convertGroupSpeed(mph,"mph",sceneUnit);
+          try{
+            const capacity=groupMethodCapacityStatus(activeRoster,option.method,{operatedUnits});
+            if(!capacity.sufficient)errors.push("Not enough party-owned seats for this leg.");
+            const mph=capacity.effectiveSpeedMph??option.method.speedMph;
+            speed=convertGroupSpeed(mph,"mph",sceneUnit);
+          }catch(error){errors.push(error.message??String(error));}
         }else speed=convertGroupSpeed(option.method.speedMph,"mph",sceneUnit);
         if(!Number.isFinite(speed)||speed<=0)
           errors.push("This method needs compatible Scene distance units and a valid speed.");
@@ -1087,7 +1109,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               const distanceMi=convertGroupSpeed(leg.distance,sceneUnit,"mi");
               if(!Number.isFinite(distanceMi))
                 throw Error("Transport pricing requires a Scene in miles or kilometers.");
-              const ownedQuote=option.arrangement==="owned"&&activeRoster?
+              const ownedQuote=option.arrangement==="owned"&&activeRoster&&operatedUnits===undefined?
                 groupMethodFareEstimate(activeRoster,option.method,{
                   hours,distanceMi,dayHours:regularHours}):null;
               const vehicle=index===0&&roster&&
@@ -1096,7 +1118,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               const mounts=vehicle?groupLivestockResources(roster):[];
               const count=mounts.length?
                 countJourneyLivestock(roster,this.livestockDecisions):0;
-              const quote=quoteTransportationService(option.method,{
+              const ownedPlan=operatedUnits!==undefined?
+                planOwnedVehicleService(activeRoster,option.method,{operatedUnits,
+                  movingHours:hours,distanceMi,regularHours,operation}):null;
+              ownedDraft=ownedPlan?.approval??null;
+              const quote=ownedPlan?.quote??quoteTransportationService(option.method,{
                 arrangement:option.arrangement,operation,serviceLevel,
                 movingHours:hours,distanceMi,travelers:activeRoster?.travelers??1,
                 livestockCount:count,ownedQuote,regularHours,
@@ -1117,7 +1143,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         overnightHours:operationRules?.overnightHours??null,
         selectedValue:option?.value??"",
         methodName:option?.method?.name??null,
-        livestock,serviceQuote,
+        livestock,serviceQuote,ownedUnitChoices,operatedUnits,ownedScope,ownedDraft,
         narration:describeTransportationLeg(leg,option?{
           name:option.method.name,kind:option.method.kind,
           surface:leg.surface,arrangement:option.arrangement
@@ -1129,6 +1155,26 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       globalSchedule,totalHours:globalSchedule.totalMovingHours,
       totalElapsedHours:globalSchedule.totalElapsedHours,
       totalCp:globalSchedule.totalFareCp};
+  }
+
+  /** Current-leg unit selection is a transient draft. The live inventory is
+   * checked again whenever the plan is projected; stale choices never fall
+   * back to operating the entire fleet. */
+  async setCheckpointOperatedUnits(units){
+    if(!game.user?.isGM||this.travelSession||this.journalStarting||this.pendingTransfer||
+        isUnfinishedJourneyLeg(this.recoveryRecord))
+      throw Error("Only a GM may edit operating units before approval.");
+    const leg=this.transportationTransitionPlan()?.legs[0];
+    if(!leg?.ownedScope||!Array.isArray(leg.ownedUnitChoices)||!Array.isArray(units))
+      throw Error("Choose a checkpoint-owned vehicle before selecting units.");
+    const available=new Set(leg.ownedUnitChoices.map(u=>u.actorId+":"+u.unitIndex));
+    const keys=units.map(u=>u?.actorId+":"+u?.unitIndex);
+    if(keys.some(k=>!available.has(k))||new Set(keys).size!==keys.length||
+        units.some(u=>!Number.isInteger(u?.unitIndex)))
+      throw Error("Invalid or duplicate operated unit.");
+    this.checkpointOwnedDraft={scope:leg.ownedScope,
+      units:units.map(({actorId,unitIndex})=>({actorId,unitIndex}))};
+    await this.render(true);
   }
 
   /** Persist a local offer only with an explicit GM save and an unchanged source snapshot. */
@@ -2888,6 +2934,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         if(this.sourceMode!=="party")
           throw Error("Checkpoint-assisted movement requires the assigned party token as Point A.");
         const plan=this.transportationTransitionPlan();
+        if(plan?.legs[0]?.operatedUnits!==undefined)
+          throw Error("Selected owned vehicle units require the staffing approval workflow. This draft is not yet authorized for movement.");
         guidedLeg=prepareGuidedTransportLeg(this.result,plan?.legs[0]);
         if(isRepeatedArrivalCheckpoint(this.recoveryRecord,
           plan?.legs[0]?.arrivalCheckpoint))
@@ -3713,7 +3761,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const selectedEnd=nextTarget?.point??this.end??this.recoveryRecord?.destination;
     // Never create another tiny leg back to the checkpoint already occupied.
     this.end=atDestination?null:(selectedEnd?{...selectedEnd}:null);
-    this.pendingTransfer=null;
+    this.pendingTransfer=null;this.checkpointOwnedDraft=null;
     this.sourceMode="party";
     const previous=this.recoveryRecord?.legs?.at(-1)?.convoy;
     if(this.recoveryRecord){
@@ -3976,7 +4024,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
     this.transportJourneyOverrides=null;this.transportServiceLevel=null;
-    this.transferLegOperations={};
+    this.transferLegOperations={};this.checkpointOwnedDraft=null;
     this.partySelectionMode="all";this.partySelectedIds=[];
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
@@ -5356,6 +5404,39 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             card.append(this.renderTravelersAndPace(partySelection,availability,{
               singleChoice:leg.selectedOption,mountBoard}));
           }
+        }
+        if(!leg.recovered&&leg.ownedUnitChoices?.length&&game.user?.isGM){
+          const field=el("fieldset");
+          field.append(el("legend","Operating units (Journey draft)"));
+          const selected=leg.operatedUnits??leg.ownedUnitChoices;
+          const keys=new Set(selected.map(u=>u.actorId+":"+u.unitIndex));
+          for(const unit of leg.ownedUnitChoices){
+            const label=el("label"),input=el("input");
+            input.type="checkbox";input.name="atlas-owned-operating-unit";
+            input.checked=keys.has(unit.actorId+":"+unit.unitIndex);
+            input.disabled=Boolean(this.travelSession||this.journalStarting||this.pendingTransfer);
+            input.addEventListener("change",()=>{
+              const next=selected.filter(u=>u.actorId!==unit.actorId||u.unitIndex!==unit.unitIndex);
+              if(input.checked)next.push(unit);
+              void this.setCheckpointOperatedUnits(next).catch(error=>
+                globalThis.ui?.notifications?.error?.(error.message??String(error)));
+            });
+            const staffing=unit.staffing;
+            label.append(input,el("span",unit.name+" — Unit "+unit.unitIndex+
+              (staffing?" · "+staffing.staffedCrew+"/"+staffing.requiredCrew+" crew · "+staffing.tier:
+                " · Roster unconfigured")));
+            field.append(label);
+          }
+          if(selected.some(u=>!leg.ownedUnitChoices.some(v=>v.actorId===u.actorId&&v.unitIndex===u.unitIndex))){
+            const reset=el("button","Review current available units");
+            reset.type="button";reset.disabled=Boolean(this.travelSession||this.journalStarting);
+            reset.addEventListener("click",()=>void this.setCheckpointOperatedUnits([]).catch(error=>
+              globalThis.ui?.notifications?.error?.(error.message??String(error))));
+            field.append(el("p","A selected unit is no longer available. Review the current units."),reset);
+          }
+          if(leg.ownedDraft?.belowMinimum)field.append(el("p","Below-minimum staffing. GM acknowledgement will be required before travel."));
+          field.append(el("small","Draft only. Selected owned-vehicle movement is not yet enabled in this development branch."));
+          card.append(field);
         }
         if(!leg.recovered&&leg.serviceQuote&&!leg.errors.length){
           const fare=leg.serviceQuote;
