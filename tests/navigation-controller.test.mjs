@@ -4698,10 +4698,40 @@ test("mixed owned Cart draft, confirmation, Journal and recovery share exact ope
     await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
     assert.deepEqual(journals[1].legs.at(-1).convoy,leg.convoy);
     assert.deepEqual(journals[1].legs.at(-1).participation,leg.participation);
+    const removedCart=token.actor.system.members.find(m=>m.actor.id==="cart");
     token.actor.system.members=token.actor.system.members.filter(m=>m.actor.id!=="cart");
     assert.equal(nav.assessTravelMethod().guided,false);
+    const unavailable=flatten(await nav.renderDestinationStage());
+    assert.ok(unavailable.some(n=>n.textContent==="Unavailable"));
+    assert.ok(unavailable.some(n=>/approved owned operating units are no longer available/i.test(n.textContent)));
     await assert.rejects(()=>nav.startGuidedTravel(),/owned operating units|no longer available/i);
     assert.equal(journals.length,2);assert.equal(token.moves,0);
+    // A prior land leg explicitly left a mount behind. Selected Cart Actors
+    // are not mounts and must not be rejected by the livestock continuity guard.
+    token.actor.system.members.push(removedCart,{actor:{id:"horse",name:"Horse",type:"npc"}});
+    owned=setGroupTransportationMember(owned,"group1","horse",{
+      role:"mount",quantity:1,capacity:1,surface:"land",profileId:"riding-horse"});
+    const priorFrom=point(-300,0);
+    const priorRoute={status:"ok",start:priorFrom,end:from,distance:12,cost:12,
+      terrainAware:false,legs:[{kind:"road",roadId:"prior",segmentId:"prior",
+        points:[priorFrom,from],distance:12,cost:12}]};
+    const priorItinerary=createNavigationItinerary({sceneId:scene.id,sceneUnits:"mi",
+      route:priorRoute,travel:{speed:3,methodId:"walking"}});
+    priorItinerary.livestock={schemaVersion:1,methodId:"walking",surface:"land",
+      units:1,capacityPerUnit:null,resources:[{actorId:"horse",name:"Horse",quantity:1,assignedTo:null,aboard:0}],estimatedFareCp:0};
+    const prior=createJourneyRecord({sceneId:scene.id,tokenId:token.id,atlasRevision:1,
+      itinerary:priorItinerary,journeyDestination:to});
+    prior.status="paused";prior.legs[0].completedPercent=100;
+    prior.legs[0].completedMovingHours=prior.legs[0].movingHours;
+    nav.recoveryRecord=prior;nav.recoveryJournal={id:"prior-land"};
+    nav.livestockDecisions={horse:0};
+    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    assert.equal(nav.assessTravelMethod().guided,true);
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,3);
+    assert.equal(journals[2].legs.at(-1).livestock.resources[0].aboard,0);
+    assert.deepEqual(journals[2].legs.at(-1).convoy.methods[1].resourceIds,["cart"]);
+    assert.equal(token.moves,0);assert.deepEqual(writes,[]);
   }finally{Object.assign(globalThis,previous);}
 });
 
