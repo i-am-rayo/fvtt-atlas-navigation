@@ -3245,9 +3245,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(nativeGroup&&!isUnfinishedJourneyLeg(this.recoveryRecord)&&
         !partyAtStart)
       throw Error("Select at least one valid Group traveler before approving movement.");
-    const partySignature=partyAtStart?JSON.stringify({
-      members:partyAtStart.roster?.members,selectedIds:partyAtStart.selectedIds,
-      livestockDecisions:this.livestockDecisions}):null;
+    const selectionSignature=party=>JSON.stringify({members:party?.roster?.members,
+      selectedIds:party?.selectedIds,livestockDecisions:this.livestockDecisions});
+    const partySignature=partyAtStart?selectionSignature(partyAtStart):null;
+    const verifyParticipation=party=>{
+      if(partySignature!==null&&selectionSignature(party)!==partySignature)
+        throw Error("The Group roster or participation changed during confirmation. Review and approve again.");
+    };
     if(this.travelMethod!=="walking"&&this.sourceMode!=="party")
       throw Error("Guided mounted/sailing journeys require checkpoint transfers from the assigned party token.");
     const token=this.getPartyToken();
@@ -3504,7 +3508,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const afterOwned=this.ordinaryOwnedLeg();
       if(JSON.stringify(this.result)!==landRouteSignature)
         throw Error("The land route changed during confirmation. Review and approve again.");
-      if(JSON.stringify(referenceQuote(liveMethod,this.partyTravelSelection(liveAvailability.all)))!==JSON.stringify(legacyQuote))
+      const liveParty=this.partyTravelSelection(liveAvailability.all);
+      verifyParticipation(liveParty);
+      if(JSON.stringify(referenceQuote(liveMethod,liveParty))!==JSON.stringify(legacyQuote))
         throw Error("The land transportation terms changed during confirmation. Review and approve again.");
       if(reviewedOwned){
         if(JSON.stringify(historicalOwned?
@@ -3783,10 +3789,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const partyNow=this.sourceMode==="party"?this.partyTravelSelection(
       availableNavigationTravelMethods(game.settings,game.system?.id)):null;
-    if(partySignature!==null&&JSON.stringify({members:partyNow?.roster?.members,
-      selectedIds:partyNow?.selectedIds,
-      livestockDecisions:this.livestockDecisions})!==partySignature)
-      throw Error("The Group roster or participation changed during confirmation. Review and approve again.");
+    verifyParticipation(partyNow);
     if(nativeGroup&&!partyNow)
       throw Error("The Group roster cannot be validated. No movement was approved.");
     if(!unfinished&&!approvedLivestock&&
