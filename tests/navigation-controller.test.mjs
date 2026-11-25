@@ -292,16 +292,53 @@ test("pending native checkpoint cannot publish uncredited World time after canva
 });
 
 test("changing Navigation stages releases detached progress and World-clock DOM refs",async()=>{
-  const nav=new AtlasNavigationController();
-  nav.completedRoute=true;
-  nav.travelProgressUI={bar:{}};
-  nav.journeyTimeUI={moving:{}};
-  nav.worldTimeUI={};
-  nav.renderJourneyStage=async stage=>stage;
-  assert.equal(await nav._renderHTML(),"completed");
-  assert.equal(nav.travelProgressUI,null);
-  assert.equal(nav.journeyTimeUI,null);
-  assert.equal(nav.worldTimeUI,null);
+  const previous=globalThis.game;
+  try{
+    globalThis.game={user:{isGM:true}};
+    const nav=new AtlasNavigationController();
+    nav.completedRoute=true;
+    nav.travelProgressUI={bar:{}};
+    nav.journeyTimeUI={moving:{}};
+    nav.worldTimeUI={};
+    nav.renderJourneyStage=async stage=>stage;
+    assert.equal(await nav._renderHTML(),"completed");
+    assert.equal(nav.travelProgressUI,null);
+    assert.equal(nav.journeyTimeUI,null);
+    assert.equal(nav.worldTimeUI,null);
+  }finally{globalThis.game=previous;}
+});
+
+test("GM-only Navigation window and route graphics fail closed on role loss",async()=>{
+  const previous={game:globalThis.game,document:globalThis.document};
+  try{
+    globalThis.game={user:{isGM:false}};
+    globalThis.document={createElement:tag=>({tag,textContent:"",children:[],style:{},
+      append(...items){this.children.push(...items);}})};
+    const nav=new AtlasNavigationController({
+      atlasProvider:()=>{throw Error("Unexpected private Atlas read");},
+      canvasProvider:()=>{throw Error("Unexpected canvas read");}});
+    nav.scene={id:"secret"};
+    nav.recoveryRecord={title:"Private Journey",legs:[{completedPercent:50}]};
+    const saved=JSON.stringify(nav.recoveryRecord);
+    let clears=0;
+    nav.overlay={clear(){clears++;}};
+    nav.renderDestinationStage=async()=>{throw Error("Unexpected private destination projection");};
+    nav.renderJourneyStage=async()=>{throw Error("Unexpected private Journey projection");};
+    for(const stage of ["destination","journey","checkpoint","completed"]){
+      nav.navigationStage=()=>stage;
+      nav.travelProgressUI={};nav.journeyTimeUI={};nav.worldTimeUI={};
+      const root=await nav._renderHTML();
+      const labels=n=>[n.textContent,...n.children.flatMap(labels)].join(" ");
+      assert.match(labels(root),/Only a GM may use Atlas Navigation/);
+      assert.equal(root.children.length,0,"no planner controls or private context");
+      assert.equal(nav.travelProgressUI,null);assert.equal(nav.journeyTimeUI,null);
+      assert.equal(nav.worldTimeUI,null);
+      assert.equal(JSON.stringify(nav.recoveryRecord),saved);
+    }
+    nav.draw();
+    assert.equal(clears,1,"remove existing route graphics without reading the Atlas");
+    assert.equal(JSON.stringify(nav.recoveryRecord),saved);
+  }finally{Object.assign(globalThis,previous);}
 });
 
 test("unexpected canvas redraw reports and safely ends the active journey",()=>{
@@ -3257,6 +3294,8 @@ test("saved B to C all-water route uses current-leg tiles rather than the old me
     const playerView=await nav._renderHTML();
     assert.equal(find(playerView,node=>node.className==="atlas-navigation-route-context"),undefined,
       "the new GM-only route context must not disclose saved checkpoint or destination metadata");
+    assert.doesNotMatch(contextLabels(playerView),/Port Barthos|Hearth.s Heart|Ship passage|Lucious/,
+      "no private checkpoint, service or participant detail in a player window");
     game.user.isGM=true;
     const tiles=find(root,node=>node.className==="atlas-navigation-methods");
     assert.ok(tiles,"the onward water leg uses the same method cards as land");
