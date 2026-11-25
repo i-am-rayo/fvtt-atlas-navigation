@@ -3362,6 +3362,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const speedUnit=speed.unit==="mi/hour"?"mph":speed.unit==="km/hour"?"km/h":speed.unit;
         const cost=historicalOwned?"Previously approved — no new fare":
           dndCurrencyBreakdown(reviewedOwned.totalCp,globalThis.CONFIG?.DND5E?.currencies).label;
+        const manifest=historicalOwned?this.recoveryRecord.legs.at(-1).livestock:landLivestock?.manifest;
+        const mountDetails=describeJourneyMountFare(manifest,{arrangement:"owned",
+          approved:Boolean(historicalOwned),showFare:false});
+        const staying=manifest?.resources.filter(m=>m.quantity>m.aboard)
+          .map(m=>m.name+" ×"+(m.quantity-m.aboard))??[];
         ownedSummary=renderNavigationTransportApproval({
           rows:[{method:method.name+" (party-owned)",travelers:traveling.map(p=>
             p.name+(crewIds.has(p.actorId)?" (crew)":"")).join(", ")||"Assigned party explorer",
@@ -3371,7 +3376,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             [historicalOwned?"Originally approved moving time":"Estimated moving time",
               formatNavigationDuration(reviewedOwned.movingHours,24)],
             ["Estimated transportation cost",cost]],
-          fareRows:historicalOwned?[]:describeTransportationFareRows(reviewedOwned,{owned:true}),
+          fareRows:historicalOwned?[]:[...describeTransportationFareRows(reviewedOwned,{owned:true}),
+            ...(mountDetails?[["Physical mount boarding",manifest.estimatedFareCp+" CP"]]:[])],
           notes:[absent.length?"Not traveling: "+absent.join(", "):null,
             ...reviewedOwned.units.map(describeOwnedUnitStaffing),
             "Passenger seats: "+reviewedOwned.passengerSeats+" / "+reviewedOwned.passengerCapacity+
@@ -3379,10 +3385,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             historicalOwned?"Resuming previously approved travel. No new fare.":
               "Fare components are before rounding; the total is rounded once.",
             ownedDraft?.belowMinimum?"Below-minimum staffing: acknowledge the advisory before travel.":null,
-            landLivestock?"Carrying "+landLivestock.manifest.resources.reduce((n,m)=>n+m.aboard,0)+
-              " physical mounts · "+(landLivestock.manifest.capacityPerUnit===null?
-                "unlimited default animal accommodation":landLivestock.manifest.capacityPerUnit+" animal spaces per vehicle")+
-              " · Estimated animal fare "+landLivestock.manifest.estimatedFareCp+" CP.":null,
+            mountDetails,manifest?"Animal accommodation: "+(manifest.capacityPerUnit===null?
+              "unlimited by default":manifest.capacityPerUnit+" spaces per vehicle"):null,
+            staying.length?"Staying behind: "+staying.join(", "):null,
             "Foundry validates native movement and optional World-time advancement. Estimates only: "+
               "no automatic boarding, currency deduction, Actor changes or native Group changes."]
         });
