@@ -5072,7 +5072,11 @@ test("ordinary staffed mixed native interruption reconciles only verified progre
     assert.deepEqual(record.destination,to);
     assert.deepEqual(reloaded.recoveryRecord,record);
     assert.equal(reloaded.assessTravelMethod().guided,true);
-    assert.equal(JSON.stringify(token.actor),native);assert.deepEqual(writes,[]);
+    assert.equal(JSON.stringify(token.actor),native);
+    // The existing journey.started announcement is the sole permitted
+    // settings write; neither recovery nor staffing changes World catalogs.
+    assert.deepEqual(writes.map(([scope,key,pulse])=>[scope,key,pulse.type]),
+      [["fvtt-atlas-navigation","atlasAnnouncementPulse","journey.started"]]);
     assert.equal(listeners.size,0);
   }finally{Object.assign(globalThis,previous);}
 });
