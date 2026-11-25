@@ -4,7 +4,7 @@ import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 import {describeConfirmedTravelers} from "./navigation-journey-manifest.js";
 import {validateJourneyParticipation} from "./navigation-journey-participation.js";
 import {validateJourneyLivestock} from "./navigation-journey-livestock.js";
-import {mixedTransportFareBreakdown,dndCurrencyBreakdown,walkingCargoFareBreakdown} from "./navigation-currency.js";
+import {mixedTransportFareBreakdown,dndCurrencyBreakdown,walkingCargoFareBreakdown,describeTransportationFareRows} from "./navigation-currency.js";
 import {validateAggregateLandConvoy} from "./navigation-theater-convoy.js";
 const validateApprovedConvoy=value=>value?.schemaVersion===3?
   validateAggregateLandConvoy(value):value?.schemaVersion===2?
@@ -430,7 +430,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     leg.events.reduce((hours,event)=>hours+(isRestUnderway(event.action)?0:(Number(event.hours)||0)),0),0);
   const clockMoving=record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0);
   const clockBreaks=record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0);
-  let shownService=null,shownConvoy=null,shownOwned=null;
+  let shownService=null,shownConvoy=null,shownOwned=null,shownLivestock=null;
   const legs=record.legs.map((leg,index)=>{
     // Render from retained native Scene units; never rewrite historical Journal flags.
     const displayDistance=amount=>{
@@ -534,11 +534,9 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         "Continuing previously approved service; no new fare.":
         "Approved hired service: "+approved.serviceLevel+" · "+approved.advertisedCrew+
         " advertised crew per unit · "+approved.units+" unit(s) · "+approved.dailyHours+"h/day. "+
-        "Original estimated total: "+money(approved.totalCp)+" (base "+money(approved.baseCp)+
-        "; crew wages "+money(approved.crewWagesCp)+"; overtime fare and labor "+
-        money(approved.overtimeFareCp+approved.overtimeCrewCp)+"; mount accommodation "+
-        money(approved.livestockFareCp)+"; adjustment "+money(approved.adjustmentCp)+
-        "). No currency deducted.";
+        "Original estimated total: "+money(approved.totalCp)+" ("+
+        describeTransportationFareRows(approved).map(([label,value])=>label+": "+value).join("; ")+
+        "). Fare components before rounding. No currency deducted.";
       serviceLines=`<li class="atlas-journey-transport-event">${escapeHTML(line)}</li>`;
       shownService=key;
     }
@@ -560,9 +558,9 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
               "Roster unconfigured · "+unit.requiredCrew+" reference crew")+" · "+
             unit.paidCrew+" paid crew"+(unit.namedCrew.length?" · "+
               unit.namedCrew.map(c=>c.name+(c.duty?" ("+c.duty+")":"")).join(", "):"")),
-          "Original estimated total: "+money(approved.totalCp)+" (vessel upkeep "+
-            money(approved.baseCp)+"; crew wages "+money(approved.crewWagesCp)+
-            "; overtime labor "+money(approved.overtimeCrewCp)+"). No currency deducted."
+          "Original estimated total: "+money(approved.totalCp)+" ("+
+            describeTransportationFareRows(approved,{owned:true}).map(([label,value])=>label+": "+value).join("; ")+
+            "). Fare components before rounding. No currency deducted."
         ];
       serviceLines+=lines.map(line=>'<li class="atlas-journey-transport-event">'+escapeHTML(line)+'</li>').join("");
       shownOwned=key;
@@ -574,6 +572,16 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         p.people.map(person=>`<li>${escapeHTML(person.name)} — `+
           (person.traveling?"Traveling ("+escapeHTML(person.methodKey)+")":"Not traveling")+
           `</li>`).join("")+`</ul></div>`)(validateJourneyParticipation(leg.participation)):"";
+    const mountKey=leg.livestock?JSON.stringify(leg.livestock):null;
+    const continuingMounts=mountKey!==null&&prior?.completedPercent<99.999&&
+      JSON.stringify(prior.livestock)===mountKey;
+    if(!continuingMounts)shownLivestock=null;
+    const repeatedMounts=continuingMounts&&shownLivestock===mountKey;
+    // Only suppress a manifest subtotal when the retained service actually
+    // accounts for the same physical animals and amount.
+    const mountInService=service&&leg.livestock&&service.livestockCount>0&&
+      service.livestockCount===leg.livestock.resources.reduce((n,m)=>n+m.aboard,0)&&
+      service.livestockFareCp===leg.livestock.estimatedFareCp;
     const livestock=leg.livestock&&leg.completedMovingHours>0?
       (manifest=>`<div class="atlas-journey-leg-group"><h4>Confirmed Mount Movement</h4>`+
         `<p>Physical mount participation is Atlas Journey metadata; the native Group `+
@@ -585,14 +593,15 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         (manifest.surface==="land"&&!manifest.carried?"":
           `<p>Animal accommodation: ${manifest.capacityPerUnit===null?
             "unlimited by default":manifest.capacityPerUnit+" spaces/vehicle"} `+
-          `· ${manifest.units} vehicle(s). Estimated animal fare: `+
-          `${escapeHTML(systemId==="dnd5e"?
-            dndCurrencyBreakdown(manifest.estimatedFareCp,
-              globalThis.CONFIG?.DND5E?.currencies).label:
-            manifest.estimatedFareCp+" CP")} `+
-          (leg.transport?.continuation||leg.travelMethod?.serviceContinuation||leg.travelMethod?.ownedContinuation?"(previously approved, not quoted again).":
-            "(included in total; no deduction).")+`</p>`)+
+          `· ${manifest.units} vehicle(s). `+
+          (repeatedMounts?"Previously approved animal accommodation; no new fare.":
+            mountInService?"Mount fare is included in the approved service breakdown; no deduction.":
+            "Estimated animal fare: "+escapeHTML(systemId==="dnd5e"?
+              dndCurrencyBreakdown(manifest.estimatedFareCp,
+                globalThis.CONFIG?.DND5E?.currencies).label:
+              manifest.estimatedFareCp+" CP")+" (included in total; no deduction).")+`</p>`)+
         `</div>`)(validateJourneyLivestock(leg.livestock)):"";
+    if(mountKey!==null&&leg.completedMovingHours>0)shownLivestock=mountKey;
     const rows=timeline.map(step=>step.kind==="journey-event"?
       `<li class="atlas-journey-rest-event"><strong>${escapeHTML(step.label)}</strong> after `+
       `${escapeHTML(formatNavigationDuration(step.atHours,24))} on this leg`+
