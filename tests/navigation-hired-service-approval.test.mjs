@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {planOwnedVehicleService} from "../scripts/navigation-group-transport.js";
 import {planMixedLandConvoy} from "../scripts/navigation-mixed-land.js";
 import {mixedLandTransportMethod} from "../scripts/navigation-transport-journal.js";
 import {quoteTransportationService} from "../scripts/navigation-transport-service.js";
@@ -120,4 +121,47 @@ test("tiered mixed checkpoint recovery retains the original shared schedule and 
   assert.equal((html.match(/Estimated transportation cost:/g)||[]).length,1);
   assert.match(html,/Continuing previously approved mixed service; no new fare/);
   assert.deepEqual(history.legs[1].convoy,convoy);
+});
+
+test("owned checkpoint approval requires acknowledgement, preserves staffing and never re-quotes on recovery",()=>{
+  const method={...ship,costCp:100,costBasis:"day",costApplies:"unit",
+    includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"};
+  const projection={travelers:1,members:[
+    {actorId:"pc",actorName:"Navigator",actorType:"character",role:"passenger",quantity:1,needsSeat:true,enabled:true},
+    {actorId:"ship",actorName:"Warship",actorType:"vehicle",role:"vehicle",quantity:2,capacity:1,
+      surface:"water",profileId:"warship",enabled:true,crewRoster:[{unitIndex:1,named:[],hired:10}]}]};
+  const plan=planOwnedVehicleService(projection,method,{operatedUnits:[{actorId:"ship",unitIndex:1}],
+    movingHours:24,distanceMi:60,regularHours:6,operation:"normal"});
+  assert.equal(plan.approval.belowMinimum,true);
+  const selected={...leg(),selectedOption:{arrangement:"owned",method},operation:"normal",
+    costCp:plan.approval.totalCp,ownedApproval:plan.approval};
+  assert.throws(()=>prepareGuidedTransportLeg(route(),selected),/acknowledg/i);
+  const approval={...plan.approval,belowMinimumAcknowledged:true};
+  const guided=prepareGuidedTransportLeg(route(),{...selected,ownedApproval:approval});
+  assert.deepEqual(guided.transport.ownedApproval,approval);
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"party",atlasRevision:4,itinerary:itinerary(guided)});
+  assert.deepEqual(saved.legs[0].transport.ownedApproval,approval);
+  saved.status="interrupted";saved.legs[0].completedPercent=50;saved.legs[0].completedMovingHours=12;
+  const changed={...method,crewCount:1,crewWageCpPerDay:900,speedMph:1};
+  const recovered=restoreApprovedTransportPlan(route(30),{legs:[leg(30)]},saved,[changed]);
+  assert.equal(recovered.legs[0].dailyHours,6);
+  assert.equal(recovered.legs[0].overnightHours,18);
+  assert.equal(recovered.legs[0].hours,12);
+  assert.equal(recovered.legs[0].costCp,0);
+  const resumed=prepareGuidedTransportLeg(route(30),recovered.legs[0]);
+  assert.deepEqual(resumed.transport.ownedApproval,approval);
+  const history=resumeJourneyRecord(saved,{itinerary:itinerary(resumed),atlasRevision:4});
+  history.legs[1].completedMovingHours=6;history.legs[1].completedPercent=50;
+  assert.deepEqual(validateJourneyRecord(history),history);
+  const html=formatJourneyJournalHTML(history);
+  assert.equal((html.match(/Approved owned service:/g)||[]).length,1);
+  assert.match(html,/below-minimum staffing acknowledged/i);
+  assert.match(html,/continuing previously approved owned service; no new fare/i);
+  assert.throws(()=>resumeJourneyRecord(saved,{itinerary:{...itinerary(resumed),
+    transport:{...resumed.transport,ownedApproval:undefined}},atlasRevision:4}),/approved owned/i);
+  for(const edit of [a=>a.belowMinimumAcknowledged=false,a=>a.totalCp++,
+    a=>a.units[0].unitIndex=2]){
+    const bad=structuredClone(history);edit(bad.legs[1].transport.ownedApproval);
+    assert.throws(()=>validateJourneyRecord(bad),/invalid|acknowledg/i);
+  }
 });
