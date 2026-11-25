@@ -4520,6 +4520,7 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     Object.assign(owned,mounted);
     token.actor.system.members.push({actor:{id:"horse",name:"Warhorse",type:"npc"}});
     nav.livestockDecisions={horse:1};
+    nav.transferLegOperations[0]="normal";
     nav.transferLegOverrides[0]={selection:"owned|warship",overrides:{livestockCapacity:1}};
     const mountedLeg=nav.transportationTransitionPlan().legs[0];
     assert.deepEqual(mountedLeg.errors,[]);
