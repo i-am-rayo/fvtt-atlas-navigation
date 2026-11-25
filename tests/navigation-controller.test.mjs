@@ -4242,6 +4242,27 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
     nav.transferLegOverrides[0]={selection:"hire|ship-passage",overrides:{},serviceLevel:"minimum"};
     nav.livestockDecisions={horse:1};nav.render=async()=>{};nav.draw=()=>{};
     const groupBefore=structuredClone(token.actor);
+    // The old DOM must not change the livestock draft after authority or
+    // lifecycle changes, or after the route has been replaced.
+    for(const lock of ["player","moving","preparing","suspended","unfinished","route"]){
+      const nodes=flatten(await nav.renderDestinationStage());
+      const mount=nodes.find(n=>n.title==="Move Warhorse to stay behind");
+      const quantity=nodes.find(n=>n["aria-label"]?.startsWith("Number of Warhorse"));
+      assert.ok(mount&&quantity,lock);
+      const route=nav.result;
+      if(lock==="player")game.user.isGM=false;
+      if(lock==="moving")nav.travelSession={};
+      if(lock==="preparing")nav.journalStarting=true;
+      if(lock==="suspended")nav.suspendedNativeSession={};
+      if(lock==="unfinished")nav.recoveryRecord={status:"interrupted",legs:[{completedPercent:50}]};
+      if(lock==="route")nav.result={...route};
+      mount.listeners.get("click")();
+      quantity.value="0";quantity.listeners.get("change")();
+      assert.deepEqual(nav.livestockDecisions,{horse:1},lock);
+      game.user.isGM=true;nav.travelSession=null;nav.journalStarting=false;
+      nav.suspendedNativeSession=null;nav.recoveryRecord=null;nav.result=route;
+    }
+    assert.deepEqual(writes,[]);assert.deepEqual(journals,[]);assert.equal(moves,0);
     for(const [world,local,amount,total,policy] of [
       [0,null,0,"2 SP · 1 CP","World default 0%"],
       [50,null,5.05,"2 SP · 6 CP","World default 50%"],
@@ -4562,6 +4583,22 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     nav.transferLegOperations[0]="normal";
     const original=JSON.stringify(owned);
     const initial=nav.transportationTransitionPlan().legs[0];
+    const unitControls=()=>nav.renderOwnedOperatingUnits(initial,async()=>{throw Error("Unexpected edit");});
+    const unit=unitControls().children[1].children[0];
+    assert.equal(unit["data-atlas-travel-focus"],"owned-unit:owned|warship:ship:1");
+    nav.suspendedNativeSession={};
+    assert.equal(unitControls().children[1].children[0].disabled,true);
+    await assert.rejects(()=>nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]),/GM/i);
+    let callbacks=0;
+    const oldUnits=nav.renderOwnedOperatingUnits(initial,async()=>{callbacks++;});
+    nav.suspendedNativeSession=null;
+    const liveUnits=nav.renderOwnedOperatingUnits(initial,async()=>{callbacks++;});
+    game.user.isGM=false;
+    liveUnits.children[1].children[0].listeners.get("change")();
+    oldUnits.children[1].children[0].listeners.get("change")();
+    assert.equal(callbacks,0,"old and disabled unit controls reject edits after role loss");
+    assert.equal(unitControls().children[1].children[0].disabled,true);
+    game.user.isGM=true;
     assert.equal(initial.ownedUnitChoices.length,2);
     assert.deepEqual(initial.operatedUnits,[{actorId:"ship",unitIndex:1},{actorId:"ship",unitIndex:2}]);
     await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
