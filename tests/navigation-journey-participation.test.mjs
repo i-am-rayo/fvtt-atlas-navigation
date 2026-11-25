@@ -137,3 +137,24 @@ test("an owned leg can include only eligible non-passenger named crew",()=>{
   assert.deepEqual(priorJourneySelection({legs:[{participation:manifest,transport:{ownedApproval:approved}}]},crewOnly),[]);
   assert.throws(()=>createJourneyParticipation(crewOnly,[],{methodKey:"owned|warship"}),/valid unique|at least one/i);
 });
+
+test("unfinished owned recovery requires its exact available units and historical manifest",()=>{
+  const approved=staffedApproval(staffedRoster,["pc","guest"]);
+  const manifest=createJourneyParticipation(staffedRoster,["pc","guest"],{
+    methodKey:"owned|warship",ownedApproval:approved});
+  const record={legs:[{completedPercent:25,participation:manifest,transport:{ownedApproval:approved}}]};
+  for(const members of [
+    staffedRoster.members.filter(m=>m.actorId!=="ship"),
+    staffedRoster.members.map(m=>m.actorId==="ship"?{...m,enabled:false}:m),
+    staffedRoster.members.map(m=>m.actorId==="ship"?{...m,quantity:0}:m)
+  ]){
+    assert.throws(()=>priorJourneySelection(record,{...staffedRoster,members}),/approved owned operating units.*no longer available/i);
+  }
+  const absent=structuredClone(record);delete absent.legs[0].participation;
+  assert.throws(()=>priorJourneySelection(absent,staffedRoster),/approved owned vehicle traveler manifest.*unavailable/i);
+  const completed=structuredClone(record);completed.legs[0].completedPercent=100;
+  assert.deepEqual(priorJourneySelection(completed,{...staffedRoster,
+    members:staffedRoster.members.filter(m=>m.actorId!=="ship")}).sort(),["guest","pc"],
+    "the next unapproved leg need not retain a previously completed vessel");
+  assert.deepEqual(priorJourneySelection(record,staffedRoster).sort(),["guest","pc"]);
+});

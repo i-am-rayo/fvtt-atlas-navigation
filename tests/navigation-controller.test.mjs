@@ -4320,6 +4320,13 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     const restored=nav.transportationTransitionPlan().legs[0];
     assert.deepEqual(restored.ownedApproval,recorded.transport.ownedApproval);
     assert.equal(restored.costCp,0);
+    const savedBefore=structuredClone(nav.recoveryRecord);
+    const removedShip=token.actor.system.members.pop();
+    assert.throws(()=>nav.transportationTransitionPlan(),/approved owned operating units.*no longer available/i,
+      "recovery preview must fail closed before presenting an unavailable vessel");
+    assert.deepEqual(nav.recoveryRecord,savedBefore);
+    assert.equal(journals.length,2);
+    token.actor.system.members.push(removedShip);
     await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
     assert.equal(journals.length,3);
     const continued=journals[2].legs.at(-1);
