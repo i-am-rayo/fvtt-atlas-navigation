@@ -24,16 +24,19 @@ export function createRoadTravelPresetRow(initialId){
     const preset=presets.find(p=>p.id===select.value);
     current.textContent=preset?.name??(select.value?"Unavailable travel preset":
       "None (Land fallback)");
+    current.hidden=!select.value;
     select.hidden=!!preset;
     change.hidden=!preset;
   };
   update();
   if(missing){
     current.textContent="Unavailable travel preset — choose another";
+    current.hidden=false;
     select.hidden=false;
     change.hidden=true;
   }
   change.addEventListener("click",()=>{
+    current.hidden=true;
     select.hidden=false;
     change.hidden=true;
     select.focus();
