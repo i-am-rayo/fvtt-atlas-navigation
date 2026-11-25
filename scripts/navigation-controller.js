@@ -6349,6 +6349,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       id:panel.id,top:panel.scrollTop,left:panel.scrollLeft
     }));
     const top=content.scrollTop;
+    const focused=globalThis.document?.activeElement;
+    const focusKey=focused&&content.contains?.(focused)?
+      focused.getAttribute?.("data-atlas-travel-focus"):null;
     content.replaceChildren(result);
     for(const {id,top:scrollTop,left} of before){
       if(!id)continue;
@@ -6357,6 +6360,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(panel&&Number.isFinite(left))panel.scrollLeft=left;
     }
     if(Number.isFinite(top))content.scrollTop=top;
+    if(focusKey){
+      const matching=[...(content.querySelectorAll?.("[data-atlas-travel-focus]")??[])]
+        .filter(node=>node.getAttribute("data-atlas-travel-focus")===focusKey&&
+          !node.disabled&&!node.closest?.("[hidden]"));
+      // Only restore a unique, visible draft control. Never focus another app
+      // or fall back to an unrelated action after a Journey becomes locked.
+      if(matching.length===1)matching[0].focus?.({preventScroll:true});
+    }
   }
 
   _onClose(options) {
