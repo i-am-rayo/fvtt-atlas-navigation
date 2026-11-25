@@ -96,7 +96,7 @@ import {renderNavigationTravelMethodSelector,renderNavigationTravelMethodButtons
 import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
 import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote,
-  renderNavigationTransportApproval,describeJourneyMountFare}
+  renderNavigationTransportApproval,describeJourneyMountFare,describeOwnedUnitStaffing}
   from "./navigation-transport-summary-view.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
@@ -830,11 +830,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           const a=m.ownedApproval;
           return m.methodName+": "+a.passengerSeats+"/"+a.passengerCapacity+
             " passenger seats · "+a.dailyHours+"h/day shared convoy schedule · "+
-            a.units.map(u=>u.name+" — Unit "+u.unitIndex+": "+
-              (u.configured?u.staffedCrew+"/"+u.requiredCrew+" crew · "+u.tier:
-                "Roster unconfigured · "+u.requiredCrew+" reference crew")+
-              " · "+u.paidCrew+" paid crew"+(u.namedCrew.length?" · "+
-                u.namedCrew.map(c=>c.name+(c.duty?" ("+c.duty+")":"")).join(", "):"")).join("; ")+
+            a.units.map(describeOwnedUnitStaffing).join("; ")+
             ". Upkeep "+a.baseCp+" CP; crew wages "+a.crewWagesCp+" CP."+
             (a.belowMinimum?" Below-minimum staffing requires acknowledgement.":"");
         }),
@@ -3268,9 +3264,57 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // Validate the current Map Marker and inferred schedule before GM approval.
       this.resolveTravelRules({methodId:this.travelMethod,hoursPerDay:8},
         effective,selectedOperation);
+      let ownedSummary=null;
+      if(reviewedOwned){
+        const namedCrew=reviewedOwned.units.flatMap(unit=>unit.namedCrew);
+        const crewIds=new Set(namedCrew.map(member=>member.actorId));
+        const people=historicalOwned?
+          this.recoveryRecord.legs.at(-1).participation?.people??[]:
+          (partyAtStart?.members??[]).map(member=>({
+            actorId:member.id,name:member.name,traveling:partyAtStart.selectedIds.includes(member.id)
+          }));
+        for(const member of namedCrew)if(!people.some(p=>p.actorId===member.actorId))
+          people.push({actorId:member.actorId,name:member.name,traveling:true});
+        const traveling=people.filter(p=>p.traveling);
+        const absent=people.filter(p=>!p.traveling).map(p=>p.name);
+        const speed=atlasDisplaySpeed(historicalOwned?
+          this.recoveryRecord.legs.at(-1).speedPerHour:
+          convertGroupSpeed(reviewedOwned.speedMph,"mph",this.scene.grid.units),
+          this.scene.grid.units,game.settings,game.system?.id);
+        const speedUnit=speed.unit==="mi/hour"?"mph":speed.unit==="km/hour"?"km/h":speed.unit;
+        const cost=historicalOwned?"Previously approved — no new fare":
+          dndCurrencyBreakdown(reviewedOwned.totalCp,globalThis.CONFIG?.DND5E?.currencies).label;
+        ownedSummary=renderNavigationTransportApproval({
+          rows:[{method:method.name+" (party-owned)",travelers:traveling.map(p=>
+            p.name+(crewIds.has(p.actorId)?" (crew)":"")).join(", ")||"Assigned party explorer",
+            units:String(reviewedOwned.units.length),cost}],
+          metrics:[["Total travelers",String(traveling.length)],
+            ["Group travel speed",speed.value.toFixed(2)+" "+speedUnit],
+            [historicalOwned?"Originally approved moving time":"Estimated moving time",
+              formatNavigationDuration(reviewedOwned.movingHours,24)],
+            ["Estimated transportation cost",cost]],
+          fareRows:historicalOwned?[]:[
+            ["Vehicle upkeep",reviewedOwned.baseCp+" CP"],
+            ["Paid crew wages",reviewedOwned.crewWagesCp+" CP"],
+            ["Overtime crew wages",reviewedOwned.overtimeCrewCp+" CP"]],
+          notes:[absent.length?"Not traveling: "+absent.join(", "):null,
+            ...reviewedOwned.units.map(describeOwnedUnitStaffing),
+            "Passenger seats: "+reviewedOwned.passengerSeats+" / "+reviewedOwned.passengerCapacity+
+              " · Operating schedule: "+reviewedOwned.operation+" · "+reviewedOwned.dailyHours+"h/day",
+            historicalOwned?"Resuming previously approved travel. No new fare.":
+              "Fare components are before rounding; the total is rounded once.",
+            ownedDraft?.belowMinimum?"Below-minimum staffing: acknowledge the advisory before travel.":null,
+            landLivestock?"Carrying "+landLivestock.manifest.resources.reduce((n,m)=>n+m.aboard,0)+
+              " physical mounts · "+(landLivestock.manifest.capacityPerUnit===null?
+                "unlimited default animal accommodation":landLivestock.manifest.capacityPerUnit+" animal spaces per vehicle")+
+              " · Estimated animal fare "+landLivestock.manifest.estimatedFareCp+" CP.":null,
+            "Foundry validates native movement and optional World-time advancement. Estimates only: "+
+              "no automatic boarding, currency deduction, Actor changes or native Group changes."]
+        });
+      }
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:resumingApprovedLand?"Resume approved land travel":"Confirm land travel"},
-        content:el("div","GM confirmation: "+(resumingApprovedLand?
+        content:ownedSummary??el("div","GM confirmation: "+(resumingApprovedLand?
           "resume the approved journey":"follow the authored land route")+" using "+
           method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+"). "+
           "Operating schedule: "+selectedOperation+". "+
@@ -3279,16 +3323,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             "h/day · "+(resumingApprovedLand?"previously approved fare (no new quote). ":
               "Estimated total "+dndCurrencyBreakdown(approvedLandService.totalCp,
                 globalThis.CONFIG?.DND5E?.currencies).label+". "):"")+
-          (reviewedOwned?reviewedOwned.units.length+" operated unit(s) · "+
-            reviewedOwned.passengerSeats+"/"+reviewedOwned.passengerCapacity+" passenger seats · "+
-            reviewedOwned.dailyHours+"h/day. "+
-            reviewedOwned.units.map(unit=>unit.name+" — Unit "+unit.unitIndex+": "+
-              unit.staffedCrew+"/"+unit.requiredCrew+" crew · "+unit.paidCrew+" paid"+
-              (unit.namedCrew.length?" · "+unit.namedCrew.map(c=>c.name+(c.duty?" ("+c.duty+")":"")).join(", "):"")).join("; ")+". "+
-            (historicalOwned?"Previously approved fare; no new quote. ":
-              "Estimated total "+reviewedOwned.totalCp+" CP (upkeep "+reviewedOwned.baseCp+
-              "; crew wages "+reviewedOwned.crewWagesCp+"; overtime labor "+reviewedOwned.overtimeCrewCp+"). ")+
-            (ownedDraft?.belowMinimum?"Below-minimum staffing: acknowledge the advisory before travel. ":""):"")+
           "The party token will move using Foundry's native movement and optional "+
           "World-time advancement. Costs are estimates; no automatic boarding, "+
           "resource changes or currency deductions occur."+
@@ -3523,10 +3557,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           approvedService?"Hired service: "+approvedService.serviceLevel+" · "+approvedService.advertisedCrew+
             " advertised crew per unit · "+approvedService.dailyHours+"h/day"+(guidedLeg.transport.continuation?
               " (previously approved; no new fare)":""):null,
-          ...(ownedService?ownedService.units.map(unit=>unit.name+" — Unit "+unit.unitIndex+
-            (unit.configured?": "+unit.staffedCrew+"/"+unit.requiredCrew+" crew · "+unit.tier+
-              " · "+unit.paidCrew+" paid":": roster unconfigured (reference estimate)")+
-            (unit.namedCrew.length?" · "+unit.namedCrew.map(m=>m.name+(m.duty?" ("+m.duty+")":"")).join(", "):"")):[]),
+          ...(ownedService?ownedService.units.map(describeOwnedUnitStaffing):[]),
           ownedService?"Passenger seats: "+ownedService.passengerSeats+" / "+ownedService.passengerCapacity+
             " · Operating schedule: "+ownedService.dailyHours+"h/day"+(approvedOwned?" (previously approved)":""):null,
           ownedDraft?.belowMinimum?"Below-minimum staffing: acknowledge the advisory to approve this leg.":null,

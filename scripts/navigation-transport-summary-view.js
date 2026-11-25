@@ -91,6 +91,15 @@ export function describeJourneyMountFare(manifest,{method=null,worldPercent=50,
     formatMoney(manifest.estimatedFareCp)+" (included in total; not charged)";
 }
 
+/** Consistent owned unit evidence across ordinary, checkpoint and mixed review. */
+export function describeOwnedUnitStaffing(unit){
+  return unit.name+" — Unit "+unit.unitIndex+": "+
+    (unit.configured?unit.staffedCrew+"/"+unit.requiredCrew+" crew · "+unit.tier:
+      "Roster unconfigured · "+unit.requiredCrew+" reference crew")+
+    " · "+unit.paidCrew+" paid"+(unit.namedCrew.length?" · "+
+      unit.namedCrew.map(c=>c.name+(c.duty?" ("+c.duty+")":"")).join(", "):"");
+}
+
 /** Shared read-only GM confirmation. All rows and metrics come from a
  * previously validated current-leg plan; this view never approves travel. */
 export function renderNavigationTransportApproval({
