@@ -219,3 +219,54 @@ test("mixed hired tiers use advertised staffing and rates but the shared convoy 
   assert.throws(()=>validateMixedLandConvoy(changed),/invalid|fare/i);
   assert.equal(plan().methods[1].serviceApproval,undefined);
 });
+
+test("mixed owned units use exact staffing, seats and common convoy billing day",()=>{
+  const cart={id:"cart",name:"Cart",kind:"vehicle",surface:"land",speedMph:3,capacity:2,
+    crewCount:6,crewThresholds:{minimum:4,optimal:5,excellent:6},
+    costCp:100,costBasis:"day",costApplies:"unit",
+    includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"};
+  const travelers=walkers.slice(0,3);
+  const members=[...travelers.map(t=>({actorId:t.actorId,actorName:t.actorId,
+    actorType:"character",role:"passenger",quantity:1,needsSeat:true,enabled:true})),
+    {actorId:"driver",actorName:"Driver",actorType:"npc",role:"crew",quantity:1,enabled:true},
+    {actorId:"cart1",actorName:"Fast Cart",actorType:"vehicle",role:"vehicle",quantity:2,
+      capacity:2,profileId:"cart",surface:"land",speedMphOverride:4,enabled:true,
+      crewRoster:[{unitIndex:1,named:[{actorId:"pc2"},{actorId:"driver",duty:"Driver"}],hired:1}]},
+    {actorId:"cart2",actorName:"Slow Cart",actorType:"vehicle",role:"vehicle",quantity:1,
+      capacity:2,profileId:"cart",surface:"land",speedMphOverride:1,enabled:true}];
+  const projection={travelers:3,members,selectedTravelerIds:travelers.map(t=>t.actorId)};
+  const entry={key:"owned|cart",arrangement:"owned",method:cart,projection,
+    operatedUnits:[{actorId:"cart1",unitIndex:1}]};
+  const args={travelers,assignments:{pc1:"owned|walking",pc2:"owned|cart",pc3:"owned|cart"},
+    methods:[walking,entry],regularHours:6};
+  const draft=plan(args);
+  const m=draft.methods[1],a=m.ownedApproval;
+  assert.equal(draft.sharedDailyHours,6);
+  assert.equal(draft.speedPerHour,3);
+  assert.equal(draft.movingHours,8);
+  assert.equal(m.units,1);assert.equal(m.speedPerHour,4);
+  assert.equal(m.seatsUsed,1);assert.equal(m.passengers,3);
+  assert.equal(a.passengerCapacity,2);assert.equal(a.units[0].paidCrew,2);
+  assert.equal(a.crewWagesCp,800);assert.equal(a.baseCp,200);
+  assert.equal(draft.totalCp,1000);
+  assert.deepEqual(draft.travelers.map(t=>[t.actorId,t.methodKey,t.seatsNeeded]),
+    [["pc1","owned|walking",1],["pc2","owned|cart",0],["pc3","owned|cart",1],["driver","owned|cart",0]]);
+  assert.equal(a.belowMinimum,true);
+  assert.throws(()=>validateMixedLandConvoy(draft),/acknowledg/i);
+  const approved=structuredClone(draft);
+  approved.methods[1].ownedApproval.belowMinimumAcknowledged=true;
+  assert.deepEqual(validateMixedLandConvoy(approved),approved);
+  for(const edit of [
+    q=>q.methods[1].ownedApproval.belowMinimumAcknowledged=false,
+    q=>q.methods[1].resourceIds=["cart2"],
+    q=>q.methods[1].speedPerHour=5,
+    q=>q.travelers.find(t=>t.actorId==="driver").methodKey="owned|walking",
+    q=>q.methods[1].estimatedCostCp++
+  ]){
+    const bad=structuredClone(approved);edit(bad);
+    assert.throws(()=>validateMixedLandConvoy(bad),/invalid|differs|balance|acknowledg/i);
+  }
+  assert.throws(()=>plan({...args,assignments:{...args.assignments,pc2:"owned|walking"}}),/named crew/i);
+  assert.throws(()=>plan({...args,methods:[walking,{...entry,operatedUnits:[]}]}),/operating units/i);
+  assert.throws(()=>plan({...args,methods:[walking,{...entry,operatedUnits:[{actorId:"cart1",unitIndex:3}]}]}),/operated unit/i);
+});
