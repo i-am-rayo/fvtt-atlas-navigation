@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {readFileSync} from "node:fs";
-import {describeJourneyMountFare,renderNavigationTransportApproval}
+import {describeJourneyMountFare,renderNavigationTransportApproval,describeTransportationFareRows}
   from "../scripts/navigation-transport-summary-view.js";
+
+import {quoteTransportationService} from "../scripts/navigation-transport-service.js";
+import {dndCurrencyBreakdown} from "../scripts/navigation-currency.js";
 
 const livestock={estimatedFareCp:1910,resources:[
   {name:"Riding Horse",aboard:3},{name:"Warhorse",aboard:1},
@@ -41,6 +44,30 @@ test("effective method/fixed mount fare and approved historical fares are not mi
     "an owned cart does not charge the World/hired mount passenger percentage");
   assert.equal(describeJourneyMountFare({...livestock,resources:[
     {name:"Horse",aboard:0}]},{formatMoney:money}),null);
+});
+
+test("physical mount review shows exact subtotal once, including a zero World rate",()=>{
+  const method={id:"ship-passage",name:"Ship passage",kind:"vehicle",surface:"water",
+    capacity:6,hireEnabled:true,hireApplies:"passenger",hireBasis:"trip",hireCostCp:10.1,
+    livestockCapacity:null};
+  for(const [percent,expected] of [[0,0],[50,5.05],[200,20.2]]){
+    const quote=quoteTransportationService(method,{arrangement:"hire",travelers:2,
+      movingHours:4,distanceMi:10,livestockCount:1,livestockPercent:percent});
+    const manifest={estimatedFareCp:quote.livestockFareCp,resources:[{name:"Horse",aboard:1}]};
+    assert.equal(quote.livestockFareCp,expected);
+    const rows=describeTransportationFareRows(quote);
+    assert.deepEqual(rows.filter(([label])=>label==="Physical mount boarding"),[
+      ["Physical mount boarding",expected+" CP"]]);
+    assert.deepEqual(rows.find(([label])=>label==="Base transportation"),["Base transportation","20.2 CP"]);
+    const details=describeJourneyMountFare(manifest,{method,worldPercent:percent,showFare:false});
+    assert.match(details,new RegExp("World default "+percent+"%"));
+    assert.doesNotMatch(details,/ CP/,"component appears in fare rows, not again in policy note");
+    const historical=describeJourneyMountFare(manifest,{method,worldPercent:200,approved:true});
+    assert.match(historical,/Previously approved fare/);
+    assert.match(historical,/not quoted again/);
+    assert.doesNotMatch(historical,/included in total|World default/);
+    assert.equal(dndCurrencyBreakdown(quote.totalCp).payableCopper,Math.ceil(20.2+expected));
+  }
 });
 
 test("approved vessel summary separates mount subtotal from aggregate fare",()=>{
