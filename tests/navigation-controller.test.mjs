@@ -4213,6 +4213,19 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     assert.equal(leg.ownedDraft.belowMinimum,true);
     assert.equal(leg.ownedDraft.belowMinimumAcknowledged,undefined);
     assert.equal(leg.ownedApproval,undefined);
+    // Only a confirmed snapshot may drive the execution/recovery schedule.
+    const confirmed={...leg.ownedDraft,belowMinimumAcknowledged:true};
+    const guidedLeg={transport:{methodId:"warship",operation:confirmed.operation,ownedApproval:confirmed}};
+    const historical=nav.resolveCurrentLegRules({methodId:"warship",hoursPerDay:4},
+      leg.selectedOption,guidedLeg);
+    assert.equal(historical.dailyHours,confirmed.dailyHours,
+      "execution must use the approved day, not the changed World travel hours");
+    assert.equal(historical.overnightHours,confirmed.overnightHours);
+    const invalid={...guidedLeg,transport:{...guidedLeg.transport,
+      ownedApproval:{...confirmed,belowMinimumAcknowledged:false}}};
+    assert.throws(()=>nav.resolveCurrentLegRules({methodId:"warship",hoursPerDay:4},
+      leg.selectedOption,invalid),/acknowledg/i);
+
     await assert.rejects(()=>nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:3}]),/unit/i);
     await nav.setCheckpointOperatedUnits([]);
     assert.ok(nav.transportationTransitionPlan().legs[0].errors.some(e=>/unit/i.test(e)));
