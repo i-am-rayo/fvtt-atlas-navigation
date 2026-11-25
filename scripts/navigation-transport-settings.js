@@ -1059,7 +1059,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const next={...value,id,
       name:preset&&(preset.builtIn||scope!=="world")?value.name:String(response.name??"").trim(),
       kind:preset&&(preset.builtIn||scope!=="world")?value.kind:String(response.kind??""),
-      surface:preset&&(preset.builtIn||scope!=="world")?value.surface:String(response.surface??""),
+      surface:value.surface,
       speedMph:id==="walking"?null:atlasPresetSpeedFromDisplay(Number(response.speedDisplay)),
       capacity:id==="walking"?null:rawCapacity,
       costCp:!hiredOnlyChoice&&String(response.costBasis)==="mile"?

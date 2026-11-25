@@ -94,3 +94,7 @@ Discarded the staged preset and reopened the same Road. The saved fallback and *
 ## Missing World preset follow-up
 
 The orphaned offer card now explains how to replace the offer through the existing draft controls and names the parent Save action. The automated editor test covers the warning, disabled Edit, preservation on render, draft-only removal and restoration from the saved snapshot. B4 remains open for live Foundry verification using a disposable orphaned offer. The Road Settings display checks above passed in Sandbox.
+
+## B4 fixture creation blocker
+
+The Sandbox retest could not create either disposable land preset because World Save returned “Invalid transportation preset.” The warning and replacement workflow remain Not run in Foundry. The editor now submits the surface of the selected catalog section, which is already held by the editor and has no form input. The Chromium regression exercises custom preset creation through the serialized editor form and checks the saved catalog. Retest creation using a disposable World preset before continuing B4.

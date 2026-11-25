@@ -4,7 +4,7 @@
 <body><output id="result">PENDING</output>
 <script type="module">
 import {AtlasGroupTransportationSettings} from "../../scripts/navigation-group-transport-settings.js";
-import {openTransportationMethodEditor} from "../../scripts/navigation-transport-settings.js";
+import {AtlasTransportationSettings,openTransportationMethodEditor} from "../../scripts/navigation-transport-settings.js";
 import {findTransportationPreset} from "../../scripts/navigation-transport-catalog.js";
 
 const result=document.querySelector("#result");
@@ -116,6 +116,20 @@ try{
   await openTransportationMethodEditor({method:{...cart,hireEnabled:true,hireUnlimited:true,hireQuantity:1},
     scope:"checkpoint",inheritedMethod:cart,onSave:()=>{throw Error("Cancelled offer saved");}});
   equal(writes.length,2,"Cancelled offer does not write");
+  const worldEditor=new AtlasTransportationSettings();
+  worldEditor.render=async()=>{};
+  globalThis.foundry.utils={randomID:()=>"b4fixture123"};
+  exercise=form=>{
+    change(name(form,"name"),"B4 Disposable QA Transport");
+    change(name(form,"kind"),"vehicle");
+    change(name(form,"capacity"),1);
+    return Object.fromEntries(new FormData(form));
+  };
+  await worldEditor._edit(null,"land");
+  equal(writes.length,3,"New preset writes the World catalog once");
+  equal(saved.customs.map(({name,kind,surface})=>({name,kind,surface})),
+    [{name:"B4 Disposable QA Transport",kind:"vehicle",surface:"land"}],
+    "New preset saves under the surface of its catalog section");
   result.textContent="PASS: Atlas transport dialog browser regression";
 }catch(error){result.textContent="FAIL: "+error.stack;console.error(error);}
 </script></body></html>
