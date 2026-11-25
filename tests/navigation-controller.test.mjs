@@ -4561,10 +4561,51 @@ test("ordinary owned Cart selects exact units, reviews staffing and retains its 
     assert.deepEqual(continued.travelMethod.ownedApproval,recorded.travelMethod.ownedApproval);
     assert.equal(continued.travelMethod.ownedContinuation,true);
     assert.deepEqual(continued.participation,recorded.participation);
-    token.actor.system.members.splice(2,1);
+    const removedCart=token.actor.system.members.splice(2,1)[0];
     assert.equal(nav.assessTravelMethod().guided,false);
     await assert.rejects(()=>nav.startGuidedTravel(),/owned operating units|no longer available/i);
     assert.equal(journals.length,2);
     assert.equal(token.moves,0);assert.deepEqual(writes,[]);
+    // Fresh ordinary land movement uses its durable approved snapshot, and
+    // only selected vehicles contribute physical animal accommodation.
+    token.actor.system.members.splice(2,0,removedCart);
+    nav.recoveryRecord=null;nav.recoveryJournal=null;nav.journeyJournal=null;
+    owned.groups.group1.members.cart.speedMphOverride=4;
+    owned.groups.group1.members.cart.crewPolicyOverride.crewWageCpPerDay=200;
+    token.actor.system.members.push({actor:{id:"horse",name:"Riding Horse",type:"npc"}});
+    owned=setGroupTransportationMember(owned,"group1","horse",{
+      role:"mount",quantity:2,capacity:1,surface:"land",profileId:"riding-horse"});
+    nav.transportJourneyOverrides={livestockCapacity:1};
+    await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+    nav.livestockDecisions={horse:2};
+    assert.match(nav.ordinaryOwnedLeg().errors.join(" "),/insufficient animal accommodation/i);
+    assert.equal(nav.assessTravelMethod().guided,false);
+    nav.livestockDecisions={horse:1};
+    assert.equal(nav.ordinaryOwnedLeg().livestock.units,1);
+    assert.equal(nav.ordinaryOwnedLeg().livestock.estimatedFareCp,0);
+    assert.equal(nav.ordinaryOwnedLeg().ownedDraft.totalCp,500);
+    const committed=[],nativeBefore=JSON.stringify(token.actor);
+    nav.journeyJournalStore.save=async record=>{
+      committed.push(structuredClone(record));return {id:"owned-cart-journey"};
+    };
+    nav.draw=()=>{};
+    token.move=async waypoints=>{
+      assert.ok(committed[0]?.legs[0]?.travelMethod?.ownedApproval,
+        "the approved land staffing snapshot must be durable before native movement");
+      const last=waypoints.at(-1);
+      assert.ok(last.x<=250.0001);
+      token.moves++;token.x=last.x;token.y=last.y;return true;
+    };
+    assert.equal(await nav.startGuidedTravel(),true);
+    assert.ok(token.moves>0);assert.equal(token.x,250);
+    assert.equal(committed.at(-1).status,"completed");
+    assert.equal(committed.at(-1).legs[0].completedPercent,100);
+    assert.deepEqual(committed.at(-1).legs[0].travelMethod.ownedApproval,
+      committed[0].legs[0].travelMethod.ownedApproval);
+    assert.deepEqual(committed.at(-1).legs[0].participation,committed[0].legs[0].participation);
+    assert.equal(committed.at(-1).legs[0].livestock.resources[0].aboard,1);
+    assert.equal(committed.at(-1).legs[0].livestock.estimatedFareCp,0);
+    assert.equal(JSON.stringify(token.actor),nativeBefore);
+    assert.deepEqual(writes,[]);
   }finally{Object.assign(globalThis,previous);}
 });
