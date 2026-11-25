@@ -4480,6 +4480,10 @@ test("ordinary owned Cart selects exact units, reviews staffing and retains its 
     let dialogs=0;
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
       dialogs++;assert.match(labels(options.content),/Driver/);
+      assert.ok(flatten(options.content).some(n=>n.className==="atlas-transport-approval-table"));
+      assert.match(labels(options.content),/Vehicle upkeep/);
+      assert.match(labels(options.content),/Paid crew wages/);
+      assert.match(labels(options.content),/5 GP/);
       assert.match(options.yes?.label??"",/acknowledge/i);return false;
     }}}}};
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},time:{worldTime:0},settings:{
@@ -4525,6 +4529,49 @@ test("ordinary owned Cart selects exact units, reviews staffing and retains its 
     assert.ok(panel.some(n=>n.name==="atlas-owned-operating-unit"&&n.checked));
     assert.equal(await nav.startGuidedTravel(),false);
     assert.equal(dialogs,1);assert.equal(journals.length,0);
+    const originalConfirm=globalThis.foundry.applications.api.DialogV2.confirm;
+    await nav.setLandOperatedUnits([{actorId:"slow",unitIndex:1}]);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assert.match(labels(options.content),/roster unconfigured/i);
+      assert.doesNotMatch(labels(options.content),/null\/\d+ crew/);
+      assert.ok(flatten(options.content).some(n=>n.className==="atlas-transport-approval-table"));
+      return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+    const originalRoute=structuredClone(nav.result);
+    nav.result.distance=48;nav.result.cost=48;
+    nav.result.legs[0].distance=48;nav.result.legs[0].cost=48;
+    nav.transportJourneyOverrides={continuousEnabled:true};
+    let scheduled=nav.ordinaryOwnedLeg().ownedDraft;
+    assert.equal(scheduled.operation,"continuous");
+    assert.equal(scheduled.movingHours,12);
+    assert.equal(scheduled.billingDayHours,8);
+    assert.equal(scheduled.dailyHours,24);
+    assert.equal(scheduled.overnightHours,0);
+    assert.equal(scheduled.totalCp,1000);
+    assert.equal(nav.resolveTravelRules({methodId:"cart",hoursPerDay:8}).dailyHours,null);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assert.match(labels(options.content),/24h\/day/);
+      assert.match(labels(options.content),/10 GP/);return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    nav.transportJourneyOverrides={overtimeEnabled:true,overtimeExtraHours:4,overtimeMultiplier:1.5};
+    nav.transportOperation="overtime";
+    scheduled=nav.ordinaryOwnedLeg().ownedDraft;
+    assert.equal(scheduled.operation,"overtime");
+    assert.equal(scheduled.dailyHours,12);assert.equal(scheduled.overnightHours,12);
+    assert.equal(scheduled.baseCp,100);assert.equal(scheduled.crewWagesCp,400);
+    assert.equal(scheduled.overtimeCrewCp,300);assert.equal(scheduled.totalCp,800);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assert.match(labels(options.content),/12h\/day/);
+      assert.match(labels(options.content),/Overtime crew wages/);
+      assert.match(labels(options.content),/8 GP/);return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(journals.length,0);assert.equal(token.moves,0);assert.deepEqual(writes,[]);
+    nav.result=originalRoute;nav.transportJourneyOverrides=null;nav.transportOperation="normal";
+    globalThis.foundry.applications.api.DialogV2.confirm=originalConfirm;
     await nav.setLandOperatedUnits([]);
     assert.equal(nav.assessTravelMethod().guided,false);
     assert.equal(flatten(await nav.renderDestinationStage()).some(n=>n.className==="atlas-navigation-playback"),false);
