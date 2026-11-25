@@ -105,10 +105,25 @@ export function describeOwnedUnitStaffing(unit){
 
 export {describeTransportationFareRows} from "./navigation-currency.js";
 
+/** Reusable route context for the planner and the GM approval. */
+export function renderNavigationRouteContext(context){
+  const list=el("dl");
+  list.className="atlas-navigation-route-context";
+  list.style.cssText="display:grid;gap:.3rem;margin:.35rem 0;padding:.6rem;border:1px solid var(--color-border-light-tertiary,#666);border-radius:6px;";
+  for(const [label,value] of [["From",context.from],["Next stop",context.next],["Final destination",context.final]]){
+    const row=el("div");
+    row.style.cssText="display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;";
+    const term=el("dt",label);term.style.opacity=".8";
+    const detail=el("dd",value);detail.style.cssText="margin:0;font-weight:600;overflow-wrap:anywhere;min-width:0;";
+    row.append(term,detail);list.append(row);
+  }
+  return list;
+}
+
 /** Shared read-only GM confirmation. All rows and metrics come from a
  * previously validated current-leg plan; this view never approves travel. */
 export function renderNavigationTransportApproval({
-  heading="Transportation summary",destination=null,rows=[],metrics=[],notes=[],fareRows=[]
+  heading="Transportation summary",destination=null,routeContext=null,rows=[],metrics=[],notes=[],fareRows=[]
 }={}){
   if(!rows.length||metrics.length!==4)
     throw Error("A transportation approval needs a complete leg summary.");
@@ -117,7 +132,8 @@ export function renderNavigationTransportApproval({
   const root=el("div");
   root.className="atlas-transport-approval";
   root.append(el("h3",heading));
-  if(destination)root.append(el("p",destination));
+  if(routeContext)root.append(renderNavigationRouteContext(routeContext));
+  else if(destination)root.append(el("p",destination));
   const table=el("table");
   table.className="atlas-transport-approval-table";
   const head=el("thead"),labels=el("tr");
