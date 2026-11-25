@@ -4133,6 +4133,88 @@ test("checkpoint Journey explicitly selected hired tier drives schedule and quot
   }finally{globalThis.game=previous;}
 });
 
+test("hired checkpoint review and preview show one exact mount subtotal at inherited and override rates",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document};
+  try{
+    const config=setGroupTransportationMember(defaultGroupTransportation(),"group1","horse",{
+      role:"mount",quantity:1,capacity:1,surface:"land",profileId:"warhorse"});
+    let percent=50,override=null,moves=0,journals=0,dialogCount=0;
+    const writes=[];
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},settings:{
+      get:(_m,key)=>key==="guidedGroupTransportation"?config:
+        key==="guidedLivestockFarePercent"?percent:undefined,
+      set:(...args)=>writes.push(args)}};
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),
+      append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;},
+      addEventListener(name,cb){this.listeners.set(name,cb);},setAttribute(name,value){this[name]=value;}})};
+    const flatten=node=>[node,...node.children.flatMap(flatten)];
+    const labels=node=>flatten(node).map(n=>n.textContent).join(" ");
+    const token={id:"party",x:-50,y:-50,width:1,height:1,canUserModify:()=>true,
+      async move(){moves++;throw Error("Unexpected native movement");},
+      actor:{id:"group1",type:"group",name:"Party",system:{members:[
+        {actor:{id:"pc1",name:"Alba",type:"character"}},
+        {actor:{id:"pc2",name:"Brent",type:"character"}},
+        {actor:{id:"horse",name:"Warhorse",type:"npc"}}]}}};
+    const from=point(0,0),port=point(300,0),end=point(400,0);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"port",...port},{id:"end",...end}],
+      roads:[{id:"sea",name:"Sea passage",travelPresetId:"water-sea"},{id:"land",name:"Onward road"}],
+      segments:[{id:"sea-segment",roadId:"sea",from:"start",to:"port",via:[]},
+        {id:"land-segment",roadId:"land",from:"port",to:"end",via:[]}],
+      checkpoints:[{id:"dock",name:"Dock",nodeId:"start",roadId:"sea"},
+        {id:"port",name:"Port",nodeId:"port",roadId:"sea"}]};
+    const offer=()=>({schemaVersion:1,entries:{dock:[{methodId:"ship-passage",mode:"sea",overrides:{
+      hireEnabled:true,hireCostCp:10.1,hireBasis:"trip",hireApplies:"passenger",
+      hireCrewIncluded:true,capacity:6,livestockCapacity:3,hireUnlimited:false,hireQuantity:1,
+      ...(override!==null?{livestockFarePercent:override}:{})}}]}});
+    const scene={id:"sea-scene",name:"Paedor",grid:{size:100,units:"mi"},canUserModify:()=>true,
+      getFlag:(_m,key)=>key==="checkpointTransportOffers"?offer():undefined};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
+      journeyJournalStore:{find:()=>null,save:async()=>{journals++;throw Error("Unexpected Journal write");}}});
+    nav.scene=scene;nav.sourceMode="party";nav.routeRevision=1;
+    nav.start=from;nav.end=end;nav.result={status:"ok",start:from,end,distance:25,cost:25,
+      legs:[{kind:"road",roadId:"sea",segmentId:"sea-segment",points:[from,port],distance:20,cost:20},
+        {kind:"road",roadId:"land",segmentId:"land-segment",points:[port,end],distance:5,cost:5}]};
+    nav.transferSelections[0]="hire|ship-passage";
+    nav.transferLegOverrides[0]={selection:"hire|ship-passage",overrides:{},serviceLevel:"minimum"};
+    nav.livestockDecisions={horse:1};nav.render=async()=>{};nav.draw=()=>{};
+    const groupBefore=structuredClone(token.actor);
+    for(const [world,local,amount,total,policy] of [
+      [0,null,0,"2 SP · 1 CP","World default 0%"],
+      [50,null,5.05,"2 SP · 6 CP","World default 50%"],
+      [200,null,20.2,"4 SP · 1 CP","World default 200%"],
+      [0,50,5.05,"2 SP · 6 CP","Method override 50%"]]){
+      percent=world;override=local;
+      const leg=nav.transportationTransitionPlan().legs[0];
+      assert.deepEqual(leg.errors,[]);
+      assert.equal(leg.serviceQuote.serviceLevel,"minimum");
+      assert.equal(leg.serviceQuote.travelers,2);
+      assert.equal(leg.serviceQuote.livestockCount,1);
+      assert.equal(leg.serviceQuote.livestockFareCp,amount);
+      assert.equal(leg.livestock.estimatedFareCp,amount);
+      const panel=labels(await nav.renderDestinationStage());
+      assert.ok(panel.includes("Physical mount boarding: "+amount+" CP"));
+      assert.ok(panel.includes(policy));
+      assert.ok(panel.includes(total));
+      globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+        dialogCount++;
+        const summary=labels(options.content);
+        assert.ok(summary.includes("Base transportation 20.2 CP"));
+        assert.ok(summary.includes("Physical mount boarding "+amount+" CP"));
+        assert.equal((summary.match(/Physical mount boarding/g)??[]).length,1);
+        assert.ok(summary.includes(policy));assert.ok(summary.includes(total));
+        assert.match(summary,/Alba.*Brent/);
+        assert.match(summary,/Warhorse ×1/);
+        assert.equal(options.yes?.label,"Start leg");assert.equal(options.no?.label,"Back to plan");
+        return false;
+      }}}}};
+      assert.equal(await nav.startGuidedTravel(),false);
+    }
+    assert.equal(dialogCount,4);assert.equal(journals,0);assert.equal(moves,0);
+    assert.deepEqual(writes,[]);assert.deepEqual(token.actor,groupBefore);
+  }finally{Object.assign(globalThis,previous);}
+});
+
 test("ordinary hired land service keeps explicit tier and immutable approved fare",async()=>{
   const previous={game:globalThis.game,foundry:globalThis.foundry,
     document:globalThis.document,PIXI:globalThis.PIXI};
