@@ -5100,6 +5100,17 @@ for(const interruptFinal of [false,true])test(interruptFinal?
       const priorClock=game.time.worldTime,priorMoves=moves;
       const finalRecovery=createController();
       finalRecovery.recoverableJourney=journal;
+      // A preceding transfer can retain an authored Map Marker ID on the
+      // final ordinary land target. It is not an intermediate transfer.
+      // Characterize the read-only candidate with that valid target form.
+      const markerTarget=structuredClone(finalPending);
+      markerTarget.routeTargets.targets.at(-1).checkpointId="end-marker";
+      atlas.checkpoints.push({id:"end-marker",name:"Destination Marker",nodeId:"end",roadId:"land"});
+      assert.equal(finalRecovery.boundedNativeArrival(markerTarget)?.record.status,"completed");
+      markerTarget.routeTargets.targets.at(-1).checkpointId="missing-marker";
+      assert.equal(finalRecovery.boundedNativeArrival(markerTarget),null);
+      atlas.checkpoints.pop();
+      assert.deepEqual(record,finalPending,"candidate review must not write the saved Journey");
       // A coordinate-only Point B must match both the approved leg and
       // the final saved A/B/C target; a conflicting target cannot be skipped.
       record.routeTargets.targets.at(-1).point.x+=50;
