@@ -713,3 +713,60 @@ test("explicit owned vehicle selection uses only operated hulls for seats, crew,
   assert.throws(()=>groupMethodCapacityStatus(projection,method,{operatedUnits:[{actorId:"ship1",unitIndex:3}]}),/unit/i);
   assert.equal(JSON.stringify(projection),original);
 });
+
+test("owned service approval preserves operated unit crew, roles, wages and advisory without live settings",async()=>{
+  const {planOwnedVehicleService,validateOwnedVehicleApproval}=await import("../scripts/navigation-group-transport.js");
+  const npc=actor("npc1","Sailor","npc"),rider=actor("pc2","Passenger","character");
+  const native=group([pc,rider,npc,warship]);
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",speedMph:4,
+    crewCount:60,crewThresholds:{minimum:15,optimal:30,excellent:45},
+    costCp:100,costBasis:"day",costApplies:"unit",crewWageCpPerDay:200,
+    crewWageBasis:"day",includeCrewWages:true,continuousEnabled:true};
+  const saved=setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:{role:"unassigned",quantity:2,capacity:2,surface:"water",profileId:"warship",
+      crewRoster:[{unitIndex:1,named:[{actorId:"pc1",duty:"Navigator"},{actorId:"npc1"}],hired:30},
+        {unitIndex:2,named:[],hired:10}]},
+    npc1:{role:"crew",quantity:1,capacity:null,surface:"water"}
+  });
+  const projection=projectGroupTransportation(native,saved,[method]);
+  const input=JSON.stringify({projection,method});
+  const operatedUnits=[{actorId:"ship1",unitIndex:1}];
+  const plan=planOwnedVehicleService(projection,method,{operatedUnits,movingHours:24,distanceMi:96,
+    regularHours:8,operation:"normal"});
+  assert.equal(plan.capacity.travelers,1);
+  assert.equal(plan.approval.units.length,1);
+  assert.equal(plan.approval.units[0].unitIndex,1);
+  assert.equal(plan.approval.units[0].paidCrew,31);
+  assert.equal(plan.approval.units[0].tier,"optimal");
+  assert.deepEqual(plan.approval.units[0].namedCrew.map(c=>[c.actorId,c.actorType,c.duty]),[
+    ["pc1","character","Navigator"],["npc1","npc",undefined]]);
+  assert.equal(plan.approval.crewWagesCp,18600);
+  assert.equal(plan.approval.baseCp,300);
+  assert.equal(plan.approval.totalCp,18900);
+  assert.equal(plan.approval.belowMinimum,false);
+  const later=structuredClone(plan.approval);
+  method.crewWageCpPerDay=900;method.crewCount=100;
+  assert.deepEqual(validateOwnedVehicleApproval(later),later);
+  method.crewWageCpPerDay=200;method.crewCount=60;
+  const reduced=planOwnedVehicleService(projection,method,{operatedUnits:[{actorId:"ship1",unitIndex:2}],
+    movingHours:24,distanceMi:96,regularHours:8});
+  assert.equal(reduced.approval.belowMinimum,true,"below minimum is an advisory, not a capacity error");
+  assert.equal(reduced.approval.totalCp,6300);
+  const continuous=planOwnedVehicleService(projection,method,{operatedUnits,movingHours:24,distanceMi:96,
+    regularHours:8,operation:"continuous"});
+  assert.equal(continuous.approval.dailyHours,24);
+  assert.equal(continuous.approval.crewWagesCp,18600,"continuous owned service preserves the standard billing day");
+  for(const change of [
+    a=>{a.units[0].unitIndex=0;},
+    a=>{a.units[0].paidCrew=32;},
+    a=>{a.totalCp++;},
+    a=>{a.belowMinimum=true;},
+    a=>{a.units.push(structuredClone(a.units[0]));},
+    a=>{a.units[0].tier="full";},
+    a=>{a.units[0].namedCrew[1].actorId="pc1";}
+  ]){
+    const bad=structuredClone(later);change(bad);
+    assert.throws(()=>validateOwnedVehicleApproval(bad),/invalid|duplicate/i);
+  }
+  assert.equal(JSON.stringify({projection,method}),input);
+});
