@@ -106,11 +106,11 @@ export function describeOwnedUnitStaffing(unit){
 export {describeTransportationFareRows} from "./navigation-currency.js";
 
 /** Reusable route context for the planner and the GM approval. */
-export function renderNavigationRouteContext(context){
+export function renderNavigationRouteContext(context,{nextLabel="Next stop"}={}){
   const list=el("dl");
   list.className="atlas-navigation-route-context";
   list.style.cssText="display:grid;gap:.3rem;margin:.35rem 0;padding:.6rem;border:1px solid var(--color-border-light-tertiary,#666);border-radius:6px;";
-  for(const [label,value] of [["From",context.from],["Next stop",context.next],["Final destination",context.final]]){
+  for(const [label,value] of [["From",context.from],[nextLabel,context.next],["Final destination",context.final]]){
     const row=el("div");
     row.style.cssText="display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;";
     const term=el("dt",label);term.style.opacity=".8";
