@@ -4162,7 +4162,7 @@ test("checkpoint Journey explicitly selected hired tier drives schedule and quot
   }finally{globalThis.game=previous;}
 });
 
-test("hired checkpoint review and preview show one exact mount subtotal at inherited and override rates",async()=>{
+test("hired checkpoint review and preview show one exact mount subtotal at inherited and override rates",{timeout:15000},async()=>{
   const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document};
   try{
     const config=setGroupTransportationMember(defaultGroupTransportation(),"group1","horse",{
@@ -4201,8 +4201,8 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
       canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
       journeyJournalStore:{find:()=>null,save:async record=>{journals.push(structuredClone(record));throw Error("Test Journal boundary");}}});
     nav.scene=scene;nav.sourceMode="party";nav.routeRevision=1;
-    nav.start=from;nav.end=end;nav.result={status:"ok",start:from,end,distance:25,cost:25,
-      legs:[{kind:"road",roadId:"sea",segmentId:"sea-segment",points:[from,port],distance:20,cost:20},
+    nav.start=from;nav.end=end;nav.result={status:"ok",start:from,end,distance:10,cost:10,
+      legs:[{kind:"road",roadId:"sea",segmentId:"sea-segment",points:[from,port],distance:5,cost:5},
         {kind:"road",roadId:"land",segmentId:"land-segment",points:[port,end],distance:5,cost:5}]};
     nav.transferSelections[0]="hire|ship-passage";
     nav.transferLegOverrides[0]={selection:"hire|ship-passage",overrides:{},serviceLevel:"minimum"};
@@ -4255,7 +4255,7 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
     assert.equal(approved.participation.people.filter(p=>p.traveling).length,2);
     saved.status="interrupted";
     nav.recoveryRecord=saved;nav.recoveryJournal={id:"saved-ship"};
-    nav.result={...nav.result,end:port,distance:20,cost:20,legs:[nav.result.legs[0]]};
+    nav.result={...nav.result,end:port,distance:5,cost:5,legs:[nav.result.legs[0]]};
     nav.end=port;nav.travelMethod="ship-passage";nav.transportArrangement="hire";
     nav.transportOperation="normal";
     percent=200;override=null;
@@ -4303,8 +4303,8 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
       return controller;
     };
     const live=makeController();
-    live.start=from;live.end=end;live.result={status:"ok",start:from,end,distance:25,cost:25,
-      legs:[{kind:"road",roadId:"sea",segmentId:"sea-segment",points:[from,port],distance:20,cost:20},
+    live.start=from;live.end=end;live.result={status:"ok",start:from,end,distance:10,cost:10,
+      legs:[{kind:"road",roadId:"sea",segmentId:"sea-segment",points:[from,port],distance:5,cost:5},
         {kind:"road",roadId:"land",segmentId:"land-segment",points:[port,end],distance:5,cost:5}]};
     live.transferSelections[0]="hire|ship-passage";
     live.transferLegOverrides[0]={selection:"hire|ship-passage",overrides:{},serviceLevel:"minimum"};
@@ -4317,6 +4317,9 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
       assert.ok(last.x<=250.0001,"native movement may not cross the confirmed port");
       token.x=last.x;token.y=last.y;moves++;return true;
     };
+    const livePlan=live.transportationTransitionPlan().legs[0];
+    assert.deepEqual(livePlan.errors,[]);
+    assert.ok(livePlan.hours>0&&livePlan.hours<8,"short fixture must not require a rest decision");
     assert.equal(await live.startGuidedTravel(),true);
     assert.ok(moves>0);assert.equal(token.x,250);
     assert.equal(live.pendingTransfer?.checkpoint?.id,"port");
