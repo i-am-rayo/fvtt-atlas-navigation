@@ -1856,7 +1856,8 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
       assert.match(labels,/Cart \(hired\)/);
       assert.match(labels,/Assigned party explorer/);
       assert.match(labels,/Operating schedule: continuous.*24h\/day/);
-      assert.match(labels,/6 SP · 3 CP/);
+      assert.match(labels,/Base transportation 62\.5 CP/);
+      assert.match(labels,/1 EP · 1 SP · 3 CP/);
       assert.equal(options.yes?.label,"Start leg");
       assert.equal(options.no?.label,"Back to plan");
       dialogTitles.push(options.window.title);return approve;
