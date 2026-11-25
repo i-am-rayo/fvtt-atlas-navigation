@@ -1,5 +1,7 @@
 # Atlas Navigation — 0.3.13-rc.3.1 continuation handoff
 
+**Historical handoff:** RC.3.1 received partial live acceptance only at commit `7637582e6b12d275737aa35dcac27acb7cb298e2`. The active continuation is [RC.3.2](RC_0_3_13_3_2_HANDOFF.md). The branch manifest URL is mutable; do not install it expecting the historical version.
+
 Updated 2026-11-25. This is an in-progress engineering handoff, not a release announcement. Read AGENTS.md and docs/ATLAS_UI_STANDARDS.md, then verify live branch, PR, issues and CI before making changes. The Product Owner (PO) retains acceptance and release authority.
 
 ## Where to resume
