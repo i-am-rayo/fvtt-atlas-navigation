@@ -4960,3 +4960,119 @@ test("staffed mixed land convoy completes only its approved checkpoint leg with 
     assert.equal(nav.result,null,"full future route is not active after arrival");
   }finally{Object.assign(globalThis,previous);}
 });
+
+test("ordinary staffed mixed native interruption reconciles only verified progress after reload",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document,
+    Hooks:globalThis.Hooks};
+  try{
+    const listeners=new Map(),writes=[];
+    let serial=0,advances=0,dialogs=0,moves=0,record=null,failConfirmation=false;
+    globalThis.Hooks={on(name,fn){listeners.set(name,fn);return fn;},
+      off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+    globalThis.foundry={utils:{randomID:()=>"MixedNative"+String(++serial).padStart(5,"0")},
+      applications:{api:{DialogV2:{confirm:async()=>{dialogs++;return true;}}}}};
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
+      append(...nodes){this.children.push(...nodes);},
+      appendChild(n){this.children.push(n);return n;},addEventListener(){},setAttribute(){}})};
+    const owned=setGroupTransportationMember(defaultGroupTransportation(),"group1","cart",{
+      role:"unassigned",quantity:2,capacity:2,surface:"land",profileId:"cart",
+      speedMphOverride:4,costCpOverride:100,costBasisOverride:"day",costAppliesOverride:"unit",
+      crewPolicyOverride:{crewCount:6,crewThresholds:{minimum:3,optimal:4,excellent:5},
+        includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},
+      crewRoster:[{unitIndex:1,named:[{actorId:"driver",duty:"Driver"}],hired:1}]});
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}},system:{id:"dnd5e"},
+      time:{worldTime:1000,async advance(seconds){advances++;this.worldTime+=seconds;}},
+      settings:{get:(_m,key)=>key==="guidedGroupTransportation"?owned:
+        key==="guidedTravelAdvanceWorldTime"?true:
+        key==="guidedTravelSecondsPerHour"?2:undefined,set:(...args)=>writes.push(args)}};
+    const from=point(100,100),to=point(400,100);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to}],
+      roads:[{id:"land",name:"Trade Road",travelPresetId:"land-stone"}],
+      segments:[{id:"segment",roadId:"land",from:"start",to:"end",via:[]}],checkpoints:[]};
+    const token={id:"party",x:50,y:50,width:1,height:1,canUserModify:()=>true,
+      getCompleteMovementPath:path=>path,stopMovement:()=>true,
+      actor:{id:"group1",type:"group",system:{members:[
+        {actor:{id:"pc",name:"Traveler",type:"character"}},
+        {actor:{id:"walker",name:"Walker",type:"character"}},
+        {actor:{id:"driver",name:"Driver",type:"npc"}},
+        {actor:{id:"cart",name:"Cart",type:"vehicle"}}]}},
+      async move(_waypoints,options){
+        moves++;
+        const pending=record.pendingNativeMove;
+        assert.equal(pending.operationId,options.id);
+        assert.ok(record.legs[0].convoy.methods[1].ownedApproval.belowMinimumAcknowledged);
+        assert.equal(pending.nativePath.length,2,"straight bounded interval");
+        const destination=point((pending.from.x+pending.to.x)/2,pending.from.y);
+        this.x=destination.x;this.y=destination.y;
+        this.movement={id:options.id,state:"stopped",origin:pending.from,destination,
+          constrained:false,passed:{waypoints:[{...destination,movementId:options.id}]},
+          pending:{waypoints:[]}};
+        return false;
+      }};
+    const scene={id:"land-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined,
+      tokens:{get:id=>id===token.id?token:null},canUserModify:()=>true};
+    const route=(start,end)=>{
+      const distance=(end.x-start.x)*12/300;
+      return {status:"ok",start,end,distance,cost:distance,terrainAware:false,
+        legs:[{kind:"road",roadId:"land",segmentId:"segment",points:[start,end],distance,cost:distance}]};
+    };
+    const journal={id:"mixed-native-journey",canUserModify:()=>true,getFlag:()=>structuredClone(record)};
+    const createController=()=>{
+      const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+        canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
+        routeCalculator:(_v,_s,_a,start,end)=>route(start,end),
+        journeyJournalStore:{find:()=>null,save:async next=>{
+          if(failConfirmation&&!next.pendingNativeMove)throw Error("Test confirmation write failure");
+          record=structuredClone(next);return journal;
+        }}});
+      nav.scene=scene;nav.sourceMode="party";nav.routeRevision=atlas.revision;
+      nav.draw=()=>{};nav.render=async()=>{};
+      return nav;
+    };
+    const nav=createController();
+    nav.start=from;nav.end=to;nav.result=route(from,to);
+    nav.syncPartyDeparture=()=>false;
+    nav.travelMethod="walking";nav.transportArrangement="owned";
+    nav.mixedKeys=["owned|walking","owned|cart"];
+    nav.mixedAssignments={pc:"owned|cart",walker:"owned|walking"};
+    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    const native=JSON.stringify(token.actor);
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(moves,1);assert.equal(dialogs,1);assert.equal(advances,0);
+    assert.equal(record.status,"interrupted");
+    assert.equal(record.legs[0].completedPercent,0);
+    const pending=structuredClone(record.pendingNativeMove);
+    const approved=structuredClone(record.legs[0].convoy);
+    const manifest=structuredClone(record.legs[0].participation);
+    assert.ok(pending.worldAdvanceSeconds>0);
+    const retry=createController();
+    retry.recoverableJourney=journal;
+    assert.throws(()=>retry.recoverSavedJourney(),/stopped during native checkpoint/);
+    failConfirmation=true;
+    await assert.rejects(()=>retry.recoverSavedJourneyWithNativeReview(),/Test confirmation write failure/);
+    assert.ok(record.pendingNativeMove.partialEvidence);
+    assert.equal(advances,1);
+    assert.equal(game.time.worldTime,1000+Math.round(pending.worldAdvanceSeconds/2));
+    // A new controller models reload after the durable receipt and clock
+    // advancement, with Foundry's transient movement ID gone.
+    token.movement={id:"",state:"completed"};
+    owned.groups.group1.members.cart.crewPolicyOverride.crewWageCpPerDay=900;
+    failConfirmation=false;
+    const reloaded=createController();
+    reloaded.recoverableJourney=journal;
+    assert.equal(await reloaded.recoverSavedJourneyWithNativeReview(),true);
+    assert.equal(advances,1);assert.equal(moves,1);assert.equal(dialogs,1);
+    assert.equal(record.pendingNativeMove,null);
+    assert.equal(record.legs.length,1);
+    assert.ok(Math.abs(record.legs[0].completedPercent-pending.completedPercent/2)<1e-6);
+    assert.ok(Math.abs(record.legs[0].completedMovingHours-pending.movingHours/2)<1e-6);
+    assert.equal(record.legs[0].worldTravelSeconds,Math.round(pending.worldAdvanceSeconds/2));
+    assert.deepEqual(record.legs[0].convoy,approved);
+    assert.deepEqual(record.legs[0].participation,manifest);
+    assert.deepEqual(record.destination,to);
+    assert.deepEqual(reloaded.recoveryRecord,record);
+    assert.equal(reloaded.assessTravelMethod().guided,true);
+    assert.equal(JSON.stringify(token.actor),native);assert.deepEqual(writes,[]);
+    assert.equal(listeners.size,0);
+  }finally{Object.assign(globalThis,previous);}
+});
