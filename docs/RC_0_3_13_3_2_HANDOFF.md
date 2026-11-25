@@ -98,3 +98,14 @@ The orphaned offer card now explains how to replace the offer through the existi
 ## B4 fixture creation blocker
 
 The Sandbox retest could not create either disposable land preset because World Save returned “Invalid transportation preset.” The warning and replacement workflow remain Not run in Foundry. The editor now submits the surface of the selected catalog section, which is already held by the editor and has no form input. The Chromium regression exercises custom preset creation through the serialized editor form and checks the saved catalog. Retest creation using a disposable World preset before continuing B4.
+
+### Live B4 fixture setup — 2026-11-25 (JST)
+
+| Step | Result | Expected | Observed |
+| --- | --- | --- | --- |
+| Create disposable land preset | Pass | The World catalog saves a custom method and lists it in Land. | Saved **B4 Disposable QA Transport** with an explicit passenger capacity of 1. The Land catalog listed the new method with Edit and Delete actions. |
+| Attach and save the test offer | Pass | The QA marker persists the disposable offer alongside its existing Cart offer. | After **Save Map Marker**, the Sandbox directory showed **Transportation (2): Cart, B4 Disposable QA Transport** for **RC.3.2 B Cart QA**. |
+| Make the temporary preset unavailable | Not run | Remove only the disposable World preset and leave its saved marker offer available for the recovery test. | The confirmation dialog for **B4 Disposable QA Transport** was open at the end of the session. Permanent deletion awaits owner confirmation. |
+| Verify warning, disabled Edit, and replacement persistence | Not run | Open the orphaned offer, verify the warning and disabled Edit, remove the old offer, add an available method other than the existing Cart, save, and reopen to verify the replacement. | Pending creation of the orphaned offer state. |
+
+Overall B4 is **Partial**. The live fixture creation blocker is resolved. The temporary preset and its offer remain in place for the next session.
