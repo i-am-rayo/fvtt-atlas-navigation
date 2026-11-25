@@ -3671,7 +3671,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           ...(ownedService?ownedService.units.map(describeOwnedUnitStaffing):[]),
           ownedService?"Passenger seats: "+ownedService.passengerSeats+" / "+ownedService.passengerCapacity:null,
           "Operating schedule: "+(info.operation??"normal")+" · "+
-            (ownedService?.dailyHours??approvedService?.dailyHours??reviewedCheckpointLeg?.dailyHours??travel.hoursPerDay)+"h/day"+
+            (ownedService?.dailyHours??approvedService?.dailyHours??reviewedCheckpointLeg?.dailyHours??
+              this.resolveCurrentLegRules(travel,option,guidedLeg).dailyHours??24)+"h/day"+
             (continuing?" (previously approved)":""),
           quote?"Fare components are before rounding; the total is rounded once.":null,
           ownedDraft?.belowMinimum?"Below-minimum staffing: acknowledge the advisory to approve this leg.":null,
