@@ -4284,6 +4284,63 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
     assert.deepEqual(saved,savedBefore);
     assert.equal(moves,0);
     assert.deepEqual(writes,[]);assert.deepEqual(token.actor,groupBefore);
+    // Execute the actual controller/native-movement adapter on a fresh draft,
+    // then reopen its committed Journal with a new controller (browser reload).
+    percent=0;override=50;
+    globalThis.game.users={activeGM:{id:"gm"}};
+    globalThis.game.time={worldTime:1000,async advance(delta){this.worldTime+=delta;}};
+    let durable=null,approvals=0;
+    const journal={id:"native-ship",getFlag:()=>structuredClone(durable)};
+    const store={find:()=>journal,save:async record=>{
+      durable=structuredClone(record);return journal;
+    }};
+    const makeController=()=>{
+      const controller=new AtlasNavigationController({atlasProvider:()=>atlas,
+        partyTokenProvider:()=>token,canvasProvider:()=>({ready:true,scene}),
+        atlasPoint:(_v,_a,p)=>p,journeyJournalStore:store});
+      controller.scene=scene;controller.sourceMode="party";controller.routeRevision=1;
+      controller.render=async()=>{};controller.draw=()=>{};
+      return controller;
+    };
+    const live=makeController();
+    live.start=from;live.end=end;live.result={status:"ok",start:from,end,distance:25,cost:25,
+      legs:[{kind:"road",roadId:"sea",segmentId:"sea-segment",points:[from,port],distance:20,cost:20},
+        {kind:"road",roadId:"land",segmentId:"land-segment",points:[port,end],distance:5,cost:5}]};
+    live.transferSelections[0]="hire|ship-passage";
+    live.transferLegOverrides[0]={selection:"hire|ship-passage",overrides:{},serviceLevel:"minimum"};
+    live.livestockDecisions={horse:1};
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{approvals++;return true;};
+    token.move=async waypoints=>{
+      assert.equal(durable.legs[0].transport.serviceApproval.totalCp,25.25);
+      assert.equal(durable.legs[0].livestock.resources[0].aboard,1);
+      const last=waypoints.at(-1);
+      assert.ok(last.x<=250.0001,"native movement may not cross the confirmed port");
+      token.x=last.x;token.y=last.y;moves++;return true;
+    };
+    assert.equal(await live.startGuidedTravel(),true);
+    assert.ok(moves>0);assert.equal(token.x,250);
+    assert.equal(live.pendingTransfer?.checkpoint?.id,"port");
+    assert.equal(durable.status,"paused");
+    assert.equal(durable.legs[0].completedPercent,100);
+    assert.deepEqual(durable.destination,end);
+    assert.deepEqual(durable.legs[0].transport.serviceApproval,approved.transport.serviceApproval);
+    assert.deepEqual(durable.legs[0].livestock,approved.livestock);
+    assert.deepEqual(durable.legs[0].participation,approved.participation);
+    const finished=structuredClone(durable),movesAtArrival=moves,timeAtArrival=game.time.worldTime;
+    percent=200;override=null;
+    const reloaded=makeController();
+    reloaded.recoverableJourney=journal;
+    assert.equal(reloaded.recoverSavedJourney(),true);
+    assert.equal(reloaded.pendingTransfer?.checkpoint?.id,"port");
+    assert.deepEqual(reloaded.end,end);
+    assert.equal(reloaded.livestockDecisions.horse,1);
+    assert.deepEqual(reloaded.recoveryRecord,finished);
+    assert.deepEqual(durable,finished);
+    assert.equal(moves,movesAtArrival);
+    assert.equal(game.time.worldTime,timeAtArrival);
+    assert.equal(approvals,1,"reload does not approve another booking");
+    assert.deepEqual(writes,[]);assert.deepEqual(token.actor,groupBefore);
+
   }finally{Object.assign(globalThis,previous);}
 });
 
