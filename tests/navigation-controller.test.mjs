@@ -4330,6 +4330,10 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
     assert.deepEqual(durable.legs[0].livestock,approved.livestock);
     assert.deepEqual(durable.legs[0].participation,approved.participation);
     const finished=structuredClone(durable),movesAtArrival=moves,timeAtArrival=game.time.worldTime;
+    const writesAtArrival=structuredClone(writes);
+    assert.deepEqual(writesAtArrival.map(([module,key,pulse])=>[module,key,pulse.type]),[
+      ["fvtt-atlas-navigation","atlasAnnouncementPulse","journey.started"],
+      ["fvtt-atlas-navigation","atlasAnnouncementPulse","checkpoint.arrived"]]);
     percent=200;override=null;
     const reloaded=makeController();
     reloaded.recoverableJourney=journal;
@@ -4342,7 +4346,8 @@ test("hired checkpoint review and preview show one exact mount subtotal at inher
     assert.equal(moves,movesAtArrival);
     assert.equal(game.time.worldTime,timeAtArrival);
     assert.equal(approvals,1,"reload does not approve another booking");
-    assert.deepEqual(writes,[]);assert.deepEqual(token.actor,groupBefore);
+    assert.deepEqual(writes,writesAtArrival,"reload does not republish announcements or write settings");
+    assert.deepEqual(token.actor,groupBefore);
 
   }finally{Object.assign(globalThis,previous);}
 });
