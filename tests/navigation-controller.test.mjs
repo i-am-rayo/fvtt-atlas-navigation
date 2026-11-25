@@ -4164,3 +4164,51 @@ test("approved mixed convoy retains the common travel day even after World rules
     assert.equal(nav.resolveCurrentLegRules({methodId:"walking"}).dailyHours,8);
   }finally{globalThis.game=before;}
 });
+
+test("owned checkpoint unit selection is a scoped draft with selected capacity, pace and wages",async()=>{
+  const previous={game:globalThis.game};
+  try{
+    const owned=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship",{
+      role:"vehicle",quantity:2,capacity:2,surface:"water",profileId:"warship",
+      speedMphOverride:5,crewRoster:[{unitIndex:1,named:[],hired:10},{unitIndex:2,named:[],hired:30}]});
+    const writes=[];
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},settings:{
+      get:(_module,key)=>key==="guidedGroupTransportation"?owned:undefined,
+      set:(...args)=>writes.push(args)}};
+    const from=point(0,0),to=point(300,0);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to}],
+      roads:[{id:"sea",name:"Sea passage",travelPresetId:"water-sea"}],
+      segments:[{id:"segment",roadId:"sea",from:"start",to:"end",via:[]}],
+      checkpoints:[{id:"dock",name:"Dock",nodeId:"start",roadId:"sea"},
+        {id:"port",name:"Port",nodeId:"end",roadId:"sea"}]};
+    const token={id:"party",actor:{id:"group1",type:"group",system:{members:[
+      {actor:{id:"pc",name:"Traveler",type:"character"}},
+      {actor:{id:"ship",name:"Warship",type:"vehicle"}}]}}};
+    const scene={id:"sea-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token});
+    nav.scene=scene;nav.sourceMode="party";nav.render=async()=>{};
+    nav.result={status:"ok",start:from,end:to,distance:60,cost:60,
+      legs:[{kind:"road",roadId:"sea",segmentId:"segment",points:[from,to],distance:60,cost:60}]};
+    nav.transferSelections[0]="owned|warship";
+    nav.transferLegOperations[0]="normal";
+    const original=JSON.stringify(owned);
+    const initial=nav.transportationTransitionPlan().legs[0];
+    assert.equal(initial.ownedUnitChoices.length,2);
+    assert.deepEqual(initial.operatedUnits,[{actorId:"ship",unitIndex:1},{actorId:"ship",unitIndex:2}]);
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    const leg=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(leg.errors,[]);
+    assert.equal(leg.hours,12);
+    assert.equal(leg.serviceQuote.units,1);
+    assert.equal(leg.ownedDraft.units[0].unitIndex,1);
+    assert.equal(leg.ownedDraft.units[0].staffedCrew,10);
+    assert.equal(leg.ownedDraft.belowMinimum,true);
+    assert.equal(leg.ownedDraft.belowMinimumAcknowledged,undefined);
+    assert.equal(leg.ownedApproval,undefined);
+    await assert.rejects(()=>nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:3}]),/unit/i);
+    globalThis.game.user.isGM=false;
+    await assert.rejects(()=>nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:2}]),/GM/i);
+    assert.deepEqual(writes,[]);
+    assert.equal(JSON.stringify(owned),original);
+  }finally{Object.assign(globalThis,previous);}
+});
