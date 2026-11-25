@@ -73,7 +73,7 @@ import { offersAtOrigin,checkpointOffers,saveCheckpointOffers,
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import {publishAtlasJourneyAnnouncement} from "./atlas-announcement-runtime.js";
-import { navigationJourneyTitle,journeyWorldStamp,verifiedJourneyDestinationName } from "./navigation-journey-title.js";
+import { navigationJourneyTitle,journeyWorldStamp,verifiedJourneyDestinationName,describeNavigationRouteContext } from "./navigation-journey-title.js";
 import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   validateJourneyRecord,eligibleJourneyRecord,isUnfinishedJourneyLeg,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
@@ -97,7 +97,7 @@ import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
 import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote,
   renderNavigationTransportApproval,describeJourneyMountFare,describeOwnedUnitStaffing,
-  describeTransportationFareRows}
+  describeTransportationFareRows,renderNavigationRouteContext}
   from "./navigation-transport-summary-view.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
@@ -786,6 +786,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     return root;
   }
 
+  /** GM-only display projection. Saved final intent is distinct from a clipped
+   * route endpoint; this does not change either coordinate or approve travel. */
+  routeReviewContext(route=this.result,{next=route?.end,final=null}={}){
+    if(!game.user?.isGM||!this.scene||route?.status!=="ok")return null;
+    const record=this.recoveryRecord;
+    const destination=final??(record&&(record.routeTargets||isUnfinishedJourneyLeg(record))?
+      record.destination:this.end??route.end);
+    return describeNavigationRouteContext(this.atlasProvider(this.scene),{
+      from:route.start,next,final:destination,party:this.sourceMode==="party"});
+  }
+
   /** Confirm an explicit per-rider manifest and then re-read every authority:
    * roster, Scene, route, hire inventory, mounts, pricing and chosen pace.
    */
@@ -811,6 +822,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const notTraveling=roster?.members?.filter(m=>!selectedIds.has(m.id))
       .map(m=>m.name).join(", ");
     const content=renderNavigationTransportApproval({
+      routeContext:this.routeReviewContext(guidedLeg??this.result),
       destination:guidedLeg?"Current leg to "+guidedLeg.checkpoint.name:null,
       rows:proposed.methods.map(method=>({
         method:method.methodName,
@@ -3368,6 +3380,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const staying=manifest?.resources.filter(m=>m.quantity>m.aboard)
           .map(m=>m.name+" ×"+(m.quantity-m.aboard))??[];
         ownedSummary=renderNavigationTransportApproval({
+          routeContext:this.routeReviewContext(),
           rows:[{method:method.name+" (party-owned)",travelers:traveling.map(p=>
             p.name+(crewIds.has(p.actorId)?" (crew)":"")).join(", ")||"Assigned party explorer",
             units:String(reviewedOwned.units.length),cost}],
@@ -3412,6 +3425,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const staying=manifest?.resources.filter(m=>m.quantity>m.aboard)
           .map(m=>m.name+" ×"+(m.quantity-m.aboard))??[];
         ownedSummary=renderNavigationTransportApproval({
+          routeContext:this.routeReviewContext(),
           rows:[{method:method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+")",
             travelers:traveling.map(p=>p.name).join(", ")||"Assigned party explorer",
             units:quote?.units??approvedLandService?.units??"—",cost}],
@@ -3534,6 +3548,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm mixed walking and cargo travel"},
         content:renderNavigationTransportApproval({
+          routeContext:this.routeReviewContext(),
           rows:[{method:"Walking",travelers:proposed.travelers.map(p=>names.get(p.actorId)??p.actorId).join(", "),
             units:"—",cost:"—"},...proposed.hires.map(h=>({
               method:h.methodName+" (hired)",travelers:"Cargo only",units:h.units,
@@ -3648,6 +3663,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         worldPercent:readLivestockFarePercent(game.settings),approved:continuing,
         showFare:false});
       const approvedSummary=renderNavigationTransportApproval({
+        routeContext:this.routeReviewContext(guidedLeg),
         destination:"Current leg to "+guidedLeg.checkpoint.name,
         fareRows:quote?describeTransportationFareRows(quote,{owned:info.arrangement==="owned"}):
           !continuing&&mountDetails&&Number.isFinite(info.estimatedFareCp)?[
@@ -5276,6 +5292,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const destination = checkpointDestinationControl(this);
     if (destination) body.appendChild(destination);
+    if(!recoveredPlanError&&(!this.recoverableJourney||this.recoveryRecord)){
+      const context=this.routeReviewContext(this.result,{next:transferPlan?.hasTransitions?
+        transferPlan.legs[0]?.end:this.result?.end});
+      if(context)body.append(renderNavigationRouteContext(context));
+    }
     // An unresolved native checkpoint is still an approved Journal leg. Do
     // not present the default Walking selection or an unrelated recalculated
     // route as permission to replay a failed vessel movement.
