@@ -3335,14 +3335,15 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
     let available=1,moves=0,writes=0;
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
       settings:{get:()=>undefined}};
-    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),
+      addEventListener(name,cb){this.listeners.set(name,cb);},setAttribute(name,value){this[name]=value;},
       append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;}})};
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
       const nodes=node=>[node,...(node.children??[]).flatMap(nodes)];
       const items=nodes(options.content),labels=items.map(n=>n.textContent).join(" ");
       assert.ok(items.some(n=>n.className==="atlas-transport-approval-table"));
       assert.match(labels,/Walking.*Traveler.*Cart.*Cargo only/);
-      assert.match(labels,/Estimated transportation cost/);
+      assert.match(labels,/Estimated transportation cost 2 SP · 2 CP/);
       assert.match(labels,/No passengers board/);
       assert.equal(options.yes?.label,"Start leg");
       assert.equal(options.no?.label,"Back to plan");
@@ -3357,7 +3358,9 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
       canUserModify:()=>true,getFlag:(_m,key)=>key==="checkpointTransportOffers"?{
         schemaVersion:1,entries:{hearth:[{methodId:"cart",mode:"land",
           overrides:{hireEnabled:true,hireApplies:"unit",hireQuantity:available,
-            hireUnlimited:false,capacity:2,speedMph:4}}]}}:null};
+            hireUnlimited:false,capacity:2,speedMph:4,hireCostCp:10.1,hireBasis:"trip"}},
+          {methodId:"wagon",mode:"land",overrides:{hireEnabled:true,hireApplies:"unit",hireUnlimited:true,
+            capacity:2,speedMph:4,hireCostCp:10.1,hireBasis:"trip"}}]}}:null};
     const atlas={revision:3,nodes:[{id:"a",x:0,y:0},{id:"b",x:100,y:0}],
       roads:[{id:"road",name:"Road"}],segments:[{id:"s",roadId:"road",
         from:"a",to:"b",via:[]}],
@@ -3376,7 +3379,7 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
     nav.scene=scene;nav.sourceMode="party";nav.routeRevision=3;
     nav.start=route.start;nav.end=route.end;nav.result=route;
     nav.travelMethod="walking";nav.transportArrangement="owned";
-    nav.convoyEnabled=true;nav.convoyCargoQuantities={cart:1};
+    nav.convoyEnabled=true;nav.convoyCargoQuantities={cart:1,wagon:1};
     nav.render=async()=>{};nav.draw=()=>{};
     const a=nav.transportAvailability();
     assert.ok(a.offers.has("cart"),JSON.stringify({offers:[...a.offers.keys()],
@@ -3387,6 +3390,11 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
       JSON.stringify({methods:a.methods.map(m=>m.id),choice:nav.cargoConvoyChoices(a)}));
     const preview=nav.mixedConvoyPlan();
     assert.equal(preview.hires[0].units,1);
+    assert.equal(preview.totalCp,20.2);
+    const nodes=node=>[node,...(node.children??[]).flatMap(nodes)];
+    const panel=nodes(await nav.renderDestinationStage());
+    assert.ok(panel.some(n=>/Estimated hire 2 SP · 2 CP \(not charged\)/.test(n.textContent)),
+      "preview must display the same rounded fare as the confirmation");
     assert.equal(nav.assessTravelMethod().guided,true);
     nav.convoyPace=7;
     assert.equal(nav.assessTravelMethod().guided,false,
