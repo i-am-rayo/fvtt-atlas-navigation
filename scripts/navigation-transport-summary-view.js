@@ -4,6 +4,8 @@
  * Transport rules, Group resources, fare calculations and edit authorization
  * stay outside this presentation layer. Render-only never charges currency.
  */
+import {formatExactTransportationFare} from "./navigation-currency.js";
+
 const el=(tag,content)=>{
   const node=document.createElement(tag);
   if(content!==undefined)node.textContent=content;
@@ -82,7 +84,8 @@ export function describeOwnedCrewProfile(method,quantity=1){
   const period=basis==="day"?"operating day":basis;
   return count+" required crew per unit (World profile)"+total+
     " · "+(method.includeCrewWages?
-      "Crew wage rate: "+(method.crewWageCpPerDay??200)+" CP per crew member / "+period:
+      "Crew wage rate: "+formatExactTransportationFare(method.crewWageCpPerDay??200,
+        globalThis.CONFIG?.DND5E?.currencies)+" per crew member / "+period:
       "Crew wages excluded from estimates");
 }
 
