@@ -4175,10 +4175,10 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},settings:{
       get:(_module,key)=>key==="guidedGroupTransportation"?owned:undefined,
       set:(...args)=>writes.push(args)}};
-    const from=point(0,0),to=point(300,0);
-    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to}],
-      roads:[{id:"sea",name:"Sea passage",travelPresetId:"water-sea"}],
-      segments:[{id:"segment",roadId:"sea",from:"start",to:"end",via:[]}],
+    const from=point(0,0),to=point(300,0),end=point(400,0);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to},{id:"final",...end}],
+      roads:[{id:"sea",name:"Sea passage",travelPresetId:"water-sea"},{id:"land",name:"Onward road"}],
+      segments:[{id:"segment",roadId:"sea",from:"start",to:"end",via:[]},{id:"onward",roadId:"land",from:"end",to:"final",via:[]}],
       checkpoints:[{id:"dock",name:"Dock",nodeId:"start",roadId:"sea"},
         {id:"port",name:"Port",nodeId:"end",roadId:"sea"}]};
     const token={id:"party",actor:{id:"group1",type:"group",system:{members:[
@@ -4187,8 +4187,9 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     const scene={id:"sea-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined};
     const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token});
     nav.scene=scene;nav.sourceMode="party";nav.render=async()=>{};
-    nav.result={status:"ok",start:from,end:to,distance:60,cost:60,
-      legs:[{kind:"road",roadId:"sea",segmentId:"segment",points:[from,to],distance:60,cost:60}]};
+    nav.result={status:"ok",start:from,end,distance:65,cost:65,
+      legs:[{kind:"road",roadId:"sea",segmentId:"segment",points:[from,to],distance:60,cost:60},
+        {kind:"road",roadId:"land",segmentId:"onward",points:[to,end],distance:5,cost:5}]};
     nav.transferSelections[0]="owned|warship";
     nav.transferLegOperations[0]="normal";
     const original=JSON.stringify(owned);
