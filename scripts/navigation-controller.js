@@ -2141,7 +2141,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         // An ordinary leg has no checkpoint transfer decision. Only the
         // exact saved final coordinate target may close the Journey.
         const target=saved.routeTargets?nextJourneyTarget(saved.routeTargets):null;
-        if(!target||target.checkpointId!=null||
+        const marker=target?.checkpointId!=null?
+          atlas.checkpoints?.find(cp=>cp.id===target.checkpointId):null;
+        const node=marker?atlas.nodes?.find(n=>n.id===marker.nodeId):null;
+        if(!target||(target.checkpointId!=null&&
+            (!node||!Number.isFinite(node.x)||!Number.isFinite(node.y)||
+              Math.hypot(node.x-target.point.x,node.y-target.point.y)>.01))||
             saved.routeTargets.nextTargetIndex!==saved.routeTargets.targets.length-1||
             Math.hypot(target.point.x-leg.destination.x,target.point.y-leg.destination.y)>.01||
             Math.hypot(saved.destination.x-leg.destination.x,saved.destination.y-leg.destination.y)>.01||
