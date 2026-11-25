@@ -132,6 +132,7 @@ export class AtlasSceneWorkspace extends foundry.applications.api.ApplicationV2 
     const addControls = container => {
       for (const [label,handler] of [["Add Territory","createNativeTerritory"],["Add Road","begin"],["Add Map Marker","beginCheckpoint"]]) {
         const button = action(label,label,()=>this.actions[handler](this.scene,refresh));
+        button.dataset.atlasWorkspaceFocus="create:"+handler;
         button.disabled = Boolean(this.actions.draft(this.scene)) || (handler==="begin" && atlas.schemaVersion<=2 && Boolean(atlas.segments.length || atlas.nodes.length));
         container.appendChild(button);
       }
@@ -389,4 +390,19 @@ export async function minimizeAtlasSceneWorkspace(scene) {
   const workspace=workspaces.get(scene?.id);
   if(workspace?.rendered && !workspace.minimized)
     await workspace.minimize();
+}
+
+/** Capture only the initiating Workspace control. The caller restores it
+ * after the canvas focus lease settles and the existing Workspace refreshes. */
+export function captureAtlasWorkspaceFocus(scene){
+  const workspace=workspaces.get(scene?.id),active=globalThis.document?.activeElement;
+  const key=workspace?.rendered&&!workspace.minimized&&workspace.element?.contains?.(active)?
+    active?.dataset?.atlasWorkspaceFocus:null;
+  return ()=>{
+    if(!key||workspaces.get(scene?.id)!==workspace||!workspace.rendered||workspace.minimized||
+        !globalThis.game?.user?.isGM)return;
+    const target=Array.from(workspace.element?.querySelectorAll?.("[data-atlas-workspace-focus]")??[])
+      .find(node=>node.dataset.atlasWorkspaceFocus===key&&!node.disabled);
+    target?.focus({preventScroll:true});
+  };
 }

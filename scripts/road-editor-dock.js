@@ -177,7 +177,7 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       : draft.mode==="checkpoint-relocate"
       ? "Click the new map location, then confirm Save New Position. Cancel leaves the Map Marker unchanged."
       : draft.mode==="checkpoint"
-      ? "Choose a map location for a Map Marker. Road attachment requires confirmation."
+      ? "Choose a map location for a Map Marker. Road attachment requires confirmation. Saving or discarding its form exits placement."
       : draft.mode==="points"
       ? "Drag Road points to change their shape. Changes stay in this draft until Save Points."
       : "Click at least two map points to draw the Road. Finish Road saves it and opens Road Settings. Cancel discards the draft.";
@@ -265,7 +265,7 @@ export class AtlasRoadEditorDock extends foundry.applications.api.ApplicationV2 
       makeButton("Undo",()=>{this.controller.undo();void this.render(true);},"rotate-left");
     if(draft.canRedo)
       makeButton("Redo",()=>{this.controller.redo();void this.render(true);},"rotate-right");
-    makeButton("Cancel", async () => {
+    makeButton(draft.mode==="checkpoint"?"Exit placement":"Cancel", async () => {
       if (this.busy) return;
       this.onCancel();
       this.finished = true;

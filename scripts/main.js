@@ -4,7 +4,7 @@
  */
 import { openAtlasRegionGenerator,closeCheckpointRegionGenerator } from "./scene-config.js";
 import { openAtlasSceneWorkspace,
-  refreshAtlasSceneWorkspace, restoreAtlasSceneWorkspace }
+  refreshAtlasSceneWorkspace, restoreAtlasSceneWorkspace, captureAtlasWorkspaceFocus }
   from "./atlas-scene-workspace.js";
 import { RoadCanvasController } from "./road-canvas.js";
 import { reviewIndependentCheckpointConnections } from "./road-checkpoint-review-dialog.js";
@@ -221,12 +221,13 @@ let roadDock = null;
 // Workspace is the single visible Scene authoring surface. Never convert a
 // presentation refresh failure into a second persistence/write operation.
 function refreshAtlasWorkspaceFromAuthoring(scene) {
-  void refreshAtlasSceneWorkspace(scene).catch(error =>
+  return refreshAtlasSceneWorkspace(scene).catch(error =>
     atlasWarn("lifecycle","Atlas Workspace authoring refresh failed",error));
 }
 
 function syncRoadDock(scene, refresh) {
-  refresh();
+  // While the canvas owns focus, refresh only its dock. The Workspace
+  // refresh belongs after the final asynchronous focus release.
   if (roadDock?.scene?.id !== scene.id) return;
   if (!roadCanvas.getDraft(scene)) {
     roadDock.finished = true;
@@ -235,13 +236,15 @@ function syncRoadDock(scene, refresh) {
 }
 
 /** Keep the full Scene sheet out of the map while transient point tools run. */
-function openRoadDock(scene, refresh, takeSavedRoadId = null) {
+function openRoadDock(scene, refresh, takeSavedRoadId = null,
+  restoreWorkspaceFocus=captureAtlasWorkspaceFocus(scene)) {
   const previous = roadDock;
   if (previous) {
     previous.finished = true;
     void previous.close();
     roadDock = null;
   }
+  let closing=false;
   const dock = new AtlasRoadEditorDock({
     scene, controller: roadCanvas, sceneSheet: null,
     onFinish: () => roadCanvas.finish(),
@@ -260,21 +263,25 @@ function openRoadDock(scene, refresh, takeSavedRoadId = null) {
       });
     },
     onClosed: () => {
-      restoreEditorWindows?.();
+      if(closing)return;
+      closing=true;
       if (roadDock === dock) roadDock = null;
-      refresh();
       const savedId=takeSavedRoadId?.();
-      if(!savedId)return;
-      // Never reopen a canvas-scoped editor on a different Scene or player client.
-      const current=readAtlas(scene);
-      const road=current.roads?.find(item=>item.id===savedId);
-      if(!road||!game.user?.isGM||!scene.canUserModify?.(game.user,"update")||
-          !canvas?.ready||canvas.scene?.id!==scene.id){
-        ui.notifications.warn("Road saved. Reopen this Scene and use Road Settings from the directory.");
-        return;
-      }
-      void actions().editRoadAppearance(scene,road,refresh).catch(error=>
-        ui.notifications.error(error.message??String(error)));
+      void restoreEditorWindows().then(async()=>{
+        if(roadDock||!game.user?.isGM||!canvas?.ready||canvas.scene?.id!==scene.id||
+            !scene.canUserModify?.(game.user,"update"))return;
+        try{await refresh();}
+        catch(error){atlasWarn("lifecycle","Atlas Workspace authoring refresh failed",error);}
+        if(roadDock||!game.user?.isGM||canvas?.scene?.id!==scene.id)return;
+        if(!savedId){restoreWorkspaceFocus();return;}
+        // The saved Road Settings, not the directory, owns final focus.
+        const road=readAtlas(scene).roads?.find(item=>item.id===savedId);
+        if(!road){
+          ui.notifications.warn("Road saved. Reopen this Scene and use Road Settings from the directory.");
+          return;
+        }
+        await actions().editRoadAppearance(scene,road,refresh);
+      }).catch(error=>ui.notifications.error(error.message??String(error)));
     }
   });
   const restoreEditorWindows=acquireAtlasCanvasEditorFocus({exclude:[dock]});
@@ -289,13 +296,14 @@ function openRoadDock(scene, refresh, takeSavedRoadId = null) {
 
 function beginRoadDock(scene, refresh, start) {
   navigation.tearDown();
+  const restoreWorkspaceFocus=captureAtlasWorkspaceFocus(scene);
   let savedRoadId=null;
   start(() => syncRoadDock(scene, refresh),id=>{savedRoadId=id;});
   openRoadDock(scene, refresh,()=>{
     const id=savedRoadId;
     savedRoadId=null;
     return id;
-  });
+  },restoreWorkspaceFocus);
 }
 
 async function centerAtlasOn(scene, roadId, checkpointId=null,
@@ -1329,6 +1337,7 @@ function actions() {
     selectJunction: (scene, nodeId) => roadCanvas.selectJunction(scene, nodeId),
     beginCheckpoint(scene, refresh) {
       ensureIdle(scene);
+      const restoreWorkspaceFocus=captureAtlasWorkspaceFocus(scene);
       // One authoring entrypoint: a hit inside the bounded Road snap radius
       // uses the existing Road-linked confirmation; every other Scene click
       // creates a standalone Node-anchored Checkpoint after GM approval.
@@ -1350,8 +1359,7 @@ function actions() {
       });
       // Reuse the same canvas editor focus lease and dock as Road placement:
       // only windows this operation minimized are restored on its close.
-      openRoadDock(scene,refresh);
-      refresh();
+      openRoadDock(scene,refresh,null,restoreWorkspaceFocus);
     },
     // Retained as a legacy API alias. The Workspace presents one [+] control.
     beginIndependentCheckpoint(scene, refresh) {
