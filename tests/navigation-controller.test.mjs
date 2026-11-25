@@ -4513,6 +4513,38 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     assert.equal(journals.length,0);
     token.actor.system.members.splice(-2);
     // Same real destination-stage controls on a land-to-water route.
+    // A physical mount uses animal accommodation, never another passenger seat.
+    const originalOwned=structuredClone(owned);
+    const mounted=setGroupTransportationMember(owned,"group1","horse",{
+      role:"mount",quantity:1,capacity:1,surface:"land",profileId:"warhorse"});
+    Object.assign(owned,mounted);
+    token.actor.system.members.push({actor:{id:"horse",name:"Warhorse",type:"npc"}});
+    nav.livestockDecisions={horse:1};
+    nav.transferLegOverrides[0]={selection:"owned|warship",overrides:{livestockCapacity:1}};
+    const mountedLeg=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(mountedLeg.errors,[]);
+    assert.equal(mountedLeg.livestock.estimatedFareCp,0);
+    assert.equal(mountedLeg.livestock.resources[0].aboard,1);
+    const mountedPanel=labels(await nav.renderDestinationStage()).join(" ");
+    assert.equal((mountedPanel.match(/Physical mount boarding: 0 CP/g)??[]).length,1);
+    const previousConfirm=globalThis.foundry.applications.api.DialogV2.confirm;
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      const summary=labels(options.content).join(" ");
+      assert.match(summary,/Physical mount boarding 0 CP/);
+      assert.equal((summary.match(/Physical mount boarding/g)??[]).length,1);
+      assert.match(summary,/Warhorse ×1/);
+      return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(journals.length,0);
+    assert.equal(token.moves,0);
+    nav.livestockDecisions={horse:0};
+    assert.doesNotMatch(labels(await nav.renderDestinationStage()).join(" "),/Physical mount boarding:/);
+    globalThis.foundry.applications.api.DialogV2.confirm=previousConfirm;
+    token.actor.system.members.pop();
+    Object.assign(owned,originalOwned);
+    nav.livestockDecisions={};
+    delete nav.transferLegOverrides[0];
     const shipSettings=owned.groups.group1.members.ship;
     const priorScope=nav.checkpointOwnedDraft;
     atlas.roads[0].travelPresetId="land-stone";
