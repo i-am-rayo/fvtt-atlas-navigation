@@ -3403,7 +3403,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const hours=navigationHours(this.result.terrainAware?this.result.cost:this.result.distance,travel.speed);
         const mountDetails=manifest?describeJourneyMountFare(manifest,{method:effective,
           arrangement:this.transportArrangement,worldPercent:readLivestockFarePercent(game.settings),
-          formatMoney:cp=>cp+" CP",approved:Boolean(prior)}):null;
+          approved:Boolean(prior),showFare:!quote&&!prior}):null;
         const staying=manifest?.resources.filter(m=>m.quantity>m.aboard)
           .map(m=>m.name+" ×"+(m.quantity-m.aboard))??[];
         ownedSummary=renderNavigationTransportApproval({
@@ -3640,7 +3640,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const mountFare=displayLivestock?.estimatedFareCp??0;
       const mountDetails=describeJourneyMountFare(displayLivestock,{
         method:option.method,arrangement:info.arrangement,
-        worldPercent:readLivestockFarePercent(game.settings),approved:continuing});
+        worldPercent:readLivestockFarePercent(game.settings),approved:continuing,
+        showFare:false});
       const approvedSummary=renderNavigationTransportApproval({
         destination:"Current leg to "+guidedLeg.checkpoint.name,
         fareRows:quote?describeTransportationFareRows(quote,{owned:info.arrangement==="owned"}):
@@ -5798,8 +5799,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 aboard:this.livestockDecisions[item.actorId]})),
               estimatedFareCp:quote.livestockFareCp
             },{method,arrangement:this.transportArrangement,
-              worldPercent:readLivestockFarePercent(game.settings),
-              formatMoney}):null;
+              worldPercent:readLivestockFarePercent(game.settings),showFare:false}):null;
             const disabled=Boolean(this.travelSession||this.journalStarting);
             body.append(renderTransportQuote({
               worldEstimate:original?"World preset estimate: "+
@@ -5808,13 +5808,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 "hired service":"party-owned transport")+" estimate: "+
                 formatMoney(quote.totalCp),
               breakdown:[
-                "Transport excluding mounts: "+formatMoney(Math.max(0,
-                  Math.round(quote.totalCp)-Math.round(quote.livestockFareCp))),
-                quote.baseLabel+": "+formatMoney(quote.baseCp),
-                "Paid crew: "+formatMoney(quote.crewWagesCp),
-                "Overtime fare: "+formatMoney(quote.overtimeFareCp),
-                "Overtime labor: "+formatMoney(quote.overtimeCrewCp),
-                ...(mountDetails?[mountDetails]:[])
+                ...describeTransportationFareRows(quote,{owned:quote.arrangement==="owned"})
+                  .map(([label,value])=>label+": "+value),
+                ...(mountDetails?[mountDetails]:[]),
+                "Fare components are before rounding; the total is rounded once."
               ].join(" · "),
               operatingSummary:(quote.serviceLevel?"Hired service: "+quote.serviceLevel+" · "+quote.advertisedCrew+
                 " advertised crew per unit. ":"")+(operation==="continuous"&&
@@ -5961,22 +5958,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           const fare=leg.serviceQuote;
           const mountDetails=describeJourneyMountFare(leg.livestock,{
             method:leg.selectedOption?.method,arrangement:fare.arrangement,
-            worldPercent:readLivestockFarePercent(game.settings),
-            formatMoney
+            worldPercent:readLivestockFarePercent(game.settings),showFare:false
           });
-          const otherTotal=Math.max(0,
-            Math.round(fare.totalCp)-Math.round(fare.livestockFareCp));
           card.append(renderTransportQuote({
             currentEstimate:"Current "+(fare.arrangement==="hire"?
               "hired service":"party-owned transport")+" estimate: "+
               formatMoney(fare.totalCp),
             breakdown:[
-              "Transport excluding mounts: "+formatMoney(otherTotal),
-              "Base fare: "+formatMoney(fare.baseCp),
-              "Paid crew: "+formatMoney(fare.crewWagesCp),
-              "Overtime fare and labor: "+
-                formatMoney(fare.overtimeFareCp+fare.overtimeCrewCp),
-              ...(mountDetails?[mountDetails]:[])
+              ...describeTransportationFareRows(fare,{owned:fare.arrangement==="owned"})
+                .map(([label,value])=>label+": "+value),
+              ...(mountDetails?[mountDetails]:[]),
+              "Fare components are before rounding; the total is rounded once."
             ].join(" · "),
             operatingSummary:(fare.serviceLevel?"Hired service: "+fare.serviceLevel+" · "+fare.advertisedCrew+
                 " advertised crew per unit. ":"")+"Operating schedule: "+leg.operation+
