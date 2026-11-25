@@ -5620,7 +5620,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const rules=approvedActiveTransport?
           this.travelSession.schedule.rules:activeLeg?.ownedApproval?
             this.resolveCurrentLegRules({...travel,methodId:activeLeg.ownedApproval.methodId},activeLeg.selectedOption,
-              {transport:{ownedApproval:activeLeg.ownedApproval,operation:activeLeg.operation}}):this.resolveTravelRules(travel);
+              {transport:{ownedApproval:activeLeg.ownedApproval,operation:activeLeg.operation}}):activeLeg?.ownedDraft?
+            {...resolveNavigationTravelRules({settings:game.settings,systemId:game.system?.id,actorHoursPerDay:null}),
+              profile:"transport-service",label:"Transport service",
+              dailyHours:activeLeg.ownedDraft.operation==="continuous"?null:activeLeg.ownedDraft.dailyHours,
+              overnightHours:activeLeg.ownedDraft.overnightHours,forcedMarch:"custom"}:
+            this.resolveTravelRules(travel);
         const schedule=approvedActiveTransport?this.travelSession.schedule:
           this.travelMethod==="walking"&&this.journeySchedule&&
           Math.abs(this.journeySchedule.travelHours-hours)<1e-5?
