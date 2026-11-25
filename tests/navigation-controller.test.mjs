@@ -4301,5 +4301,35 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     await assert.rejects(()=>nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:2}]),/GM/i);
     assert.deepEqual(writes,[]);
     assert.equal(JSON.stringify(owned),original);
+    // Finish a short owned checkpoint leg using the existing native movement
+    // fixture and durable Journal store, not a stubbed approval or plan.
+    globalThis.game.user.isGM=true;
+    token.actor.system.members.push({actor:{id:"ship",name:"Warship",type:"vehicle"}});
+    nav.result={...fullRoute,distance:35,cost:35,legs:[
+      {...fullRoute.legs[0],distance:30,cost:30},fullRoute.legs[1]]};
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    const committed=[];
+    nav.journeyJournalStore.save=async record=>{
+      committed.push(structuredClone(record));return {id:"owned-journey"};
+    };
+    nav.draw=()=>{};
+    token.move=async waypoints=>{
+      assert.ok(committed[0]?.legs[0]?.transport?.ownedApproval,
+        "approved owned evidence must be durable before native movement");
+      const last=waypoints.at(-1);
+      assert.ok(last.x<=250.0001,"never move past the approved Port");
+      token.moves++;token.x=last.x;token.y=last.y;return true;
+    };
+    assert.equal(await nav.startGuidedTravel(),true);
+    assert.ok(token.moves>0);
+    assert.equal(token.x,250);
+    assert.equal(nav.pendingTransfer?.checkpoint?.id,"port");
+    assert.equal(committed.at(-1).legs[0].completedPercent,100);
+    assert.equal(committed.at(-1).status,"paused");
+    assert.deepEqual(committed.at(-1).legs[0].transport.ownedApproval,
+      committed[0].legs[0].transport.ownedApproval);
+    assert.deepEqual(committed.at(-1).legs[0].participation,
+      committed[0].legs[0].participation);
+    assert.deepEqual(writes,[]);
   }finally{Object.assign(globalThis,previous);}
 });
