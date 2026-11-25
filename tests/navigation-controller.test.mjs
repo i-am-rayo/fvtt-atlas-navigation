@@ -4965,7 +4965,9 @@ test("staffed mixed land convoy completes only its approved checkpoint leg with 
   }finally{Object.assign(globalThis,previous);}
 });
 
-test("ordinary staffed mixed native interruption reconciles only verified progress after reload",async()=>{
+for(const interruptFinal of [false,true])test(interruptFinal?
+  "ordinary staffed mixed final native interval reconciles to terminal arrival without replay":
+  "ordinary staffed mixed native interruption reconciles only verified progress after reload",async()=>{
   const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document,
     Hooks:globalThis.Hooks};
   try{
@@ -5007,17 +5009,18 @@ test("ordinary staffed mixed native interruption reconciles only verified progre
         assert.ok(record.legs[0].convoy.methods[1].ownedApproval.belowMinimumAcknowledged);
         assert.equal(pending.nativePath.length,2,"straight bounded interval");
         const partial=moves===1;
+        const finalInterrupted=interruptFinal&&!partial&&pending.completedPercent>=99.999;
         const destination=partial?point((pending.from.x+pending.to.x)/2,pending.from.y):pending.to;
         const movement={id:options.id,state:partial?"stopped":"completed",origin:pending.from,destination,
           constrained:false,passed:{waypoints:[{...destination,movementId:options.id}]},
           pending:{waypoints:[]},chain:[],animation:{ended:Promise.resolve()}};
         if(!partial)assert.notEqual(listeners.get("preMoveToken")?.(this,movement),false);
         this.x=destination.x;this.y=destination.y;this.movement=movement;
-        if(!partial){
+        if(!partial&&!finalInterrupted){
           listeners.get("moveToken")?.(this,movement);
           listeners.get("updateToken")?.(this,{x:this.x,y:this.y});
         }
-        return !partial;
+        return !partial&&!finalInterrupted;
       }};
     const scene={id:"land-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined,
       tokens:{get:id=>id===token.id?token:null},canUserModify:()=>true};
@@ -5089,7 +5092,30 @@ test("ordinary staffed mixed native interruption reconciles only verified progre
     assert.deepEqual(reloaded.recoveryRecord,record);
     assert.equal(reloaded.assessTravelMethod().guided,true);
     const originalLeg=structuredClone(record.legs[0]);
-    assert.equal(await reloaded.startGuidedTravel(),true);
+    assert.equal(await reloaded.startGuidedTravel(),!interruptFinal);
+    if(interruptFinal){
+      assert.equal(record.status,"interrupted");
+      assert.ok(record.pendingNativeMove?.completedPercent>=99.999);
+      const finalPending=structuredClone(record);
+      const priorClock=game.time.worldTime,priorMoves=moves;
+      const finalRecovery=createController();
+      finalRecovery.recoverableJourney=journal;
+      // A coordinate-only Point B must match both the approved leg and
+      // the final saved A/B/C target; a conflicting target cannot be skipped.
+      record.routeTargets.targets.at(-1).point.x+=50;
+      assert.equal(finalRecovery.boundedNativeArrival(record),null);
+      await assert.rejects(()=>finalRecovery.recoverSavedJourneyWithNativeReview(),/stopped during native checkpoint/);
+      assert.equal(game.time.worldTime,priorClock);
+      record=finalPending;
+      assert.equal(await finalRecovery.recoverSavedJourneyWithNativeReview(),true);
+      assert.equal(finalRecovery.completedRoute,true);
+      assert.deepEqual(finalRecovery.completedRecord,record);
+      assert.equal(finalRecovery.recoverableJourney,null);
+      assert.equal(finalRecovery.pendingTransfer,null);
+      assert.equal(moves,priorMoves);
+      assert.equal(game.time.worldTime,priorClock+finalPending.pendingNativeMove.worldAdvanceSeconds);
+      await assert.rejects(()=>finalRecovery.startGuidedTravel(),/Journey is completed/);
+    }
     assert.equal(record.status,"completed");
     assert.equal(record.pendingNativeMove,null);
     assert.equal(record.legs.length,2,"the remainder is a continuation of one approval");
