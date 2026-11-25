@@ -5558,10 +5558,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.transportArrangement+"|"+this.travelMethod);
     const blockedOwnedCheckpoint=currentLeg?.operatedUnits!==undefined&&
       Boolean(currentLeg.errors.length);
+    const blockedMixedCheckpoint=transferPlan?.hasTransitions&&
+      currentLeg?.selectedValue==="mixed-land"&&Boolean(currentLeg.errors.length);
     const blockedRecoveredOwned=Boolean(approvedRecoveryLand&&
       (approvedRecoveryLand.ownedApproval||recoveryLeg?.convoy?.methods?.some(m=>m.ownedApproval))&&
       !methodAssessment.guided);
-    const blockedEstimate=Boolean(!this.travelSession&&(blockedOwnedCheckpoint||recoveredPlanError||
+    const blockedEstimate=Boolean(!this.travelSession&&(blockedOwnedCheckpoint||blockedMixedCheckpoint||recoveredPlanError||
       blockedRecoveredOwned||
       !this.recoveryRecord&&!this.recoverableJourney&&!transferPlan?.hasTransitions&&
       (selectedMethodChoice?.insufficient||
@@ -5880,7 +5882,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(blockedEstimate){
         metric("Travel Time","Unavailable");
         metric("Total Trip","Unavailable");
-        tripExplanation=blockedOwnedCheckpoint?currentLeg.errors.join(" "):
+        tripExplanation=blockedOwnedCheckpoint||blockedMixedCheckpoint?currentLeg.errors.join(" "):
           recoveredPlanError?recoveredPlanError:blockedRecoveredOwned?
           methodAssessment.reason:(this.convoyEnabled||this.mixedKeys.length)&&
           !methodAssessment.guided?
