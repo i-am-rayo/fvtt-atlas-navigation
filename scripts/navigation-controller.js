@@ -3269,7 +3269,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const namedCrew=reviewedOwned.units.flatMap(unit=>unit.namedCrew);
         const crewIds=new Set(namedCrew.map(member=>member.actorId));
         const people=historicalOwned?
-          this.recoveryRecord.legs.at(-1).participation?.people??[]:
+          structuredClone(this.recoveryRecord.legs.at(-1).participation?.people??[]):
           (partyAtStart?.members??[]).map(member=>({
             actorId:member.id,name:member.name,traveling:partyAtStart.selectedIds.includes(member.id)
           }));

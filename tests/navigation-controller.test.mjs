@@ -4553,7 +4553,7 @@ test("ordinary owned Cart selects exact units, reviews staffing and retains its 
     assert.equal(nav.resolveTravelRules({methodId:"cart",hoursPerDay:8}).dailyHours,null);
     globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
       assert.match(labels(options.content),/24h\/day/);
-      assert.match(labels(options.content),/10 GP/);return false;
+      assert.match(labels(options.content),/1 PP/);return false;
     };
     assert.equal(await nav.startGuidedTravel(),false);
     nav.transportJourneyOverrides={overtimeEnabled:true,overtimeExtraHours:4,overtimeMultiplier:1.5};
