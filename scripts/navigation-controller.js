@@ -1182,7 +1182,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         narration:describeTransportationLeg(leg,option?{
           name:option.method.name,kind:option.method.kind,
           surface:leg.surface,arrangement:option.arrangement
-        }:{}),errors,hours,costCp};
+        }:{}),errors,
+        hours:operatedUnits!==undefined&&errors.length?null:hours,
+        costCp:operatedUnits!==undefined&&errors.length?null:costCp};
     });
     const globalSchedule=summarizeTransportationOperatingSchedule(legs);
     return {...projected,hasTransitions:projected.hasTransitions||checkpointContinuation,
@@ -5270,10 +5272,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const methodAssessment=this.assessTravelMethod();
     const selectedMethodChoice=annotatedChoices.find(choice=>choice.value===
       this.transportArrangement+"|"+this.travelMethod);
-    const blockedEstimate=Boolean(!this.travelSession&&!this.recoveryRecord&&
-      !this.recoverableJourney&&!transferPlan?.hasTransitions&&
+    const blockedOwnedCheckpoint=currentLeg?.operatedUnits!==undefined&&
+      Boolean(currentLeg.errors.length);
+    const blockedEstimate=Boolean(!this.travelSession&&(blockedOwnedCheckpoint||recoveredPlanError||
+      !this.recoveryRecord&&!this.recoverableJourney&&!transferPlan?.hasTransitions&&
       (selectedMethodChoice?.insufficient||
-        (this.convoyEnabled||this.mixedKeys.length)&&!methodAssessment.guided));
+        (this.convoyEnabled||this.mixedKeys.length)&&!methodAssessment.guided)));
     const repeatingCheckpoint=isRepeatedArrivalCheckpoint(this.recoveryRecord,
       transferPlan?.legs[0]?.arrivalCheckpoint);
     const assistedLegReady=Boolean(transferPlan?.hasTransitions&&
@@ -5619,7 +5623,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(blockedEstimate){
         metric("Travel Time","Unavailable");
         metric("Total Trip","Unavailable");
-        tripExplanation=(this.convoyEnabled||this.mixedKeys.length)&&
+        tripExplanation=blockedOwnedCheckpoint?currentLeg.errors.join(" "):
+          recoveredPlanError?recoveredPlanError:(this.convoyEnabled||this.mixedKeys.length)&&
           !methodAssessment.guided?
           (methodAssessment.reason??"Choose a valid shared convoy pace."):
           "This method cannot carry all selected travelers. "+

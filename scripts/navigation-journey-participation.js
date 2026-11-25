@@ -97,7 +97,7 @@ export function validateJourneyParticipation(value,{ownedApproval}={}){
 export function priorJourneySelection(record,liveRoster){
   const leg=record?.legs?.at(-1);
   const prior=leg?.participation;
-  const owned=leg?.transport?.ownedApproval;
+  const owned=leg?.transport?.ownedApproval??leg?.travelMethod?.ownedApproval;
   const approval=owned===undefined?null:validateConfirmedOwnedVehicleApproval(owned);
   const unfinished=Number.isFinite(leg?.completedPercent)&&leg.completedPercent<99.999;
   if(approval&&unfinished){

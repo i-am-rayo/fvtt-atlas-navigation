@@ -53,6 +53,14 @@ const validJourneyMethod=value=>Boolean(value&&typeof value==="object"&&
   ["owned","hire"].includes(value.arrangement)&&
   ["normal","overtime","continuous"].includes(value.operation)&&
   (value.serviceContinuation===undefined||value.serviceContinuation===true&&value.serviceApproval!==undefined)&&
+  (value.ownedContinuation===undefined||value.ownedContinuation===true&&value.ownedApproval!==undefined)&&
+  (value.ownedApproval===undefined||(()=>{
+    try{
+      const approved=validateConfirmedOwnedVehicleApproval(value.ownedApproval);
+      return value.arrangement==="owned"&&value.serviceApproval===undefined&&
+        approved.methodId===value.id&&approved.surface==="land"&&approved.operation===value.operation;
+    }catch{return false;}
+  })())&&
   (value.serviceApproval===undefined||(()=>{
     try{return value.arrangement==="hire"&&validateHiredServiceApproval(value.serviceApproval).operation===value.operation;}
     catch{return false;}
@@ -63,6 +71,11 @@ export function journeyLegFromItinerary(itinerary){
       !validPoint(itinerary.endpoints?.destination)||
       !Array.isArray(itinerary.directions)||itinerary.directions.length>4096)
     throw Error("A versioned Atlas itinerary is required for a Journey Journal.");
+  const landOwned=itinerary.travel?.ownedApproval;
+  if(landOwned!==undefined&&(itinerary.transport||!validJourneyMethod({
+      ...itinerary.travel,id:itinerary.travel.methodId,
+      name:itinerary.travel.methodName??itinerary.travel.methodId})))
+    throw Error("Invalid approved owned land service.");
   return {
     sceneName:String(itinerary.scene?.name??"Scene"),
     departure:point(itinerary.endpoints.departure),
@@ -80,7 +93,7 @@ export function journeyLegFromItinerary(itinerary){
     completedMovingHours:0,completedPercent:0,events:[],
     worldTravelSeconds:0,worldRestSeconds:0,
     ...(itinerary.participation?{participation:validateJourneyParticipation(itinerary.participation,{
-      ownedApproval:itinerary.transport?.ownedApproval})}:{}),
+      ownedApproval:itinerary.transport?.ownedApproval??landOwned})}:{}),
     ...(itinerary.livestock?{livestock:validateJourneyLivestock(itinerary.livestock)}:{}),
     ...(itinerary.convoy?{convoy:validateApprovedConvoy(itinerary.convoy)}:{}),
     ...(itinerary.transport?{transport:validateTransportJourneyInfo(itinerary.transport)}
@@ -91,7 +104,8 @@ export function journeyLegFromItinerary(itinerary){
           name:String(itinerary.travel.methodName??itinerary.travel.methodId),
           arrangement:String(itinerary.travel.arrangement??"owned"),
           operation:String(itinerary.travel.operation??"normal"),
-          ...(itinerary.travel.serviceApproval!==undefined?{serviceApproval:validateHiredServiceApproval(itinerary.travel.serviceApproval)}:{})
+          ...(itinerary.travel.serviceApproval!==undefined?{serviceApproval:validateHiredServiceApproval(itinerary.travel.serviceApproval)}:{}),
+          ...(landOwned!==undefined?{ownedApproval:validateConfirmedOwnedVehicleApproval(landOwned)}:{})
         }}:{})
   };
 }
@@ -188,22 +202,25 @@ export function validateJourneyRecord(value){
           JSON.stringify(validateHiredServiceApproval(priorService))!==JSON.stringify(validateHiredServiceApproval(service)))
         throw Error("Invalid approved service continuation.");
     }
-    const owned=leg.transport?.ownedApproval;
+    const owned=leg.transport?.ownedApproval??leg.travelMethod?.ownedApproval;
     const priorOwned=value.legs[index-1];
-    const continuesOwned=priorOwned?.transport?.ownedApproval&&priorOwned.completedPercent<99.999;
-    if(continuesOwned&&(!owned||!leg.transport.continuation))
+    const priorApproval=priorOwned?.transport?.ownedApproval??priorOwned?.travelMethod?.ownedApproval;
+    const continuesOwned=priorApproval&&priorOwned.completedPercent<99.999;
+    const ownedContinuation=leg.transport?.continuation||leg.travelMethod?.ownedContinuation;
+    if(continuesOwned&&(!owned||!ownedContinuation))
       throw Error("Invalid replacement of unfinished owned service.");
     if(owned){
       const approval=validateConfirmedOwnedVehicleApproval(owned);
       if(leg.participation!==undefined)
         validateJourneyParticipation(leg.participation,{ownedApproval:approval});
-      if(leg.transport.continuation){
+      if(ownedContinuation){
         if(!continuesOwned||
-            priorOwned.transport.arrivalCheckpointId!==leg.transport.arrivalCheckpointId||
+            Boolean(priorOwned.transport)!==Boolean(leg.transport)||
+            priorOwned.transport?.arrivalCheckpointId!==leg.transport?.arrivalCheckpointId||
             priorOwned.speedPerHour!==leg.speedPerHour||
             priorOwned.destination.x!==leg.destination.x||
             priorOwned.destination.y!==leg.destination.y||
-            JSON.stringify(priorOwned.transport.ownedApproval)!==JSON.stringify(approval)||
+            JSON.stringify(priorApproval)!==JSON.stringify(approval)||
             JSON.stringify(priorOwned.participation)!==JSON.stringify(leg.participation))
           throw Error("Invalid approved owned service continuation.");
       }
@@ -304,15 +321,18 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
         throw Error("Recovery cannot change the approved hired service.");
       if(resumed.travelMethod)resumed.travelMethod.serviceContinuation=true;
     }
-    const approvedOwned=old.transport?.ownedApproval;
-    const resumedOwned=resumed.transport?.ownedApproval;
+    const approvedOwned=old.transport?.ownedApproval??old.travelMethod?.ownedApproval;
+    const resumedOwned=resumed.transport?.ownedApproval??resumed.travelMethod?.ownedApproval;
     if(approvedOwned!==undefined||resumedOwned!==undefined){
       if(JSON.stringify(approvedOwned)!==JSON.stringify(resumedOwned)||
+          Boolean(old.transport)!==Boolean(resumed.transport)||
           old.transport?.methodId!==resumed.transport?.methodId||
+          old.travelMethod?.id!==resumed.travelMethod?.id||
           old.transport?.arrivalCheckpointId!==resumed.transport?.arrivalCheckpointId||
-          old.speedPerHour!==resumed.speedPerHour||!resumed.transport?.continuation||
+          old.speedPerHour!==resumed.speedPerHour||resumed.transport&&!resumed.transport.continuation||
           old.destination.x!==resumed.destination.x||old.destination.y!==resumed.destination.y)
         throw Error("Recovery cannot change the approved owned service.");
+      if(resumed.travelMethod)resumed.travelMethod.ownedContinuation=true;
     }
     // Interruption never authorizes changing a previously approved roster.
     if(old.participation!==undefined){
@@ -487,14 +507,15 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
       serviceLines=`<li class="atlas-journey-transport-event">${escapeHTML(line)}</li>`;
       shownService=key;
     }
-    const owned=leg.transport?.ownedApproval;
-    if(!owned||!leg.transport.continuation)shownOwned=null;
+    const owned=leg.transport?.ownedApproval??leg.travelMethod?.ownedApproval;
+    const continuingOwned=Boolean(leg.transport?.continuation||leg.travelMethod?.ownedContinuation);
+    if(!owned||!continuingOwned)shownOwned=null;
     if(owned&&leg.completedMovingHours>0){
       const approved=validateConfirmedOwnedVehicleApproval(owned);
       const key=JSON.stringify(approved);
       const money=cp=>systemId==="dnd5e"?
         dndCurrencyBreakdown(cp,globalThis.CONFIG?.DND5E?.currencies).label:cp+" CP";
-      const lines=leg.transport.continuation&&shownOwned===key?
+      const lines=continuingOwned&&shownOwned===key?
         ["Continuing previously approved owned service; no new fare."]:[
           "Approved owned service: "+approved.units.length+" unit(s) · "+approved.passengerSeats+
             "/"+approved.passengerCapacity+" passenger seats · "+approved.dailyHours+"h/day. "+
@@ -534,7 +555,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
             dndCurrencyBreakdown(manifest.estimatedFareCp,
               globalThis.CONFIG?.DND5E?.currencies).label:
             manifest.estimatedFareCp+" CP")} `+
-          (leg.transport?.continuation||leg.travelMethod?.serviceContinuation?"(previously approved, not quoted again).":
+          (leg.transport?.continuation||leg.travelMethod?.serviceContinuation||leg.travelMethod?.ownedContinuation?"(previously approved, not quoted again).":
             "(included in total; no deduction).")+`</p>`)+
         `</div>`)(validateJourneyLivestock(leg.livestock)):"";
     const rows=timeline.map(step=>step.kind==="journey-event"?
