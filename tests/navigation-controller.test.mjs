@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {installNativeJourneyFixture} from "./support/native-journey-fixture.mjs";
 import { createNavigationItinerary } from "../scripts/navigation-itinerary.js";
-import { createJourneyRecord,checkpointJourneyRecord,findRecoverableJourney,
+import { createJourneyRecord,checkpointJourneyRecord,findRecoverableJourney,validateJourneyRecord,
   JOURNEY_JOURNAL_FLAG } from "../scripts/navigation-journey-journal.js";
 import { GuidedTravelDayTracker,estimateNavigationTotalTrip }
   from "../scripts/navigation-travel-day.js";
@@ -4174,7 +4174,7 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
         includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},crewRoster:[{unitIndex:1,named:[{actorId:"sailor"}],hired:10},{unitIndex:2,named:[],hired:30}]});
     const writes=[],journals=[];
     let dialogs=0;
-    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],append(...items){this.children.push(...items);}})};
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),append(...items){this.children.push(...items);},addEventListener(n,f){this.listeners.set(n,f);},setAttribute(n,v){this[n]=v;}})};
     const labels=node=>[node.textContent,...node.children.flatMap(labels)];
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
       dialogs++;assert.match(labels(options.content).join(" "),/below.minimum/i);
@@ -4220,6 +4220,30 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     assert.equal(leg.ownedDraft.units[0].staffedCrew,11);
     assert.equal(leg.ownedDraft.crewWagesCp,4400);
     assert.equal(leg.serviceQuote.crewWagesCp,4400);
+    const deck=leg=>{const availability=nav.transportAvailability();
+      return nav.renderTravelersAndPace(nav.partyTravelSelection(availability.all),availability,{
+        singleChoice:leg.selectedOption,ownedLeg:leg});};
+    const flatten=node=>[node,...node.children.flatMap(flatten)];
+    const selectedDeck=flatten(deck(leg));
+    assert.ok(selectedDeck.some(n=>/1\/2 passenger seats/.test(n.textContent)),
+      "selected unit capacity must replace the full fleet capacity");
+    assert.ok(selectedDeck.some(n=>/5\.00 mph/.test(n.textContent)));
+    assert.ok(selectedDeck.some(n=>/2\/2 travelers/.test(n.textContent)));
+    assert.ok(selectedDeck.some(n=>/Sailor.*crew/i.test(n.textContent)));
+    const fixedCrew=selectedDeck.find(n=>n.type==="checkbox"&&/Sailor/.test(n["aria-label"]));
+    assert.ok(fixedCrew?.checked&&fixedCrew.disabled,"non-passenger crew follow their operated unit");
+    assert.deepEqual(nav.partySelectedIds,[]);
+    nav.partySelectionMode="selected";nav.partySelectedIds=[];
+    const crewOnly=flatten(deck(nav.transportationTransitionPlan().legs[0]));
+    assert.ok(crewOnly.some(n=>/1\/2 travelers/.test(n.textContent)));
+    assert.ok(crewOnly.some(n=>/0\/2 passenger seats/.test(n.textContent)));
+    nav.partySelectionMode="all";nav.partySelectedIds=[];
+    await nav.setCheckpointOperatedUnits([]);
+    const invalidDeck=flatten(deck(nav.transportationTransitionPlan().legs[0]));
+    assert.ok(invalidDeck.some(n=>/selected.unit.*unavailable/i.test(n.textContent)));
+    assert.ok(invalidDeck.some(n=>n.type==="checkbox"&&/Traveler/.test(n["aria-label"])));
+    assert.ok(!invalidDeck.some(n=>/\/4 passenger seats/.test(n.textContent)));
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
     assert.equal(await nav.startGuidedTravel(),false,"Cancel must not approve or save a Journey");
     assert.equal(dialogs,1);assert.equal(journals.length,0);
     globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
@@ -4241,6 +4265,21 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     assert.deepEqual(recorded.transport.ownedApproval,{...leg.ownedDraft,belowMinimumAcknowledged:true});
     assert.deepEqual(recorded.participation.people.map(p=>[p.actorId,p.traveling,p.seats]),
       [["pc",true,1],["sailor",true,0]]);
+    for(const edit of [
+      p=>{p.people=p.people.filter(person=>person.actorId!=="sailor");},
+      p=>{p.people[0].seats=2;},
+      p=>{p.people[0].methodKey="owned|walking";}
+    ]){
+      const tampered=structuredClone(journals[0]);edit(tampered.legs[0].participation);
+      assert.throws(()=>validateJourneyRecord(tampered),/crew|passenger seats|method/i);
+      const badItinerary={schemaVersion:1,scene:{name:"Sea",units:"mi"},
+        endpoints:{departure:recorded.departure,destination:recorded.destination},
+        measurements:{distance:recorded.distance,travelHours:recorded.movingHours,terrainAware:false},
+        travel:{speedPerHour:recorded.speedPerHour},directions:[],
+        transport:recorded.transport,participation:tampered.legs[0].participation};
+      assert.throws(()=>createJourneyRecord({sceneId:scene.id,tokenId:token.id,atlasRevision:1,
+        itinerary:badItinerary}),/crew|passenger seats|method/i);
+    }
     assert.equal(token.moves,0);
     // An empty passenger selection can travel with named non-passenger crew.
     nav.partySelectionMode="selected";nav.partySelectedIds=[];
