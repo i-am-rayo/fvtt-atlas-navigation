@@ -627,3 +627,11 @@ export function validateOwnedVehicleApproval(raw){
   if(["baseCp","crewWagesCp","overtimeCrewCp","totalCp"].some(key=>raw[key]!==quote[key]))approvalError();
   return structuredClone(raw);
 }
+
+/** Draft quotes cannot be persisted as confirmed owned service evidence. */
+export function validateConfirmedOwnedVehicleApproval(raw){
+  const approval=validateOwnedVehicleApproval(raw);
+  if(approval.belowMinimumAcknowledged!==approval.belowMinimum)
+    throw Error("Invalid owned vehicle staffing acknowledgement.");
+  return approval;
+}
