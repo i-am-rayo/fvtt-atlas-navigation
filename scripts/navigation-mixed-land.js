@@ -5,6 +5,8 @@ import {convertGroupSpeed} from "./navigation-party-speed.js";
 import {projectedGroupFare} from "./navigation-currency.js";
 import {quoteTransportationService,assessHiredTransportAvailability,validateHiredServiceApproval}
   from "./navigation-transport-service.js";
+import {planOwnedVehicleService,validateOwnedVehicleApproval,validateConfirmedOwnedVehicleApproval}
+  from "./navigation-group-transport.js";
 
 const id=s=>typeof s==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(s);
 const positive=n=>Number.isFinite(n)&&n>0;
@@ -16,7 +18,7 @@ const validName=name=>name===undefined||typeof name==="string"&&
   name.trim().length>0&&name.length<=240&&!/[\u0000-\u001f]/.test(name);
 
 /** Authoritative approved snapshot; its stock and price are historical facts. */
-export function validateMixedLandConvoy(record){
+export function validateMixedLandConvoy(record,{draft=false}={}){
   if(!record||record.schemaVersion!==2||record.mode!=="mixed-land"||
     typeof record.sceneUnits!=="string"||record.sceneUnits.length>32||
     !Array.isArray(record.travelers)||!record.travelers.length||
@@ -28,7 +30,7 @@ export function validateMixedLandConvoy(record){
     record.totalSeatsNeeded<0)
     throw Error("Invalid approved mixed transportation Journey.");
   const keys=new Set(),riders=new Set(),resources=new Set();
-  const tiered=record.methods.some(m=>m.serviceApproval!==undefined);
+  const tiered=record.methods.some(m=>m.serviceApproval!==undefined||m.ownedApproval!==undefined);
   if(tiered&&(!positive(record.sharedDailyHours)||record.sharedDailyHours>24)||
       !tiered&&record.sharedDailyHours!==undefined)
     throw Error("Invalid mixed Journey service schedule.");
@@ -74,6 +76,21 @@ export function validateMixedLandConvoy(record){
           approval.travelers!==m.passengers||approval.movingHours!==record.movingHours||
           approval.totalCp!==m.estimatedCostCp)
         throw Error("Invalid approved mixed service fare or schedule.");
+    }
+    if(m.ownedApproval!==undefined){
+      const a=draft?validateOwnedVehicleApproval(m.ownedApproval):
+        validateConfirmedOwnedVehicleApproval(m.ownedApproval);
+      if(m.arrangement!=="owned"||m.role!=="riders"||a.surface!=="land"||
+          a.methodId!==m.methodId||a.operation!=="normal"||
+          a.dailyHours!==record.sharedDailyHours||a.movingHours!==record.movingHours||
+          a.units.length!==m.units||a.passengerSeats!==m.seatsUsed||
+          m.capacity!==Math.ceil(a.passengerCapacity/m.units)||
+          Math.abs(unitsOf(a.speedMph,record.sceneUnits)-m.speedPerHour)>EPS||
+          a.totalCp!==m.estimatedCostCp||
+          JSON.stringify(a.resources.map(r=>r.actorId))!==JSON.stringify(m.resourceIds)||
+          a.units.flatMap(u=>u.namedCrew).some(c=>!record.travelers.some(t=>
+            t.actorId===c.actorId&&t.methodKey===m.key)))
+        throw Error("Invalid approved mixed owned service, roster or schedule.");
     }
     if(m.arrangement==="owned"){
       if(!Array.isArray(m.resourceIds)||m.resourceIds.length>150||
@@ -151,7 +168,7 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
   });
   const usedResources=new Set();
   const prepared=[];
-  for(const {key,arrangement,method,checkpointId,resources=[],units,serviceLevel=null} of methods){
+  for(const {key,arrangement,method,checkpointId,resources=[],units,serviceLevel=null,projection,operatedUnits} of methods){
     if(serviceLevel!==null&&arrangement!=="hire")throw Error("Hired service tiers require a hired vehicle.");
     const people=roster.filter(t=>t.methodKey===key);
     const seatsUsed=sum(people,"seatsNeeded");
@@ -186,6 +203,40 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
         seatsUsed,passengers,role:passengers?"riders":"cargo",
         checkpointId,unlimited:supply.unlimited,
         availableUnits:supply.availableUnits,method,serviceLevel});
+      continue;
+    }
+    if(operatedUnits!==undefined){
+      if(method.kind!=="vehicle"||!projection||!Array.isArray(projection.members))
+        throw Error("Selected operating units need a valid owned vehicle roster.");
+      const scoped={...projection,travelers:seatsUsed,selectedTravelerIds:people.map(t=>t.actorId)};
+      // Zero-distance quote provides selected capacity and pace before the
+      // convoy's final shared duration is known. Reuse the owned service engine.
+      const {approval}=planOwnedVehicleService(scoped,method,{operatedUnits,
+        movingHours:0,distanceMi:0,regularHours,operation:"normal"});
+      for(const crew of approval.units.flatMap(u=>u.namedCrew)){
+        const existing=roster.find(t=>t.actorId===crew.actorId);
+        if(existing){
+          if(existing.methodKey!==key)throw Error("Named crew must travel on their operated unit.");
+          existing.seatsNeeded=Math.max(0,existing.seatsNeeded-1);
+        }else{
+          if(members.has(crew.actorId))throw Error("Named crew cannot be assigned twice.");
+          members.add(crew.actorId);
+          roster.push({actorId:crew.actorId,name:crew.name,methodKey:key,
+            role:"riding",seatsNeeded:0,passengers:1});
+        }
+      }
+      const assigned=roster.filter(t=>t.methodKey===key);
+      if(sum(assigned,"seatsNeeded")!==approval.passengerSeats)
+        throw Error("Named crew and selected passenger seats differ.");
+      const resourceIds=approval.resources.map(r=>r.actorId);
+      if(resourceIds.some(id=>usedResources.has(id)))
+        throw Error("An owned mount or vehicle cannot be selected twice.");
+      resourceIds.forEach(id=>usedResources.add(id));
+      prepared.push({key,arrangement,methodId:method.id,methodName:method.name,
+        speedPerHour:unitsOf(approval.speedMph,sceneUnits),units:approval.units.length,
+        capacity:Math.ceil(approval.passengerCapacity/approval.units.length),
+        seatsUsed:approval.passengerSeats,passengers:sum(assigned,"passengers"),
+        role:"riders",resourceIds,method,projection:scoped,operatedUnits});
       continue;
     }
     if(!Array.isArray(resources)||!resources.length)
@@ -231,13 +282,17 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
   if(!positive(movingHours)||movingHours>1e7)
     throw Error("Mixed convoy moving time is invalid.");
   const historic=prepared.map(p=>{
-    let total=0,serviceApproval=null;
+    let total=0,serviceApproval=null,ownedApproval=null;
     if(p.arrangement==="hire"){
       const quote=quoteTransportationService(p.method,{arrangement:"hire",
         travelers:p.passengers,requestedUnits:p.units,movingHours,
         distanceMi,regularHours,serviceLevel:p.serviceLevel,sharedTravelDay:p.serviceLevel!==null});
       total=quote.totalCp;
       if(p.serviceLevel!==null)serviceApproval=validateHiredServiceApproval(quote);
+    }else if(p.operatedUnits!==undefined){
+      ownedApproval=planOwnedVehicleService(p.projection,p.method,{operatedUnits:p.operatedUnits,
+        movingHours,distanceMi,regularHours,operation:"normal"}).approval;
+      total=ownedApproval.totalCp;
     }else if(p.role!=="walking"){
       let remaining=p.passengers;
       for(const [index,r] of p.costResources.entries()){
@@ -255,17 +310,18 @@ export function planMixedLandConvoy({travelers,assignments,methods,walkingSpeed,
         }
       }
     }
-    const {method,costResources,serviceLevel,...record}=p;
-    return {...record,estimatedCostCp:total,...(serviceApproval?{serviceApproval}:{})};
+    const {method,costResources,serviceLevel,projection,operatedUnits,...record}=p;
+    return {...record,estimatedCostCp:total,...(serviceApproval?{serviceApproval}:{}),
+      ...(ownedApproval?{ownedApproval}:{})};
   });
   const result={schemaVersion:2,mode:"mixed-land",sceneUnits,
     travelers:roster,methods:historic,walkingSpeedPerHour:walkingSpeed,
     suggestedSpeedPerHour:recommended,speedPerHour:chosenSpeed,movingHours,
     ...(gmWalkingPaceOverride?{gmWalkingPaceOverride:true}:{}),
-    ...(historic.some(m=>m.serviceApproval)?{sharedDailyHours:regularHours}:{}),
+    ...(historic.some(m=>m.serviceApproval||m.ownedApproval)?{sharedDailyHours:regularHours}:{}),
     totalSeatsNeeded:sum(roster,"seatsNeeded"),
     totalCp:sum(historic,"estimatedCostCp")};
-  return validateMixedLandConvoy(result);
+  return validateMixedLandConvoy(result,{draft:true});
 }
 
 export function validateNavigationConvoy(value){
