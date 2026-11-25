@@ -4977,10 +4977,14 @@ for(const scenario of ["mixed","mixed-final","continuous","overtime"])test(
     const listeners=new Map(),writes=[];
     let serial=0,advances=0,dialogs=0,moves=0,record=null,failConfirmation=false;
     const restHolds=[];
+    let restNotices=0;
     globalThis.Hooks={on(name,fn){listeners.set(name,fn);return fn;},
       off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
     globalThis.foundry={utils:{randomID:()=>"MixedNative"+String(++serial).padStart(5,"0")},
-      applications:{api:{DialogV2:{confirm:async()=>{dialogs++;return true;}}}}};
+      applications:{api:{DialogV2:{confirm:async options=>{
+        if(options.window?.title==="Notify players: rest complete?"){restNotices++;return false;}
+        dialogs++;return true;
+      }}}}};
     globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
       append(...nodes){this.children.push(...nodes);},
       appendChild(n){this.children.push(n);return n;},addEventListener(){},setAttribute(){}})};
@@ -5196,7 +5200,12 @@ for(const scenario of ["mixed","mixed-final","continuous","overtime"])test(
     assert.equal(record.routeTargets.nextTargetIndex,record.routeTargets.targets.length);
     assert.equal(dialogs,mixed?1:2,"single-owned resume reviews the original approval, never a new fare");
     assert.ok(Math.abs(record.legs.reduce((sum,leg)=>sum+leg.completedMovingHours,0)-
-      originalLeg.movingHours)<1e-6);
+      originalLeg.movingHours)<1e-6,JSON.stringify({
+        pending,originalHours:originalLeg.movingHours,credited:originalLeg.completedMovingHours,
+        continuationHours:record.legs[1].completedMovingHours,
+        resumedDeparture:record.legs[1].departure,anchor:originalLeg.destination,
+        clock:game.time.worldTime-1000
+      }));
     const restSeconds=scenario==="overtime"?12*3600:0;
     assert.equal(record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0),restSeconds);
     assert.equal(record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0),
@@ -5205,6 +5214,7 @@ for(const scenario of ["mixed","mixed-final","continuous","overtime"])test(
     const events=record.legs.flatMap(leg=>leg.events);
     assert.deepEqual(events.map(e=>[e.action,e.hours]),scenario==="overtime"?[["overnight",12]]:[]);
     assert.deepEqual(restHolds,scenario==="overtime"?[24000]:[]);
+    assert.equal(restNotices,scenario==="overtime"?1:0);
     const html=formatJourneyJournalHTML(record);
     assert.equal((html.match(mixed?/Estimated transportation cost:/g:/Original estimated total:/g)??[]).length,1);
     assert.match(html,mixed?/Continuing previously approved mixed service; no new fare/:
