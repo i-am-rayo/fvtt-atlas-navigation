@@ -24,7 +24,7 @@ globalThis.game={user:{isGM:true},system:{id:"dnd5e"},actors:{contents:[group],g
     async set(_m,key,value){writes.push(key);if(key===TRANSPORT_CATALOG_SETTING)catalog=value;else saved=value;return value;}}};
 globalThis.ui={notifications:{info(){},error(message){errors.push(message);}}};
 let exercise=null;
-globalThis.foundry={applications:{api:{DialogV2:{input:async options=>{
+globalThis.foundry={applications:{api:{ApplicationV2:class {},DialogV2:{input:async options=>{
   // Emulate Foundry's documented render callback at the serialization boundary.
   // Browser-native value/defaultValue, selected/disabled and FormData semantics.
   const form=document.createElement("form");
