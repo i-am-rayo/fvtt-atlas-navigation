@@ -4439,6 +4439,26 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     assert.deepEqual(continued.participation,recorded.participation);
     assert.equal(continued.transport.estimatedFareCp,0);
     assert.equal(continued.transport.continuation,true);
+    // Older voyages carry an approved operation without a staffing/tier
+    // snapshot. Their resume display must match the native operating rules.
+    const priorRecovery=nav.recoveryRecord,priorOperation=nav.transportOperation;
+    const legacy=structuredClone(saved);
+    delete legacy.legs[0].transport.ownedApproval;
+    delete legacy.legs[0].participation;
+    legacy.legs[0].transport.operation="continuous";
+    nav.recoveryRecord=legacy;nav.transportOperation="continuous";
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      const summary=labels(options.content).join(" ");
+      assert.match(summary,/Operating schedule: continuous · 24h\/day/);
+      assert.match(summary,/Previously approved — no new fare/);
+      assert.doesNotMatch(summary,/Fare breakdown/);
+      return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.deepEqual(nav.recoveryRecord,legacy);
+    assert.equal(journals.length,3);assert.equal(token.moves,0);
+    nav.recoveryRecord=priorRecovery;nav.transportOperation=priorOperation;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
     const removed=token.actor.system.members.splice(1,1)[0];
     await assert.rejects(()=>nav.startGuidedTravel(),/roster changed|crew/i);
     assert.equal(journals.length,3);
