@@ -4771,7 +4771,7 @@ test("mixed owned Cart draft, confirmation, Journal and recovery share exact ope
     saved.status="interrupted";nav.recoveryRecord=saved;nav.recoveryJournal={id:"saved-mixed"};
     owned.groups.group1.members.cart.crewPolicyOverride.crewWageCpPerDay=900;
     const beforeRoleChange=owned;
-    owned=setGroupTransportationMember(owned,"group1","driver",{role:"ignore"});
+    owned=setGroupTransportationMember(owned,"group1","driver",{role:"ignore",quantity:1,capacity:null,surface:"land"});
     assert.equal(nav.assessTravelMethod().guided,false);
     await assert.rejects(()=>nav.startGuidedTravel(),/crew|roster|eligible/i);
     assert.equal(journals.length,1);assert.equal(token.moves,0);
