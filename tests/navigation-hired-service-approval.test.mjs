@@ -223,3 +223,53 @@ test("ordinary owned land approval preserves the exact historical crew, schedule
     assert.throws(()=>validateJourneyRecord(changed),/invalid|approved|seats/i);
   }
 });
+
+test("mixed owned checkpoint draft is not approval; continuation preserves staffing and one fare",()=>{
+  const walking={key:"owned|walking",arrangement:"owned",method:{id:"walking",name:"Walking",kind:"foot",surface:"land"}};
+  const cart={...ship,id:"carriage",name:"Carriage",surface:"land",capacity:2,
+    costCp:100,costBasis:"day",costApplies:"unit",includeCrewWages:true,crewWageCpPerDay:200};
+  const projection={travelers:2,members:[
+    {actorId:"pc1",actorName:"Walker",actorType:"character",role:"passenger",quantity:1,needsSeat:true,enabled:true},
+    {actorId:"pc2",actorName:"Rider",actorType:"character",role:"passenger",quantity:1,needsSeat:true,enabled:true},
+    {actorId:"driver",actorName:"Driver",actorType:"npc",role:"crew",quantity:1,enabled:true},
+    {actorId:"cart",actorName:"Carriage",actorType:"vehicle",role:"vehicle",quantity:2,
+      capacity:2,surface:"land",profileId:"carriage",enabled:true,
+      crewRoster:[{unitIndex:1,named:[{actorId:"driver",duty:"Driver"}],hired:1}]}]};
+  const convoy=planMixedLandConvoy({travelers:[{actorId:"pc1",seatsNeeded:1,passengers:1},
+    {actorId:"pc2",seatsNeeded:1,passengers:1}],
+    assignments:{pc1:"owned|walking",pc2:"owned|carriage"},
+    methods:[walking,{key:"owned|carriage",arrangement:"owned",method:cart,
+      projection,operatedUnits:[{actorId:"cart",unitIndex:1}]}],
+    walkingSpeed:2.5,sceneUnits:"mi",routeDistance:60,weightedDistance:60,distanceMi:60,regularHours:6});
+  const mixedLeg=(start,plan)=>({...leg(start),surface:"land",operation:"normal",convoy:plan,
+    selectedOption:{arrangement:"mixed",method:mixedLandTransportMethod}});
+  assert.throws(()=>prepareGuidedTransportLeg(route(),mixedLeg(0,convoy)),/acknowledg/i);
+  const preview=prepareGuidedTransportLeg(route(),mixedLeg(0,convoy),{draft:true});
+  const participation={schemaVersion:1,checkpointId:null,people:[
+    {actorId:"pc1",name:"Walker",traveling:true,seats:1,methodKey:"owned|walking"},
+    {actorId:"pc2",name:"Rider",traveling:true,seats:1,methodKey:"owned|carriage"},
+    {actorId:"driver",name:"Driver",traveling:true,seats:0,methodKey:"owned|carriage"}]};
+  assert.throws(()=>createJourneyRecord({sceneId:"scene",tokenId:"party",atlasRevision:4,
+    itinerary:{...itinerary(preview),convoy,participation}}),/acknowledg/i);
+  const approved=structuredClone(convoy);
+  approved.methods[1].ownedApproval.belowMinimumAcknowledged=true;
+  const guided=prepareGuidedTransportLeg(route(),mixedLeg(0,approved));
+  const saved=createJourneyRecord({sceneId:"scene",tokenId:"party",atlasRevision:4,
+    itinerary:{...itinerary(guided),convoy:approved,participation}});
+  saved.status="interrupted";saved.legs[0].completedPercent=50;saved.legs[0].completedMovingHours=12;
+  const recovered=restoreApprovedTransportPlan(route(30),{legs:[mixedLeg(30,approved)]},saved,[walking.method]);
+  assert.equal(recovered.totalCp,0);assert.equal(recovered.legs[0].dailyHours,6);
+  assert.deepEqual(recovered.legs[0].convoy,approved);
+  const resumed=prepareGuidedTransportLeg(route(30),recovered.legs[0]);
+  const next={...itinerary(resumed),convoy:approved,participation};
+  const history=resumeJourneyRecord(saved,{itinerary:next,atlasRevision:4});
+  history.legs[1].completedMovingHours=6;history.legs[1].completedPercent=50;
+  assert.deepEqual(validateJourneyRecord(history),history);
+  const html=formatJourneyJournalHTML(history);
+  assert.match(html,/Driver/);assert.match(html,/Below-minimum staffing acknowledged/i);
+  assert.equal((html.match(/Estimated transportation cost:/g)||[]).length,1);
+  assert.match(html,/Continuing previously approved mixed service; no new fare/);
+  const tampered=structuredClone(history);delete tampered.legs[1].convoy;
+  assert.throws(()=>validateJourneyRecord(tampered),/invalid/i);
+  assert.throws(()=>resumeJourneyRecord(saved,{itinerary:{...next,convoy:undefined},atlasRevision:4}),/approved owned convoy/i);
+});
