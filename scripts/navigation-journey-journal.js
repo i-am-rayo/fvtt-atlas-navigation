@@ -17,6 +17,7 @@ import {isRestUnderway,validatePassengerRestMetadata,confirmedJourneyMovingHours
   from "./navigation-passenger-rest.js";
 import {validateTransportJourneyInfo,confirmedTransportJourneyLines,isMixedLandTransport} from "./navigation-transport-journal.js";
 import {validateHiredServiceApproval} from "./navigation-transport-service.js";
+import {validateConfirmedOwnedVehicleApproval} from "./navigation-group-transport.js";
 import {validateJourneyTargets,validateJourneyAnchor,confirmJourneyTarget}
   from "./navigation-route-targets.js";
 import {validatePendingNativeMove}
@@ -186,6 +187,20 @@ export function validateJourneyRecord(value){
           JSON.stringify(validateHiredServiceApproval(priorService))!==JSON.stringify(validateHiredServiceApproval(service)))
         throw Error("Invalid approved service continuation.");
     }
+    const owned=leg.transport?.ownedApproval;
+    if(owned){
+      const approval=validateConfirmedOwnedVehicleApproval(owned);
+      const prior=value.legs[index-1];
+      if(leg.transport.continuation){
+        if(!prior?.transport?.ownedApproval||prior.completedPercent>=99.999||
+            prior.transport.arrivalCheckpointId!==leg.transport.arrivalCheckpointId||
+            prior.speedPerHour!==leg.speedPerHour||
+            JSON.stringify(prior.transport.ownedApproval)!==JSON.stringify(approval))
+          throw Error("Invalid approved owned service continuation.");
+      }else if(prior?.transport?.ownedApproval&&prior.completedPercent<99.999){
+        throw Error("Invalid replacement of unfinished owned service.");
+      }
+    }
     if(leg.convoy!==undefined){
       const convoy=validateApprovedConvoy(leg.convoy);
       if(Math.abs(convoy.speedPerHour-leg.speedPerHour)>1e-7)
@@ -282,6 +297,16 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
         throw Error("Recovery cannot change the approved hired service.");
       if(resumed.travelMethod)resumed.travelMethod.serviceContinuation=true;
     }
+    const approvedOwned=old.transport?.ownedApproval;
+    const resumedOwned=resumed.transport?.ownedApproval;
+    if(approvedOwned!==undefined||resumedOwned!==undefined){
+      if(JSON.stringify(approvedOwned)!==JSON.stringify(resumedOwned)||
+          old.transport?.methodId!==resumed.transport?.methodId||
+          old.transport?.arrivalCheckpointId!==resumed.transport?.arrivalCheckpointId||
+          old.speedPerHour!==resumed.speedPerHour||!resumed.transport?.continuation||
+          old.destination.x!==resumed.destination.x||old.destination.y!==resumed.destination.y)
+        throw Error("Recovery cannot change the approved owned service.");
+    }
     // Interruption never authorizes changing a previously approved roster.
     if(old.participation!==undefined){
       if(resumed.participation!==undefined&&
@@ -357,7 +382,7 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     leg.events.reduce((hours,event)=>hours+(isRestUnderway(event.action)?0:(Number(event.hours)||0)),0),0);
   const clockMoving=record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0);
   const clockBreaks=record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0);
-  let shownService=null,shownConvoy=null;
+  let shownService=null,shownConvoy=null,shownOwned=null;
   const legs=record.legs.map((leg,index)=>{
     // Render from retained native Scene units; never rewrite historical Journal flags.
     const displayDistance=amount=>{
@@ -454,6 +479,30 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
         "). No currency deducted.";
       serviceLines=`<li class="atlas-journey-transport-event">${escapeHTML(line)}</li>`;
       shownService=key;
+    }
+    const owned=leg.transport?.ownedApproval;
+    if(!owned||!leg.transport.continuation)shownOwned=null;
+    if(owned&&leg.completedMovingHours>0){
+      const approved=validateConfirmedOwnedVehicleApproval(owned);
+      const key=JSON.stringify(approved);
+      const money=cp=>systemId==="dnd5e"?
+        dndCurrencyBreakdown(cp,globalThis.CONFIG?.DND5E?.currencies).label:cp+" CP";
+      const lines=leg.transport.continuation&&shownOwned===key?
+        ["Continuing previously approved owned service; no new fare."]:[
+          "Approved owned service: "+approved.units.length+" unit(s) · "+approved.passengerSeats+
+            "/"+approved.passengerCapacity+" passenger seats · "+approved.dailyHours+"h/day. "+
+            (approved.belowMinimum?"Below-minimum staffing acknowledged. ":""),
+          ...approved.units.map(unit=>unit.name+" — Unit "+unit.unitIndex+": "+
+            (unit.configured?unit.staffedCrew+"/"+unit.requiredCrew+" crew · "+unit.tier:
+              "Roster unconfigured · "+unit.requiredCrew+" reference crew")+" · "+
+            unit.paidCrew+" paid crew"+(unit.namedCrew.length?" · "+
+              unit.namedCrew.map(c=>c.name+(c.duty?" ("+c.duty+")":"")).join(", "):"")),
+          "Original estimated total: "+money(approved.totalCp)+" (vessel upkeep "+
+            money(approved.baseCp)+"; crew wages "+money(approved.crewWagesCp)+
+            "; overtime labor "+money(approved.overtimeCrewCp)+"). No currency deducted."
+        ];
+      serviceLines+=lines.map(line=>'<li class="atlas-journey-transport-event">'+escapeHTML(line)+'</li>').join("");
+      shownOwned=key;
     }
     const participants=leg.participation&&leg.completedMovingHours>0?
       (p=>`<div class="atlas-journey-leg-group"><h4>Confirmed Travelers</h4>`+
