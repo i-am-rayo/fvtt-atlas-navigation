@@ -337,24 +337,30 @@ export function effectiveGroupResourceMethod(resource,method){
 
 /** Match a specific method to relevant Group resources, not every vehicle on
  * the same road surface. The generic Mounted option accepts all GM-marked mounts. */
-export function groupMethodCapacityStatus(projection,method){
-  const relevant=matchingResources(projection,method);
-  const usable=eligibleResourceSeats(projection,relevant);
+export function groupMethodCapacityStatus(projection,method,{operatedUnits}={}){
+  const crew=operatedUnits===undefined?null:estimateOperatedGroupCrew(projection,method,{
+    operatedUnits,hours:0,distanceMi:0,dayHours:8});
+  const {resources,seatProjection}=operatedResourceProjection(projection,method,crew);
+  const usable=eligibleResourceSeats(seatProjection,resources);
+  if(crew&&usable.some(item=>item.member.assignedTo&&!item.reserved))
+    throw Error("An operated personal mount requires its eligible assigned rider.");
   const seats=usable.reduce((sum,item)=>sum+item.seats,0);
   const participating=usable.filter(item=>item.seats>0||
     !item.member.assignedTo);
   const unknown=participating.filter(item=>item.member.capacity===null).length;
   // Only resources available to traveling members affect estimated pace.
-  const speeds=usable.filter(item=>item.seats>0)
+  const speeds=usable.filter(item=>crew||item.seats>0)
     .map(({member})=>member.speedMphOverride??
       (method.id==="mounted"?member.profileSpeedMph:null)??method.speedMph)
     .filter(speed=>typeof speed==="number"&&Number.isFinite(speed)&&speed>0);
   const effectiveSpeedMph=speeds.length?Math.min(...speeds):null;
-  return {travelers:projection.travelers,seats,
-    missing:Math.max(0,projection.travelers-seats),unknown,
+  return {travelers:seatProjection.travelers,seats,
+    missing:Math.max(0,seatProjection.travelers-seats),unknown,
     matched:participating.length,quantity:participating.reduce((sum,item)=>
       sum+item.member.quantity,0),effectiveSpeedMph,
-    sufficient:projection.travelers>0&&projection.travelers<=seats};
+    sufficient:(projection.travelers>0||Boolean(crew?.namedCrewIds.length))&&seatProjection.travelers<=seats,
+    ...(crew?{namedCrewIds:crew.namedCrewIds,
+      belowMinimum:crew.units.some(unit=>unit.tier==="below-minimum")}: {})};
 }
 
 /** Stable resource inventory for explicit multi-method passenger allocation.
@@ -373,16 +379,11 @@ export function groupMethodResourceInventory(projection,method){
   });
 }
 
-/** Display-only per-resource planning quote. For per-passenger overrides,
- * passengers are allocated across available seats in stable Group roster order;
- * no actual boarding or currency mutation occurs. */
-export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayHours,operatedUnits}){
+/** One selected-unit projection for both capacity and fare calculations.
+ * Crew occupy their own positions; unoperated resources contribute neither
+ * passenger seating nor cost. Missing selection preserves legacy estimates. */
+function operatedResourceProjection(projection,method,crew){
   let resources=matchingResources(projection,method);
-  if(!Number.isFinite(hours)||hours<0||!Number.isFinite(distanceMi)||distanceMi<0||
-      !Number.isFinite(dayHours)||dayHours<=0||dayHours>24)
-    throw new Error("Invalid Group transportation cost inputs.");
-  const crew=operatedUnits===undefined?null:
-    estimateOperatedGroupCrew(projection,method,{operatedUnits,hours,distanceMi,dayHours});
   const crewByResource=new Map();
   let seatProjection=projection;
   if(crew){
@@ -400,6 +401,19 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
     seatProjection={...projection,travelers:Math.max(0,projection.travelers-crewSeats),
       selectedTravelerIds:[...eligibleTravelerSet(projection)].filter(id=>!named.has(id))};
   }
+  return {resources,seatProjection,crewByResource};
+}
+
+/** Display-only per-resource planning quote. For per-passenger overrides,
+ * passengers are allocated across available seats in stable Group roster order;
+ * no actual boarding or currency mutation occurs. */
+export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayHours,operatedUnits}){
+  if(!Number.isFinite(hours)||hours<0||!Number.isFinite(distanceMi)||distanceMi<0||
+      !Number.isFinite(dayHours)||dayHours<=0||dayHours>24)
+    throw new Error("Invalid Group transportation cost inputs.");
+  const crew=operatedUnits===undefined?null:
+    estimateOperatedGroupCrew(projection,method,{operatedUnits,hours,distanceMi,dayHours});
+  const {resources,seatProjection,crewByResource}=operatedResourceProjection(projection,method,crew);
   const usable=eligibleResourceSeats(seatProjection,resources);
   if(crew&&usable.some(item=>item.member.assignedTo&&!item.reserved))
     throw Error("An operated personal mount requires its eligible assigned rider.");
