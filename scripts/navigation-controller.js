@@ -3305,14 +3305,39 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const ownedDraft=ordinaryOwned?.ownedDraft??null;
       const historicalOwned=approvedLandMethod?.ownedApproval??null;
       const reviewedOwned=historicalOwned??ownedDraft;
-      const ownedRouteSignature=reviewedOwned?JSON.stringify(this.result):null;
+      const landRouteSignature=JSON.stringify(this.result);
       const landLivestock=resumingApprovedLand?null:
         ordinaryOwned?.operatedUnits!==undefined?
           ordinaryOwned.livestock?{manifest:ordinaryOwned.livestock,quote:ordinaryOwned.serviceQuote}:null:
           this.planLandVehicleBoarding(effective,this.transportArrangement,partyAtStart);
       // Validate the current Map Marker and inferred schedule before GM approval.
-      this.resolveTravelRules({methodId:this.travelMethod,hoursPerDay:8},
+      const rules=this.resolveTravelRules({methodId:this.travelMethod,hoursPerDay:8},
         effective,selectedOperation);
+      const money=cp=>dndCurrencyBreakdown(cp,globalThis.CONFIG?.DND5E?.currencies).label;
+      // Legacy estimates remain reference-only. Reuse the existing fare
+      // calculator and never invent an owned fleet or a historical quote.
+      const referenceQuote=(method,party)=>{
+        if(resumingApprovedLand||reviewedOwned||approvedLandService||landLivestock)return null;
+        const {sceneUnit,travel}=this.resolveTravel();
+        const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
+        if(!Number.isFinite(distanceMi)||!Number.isFinite(travel.speed)||travel.speed<=0)return null;
+        const movingHours=navigationHours(this.result.terrainAware?this.result.cost:this.result.distance,travel.speed);
+        const regularHours=resolveNavigationTravelRules({settings:game.settings,
+          systemId:game.system?.id,actorHoursPerDay:travel.hoursPerDay}).dailyHours??8;
+        const operation=this.plannedTravelOperation(method);
+        let ownedQuote=null;
+        if(this.transportArrangement==="owned"){
+          if(!party?.previewRoster)return null;
+          const capacity=groupMethodCapacityStatus(party.previewRoster,method);
+          if(!capacity.sufficient)return null;
+          ownedQuote=groupMethodFareEstimate(party.previewRoster,method,{hours:movingHours,distanceMi,
+            dayHours:rules.dailyHours??8});
+        }
+        return quoteTransportationService(method,{arrangement:this.transportArrangement,operation,
+          movingHours,distanceMi,travelers:party?.travelerCount??1,ownedQuote,regularHours,
+          hireTerms:this.transportHireTerms,livestockPercent:readLivestockFarePercent(game.settings)});
+      };
+      const legacyQuote=referenceQuote(effective,partyAtStart);
       let ownedSummary=null;
       if(reviewedOwned){
         const namedCrew=reviewedOwned.units.flatMap(unit=>unit.namedCrew);
@@ -3361,30 +3386,61 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               "no automatic boarding, currency deduction, Actor changes or native Group changes."]
         });
       }
+      if(!ownedSummary){
+        const prior=resumingApprovedLand?this.recoveryRecord.legs.at(-1):null;
+        const people=prior?.participation?.people??(partyAtStart?.members??[]).map(member=>({
+          name:member.name,traveling:partyAtStart.selectedIds.includes(member.id)
+        }));
+        const traveling=people.filter(p=>p.traveling),absent=people.filter(p=>!p.traveling);
+        const {travel}=this.resolveTravel();
+        const shown=atlasDisplaySpeed(travel.speed,this.scene.grid.units,game.settings,game.system?.id);
+        const unit=shown.unit==="mi/hour"?"mph":shown.unit==="km/hour"?"km/h":shown.unit;
+        const quote=prior?null:approvedLandService??landLivestock?.quote??legacyQuote;
+        const manifest=prior?.livestock??landLivestock?.manifest;
+        const cost=prior?"Previously approved — no new fare":
+          quote?money(quote.totalCp):"Not quoted";
+        const hours=navigationHours(this.result.terrainAware?this.result.cost:this.result.distance,travel.speed);
+        const mountDetails=manifest?describeJourneyMountFare(manifest,{method:effective,
+          arrangement:this.transportArrangement,worldPercent:readLivestockFarePercent(game.settings),
+          formatMoney:cp=>cp+" CP",approved:Boolean(prior)}):null;
+        const staying=manifest?.resources.filter(m=>m.quantity>m.aboard)
+          .map(m=>m.name+" ×"+(m.quantity-m.aboard))??[];
+        ownedSummary=renderNavigationTransportApproval({
+          rows:[{method:method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+")",
+            travelers:traveling.map(p=>p.name).join(", ")||"Assigned party explorer",
+            units:quote?.units??approvedLandService?.units??"—",cost}],
+          metrics:[["Total travelers",people.length?String(traveling.length):"Party explorer"],
+            ["Group travel speed",shown.value.toFixed(2)+" "+unit],
+            [prior?"Estimated remaining moving time":"Estimated moving time",formatNavigationDuration(hours,24)],
+            ["Estimated transportation cost",cost]],
+          fareRows:quote?[
+            ["Base transportation",quote.baseCp+" CP"],
+            ["Paid crew wages",quote.crewWagesCp+" CP"],
+            ["Overtime fare",quote.overtimeFareCp+" CP"],
+            ["Overtime crew wages",quote.overtimeCrewCp+" CP"],
+            ...(quote.livestockFareCp>0?[["Physical mount boarding",quote.livestockFareCp+" CP"]]:[]),
+            ...(quote.adjustmentCp?[["Fare adjustment",quote.adjustmentCp+" CP"]]:[])
+          ]:[],
+          notes:[
+            "Operating schedule: "+selectedOperation+" · "+(rules.dailyHours??24)+"h/day",
+            approvedLandService?"Hired service: "+approvedLandService.serviceLevel+" · "+
+              approvedLandService.advertisedCrew+" advertised crew per unit":null,
+            absent.length?"Not traveling: "+absent.map(p=>p.name).join(", "):null,
+            mountDetails,manifest?"Animal accommodation: "+(manifest.capacityPerUnit===null?
+              "unlimited by default":manifest.capacityPerUnit+" spaces per vehicle"):null,
+            staying.length?"Staying behind: "+staying.join(", "):null,
+            quote?"Fare components are before rounding; the total is rounded once.":null,
+            prior?"Resuming previously approved travel. No new fare.":null,
+            "Foundry validates native movement and optional World-time advancement. Estimates only: "+
+              "no automatic boarding, currency deduction, Actor changes or native Group changes."
+          ]
+        });
+      }
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:resumingApprovedLand?"Resume approved land travel":"Confirm land travel"},
-        content:ownedSummary??el("div","GM confirmation: "+(resumingApprovedLand?
-          "resume the approved journey":"follow the authored land route")+" using "+
-          method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+"). "+
-          "Operating schedule: "+selectedOperation+". "+
-          (approvedLandService?"Hired service: "+approvedLandService.serviceLevel+" · "+
-            approvedLandService.advertisedCrew+" advertised crew per unit · "+approvedLandService.dailyHours+
-            "h/day · "+(resumingApprovedLand?"previously approved fare (no new quote). ":
-              "Estimated total "+dndCurrencyBreakdown(approvedLandService.totalCp,
-                globalThis.CONFIG?.DND5E?.currencies).label+". "):"")+
-          "The party token will move using Foundry's native movement and optional "+
-          "World-time advancement. Costs are estimates; no automatic boarding, "+
-          "resource changes or currency deductions occur."+
-          (landLivestock?" Carrying "+
-            landLivestock.manifest.resources.reduce((n,m)=>n+m.aboard,0)+
-            " physical mounts in "+
-            (landLivestock.manifest.capacityPerUnit===null?
-              "unlimited default animal accommodation":
-              landLivestock.manifest.capacityPerUnit+" animal spaces per vehicle")+
-            "; estimated animal fare "+landLivestock.manifest.estimatedFareCp+
-            " CP (not deducted).":"")+" Continue?"),
-        rejectClose:false,modal:true,
-        ...(ownedDraft?.belowMinimum?{yes:{label:"Acknowledge staffing and travel"}}:{})
+        content:ownedSummary,rejectClose:false,modal:true,
+        yes:{label:ownedDraft?.belowMinimum?"Acknowledge staffing and travel":resumingApprovedLand?"Resume leg":"Start leg"},
+        no:{label:"Back to plan"}
       });
       if(reviewedOwned?approval!==true:!approval)return false;
       const liveAvailability=this.transportAvailability();
@@ -3406,9 +3462,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!this.assessTravelMethod().guided)
         throw Error("The selected land transportation is no longer eligible.");
       const afterOwned=this.ordinaryOwnedLeg();
+      if(JSON.stringify(this.result)!==landRouteSignature)
+        throw Error("The land route changed during confirmation. Review and approve again.");
+      if(JSON.stringify(referenceQuote(liveMethod,this.partyTravelSelection(liveAvailability.all)))!==JSON.stringify(legacyQuote))
+        throw Error("The land transportation terms changed during confirmation. Review and approve again.");
       if(reviewedOwned){
-        if(JSON.stringify(this.result)!==ownedRouteSignature||
-            JSON.stringify(historicalOwned?
+        if(JSON.stringify(historicalOwned?
               this.recoveryRecord?.legs.at(-1)?.travelMethod?.ownedApproval:afterOwned?.ownedDraft)!==JSON.stringify(reviewedOwned))
           throw Error("The operated units, staffing, route or fare changed during confirmation. Review and approve again.");
         approvedLandOwned=validateConfirmedOwnedVehicleApproval(historicalOwned??{
@@ -3471,18 +3530,27 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "use "+shown.value.toFixed(2)+" "+speedUnit+
           ". You confirm all walkers can keep up; Actor movement speeds and "+
           "exhaustion are not changed automatically.":"";
+      const fare=mixedTransportFareBreakdown(proposed.hires.map(h=>({
+        key:h.methodId,methodName:h.methodName,role:"cargo",units:h.units,
+        passengers:0,estimatedCostCp:h.estimatedCostCp
+      })),globalThis.CONFIG?.DND5E?.currencies);
+      const names=new Map((partyAtStart?.members??[]).map(p=>[p.id,p.name]));
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm mixed walking and cargo travel"},
-        content:el("div","GM confirmation: all "+proposed.travelers.length+
-          " Group travelers will walk. Hire "+proposed.hires.map(h=>
-            h.units+" cargo-only "+h.methodName).join(", ")+
-          " at a shared pace of "+shown.value.toFixed(2)+" "+speedUnit+
-          " ("+proposed.movingHours.toFixed(2)+
-          " moving hours; estimated "+proposed.totalCp+
-          " CP)."+walkingException+
-          " No passengers board the cargo, and Atlas makes no booking, "+
-          "currency deduction, Actor change or automatic hire payment. Continue?"),
-        rejectClose:false,modal:true
+        content:renderNavigationTransportApproval({
+          rows:[{method:"Walking",travelers:proposed.travelers.map(p=>names.get(p.actorId)??p.actorId).join(", "),
+            units:"—",cost:"—"},...proposed.hires.map(h=>({
+              method:h.methodName+" (hired)",travelers:"Cargo only",units:h.units,
+              cost:fare.rows.find(row=>row.key===h.methodId).label
+            }))],
+          metrics:[["Total travelers",String(proposed.travelers.length)],
+            ["Group travel speed",shown.value.toFixed(2)+" "+speedUnit],
+            ["Estimated moving time",formatNavigationDuration(proposed.movingHours,24)],
+            ["Estimated transportation cost",fare.total.label]],
+          notes:["Operating schedule: "+(this.resolveTravelRules(this.resolveTravel({excludeConvoy:true}).travel).dailyHours??24)+"h/day shared walking pace",
+            walkingException,"Each transportation method is rounded independently, then summed.",
+            "No passengers board the cargo, and Atlas makes no booking, currency deduction, Actor change or automatic hire payment."]
+        }),rejectClose:false,modal:true,yes:{label:"Start leg"},no:{label:"Back to plan"}
       });
       if(!approval)return false;
       if(this.travelSession||this.journalStarting||this.pendingTransfer||
