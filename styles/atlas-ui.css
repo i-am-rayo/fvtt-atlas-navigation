@@ -322,6 +322,23 @@
 }
 .atlas-transport-approval > h3,
 .atlas-transport-approval > p { margin: 0; overflow-wrap: anywhere; }
+.atlas-transport-approval {
+  max-height: min(65vh, 620px);
+  overflow-y: auto;
+  padding-inline-end: .25rem;
+}
+.atlas-transport-approval-overview {
+  font-weight: 700;
+  line-height: 1.5;
+}
+.atlas-transport-approval-roster summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.atlas-transport-approval-roster div {
+  margin-block-start: .35rem;
+  overflow-wrap: anywhere;
+}
 .atlas-transport-approval-table {
   width: 100%;
   table-layout: fixed;

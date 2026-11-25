@@ -146,7 +146,7 @@ export function renderNavigationRouteContext(context,{nextLabel="Next stop"}={})
 /** Shared read-only GM confirmation. All rows and metrics come from a
  * previously validated current-leg plan; this view never approves travel. */
 export function renderNavigationTransportApproval({
-  heading="Transportation summary",destination=null,routeContext=null,rows=[],metrics=[],notes=[],fareRows=[]
+  heading="Transportation summary",destination=null,routeContext=null,overview=null,rows=[],metrics=[],notes=[],fareRows=[]
 }={}){
   if(!rows.length||metrics.length!==4)
     throw Error("A transportation approval needs a complete leg summary.");
@@ -157,6 +157,11 @@ export function renderNavigationTransportApproval({
   root.append(el("h3",heading));
   if(routeContext)root.append(renderNavigationRouteContext(routeContext));
   else if(destination)root.append(el("p",destination));
+  if(overview){
+    const counts=el("p",overview);
+    counts.className="atlas-transport-approval-overview";
+    root.append(counts);
+  }
   const table=el("table");
   table.className="atlas-transport-approval-table";
   const head=el("thead"),labels=el("tr");
@@ -169,8 +174,16 @@ export function renderNavigationTransportApproval({
   const body=el("tbody");
   for(const data of rows){
     const row=el("tr");
-    for(const value of [data.method,data.travelers,data.units,data.cost])
-      row.append(el("td",String(value??"—")));
+    row.append(el("td",String(data.method??"—")));
+    const travelers=el("td");
+    if(Number.isInteger(data.travelerCount)&&data.travelerCount>1){
+      const detail=el("details");
+      detail.className="atlas-transport-approval-roster";
+      detail.append(el("summary",data.travelerCount+" travelers"),
+        el("div",String(data.travelers??"—")));
+      travelers.append(detail);
+    }else travelers.textContent=String(data.travelers??"—");
+    row.append(travelers,el("td",String(data.units??"—")),el("td",String(data.cost??"—")));
     body.append(row);
   }
   table.append(body);root.append(table);
@@ -199,4 +212,19 @@ export function renderNavigationTransportApproval({
   }
   wrapper.append(root);
   return wrapper;
+}
+
+/** Counts come from the approved unit and livestock manifests, never from
+ * parsing display names or estimating the Group again. */
+export function describeOwnedApprovalOverview(travelers,approval,livestock){
+  if(!approval)return null;
+  const mounts=livestock?.resources?.reduce((n,item)=>n+item.aboard,0)??0;
+  const count=approval.units.length,unit=approval.surface==="water"?"vessel":"vehicle";
+  return travelers+" "+(travelers===1?"traveler":"travelers")+" · "+
+    approval.passengerSeats+" "+(approval.passengerSeats===1?"seat":"seats")+" · "+
+    mounts+" "+(mounts===1?"mount":"mounts")+" · "+count+" "+unit+(count===1?"":"s");
+}
+
+export function navigationApprovalPosition(){
+  return {width:Math.min(720,Math.max(280,(globalThis.window?.innerWidth??800)-40))};
 }

@@ -62,7 +62,7 @@ import { readGroupTransportation,projectGroupTransportation,
   groupMethodCapacityStatus,groupMethodFareEstimate,groupMethodResourceInventory,
   planOwnedVehicleService,assessGroupCrewRoster,validateConfirmedOwnedVehicleApproval }
   from "./navigation-group-transport.js";
-import { dndCurrencyBreakdown,mixedTransportFareBreakdown,walkingCargoFareBreakdown } from "./navigation-currency.js";
+import { dndCurrencyBreakdown,mixedTransportFareBreakdown,walkingCargoFareBreakdown,formatExactTransportationFare } from "./navigation-currency.js";
 import { resolveTransportationOperation,draftTransportationOperation,quoteTransportationService,
   assessHiredTransportAvailability,readLivestockFarePercent,resolveHiredServiceLevel,validateHiredServiceApproval }
   from "./navigation-transport-service.js";
@@ -97,7 +97,8 @@ import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
 import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote,
   renderNavigationTransportApproval,describeJourneyMountFare,describeOwnedUnitStaffing,
-  describeTransportationFareRows,renderNavigationRouteContext,describeJourneyCrewEstimate}
+  describeTransportationFareRows,renderNavigationRouteContext,describeJourneyCrewEstimate,
+  describeOwnedApprovalOverview,navigationApprovalPosition}
   from "./navigation-transport-summary-view.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
@@ -867,12 +868,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         method:method.methodName,
         travelers:manifest.find(entry=>entry.key===method.key)?.travelers??
           (method.role==="cargo"?"Cargo only":"—"),
+        travelerCount:method.passengers,
         units:method.role==="walking"?"—":String(method.units),
         cost:method.role==="walking"?"—":
           (fare.rows.find(entry=>entry.key===method.key)?.label??"—")
       })),
       fareRows:proposed.methods.flatMap(m=>describeTransportationFareRows(
-        m.ownedApproval??m.serviceApproval,{owned:Boolean(m.ownedApproval),methodName:m.methodName})),
+        m.ownedApproval??m.serviceApproval,{owned:Boolean(m.ownedApproval),methodName:m.methodName,
+          currencyConfig:globalThis.CONFIG?.DND5E?.currencies})),
       metrics:[
         ["Total travelers",String(proposed.methods.reduce((n,m)=>n+m.passengers,0))],
         ["Group travel speed",shown.value.toFixed(2)+" "+units],
@@ -908,6 +911,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       "no booking, boarding, payment or Actor changes occur automatically."));
     const confirmed=await foundry.applications.api.DialogV2.confirm({
       window:{title:"Confirm mixed-party transportation"},
+        position:navigationApprovalPosition(),
       content,rejectClose:false,modal:true,
       yes:{label:belowMinimum?"Acknowledge staffing and travel":"Start leg"},
       no:{label:"Back to plan"}
@@ -3462,7 +3466,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           .map(m=>m.name+" ×"+(m.quantity-m.aboard))??[];
         ownedSummary=renderNavigationTransportApproval({
           routeContext:this.routeReviewContext(),
-          rows:[{method:method.name+" (party-owned)",travelers:traveling.map(p=>
+          overview:describeOwnedApprovalOverview(traveling.length,reviewedOwned,manifest),
+          rows:[{method:method.name+" (party-owned)",travelerCount:traveling.length,travelers:traveling.map(p=>
             p.name+(crewIds.has(p.actorId)?" (crew)":"")).join(", ")||"Assigned party explorer",
             units:String(reviewedOwned.units.length),cost}],
           metrics:[["Total travelers",String(traveling.length)],
@@ -3470,7 +3475,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             [historicalOwned?"Originally approved moving time":"Estimated moving time",
               formatNavigationDuration(reviewedOwned.movingHours,24)],
             ["Estimated transportation cost",cost]],
-          fareRows:historicalOwned?[]:describeTransportationFareRows(reviewedOwned,{owned:true,livestock:manifest}),
+          fareRows:historicalOwned?[]:describeTransportationFareRows(reviewedOwned,{owned:true,livestock:manifest,
+            currencyConfig:globalThis.CONFIG?.DND5E?.currencies}),
           notes:[absent.length?"Not traveling: "+absent.join(", "):null,
             ...reviewedOwned.units.map(describeOwnedUnitStaffing),
             "Passenger seats: "+reviewedOwned.passengerSeats+" / "+reviewedOwned.passengerCapacity+
@@ -3507,13 +3513,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         ownedSummary=renderNavigationTransportApproval({
           routeContext:this.routeReviewContext(),
           rows:[{method:method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+")",
+            travelerCount:traveling.length,
             travelers:traveling.map(p=>p.name).join(", ")||"Assigned party explorer",
             units:quote?.units??approvedLandService?.units??"—",cost}],
           metrics:[["Total travelers",people.length?String(traveling.length):"Party explorer"],
             ["Group travel speed",shown.value.toFixed(2)+" "+unit],
             [prior?"Estimated remaining moving time":"Estimated moving time",formatNavigationDuration(hours,24)],
             ["Estimated transportation cost",cost]],
-          fareRows:describeTransportationFareRows(quote,{owned:this.transportArrangement==="owned"}),
+          fareRows:describeTransportationFareRows(quote,{owned:this.transportArrangement==="owned",
+            currencyConfig:globalThis.CONFIG?.DND5E?.currencies}),
           notes:[
             "Operating schedule: "+selectedOperation+" · "+(rules.dailyHours??24)+"h/day",
             approvedLandService?"Hired service: "+approvedLandService.serviceLevel+" · "+
@@ -3532,6 +3540,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:resumingApprovedLand?"Resume approved land travel":"Confirm land travel"},
+        position:navigationApprovalPosition(),
         content:ownedSummary,rejectClose:false,modal:true,
         yes:{label:ownedDraft?.belowMinimum?"Acknowledge staffing and travel":resumingApprovedLand?"Resume leg":"Start leg"},
         no:{label:"Back to plan"}
@@ -3631,9 +3640,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const names=new Map((partyAtStart?.members??[]).map(p=>[p.id,p.name]));
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm mixed walking and cargo travel"},
+        position:navigationApprovalPosition(),
         content:renderNavigationTransportApproval({
           routeContext:this.routeReviewContext(),
-          rows:[{method:"Walking",travelers:proposed.travelers.map(p=>names.get(p.actorId)??p.actorId).join(", "),
+          rows:[{method:"Walking",travelerCount:proposed.travelers.length,
+            travelers:proposed.travelers.map(p=>names.get(p.actorId)??p.actorId).join(", "),
             units:"—",cost:"—"},...proposed.hires.map(h=>({
               method:h.methodName+" (hired)",travelers:"Cargo only",units:h.units,
               cost:fare.rows.find(row=>row.key===h.methodId).label
@@ -3749,13 +3760,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const approvedSummary=renderNavigationTransportApproval({
         routeContext:this.routeReviewContext(guidedLeg),
         destination:"Current leg to "+guidedLeg.checkpoint.name,
-        fareRows:quote?describeTransportationFareRows(quote,{owned:info.arrangement==="owned",livestock:displayLivestock}):
+        overview:describeOwnedApprovalOverview(traveling.length,ownedService,displayLivestock),
+        fareRows:quote?describeTransportationFareRows(quote,{owned:info.arrangement==="owned",livestock:displayLivestock,
+          currencyConfig:globalThis.CONFIG?.DND5E?.currencies}):
           !continuing&&mountDetails&&Number.isFinite(info.estimatedFareCp)?[
-            ["Transport excluding mounts",Math.max(0,info.estimatedFareCp-mountFare)+" CP"],
-            ["Physical mount boarding",mountFare+" CP"]
+            ["Transport excluding mounts",formatExactTransportationFare(Math.max(0,info.estimatedFareCp-mountFare),globalThis.CONFIG?.DND5E?.currencies)],
+            ["Physical mount boarding",formatExactTransportationFare(mountFare,globalThis.CONFIG?.DND5E?.currencies)]
           ]:[],
         rows:[{
           method:info.methodName+" ("+info.arrangement+")",
+          travelerCount:traveling.length,
           travelers:traveling.join(", ")||"Assigned party explorer",
           units:neededUnits===null?"—":String(neededUnits),
           cost:quotedCost
@@ -3791,6 +3805,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       });
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm travel to "+guidedLeg.checkpoint.name},
+        position:navigationApprovalPosition(),
         content:approvedSummary,rejectClose:false,modal:true,
         yes:{label:ownedDraft?.belowMinimum?"Acknowledge staffing and travel":continuing?"Resume leg":"Start leg"},
         no:{label:"Back to plan"}
@@ -5919,7 +5934,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 formatMoney(quote.totalCp),
               breakdown:[
                 ...(!ordinaryOwned?.ownedDraft?[describeJourneyCrewEstimate(quote)].filter(Boolean):[]),
-                ...describeTransportationFareRows(quote,{owned:quote.arrangement==="owned",livestock:ordinaryOwned?.livestock})
+                ...describeTransportationFareRows(quote,{owned:quote.arrangement==="owned",livestock:ordinaryOwned?.livestock,
+                  currencyConfig:globalThis.CONFIG?.DND5E?.currencies})
                   .map(([label,value])=>label+": "+value),
                 ...(mountDetails?[mountDetails]:[]),
                 "Fare components are before rounding; the total is rounded once."
@@ -6067,7 +6083,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               formatMoney(fare.totalCp),
             breakdown:[
               ...(!leg.ownedDraft?[describeJourneyCrewEstimate(fare)].filter(Boolean):[]),
-              ...describeTransportationFareRows(fare,{owned:fare.arrangement==="owned",livestock:leg.livestock})
+              ...describeTransportationFareRows(fare,{owned:fare.arrangement==="owned",livestock:leg.livestock,
+                currencyConfig:globalThis.CONFIG?.DND5E?.currencies})
                 .map(([label,value])=>label+": "+value),
               ...(mountDetails?[mountDetails]:[]),
               "Fare components are before rounding; the total is rounded once."

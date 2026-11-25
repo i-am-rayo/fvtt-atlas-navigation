@@ -103,9 +103,19 @@ export function walkingCargoFareBreakdown(hires,currencyConfig){
   })),currencyConfig);
 }
 
-/** Display exact quote components, never round each component into a coin.
- * Only the method total goes through the existing currency adapter. */
-export function describeTransportationFareRows(quote,{owned=false,methodName=null,livestock=null}={}){
+/** Use the same native denominations as the total when they represent the
+ * exact component. Fractional or otherwise unrepresentable amounts stay in
+ * CP; only the method total may be rounded. */
+export function formatExactTransportationFare(copper,currencyConfig){
+  if(Number.isSafeInteger(copper)&&copper>=0){
+    try{
+      const coins=dndCurrencyBreakdown(copper,currencyConfig);
+      if(coins.payableCopper===copper)return coins.label;
+    }catch{/* Keep the exact component visible if denominations cannot represent it. */}
+  }
+  return copper+" CP";
+}
+export function describeTransportationFareRows(quote,{owned=false,methodName=null,livestock=null,currencyConfig}={}){
   if(!quote)return [];
   const rows=[
     [owned?"Vehicle upkeep":"Base transportation",quote.baseCp],
@@ -119,5 +129,5 @@ export function describeTransportationFareRows(quote,{owned=false,methodName=nul
     ...(quote.adjustmentCp?[["Fare adjustment",quote.adjustmentCp]]:[])
   ];
   return rows.filter(([,amount])=>Number.isFinite(amount)).map(([label,amount])=>
-    [methodName?methodName+" — "+label:label,amount+" CP"]);
+    [methodName?methodName+" — "+label:label,formatExactTransportationFare(amount,currencyConfig)]);
 }
