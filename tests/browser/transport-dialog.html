@@ -68,8 +68,12 @@ try{
     change(name(form,"policyBasis"),"trip");name(form,"policyPaid").checked=true;
     change(mode,"inherit");
     check(full.disabled&&wage.disabled,"Switching back disables inherited fields");
+    equal(full.value,"60","Switching back shows World full crew immediately");
+    equal(name(form,"policyOptimal").value,"30","Switching back shows World optimal crew immediately");
+    equal(wage.value,"2","Switching back shows World wage immediately");
     change(mode,"custom");
     equal(full.value,"40","Draft survives source switch");
+    equal(wage.value,"3","Custom wage draft survives source switch");
     return Object.fromEntries(new FormData(form));
   };
   await click(root,"Edit crew policy for Warship");
@@ -87,6 +91,8 @@ try{
     equal(name(form,"policyFull").value,"40","Reopened full crew");
     equal(name(form,"policyWage_gp").value,"3","Reopened wage");
     change(name(form,"policyMode"),"inherit");
+    equal(name(form,"policyFull").value,"60","Persisted override reset shows inherited full crew");
+    equal(name(form,"policyWage_gp").value,"2","Persisted override reset shows inherited wage");
     return Object.fromEntries(new FormData(form));
   };
   await click(root,"Edit crew policy for Warship");
