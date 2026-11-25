@@ -168,7 +168,7 @@ export function createCheckpointTransportationEditor({offers=[],
         const info=node("div");
         info.style.cssText="flex:1 1 auto;min-width:0;display:grid;gap:.18rem;";
         info.append(node("strong",world?.name??"Missing World method"));
-        info.append(node("small",!world?"Missing World preset — review this offer before saving":
+        info.append(node("small",!world?"Missing World preset. To replace this offer, remove it from the draft, add an available method, then choose "+saveLabel+".":
           Object.keys(offer.overrides??{}).length?"Local overrides":"Inherits World preset"));
         if(method){
           for(const [index,detail] of offerDetails(method,offer.overrides,settings,systemId).entries()){

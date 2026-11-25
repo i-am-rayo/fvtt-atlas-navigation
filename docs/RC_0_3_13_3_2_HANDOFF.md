@@ -90,3 +90,7 @@ Opened the existing **RC.3.2 E Toolbar Road QA** (`u0bBIo0cwtF3Wkz2`) from Map D
 | Authored Road distance spacing | Pass | Keep the label visually separate from its value. | **Authored Road distance** and **12.92 km** rendered as distinct, aligned elements with a visible gap of about 297 CSS px in the tested window. Both remained readable after opening the preset editor. |
 
 Discarded the staged preset and reopened the same Road. The saved fallback and **12.92 km** were still present. This closes the two Road Settings display checks. B4 remains open.
+
+## Missing World preset follow-up
+
+The orphaned offer card now explains how to replace the offer through the existing draft controls and names the parent Save action. The automated editor test covers the warning, disabled Edit, preservation on render, draft-only removal and restoration from the saved snapshot. B4 remains open for live Foundry verification using a disposable orphaned offer. The Road Settings display checks above passed in Sandbox.

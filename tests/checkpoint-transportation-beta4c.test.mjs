@@ -305,8 +305,15 @@ test("Map Marker can add an inherited Cart without automatically opening local o
     assert.match(read(),/Speed:.*World preset/);
     assert.equal(writes,0,"replacing parent draft remains read-only");
     editor.setOffers([{methodId:"missing-preset",mode:"land",overrides:{}}]);
-    assert.match(read(),/Missing World preset/);
+    assert.match(read(),/Missing World preset.*remove it from the draft, add an available method, then choose Save Map Marker/);
     assert.equal(flatten(editor.element).find(item=>item.title?.startsWith("Edit ")).disabled,true);
+    const orphan=editor.getOffers();
+    assert.equal(orphan[0].methodId,"missing-preset","render preserves the saved orphan");
+    await flatten(editor.element).find(item=>item.title==="Remove missing-preset from Map Marker")
+      .listeners.get("click")();
+    assert.deepEqual(editor.getOffers(),[],"Remove changes only the draft");
     assert.equal(writes,0);
+    editor.setOffers(orphan);
+    assert.match(read(),/Missing World preset/,"discarding the draft restores the orphan");
   }finally{Object.assign(globalThis,before);}
 });
