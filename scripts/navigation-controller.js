@@ -1241,7 +1241,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           ({ownedUnitChoices,operatedUnits}=this.ownedUnitsFor(activeRoster,option.method,ownedScope));
         }catch(error){errors.push(error.message??String(error));}
       }
-      if(option){
+      if(Array.isArray(operatedUnits)&&!operatedUnits.length)
+        errors.push("Select at least one operating unit.");
+      else if(option){
         let speed=null;
         if(option.method?.id==="walking")speed=walking.speed;
         else if(option.arrangement==="owned"&&roster){
@@ -1293,7 +1295,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           }
         }
       }
-      if(index===0&&currentParty?.empty&&!ownedDraft?.units.some(unit=>unit.namedCrew.length))
+      if(index===0&&currentParty?.empty&&operatedUnits?.length!==0&&!ownedDraft?.units.some(unit=>unit.namedCrew.length))
         errors.push("Choose at least one traveler for the current Journey leg.");
       return {...leg,options,selectedOption:option??null,operation,
         dailyHours:operationRules?.dailyHours??null,
@@ -1428,6 +1430,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           globalThis.ui?.notifications?.error?.(error.message??String(error)));
       });
       field.append(el("p","A selected unit is no longer available. Review the current units."),reset);
+    }
+    if(!selected.length){
+      const message=el("p","Select at least one operating unit.");
+      message.setAttribute?.("role","status");
+      field.append(message);
     }
     if(leg.ownedDraft?.belowMinimum)field.append(el("p","Below-minimum staffing. GM acknowledgement will be required before travel."));
     field.append(el("small","Draft only. The GM must confirm the selected operating units, crew and estimated costs before travel."));
@@ -3353,7 +3360,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         const plan=this.transportationTransitionPlan();
         reviewedCheckpointLeg=plan?.legs[0];
         if(reviewedCheckpointLeg?.operatedUnits!==undefined&&!reviewedCheckpointLeg.ownedDraft)
-          throw Error("Review the selected operated units before approving movement.");
+          throw Error(reviewedCheckpointLeg.errors.join(" ")||"Review the selected operated units before approving movement.");
         if(reviewedCheckpointLeg?.ownedDraft||reviewedCheckpointLeg?.ownedApproval)
           ownedRouteSignature=JSON.stringify(this.result);
         guidedLeg=prepareGuidedTransportLeg(this.result,reviewedCheckpointLeg,{draft:true});

@@ -457,7 +457,9 @@ export function groupMethodFareEstimate(projection,method,{hours,distanceMi,dayH
  * calculation: callers must use the same unit list for passenger allocation,
  * upkeep and approval. Legacy quotes continue through their existing path. */
 export function estimateOperatedGroupCrew(projection,method,{operatedUnits,hours,distanceMi,dayHours}={}){
-  if(!Array.isArray(operatedUnits)||!operatedUnits.length||
+  if(Array.isArray(operatedUnits)&&!operatedUnits.length)
+    throw Error("Select at least one operating unit.");
+  if(!Array.isArray(operatedUnits)||
       !Number.isFinite(hours)||hours<0||!Number.isFinite(distanceMi)||distanceMi<0||
       !Number.isFinite(dayHours)||dayHours<=0||dayHours>24)
     throw Error("Invalid operating units or crew estimate factors.");

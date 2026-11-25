@@ -120,6 +120,7 @@ async function editCrewPolicy({name,resource,method}){
     resource.crewPolicyOverride?"custom":"inherit");
   body.append(field("Policy source",mode));
   const fields=node("div");
+  fields.setAttribute("data-atlas-crew-policy-fields","");
   fields.style.cssText="display:grid;gap:.6rem;";
   const counts=node("div");
   counts.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:.5rem;";
@@ -136,14 +137,27 @@ async function editCrewPolicy({name,resource,method}){
   fields.append(counts,paidLabel,field("Wage per paid crew member",wages.element),field("Wage basis",basis),
     node("small","PC crew are unpaid. Eligible NPC crew and hired hands are paid when wages are enabled."));
   body.append(fields);content.append(body);
-  const update=()=>{const inherit=mode.value==="inherit";
-    fields.setAttribute("aria-disabled",String(inherit));
-    for(const input of [...controls,basis,paid,...(wages.element.querySelectorAll?.("input")??[])])input.disabled=inherit;
+  const update=(source,section,inputs)=>{
+    const inherit=source.value==="inherit";
+    section.setAttribute("aria-disabled",String(inherit));
+    for(const input of inputs)input.disabled=inherit;
   };
-  mode.addEventListener("change",update);update();
+  update(mode,fields,[...controls,basis,paid,...(wages.element.querySelectorAll?.("input")??[])]);
   const response=await foundry.applications.api.DialogV2.input({
     window:{title:"Crew policy — "+name},position:{width:560},content,
-    modal:true,rejectClose:false,ok:{label:"Apply to Party draft"}});
+    modal:true,rejectClose:false,ok:{label:"Apply to Party draft"},
+    render:(_event,dialog)=>{
+      const root=dialog?.element;
+      const source=root?.querySelector('[name="policyMode"]');
+      const section=root?.querySelector("[data-atlas-crew-policy-fields]");
+      if(!source||!section)return;
+      const sync=()=>update(source,section,section.querySelectorAll("input,select"));
+      if(source.dataset.atlasPolicyWired!=="true"){
+        source.dataset.atlasPolicyWired="true";
+        source.addEventListener("change",sync);
+      }
+      sync();
+    }});
   if(!response)return undefined;
   if(response.policyMode==="inherit")return null;
   if(response.policyMode!=="custom")throw Error("Choose a valid crew policy source.");

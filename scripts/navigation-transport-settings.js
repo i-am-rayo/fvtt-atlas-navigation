@@ -111,13 +111,16 @@ const wireSliders=container=>{
   for(const range of root?.querySelectorAll?.("[data-atlas-range-for]")??[]){
     const name=range.getAttribute("data-atlas-range-for");
     const numeric=root.querySelector('[name="'+name+'"]');
-    if(!numeric||range.dataset.atlasWired==="true")continue;
-    range.dataset.atlasWired="true";
-    range.addEventListener("input",()=>{numeric.value=range.value;});
-    numeric.addEventListener("input",()=>{
+    if(!numeric)continue;
+    const sync=()=>{
       if(numeric.value!==""&&Number.isFinite(Number(numeric.value)))
         range.value=String(Math.max(Number(range.min),Math.min(Number(range.max),Number(numeric.value))));
-    });
+    };
+    sync();
+    if(range.dataset.atlasWired==="true")continue;
+    range.dataset.atlasWired="true";
+    range.addEventListener("input",()=>{numeric.value=range.value;});
+    numeric.addEventListener("input",sync);
   }
 };
 /** Reconnect preset tabs/preview after DialogV2 serializes and rehydrates its HTML. */
