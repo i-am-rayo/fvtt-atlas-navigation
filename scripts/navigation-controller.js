@@ -882,7 +882,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(party?.partial||party?.empty)
         throw Error("A subset preview cannot authorize movement of the entire Group.");
       if(JSON.stringify(prepareGuidedTransportLeg(this.result,
-          this.transportationTransitionPlan()?.legs[0]))!==JSON.stringify(guidedLeg))
+          this.transportationTransitionPlan()?.legs[0],{draft:true}))!==JSON.stringify(guidedLeg))
         throw Error("The checkpoint leg changed during mixed travel confirmation.");
     }
     if(JSON.stringify(updated)!==JSON.stringify(proposed))
@@ -3222,7 +3222,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           throw Error("Review the selected operated units before approving movement.");
         if(reviewedCheckpointLeg?.ownedDraft||reviewedCheckpointLeg?.ownedApproval)
           ownedRouteSignature=JSON.stringify(this.result);
-        guidedLeg=prepareGuidedTransportLeg(this.result,reviewedCheckpointLeg);
+        guidedLeg=prepareGuidedTransportLeg(this.result,reviewedCheckpointLeg,{draft:true});
         if(isRepeatedArrivalCheckpoint(this.recoveryRecord,
           plan?.legs[0]?.arrivalCheckpoint))
           throw Error("Already arrived at "+plan.legs[0].arrivalCheckpoint.name+

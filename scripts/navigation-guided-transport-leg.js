@@ -9,7 +9,7 @@ const finitePoint=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y);
 const near=(a,b,tolerance=0.01)=>finitePoint(a)&&finitePoint(b)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
 
-export function prepareGuidedTransportLeg(route,leg){
+export function prepareGuidedTransportLeg(route,leg,{draft=false}={}){
   if(route?.status!=="ok"||!Array.isArray(route.legs)||!leg||
       leg.index!==0||leg.firstRouteLeg!==0||
       !Number.isSafeInteger(leg.lastRouteLeg)||leg.lastRouteLeg<0||
@@ -36,7 +36,7 @@ export function prepareGuidedTransportLeg(route,leg){
   if(mixed&&(leg.surface!=="land"||leg.selectedOption.arrangement!=="mixed"||
       leg.selectedOption.method.id!=="mixed-land"||!leg.convoy||leg.operation!=="normal"))
     throw Error("A checkpoint-bound mixed convoy must be an approved land plan.");
-  const convoy=mixed?validateMixedLandConvoy(leg.convoy,{draft:!leg.recovered}):null;
+  const convoy=mixed?validateMixedLandConvoy(leg.convoy,{draft:draft&&!leg.recovered}):null;
   const walking=mixed?convoy.methods.some(method=>method.role==="walking"):
     leg.selectedOption.method?.id==="walking";
   const terrainAware=walking&&leg.surface==="land"&&Boolean(route.terrainAware)&&
