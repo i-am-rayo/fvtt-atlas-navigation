@@ -9,7 +9,8 @@ import { GuidedTravelDayTracker,estimateNavigationTotalTrip }
 import {planNativeCheckpointPath}
   from "../scripts/navigation-native-movement-plan.js";
 import {projectPartyTravelSelection} from "../scripts/navigation-party-selection.js";
-import {defaultGroupTransportation,setGroupTransportationMember} from "../scripts/navigation-group-transport.js";
+import {defaultGroupTransportation,setGroupTransportationMember,planOwnedVehicleService} from "../scripts/navigation-group-transport.js";
+import {createJourneyParticipation} from "../scripts/navigation-journey-participation.js";
 import { defaultTransportationCatalog,findTransportationPreset,setTransportationPreset }
   from "../scripts/navigation-transport-catalog.js";
 
@@ -3606,7 +3607,9 @@ test("Navigation retains the travel tab scroll position after a traveler drag re
   assert.deepEqual(after.map(x=>[x.scrollTop,x.scrollLeft]),[[612,4],[27,0]]);
 });
 
-test("partial vessel recovery persists evidence and retries without duplicating time",async()=>{
+for(const arrangement of ["hire","owned"])test(arrangement==="hire"?
+  "partial vessel recovery persists evidence and retries without duplicating time":
+  "partial owned vessel recovery preserves approved crew and quote through durable reconciliation",async()=>{
   const previous={game:globalThis.game,ui:globalThis.ui};
   try{
     const op="bounded-voyage-01";
@@ -3627,12 +3630,32 @@ test("partial vessel recovery persists evidence and retries without duplicating 
         arrangement:"hire",kind:"vehicle",surface:"water",departureCheckpointName:null,
         arrivalCheckpointId:"port",arrivalCheckpointName:"Port",roadNames:["Sea"],
         estimatedFareCp:10,operation:"continuous"}};
+    if(arrangement==="owned"){
+      const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",
+        speedMph:2,capacity:2,crewCount:4,continuousEnabled:true,costCp:100,
+        costBasis:"day",costApplies:"unit",includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"};
+      const roster={travelers:1,selectedTravelerIds:["pc"],members:[
+        {actorId:"pc",actorName:"Captain",actorType:"character",role:"passenger",quantity:1,needsSeat:true,enabled:true},
+        {actorId:"sailor",actorName:"Sailor",actorType:"npc",role:"crew",quantity:1,enabled:true},
+        {actorId:"ship",actorName:"Warship",actorType:"vehicle",role:"vehicle",quantity:1,capacity:2,
+          surface:"water",profileId:"warship",enabled:true,
+          crewRoster:[{unitIndex:1,named:[{actorId:"pc"},{actorId:"sailor"}],hired:1}]}]};
+      const draft=planOwnedVehicleService(roster,method,{operatedUnits:[{actorId:"ship",unitIndex:1}],
+        movingHours:4,distanceMi:8,regularHours:8,operation:"continuous"}).approval;
+      const approval={...draft,belowMinimumAcknowledged:draft.belowMinimum};
+      itinerary.transport={...itinerary.transport,methodId:method.id,methodName:method.name,
+        arrangement,estimatedFareCp:approval.totalCp,ownedApproval:approval};
+      itinerary.participation=createJourneyParticipation(roster,["pc"],{
+        methodKey:"owned|warship",ownedApproval:approval});
+    }
     const anchor={point:point(50,50),roadId:"sea",segmentId:"s",
       checkpointId:null,levelId:"surface",elevation:0};
     let record=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
       atlasRevision:4,itinerary,journeyDestination:point(400,50),initialAnchor:anchor,
       approvedPath:{schemaVersion:1,legs:route.legs}});
     record.status="interrupted";
+    const approvedTransport=structuredClone(record.legs[0].transport);
+    const approvedParticipation=structuredClone(record.legs[0].participation);
     record.pendingNativeMove={schemaVersion:1,bounded:true,previousMovementId:null,
       operationId:op,tokenId:token.id,checkpointIndex:0,from:point(0,0),to:point(50,0),
       path:[point(0,0),point(50,0)],nativePath:[point(0,0),point(50,0)],completedPercent:50,nativeDistance:50,
@@ -3682,6 +3705,9 @@ test("partial vessel recovery persists evidence and retries without duplicating 
     assert.equal(record.legs[0].worldTravelSeconds,3600);
     assert.deepEqual(record.destination,point(400,50));
     assert.deepEqual(record.lastConfirmedAnchor.point,point(75,50));
+    assert.deepEqual(record.legs[0].transport,approvedTransport);
+    assert.deepEqual(record.legs[0].participation,approvedParticipation);
+    assert.equal(record.legs.length,1,"reconciliation is not a new approval or fare");
   }finally{Object.assign(globalThis,previous);}
 });
 test("canvas teardown suspends a submitted continuous operation instead of ending it",async()=>{
