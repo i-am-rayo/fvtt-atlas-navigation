@@ -81,7 +81,8 @@
 
 /* Match Map Marker Settings: one horizontal preset label + current value /
    named Change button; the native Road form-group otherwise stacks them. */
-.application:has([data-atlas-road-live]) .atlas-road-preset-row {
+.application:has([data-atlas-road-live]) .atlas-road-preset-row,
+.application:has([data-atlas-road-live]) .form-group:has(> .atlas-road-measured-distance-value) {
   display:flex;flex-direction:row;align-items:center;
   justify-content:space-between;flex-wrap:wrap;gap:.4rem 1rem;min-width:0;
 }
