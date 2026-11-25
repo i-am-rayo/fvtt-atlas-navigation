@@ -74,7 +74,7 @@ export function renderTransportQuote({worldEstimate=null,currentEstimate,
 
 /** Report the *effective* current-leg mount fare without changing the World catalog. */
 export function describeJourneyMountFare(manifest,{method=null,worldPercent=50,
-  arrangement=null,formatMoney=value=>value+" CP",approved=false}={}){
+  arrangement=null,formatMoney=value=>value+" CP",approved=false,showFare=true}={}){
   const aboard=manifest?.resources?.filter(item=>item.aboard>0)??[];
   if(!aboard.length)return null;
   const quantity=aboard.reduce((sum,item)=>sum+item.aboard,0);
@@ -87,8 +87,11 @@ export function describeJourneyMountFare(manifest,{method=null,worldPercent=50,
     method?.hireApplies==="unit"?
       "No automatic percentage on unit-priced service":
       "World default "+worldPercent+"% of passenger fare";
-  return names+" ("+quantity+" mounts · "+policy+"): "+
-    formatMoney(manifest.estimatedFareCp)+" (included in total; not charged)";
+  const description=names+" ("+quantity+" mounts · "+policy+")";
+  if(approved)return description+(showFare?": "+formatMoney(manifest.estimatedFareCp):"")+
+    " (not quoted again; not charged)";
+  return description+(showFare?": "+formatMoney(manifest.estimatedFareCp)+
+    " (included in total; not charged)":"");
 }
 
 /** Consistent owned unit evidence across ordinary, checkpoint and mixed review. */
@@ -109,7 +112,8 @@ export function describeTransportationFareRows(quote,{owned=false,methodName=nul
     ["Paid crew wages",quote.crewWagesCp],
     ...(!owned?[["Overtime fare",quote.overtimeFareCp]]:[]),
     ["Overtime crew wages",quote.overtimeCrewCp],
-    ...(quote.livestockFareCp>0?[["Physical mount boarding",quote.livestockFareCp]]:[]),
+    ...(quote.livestockCount>0||quote.livestockFareCp>0?
+      [["Physical mount boarding",quote.livestockFareCp]]:[]),
     ...(quote.adjustmentCp?[["Fare adjustment",quote.adjustmentCp]]:[])
   ];
   return rows.filter(([,amount])=>Number.isFinite(amount)).map(([label,amount])=>
