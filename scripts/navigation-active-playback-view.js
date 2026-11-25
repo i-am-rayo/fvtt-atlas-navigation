@@ -29,7 +29,7 @@ export function renderNavigationActivePlayback({model,secondsPerHour,
   }
   if(model&&Number.isFinite(model.travelHours)&&model.travelHours>0)
     root.appendChild(renderNavigationPlaybackControls({
-      model,secondsPerHour,disabled:locked,onChange,onError
+      model,secondsPerHour,legScoped:true,disabled:locked,onChange,onError
     }));
   const button=el("button",skip?"Restore animated travel":"Skip remaining visual playback");
   button.type="button";
