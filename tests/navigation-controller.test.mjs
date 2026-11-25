@@ -11,6 +11,7 @@ import {planNativeCheckpointPath}
 import {projectPartyTravelSelection} from "../scripts/navigation-party-selection.js";
 import {defaultGroupTransportation,setGroupTransportationMember,planOwnedVehicleService} from "../scripts/navigation-group-transport.js";
 import {createJourneyParticipation} from "../scripts/navigation-journey-participation.js";
+import {quoteTransportationService} from "../scripts/navigation-transport-service.js";
 import { defaultTransportationCatalog,findTransportationPreset,setTransportationPreset }
   from "../scripts/navigation-transport-catalog.js";
 
@@ -2001,7 +2002,7 @@ test("a changed hired Cart offer during GM confirmation never starts a Journey",
 });
 
 test("a partially completed hired Cart leg remains hired and locked on recovery",async()=>{
-  const previous={game:globalThis.game,document:globalThis.document};
+  const previous={game:globalThis.game,document:globalThis.document,foundry:globalThis.foundry};
   try{
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
       settings:{get:()=>undefined}};
@@ -2015,7 +2016,9 @@ test("a partially completed hired Cart leg remains hired and locked on recovery"
       canUserModify:()=>true,getFlag:()=>null};
     const atlas={revision:7,nodes:[{id:"p",x:0,y:0},{id:"g",x:300,y:0}],
       roads:[{id:"land",name:"Road"}],segments:[],checkpoints:[]};
-    const token={id:"party",x:100,y:-50,width:1,height:1};
+    let writes=0,moves=0,dialogs=0;
+    const token={id:"party",x:100,y:-50,width:1,height:1,canUserModify:()=>true,
+      async move(){moves++;throw Error("Unexpected native movement");}};
     const route={status:"ok",start:point(150,0),end:point(300,0),
       distance:3,cost:3,terrainAware:false,legs:[{
         kind:"road",roadId:"land",segmentId:"segment",
@@ -2023,7 +2026,8 @@ test("a partially completed hired Cart leg remains hired and locked on recovery"
         distance:3,cost:3}]};
     const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
       atlasProvider:()=>atlas,partyTokenProvider:()=>token,
-      atlasPoint:(_view,_atlas,p)=>p});
+      atlasPoint:(_view,_atlas,p)=>p,journeyJournalStore:{find:()=>null,
+        save:async()=>{writes++;throw Error("Unexpected Journal write");}}});
     nav.scene=scene;nav.sourceMode="party";nav.routeRevision=7;
     nav.start=route.start;nav.end=route.end;nav.result=route;
     nav.travelMethod="cart";nav.transportArrangement="hire";
@@ -2051,6 +2055,33 @@ test("a partially completed hired Cart leg remains hired and locked on recovery"
       item.id==="atlas-navigation-travel-method");
     assert.equal(select?.value,"hire|cart");
     assert.equal(select?.disabled,true,"recovery cannot change an approved hire to owned");
+    const inspect=async(expectedHours,tier)=>{
+      const before=structuredClone(nav.recoveryRecord);
+      globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+        dialogs++;
+        const labels=node=>[node.textContent,...node.children.flatMap(labels)];
+        const summary=labels(options.content).join(" ");
+        assert.match(summary,/Previously approved — no new fare/);
+        assert.match(summary,new RegExp("Operating schedule: normal · "+expectedHours+"h/day"));
+        assert.doesNotMatch(summary,/Fare breakdown/);
+        if(tier)assert.match(summary,/Hired service: minimum/);
+        assert.equal(options.yes?.label,"Resume leg");
+        assert.equal(options.no?.label,"Back to plan");
+        return false;
+      }}}}};
+      assert.equal(await nav.startGuidedTravel(),false);
+      assert.deepEqual(nav.recoveryRecord,before);
+    };
+    await inspect(8,false);
+    const approved=structuredClone(record);
+    approved.legs[0].travelMethod.serviceApproval=quoteTransportationService({id:"cart",
+      name:"Cart",kind:"vehicle",surface:"land",capacity:2,crewCount:4,hireEnabled:true,
+      hireCostCp:123,hireBasis:"trip",hireApplies:"unit",hireCrewIncluded:true},{
+      arrangement:"hire",serviceLevel:"minimum",movingHours:1,distanceMi:3,regularHours:6});
+    nav.recoveryRecord=validateJourneyRecord(approved);
+    assert.equal(nav.transportAvailability().offers.has("cart"),false);
+    await inspect(6,true);
+    assert.equal(dialogs,2);assert.equal(writes,0);assert.equal(moves,0);
     nav.transportArrangement="owned";
     assert.equal(nav.assessTravelMethod().guided,false);
     assert.match(nav.assessTravelMethod().reason,/approved land method and arrangement/);
