@@ -17,7 +17,7 @@ const asMinutes=seconds=>(seconds/60).toFixed(2);
 const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
 
 export function renderNavigationPlaybackControls({model,secondsPerHour,
-  disabled=false,onChange,onError}={}){
+  legScoped=false,disabled=false,onChange,onError}={}){
   const info=projectNavigationRealPlayback({...model,secondsPerHour});
   const fastest=projectNavigationRealPlayback({...model,
     secondsPerHour:NAVIGATION_PLAYBACK_MIN});
@@ -26,7 +26,7 @@ export function renderNavigationPlaybackControls({model,secondsPerHour,
   const root=el("section");
   root.className="atlas-navigation-playback";
   root.style.cssText="display:grid;gap:.65rem;min-width:0;";
-  root.appendChild(el("strong","Playback speed · this trip only"));
+  root.appendChild(el("strong",legScoped?"Playback speed · current leg":"Playback speed · this trip only"));
   const note=el("small","This is visual time only. World-time, "+
     "Actor rests and approved travel pace are unchanged.");
   note.style.opacity=".8";root.appendChild(note);
@@ -57,13 +57,13 @@ export function renderNavigationPlaybackControls({model,secondsPerHour,
   const maxMinutes=Math.min(360,slowest.fullLongRestSeconds/60);
   const targetSection=el("div");
   targetSection.style.cssText="display:grid;gap:.3rem;font-size:.86em;";
-  const targetTitle=el("strong","Target real trip duration (including "+
+  const targetTitle=el("strong",(legScoped?"Target real leg duration":"Target real trip duration")+" (including "+
     (model.longRestHours??8)+"h Long Rests)");
   const targetOutput=el("output",formatPlaybackDuration(info.fullLongRestSeconds));
   const targetControl=createSettingsNumberRange(
     clamp(info.fullLongRestSeconds/60,minMinutes,Math.max(minMinutes,maxMinutes)),{
       min:minMinutes,max:Math.max(minMinutes,maxMinutes),step:"any",
-      label:"Target real trip duration in minutes",width:"5rem",unit:"min",
+      label:legScoped?"Target real leg duration in minutes":"Target real trip duration in minutes",width:"5rem",unit:"min",
       onInput:amount=>{targetOutput.textContent=formatPlaybackDuration(amount*60);}
     });
   const targetDisabled=disabled||!eligible||maxMinutes<=minMinutes;
