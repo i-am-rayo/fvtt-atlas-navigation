@@ -79,3 +79,14 @@ Sandbox started at 47 roads and 39 markers. The two named test roads and one ind
 The preset row shows the selector when choosing a preset and a single summary when a valid preset is collapsed. The missing-preset warning remains visible when a saved selection is unavailable. The authored-distance row now uses the same wrapping and spacing as the preset row. Verify both display corrections in Foundry during the next Sandbox check.
 
 The existing Checkpoint Transportation test covers the missing World preset warning and disabled Edit action without writes. B4 still needs an orphaned offer in a disposable live fixture. E remains Pass for the tested save and cancellation workflows.
+
+### Live Sandbox verification — 2026-11-25 (JST)
+
+Opened the existing **RC.3.2 E Toolbar Road QA** (`u0bBIo0cwtF3Wkz2`) from Map Directory → All Roads → Road Settings → General.
+
+| Check | Result | Expected | Observed |
+| --- | --- | --- | --- |
+| Travel preset display and Change preset… | Pass | Show the effective preset once in both the summary and picker states. | The saved **None (Land fallback)** appeared once in the selector. Staging **Dirt Road** showed one summary with **Change preset…**. Clicking the button hid the summary and focused the selector, which showed **Dirt Road** once. Opening the fallback picker also showed one selected fallback option. |
+| Authored Road distance spacing | Pass | Keep the label visually separate from its value. | **Authored Road distance** and **12.92 km** rendered as distinct, aligned elements with a visible gap of about 297 CSS px in the tested window. Both remained readable after opening the preset editor. |
+
+Discarded the staged preset and reopened the same Road. The saved fallback and **12.92 km** were still present. This closes the two Road Settings display checks. B4 remains open.
