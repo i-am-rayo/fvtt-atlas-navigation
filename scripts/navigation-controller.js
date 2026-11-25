@@ -2135,8 +2135,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           partial&&progress>=99.999)
         return reject("The saved interval duration does not match the approved leg progress.");
       const final=progress>=99.999;
+      const ordinaryArrival=final&&!leg.transport;
       let arrivedCheckpoint=null;
-      if(final){
+      if(ordinaryArrival){
+        // An ordinary leg has no checkpoint transfer decision. Only the
+        // exact saved final coordinate target may close the Journey.
+        const target=saved.routeTargets?nextJourneyTarget(saved.routeTargets):null;
+        if(!target||target.checkpointId!=null||
+            saved.routeTargets.nextTargetIndex!==saved.routeTargets.targets.length-1||
+            Math.hypot(target.point.x-leg.destination.x,target.point.y-leg.destination.y)>.01||
+            Math.hypot(saved.destination.x-leg.destination.x,saved.destination.y-leg.destination.y)>.01||
+            Math.hypot(position.x-leg.destination.x,position.y-leg.destination.y)>1)
+          return reject("The final native interval does not match the approved ordinary destination and saved target.");
+      }else if(final){
         const checkpoint=atlas.checkpoints?.find(cp=>cp.id===leg.transport.arrivalCheckpointId);
         const node=atlas.nodes?.find(n=>n.id===checkpoint?.nodeId);
         const target=saved.routeTargets?nextJourneyTarget(saved.routeTargets):null;
@@ -2161,10 +2172,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       next.pendingNativeMove=null;
       const confirmedAnchor=captureJourneyAnchor({point:position,atlas,gridSize:scene.grid.size,
         levelId:anchor.levelId,elevation:anchor.elevation});
+      // The pre-clock candidate is read-only. Stamp arrival only when
+      // the actual clock already agrees with the reconciled interval.
+      const arrivalStamp=ordinaryArrival&&result.worldClockAction!=="advance"?
+        journeyWorldStamp(game.time):null;
       const record=checkpointJourneyRecord(next,{schedule,progress,
-        status:final?"paused":"interrupted",
+        status:ordinaryArrival?"completed":final?"paused":"interrupted",
         worldTravelSeconds:leg.worldTravelSeconds+seconds,
         worldRestSeconds:leg.worldRestSeconds,confirmedAnchor,arrivedCheckpoint,
+        arrivedWorldTime:arrivalStamp?.seconds??null,
+        arrivedTimeLabel:arrivalStamp?.label??null,
         checkpointTolerancePixels:scene.grid.size*.75});
       if(final&&record.routeTargets.nextTargetIndex!==saved.routeTargets.nextTargetIndex+1)
         return reject("The final checkpoint did not advance the saved target exactly once.");
@@ -2244,6 +2261,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       "Unexecuted native checkpoint reconciled without movement or time writes",
       {journalId:journal.id,operationId:saved.pendingNativeMove.operationId,
         checkpointIndex:saved.pendingNativeMove.checkpointIndex});
+    if(next.status==="completed"){
+      // The final ordinary target is durable; it is no longer a recoverable
+      // route. Reuse the completed Journey view, never start a new leg.
+      this.sourceMode="party";
+      this.clear();
+      this.completedRecord=next;
+      this.completedRoute=true;
+      this.journeyJournal=journal;
+      this.travelNotice="Arrived at the verified saved destination.";
+      this.announceCommittedJourney({journal,previous:saved,committed:next,
+        type:"destination.reached",subject:"your destination"});
+      await this.render(true);
+      return true;
+    }
     return this.recoverSavedJourney({automatic});
   }
 
@@ -4663,6 +4694,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!await this.recoverSavedJourneyWithNativeReview({automatic:true}))
         throw Error("The saved Journey could not be restored after the canvas rebuild.");
       this.autoResumePending=null;
+      if(this.completedRoute){
+        this.canvasRecoveryNotice=null;
+        return true;
+      }
       // A native move may have durably reached an authored port immediately
       // before the canvas was rebuilt. Restoring this checkpoint decision is
       // automatic, but the NEXT transport leg has not been approved. Do not
