@@ -4121,6 +4121,30 @@ test("interrupted Journey timing ignores the old leg schedule instead of crashin
     "the matching live schedule still contributes confirmed downtime");
 });
 
+test("onward review uses the confirmed checkpoint when the native token snaps off its marker",()=>{
+  const oldGame=globalThis.game;
+  try{
+    globalThis.game={user:{isGM:true}};
+    const nav=new AtlasNavigationController();
+    nav.scene={id:"sandbox"};
+    nav.sourceMode="party";
+    const port=point(100,100),dirwest=point(200,100);
+    nav.atlasProvider=()=>({nodes:[{id:"port-node",...port},{id:"end-node",...dirwest}],
+      checkpoints:[{id:"port",nodeId:"port-node",name:"Port Barthos"},
+        {id:"end",nodeId:"end-node",name:"Dirwest"}]});
+    const route={status:"ok",start:point(101,100),end:dirwest};
+    nav.recoveryRecord={sceneId:"sandbox",status:"paused",destination:dirwest,
+      legs:[{completedPercent:100,transport:{arrivalCheckpointId:"port"}}]};
+    assert.deepEqual(nav.routeReviewContext(route),
+      {from:"Port Barthos",next:"Dirwest",final:"Dirwest"});
+    nav.recoveryRecord.legs[0].completedPercent=60;
+    assert.equal(nav.routeReviewContext(route).from,"Party departure point");
+    nav.recoveryRecord.legs[0].completedPercent=100;
+    nav.recoveryRecord.sceneId="other";
+    assert.equal(nav.routeReviewContext(route).from,"Party departure point");
+  }finally{globalThis.game=oldGame;}
+});
+
 test("unmovable day-boundary requests explicit early GM consent without native movement",async()=>{
   const nav=new AtlasNavigationController();
   const schedule=new GuidedTravelDayTracker({travelHours:9.2,rules:{
@@ -4130,7 +4154,11 @@ test("unmovable day-boundary requests explicit early GM consent without native m
   const session={sceneId:"scene",phase:"moving",schedule};
   nav.travelSession=session;
   let durable=0,commits=0;
-  nav.saveJourneyCheckpoint=async()=>{durable++;};
+  nav.saveJourneyCheckpoint=async(_session,status,options)=>{
+    assert.equal(status,"paused");
+    assert.equal(options.updatePage,true,"daily decision publishes the confirmed Journal page");
+    durable++;
+  };
   nav.commitGuidedTravelBreak=async(_session,choice)=>{
     commits++;schedule.applyBreak(choice);
   };

@@ -824,8 +824,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const record=this.recoveryRecord;
     const destination=final??(record&&(record.routeTargets||isUnfinishedJourneyLeg(record))?
       record.destination:this.end??route.end);
-    return describeNavigationRouteContext(this.atlasProvider(this.scene),{
-      from:route.start,next,final:destination,party:this.sourceMode==="party"});
+    const atlas=this.atlasProvider(this.scene);
+    const previous=record?.legs?.at(-1);
+    const arrivalId=previous?.transport?.arrivalCheckpointId;
+    const arrival=this.sourceMode==="party"&&record?.sceneId===this.scene.id&&
+      record.status==="paused"&&previous?.completedPercent>=99.999&&arrivalId?
+      atlas.checkpoints?.find(checkpoint=>checkpoint.id===arrivalId):null;
+    const origin=arrival&&atlas.nodes?.find(node=>node.id===arrival.nodeId);
+    return describeNavigationRouteContext(atlas,{
+      from:origin??route.start,next,final:destination,party:this.sourceMode==="party"});
   }
 
   /** GM-only projection of a durable approved leg, including checkpoint decisions.
@@ -3184,7 +3191,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     session.phase="rest-checkpointing";
     // A daily-limit decision is durable even when no new native movement
     // occurred after the most recent verified checkpoint.
-    await this.saveJourneyCheckpoint(session,"paused");
+    await this.saveJourneyCheckpoint(session,"paused",{
+      updatePage:!session.journeyRecord?.pendingNativeMove
+    });
     if(session.phase==="ending"||this.travelSession!==session)return false;
     session.phase="rest-choice";
     atlasDebug("journey","Daily travel limit reached",{

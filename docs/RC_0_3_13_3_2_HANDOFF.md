@@ -166,3 +166,11 @@ Tested the GM Sandbox session in Foundry 14 Stable build 370 and D&D 5e 6.1.1. T
 | 6. Accessibility and layout | **Partial** | Active Journey footer remained in bounds at **800 × 600** and **400 × 300**. Keyboard focus matched `:focus-visible` at both tested widths. The compact viewport was restored. Actual 200% browser zoom, reduced-motion behavior, and review details in a compact window remain unverified. |
 
 The completed Journey remains in `JournalEntry.15cC0k0kk6TjdWuY`. The separate Walking run remains held at its travel-hours prompt to preserve the pre-reload discrepancy.
+
+### Follow-up candidate and retest instructions
+
+The next draft candidate publishes the confirmed readable Journal at the daily travel decision when no native move is pending. Onward review uses the confirmed arrival checkpoint from the same Scene as its origin. These changes preserve the stored movement ledger, pricing, and World-clock writes. The readable Journal still lists resumed segments separately. Review how to present them together before changing that rendering or the stored record format.
+
+1. Preserve the completed Journey and held Walking run as evidence. In the approved disposable World, install the new candidate from the existing branch manifest after CI passes. Verify Atlas `0.3.13-rc.3.2` in Add-on Modules and record the candidate commit separately.
+2. In a fresh disposable run, stop at the first daily travel-hours prompt. Compare the reopened Journal with the Journey panel, Token position and World clock. Record confirmed progress, moving time and World time credited. Continue to a checkpoint and verify the onward From label names that checkpoint.
+3. When the confirmed records agree, use a separately approved run to verify reload and continuation without duplicate credit. Finish any open player, transportation and accessibility rows from the release checklist. Keep the historical discrepancy records intact.
