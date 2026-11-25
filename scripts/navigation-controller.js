@@ -581,11 +581,32 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
    * drag/drop assignments. The submitted Journey still owns one Group token.
    */
   renderTravelersAndPace(party,availability,{disabled=false,mixedFare=null,
-    singleChoice=null,transferColumns=false,mountBoard=null}={}){
+    singleChoice=null,transferColumns=false,mountBoard=null,ownedLeg=null}={}){
     const root=el("div");
     root.style.cssText="display:grid;gap:.6rem;padding-top:.45rem;";
     const all=partyTravelerRoster(party.previewRoster);
+    const passengerIds=new Set(all.map(t=>t.id));
     const picked=new Set(party.selectedIds);
+    const selectedOwned=ownedLeg?.operatedUnits!==undefined&&
+      ownedLeg?.selectedOption?.arrangement==="owned";
+    const ownedDraft=selectedOwned?ownedLeg.ownedDraft:null;
+    if(selectedOwned){
+      singleChoice=ownedLeg.selectedOption;
+      transferColumns=false;
+      for(const unit of ownedDraft?.units??[]){
+        for(const crew of unit.namedCrew){
+          const label=unit.name+" — Unit "+unit.unitIndex+(crew.duty?" · "+crew.duty:"");
+          const traveler=all.find(t=>t.id===crew.actorId);
+          if(traveler){
+            traveler.seats=Math.max(0,traveler.seats-1);
+            traveler.crew=label;
+          }else{
+            all.push({id:crew.actorId,name:crew.name,seats:0,crew:label,fixed:true});
+            picked.add(crew.actorId);
+          }
+        }
+      }
+    }
     const members=all.filter(t=>picked.has(t.id));
     const sceneUnits=this.scene?.grid?.units?.trim()||"";
     const showSpeed=n=>atlasDisplaySpeed(n,sceneUnits,game.settings,game.system?.id);
@@ -603,7 +624,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           return [{key,method,arrangement:this.transportArrangement,
             units:this.mixedUnits[key]??1}];})();
       resources=Object.fromEntries(options.filter(o=>
-        o.arrangement==="owned"&&o.method.id!=="walking")
+        !selectedOwned&&o.arrangement==="owned"&&o.method.id!=="walking")
         .map(o=>[o.key,groupMethodResourceInventory(
           party.previewRoster,o.method)]));
     }catch(error){
@@ -613,9 +634,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.mixedAssignments,resources);
     const descriptions=options.map(entry=>{
       const method=entry.method;
-      const speed=method.id==="walking"?walkingSpeed:
-        convertGroupSpeed(method.speedMph,"mph",sceneUnits);
-      const shown=showSpeed(speed);
+      const speed=selectedOwned?(ownedDraft?
+        convertGroupSpeed(ownedDraft.speedMph,"mph",sceneUnits):null):
+        method.id==="walking"?walkingSpeed:convertGroupSpeed(method.speedMph,"mph",sceneUnits);
+      const shown=Number.isFinite(speed)?showSpeed(speed):null;
       const total=resources[entry.key]?.reduce((n,r)=>
         n+r.quantity*r.capacity,0)??0;
       const hires=entry.arrangement==="hire";
@@ -638,24 +660,28 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           costDetail:fare?fare.units+" unit"+(fare.units===1?"":"s")+
             (rates.length?" · "+rates.join(" + "):"")+
              (entry.serviceLevel?" · "+entry.serviceLevel+" service (shared travel day)":""):null}:{}),
-        speed,speedLabel:shown.value.toFixed(2)+" "+speedUnit(shown.unit),
-        capacity:method.id==="walking"?null:hires?
-          count*method.capacity:total,
+        speed,speedLabel:shown?shown.value.toFixed(2)+" "+speedUnit(shown.unit):"Unavailable",
+        capacity:selectedOwned?ownedDraft?.passengerCapacity??null:
+          method.id==="walking"?null:hires?count*method.capacity:total,
         minimumUnits,
         available:hires?method.hireUnlimited===false?
           method.hireQuantity:null:null};
     });
     const setIncluded=(id,include)=>{
-      if(disabled)return;
+      if(disabled||!game.user?.isGM||!passengerIds.has(id))return;
       const next=new Set(party.selectedIds);
       if(include)next.add(id);else next.delete(id);
-      this.partySelectionMode=next.size===all.length?"all":"selected";
-      this.partySelectedIds=next.size===all.length?[]:[...next];
+      this.partySelectionMode=next.size===passengerIds.size?"all":"selected";
+      this.partySelectedIds=next.size===passengerIds.size?[]:[...next];
       this.convoyPace=null;
       void this.render(true);
     };
     root.append(renderNavigationTravelRoster({
-      travelers:all,selectedIds:party.selectedIds,
+      travelers:all,selectedIds:[...picked],
+      ownedSummary:selectedOwned?(ownedDraft?
+        ownedDraft.units.length+" operated unit(s) · "+ownedDraft.passengerSeats+"/"+
+        ownedDraft.passengerCapacity+" passenger seats · "+descriptions[0].speedLabel:
+        "Selected-unit estimate unavailable. Review operating units and traveler selection."):null,
       methods:descriptions,assignments,
       units:this.mixedUnits,disabled,previewOnly:party.partial,
       transferColumns,mountBoard,onInclude:setIncluded,
@@ -5429,7 +5455,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               }}):null;
           card.append(this.renderTravelersAndPace(partySelection,availability,{
             mixedFare,singleChoice:this.mixedKeys.length?null:leg.selectedOption,
-            mountBoard}));
+            ownedLeg:leg,mountBoard}));
         }else if(leg.recovered)card.append(renderCurrentTransferMethodSelector({
           options:leg.options,selectedValue:leg.selectedValue,disabled:true,
           editable:false,onChange:()=>{}
@@ -5468,7 +5494,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 void this.render(true);
               }});
             card.append(this.renderTravelersAndPace(partySelection,availability,{
-              singleChoice:leg.selectedOption,mountBoard}));
+              singleChoice:leg.selectedOption,ownedLeg:leg,mountBoard}));
           }
         }
         if(!leg.recovered&&leg.ownedUnitChoices?.length&&game.user?.isGM){

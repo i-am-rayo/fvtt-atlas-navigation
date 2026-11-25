@@ -11,7 +11,7 @@ import {travelMethodIconClass} from "./navigation-selection-view.js";
  */
 export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
   methods=[],assignments={},units={},disabled=false,previewOnly=false,
-  transferColumns=false,mountBoard=null,onInclude,onAssign,onUnits}={}){
+  transferColumns=false,mountBoard=null,ownedSummary=null,onInclude,onAssign,onUnits}={}){
   const root=css(el("section"),"display:grid;gap:.55rem;min-width:0;");
   root.className="atlas-navigation-traveler-deck";
   const selected=new Set(selectedIds);
@@ -24,6 +24,7 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
     " travelers · "+active.reduce((n,t)=>n+t.seats,0)+" seats · Unapproved draft");
   status.style.cssText="opacity:.8;";
   heading.append(title,status);root.append(heading);
+  if(ownedSummary)root.append(css(el("small",ownedSummary),"opacity:.85;line-height:1.4;"));
 
   if(!multiple){
     const grid=css(el("div"),"display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.35rem;");
@@ -32,9 +33,10 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
         "padding:.45rem .6rem;border:1px solid var(--color-border-light-tertiary,#555);"+
         "border-radius:6px;cursor:pointer;min-width:0;");
       const check=el("input");check.type="checkbox";check.checked=selected.has(t.id);
-      check.disabled=disabled;check.setAttribute?.("aria-label","Travel with "+t.name);
-      check.addEventListener("change",()=>onInclude?.(t.id,check.checked));
-      const name=el("span",t.name+(t.seats===0?" · no seat":""));
+      check.disabled=disabled||Boolean(t.fixed);
+      check.setAttribute?.("aria-label","Travel with "+t.name+(t.fixed?" (crew assigned to operating unit)":""));
+      check.addEventListener("change",()=>{if(!check.disabled)onInclude?.(t.id,check.checked);});
+      const name=el("span",t.name+(t.crew?" · Crew · "+t.crew:t.seats===0?" · no seat":""));
       name.style.cssText="min-width:0;overflow-wrap:anywhere;font-size:.88em;";
       label.append(check,name);grid.append(label);
     }

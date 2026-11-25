@@ -71,7 +71,7 @@ export function createJourneyParticipation(roster,selectedIds,{methodKey,assignm
 }
 
 /** Existing Journeys without participation metadata remain readable unchanged. */
-export function validateJourneyParticipation(value){
+export function validateJourneyParticipation(value,{ownedApproval}={}){
   if(!value||value.schemaVersion!==1||
     value.checkpointId!==null&&value.checkpointId!==undefined&&!id(value.checkpointId)||
     !Array.isArray(value.people)||!value.people.length||value.people.length>150)
@@ -88,6 +88,8 @@ export function validateJourneyParticipation(value){
     if(person.traveling)selected++;
   }
   if(!selected)throw Error("A Journey leg must include at least one traveler.");
+  if(ownedApproval!==undefined)
+    assertOwnedParticipation(value,validateConfirmedOwnedVehicleApproval(ownedApproval));
   return structuredClone(value);
 }
 

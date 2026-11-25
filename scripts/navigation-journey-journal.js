@@ -79,7 +79,8 @@ export function journeyLegFromItinerary(itinerary){
     })),
     completedMovingHours:0,completedPercent:0,events:[],
     worldTravelSeconds:0,worldRestSeconds:0,
-    ...(itinerary.participation?{participation:validateJourneyParticipation(itinerary.participation)}:{}),
+    ...(itinerary.participation?{participation:validateJourneyParticipation(itinerary.participation,{
+      ownedApproval:itinerary.transport?.ownedApproval})}:{}),
     ...(itinerary.livestock?{livestock:validateJourneyLivestock(itinerary.livestock)}:{}),
     ...(itinerary.convoy?{convoy:validateApprovedConvoy(itinerary.convoy)}:{}),
     ...(itinerary.transport?{transport:validateTransportJourneyInfo(itinerary.transport)}
@@ -194,13 +195,16 @@ export function validateJourneyRecord(value){
       throw Error("Invalid replacement of unfinished owned service.");
     if(owned){
       const approval=validateConfirmedOwnedVehicleApproval(owned);
+      if(leg.participation!==undefined)
+        validateJourneyParticipation(leg.participation,{ownedApproval:approval});
       if(leg.transport.continuation){
         if(!continuesOwned||
             priorOwned.transport.arrivalCheckpointId!==leg.transport.arrivalCheckpointId||
             priorOwned.speedPerHour!==leg.speedPerHour||
             priorOwned.destination.x!==leg.destination.x||
             priorOwned.destination.y!==leg.destination.y||
-            JSON.stringify(priorOwned.transport.ownedApproval)!==JSON.stringify(approval))
+            JSON.stringify(priorOwned.transport.ownedApproval)!==JSON.stringify(approval)||
+            JSON.stringify(priorOwned.participation)!==JSON.stringify(leg.participation))
           throw Error("Invalid approved owned service continuation.");
       }
     }
