@@ -32,5 +32,19 @@ Red/green evidence: [functional regressions](https://github.com/i-am-rayo/fvtt-a
 - [Stabilization checks 45570920417](https://github.com/i-am-rayo/fvtt-atlas-navigation/actions/runs/45570920417) passed 1,417 Node tests, the architecture job, the Chromium serialization regression, PR whitespace checks and candidate manifest/archive validation. The manifest version is `0.3.13-rc.3.2`.
 - [#527](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/527), [#513](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/513) and [#517](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/517) remain open for live acceptance. [#528](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/528) and [#537](https://github.com/i-am-rayo/fvtt-atlas-navigation/issues/537) remain separate scope.
 
+## Product Owner live GM retest — Sandbox
+
+The Product Owner reported four Pass and two Partial results from the [RC.3.2 testing guide](TEST_0_3_13_RC_3_2.md). The exact installed commit and Foundry and system build numbers were not included in the report.
+
+| Test | Result | Owner-reported evidence and remaining checks |
+| --- | --- | --- |
+| A — Policy | Pass | Crew policy editor passed. |
+| B — Range controls | Partial | Cart started at 0 crew and 1 available vehicle. Range and number inputs stayed in sync, and the local override appeared in the draft. Save and reopen the offer, then test the missing-preset case. |
+| C — Operating units | Pass | Operating-unit validation passed. |
+| D — Review | Pass | Confirmation dialog passed. |
+| E — Canvas | Partial | Road and marker cancellation restored Workspace and focus. Verify successful Road saves from Map Directory and the toolbar, explicit Exit placement, and cancellation after closing the originating Workspace. |
+| F — Persisted staffing | Pass | Persisted staffing and the live Journey quote passed. The walkthrough returned via Back to plan. |
+
 ## Next gate
-Use [RC.3.2 testing guide](TEST_0_3_13_RC_3_2.md). Start with test A (Warship crew policy) after confirming the installed candidate, the designated World and Scene document ID, and authorization to save/reset disposable test data. Record mouse and keyboard field enablement, draft Apply, save/reopen, reset, unchanged roster and cancellation. PO acceptance of RC.3.2 is pending. Native Foundry window/keyboard behavior, actual saves, canvas movement and player access remain unverified. Do not implement unrelated recovery changes while these acceptance gates are open. No merge/tag/release without PO approval.
+
+Resume with test B at Save and reopen, then the missing-preset case. Finish the remaining test E entry points and cancellation cases. Playback, checkpoint continuation, recovery, the finished Journal and separate player permissions still need live verification. Keep #528 and #537 in their separate scope. Overall RC.3.2 acceptance remains open and merge, tag or release requires PO approval.
