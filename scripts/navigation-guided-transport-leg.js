@@ -4,6 +4,7 @@
  */
 import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 import {validateHiredServiceApproval} from "./navigation-transport-service.js";
+import {validateTransportJourneyInfo} from "./navigation-transport-journal.js";
 const finitePoint=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y);
 const near=(a,b,tolerance=0.01)=>finitePoint(a)&&finitePoint(b)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
@@ -42,7 +43,7 @@ export function prepareGuidedTransportLeg(route,leg){
     (!mixed||leg.terrainAware!==false);
   if(mixed&&Math.abs((terrainAware?cost:distance)/convoy.speedPerHour-leg.hours)>1e-7)
     throw Error("The mixed checkpoint leg duration differs from its approved convoy pace.");
-  return {
+  const result={
     status:"ok",
     start:{...leg.start},end:{...leg.end},
     distance,cost:terrainAware?cost:distance,terrainAware,
@@ -61,8 +62,11 @@ export function prepareGuidedTransportLeg(route,leg){
       estimatedFareCp:mixed?null:leg.costCp??null,
       operation:leg.operation??"normal",continuation:Boolean(leg.recovered),
       ...(leg.approvedService||leg.serviceQuote?.serviceLevel?{serviceApproval:
-        validateHiredServiceApproval(leg.approvedService??leg.serviceQuote)}:{})}
+        validateHiredServiceApproval(leg.approvedService??leg.serviceQuote)}:{}),
+      ...(leg.ownedApproval!==undefined?{ownedApproval:leg.ownedApproval}:{})}
   };
+  if(leg.ownedApproval!==undefined)result.transport=validateTransportJourneyInfo(result.transport);
+  return result;
 }
 
 export function confirmGuidedCheckpointArrival({token,gridSize,atlasPoint,
