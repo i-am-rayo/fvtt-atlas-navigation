@@ -610,3 +610,42 @@ test("Party crew policy editor previews inherited values, applies overrides and 
     assert.equal(ctx.changes.length,2);
   }finally{globalThis.foundry=oldFoundry;ctx.restore();}
 });
+
+test("removed vehicle crew can be cleared explicitly in the Party draft and reassigned",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const old=ctx.saved;
+    ctx.setSaved({...old,groups:{...old.groups,group1:{members:{...old.groups.group1.members,
+      vanished:{role:"unassigned",quantity:1,capacity:60,surface:"water",profileId:"warship",
+        crewRoster:[{unitIndex:1,named:[{actorId:"pc1",duty:"Captain"}],hired:12}]},
+      ship1:{role:"unassigned",quantity:1,capacity:60,surface:"water",profileId:"warship",crewRoster:[]}
+    }},other:{members:{otherShip:{role:"unassigned",quantity:1,capacity:2,surface:"water",
+      crewRoster:[{unitIndex:1,named:[{actorId:"pc1"}],hired:1}]}}}}});
+    const native=JSON.stringify(ctx.group),initial=JSON.stringify(ctx.saved);
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const clear=elements.find(e=>e.attributes.get("aria-label")==="Clear stored crew for unavailable vehicle vanished");
+    assert.ok(clear,"removed vehicle remains visible for explicit crew correction");
+    assert.equal(JSON.stringify(ctx.saved),initial,"opening never migrates the roster");
+    await clear.events.click[0]();
+    assert.equal(clear.attributes.get("aria-label"),"Undo clearing stored crew for unavailable vehicle vanished");
+    await clear.events.click[0]();
+    assert.equal(clear.attributes.get("aria-label"),"Clear stored crew for unavailable vehicle vanished");
+    assert.equal(JSON.stringify(ctx.saved),initial,"clear and undo are draft only");
+    await clear.events.click[0]();
+    const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit crew for Warship");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
+    globalThis.foundry={applications:{api:{DialogV2:{input:async()=>({hiredCrew:"0","crew-pc1":true})}}}};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[]);
+    await save.events.click[0]();
+    assert.equal(ctx.changes.length,1);
+    assert.deepEqual(ctx.saved.groups.group1.members.vanished.crewRoster,[]);
+    assert.equal(ctx.saved.groups.group1.members.vanished.profileId,"warship","retain other metadata");
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewRoster,[{unitIndex:1,named:[{actorId:"pc1"}],hired:0}]);
+    assert.deepEqual(ctx.saved.groups.other.members.otherShip.crewRoster,[{unitIndex:1,named:[{actorId:"pc1"}],hired:1}]);
+    assert.equal(JSON.stringify(ctx.group),native);
+    const reopened=flatten(await app._renderHTML());
+    assert.ok(!reopened.some(e=>e.attributes.get("aria-label")==="Clear stored crew for unavailable vehicle vanished"));
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});

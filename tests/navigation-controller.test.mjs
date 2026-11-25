@@ -4254,6 +4254,15 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
       "continuous owned-leg playback must not insert a World travel-day rest");
     assert.ok(continuousPanel.some(n=>/1\/2 passenger seats/.test(n.textContent)),
       "the actual destination stage must use the selected-unit traveler deck");
+    const selectedTile=nodes=>nodes.find(n=>n.tag==="label"&&
+      n.children.some(c=>c.name==="atlas-navigation-travel-method"&&c.value==="owned|warship"&&c.checked));
+    assert.match(labels(selectedTile(continuousPanel)).join(" "),/1 operated unit.*1\/2 passenger seats/,
+      "the method card must show the same selected capacity as the deck");
+    await nav.setCheckpointOperatedUnits([]);
+    const emptyPanel=flatten(await nav.renderDestinationStage());
+    assert.match(labels(selectedTile(emptyPanel)).join(" "),/selected.unit estimate unavailable/i);
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+
     delete nav.transferLegOverrides[0];nav.transferLegOperations[0]="normal";
     assert.equal(await nav.startGuidedTravel(),false,"Cancel must not approve or save a Journey");
     assert.equal(dialogs,1);assert.equal(journals.length,0);
