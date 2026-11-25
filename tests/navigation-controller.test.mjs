@@ -4460,3 +4460,111 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     assert.deepEqual(writes,[]);
   }finally{Object.assign(globalThis,previous);}
 });
+
+test("ordinary owned Cart selects exact units, reviews staffing and retains its approved service on recovery",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document};
+  try{
+    let owned=setGroupTransportationMember(defaultGroupTransportation(),"group1","cart",{
+      role:"unassigned",quantity:2,capacity:2,surface:"land",profileId:"cart",
+      speedMphOverride:4,costCpOverride:100,costBasisOverride:"day",costAppliesOverride:"unit",
+      crewPolicyOverride:{crewCount:6,crewThresholds:{minimum:3,optimal:4,excellent:5},
+        includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},
+      crewRoster:[{unitIndex:1,named:[{actorId:"driver",duty:"Driver"}],hired:1},
+        {unitIndex:2,named:[],hired:3}]});
+    owned=setGroupTransportationMember(owned,"group1","slow",{
+      role:"unassigned",quantity:1,capacity:2,surface:"land",profileId:"cart",speedMphOverride:2});
+    const writes=[],journals=[];
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),append(...items){this.children.push(...items);},appendChild(n){this.children.push(n);return n;},addEventListener(n,f){this.listeners.set(n,f);},setAttribute(n,v){this[n]=v;}})};
+    const flatten=node=>[node,...node.children.flatMap(flatten)];
+    const labels=node=>flatten(node).map(n=>n.textContent).join(" ");
+    let dialogs=0;
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      dialogs++;assert.match(labels(options.content),/Driver/);
+      assert.match(options.yes?.label??"",/acknowledge/i);return false;
+    }}}}};
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},time:{worldTime:0},settings:{
+      get:(_m,key)=>key==="guidedGroupTransportation"?owned:undefined,
+      set:(...args)=>writes.push(args)}};
+    const from=point(0,0),to=point(300,0);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to}],
+      roads:[{id:"land",name:"Trade Road",travelPresetId:"land-stone"}],
+      segments:[{id:"segment",roadId:"land",from:"start",to:"end",via:[]}],checkpoints:[]};
+    const token={id:"party",x:-50,y:-50,width:1,height:1,moves:0,canUserModify:()=>true,
+      move:async()=>{token.moves++;throw Error("Unexpected native movement");},
+      actor:{id:"group1",type:"group",system:{members:[
+        {actor:{id:"pc",name:"Traveler",type:"character"}},
+        {actor:{id:"driver",name:"Driver",type:"npc"}},
+        {actor:{id:"cart",name:"Cart",type:"vehicle"}},
+        {actor:{id:"slow",name:"Slow Cart",type:"vehicle"}}]}}};
+    const scene={id:"land-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined,canUserModify:()=>true};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
+      journeyJournalStore:{save:async record=>{journals.push(structuredClone(record));throw Error("Test Journal boundary");}}});
+    nav.routeRevision=1;nav.syncPartyDeparture=()=>false;
+    nav.scene=scene;nav.sourceMode="party";nav.render=async()=>{};
+    nav.start=from;nav.end=to;
+    nav.result={status:"ok",start:from,end:to,distance:12,cost:12,terrainAware:false,
+      legs:[{kind:"road",roadId:"land",segmentId:"segment",points:[from,to],distance:12,cost:12}]};
+    nav.travelMethod="cart";nav.transportArrangement="owned";
+    const original=JSON.stringify(owned),native=JSON.stringify(token.actor);
+    assert.equal(nav.ordinaryOwnedLeg().ownedUnitChoices.length,3);
+    await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+    const draft=nav.ordinaryOwnedLeg();
+    assert.deepEqual(draft.errors,[]);
+    assert.equal(draft.ownedDraft.passengerCapacity,2);
+    assert.equal(draft.ownedDraft.passengerSeats,1);
+    assert.equal(draft.ownedDraft.movingHours,3);
+    assert.equal(draft.ownedDraft.speedMph,4);
+    assert.equal(draft.ownedDraft.totalCp,500);
+    assert.equal(nav.resolveTravel().travel.speed,4);
+    assert.equal(nav.assessTravelMethod().guided,true);
+    const panel=flatten(await nav.renderDestinationStage());
+    assert.ok(panel.some(n=>/1\/2 passenger seats/.test(n.textContent)));
+    assert.ok(panel.some(n=>/4\.00 mph/.test(n.textContent)));
+    assert.ok(panel.some(n=>/Driver.*crew/i.test(n.textContent)));
+    assert.ok(panel.some(n=>n.name==="atlas-owned-operating-unit"&&n.checked));
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(dialogs,1);assert.equal(journals.length,0);
+    await nav.setLandOperatedUnits([]);
+    assert.equal(nav.assessTravelMethod().guided,false);
+    assert.equal(flatten(await nav.renderDestinationStage()).some(n=>n.className==="atlas-navigation-playback"),false);
+    await assert.rejects(()=>nav.startGuidedTravel(),/unit|seat/i);
+    await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:2}]);return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/changed|review/i);
+    assert.equal(journals.length,0);
+    await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{game.user.isGM=false;return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/GM|changed/i);
+    assert.equal(journals.length,0);
+    game.user.isGM=true;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    const recorded=journals[0].legs[0];
+    assert.deepEqual(recorded.travelMethod.ownedApproval,{...draft.ownedDraft,belowMinimumAcknowledged:true});
+    assert.equal(recorded.speedPerHour,4);
+    assert.deepEqual(recorded.participation.people.map(p=>[p.actorId,p.traveling,p.seats]),
+      [["pc",true,1],["driver",true,0]]);
+    assert.equal(token.moves,0);
+    assert.deepEqual(writes,[]);assert.equal(JSON.stringify(token.actor),native);
+    assert.equal(JSON.stringify(owned),original);
+    const saved=structuredClone(journals[0]);saved.status="interrupted";
+    nav.recoveryRecord=saved;nav.recoveryJournal={id:"saved-cart"};
+    owned.groups.group1.members.cart.speedMphOverride=1;
+    owned.groups.group1.members.cart.crewPolicyOverride.crewWageCpPerDay=900;
+    assert.equal(nav.resolveTravel().travel.speed,4);
+    assert.equal(nav.resolveTravelRules({methodId:"cart",hoursPerDay:4}).dailyHours,8);
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,2);
+    const continued=journals[1].legs.at(-1);
+    assert.deepEqual(continued.travelMethod.ownedApproval,recorded.travelMethod.ownedApproval);
+    assert.equal(continued.travelMethod.ownedContinuation,true);
+    assert.deepEqual(continued.participation,recorded.participation);
+    token.actor.system.members.splice(2,1);
+    assert.equal(nav.assessTravelMethod().guided,false);
+    await assert.rejects(()=>nav.startGuidedTravel(),/owned operating units|no longer available/i);
+    assert.equal(journals.length,2);
+    assert.equal(token.moves,0);assert.deepEqual(writes,[]);
+  }finally{Object.assign(globalThis,previous);}
+});
