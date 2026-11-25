@@ -4856,6 +4856,55 @@ test("ordinary owned Cart selects exact units, reviews staffing and retains its 
     assert.equal(nav.ordinaryOwnedLeg().livestock.units,1);
     assert.equal(nav.ordinaryOwnedLeg().livestock.estimatedFareCp,0);
     assert.equal(nav.ordinaryOwnedLeg().ownedDraft.totalCp,500);
+    const mountPlan=nav.ordinaryOwnedLeg().livestock;
+    const snapshotBefore=JSON.stringify(token.actor),mountWrites=journals.length;
+    const assertMountReview=(options,recovered)=>{
+      const summary=labels(options.content);
+      assert.match(summary,/Riding Horse ×1 \(1 mounts? · /);
+      assert.match(summary,/Animal accommodation: 1 spaces? per vehicle/);
+      assert.match(summary,/Staying behind: Riding Horse ×1/);
+      assert.match(summary,/Passenger seats: 1 \/ 2/);
+      if(recovered){
+        assert.match(summary,/Previously approved fare/);
+        assert.match(summary,/Previously approved — no new fare/);
+        assert.doesNotMatch(summary,/Fare breakdown|Physical mount boarding|Estimated animal fare/);
+        assert.equal(options.yes?.label,"Resume leg");
+      }else{
+        assert.match(summary,/No boarding fee on party-owned transport/);
+        assert.match(summary,/Physical mount boarding 0 CP/);
+        assert.equal((summary.match(/Physical mount boarding/g)??[]).length,1);
+        assert.match(summary,/5 GP/);
+      }
+      assert.equal(options.no?.label,"Back to plan");
+    };
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assertMountReview(options,false);return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(journals.length,mountWrites);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assertMountReview(options,false);return true;
+    };
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,mountWrites+1);
+    const mountedSaved=structuredClone(journals.at(-1));
+    assert.deepEqual(mountedSaved.legs[0].livestock,mountPlan);
+    mountedSaved.status="interrupted";
+    const mountedBefore=structuredClone(mountedSaved);
+    nav.recoveryRecord=mountedSaved;nav.recoveryJournal={id:"saved-cart-mounts"};
+    // Changed draft boarding/capacity must not reprice or relabel approved history.
+    nav.livestockDecisions={horse:0};nav.transportJourneyOverrides={livestockCapacity:0};
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assertMountReview(options,true);return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.deepEqual(nav.recoveryRecord,mountedBefore);
+    assert.equal(journals.length,mountWrites+1);
+    assert.equal(token.moves,0);assert.deepEqual(writes,[]);
+    assert.equal(JSON.stringify(token.actor),snapshotBefore);
+    nav.recoveryRecord=null;nav.recoveryJournal=null;nav.journeyJournal=null;
+    nav.livestockDecisions={horse:1};nav.transportJourneyOverrides={livestockCapacity:1};
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
     const committed=[],nativeBefore=JSON.stringify(token.actor);
     nav.journeyJournalStore.save=async record=>{
       committed.push(structuredClone(record));return {id:"owned-cart-journey"};
