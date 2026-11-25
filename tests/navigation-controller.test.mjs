@@ -1847,8 +1847,18 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
       settings:{get:()=>undefined}};
     globalThis.PIXI=undefined;
-    globalThis.document={createElement:tag=>({tag,style:{},textContent:""})};
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
+      append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;}})};
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      const nodes=node=>[node,...(node.children??[]).flatMap(nodes)];
+      const items=nodes(options.content),labels=items.map(n=>n.textContent).join(" ");
+      assert.ok(items.some(n=>n.className==="atlas-transport-approval-table"));
+      assert.match(labels,/Cart \(hired\)/);
+      assert.match(labels,/Assigned party explorer/);
+      assert.match(labels,/Operating schedule: continuous.*24h\/day/);
+      assert.match(labels,/6 SP · 3 CP/);
+      assert.equal(options.yes?.label,"Start leg");
+      assert.equal(options.no?.label,"Back to plan");
       dialogTitles.push(options.window.title);return approve;
     }}}}};
     const token={id:"party",x:-50,y:-50,width:1,height:1,actor:null,
@@ -1958,7 +1968,8 @@ test("a changed hired Cart offer during GM confirmation never starts a Journey",
     let hireCostCp=250,moves=0,saves=0;
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
       settings:{get:()=>undefined}};
-    globalThis.document={createElement:tag=>({tag,textContent:""})};
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
+      append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;}})};
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>{
       hireCostCp=500;return true;
     }}}}};
@@ -3323,8 +3334,17 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
     let available=1,moves=0,writes=0;
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
       settings:{get:()=>undefined}};
-    globalThis.document={createElement:tag=>({tag,textContent:""})};
-    globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>{
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
+      append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;}})};
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      const nodes=node=>[node,...(node.children??[]).flatMap(nodes)];
+      const items=nodes(options.content),labels=items.map(n=>n.textContent).join(" ");
+      assert.ok(items.some(n=>n.className==="atlas-transport-approval-table"));
+      assert.match(labels,/Walking.*Traveler.*Cart.*Cargo only/);
+      assert.match(labels,/Estimated transportation cost/);
+      assert.match(labels,/No passengers board/);
+      assert.equal(options.yes?.label,"Start leg");
+      assert.equal(options.no?.label,"Back to plan");
       available=0;return true;
     }}}}};
     const group={id:"group1",type:"group",name:"Party",system:{members:[
@@ -4086,8 +4106,18 @@ test("ordinary hired land service keeps explicit tier and immutable approved far
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
       settings:{get:()=>undefined}};
     globalThis.PIXI=undefined;
-    globalThis.document={createElement:tag=>({tag,style:{},textContent:""})};
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
+      append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;}})};
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      const nodes=node=>[node,...(node.children??[]).flatMap(nodes)];
+      const items=nodes(options.content),labels=items.map(n=>n.textContent).join(" ");
+      assert.ok(items.some(n=>n.className==="atlas-transport-approval-table"));
+      assert.match(labels,/Cart \(hired\)/);
+      assert.match(labels,/Assigned party explorer/);
+      assert.match(labels,/Operating schedule: normal.*8h\/day/);
+      assert.match(labels,/1 GP · 2 SP · 3 CP/);
+      assert.equal(options.yes?.label,"Start leg");
+      assert.equal(options.no?.label,"Back to plan");
       dialogTitles.push(options.window.title);return approve;
     }}}}};
     const token={id:"party",x:-50,y:-50,width:1,height:1,actor:null,
