@@ -1781,7 +1781,8 @@ test("active ship Journey displays the approved method and saved sailing hours, 
     const scene={id:"sea-scene",name:"Paedor",grid:{size:100,units:"mi"},
       canUserModify:()=>true,getFlag:()=>null};
     const atlas={revision:4,roads:[{id:"sea",name:"Sea Lane"}],
-      nodes:[],segments:[],checkpoints:[]};
+      nodes:[{id:"dock-node",...point(0,0)},{id:"port-node",...point(500,0)}],segments:[],
+      checkpoints:[{id:"dock",nodeId:"dock-node",name:"Dock"},{id:"port",nodeId:"port-node",name:"Port"}]};
     const route={status:"ok",start:point(0,0),end:point(500,0),
       distance:95.48,cost:95.48,terrainAware:false,legs:[{
         kind:"road",roadId:"sea",segmentId:"ocean",distance:95.48,cost:95.48,
@@ -1799,8 +1800,9 @@ test("active ship Journey displays the approved method and saved sailing hours, 
         shortRestHours:1,forcedMarch:"custom"}});
     const approved={methodId:"ship-passage",methodName:"Ship passage (hired)",
       kind:"vehicle",arrangement:"hire",surface:"water",operation:"continuous"};
-    nav.travelSession={phase:"moving",transportLeg:{transport:approved},
-      schedule,journeyRecord:{legs:[{speedPerHour:2,movingHours:47+44/60,
+    nav.travelSession={sceneId:scene.id,phase:"moving",transportLeg:{transport:approved},
+      schedule,journeyRecord:{sceneId:scene.id,destination:point(1000,0),legs:[{sceneId:scene.id,
+        departure:route.start,destination:route.end,speedPerHour:2,movingHours:47+44/60,
         transport:approved}]}};
     const panel=await nav._renderHTML();
     const all=node=>[node,...(node.children??[]).flatMap(all)];
@@ -1815,6 +1817,15 @@ test("active ship Journey displays the approved method and saved sailing hours, 
     assert.equal(nodes.some(node=>node.textContent?.includes?.(
       "Speed: Ship passage (hired) (approved hire Journey leg)")),false,
       "verbose saved speed detail was intentionally removed from the GM Journey tab");
+    const context=nodes.find(node=>node.className==="atlas-navigation-route-context");
+    assert.ok(context,"active Journey identifies its approved leg independently of final Point B");
+    assert.match(all(context).map(n=>n.textContent).join(" "),/From\s+Dock.*Next stop\s+Port.*Final destination\s+Selected map destination/);
+    assert.ok(nodes.some(node=>node.textContent==="Playback speed · current leg"));
+    const before=JSON.stringify(nav.travelSession.journeyRecord);
+    game.user.isGM=false;
+    assert.equal(all(await nav._renderHTML()).some(node=>node.className==="atlas-navigation-route-context"),false);
+    game.user.isGM=true;
+    assert.equal(JSON.stringify(nav.travelSession.journeyRecord),before);
     const card=nodes.find(node=>node.tag==="div"&&
       node.children?.[0]?.textContent==="Travel Time");
     assert.ok(card);
@@ -1832,6 +1843,14 @@ test("active ship Journey displays the approved method and saved sailing hours, 
       "Speed: Riding Horse (approved owned Journey leg)")),false,
       "mount recovery retains saved method authority without redundant GM copy");
     assert.equal(nav.travelSession.journeyRecord.legs[0].travelMethod.id,"riding-horse");
+    nav.recoveryRecord=nav.travelSession.journeyRecord;
+    nav.travelSession=null;nav.result=null;nav.end=nav.recoveryRecord.destination;
+    nav.pendingTransfer={sceneId:scene.id,checkpoint:{id:"port",name:"Port",point:route.end}};
+    const checkpoint=all(await nav._renderHTML()).find(n=>n.className==="atlas-navigation-route-context");
+    assert.ok(checkpoint);
+    assert.match(all(checkpoint).map(n=>n.textContent).join(" "),/From\s+Dock.*Current stop\s+Port.*Final destination\s+Selected map destination/);
+    game.user.isGM=false;
+    assert.equal(all(await nav._renderHTML()).some(n=>n.className==="atlas-navigation-route-context"),false);
   }finally{Object.assign(globalThis,previous);}
 });
 
