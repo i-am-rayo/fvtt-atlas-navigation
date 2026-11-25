@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { closestJourneyCheckpoint,nativeJourneyDate,journeyWorldStamp,navigationJourneyTitle }
+import { closestJourneyCheckpoint,nativeJourneyDate,journeyWorldStamp,navigationJourneyTitle,describeNavigationRouteContext }
   from "../scripts/navigation-journey-title.js";
 
 const atlas={
@@ -31,4 +31,22 @@ test("no checkpoint or calendar yields an honest fallback without inventing a re
   "Atlas Journey — Map Point A to Map Point B");
   assert.equal(closestJourneyCheckpoint(atlas,{x:NaN,y:0}),null);
   assert.deepEqual(journeyWorldStamp(null),{seconds:null,label:null});
+});
+
+test("route review names only exact, unambiguous authored points and keeps the final destination distinct",()=>{
+  const from={x:0,y:0},next={x:40,y:80},final={x:100,y:0};
+  const original=structuredClone(atlas);
+  assert.deepEqual(describeNavigationRouteContext(atlas,{from,next,final,party:true}),{
+    from:"Dirwest",next:"Southern Bridge",final:"Millstone"});
+  assert.deepEqual(describeNavigationRouteContext(atlas,{
+    from:{x:2,y:4},next:{x:99,y:0},final,party:true
+  }),{from:"Party departure point",next:"Selected map stop",final:"Millstone"},
+    "nearby markers must not be presented as selected locations");
+  assert.deepEqual(describeNavigationRouteContext(atlas,{from,next:final,final}),{
+    from:"Dirwest",next:"Millstone",final:"Millstone"});
+  const ambiguous={...atlas,checkpoints:[...atlas.checkpoints,
+    {id:"cp-extra",nodeId:"c",name:"Another Bridge"}]};
+  assert.equal(describeNavigationRouteContext(ambiguous,{from,next,final}).next,"Selected map stop");
+  assert.equal(describeNavigationRouteContext(atlas,{from,next,final:null}),null);
+  assert.deepEqual(atlas,original,"route display never modifies the Scene graph");
 });
