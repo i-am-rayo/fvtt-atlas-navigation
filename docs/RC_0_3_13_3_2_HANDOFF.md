@@ -125,3 +125,16 @@ Environment observed in the GM session: Sandbox, Atlas `0.3.13-rc.3.2` active in
 | Journey — Onward leg and finished Journal | Not run | Continue with explicit approval and reconcile the finished Journal against the confirmed legs. | The Journey stopped at the approval preview. |
 | Journey — Reload and recovery | Not run | Compare confirmed Token position, Journal progress, and World time across reload on a separately approved disposable run. | No separately approved recovery run or verified disposable backup was available in this session. |
 | Separate player session | Not run | Verify visible Journals and map records and absence of GM-only controls through a non-GM account. | Only the authenticated GM session was available for this retest. |
+
+### Live B4 completion — 2026-11-25 (JST)
+
+**B4 — Pass.** Tested as GM on **RC.3.2 B Cart QA** in Sandbox on the installed Atlas `0.3.13-rc.3.2` candidate. The earlier environment check recorded Foundry 14 Stable build 370 and D&D 5e 6.1.1. The exact installed archive commit remains unverified.
+
+| Step | Result | Expected | Observed |
+| --- | --- | --- | --- |
+| Make the disposable preset unavailable | Pass | Only the approved temporary World preset disappears while its saved offer remains on the marker. | Deleted **B4 Disposable QA Transport** with owner approval. Its catalog row disappeared. Reopening the marker still showed the orphaned offer. |
+| Warning and Edit state | Pass | Show a missing-preset warning with replacement instructions and disable editing the orphan. | The **Missing World method** card explained removal, adding an available method, and **Save Map Marker**. The orphan's Edit button was disabled and its Remove button was available. |
+| Replace through the draft | Pass | Remove only the orphan, add an available method, and commit through the parent save. | Removing the orphan showed **Unsaved transportation changes**. Added **Riding Horse** under Land Travel and clicked **Save Map Marker**. |
+| Verify persistence and preserve Cart overrides | Pass | On reopen, show the replacement without the orphan and retain Cart's existing overrides. | The directory listed **Transportation (2): Cart, Riding Horse**. The reopened marker showed the new Riding Horse offer, no missing-preset card, and Cart still at **4 vehicles available** and **3 required crew**. |
+
+The B4 result above supersedes the earlier Partial status. The Journey execution, reload, Journal, and separate player checks retain their earlier status.
