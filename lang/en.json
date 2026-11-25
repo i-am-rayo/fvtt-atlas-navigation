@@ -147,7 +147,7 @@
   "FVTTATLAS.Checkpoints.ScopeFilter": "Map Marker coverage",
   "FVTTATLAS.Generated.Title": "Generated Road Regions",
   "FVTTATLAS.Generated.Hint": "Optional: preview and create one native Region around a checkpoint or a single connected stretch between two checkpoints on the same named road. Corridor width is a half-width in native grid cells. Each Region starts with no Behaviors; set those manually using Foundry. No automated slopes, elevation levels, terrain effects or events.",
-  "FVTTATLAS.Generated.NoCheckpoints": "First add at least one named checkpoint to a road using Checkpoints [+].",
+  "FVTTATLAS.Generated.NoCheckpoints": "No eligible roads with directly assigned Map Markers are in this view. Clear the road filters or use Add Map Marker in Map Directory to place a road-linked marker. An area requires one directly assigned marker; a corridor requires two on the same road.",
   "FVTTATLAS.Generated.Road": "Named road",
   "FVTTATLAS.Generated.Kind": "Region geometry",
   "FVTTATLAS.Generated.Checkpoint": "One checkpoint circle",

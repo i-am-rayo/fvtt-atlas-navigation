@@ -1189,9 +1189,7 @@ function atlasPanel(scene, atlas, actions, refresh,
       "The Map Directory also lists markers connected through shared road nodes; these are not Region anchors for this road. " +
       "In Map Directory, use Add Map Marker, choose this road and place a road-linked marker. " +
       "One directly assigned marker is required for an area; two are required for a corridor." :
-      "No eligible roads with directly assigned Map Markers are in this view. " +
-      "Clear the road filters or use Add Map Marker in Map Directory to place a road-linked marker. " +
-      "An area requires one directly assigned marker; a corridor requires two on the same road.";
+      label("FVTTATLAS.Generated.NoCheckpoints");
     generatedSection.appendChild(node("p", guidance, "hint"));
   } else {
     let selected = generatorState.get(scene.id);
