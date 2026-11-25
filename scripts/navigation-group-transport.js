@@ -6,6 +6,7 @@
 export const GROUP_TRANSPORT_SETTING="guidedGroupTransportation";
 import { projectedGroupFare } from "./navigation-currency.js";
 import { classifyCrewStaffing,resolveCrewThresholds } from "./navigation-transport-catalog.js";
+import {quoteTransportationService,resolveTransportationOperation} from "./navigation-transport-service.js";
 
 export const GROUP_TRANSPORT_VERSION=7;
 export const GROUP_TRANSPORT_ROLES=Object.freeze([
@@ -496,4 +497,133 @@ export function estimateOperatedGroupCrew(projection,method,{operatedUnits,hours
       crewWageCpPerDay:rate,crewDays,crewWagesCp:wages});
   }
   return {units,namedCrewIds:[...namedCrew],crewWagesCp};
+}
+
+/** A single owned-vehicle planning contract, including the exact operating
+ * units and original wage evidence. Nothing here writes or approves movement. */
+export function planOwnedVehicleService(projection,method,{operatedUnits,movingHours,distanceMi,
+  regularHours=8,operation="normal"}={}){
+  if(method?.kind!=="vehicle")throw Error("Choose an owned vehicle.");
+  const schedule=resolveTransportationOperation(method,operation,regularHours);
+  const billingDayHours=operation==="continuous"?regularHours:schedule.dailyHours;
+  const capacity=groupMethodCapacityStatus(projection,method,{operatedUnits});
+  if(!capacity.sufficient||capacity.unknown||capacity.effectiveSpeedMph===null)
+    throw Error("Select enough valid operated vehicle passenger seats.");
+  const ownedQuote=groupMethodFareEstimate(projection,method,{
+    operatedUnits,hours:movingHours,distanceMi,dayHours:billingDayHours});
+  if(ownedQuote.unseated!==0)throw Error("Insufficient operated vehicle passenger seats.");
+  const quote=quoteTransportationService(method,{arrangement:"owned",operation,movingHours,
+    distanceMi,travelers:capacity.travelers,ownedQuote,regularHours});
+  const members=new Map(projection.members.map(m=>[m.actorId,m]));
+  const units=ownedQuote.breakdown.flatMap(row=>row.crewUnits.map(unit=>{
+    const resource=members.get(unit.actorId);
+    const effective=effectiveGroupResourceMethod(resource,method);
+    return {...unit,name:resource.actorName,capacity:effective.capacity,speedMph:effective.speedMph,
+      thresholds:resolveCrewThresholds(effective),wagesEnabled:Boolean(effective.includeCrewWages),
+      namedCrew:(resource.crewRoster?.find(x=>x.unitIndex===unit.unitIndex)?.named??[]).map(assignment=>{
+        const member=members.get(assignment.actorId);
+        return {...assignment,name:member.actorName,actorType:member.actorType};
+      })};
+  }));
+  const resources=ownedQuote.breakdown.map(({actorId,quantity,passengers,costCp,costBasis,costApplies,
+    recurringCp,crewWagesCp,crewWageBasis})=>({actorId,quantity,passengers,costCp,costBasis,costApplies,
+      recurringCp,crewWagesCp,crewWageBasis}));
+  const approval=validateOwnedVehicleApproval({schemaVersion:1,methodId:method.id,surface:method.surface,
+    operation,regularHours,billingDayHours,dailyHours:quote.dailyHours,overnightHours:quote.overnightHours,
+    overtimeMultiplier:schedule.overtimeMultiplier,movingHours,distanceMi,
+    passengerSeats:capacity.travelers,passengerCapacity:capacity.seats,speedMph:capacity.effectiveSpeedMph,
+    units,resources,baseCp:quote.baseCp,crewWagesCp:quote.crewWagesCp,
+    overtimeCrewCp:quote.overtimeCrewCp,totalCp:quote.totalCp,belowMinimum:capacity.belowMinimum});
+  return {capacity,quote,approval};
+}
+
+const validApprovalName=name=>typeof name==="string"&&name.trim().length>0&&name.length<=240&&
+  !/[\u0000-\u001f]/.test(name);
+const approvalMoney=n=>Number.isFinite(n)&&n>=0&&n<=Number.MAX_SAFE_INTEGER;
+const approvalError=()=>{throw Error("Invalid approved owned vehicle service.");};
+
+/** Historical validation needs only the captured rules and unit evidence.
+ * Do not use the current Group roster, World prices or crew policy here. */
+export function validateOwnedVehicleApproval(raw){
+  if(!raw||raw.schemaVersion!==1||!safeId(raw.methodId)||
+      !GROUP_TRANSPORT_SURFACES.includes(raw.surface)||
+      !Array.isArray(raw.units)||!raw.units.length||raw.units.length>1000||
+      !Array.isArray(raw.resources)||!raw.resources.length||raw.resources.length>MAX_MEMBERS||
+      !integer(raw.passengerSeats,0,1000)||!integer(raw.passengerCapacity,1,1000000)||
+      raw.passengerSeats>raw.passengerCapacity||
+      ![raw.movingHours,raw.distanceMi,raw.baseCp,raw.crewWagesCp,raw.overtimeCrewCp,raw.totalCp].every(approvalMoney))
+    approvalError();
+  const method={id:raw.methodId,kind:"vehicle",surface:raw.surface,continuousEnabled:true,
+    overtimeEnabled:true,overtimeExtraHours:raw.dailyHours-8,overtimeMultiplier:raw.overtimeMultiplier};
+  const schedule=resolveTransportationOperation(method,raw.operation,raw.regularHours);
+  if(raw.dailyHours!==schedule.dailyHours||raw.overnightHours!==schedule.overnightHours||
+      raw.billingDayHours!==(raw.operation==="continuous"?raw.regularHours:schedule.dailyHours)||
+      raw.overtimeMultiplier!==schedule.overtimeMultiplier)approvalError();
+  const days=raw.movingHours===0?0:Math.ceil(Math.max(0,raw.movingHours-1e-7)/raw.billingDayHours);
+  const seen=new Set(),named=new Set(),byResource=new Map();
+  let seats=0,speed=Infinity,belowMinimum=false;
+  for(const unit of raw.units){
+    if(!unit||!safeId(unit.actorId)||!integer(unit.unitIndex,1,100)||
+        !validApprovalName(unit.name)||!integer(unit.capacity,1,1000)||
+        !validTravelSpeedOverride(unit.speedMph)||unit.speedMph===null||
+        !integer(unit.requiredCrew,0,1000)||typeof unit.configured!=="boolean"||
+        typeof unit.wagesEnabled!=="boolean"||!Array.isArray(unit.namedCrew)||unit.namedCrew.length>MAX_MEMBERS||
+        !["day","trip","mile"].includes(unit.crewWageBasis)||
+        !approvalMoney(unit.crewWageCpPerDay)||unit.crewWageCpPerDay>100000000||
+        !approvalMoney(unit.crewWagesCp)||unit.crewDays!==days||!integer(unit.paidCrew,0,1000))
+      approvalError();
+    const key=unit.actorId+":"+unit.unitIndex;
+    if(seen.has(key))approvalError();
+    seen.add(key);
+    const {minimum,optimal,excellent,full}=unit.thresholds??{};
+    const policy={crewCount:unit.requiredCrew,crewThresholds:{minimum,optimal,excellent}};
+    if(full!==unit.requiredCrew)approvalError();
+    resolveCrewThresholds(policy);
+    let pcs=0,npcs=0;
+    for(const crew of unit.namedCrew){
+      if(!safeId(crew?.actorId)||named.has(crew.actorId)||!validApprovalName(crew.name)||
+          !["character","npc"].includes(crew.actorType)||
+          crew.duty!==undefined&&(typeof crew.duty!=="string"||crew.duty.length>80||
+            /[\u0000-\u001f]/.test(crew.duty)))approvalError();
+      named.add(crew.actorId);
+      if(crew.actorType==="character")pcs++;else npcs++;
+    }
+    const staffed=pcs+npcs+unit.hiredCrew;
+    if(unit.configured){
+      if(!integer(unit.hiredCrew,0,1000)||unit.pcCrew!==pcs||unit.npcCrew!==npcs||
+          unit.staffedCrew!==staffed||staffed>full||unit.tier!==classifyCrewStaffing(policy,staffed)||
+          unit.paidCrew!==(unit.wagesEnabled?npcs+unit.hiredCrew:0))approvalError();
+    }else if(unit.namedCrew.length||[unit.staffedCrew,unit.pcCrew,unit.npcCrew,unit.hiredCrew,unit.tier]
+      .some(v=>v!==null)||unit.paidCrew!==(unit.wagesEnabled?full:0))approvalError();
+    const periods=unit.crewWageBasis==="trip"?(raw.movingHours>0?1:0):
+      unit.crewWageBasis==="mile"?raw.distanceMi:days;
+    if(unit.crewWagesCp!==unit.paidCrew*unit.crewWageCpPerDay*periods)approvalError();
+    seats+=unit.capacity;speed=Math.min(speed,unit.speedMph);
+    belowMinimum ||= unit.tier==="below-minimum";
+    if(!byResource.has(unit.actorId))byResource.set(unit.actorId,[]);
+    byResource.get(unit.actorId).push(unit);
+  }
+  if(raw.passengerCapacity!==seats||raw.speedMph!==speed||raw.belowMinimum!==belowMinimum||
+      raw.resources.length!==byResource.size)approvalError();
+  const resources=new Set();
+  let passengers=0,amount=0;
+  for(const row of raw.resources){
+    const units=byResource.get(row?.actorId);
+    if(!units||resources.has(row.actorId)||row.quantity!==units.length||
+        !integer(row.passengers,0,units.reduce((n,u)=>n+u.capacity,0))||
+        !approvalMoney(row.costCp)||row.costCp>100000000||
+        !["none","day","mile"].includes(row.costBasis)||!["unit","passenger"].includes(row.costApplies)||
+        units.some(u=>u.crewWageBasis!==row.crewWageBasis)||
+        row.crewWagesCp!==units.reduce((n,u)=>n+u.crewWagesCp,0)||
+        row.recurringCp!==projectedGroupFare(row,{quantity:row.quantity,passengers:row.passengers,
+          distanceMi:raw.distanceMi,hours:raw.movingHours,dayHours:raw.billingDayHours}))
+      approvalError();
+    resources.add(row.actorId);passengers+=row.passengers;amount+=row.recurringCp+row.crewWagesCp;
+  }
+  if(passengers!==raw.passengerSeats||!approvalMoney(amount))approvalError();
+  const quote=quoteTransportationService(method,{arrangement:"owned",operation:raw.operation,
+    movingHours:raw.movingHours,distanceMi:raw.distanceMi,travelers:raw.passengerSeats,
+    ownedQuote:{quantity:raw.units.length,amount,breakdown:raw.resources},regularHours:raw.regularHours});
+  if(["baseCp","crewWagesCp","overtimeCrewCp","totalCp"].some(key=>raw[key]!==quote[key]))approvalError();
+  return structuredClone(raw);
 }
