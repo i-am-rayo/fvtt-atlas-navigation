@@ -95,12 +95,21 @@ export function validateJourneyParticipation(value,{ownedApproval}={}){
 
 /** Historical approval stays fixed; only the next unapproved leg can change. */
 export function priorJourneySelection(record,liveRoster){
-  const prior=record?.legs?.at(-1)?.participation;
+  const leg=record?.legs?.at(-1);
+  const prior=leg?.participation;
+  const owned=leg?.transport?.ownedApproval;
+  const approval=owned===undefined?null:validateConfirmedOwnedVehicleApproval(owned);
+  const unfinished=Number.isFinite(leg?.completedPercent)&&leg.completedPercent<99.999;
+  if(approval&&unfinished){
+    if(!prior)throw Error("The approved owned vehicle traveler manifest is unavailable.");
+    if(approval.units.some(unit=>!liveRoster?.members?.some(member=>
+        member.actorId===unit.actorId&&member.role==="vehicle"&&
+        member.enabled!==false&&member.quantity>=unit.unitIndex)))
+      throw Error("The approved owned operating units are no longer available. Preserve the saved Journey for review.");
+  }
   if(!prior)return null;
   const approved=validateJourneyParticipation(prior);
   const live=new Set(partyTravelerRoster(liveRoster).map(m=>m.id));
-  const owned=record.legs.at(-1).transport?.ownedApproval;
-  const approval=owned===undefined?null:validateConfirmedOwnedVehicleApproval(owned);
   const crew=approval?ownedCrewMembers(liveRoster,approval):new Map();
   if(approval)assertOwnedParticipation(approved,approval);
   if(approved.people.some(person=>!live.has(person.actorId)&&!crew.has(person.actorId)))

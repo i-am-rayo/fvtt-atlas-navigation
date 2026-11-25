@@ -979,7 +979,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const restored=restoreApprovedTransportPlan(this.result,projected,
       this.recoveryRecord,catalog,this.recoveryOperationOverride,{
         atlas,gridSize:this.scene.grid.size,gridDistance:this.scene.grid.distance});
-    if(restored)return restored;
+    if(restored){
+      if(restored.legs[0]?.ownedApproval){
+        const actor=this.getPartyToken()?.actor;
+        if(game.system?.id!=="dnd5e"||actor?.type!=="group")
+          throw Error("The approved owned vehicle requires its original Group explorer.");
+        priorJourneySelection(this.recoveryRecord,
+          projectGroupTransportation(actor,readGroupTransportation(game.settings),catalog));
+      }
+      return restored;
+    }
     const actor=this.getPartyToken()?.actor;
     let roster=null;
     if(game.system?.id==="dnd5e"&&actor?.type==="group")
@@ -2081,7 +2090,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.livestockDecisions=Object.fromEntries(approved.resources.map(m=>
         [m.actorId,m.aboard]));
     }
-    if(recent.participation){
+    if(recent.participation||arrival?.ownedApproval&&isUnfinishedJourneyLeg(saved)){
       // Restore the approved cohort on reload before computing passenger fares
       // or eligibility. This updates only an in-memory draft, never the Group.
       const actor=token?.actor;
@@ -3337,10 +3346,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!partyNow||!saved?.participation)
         throw Error("The approved owned vehicle traveler manifest is unavailable.");
       priorJourneySelection(this.recoveryRecord,partyNow.roster);
-      if(guidedLeg.transport.ownedApproval.units.some(unit=>
-          !partyNow.roster.members.some(member=>member.actorId===unit.actorId&&member.role==="vehicle"&&
-            member.enabled!==false&&member.quantity>=unit.unitIndex)))
-        throw Error("The approved owned operating units are no longer available. Preserve the saved Journey for review.");
     }
     const approvedParticipation=unfinished?
       this.recoveryRecord?.legs.at(-1)?.participation??null:
