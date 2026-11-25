@@ -324,13 +324,41 @@ export class AtlasGroupTransportationSettings extends base {
     other.appendChild(node("small","Choose a role to move each NPC into its category."));
     panelHost.appendChild(tabs.addPanel("setup",other));
     const setupTab=tabs.nav.children[4];
+    const liveIds=new Set(roster.members.map(member=>member.actorId));
+    const unavailableCrew=Object.entries(assignments.groups[this.groupId]?.members??{})
+      .filter(([id,entry])=>!liveIds.has(id)&&entry.crewRoster?.length);
+    const clearedCrew=new Set();
     const updateNeedSetup=()=>{
-      const count=editable.filter(e=>e.member.actorType==="npc"&&
+      const npcs=editable.filter(e=>e.member.actorType==="npc"&&
         e.role.value==="unassigned").length;
+      const stale=unavailableCrew.length-clearedCrew.size;
+      const count=npcs+stale;
       setupTab.textContent=count?"Need Setup ! ("+count+")":"Need Setup";
-      setupTab.setAttribute("aria-label",count?
-        "Need Setup: "+count+" NPCs unconfigured":"Need Setup: all NPCs configured");
+      setupTab.setAttribute("aria-label",stale?
+        "Need Setup: "+npcs+" NPCs unconfigured, "+stale+" unavailable vehicle crew rosters":
+        npcs?"Need Setup: "+npcs+" NPCs unconfigured":"Need Setup: all NPCs configured");
     };
+    for(const [id,entry] of unavailableCrew){
+      const row=node("div"),detail=node("small");
+      row.style.cssText="display:grid;gap:.35rem;padding:.5rem 0;";
+      const name=lookup.get(entry.profileId)?.name??"Vehicle";
+      row.append(node("strong",name+" — unavailable in Group ("+id+")"),detail);
+      const toggle=action("Clear stored crew",()=>{
+        if(!game.user?.isGM)throw Error("Only a GM may correct unavailable crew.");
+        if(clearedCrew.has(id))clearedCrew.delete(id);else clearedCrew.add(id);
+        this.dirty=true;refresh();updateNeedSetup();
+      });
+      const refresh=()=>{
+        const cleared=clearedCrew.has(id);
+        const count=entry.crewRoster.reduce((sum,unit)=>sum+unit.named.length+unit.hired,0);
+        detail.textContent=cleared?"Crew cleared in draft. Save to apply; other vehicle settings are retained.":
+          count+" stored crew positions on an unavailable resource. Clear the roster to release its named assignments.";
+        toggle.textContent=cleared?"Undo clear":"Clear stored crew";
+        toggle.setAttribute("aria-label",(cleared?"Undo clearing":"Clear")+
+          " stored crew for unavailable vehicle "+id);
+      };
+      refresh();row.append(toggle);other.append(row);
+    }
     const updateNpcCategories=()=>{
       for(const panel of Object.values(npcRoles))
         panel.hidden=panel.children.length<=1;
@@ -675,6 +703,9 @@ export class AtlasGroupTransportationSettings extends base {
             const assignedElsewhere=new Set(editable.flatMap(entry=>
               (entry.crewRoster??[]).filter(item=>entry!==draft||item.unitIndex!==index)
                 .flatMap(item=>item.named.map(person=>person.actorId))));
+            for(const [id,entry] of unavailableCrew)if(!clearedCrew.has(id))
+              for(const unit of entry.crewRoster)for(const person of unit.named)
+                assignedElsewhere.add(person.actorId);
             const candidates=stagedCrewMembers().filter(person=>person.enabled!==false&&
               (person.actorType==="character"||person.actorType==="npc"&&
                 ["crew","passenger","unassigned"].includes(person.role)));
@@ -794,6 +825,8 @@ export class AtlasGroupTransportationSettings extends base {
           ...(entry.crewPolicyOverride===undefined?{}:{crewPolicyOverride:entry.crewPolicyOverride})
         };
       }
+      for(const [id,entry] of unavailableCrew)if(clearedCrew.has(id))
+        changes[id]={...entry,crewRoster:[]};
       const next=setGroupTransportationMembers(currentAssignments,this.groupId,changes);
       const reviewed=projectGroupTransportation(currentGroup,next,now);
       const eligible=new Set(eligibleGroupRiders(reviewed).map(rider=>rider.id));

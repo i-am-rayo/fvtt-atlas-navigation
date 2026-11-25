@@ -4926,6 +4926,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           group:offer.checkpointName||"Nearby checkpoint"}]:[];
       })
     ];
+    const currentLeg=transferPlan?.hasTransitions?transferPlan.legs[0]:null;
+    // Selected-unit capacity is authoritative for this draft, never the full fleet.
+    const annotateOwnedChoice=choice=>{
+      if(currentLeg?.operatedUnits===undefined||choice.value!==currentLeg.selectedValue)return choice;
+      const draft=currentLeg.ownedDraft;
+      return {...choice,insufficient:false,secondary:draft?
+        draft.units.length+" operated unit(s) · "+draft.passengerSeats+"/"+draft.passengerCapacity+" passenger seats":
+        "Selected-unit estimate unavailable. Review operating units."};
+    };
     const annotatedChoices=choices.map(choice=>{
       if(!choice.value?.includes("|"))return choice;
       const [arrangement,id]=choice.value.split("|",2);
@@ -4966,7 +4975,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         roster:partySelection?.previewRoster,capacity
       }),insufficient:Boolean(capacity&&!capacity.sufficient)||
         Boolean(hireSupply&&!hireSupply.sufficient)};
-    });
+    }).map(annotateOwnedChoice);
     if(pendingNativeReview)
       body.appendChild(renderNavigationTravelMethodSelector({
         choices:[{value:"saved",label:pendingReviewMethodName,
@@ -5463,7 +5472,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         else{
           const locked=Boolean(this.travelSession||this.journalStarting||!game.user?.isGM);
           card.append(renderNavigationTravelMethodButtons({
-            choices:leg.options,selectedValue:leg.selectedValue,disabled:locked,
+            choices:leg.options.map(annotateOwnedChoice),selectedValue:leg.selectedValue,disabled:locked,
             onMethodChange:value=>{
               if(locked)return;
               this.transferSelections[0]=value;
