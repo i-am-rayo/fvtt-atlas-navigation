@@ -4170,7 +4170,8 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
   try{
     const owned=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship",{
       role:"unassigned",quantity:2,capacity:2,surface:"water",profileId:"warship",
-      speedMphOverride:5,crewRoster:[{unitIndex:1,named:[],hired:10},{unitIndex:2,named:[],hired:30}]});
+      speedMphOverride:5,crewPolicyOverride:{crewCount:60,crewThresholds:{minimum:15,optimal:30,excellent:45},
+        includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},crewRoster:[{unitIndex:1,named:[],hired:10},{unitIndex:2,named:[],hired:30}]});
     const writes=[];
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},settings:{
       get:(_module,key)=>key==="guidedGroupTransportation"?owned:undefined,
@@ -4181,11 +4182,14 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
       segments:[{id:"segment",roadId:"sea",from:"start",to:"end",via:[]},{id:"onward",roadId:"land",from:"end",to:"final",via:[]}],
       checkpoints:[{id:"dock",name:"Dock",nodeId:"start",roadId:"sea"},
         {id:"port",name:"Port",nodeId:"end",roadId:"sea"}]};
-    const token={id:"party",actor:{id:"group1",type:"group",system:{members:[
+    const token={id:"party",x:-50,y:-50,width:1,height:1,moves:0,
+      canUserModify:()=>true,move:async()=>{throw Error("Unexpected native movement");},actor:{id:"group1",type:"group",system:{members:[
       {actor:{id:"pc",name:"Traveler",type:"character"}},
       {actor:{id:"ship",name:"Warship",type:"vehicle"}}]}}};
-    const scene={id:"sea-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined};
-    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token});
+    const scene={id:"sea-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined,canUserModify:()=>true};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      canvasProvider:()=>({ready:true,scene}),journeyJournalStore:{save:async()=>{throw Error("Unexpected Journal write");}}});
+    nav.routeRevision=1;nav.syncPartyDeparture=()=>false;
     nav.scene=scene;nav.sourceMode="party";nav.render=async()=>{};
     nav.result={status:"ok",start:from,end,distance:65,cost:65,
       legs:[{kind:"road",roadId:"sea",segmentId:"segment",points:[from,to],distance:60,cost:60},
@@ -4203,10 +4207,18 @@ test("owned checkpoint unit selection is a scoped draft with selected capacity, 
     assert.equal(leg.serviceQuote.units,1);
     assert.equal(leg.ownedDraft.units[0].unitIndex,1);
     assert.equal(leg.ownedDraft.units[0].staffedCrew,10);
+    assert.equal(leg.ownedDraft.crewWagesCp,4000);
+    assert.equal(leg.serviceQuote.crewWagesCp,4000);
+    await assert.rejects(()=>nav.startGuidedTravel(),/staffing approval workflow/);
     assert.equal(leg.ownedDraft.belowMinimum,true);
     assert.equal(leg.ownedDraft.belowMinimumAcknowledged,undefined);
     assert.equal(leg.ownedApproval,undefined);
     await assert.rejects(()=>nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:3}]),/unit/i);
+    await nav.setCheckpointOperatedUnits([]);
+    assert.ok(nav.transportationTransitionPlan().legs[0].errors.some(e=>/unit/i.test(e)));
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:2}]);
+    token.actor.system.members.pop();
+    assert.ok(nav.transportationTransitionPlan().legs[0].errors.length,"a vanished fleet cannot authorize travel");
     globalThis.game.user.isGM=false;
     await assert.rejects(()=>nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:2}]),/GM/i);
     assert.deepEqual(writes,[]);
