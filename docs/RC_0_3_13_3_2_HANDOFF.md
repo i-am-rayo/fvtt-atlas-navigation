@@ -202,3 +202,16 @@ Foundry Setup reported successful installation from the branch manifest and disp
 Created and viewed a fresh disposable **Sandbox (Copy)** (`WvKvocIkxgiWHOsh`) without activating it for players. The earlier scene copies, held runs, and Journals were preserved. The copied party token was at native **X 3470, Y 2264** on Surface, and Atlas offered Walking for the route to Port Barthos from that position. The **Caelthor Harbor–Port Barthos** Water road was present. Browser control stalled while trying to obtain a verified native water-route start position for this copy.
 
 **Not run:** fresh overnight Warship departure, Leg 1 grouping and single fare, Port Barthos onward origin and Leg 2, finished totals, separate reload and non-GM permissions. No fresh Journey was approved in this pass.
+
+#### Disposable Warship departure precheck — 2026-11-27 (JST)
+
+Viewed the existing **Sandbox (Copy)** (`WvKvocIkxgiWHOsh`) without activating it for players. In Foundry Placeables → The Party → Token configuration, the approved disposable token was at native **X 3470, Y 2264**, **Surface**.
+
+| Check | Result | Observed |
+| --- | --- | --- |
+| Water departure to Port Barthos | Blocked at precheck | Atlas showed **Party departure point → Port Barthos**, **59.30 mi**, **15h 14m** moving at party pace. Walking was selected. Riding Horse and Warhorse were listed with insufficient seat counts for the current roster. Warship was absent. |
+| Dirwest via Port Barthos | Blocked at precheck | Selecting **Dirwest** showed **Dirwest** as the next stop and final destination, **22.02 mi** at party pace, and land methods only. No Port Barthos checkpoint or Warship leg was offered from these coordinates. |
+| Journal grouping, fare once, onward origin, Leg 2 and finished totals | Not run | Stopped before departure per the Warship eligibility check. Earlier held runs and Journals were preserved. |
+| Separate reload and non-GM permissions | Not run | No separately authorized fixture or authenticated non-GM session was used in this pass. |
+
+B4 and the earlier daily-hours Journal agreement pass remain recorded above.
