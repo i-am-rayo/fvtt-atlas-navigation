@@ -194,3 +194,11 @@ After CI is green, install the updated branch build once in the authorized test 
 **Blocked before installation.** [Stabilization checks for `953357e`](https://github.com/i-am-rayo/fvtt-atlas-navigation/actions/runs/45650636174) failed. The branch advanced to [`a70b012`](https://github.com/i-am-rayo/fvtt-atlas-navigation/commit/a70b0129a90164a4cd562adc76b17321d4d00be3) with a fare-deduplication correction. GitHub did not return a workflow run or commit status for that revision when checked. The handoff requires green CI before installing the candidate.
 
 **Not run:** fresh overnight Warship Journey, grouping the continuation under Leg 1 and showing its approved fare once, Port Barthos onward origin and Leg 2, finished Journal reconciliation, separate reload, and non-GM permissions. No candidate installation or Foundry changes were made in this retest attempt.
+
+#### Live continuation fixture setup — 2026-11-27 (JST)
+
+Foundry Setup reported successful installation from the branch manifest and displayed Atlas `0.3.13-rc.3.2` on Foundry 14 Build 370. The branch at installation was `ac725365824f2ab612eb753026cee164af544a62` with [passing CI](https://github.com/i-am-rayo/fvtt-atlas-navigation/actions/runs/45656156551). The manifest archive follows the branch; the installed archive SHA was not independently exposed by Foundry.
+
+Created and viewed a fresh disposable **Sandbox (Copy)** (`WvKvocIkxgiWHOsh`) without activating it for players. The earlier scene copies, held runs, and Journals were preserved. The copied party token was at native **X 3470, Y 2264** on Surface, and Atlas offered Walking for the route to Port Barthos from that position. The **Caelthor Harbor–Port Barthos** Water road was present. Browser control stalled while trying to obtain a verified native water-route start position for this copy.
+
+**Not run:** fresh overnight Warship departure, Leg 1 grouping and single fare, Port Barthos onward origin and Leg 2, finished totals, separate reload and non-GM permissions. No fresh Journey was approved in this pass.
